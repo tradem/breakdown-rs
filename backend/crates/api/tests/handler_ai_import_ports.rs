@@ -3732,6 +3732,11 @@ async fn get_ai_import_job_serves_the_persisted_cost_snapshot() {
         }),
         energy_cost: None,
         image_cost: None,
+        // No Decision Model ran for this job (issue #768), so no decision
+        // component — and a snapshot recorded before `total` existed reports
+        // no total rather than a guessed one.
+        decision: None,
+        total: breakdown_core::ai::CostTotal::default(),
     });
     let job_id = job.id;
     ports.ai_import_queue.seed(job).await;

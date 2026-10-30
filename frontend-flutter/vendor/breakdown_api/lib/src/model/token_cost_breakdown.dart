@@ -10,7 +10,7 @@ import 'package:built_value/serializer.dart';
 
 part 'token_cost_breakdown.g.dart';
 
-/// Token-based cost of one import, in nano-units. Rates are the snapshot rates active at completion time.
+/// Token-based cost of the **extraction** component of one import, in nano-units. Rates are the snapshot rates active at completion time.  Since issue #768 the counts are extraction-only: Decision-Model calls are accumulated into their own [`DecisionCostBreakdown`] and priced with the Decision Model's rate card, never folded in here.
 ///
 /// Properties:
 /// * [cachedInputRateNanoPerMillion] - Snapshot cache-hit rate; `None` when the catalog had none (cached tokens are then billed at the plain input rate).

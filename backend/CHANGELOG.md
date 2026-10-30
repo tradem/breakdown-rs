@@ -26,6 +26,59 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Decision-Model token and energy usage is priced with the Decision Model's
+  own rate card instead of the extraction model's (issue #768; `core 0.51.0 →
+  0.52.0`, `infra 0.60.0 → 0.61.0`, `api 0.50.0 → 0.51.0`).** The script
+  worker accumulated every LLM call of a job — the extraction chunks **and**
+  the Decision-Model scoring/Pass-2 continuity calls — into one
+  `LlmCallUsage`, and the completion snapshot priced that total with the
+  extraction `(provider, model)` row. Because the Decision Model is explicitly
+  allowed to be a different provider/model than the extraction model (split
+  billing, #722/#723), those tokens were billed at the wrong rate card, and
+  the per-import cost card — sold as an exact, immutable snapshot (#675) —
+  froze the wrong figure forever. The token *total* was right; the currency
+  figure was not, and nothing on the job could split it after the fact.
+
+  - **Two accumulators.** `decision_scoring`/`outfit_continuity` keep their
+    signature — the worker decides which accumulator a call feeds. The job's
+    `tokens_in`/`tokens_out`/`cached_tokens_in`/`energy_millijoules` now
+    describe the **extraction** component only.
+  - **`CostBreakdown.decision: Option<DecisionCostBreakdown>`** (additive,
+    JSONB — no migration): the Decision Model's `provider`/`model`, the usage
+    it actually consumed, its own snapshot `currency`/`price_as_of`/
+    `pricing_source` and its own
+    `input_rate_nano_per_million`/`output_rate_nano_per_million`/
+    `cached_input_rate_nano_per_million`/`energy_rate_nano_per_kwh`, plus the
+    priced `token_cost_nano`/`energy_cost_nano`. The Decision Model's energy is
+    capped by **its own** token cost, which is exactly why the two components
+    must not share an accumulator.
+  - **`CostBreakdown.total: CostTotal`** (`status` = `known` | `incomplete` |
+    `mixed_currency` | `unknown`, plus `currency`/`total_nano`) is the figure
+    the user pays, and it is only ever a number when it is honest: a recorded
+    component without a pricing row makes it `incomplete` (`total_nano` null,
+    the priced parts still visible) and two rate cards in different currencies
+    make it `mixed_currency` (design D2 forbids conversion). The
+    `serde(default)` value is `unknown`, so a pre-#768 snapshot never claims a
+    total it cannot carry.
+  - **Honest unknown, per component.** A missing pricing row degrades only the
+    component it belongs to — `status = unknown` with the usage kept, never
+    `0`, never the extraction rate — while the extraction component and the
+    snapshot's own `CostStatus` are untouched.
+  - **No duplicated identity:** `Telemetry`/`JobTelemetrySummary` are *not*
+    extended with a second `decision_provider`/`decision_model` pair — #767
+    already exposes exactly that on `AiImportJob.decision_telemetry`.
+  - **Tests:** two-rate-card case (extraction ≠ decision provider *and*
+    rates, asserting the extraction component holds only extraction usage and
+    that the decision figure is 3 218 nano rather than the 11 000 an
+    extraction-rate substitution would produce), missing-decision-pricing,
+    mixed-currency, decision-only, element-wise-saturating usage split, the
+    worker-level split through the production `ScriptImportWorker`, and the
+    additive wire contract on the SSE terminal frame. `backend/openapi.yaml`
+    and `vendor/breakdown_api/` are regenerated (additive only; the cost-card
+    rendering is #761).
+
 ### Added
 
 - **The Decision Model scoring outcome is recorded on the job, and the two

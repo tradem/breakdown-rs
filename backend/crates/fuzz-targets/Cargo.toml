@@ -20,7 +20,7 @@ workspace = true
 cargo-fuzz = true
 
 [dependencies]
-breakdown_core = { path = "../core", version = "0.51.0" }
+breakdown_core = { path = "../core", version = "0.52.0" }
 libfuzzer-sys = "0.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

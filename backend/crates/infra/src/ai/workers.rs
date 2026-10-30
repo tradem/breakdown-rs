@@ -503,7 +503,12 @@ where
 
         let mut context = ScriptContext::default();
         // Issue #675: real token/energy usage accumulated across all chunks.
-        let mut total_usage = LlmCallUsage::default();
+        // Issue #768: this accumulator is the **extraction** component only —
+        // the Decision-Model calls (chunk scoring + Pass-2 continuity) feed
+        // `decision_usage` below, so each component is priced with the rate card
+        // of the model that actually consumed it.
+        let mut extraction_usage = LlmCallUsage::default();
+        let mut decision_usage = LlmCallUsage::default();
         // Globally unique scene counter across all chunks — the tail of
         // `stable_draft_ref`, which needs a stable identity per preview row
         // that survives the model's own (hallucinated) `draft_ref`.
@@ -584,8 +589,8 @@ where
                     scenes_extracted = scenes_extracted
                         .saturating_add(u32::try_from(chunk_model_rows).unwrap_or(u32::MAX));
                     // Issue #675: accumulate real token/energy usage across
-                    // every chunk of the job.
-                    total_usage.accumulate(call_usage);
+                    // every chunk of the job (extraction component, #768).
+                    extraction_usage.accumulate(call_usage);
                     if context.title.is_none() {
                         context.title = partial.title;
                     }
@@ -758,7 +763,10 @@ where
                             &sanitized_flags[chunk_first_scene..],
                             &dropped_costumes[chunk_first_scene..],
                             &ambiguities,
-                            &mut total_usage,
+                            // The Decision Model's own accumulator (#768): these
+                            // tokens are billed at ITS rate card, never the
+                            // extraction model's.
+                            &mut decision_usage,
                         )
                         .await;
                         // Rows whose own scoring request failed (issue #767):
@@ -843,7 +851,9 @@ where
                 super::outfit_continuity::run_outfit_continuity_pass(
                     decision,
                     &mut context,
-                    &mut total_usage,
+                    // Pass 2 is a Decision-Model pass too (#768): its calls
+                    // belong to the decision component.
+                    &mut decision_usage,
                     || super::heartbeat::claim_lost(heartbeat.as_ref()),
                 )
                 .await
@@ -931,10 +941,14 @@ where
                     // field is a compile error, not a surviving mutant
                     // (issue #307): real token/energy counts measured across
                     // all chunks (issue #675).
-                    tokens_in: total_usage.tokens_in,
-                    tokens_out: total_usage.tokens_out,
-                    cached_tokens_in: total_usage.cached_tokens_in,
-                    energy_millijoules: total_usage.energy_millijoules,
+                    // Extraction component only (issue #768): the
+                    // Decision-Model usage is recorded on the cost snapshot's
+                    // `decision` component and priced with the Decision Model's
+                    // own rate card, never folded in here.
+                    tokens_in: extraction_usage.tokens_in,
+                    tokens_out: extraction_usage.tokens_out,
+                    cached_tokens_in: extraction_usage.cached_tokens_in,
+                    energy_millijoules: extraction_usage.energy_millijoules,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     // Scene reconciliation counters (issue #758): what the
                     // document said, what the model produced, and how many rows
@@ -951,7 +965,10 @@ where
                             self.pricing.as_deref(),
                             self.provider,
                             &self.model,
-                            &total_usage,
+                            &extraction_usage,
+                            // Both components, each with its own rate card
+                            // (issue #768).
+                            decision_cost_input(self.decision.as_ref(), decision_usage),
                         )
                         .await,
                     ),
@@ -996,48 +1013,98 @@ where
     }
 }
 
-/// Compute the immutable per-import cost snapshot (issue #675, design D3/D4).
+/// The resolved Decision Model of a job plus the usage it actually consumed,
+/// as the cost snapshot needs it (issue #768).
 ///
-/// Looks `(provider, model)` up in the pricing read model and folds the
-/// accumulated usage into a `CostBreakdown`. Honest-degradation rule: a
-/// missing pricing row (e.g. Ollama, unpriced custom model) or an unwired /
-/// failing repository yields [`CostStatus::Unknown`] — never a fabricated
-/// zero price — while the raw token/energy telemetry is still recorded.
-async fn compute_cost_snapshot(
-    pricing: Option<&dyn AiModelPricingRepository>,
+/// `None` when the job ran no Decision-Model pass **or** the pass issued no
+/// billable call (a configured pass on a preview with nothing to score spends
+/// nothing). An absent component is not an unknown one: it means "this job has
+/// no decision cost".
+type DecisionUsage = (breakdown_core::ai::LlmProvider, String, LlmCallUsage);
+
+fn decision_cost_input(
+    decision: Option<&DecisionResolution>,
+    usage: LlmCallUsage,
+) -> Option<DecisionUsage> {
+    if usage == LlmCallUsage::default() {
+        return None;
+    }
+    let pass = decision.and_then(DecisionResolution::pass)?;
+    Some((pass.provider, pass.model.clone(), usage))
+}
+
+/// Look up one `(provider, model)` pricing row, degrading a read-model outage to
+/// "unpriced" instead of failing a succeeded import (issue #675). `None` also
+/// means "this component may not be priced", which the cost fold turns into an
+/// honest `unknown`/`incomplete` rather than a fabricated number.
+async fn find_pricing_row(
+    repo: Option<&dyn AiModelPricingRepository>,
     provider: breakdown_core::ai::LlmProvider,
     model: &str,
-    usage: &LlmCallUsage,
-) -> CostBreakdown {
-    let Some(repo) = pricing else {
-        tracing::debug!(
-            provider = provider.as_str(),
-            model,
-            "ai-extraction: pricing repository not wired; recording unknown cost"
-        );
-        return CostBreakdown::unknown();
-    };
+) -> Option<breakdown_core::ai::ModelPricing> {
+    let repo = repo?;
     match repo.find_for_model(provider, model).await {
-        Ok(Some(snapshot)) => breakdown_core::ai::cost::cost_breakdown(
-            usage.tokens_in,
-            usage.tokens_out,
-            usage.cached_tokens_in,
-            usage.energy_millijoules,
-            Some(&snapshot),
-        ),
-        Ok(None) => CostBreakdown::unknown(),
+        Ok(found) => found,
         Err(error) => {
-            // A pricing read-model outage must not fail a succeeded import:
-            // degrade to `unknown` and keep the honest telemetry.
             tracing::warn!(
                 provider = provider.as_str(),
                 model,
                 %error,
                 "ai-extraction: pricing lookup failed; recording unknown cost"
             );
-            CostBreakdown::unknown()
+            None
         }
     }
+}
+
+/// Compute the immutable per-import cost snapshot (issue #675, design D3/D4;
+/// per-component pricing since issue #768).
+///
+/// Prices the **extraction** usage with the extraction model's rate card and the
+/// **Decision-Model** usage with the Decision Model's own rate card — two
+/// separate lookups, because they are allowed to be different provider/model
+/// pairs (split billing, #722/#723). Honest-degradation rule, applied per
+/// component: a missing pricing row (e.g. Ollama, unpriced custom model) or an
+/// unwired / failing repository yields `unknown` for **that** component — never
+/// a fabricated zero price, never the other component's rate — while the raw
+/// token/energy telemetry is still recorded.
+async fn compute_cost_snapshot(
+    pricing: Option<&dyn AiModelPricingRepository>,
+    provider: breakdown_core::ai::LlmProvider,
+    model: &str,
+    extraction_usage: &LlmCallUsage,
+    decision: Option<DecisionUsage>,
+) -> CostBreakdown {
+    let decision_component = match decision {
+        Some((decision_provider, decision_model, usage)) => {
+            let row = find_pricing_row(pricing, decision_provider, &decision_model).await;
+            Some(breakdown_core::ai::cost::decision_cost_breakdown(
+                decision_provider,
+                &decision_model,
+                usage,
+                row.as_ref(),
+            ))
+        }
+        None => None,
+    };
+
+    let Some(row) = find_pricing_row(pricing, provider, model).await else {
+        tracing::debug!(
+            provider = provider.as_str(),
+            model,
+            "ai-extraction: extraction pricing unavailable; recording unknown extraction cost"
+        );
+        return breakdown_core::ai::cost::cost_breakdown_unpriced(decision_component);
+    };
+
+    breakdown_core::ai::cost::cost_breakdown(
+        extraction_usage.tokens_in,
+        extraction_usage.tokens_out,
+        extraction_usage.cached_tokens_in,
+        extraction_usage.energy_millijoules,
+        Some(&row),
+        decision_component,
+    )
 }
 
 /// The job was reclaimed by another worker while this one was still working.
@@ -1186,8 +1253,10 @@ where
         };
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         // Issue #675: usage of the single LLM call (zeros for the native CSV
-        // path, which never invokes an LLM).
-        let mut total_usage = LlmCallUsage::default();
+        // path, which never invokes an LLM). Extraction component only — the
+        // schedule scoring call feeds `decision_usage` (issue #768).
+        let mut extraction_usage = LlmCallUsage::default();
+        let mut decision_usage = LlmCallUsage::default();
         // Rows the schedule scoring request left unscored and whether that
         // request failed (issue #767); both stay empty on the native CSV path,
         // which never scores at all.
@@ -1217,7 +1286,7 @@ where
                 self.bounds.max_retries as usize,
             )
             .await?;
-            total_usage.accumulate(call_usage);
+            extraction_usage.accumulate(call_usage);
             parsed
         };
         // Best-effort Decision Model scoring pass for LLM-extracted
@@ -1231,7 +1300,8 @@ where
             let scoring = super::decision_scoring::score_schedule_rows(
                 decision,
                 &mut schedule.rows,
-                &mut total_usage,
+                // The decision component's own accumulator (#768).
+                &mut decision_usage,
             )
             .await;
             // A schedule scores in ONE request, so a failure marks every row
@@ -1271,10 +1341,14 @@ where
                     scenes_detected: 0,
                     scenes_extracted: 0,
                     scenes_synthesized: 0,
-                    tokens_in: total_usage.tokens_in,
-                    tokens_out: total_usage.tokens_out,
-                    cached_tokens_in: total_usage.cached_tokens_in,
-                    energy_millijoules: total_usage.energy_millijoules,
+                    // Extraction component only (issue #768): the
+                    // Decision-Model usage is recorded on the cost snapshot's
+                    // `decision` component and priced with the Decision Model's
+                    // own rate card, never folded in here.
+                    tokens_in: extraction_usage.tokens_in,
+                    tokens_out: extraction_usage.tokens_out,
+                    cached_tokens_in: extraction_usage.cached_tokens_in,
+                    energy_millijoules: extraction_usage.energy_millijoules,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     // Cost snapshot (issue #675): `not_applicable` for the
                     // native CSV path (no LLM), computed for the LLM path.
@@ -1285,7 +1359,8 @@ where
                             self.pricing.as_deref(),
                             self.provider,
                             &self.model,
-                            &total_usage,
+                            &extraction_usage,
+                            decision_cost_input(self.decision.as_ref(), decision_usage),
                         )
                         .await
                     }),
