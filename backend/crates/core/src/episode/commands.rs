@@ -45,3 +45,29 @@ impl kameo_es::CommandName for RenameEpisode {
         "RenameEpisode"
     }
 }
+
+/// Delete an episode (issue #770 — dev data reset).
+///
+/// This is the undo path for an AI script import: the reset tooling removes the
+/// aggregates an import created through **real domain commands** instead of
+/// truncating projections behind the event store's back (AGENTS.md §1).
+///
+/// There is deliberately **no HTTP route** and no port method for it (issue
+/// #770: a delete endpoint is a footgun); the `reset-dev-data` maintenance
+/// binary is the only dispatcher. It deletes children first — an episode delete
+/// does not cascade to its scenes, because a projection-side cascade would
+/// leave scene streams without a `SceneDeleted` event.
+///
+/// The ADR-036 `(project_id, number)` reservation claim is released by that
+/// dispatcher after a successful append, so a later re-import may reuse the
+/// number.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct DeleteEpisode {
+    pub id: Uuid,
+}
+
+impl kameo_es::CommandName for DeleteEpisode {
+    fn command_name() -> &'static str {
+        "DeleteEpisode"
+    }
+}

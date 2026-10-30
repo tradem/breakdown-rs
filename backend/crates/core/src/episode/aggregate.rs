@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, BlockId, EventMetadata, ProjectId};
 
-use super::commands::{CreateEpisode, RenameEpisode};
+use super::commands::{CreateEpisode, DeleteEpisode, RenameEpisode};
 use super::error::EpisodeError;
 use super::events::EpisodeEvent;
 
@@ -45,6 +45,12 @@ impl Entity for EpisodeAggregate {
 impl Apply for EpisodeAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            EpisodeEvent::EpisodeDeleted { version, .. } => {
+                self.version = version;
+            }
             EpisodeEvent::EpisodeCreated {
                 id,
                 block_id,
@@ -111,6 +117,28 @@ impl Command<RenameEpisode> for EpisodeAggregate {
             id: self.id,
             name: cmd.name,
             version: new_version,
+        }])
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a Episode. See
+// `DeleteEpisode` for why it has no HTTP route and no port method.
+impl Command<DeleteEpisode> for EpisodeAggregate {
+    type Error = EpisodeError;
+    fn handle(
+        &self,
+        cmd: DeleteEpisode,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.is_nil() {
+            return Err(EpisodeError::NotFound { id: cmd.id });
+        }
+        Ok(vec![EpisodeEvent::EpisodeDeleted {
+            id: self.id,
+            version: self.version.next(),
         }])
     }
 }

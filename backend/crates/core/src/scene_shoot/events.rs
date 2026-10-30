@@ -102,6 +102,12 @@ pub enum SceneShootEvent {
         photo_id: PhotoId,
         version: AggregateVersion,
     },
+    /// The SceneShoot was deleted (issue #770, dev data reset). The projector
+    /// removes the row; the stream keeps its history and the audit row.
+    SceneShootDeleted {
+        id: SceneShootId,
+        version: AggregateVersion,
+    },
 }
 
 impl kameo_es::EventType for SceneShootEvent {
@@ -118,6 +124,7 @@ impl kameo_es::EventType for SceneShootEvent {
             Self::ShootDayNoteRemoved { .. } => "ShootDayNoteRemoved",
             Self::ContinuityPhotoLinked { .. } => "ContinuityPhotoLinked",
             Self::ContinuityPhotoUnlinked { .. } => "ContinuityPhotoUnlinked",
+            Self::SceneShootDeleted { .. } => "SceneShootDeleted",
         }
     }
 }

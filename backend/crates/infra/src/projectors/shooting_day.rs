@@ -33,6 +33,26 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
         let updated_at = event.timestamp;
 
         match event.data {
+            // Issue #770 (dev data reset): the delete removes the projection
+            // row. Child tables hang off it with `ON DELETE CASCADE`, so a
+            // single statement cleans the aggregate's own read-model surface;
+            // no cross-aggregate cascade happens here on purpose (the reset
+            // tool deletes children first, so every removed row is backed by a
+            // real domain event).
+            ShootingDayEvent::ShootingDayDeleted { id, .. } => {
+                // `report_ops.report_job` references the day with
+                // ON DELETE RESTRICT: a report job for a deleted day can never
+                // render again, so it goes first. Without this the delete would
+                // be a permanent FK failure and dead-letter the projector (#37).
+                sqlx::query("DELETE FROM report_ops.report_job WHERE shooting_day_id = $1")
+                    .bind(id.0)
+                    .execute(&mut **ctx)
+                    .await?;
+                sqlx::query("DELETE FROM projection_shooting_day WHERE id = $1")
+                    .bind(id.0)
+                    .execute(&mut **ctx)
+                    .await?;
+            }
             ShootingDayEvent::ShootingDayCreated {
                 id,
                 episode_id,

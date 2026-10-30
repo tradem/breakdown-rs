@@ -314,9 +314,9 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
         event: Event<EpisodeEvent, EventMetadata>,
     ) -> Result<(), Self::Error> {
         let entity_id = match &event.data {
-            EpisodeEvent::EpisodeCreated { id, .. } | EpisodeEvent::EpisodeRenamed { id, .. } => {
-                id.to_string()
-            }
+            EpisodeEvent::EpisodeCreated { id, .. }
+            | EpisodeEvent::EpisodeRenamed { id, .. }
+            | EpisodeEvent::EpisodeDeleted { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
@@ -366,7 +366,8 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
             | SceneEvent::OutfitBeatAdded { id, .. }
             | SceneEvent::OutfitBeatUpdated { id, .. }
             | SceneEvent::OutfitBeatRemoved { id, .. }
-            | SceneEvent::OutfitBeatsCleared { id, .. } => id.to_string(),
+            | SceneEvent::OutfitBeatsCleared { id, .. }
+            | SceneEvent::SceneDeleted { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
@@ -419,7 +420,8 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
             | SceneShootEvent::ShootDayNoteUpdated { id, .. }
             | SceneShootEvent::ShootDayNoteRemoved { id, .. }
             | SceneShootEvent::ContinuityPhotoLinked { id, .. }
-            | SceneShootEvent::ContinuityPhotoUnlinked { id, .. } => id.0.to_string(),
+            | SceneShootEvent::ContinuityPhotoUnlinked { id, .. }
+            | SceneShootEvent::SceneShootDeleted { id, .. } => id.0.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
@@ -467,7 +469,8 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
             | ShootingDayEvent::ShootingDayRescheduled { id, .. }
             | ShootingDayEvent::ShootingDayReordered { id, .. }
             | ShootingDayEvent::ShootingDayArchived { id, .. }
-            | ShootingDayEvent::ShootingDayWrapped { id, .. } => id.0.to_string(),
+            | ShootingDayEvent::ShootingDayWrapped { id, .. }
+            | ShootingDayEvent::ShootingDayDeleted { id, .. } => id.0.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
@@ -513,7 +516,8 @@ impl<'a> EntityEventHandler<CharacterAggregate, Transaction<'a, Postgres>>
             CharacterEvent::CharacterCreated { id, .. }
             | CharacterEvent::MeasurementsUpdated { id, .. }
             | CharacterEvent::ContactInfoUpdated { id, .. }
-            | CharacterEvent::CategoryChanged { id, .. } => id.to_string(),
+            | CharacterEvent::CategoryChanged { id, .. }
+            | CharacterEvent::CharacterDeleted { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
@@ -565,7 +569,8 @@ impl<'a> EntityEventHandler<PieceAggregate, Transaction<'a, Postgres>> for Piece
             | PieceEvent::PieceDetailRemoved { id, .. }
             | PieceEvent::PiecePhotoLinked { id, .. }
             | PieceEvent::PiecePhotoUnlinked { id, .. }
-            | PieceEvent::PieceCategorySet { id, .. } => id.to_string(),
+            | PieceEvent::PieceCategorySet { id, .. }
+            | PieceEvent::PieceDeleted { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);
@@ -614,7 +619,8 @@ impl<'a> EntityEventHandler<OutfitAggregate, Transaction<'a, Postgres>> for Outf
             | OutfitEvent::OutfitPieceAdded { id, .. }
             | OutfitEvent::OutfitPieceRemoved { id, .. }
             | OutfitEvent::OutfitPhotoLinked { id, .. }
-            | OutfitEvent::OutfitPhotoUnlinked { id, .. } => id.to_string(),
+            | OutfitEvent::OutfitPhotoUnlinked { id, .. }
+            | OutfitEvent::OutfitDeleted { id, .. } => id.to_string(),
         };
         let event_type = event.data.event_type().to_string();
         let (actor, provenance, project_id) = extract_metadata(&event);

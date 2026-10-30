@@ -16,9 +16,9 @@ use crate::shared::{
 };
 
 use super::commands::{
-    AddSceneShootNote, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot, RemoveSceneShootNote,
-    ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot, UnlinkContinuityPhoto,
-    UpdateSceneShootNote,
+    AddSceneShootNote, DeleteSceneShoot, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot,
+    RemoveSceneShootNote, ReplanSceneShoot, SetActualOrder, SkipSceneShoot, StartSceneShoot,
+    UnlinkContinuityPhoto, UpdateSceneShootNote,
 };
 use super::error::SceneShootError;
 use super::events::{SceneShootEvent, SceneShootNote};
@@ -144,6 +144,12 @@ impl SceneShootAggregate {
 impl Apply for SceneShootAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            SceneShootEvent::SceneShootDeleted { version, .. } => {
+                self.version = version;
+            }
             SceneShootEvent::SceneShootPlanned {
                 id,
                 scene_id,
@@ -516,6 +522,28 @@ impl Command<UnlinkContinuityPhoto> for SceneShootAggregate {
             id: self.id,
             photo_id: cmd.photo_id,
             version: new_version,
+        }])
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a SceneShoot. See
+// `DeleteSceneShoot` for why it has no HTTP route and no port method.
+impl Command<DeleteSceneShoot> for SceneShootAggregate {
+    type Error = SceneShootError;
+    fn handle(
+        &self,
+        cmd: DeleteSceneShoot,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.0.is_nil() {
+            return Err(SceneShootError::NotFound { id: cmd.id });
+        }
+        Ok(vec![SceneShootEvent::SceneShootDeleted {
+            id: self.id,
+            version: self.version.next(),
         }])
     }
 }

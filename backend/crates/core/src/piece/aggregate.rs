@@ -63,6 +63,12 @@ impl Entity for PieceAggregate {
 impl Apply for PieceAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            PieceEvent::PieceDeleted { version, .. } => {
+                self.version = version;
+            }
             PieceEvent::PieceCreated {
                 id,
                 name,
@@ -422,6 +428,28 @@ impl Command<UnlinkPiecePhoto> for PieceAggregate {
         Ok(vec![PieceEvent::PiecePhotoUnlinked {
             id: self.id,
             photo_id: cmd.photo_id,
+            version: self.version.next(),
+        }])
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a Piece. See
+// `DeletePiece` for why it has no HTTP route and no port method.
+impl Command<DeletePiece> for PieceAggregate {
+    type Error = PieceError;
+    fn handle(
+        &self,
+        cmd: DeletePiece,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.is_nil() {
+            return Err(PieceError::NotFound { id: cmd.id });
+        }
+        Ok(vec![PieceEvent::PieceDeleted {
+            id: self.id,
             version: self.version.next(),
         }])
     }

@@ -130,6 +130,9 @@ pub enum SceneEvent {
         character_id: Uuid,
         version: AggregateVersion,
     },
+    /// The Scene was deleted (issue #770, dev data reset). The projector
+    /// removes the row; the stream keeps its history and the audit row.
+    SceneDeleted { id: Uuid, version: AggregateVersion },
 }
 
 impl kameo_es::EventType for SceneEvent {
@@ -145,6 +148,7 @@ impl kameo_es::EventType for SceneEvent {
             Self::OutfitBeatUpdated { .. } => "OutfitBeatUpdated",
             Self::OutfitBeatRemoved { .. } => "OutfitBeatRemoved",
             Self::OutfitBeatsCleared { .. } => "OutfitBeatsCleared",
+            Self::SceneDeleted { .. } => "SceneDeleted",
         }
     }
 }

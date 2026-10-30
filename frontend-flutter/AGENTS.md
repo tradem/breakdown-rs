@@ -437,6 +437,14 @@ CI runs:
   `pubspec.yaml` so `build_runner` succeeds. Revisit this override if the
   generator is ever upgraded past 7.25.0.
 
+- **After a backend data reset:** `backend/scripts/reset-dev-data.sh` (issue
+  #770) wipes the server-side business data — the ids the app persisted are gone
+  and every call answers `404`. Clear the client state as part of the reset: the
+  Drift database (projections cache + AI handoff store) via
+  `adb shell pm clear <applicationId>` or a reinstall, and secure storage
+  (remembered AI-config id, remembered provider credentials, persisted
+  season/block/episode scope). Procedure: `backend/docs/operations/runbooks.md`
+  → "13. Dev data reset (issue #770)".
 - **Flavors:** `dev` (localhost backend, optional Logto, dev-pinned CA set)
   and `prod` (deployed edge, Logto/Zitadel cloud, pinned prod CA,
   `REQUIRE_IN_TRANSIT_TLS`-grade posture). No other flavors without a

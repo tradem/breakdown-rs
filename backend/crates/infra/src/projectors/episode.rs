@@ -34,6 +34,18 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
         let updated_at = event.timestamp;
 
         match event.data {
+            // Issue #770 (dev data reset): the delete removes the projection
+            // row. Child tables hang off it with `ON DELETE CASCADE`, so a
+            // single statement cleans the aggregate's own read-model surface;
+            // no cross-aggregate cascade happens here on purpose (the reset
+            // tool deletes children first, so every removed row is backed by a
+            // real domain event).
+            EpisodeEvent::EpisodeDeleted { id, .. } => {
+                sqlx::query("DELETE FROM projection_episode WHERE id = $1")
+                    .bind(id)
+                    .execute(&mut **ctx)
+                    .await?;
+            }
             EpisodeEvent::EpisodeCreated {
                 id,
                 block_id,

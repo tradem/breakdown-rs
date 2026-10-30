@@ -74,6 +74,23 @@ projections in sync with the event store.
 
 The API serves OpenAPI/Swagger UI at `http://localhost:3000/swagger-ui`.
 
+### Replaying AI imports (dev data reset)
+
+Re-uploading an already imported script document is a no-op (the upload dedup
+keys on the document digest), so replaying imports needs a data reset that keeps
+the configuration. Use the dev-only reset tooling — never an HTTP route:
+
+```bash
+cd backend
+./scripts/reset-dev-data.sh plan --level imports   # dry run: keep/reset plan
+./scripts/reset-dev-data.sh imports                # undo the imports, keep the config
+./scripts/reset-dev-data.sh business               # full business reset incl. the event store
+```
+
+Procedure, phase table and post-conditions:
+[`backend/docs/operations/runbooks.md`](./backend/docs/operations/runbooks.md)
+→ "13. Dev data reset (issue #770)".
+
 ### Running integration tests locally
 
 The black-box integration tests spin up ephemeral containers per test. Tier 1–3

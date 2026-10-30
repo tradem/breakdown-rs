@@ -29,6 +29,8 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod ai;
+// Issue #770: dev-only data reset (maintenance binary, never an HTTP route).
+pub mod dev_reset;
 pub mod event_store;
 pub mod photo;
 pub mod projectors;

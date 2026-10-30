@@ -72,6 +72,12 @@ impl Entity for OutfitAggregate {
 impl Apply for OutfitAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            OutfitEvent::OutfitDeleted { version, .. } => {
+                self.version = version;
+            }
             OutfitEvent::OutfitCreated {
                 id,
                 character_id,
@@ -341,6 +347,28 @@ impl Command<UnlinkOutfitPhoto> for OutfitAggregate {
         Ok(vec![OutfitEvent::OutfitPhotoUnlinked {
             id: self.id,
             photo_id: cmd.photo_id,
+            version: self.version.next(),
+        }])
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a Outfit. See
+// `DeleteOutfit` for why it has no HTTP route and no port method.
+impl Command<DeleteOutfit> for OutfitAggregate {
+    type Error = OutfitError;
+    fn handle(
+        &self,
+        cmd: DeleteOutfit,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.is_nil() {
+            return Err(OutfitError::NotFound { id: cmd.id });
+        }
+        Ok(vec![OutfitEvent::OutfitDeleted {
+            id: self.id,
             version: self.version.next(),
         }])
     }

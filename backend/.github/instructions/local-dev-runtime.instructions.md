@@ -294,3 +294,34 @@ re-run the script.
 > CMD-SHELL healthcheck could never spawn (no shell in the image) — the
 > exec-form healthcheck fixes that too.
 
+
+### Data reset for AI-import replay (issue #770)
+
+Re-uploading an already imported document is a no-op (the upload dedup is unique
+on `(user_id, dedup_key)`), and the import target is the ambient
+`X-Active-Block` — a new season does not scope an import. To replay imports,
+reset the data set without losing the configuration:
+
+```bash
+./scripts/reset-dev-data.sh plan --level imports     # dry run: keep/reset plan
+./scripts/reset-dev-data.sh imports                  # dedup + payloads + imported
+                                                    # aggregates (API must run)
+./scripts/reset-dev-data.sh plan --level business     # full reset, configuration kept
+./scripts/reset-dev-data.sh business                 # export → volume drop → wipe → replay
+./scripts/reset-dev-data.sh verify                   # post-conditions + projector health
+```
+
+`scripts/reset-dev-data.sh` wraps the maintenance binary
+`cargo run -p api --bin reset-dev-data` (engine in `crates/infra/src/dev_reset/`,
+**no HTTP route**). It refuses non-loopback targets, non-development `APP_ENV`,
+`REQUIRE_IN_TRANSIT_TLS=true`, a remote docker context and a running API. Level
+`business` needs the SierraDB volume dropped because SierraDB 0.3.1 has no
+delete command at all; the keep-list (`ai_config`, `settings`, `membership`) is
+exported before the drop and replayed afterwards, and Vault is never touched.
+
+After a reset, also clear the client state (Drift DB + secure storage: config
+id, remembered credentials, persisted scope) — the old ids are gone and every
+call answers `404`.
+
+Full procedure, phase table and post-conditions:
+`docs/operations/runbooks.md` → "13. Dev data reset (issue #770)".

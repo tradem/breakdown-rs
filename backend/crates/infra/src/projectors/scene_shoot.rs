@@ -36,6 +36,18 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
         let updated_at = event.timestamp;
 
         match event.data {
+            // Issue #770 (dev data reset): the delete removes the projection
+            // row. Child tables hang off it with `ON DELETE CASCADE`, so a
+            // single statement cleans the aggregate's own read-model surface;
+            // no cross-aggregate cascade happens here on purpose (the reset
+            // tool deletes children first, so every removed row is backed by a
+            // real domain event).
+            SceneShootEvent::SceneShootDeleted { id, .. } => {
+                sqlx::query("DELETE FROM projection_scene_shoot WHERE id = $1")
+                    .bind(id.0)
+                    .execute(&mut **ctx)
+                    .await?;
+            }
             SceneShootEvent::SceneShootPlanned {
                 id,
                 scene_id,
