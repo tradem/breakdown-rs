@@ -3027,6 +3027,22 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String aiPreviewNamingProvider(Object provider) {
+    return 'Anbieter: $provider';
+  }
+
+  @override
+  String get aiPreviewDecisionModelWarningTitle =>
+      'Kein Entscheidungsmodell konfiguriert';
+
+  @override
+  String get aiPreviewDecisionModelWarningBody =>
+      'Kontinuitätsvorschläge für die Garderobe (Pass 2) sowie die Bewertungen von Szenen und Synopsis entfallen. Der Import läuft trotzdem.';
+
+  @override
+  String get aiPreviewDecisionModelWarningAction => 'Jetzt konfigurieren';
+
+  @override
   String get aiPreviewAiBanner => 'KI-extrahierter Inhalt – sorgfältig prüfen';
 
   @override

@@ -63,17 +63,30 @@ const devAuthConfig = AppConfig(
 );
 
 /// The configured naming fixture the naming line renders (issue #608).
-AiConfigView _namingConfig() => AiConfigView(
+///
+/// [decisionModel] defaults to a CONFIGURED Decision Model slot (issue #722) so
+/// the preview header's "no Decision Model configured" warning (issue #760)
+/// stays out of every test that is not about it; `decisionModel: null`
+/// exercises that warning.
+AiConfigView _namingConfig({
+  String model = 'assistant-model-1',
+  String? decisionModel = 'decision-model-1',
+  LlmProvider? decisionProvider = LlmProvider.openai,
+}) => AiConfigView(
   (b) => b
     ..id = 'config-1'
     ..userId = 'dev-user'
-    ..assistantModel = 'assistant-model-1'
+    ..assistantModel = model
     ..provider = LlmProvider.openai
     ..vaultKeyId = 'vk-1'
     ..prompts.replace(BuiltMap<String, String>())
     ..promptKinds.replace(BuiltList<DocumentKind>())
     ..revoked = false
-    ..version = 1,
+    ..version = 1
+    // The optional Decision Model slot (issue #722, additive): both fields
+    // null = no Decision Model configured.
+    ..decisionModel = decisionModel
+    ..decisionProvider = decisionProvider,
 );
 
 DraftScene _draft(
@@ -920,6 +933,15 @@ void main() {
       /// The configured-naming fixture the naming line renders (issue
       /// #608); `false` exercises the honest unconfigured degradation.
       bool naming = true,
+
+      /// `false` keeps a configured account but leaves the Decision Model slot
+      /// empty (issue #760): the preview header must then warn about the
+      /// skipped Pass-2 continuity suggestions and ratings.
+      bool decisionModel = true,
+
+      /// `true` makes the configuration DISCOVERY fail (a failed read, which is
+      /// not the same fact as "nothing configured", issue #760).
+      bool namingDiscoveryFails = false,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -955,9 +977,24 @@ void main() {
           // The preview + apply screens render the configured naming line
           // (issue #608) — a deterministic override keeps the tests off
           // the real discovery path and the goldens stable.
-          configuredAiNamingProvider.overrideWith(
-            (ref) => Future.value(naming ? _namingConfig() : null),
-          ),
+          configuredAiNamingProvider.overrideWith((ref) {
+            if (namingDiscoveryFails) {
+              final Future<AiConfigView?> failed = Future.error(
+                StateError('discovery down'),
+              );
+              return failed;
+            }
+            return Future.value(
+              naming
+                  ? _namingConfig(
+                      decisionModel: decisionModel ? 'decision-model-1' : null,
+                      decisionProvider: decisionModel
+                          ? LlmProvider.openai
+                          : null,
+                    )
+                  : null,
+            );
+          }),
         ],
       );
       addTearDown(container.dispose);
@@ -1241,14 +1278,22 @@ void main() {
       await setupContainer();
       await pumpPreview(tester);
 
-      // The preview's labelling line: configured wire naming.
+      // The preview's header card: configured wire naming (issue #760
+      // promoted it from a `bodySmall` line to a header card).
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-model')))
+            .data,
+        'assistant-model-1',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-provider')))
+            .data,
+        contains('openai'),
+      );
       final previewNaming = tester
-          .widget<Text>(
-            find.descendant(
-              of: find.byKey(const Key('ai-preview-naming')),
-              matching: find.byType(Text),
-            ),
-          )
+          .widget<Text>(find.byKey(const Key('ai-preview-naming-disclosure')))
           .data;
       expect(previewNaming, contains('openai'));
       expect(previewNaming, contains('assistant-model-1'));
@@ -1285,15 +1330,14 @@ void main() {
       const degraded = 'No AI configuration is set up for this account.';
       expect(
         tester
-            .widget<Text>(
-              find.descendant(
-                of: find.byKey(const Key('ai-preview-naming')),
-                matching: find.byType(Text),
-              ),
-            )
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-disclosure')))
             .data,
         degraded,
       );
+      // No invented name in the promoted header either (issue #760): the
+      // model/provider lines only exist for a RESOLVED configuration.
+      expect(find.byKey(const Key('ai-preview-naming-model')), findsNothing);
+      expect(find.byKey(const Key('ai-preview-naming-provider')), findsNothing);
       expect(
         tester
             .widget<Text>(
@@ -1305,6 +1349,115 @@ void main() {
             .data,
         degraded,
       );
+    });
+
+    testWidgets('the preview header promotes provider/model to a header card '
+        'and stays silent about the Decision Model when one is configured '
+        '(issue #760)', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+
+      // The header is a CARD above the payload, not a `bodySmall` line.
+      expect(find.byKey(const Key('ai-preview-naming')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-preview-naming')),
+          matching: find.byType(Card),
+        ),
+        findsOneWidget,
+      );
+      // Model primary, provider secondary — both readable at a glance.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-model')))
+            .data,
+        'assistant-model-1',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-provider')))
+            .data,
+        'Provider: openai',
+      );
+      // The EU AI Act statement survives the promotion.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-disclosure')))
+            .data,
+        'Currently configured: provider openai, model assistant-model-1.',
+      );
+      // A configured Decision Model means NO warning.
+      expect(
+        find.byKey(const Key('ai-preview-decision-model-warning-title')),
+        findsNothing,
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a configuration without a Decision Model warns '
+        'non-blockingly and the apply stays enabled (issue #760)', (
+      tester,
+    ) async {
+      await setupContainer(
+        decisionModel: false,
+        applyQueue: [Right(_outcome())],
+      );
+      await pumpPreview(tester);
+
+      // The two factual consequences, and ONLY those.
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-preview-decision-model-warning-title')),
+            )
+            .data,
+        'No Decision Model configured',
+      );
+      final body = tester
+          .widget<Text>(
+            find.byKey(const Key('ai-preview-decision-model-warning-body')),
+          )
+          .data;
+      expect(body, contains('Pass 2'));
+      expect(body, contains('skipped'));
+      // The affordance into the AI configuration.
+      expect(
+        find.byKey(const Key('ai-preview-decision-model-warning-action')),
+        findsOneWidget,
+      );
+
+      // NOT blocking: the dispatch is reachable as soon as the review is
+      // acknowledged (the warning adds no gate).
+      FilledButton submit() =>
+          tester.widget<FilledButton>(find.byKey(const Key('ai-apply-submit')));
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(
+        submit().onPressed,
+        isNotNull,
+        reason: 'the Decision Model warning never blocks the apply',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a FAILED configuration discovery degrades to the '
+        'unconfigured copy and never claims a missing Decision Model '
+        '(issue #760)', (tester) async {
+      await setupContainer(namingDiscoveryFails: true);
+      await pumpPreview(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-disclosure')))
+            .data,
+        'No AI configuration is set up for this account.',
+      );
+      // A failed READ is not the fact "no Decision Model is set".
+      expect(
+        find.byKey(const Key('ai-preview-decision-model-warning-title')),
+        findsNothing,
+      );
+      await tester.pump();
     });
 
     testWidgets('merged preview: matched rows actionable; unmatched rows '

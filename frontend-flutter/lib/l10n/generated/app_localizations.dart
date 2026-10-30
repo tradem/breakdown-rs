@@ -4970,6 +4970,30 @@ abstract class AppLocalizations {
   /// **'Derzeit konfiguriert: Anbieter {provider}, Modell {model}.'**
   String aiNamingLine(Object model, Object provider);
 
+  /// No description provided for @aiPreviewNamingProvider.
+  ///
+  /// In de, this message translates to:
+  /// **'Anbieter: {provider}'**
+  String aiPreviewNamingProvider(Object provider);
+
+  /// No description provided for @aiPreviewDecisionModelWarningTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein Entscheidungsmodell konfiguriert'**
+  String get aiPreviewDecisionModelWarningTitle;
+
+  /// No description provided for @aiPreviewDecisionModelWarningBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Kontinuitätsvorschläge für die Garderobe (Pass 2) sowie die Bewertungen von Szenen und Synopsis entfallen. Der Import läuft trotzdem.'**
+  String get aiPreviewDecisionModelWarningBody;
+
+  /// No description provided for @aiPreviewDecisionModelWarningAction.
+  ///
+  /// In de, this message translates to:
+  /// **'Jetzt konfigurieren'**
+  String get aiPreviewDecisionModelWarningAction;
+
   /// No description provided for @aiPreviewAiBanner.
   ///
   /// In de, this message translates to:
