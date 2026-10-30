@@ -41,6 +41,10 @@ pub struct SceneShootAggregate {
     pub end_dt: Option<DateTime<Utc>>,
     pub notes: Vec<SceneShootNote>,
     pub continuity_photos: Vec<PhotoId>,
+    /// Set by the terminal `SceneShootDeleted` event: a deleted
+    /// aggregate rejects every further command (issue #770 — a delete
+    /// must not leave a stream that still accepts mutations).
+    pub deleted: bool,
     pub version: AggregateVersion,
 }
 
@@ -57,6 +61,7 @@ impl Default for SceneShootAggregate {
             end_dt: None,
             notes: Vec::new(),
             continuity_photos: Vec::new(),
+            deleted: false,
             version: AggregateVersion::default(),
         }
     }
@@ -148,6 +153,7 @@ impl Apply for SceneShootAggregate {
             // change — the projector removes the projection row and the stream
             // keeps its history for the audit trail.
             SceneShootEvent::SceneShootDeleted { version, .. } => {
+                self.deleted = true;
                 self.version = version;
             }
             SceneShootEvent::SceneShootPlanned {
@@ -260,6 +266,9 @@ impl Command<PlanSceneShoot> for SceneShootAggregate {
         cmd: PlanSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         // Pair-uniqueness: on a fresh (never-before-seen) stream the aggregate will be
         // in its `Default` state with `scene_id = Uuid::nil()`. After replaying a
         // `SceneShootPlanned` event, `scene_id` will be set to a non-nil value.
@@ -286,6 +295,9 @@ impl Command<ReplanSceneShoot> for SceneShootAggregate {
         cmd: ReplanSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -311,6 +323,9 @@ impl Command<StartSceneShoot> for SceneShootAggregate {
         cmd: StartSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
@@ -342,6 +357,9 @@ impl Command<SetActualOrder> for SceneShootAggregate {
         cmd: SetActualOrder,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
@@ -363,6 +381,9 @@ impl Command<FinishSceneShoot> for SceneShootAggregate {
         cmd: FinishSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
@@ -391,6 +412,9 @@ impl Command<SkipSceneShoot> for SceneShootAggregate {
         cmd: SkipSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
@@ -411,6 +435,9 @@ impl Command<AddSceneShootNote> for SceneShootAggregate {
         cmd: AddSceneShootNote,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
 
@@ -433,6 +460,9 @@ impl Command<UpdateSceneShootNote> for SceneShootAggregate {
         cmd: UpdateSceneShootNote,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
@@ -461,6 +491,9 @@ impl Command<RemoveSceneShootNote> for SceneShootAggregate {
         cmd: RemoveSceneShootNote,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_day_association(cmd.shooting_day_id)?;
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
@@ -488,6 +521,9 @@ impl Command<LinkContinuityPhoto> for SceneShootAggregate {
         cmd: LinkContinuityPhoto,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -514,6 +550,9 @@ impl Command<UnlinkContinuityPhoto> for SceneShootAggregate {
         cmd: UnlinkContinuityPhoto,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneShootError::Deleted { id: self.id });
+        }
         self.check_not_terminal()?;
         self.check_version(cmd.version)?;
 
@@ -535,6 +574,10 @@ impl Command<DeleteSceneShoot> for SceneShootAggregate {
         cmd: DeleteSceneShoot,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: deleting an already-deleted aggregate is a no-op.
+        if self.deleted {
+            return Ok(vec![]);
+        }
         // An absent aggregate replays to a default state; deleting it must not
         // fabricate a stream. A repeat delete on an existing aggregate is
         // idempotent at the projection (the DELETE matches nothing twice).
@@ -567,6 +610,7 @@ mod tests {
             end_dt: None,
             notes: Vec::new(),
             continuity_photos: Vec::new(),
+            deleted: false,
             version,
         }
     }

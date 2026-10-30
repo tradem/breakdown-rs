@@ -298,6 +298,33 @@ mod tests {
         assert_eq!(keep, vec!["ai_config", "settings", "membership"]);
     }
 
+    /// A quoted word in a doc comment before the literal must not be mistaken
+    /// for the category (issue #770 review).
+    #[test]
+    fn category_extraction_skips_comments_and_blank_lines() {
+        let text = r#"
+impl Entity for Foo {
+    fn category() -> &'static str {
+        // the "documented" name is "not_the_category"
+        "foo"
+    }
+}
+"#;
+        assert_eq!(declared_categories(text), vec!["foo"]);
+    }
+
+    /// A signature without a plain literal yields nothing, so the caller's
+    /// assertion fails instead of silently accepting a bogus value.
+    #[test]
+    fn category_extraction_rejects_non_literal_bodies() {
+        let text = r#"
+    fn category() -> &'static str {
+        category_name()
+    }
+"#;
+        assert!(declared_categories(text).is_empty());
+    }
+
     /// Layer 2 of the enforcement: a **new aggregate** anywhere in the
     /// workspace fails this test until its category is registered above.
     #[test]
@@ -319,6 +346,17 @@ mod tests {
 
         let mut declared = Vec::new();
         for path in sources {
+            // Skip this file: it carries `fn category()` signatures inside the
+            // scanner's own test fixtures.
+            if path.file_name().and_then(|name| name.to_str()) == Some("classification.rs")
+                && path
+                    .parent()
+                    .and_then(|parent| parent.file_name())
+                    .and_then(|name| name.to_str())
+                    == Some("dev_reset")
+            {
+                continue;
+            }
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
@@ -342,20 +380,38 @@ mod tests {
     }
 
     /// Extracts the string literal returned by every `fn category()` impl.
+    ///
+    /// Syntax-aware on purpose (issue #770 review): the literal is the first
+    /// **code** line after the signature — blank lines and `//` comments are
+    /// skipped, so a quoted word inside a doc comment can never be mistaken for
+    /// the category. A signature whose next code line is not a plain string
+    /// literal yields nothing and fails the assertion in the caller.
     fn declared_categories(text: &str) -> Vec<&str> {
         const ANCHOR: &str = "fn category() -> &'static str {";
         let mut found = Vec::new();
         let mut rest = text;
         while let Some(index) = rest.find(ANCHOR) {
             rest = &rest[index + ANCHOR.len()..];
-            let window = &rest[..rest.len().min(200)];
-            if let Some(start) = window.find('"')
-                && let Some(end) = window[start + 1..].find('"')
-            {
-                found.push(&window[start + 1..start + 1 + end]);
-            }
+            let Some(literal) = first_code_literal(rest) else {
+                continue;
+            };
+            found.push(literal);
         }
         found
+    }
+
+    /// The first code line's string literal, skipping blank lines and comments.
+    fn first_code_literal(after_signature: &str) -> Option<&str> {
+        for line in after_signature.lines().take(12) {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("//") {
+                continue;
+            }
+            let value = trimmed.strip_prefix('"')?;
+            let end = value.find('"')?;
+            return Some(&value[..end]);
+        }
+        None
     }
 
     fn collect_rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {

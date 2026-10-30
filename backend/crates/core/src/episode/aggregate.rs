@@ -27,6 +27,10 @@ pub struct EpisodeAggregate {
     pub project_id: ProjectId,
     pub number: i32,
     pub name: Option<String>,
+    /// Set by the terminal `EpisodeDeleted` event: a deleted
+    /// aggregate rejects every further command (issue #770 — a delete
+    /// must not leave a stream that still accepts mutations).
+    pub deleted: bool,
     pub version: AggregateVersion,
 }
 
@@ -49,6 +53,7 @@ impl Apply for EpisodeAggregate {
             // change — the projector removes the projection row and the stream
             // keeps its history for the audit trail.
             EpisodeEvent::EpisodeDeleted { version, .. } => {
+                self.deleted = true;
                 self.version = version;
             }
             EpisodeEvent::EpisodeCreated {
@@ -83,6 +88,9 @@ impl Command<CreateEpisode> for EpisodeAggregate {
         cmd: CreateEpisode,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(EpisodeError::Deleted { id: self.id });
+        }
         Ok(vec![EpisodeEvent::EpisodeCreated {
             id: cmd.id,
             block_id: cmd.block_id,
@@ -101,6 +109,9 @@ impl Command<RenameEpisode> for EpisodeAggregate {
         cmd: RenameEpisode,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(EpisodeError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(EpisodeError::VersionMismatch {
                 expected: cmd.version,
@@ -130,6 +141,10 @@ impl Command<DeleteEpisode> for EpisodeAggregate {
         cmd: DeleteEpisode,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: deleting an already-deleted aggregate is a no-op.
+        if self.deleted {
+            return Ok(vec![]);
+        }
         // An absent aggregate replays to a default state; deleting it must not
         // fabricate a stream. A repeat delete on an existing aggregate is
         // idempotent at the projection (the DELETE matches nothing twice).

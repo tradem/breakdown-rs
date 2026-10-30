@@ -75,6 +75,10 @@ pub struct ResetOptions {
     pub dev_ack: bool,
     /// Backups are taken unless `--no-backup` was typed.
     pub backup: bool,
+    /// `--skip-payload-purge`: continue when the AI payload objects cannot be
+    /// purged. Without it a failed purge aborts the run **before** the job rows
+    /// (whose handles are the only way to find the objects) are deleted.
+    pub skip_payload_purge: bool,
     pub backup_dir: PathBuf,
     /// What the operator typed at the confirmation prompt.
     pub confirmation: Option<String>,
@@ -96,6 +100,10 @@ pub struct ResetReport {
     pub lines: Vec<String>,
     /// Non-fatal problems: a partial reset must be visible, not swallowed.
     pub failures: Vec<String>,
+    /// Aggregates whose delete command succeeded. The import provenance of the
+    /// others is deliberately **kept** so a re-run can still find them
+    /// (issue #770 review).
+    pub deleted_aggregates: Vec<uuid::Uuid>,
     pub backup_path: Option<PathBuf>,
     pub dry_run: bool,
 }
@@ -155,14 +163,9 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
         .connect(&environment.database_url)
         .await
         .with_context(|| format!("connect PostgreSQL at {database_target}"))?;
-    let client = redis::Client::open(environment.sierradb_url.clone())
-        .with_context(|| format!("open SierraDB client at {event_store_target}"))?;
-    let connection = client
-        .get_multiplexed_async_connection()
-        .await
-        .with_context(|| format!("connect SierraDB at {event_store_target}"))?;
-    let command_service = CommandService::new(connection.clone());
-
+    // The plan is PostgreSQL-only on purpose: `--dry-run` must work with
+    // SierraDB stopped (issue #770 review), so the event store is connected
+    // only after the dry-run return.
     let plan = ResetPlan::build(
         &pool,
         options.level,
@@ -184,13 +187,23 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
             ..ResetReport::default()
         };
         report.lines.push(plan.render());
-        report
-            .lines
-            .push(format!("would touch {} business rows", plan.reset_rows()));
+        report.lines.push(match plan.imports_scope {
+            Some(scope) => format!(
+                "would delete {} imported aggregate(s) plus up to {} episode candidate(s), from {} \
+                 provenance row(s) — the {} reset-category row(s) stay untouched",
+                scope.imported_aggregates,
+                scope.episode_candidates,
+                scope.provenance_rows,
+                plan.reset_rows()
+            ),
+            None => format!("would touch {} business rows", plan.reset_rows()),
+        });
         return Ok(report);
     }
 
-    if !options.assume_yes {
+    // `verify` is read-only: it never needs a confirmation, so it also runs
+    // unattended (issue #770 review).
+    if !options.assume_yes && plan.phase != ResetPhase::Verify {
         let typed = options.confirmation.as_deref().unwrap_or_default().trim();
         if typed != plan.database_target {
             bail!(
@@ -199,6 +212,14 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
             );
         }
     }
+
+    let client = redis::Client::open(environment.sierradb_url.clone())
+        .with_context(|| format!("open SierraDB client at {event_store_target}"))?;
+    let connection = client
+        .get_multiplexed_async_connection()
+        .await
+        .with_context(|| format!("connect SierraDB at {event_store_target}"))?;
+    let command_service = CommandService::new(connection.clone());
 
     let mut context = Context {
         pool,
@@ -287,6 +308,7 @@ mod tests {
             headline: "dry".to_string(),
             lines: vec!["line".to_string()],
             failures: vec!["DeleteScene abc failed".to_string()],
+            deleted_aggregates: Vec::new(),
             backup_path: None,
             dry_run: true,
         };

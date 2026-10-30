@@ -98,6 +98,21 @@ pub struct TableCount {
     pub rows: i64,
 }
 
+/// What a level-`imports` run would actually delete.
+///
+/// Derived from the import provenance, not from the total business row count:
+/// `imports` only removes the aggregates an import created, so the
+/// reset-category sum would overstate it (issue #770 review).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportsScope {
+    /// Rows in `ai_import.projection_ai_import_mapping`.
+    pub provenance_rows: i64,
+    /// Distinct aggregates the provenance points at (the deletable kinds).
+    pub imported_aggregates: i64,
+    /// Episodes the block/recency heuristic would attribute to the imports.
+    pub episode_candidates: i64,
+}
+
 /// An object-storage bucket in the reset scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BucketTarget {
@@ -117,6 +132,8 @@ pub struct ResetPlan {
     pub tables: Vec<TableCount>,
     pub buckets: Vec<BucketTarget>,
     pub notes: Vec<String>,
+    /// Provenance-derived scope for level `imports`; `None` for `business`.
+    pub imports_scope: Option<ImportsScope>,
 }
 
 /// Operational (non-projection) tables the reset clears, with their static
@@ -194,6 +211,11 @@ impl ResetPlan {
             tables.push(TableCount { table, rows });
         }
 
+        let imports_scope = match level {
+            ResetLevel::Imports => Some(count_imports_scope(pool).await?),
+            ResetLevel::Business => None,
+        };
+
         Ok(Self {
             level,
             phase,
@@ -204,6 +226,7 @@ impl ResetPlan {
             tables,
             buckets: bucket_targets(),
             notes: notes_for(level),
+            imports_scope,
         })
     }
 
@@ -256,6 +279,14 @@ impl ResetPlan {
             ));
         }
 
+        if let Some(scope) = &self.imports_scope {
+            out.push_str("\nIMPORT SCOPE (provenance-derived — this level deletes only these)\n");
+            out.push_str(&format!(
+                "  {:>7} provenance row(s)\n  {:>7} imported aggregate(s)\n  {:>7} episode candidate(s) (block + recency heuristic, #763)\n",
+                scope.provenance_rows, scope.imported_aggregates, scope.episode_candidates
+            ));
+        }
+
         out.push_str("\nOPERATIONAL TABLES\n");
         for entry in &self.tables {
             out.push_str(&format!("  {:<42} {:>7} rows\n", entry.table, entry.rows));
@@ -272,6 +303,41 @@ impl ResetPlan {
         }
         out
     }
+}
+
+/// Counts what level `imports` would remove, from the import provenance.
+async fn count_imports_scope(pool: &PgPool) -> Result<ImportsScope, sqlx::Error> {
+    let provenance_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ai_import.projection_ai_import_mapping")
+            .fetch_one(pool)
+            .await?;
+    let imported_aggregates: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(DISTINCT aggregate_id)
+        FROM ai_import.projection_ai_import_mapping
+        WHERE aggregate_kind IN ('scene', 'character', 'piece', 'outfit', 'shooting_day',
+                                 'scene_shoot')
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    // Same heuristic the execution path uses (the import → episode provenance is
+    // not persisted yet, #763).
+    let episode_candidates: i64 = sqlx::query_scalar(
+        r#"
+        SELECT count(*)
+        FROM projection_episode e
+        WHERE e.block_id IN (SELECT block_id FROM ai_import.ai_import_job WHERE block_id IS NOT NULL)
+          AND e.updated_at >= (SELECT min(created_at) FROM ai_import.ai_import_job)
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(ImportsScope {
+        provenance_rows,
+        imported_aggregates,
+        episode_candidates,
+    })
 }
 
 /// The object-storage buckets that hold business data (issue #770).
@@ -357,6 +423,11 @@ mod tests {
             }],
             buckets: bucket_targets(),
             notes: notes_for(ResetLevel::Imports),
+            imports_scope: Some(ImportsScope {
+                provenance_rows: 380,
+                imported_aggregates: 147,
+                episode_candidates: 4,
+            }),
         }
     }
 
@@ -403,6 +474,11 @@ mod tests {
         }
         assert_eq!(plan().keep_rows(), 1);
         assert_eq!(plan().reset_rows(), 42);
+        // The imports scope is rendered from the provenance, not from the
+        // reset-category sum.
+        assert!(rendered.contains("IMPORT SCOPE"));
+        assert!(rendered.contains("147 imported aggregate(s)"));
+        assert!(rendered.contains("4 episode candidate(s)"));
     }
 
     /// Every category is listed exactly once across the two sections.

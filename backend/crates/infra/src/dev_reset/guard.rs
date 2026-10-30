@@ -38,7 +38,9 @@ pub enum Refusal {
     TransitTlsRequired,
     /// A connection URL does not point at the local machine.
     NonLocalTarget { which: &'static str, host: String },
-    /// A connection URL could not be parsed.
+    /// A connection URL could not be parsed. `value` is **redacted**: the
+    /// userinfo is replaced, so a password can never reach the CLI output or a
+    /// captured log (issue #770 review).
     UnparseableUrl { which: &'static str, value: String },
 }
 
@@ -113,7 +115,7 @@ pub fn check(env: &DevEnvironment, dev_ack: bool) -> Result<(), Refusal> {
 
     let database_host = url_host(&env.database_url).ok_or_else(|| Refusal::UnparseableUrl {
         which: "DATABASE_URL",
-        value: env.database_url.clone(),
+        value: redact_url(&env.database_url),
     })?;
     if !is_loopback(&database_host) {
         return Err(Refusal::NonLocalTarget {
@@ -124,7 +126,7 @@ pub fn check(env: &DevEnvironment, dev_ack: bool) -> Result<(), Refusal> {
 
     let event_store_host = url_host(&env.sierradb_url).ok_or_else(|| Refusal::UnparseableUrl {
         which: "SIERRADB_URL",
-        value: env.sierradb_url.clone(),
+        value: redact_url(&env.sierradb_url),
     })?;
     if !is_loopback(&event_store_host) {
         return Err(Refusal::NonLocalTarget {
@@ -142,6 +144,23 @@ fn is_development_value(value: &str) -> bool {
         value.trim().to_ascii_lowercase().as_str(),
         "development" | "dev" | "local"
     )
+}
+
+/// Replaces the userinfo of a connection URL with `***` so a diagnostic can
+/// name the URL without leaking a password.
+///
+/// Works on unparsable input too — it is a string operation, not a parse:
+/// everything up to the **last** `@` in the authority is redacted.
+pub fn redact_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return "<unparsable>".to_string();
+    };
+    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(authority_end);
+    match authority.rsplit_once('@') {
+        Some((_, host)) => format!("{scheme}://***@{host}{tail}"),
+        None => format!("{scheme}://{authority}{tail}"),
+    }
 }
 
 /// Extracts the host from a connection URL (`scheme://user:pass@host:port/db`).
@@ -304,11 +323,47 @@ mod tests {
     fn empty_urls_refuse_instead_of_defaulting() {
         assert_eq!(
             check(&env("", "redis://127.0.0.1:9090/"), true),
+            // An empty URL has no scheme, so the redacted form is the marker.
             Err(Refusal::UnparseableUrl {
                 which: "DATABASE_URL",
-                value: String::new()
+                value: "<unparsable>".to_string()
             })
         );
+    }
+
+    /// A password must never reach the diagnostic (issue #770 review).
+    #[test]
+    fn unparsable_url_diagnostics_are_redacted() {
+        let environment = env(
+            "postgres://user:s3cr3t@/breakdown",
+            "redis://127.0.0.1:9090/",
+        );
+        let refusal = check(&environment, true).expect_err("must refuse");
+        let message = refusal.reason();
+        assert!(!message.contains("s3cr3t"), "password leaked: {message}");
+        assert!(
+            message.contains("***"),
+            "expected a redaction marker: {message}"
+        );
+    }
+
+    #[test]
+    fn redact_url_matrix() {
+        assert_eq!(
+            redact_url("postgres://user:s3cr3t@localhost:5432/breakdown"),
+            "postgres://***@localhost:5432/breakdown"
+        );
+        assert_eq!(
+            redact_url("rediss://user:s3cr3t@host:9091/?protocol=resp3"),
+            "rediss://***@host:9091/?protocol=resp3"
+        );
+        // No userinfo: nothing to redact, the URL stays readable.
+        assert_eq!(
+            redact_url("postgres://localhost:5432/breakdown"),
+            "postgres://localhost:5432/breakdown"
+        );
+        // Not a URL at all: no scheme, no leak.
+        assert_eq!(redact_url("user:s3cr3t"), "<unparsable>");
     }
 
     #[test]

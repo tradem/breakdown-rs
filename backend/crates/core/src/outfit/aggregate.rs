@@ -36,6 +36,10 @@ pub struct OutfitAggregate {
     pub variant_of: Option<Uuid>,
     pub photos: Vec<Uuid>,
     pub notes: String,
+    /// Set by the terminal `OutfitDeleted` event: a deleted
+    /// aggregate rejects every further command (issue #770 — a delete
+    /// must not leave a stream that still accepts mutations).
+    pub deleted: bool,
     pub version: AggregateVersion,
 }
 
@@ -76,6 +80,7 @@ impl Apply for OutfitAggregate {
             // change — the projector removes the projection row and the stream
             // keeps its history for the audit trail.
             OutfitEvent::OutfitDeleted { version, .. } => {
+                self.deleted = true;
                 self.version = version;
             }
             OutfitEvent::OutfitCreated {
@@ -164,6 +169,9 @@ impl Command<CreateOutfit> for OutfitAggregate {
         cmd: CreateOutfit,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         let name = normalize_name(&cmd.name)?;
         Ok(vec![OutfitEvent::OutfitCreated {
             id: cmd.id,
@@ -184,6 +192,9 @@ impl Command<CreateOutfitVariant> for OutfitAggregate {
         cmd: CreateOutfitVariant,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         let name = normalize_name(&cmd.name)?;
         Ok(vec![OutfitEvent::OutfitVariantCreated {
             id: cmd.id,
@@ -205,6 +216,9 @@ impl Command<RenameOutfit> for OutfitAggregate {
         cmd: RenameOutfit,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(OutfitError::VersionMismatch {
                 expected: cmd.version,
@@ -230,6 +244,9 @@ impl Command<UpdateOutfitNotes> for OutfitAggregate {
         cmd: UpdateOutfitNotes,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(OutfitError::VersionMismatch {
                 expected: cmd.version,
@@ -254,6 +271,9 @@ impl Command<AddPieceToOutfit> for OutfitAggregate {
         cmd: AddPieceToOutfit,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(OutfitError::VersionMismatch {
                 expected: cmd.version,
@@ -287,6 +307,9 @@ impl Command<RemovePieceFromOutfit> for OutfitAggregate {
         cmd: RemovePieceFromOutfit,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(OutfitError::VersionMismatch {
                 expected: cmd.version,
@@ -311,6 +334,9 @@ impl Command<LinkOutfitPhoto> for OutfitAggregate {
         cmd: LinkOutfitPhoto,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(OutfitError::VersionMismatch {
                 expected: cmd.version,
@@ -335,6 +361,9 @@ impl Command<UnlinkOutfitPhoto> for OutfitAggregate {
         cmd: UnlinkOutfitPhoto,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(OutfitError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(OutfitError::VersionMismatch {
                 expected: cmd.version,
@@ -361,6 +390,10 @@ impl Command<DeleteOutfit> for OutfitAggregate {
         cmd: DeleteOutfit,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: deleting an already-deleted aggregate is a no-op.
+        if self.deleted {
+            return Ok(vec![]);
+        }
         // An absent aggregate replays to a default state; deleting it must not
         // fabricate a stream. A repeat delete on an existing aggregate is
         // idempotent at the projection (the DELETE matches nothing twice).

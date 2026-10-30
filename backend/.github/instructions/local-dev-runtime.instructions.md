@@ -314,10 +314,13 @@ reset the data set without losing the configuration:
 `scripts/reset-dev-data.sh` wraps the maintenance binary
 `cargo run -p api --bin reset-dev-data` (engine in `crates/infra/src/dev_reset/`,
 **no HTTP route**). It refuses non-loopback targets, non-development `APP_ENV`,
-`REQUIRE_IN_TRANSIT_TLS=true`, a remote docker context and a running API. Level
-`business` needs the SierraDB volume dropped because SierraDB 0.3.1 has no
-delete command at all; the keep-list (`ai_config`, `settings`, `membership`) is
-exported before the drop and replayed afterwards, and Vault is never touched.
+`REQUIRE_IN_TRANSIT_TLS=true` and a remote docker daemon. **`imports` needs the
+API running** (the running projectors apply the delete events); only the
+`business` flow refuses a running API, because its projectors must not write
+while the store is replaced. Level `business` needs the SierraDB volume dropped
+because SierraDB 0.3.1 has no delete command at all; the keep-list (`ai_config`,
+`settings`, `membership`) is exported before the drop and replayed afterwards,
+and Vault is never touched.
 
 After a reset, also clear the client state (Drift DB + secure storage: config
 id, remembered credentials, persisted scope) — the old ids are gone and every

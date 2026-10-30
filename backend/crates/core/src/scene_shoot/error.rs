@@ -17,6 +17,11 @@ pub enum SceneShootError {
     #[error("SceneShoot not found: {id}")]
     NotFound { id: SceneShootId },
 
+    /// The aggregate was deleted (issue #770): a deleted stream rejects every
+    /// further command instead of appending events the projection can no longer
+    /// apply.
+    #[error("SceneShoot({id}) was deleted")]
+    Deleted { id: SceneShootId },
     #[error("A SceneShoot already exists for this (scene, shooting_day) pair")]
     PairAlreadyExists,
 

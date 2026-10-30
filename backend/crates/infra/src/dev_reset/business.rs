@@ -338,9 +338,13 @@ async fn verify_phase(
         .with_context(|| format!("read {}", options.backup_dir.join(KEEP_LIST_FILE).display()))?;
     for stream in &export.streams {
         let replayed = events::read_stream(&mut context.connection, &stream.stream_id).await?;
-        if replayed.len() < stream.events.len() {
+        // Exact equality, not "<": a stream carrying MORE events than the export
+        // means the store was not empty when the replay ran, and a configuration
+        // projector would apply events the export never authorised (issue #770
+        // review). The replay itself is strict-versioned, so this is a backstop.
+        if replayed.len() != stream.events.len() {
             report.failures.push(format!(
-                "keep stream {} holds {} event(s) after the replay, expected {}",
+                "keep stream {} holds {} event(s) after the replay, expected exactly {}",
                 stream.stream_id,
                 replayed.len(),
                 stream.events.len()
@@ -358,11 +362,22 @@ async fn verify_phase(
             "keep projection {}: {rows} row(s)",
             category.projection_table()
         ));
-        if rows == 0 && export.event_count() > 0 {
+        // Scope the expectation to THIS category: a global event count would
+        // flag every empty keep projection as soon as one category has events
+        // (issue #770 review).
+        let category_events: usize = export
+            .streams
+            .iter()
+            .filter(|stream| stream.category == category.as_str())
+            .map(|stream| stream.events.len())
+            .sum();
+        if rows == 0 && category_events > 0 {
             report.failures.push(format!(
-                "keep projection {} is empty — the projector has not caught up yet (check \
-                 GET /v1/ops/projector-health)",
-                category.projection_table()
+                "keep projection {} is empty although {} replayed event(s) carry category \
+                 `{}` — the projector has not caught up yet (check GET /v1/ops/projector-health)",
+                category.projection_table(),
+                category_events,
+                category.as_str()
             ));
         }
     }

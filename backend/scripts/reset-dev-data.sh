@@ -27,7 +27,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMPOSE_FILE="${BACKEND_DIR}/docker-compose.dev.yml"
-API_HEALTH_URL="${API_HEALTH_URL:-http://127.0.0.1:3000/v1/health}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/v1/health}"
+API_HEALTH_URL="${API_HEALTH_URL:-${HEALTH_URL}}"
 PROJECTOR_HEALTH_URL="${PROJECTOR_HEALTH_URL:-http://127.0.0.1:3000/v1/ops/projector-health}"
 SIERRADB_SERVICE="sierradb"
 SIERRADB_DATA_DIR="/app/data"
@@ -69,13 +70,32 @@ load_env() {
   : "${SIERRADB_URL:?SIERRADB_URL is required (set it or provide backend/.env.local)}"
 }
 
-# Refuses to operate on a remote docker context.
+# Refuses to operate on a remote docker daemon.
+#
+# The context NAME proves nothing — `DOCKER_HOST` can point at a remote daemon
+# while the context still reports an allowed name (issue #770 review). Both the
+# environment override and the context's resolved endpoint must be a local unix
+# socket.
 require_local_docker() {
-  local context
+  local context endpoint
   context="$(docker context show 2>/dev/null || echo default)"
   case "${context}" in
     default|desktop-linux|colima|orbstack) ;;
     *) die "docker context '${context}' is not a local context — refusing to reset a remote stack" ;;
+  esac
+
+  if [[ -n "${DOCKER_HOST:-}" ]]; then
+    case "${DOCKER_HOST}" in
+      unix://*) ;;
+      *) die "DOCKER_HOST='${DOCKER_HOST}' is not a local unix socket — refusing to reset a remote stack" ;;
+    esac
+  fi
+
+  endpoint="$(docker context inspect "${context}" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+  case "${endpoint}" in
+    unix://*) ;;
+    "") die "could not resolve the docker endpoint of context '${context}'" ;;
+    *) die "docker endpoint '${endpoint}' is not a local unix socket — refusing to reset a remote stack" ;;
   esac
 }
 
@@ -227,26 +247,44 @@ reset_event_store() {
 }
 
 check_api_postconditions() {
+  # These ARE the documented postconditions (runbook "13. Dev data reset"), so
+  # an unreachable API or a non-green projector health FAILS the verify run
+  # instead of silently succeeding (issue #770 review).
   if ! api_is_running; then
-    log "API not reachable at ${API_HEALTH_URL} — start it, then re-run: $0 verify"
-    return 0
+    die "API not reachable at ${API_HEALTH_URL} — start it before running verify"
   fi
 
-  local status
+  local status body
+  log "GET ${HEALTH_URL}"
+  status="$(curl -s -o /tmp/reset-dev-data-health.json -w '%{http_code}' \
+    --max-time 5 "${HEALTH_URL}" || echo 000)"
+  if [[ "${status}" != "200" ]]; then
+    die "health answered ${status}: $(cat /tmp/reset-dev-data-health.json 2>/dev/null)"
+  fi
+  body="$(cat /tmp/reset-dev-data-health.json)"
+  case "${body}" in
+    *'"status":"Healthy"'*|*'"status":"healthy"'*) ;;
+    *) die "health is not green: ${body}" ;;
+  esac
+
   log "GET ${PROJECTOR_HEALTH_URL}"
   status="$(curl -s -o /tmp/reset-dev-data-projector-health.json -w '%{http_code}' \
     --max-time 5 "${PROJECTOR_HEALTH_URL}" || echo 000)"
   case "${status}" in
     2*)
-      cat /tmp/reset-dev-data-projector-health.json
-      printf '\n'
+      printf '%s\n' "$(cat /tmp/reset-dev-data-projector-health.json)"
+      local dead_letters
+      dead_letters="$(grep -o '"dead_letter_count":[[:space:]]*[0-9]\+' \
+        /tmp/reset-dev-data-projector-health.json | grep -o '[0-9]\+' | head -n 1)"
+      if [[ "${dead_letters:-0}" != "0" ]]; then
+        die "projector health reports ${dead_letters} dead-lettered event(s) — the reset left poison state"
+      fi
+      if ! grep -q '"checkpoints":\[[[:space:]]*{' /tmp/reset-dev-data-projector-health.json; then
+        die "projector health reports no checkpoint progress — the projectors have not caught up"
+      fi
       ;;
     403)
-      # Deployment-scoped ops surface (issue #409): a dev user without an
-      # ops_admin membership is denied. That is not a reset failure — point at
-      # the knob instead of failing the run.
-      log "projector health is authz-gated for this user (403)"
-      log "  set OPS_ADMIN_SUBS=<sub> and restart the API to include the check"
+      die "projector health is authz-gated for this user (403) — set OPS_ADMIN_SUBS=<sub>, restart the API and re-run verify (the postcondition cannot be asserted otherwise)"
       ;;
     000)
       die "projector health endpoint did not answer (${PROJECTOR_HEALTH_URL})"
@@ -265,6 +303,7 @@ cmd_plan() {
       *) die "unknown argument for plan: $1" ;;
     esac
   done
+  load_env
   run_binary --level "${level}" --phase "$([[ "${level}" == "business" ]] && echo export || echo all)" \
     --dry-run --env dev
 }

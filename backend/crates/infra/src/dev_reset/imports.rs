@@ -49,7 +49,7 @@ use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::DeleteScene;
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::commands::DeleteSceneShoot;
-use breakdown_core::shared::{EventMetadata, Provenance, SceneShootId, ShootingDayId};
+use breakdown_core::shared::{EventMetadata, ProjectId, Provenance, SceneShootId, ShootingDayId};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::commands::DeleteShootingDay;
 
@@ -171,7 +171,7 @@ pub fn collect_targets(mapping: &[MappingRow]) -> Targets {
 /// #770), so this dispatches straight to the aggregate actor with `System`
 /// provenance for the audit trail.
 macro_rules! delete_one {
-    ($aggregate:ty, $service:expr, $id:expr, $command:expr) => {{
+    ($aggregate:ty, $service:expr, $id:expr, $command:expr, $project_id:expr) => {{
         use kameo_es::command_service::ExecuteExt;
 
         <$aggregate>::execute($service, $id, $command)
@@ -179,7 +179,11 @@ macro_rules! delete_one {
             .metadata(EventMetadata {
                 actor: None,
                 provenance: Provenance::System,
-                project_id: None,
+                // `GET /audit?project_id=…` filters on this column, so a reset
+                // deletion must be attributable (issue #770 review). Best
+                // effort: a projection miss leaves `None` and never blocks the
+                // delete (CQRS audit doctrine).
+                project_id: $project_id.map(ProjectId),
             })
             .await
             .map(|_| ())
@@ -344,16 +348,21 @@ macro_rules! delete_and_record {
         $context:expr, $report:expr, $aggregate:ty,
         $label:expr, $command:expr, $id:expr, $id_display:expr, $command_value:expr
     ) => {{
+        let project_id = project_id_for(&$context.pool, $label, $id_display).await;
         let outcome = classify_delete(delete_one!(
             $aggregate,
             &$context.command_service,
             $id,
-            $command_value
+            $command_value,
+            project_id
         ));
         match outcome {
-            DeleteOutcome::Deleted => $report
-                .lines
-                .push(format!("deleted {} {}", $label, $id_display)),
+            DeleteOutcome::Deleted => {
+                $report
+                    .lines
+                    .push(format!("deleted {} {}", $label, $id_display));
+                $report.deleted_aggregates.push($id_display);
+            }
             DeleteOutcome::Failed(message) => $report
                 .failures
                 .push(format!("{} {} failed: {}", $command, $id_display, message)),
@@ -525,6 +534,60 @@ fn rebuild_command_service(context: &mut Context) {
         "rebuilt the command service after an entity actor panic (one aggregate stream could not \
          be replayed)"
     );
+}
+
+/// Best-effort project id of an aggregate, resolved from the read model.
+///
+/// The delete event's `EventMetadata.project_id` is what the audit projector
+/// stores, and `GET /audit?project_id=…` filters on that column — a reset
+/// deletion with `None` would be invisible in a project-scoped audit view
+/// (issue #770 review). Resolution is **best effort by doctrine**: a projection
+/// miss (lag, already-deleted row) yields `None` and never blocks the delete.
+///
+/// One static statement per category; the join chain is the aggregate's
+/// hierarchy path (`season` → `project`).
+async fn project_id_for(pool: &PgPool, label: &str, id: Uuid) -> Option<Uuid> {
+    let sql = match label {
+        "episode" => "SELECT project_id FROM projection_episode WHERE id = $1",
+        "scene" => {
+            "SELECT e.project_id FROM projection_scene s \
+             JOIN projection_episode e ON e.id = s.episode_id WHERE s.id = $1"
+        }
+        "shooting_day" => {
+            "SELECT e.project_id FROM projection_shooting_day d \
+             JOIN projection_episode e ON e.id = d.episode_id WHERE d.id = $1"
+        }
+        "scene_shoot" => {
+            "SELECT e.project_id FROM projection_scene_shoot ss \
+             JOIN projection_scene s ON s.id = ss.scene_id \
+             JOIN projection_episode e ON e.id = s.episode_id WHERE ss.id = $1"
+        }
+        "character" => {
+            "SELECT s.project_id FROM projection_character c \
+             JOIN projection_season s ON s.id = c.season_id WHERE c.id = $1"
+        }
+        "piece" => {
+            "SELECT s.project_id FROM projection_piece_season ps \
+             JOIN projection_season s ON s.id = ps.season_id WHERE ps.piece_id = $1 LIMIT 1"
+        }
+        "outfit" => {
+            "SELECT s.project_id FROM projection_outfit o \
+             JOIN projection_character c ON c.id = o.character_id \
+             JOIN projection_season s ON s.id = c.season_id WHERE o.id = $1"
+        }
+        _ => return None,
+    };
+    match sqlx::query_scalar::<_, Uuid>(sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+    {
+        Ok(project_id) => project_id,
+        Err(error) => {
+            tracing::warn!(label, %id, %error, "could not resolve the project id for the audit row");
+            None
+        }
+    }
 }
 
 /// `(scene_id, shooting_day_id)` of a scene shoot, read **before** the delete

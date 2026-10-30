@@ -937,7 +937,9 @@ exported → wiped → replayed around that:
                                             # → drop volume → wipe → replay
 # 2. start the API again
 set -a; . ./.env.local; set +a; cargo run -p api
-# 3. assert the post-conditions (also checks /v1/ops/projector-health)
+# 3. assert the post-conditions (fails unless the API is reachable and the
+#    projector health is green — set OPS_ADMIN_SUBS=<sub> if the ops endpoint
+#    answers 403 for your dev user, see below)
 ./scripts/reset-dev-data.sh verify
 ```
 
@@ -969,6 +971,11 @@ Two details the script handles for you, both learned the hard way:
   first event of a stream, `EXACT(n-1)` afterwards). Replaying into a store that
   still holds events therefore fails loudly instead of duplicating history.
 
+`--skip-payload-purge` continues when the AI payload objects cannot be purged.
+Without it a failed purge **aborts** the run before the job rows are deleted:
+those rows are the only place the object handles are recorded, so deleting them
+would leave unreachable garbage (the same rule applies to both levels).
+
 **What survives:** the `ai_config`, `settings` and `membership` streams (same
 stream ids, same events, replayed verbatim), the `ai_model_pricing` rows
 (exported for the backup but deliberately never deleted — the cost snapshot
@@ -984,6 +991,14 @@ exist. They keep the dev user's *credential role* gate satisfied, but an import
 still needs a real block: create a season + block (or re-run
 `scripts/bootstrap-dev-credential-role.sh` once a block exists) before
 uploading. Membership for a *new* block has to be granted again.
+
+`--phase verify` is read-only and never prompts. It **fails** (non-zero exit)
+when a business projection still holds rows, a keep stream is missing events, a
+keep projection was not rebuilt, `ai_model_pricing` is empty, the API is
+unreachable, or the projector health is not green — a reset is only "done" when
+all of that holds. The projector-health endpoint is the deployment-scoped ops
+surface (#409), so a dev user needs `OPS_ADMIN_SUBS=<sub>` (or an `ops_admin`
+membership) to let `verify` assert it.
 
 **Post-conditions** (asserted by `--phase verify`, plus the API checks in step 3):
 
@@ -1014,15 +1029,21 @@ uploading. Membership for a *new* block has to be granted again.
 
 ### Client-side reset (Flutter)
 
-The server reset does not touch the app's local state, and the persisted ids
-become stale (`404`). Clear it on the device/emulator as part of the procedure:
+The server reset does not touch the app's local state. **What survives on the
+server** — and therefore must survive on the client too — is the AI
+configuration: the `ai_config` stream, its id and the credential bindings in
+`settings` are exported and replayed by both levels, so the remembered AI-config
+id and the remembered provider credentials stay valid. Do **not** clear them.
 
-- the **Drift** database (projections cache + AI handoff store) — wipe the app's
-  data (`adb shell pm clear <applicationId>`) or reinstall the dev build;
-- **secure storage** — the remembered AI-config id, the remembered provider
-  credentials and the persisted season/block/episode scope.
+What goes stale:
 
-Without this the app keeps pointing at the deleted config id and the deleted
-scope, and every call answers `404` even though the server reset succeeded. A
+- the persisted **business scope** (season/block/episode ids) — and after a
+  `business` reset the production structure itself, which has to be created
+  again;
+- any remembered **import job id** (the job rows are deleted).
+
+Clear the **Drift** database (projections cache + AI handoff store) via
+`adb shell pm clear <applicationId>` or a reinstall of the dev build, and drop
+the persisted scope from **secure storage**, keeping the AI-config id. A
 dev-only "clear local cache" action in the app settings is a possible
 follow-up; today the reset procedure includes the manual clear.

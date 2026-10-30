@@ -245,6 +245,12 @@ impl From<SceneError> for DomainError {
                 resource: "scene",
                 id,
             },
+            // A deleted aggregate is gone for every consumer (issue #770).
+            SceneError::Deleted { id } => DomainError::NotFound {
+                code: &SCENE_NOT_FOUND,
+                resource: "scene",
+                id,
+            },
             SceneError::CharacterAlreadyAssigned => DomainError::Conflict {
                 code: &SCENE_CHARACTER_ALREADY_ASSIGNED,
                 reason: "character already assigned to this scene".into(),
@@ -290,6 +296,12 @@ impl From<CharacterError> for DomainError {
                 resource: "character",
                 id,
             },
+            // A deleted aggregate is gone for every consumer (issue #770).
+            CharacterError::Deleted { id } => DomainError::NotFound {
+                code: &CHARACTER_NOT_FOUND,
+                resource: "character",
+                id,
+            },
             CharacterError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
                 expected,
                 current: actual,
@@ -310,6 +322,12 @@ impl From<PieceError> for DomainError {
                 reason: msg,
             },
             PieceError::NotFound { id } => DomainError::NotFound {
+                code: &PIECE_NOT_FOUND,
+                resource: "piece",
+                id,
+            },
+            // A deleted aggregate is gone for every consumer (issue #770).
+            PieceError::Deleted { id } => DomainError::NotFound {
                 code: &PIECE_NOT_FOUND,
                 resource: "piece",
                 id,
@@ -346,6 +364,12 @@ impl From<OutfitError> for DomainError {
                 resource: "outfit",
                 id,
             },
+            // A deleted aggregate is gone for every consumer (issue #770).
+            OutfitError::Deleted { id } => DomainError::NotFound {
+                code: &OUTFIT_NOT_FOUND,
+                resource: "outfit",
+                id,
+            },
             OutfitError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
                 expected,
                 current: actual,
@@ -362,6 +386,12 @@ impl From<ShootingDayError> for DomainError {
                 reason: msg,
             },
             ShootingDayError::NotFound { id } => DomainError::NotFound {
+                code: &SHOOTING_DAY_NOT_FOUND,
+                resource: "shooting-day",
+                id: id.0,
+            },
+            // A deleted aggregate is gone for every consumer (issue #770).
+            ShootingDayError::Deleted { id } => DomainError::NotFound {
                 code: &SHOOTING_DAY_NOT_FOUND,
                 resource: "shooting-day",
                 id: id.0,
@@ -464,6 +494,12 @@ impl From<EpisodeError> for DomainError {
                 resource: "episode",
                 id,
             },
+            // A deleted aggregate is gone for every consumer (issue #770).
+            EpisodeError::Deleted { id } => DomainError::NotFound {
+                code: &EPISODE_NOT_FOUND,
+                resource: "episode",
+                id,
+            },
             EpisodeError::VersionMismatch { expected, actual } => DomainError::VersionConflict {
                 expected,
                 current: actual,
@@ -518,6 +554,12 @@ impl From<SceneShootError> for DomainError {
                 reason: msg,
             },
             SceneShootError::NotFound { id } => DomainError::NotFound {
+                code: &SCENE_SHOOT_NOT_FOUND,
+                resource: "scene-shoot",
+                id: id.0,
+            },
+            // A deleted aggregate is gone for every consumer (issue #770).
+            SceneShootError::Deleted { id } => DomainError::NotFound {
                 code: &SCENE_SHOOT_NOT_FOUND,
                 resource: "scene-shoot",
                 id: id.0,

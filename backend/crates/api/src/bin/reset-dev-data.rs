@@ -47,6 +47,9 @@ OPTIONS:
   --dry-run                 Print the complete keep/reset plan, write nothing
   --yes                     Skip the interactive target confirmation
   --no-backup               Do not take a backup (must be typed explicitly)
+  --skip-payload-purge      Continue even when the AI payload objects cannot be
+                            purged (their handles live only in the job rows, so
+                            the objects become unreachable)
   --backup-dir <path>       Backup directory (default: backups/reset-<utc>)
   --env dev                 Required acknowledgement that this is a dev stack
   -h, --help                Print this help
@@ -62,6 +65,7 @@ struct ParsedArgs {
     dry_run: bool,
     assume_yes: bool,
     backup: bool,
+    skip_payload_purge: bool,
     backup_dir: Option<PathBuf>,
     dev_ack: bool,
     help: bool,
@@ -75,6 +79,7 @@ impl Default for ParsedArgs {
             dry_run: false,
             assume_yes: false,
             backup: true,
+            skip_payload_purge: false,
             backup_dir: None,
             dev_ack: false,
             help: false,
@@ -109,6 +114,7 @@ fn parse_args() -> Result<ParsedArgs> {
             "--dry-run" => parsed.dry_run = true,
             "--yes" => parsed.assume_yes = true,
             "--no-backup" => parsed.backup = false,
+            "--skip-payload-purge" => parsed.skip_payload_purge = true,
             "--env" => {
                 let value = args.next().context("--env requires a value")?;
                 if value != "dev" {
@@ -124,8 +130,12 @@ fn parse_args() -> Result<ParsedArgs> {
 }
 
 /// Reads the confirmation line from stdin (the operator retypes the target).
-fn read_confirmation() -> Result<String> {
-    print!("retype the target `");
+///
+/// The expected value is printed, not implied: the engine compares against the
+/// normalised `host/database` of the connection URL, which the operator cannot
+/// know without being told (issue #770 review).
+fn read_confirmation(expected: &str) -> Result<String> {
+    print!("retype the target `{expected}` to confirm: ");
     if let Err(error) = std::io::stdout().flush() {
         // A failed flush means the prompt may not have rendered; the read below
         // still blocks, so warn and continue instead of aborting the reset.
@@ -187,12 +197,16 @@ async fn main() -> Result<()> {
         assume_yes: parsed.assume_yes,
         dev_ack: parsed.dev_ack,
         backup: parsed.backup,
+        skip_payload_purge: parsed.skip_payload_purge,
         backup_dir,
         confirmation: None,
     };
 
-    if !options.dry_run && !options.assume_yes {
-        let typed = read_confirmation()?;
+    // `verify` is read-only, so it never asks for a confirmation; the engine
+    // enforces the same rule (issue #770 review).
+    if !options.dry_run && !options.assume_yes && phase != ResetPhase::Verify {
+        let expected = dev_reset::DevEnvironment::from_env().target_label();
+        let typed = read_confirmation(&expected)?;
         options.confirmation = Some(typed);
     }
 
