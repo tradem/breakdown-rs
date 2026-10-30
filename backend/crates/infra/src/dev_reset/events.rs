@@ -81,14 +81,23 @@ pub fn keep_categories() -> impl Iterator<Item = AggregateCategory> {
         .filter(|category| category.class() == AggregateClass::Keep)
 }
 
-/// Static `SELECT id` statement for a keep category's projection table.
+/// Static `SELECT <entity id>` statement for a keep category's projection
+/// table.
+///
+/// The selected column must be the aggregate's **`Entity::ID`**, because the
+/// stream id is `<category>-<entity id>` — not necessarily a column called `id`:
+/// the `membership` aggregate is keyed by its **block id**
+/// (`projection_membership` has the composite PK `(block_id, user_id)` and no
+/// `id` column at all), so it selects the distinct block ids.
 ///
 /// `None` for reset categories: only the keep list is exported.
 pub const fn keep_id_sql(category: AggregateCategory) -> Option<&'static str> {
     match category {
         AggregateCategory::AiConfig => Some("SELECT id FROM ai_import.projection_ai_config"),
         AggregateCategory::Settings => Some("SELECT id FROM projection_settings"),
-        AggregateCategory::Membership => Some("SELECT id FROM projection_membership"),
+        AggregateCategory::Membership => {
+            Some("SELECT DISTINCT block_id FROM projection_membership")
+        }
         _ => None,
     }
 }
@@ -96,6 +105,28 @@ pub const fn keep_id_sql(category: AggregateCategory) -> Option<&'static str> {
 /// Builds the stream id the `kameo_es` entity convention uses.
 pub fn stream_id(category: AggregateCategory, id: Uuid) -> String {
     format!("{}-{}", category.as_str(), id)
+}
+
+/// Refuses an export that would silently drop a non-empty keep category.
+///
+/// Returns an error when a keep projection holds rows but its stream ids could
+/// not be resolved (a wrong id column, an empty id list) — exporting nothing and
+/// then wiping would lose the configuration this level exists to preserve.
+pub fn ensure_streams_resolved(
+    category: AggregateCategory,
+    projection_rows: i64,
+    resolved_streams: usize,
+) -> Result<(), anyhow::Error> {
+    if projection_rows > 0 && resolved_streams == 0 {
+        return Err(anyhow::anyhow!(
+            "refusing to export the keep list: {} holds {} row(s) but no event stream could be \
+             resolved from {} — fix `keep_id_sql` before wiping",
+            category.projection_table(),
+            projection_rows,
+            category.as_str()
+        ));
+    }
+    Ok(())
 }
 
 /// Reads every keep-list stream into an export document.
@@ -110,6 +141,13 @@ pub async fn export_keep_list(
             anyhow::anyhow!("keep category {} has no id query", category.as_str())
         })?;
         let ids: Vec<Uuid> = sqlx::query_scalar(sql).fetch_all(pool).await?;
+        // Safety net (issue #770): a wrong id query would resolve no streams and
+        // the export would then be replayed as "the configuration is empty" —
+        // the wipe would destroy the very data this level promises to keep.
+        let rows: i64 = sqlx::query_scalar(category.count_sql())
+            .fetch_one(pool)
+            .await?;
+        ensure_streams_resolved(category, rows, ids.len())?;
         for id in ids {
             let stream = stream_id(category, id);
             let events = read_stream(connection, &stream).await?;
@@ -351,6 +389,44 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Regression for the `business` E2E failure: `projection_membership` has
+    /// no `id` column (its PK is `(block_id, user_id)`), so the membership keep
+    /// ids are the **block** ids, deduplicated.
+    #[test]
+    fn membership_keep_ids_are_block_ids() {
+        let sql =
+            keep_id_sql(AggregateCategory::Membership).expect("membership is a keep category");
+        assert!(
+            sql.contains("block_id"),
+            "membership must select block_id: {sql}"
+        );
+        assert!(sql.contains("DISTINCT"), "one stream per block: {sql}");
+        assert!(
+            !sql.contains("SELECT id "),
+            "projection_membership has no id: {sql}"
+        );
+    }
+
+    /// A non-empty keep projection that resolves to zero streams must abort the
+    /// export instead of wiping the configuration away.
+    #[test]
+    fn a_keep_category_with_rows_but_no_streams_refuses() {
+        let error =
+            ensure_streams_resolved(AggregateCategory::Settings, 1, 0).expect_err("must refuse");
+        let message = error.to_string();
+        assert!(message.contains("refusing to export"));
+        assert!(message.contains("projection_settings"));
+        assert!(
+            ensure_streams_resolved(AggregateCategory::Settings, 1, 1).is_ok(),
+            "a resolved stream passes"
+        );
+        // An empty projection is not an error: a fresh stack has no config yet.
+        assert!(
+            ensure_streams_resolved(AggregateCategory::Settings, 0, 0).is_ok(),
+            "an empty keep projection is not an error"
+        );
     }
 
     #[test]
