@@ -168,6 +168,34 @@ The Decision / Scoring Model itself is configured on the AI config screen
 separate split-billing key field — keys `aiConfigDecision*`); see the
 `flutter-ai-config` OpenSpec spec.
 
+## Preview, job status — the Decision Model outcome (issue #767)
+
+A configured Decision Model that produced no stars had no explanation: "no
+model configured", "the client could not be built", "the scoring call failed"
+and "the provider answered partially" all rendered the same empty space. The
+backend now records the outcome on the job (`AiImportJob.decision_telemetry`)
+and every affected row carries `DecisionRubric.scoring_failed`; both surfaces
+render it, and neither ever fabricates a rating.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Effective Decision Model (preview header) | Icon + body-small line under the naming line (`auto_awesome_outlined`, `onSurfaceVariant`) | Names the `provider / model` that actually scored the import — the model behind the stars, which is NOT the extraction model of the naming line above. A pair the wire carries only partially degrades to the part it has | `aiDecisionRan`, `aiDecisionModelUnnamed` |
+| Ran without a model (preview header, job cost card) | Icon + body-small line (`info_outline`, tertiary) | States that no Decision Model was configured — distinguishable from the `client_unavailable` copy, which names the CONFIGURED pair the worker resolved. A native CSV schedule or a pure merge renders the "no scoring needed" variant | `aiDecisionSkippedNoConfig`, `aiDecisionClientUnavailable`, `aiDecisionSkippedNotApplicable` |
+| Scoring failed (preview header, job cost card) | Icon + body-small line (`report_outlined`, error) | Names the failure and the number of affected rows from `decision_telemetry.failed_rows` (ICU plural, de + en). The rows that did score keep their stars | `aiDecisionScoringFailed` |
+| Outcome not recorded | — (renders nothing) | A pre-#767 job carries no outcome; the client renders NO line rather than a guessed class. Same arm for an unrecognized future `outcome` value (neutral `aiDecisionNotRecorded` copy) | `aiDecisionNotRecorded` |
+| Outcome read failed (preview header) | Icon + body-small line (`report_outlined`, error) + text button | A failed job snapshot is NOT the silent arm above: the provider surfaces it as `AsyncError` (AGENTS.md §4, "no silent discard"), so the line says the outcome could not be read and offers the retry that re-reads the job. No automatic backoff retry — the refetch is user-driven | `aiDecisionUnavailable`, `commonRetry` |
+| Row whose scoring failed | Icon + body-small line inside the row card (`report_outlined`, error) | Rendered when `DecisionRubric.scoringFailed` is true: the row states why it has no stars. A row WITHOUT a rubric (the pass never ran) renders nothing extra — the note names a failure, not an absence | `aiPreviewScoringFailed` |
+
+The outcome is read with ONE snapshot `GET /v1/ai-import/jobs/{id}` (preview
+header) or from the job the screen already holds (cost card); the job-status
+controller stays the app's only SSE consumer (battery contract D5).
+
+The snapshot read has three outcomes, and the design keeps them distinct:
+an `Ok` job yields a line (or none, when it recorded no outcome), while a
+failed `GET` yields the unavailable line with the retry — never the silent
+"no outcome" arm. The job-status cost card renders from the job it already
+holds, so a read failure never reaches it.
+
 ## Preview & Apply — outfit provenance and wardrobe gaps (issue #745)
 
 Pass 2 of the AI import (`ai-import-decision-outfit-continuity`) attaches
@@ -195,7 +223,12 @@ truthful statement about the review.
 
 ## Tests
 
-Widget tests: the degraded-extraction row line renders for `scenes_synthesized > 0`
+Widget tests: a row carrying `DecisionRubric.scoringFailed` renders the failure
+note inside its card and NO stars, a scored row renders stars and no note, and a
+row without a rubric renders neither (issue #767); the preview header and the
+job cost card name the recorded outcome and stay silent for a job without one;
+unit tests cover every outcome class in de + en including the `scoring_failed`
+plural. Widget tests: the degraded-extraction row line renders for `scenes_synthesized > 0`
 and stays absent for a clean run (issue #758); the script preview subtitle
 states detected vs extracted and names the rebuilt rows, and keeps the row
 count alone for a pre-#758 payload; rows render kind + date + status text + icon; tap pushes the

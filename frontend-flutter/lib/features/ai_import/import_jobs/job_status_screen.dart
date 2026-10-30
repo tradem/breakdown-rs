@@ -4,6 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -19,6 +20,7 @@ import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/locale_formatters.dart';
 import '../clippy/clippy_trigger.dart';
 import '../cost_format.dart';
+import 'decision_outcome.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import 'import_state.dart';
 import 'job_status_controller.dart';
@@ -452,6 +454,11 @@ class _JobCostCard extends ConsumerWidget {
           header,
           const SizedBox(height: 4),
           Text(l10n.aiJobCostNotApplicable),
+          const SizedBox(height: 4),
+          // The Decision Model outcome belongs on the cost card (issue #767):
+          // this is where an operator looks after a star-less import, and the
+          // render is silent for a job that recorded no outcome.
+          AiDecisionOutcomeText(telemetry: job.decisionTelemetry),
         ],
       );
     }
@@ -571,6 +578,17 @@ class _JobCostCard extends ConsumerWidget {
           style: bodyStyle,
         ),
       );
+    }
+
+    // Which Decision Model scored this import — or why it did not (issue
+    // #767). Silent when the job recorded no outcome (pre-#767 rows), so the
+    // card never regresses a known-shaped payload into a guessed class.
+    final decisionOutcome = AiDecisionOutcomeText(
+      telemetry: job.decisionTelemetry,
+    );
+    if (job.decisionTelemetry != null) {
+      rows.add(const SizedBox(height: 4));
+      rows.add(decisionOutcome);
     }
 
     return Column(

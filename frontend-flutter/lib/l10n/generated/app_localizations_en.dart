@@ -3570,6 +3570,46 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String aiDecisionRan(Object pair) {
+    return 'Scored with $pair.';
+  }
+
+  @override
+  String get aiDecisionSkippedNoConfig =>
+      'Ran without a decision model — no stars (no model configured).';
+
+  @override
+  String aiDecisionClientUnavailable(Object pair) {
+    return 'Decision model $pair unavailable — the preview was created without scoring.';
+  }
+
+  @override
+  String aiDecisionScoringFailed(num count, Object pair) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count rows',
+      one: '1 row',
+    );
+    return 'Scoring failed — $_temp0 without stars ($pair).';
+  }
+
+  @override
+  String get aiDecisionSkippedNotApplicable => 'This import needed no scoring.';
+
+  @override
+  String get aiDecisionNotRecorded => 'Scoring outcome not recorded.';
+
+  @override
+  String get aiDecisionModelUnnamed => 'unnamed model';
+
+  @override
+  String get aiDecisionUnavailable => 'Scoring outcome could not be read.';
+
+  @override
+  String get aiPreviewScoringFailed => 'Scoring failed — no stars.';
+
+  @override
   String get aiPreviewSceneScore => 'Scene score:';
 
   @override

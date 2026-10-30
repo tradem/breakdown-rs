@@ -1029,6 +1029,15 @@
       "count": {}
     }
   },
+  "aiDecisionRan": "Bewertet mit {pair}.",
+  "aiDecisionSkippedNoConfig": "Ohne Entscheidungsmodell ausgeführt – keine Sternchen (kein Modell konfiguriert).",
+  "aiDecisionClientUnavailable": "Entscheidungsmodell {pair} nicht verfügbar – die Vorschau wurde ohne Bewertung erstellt.",
+  "aiDecisionScoringFailed": "Bewertung fehlgeschlagen – {count, plural, =1{1 Zeile} other{{count} Zeilen}} ohne Sternchen ({pair}).",
+  "aiDecisionSkippedNotApplicable": "Für diesen Import war keine Bewertung nötig.",
+  "aiDecisionNotRecorded": "Bewertungsausgang nicht aufgezeichnet.",
+  "aiDecisionModelUnnamed": "unbenanntes Modell",
+  "aiDecisionUnavailable": "Bewertungsausgang konnte nicht gelesen werden.",
+  "aiPreviewScoringFailed": "Bewertung fehlgeschlagen – keine Sternchen.",
   "aiPreviewSceneScore": "Szenen-Bewertung:",
   "@aiPreviewSceneScore": {},
   "aiPreviewSynopsisScore": "Kurzbeschreibung (TL;DR):",

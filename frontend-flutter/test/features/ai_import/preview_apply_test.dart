@@ -4,6 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
@@ -83,6 +84,7 @@ DraftScene _draft(
   double? sceneScore,
   double? synopsisScore,
   DraftShootingDay? shootingDay,
+  DecisionRubric? scoring,
 }) => DraftScene((b) {
   b
     ..draftRef = ref
@@ -98,6 +100,9 @@ DraftScene _draft(
   if (sceneScore != null) b.sceneScore = sceneScore;
   if (synopsisScore != null) b.synopsisScore = synopsisScore;
   if (shootingDay != null) b.shootingDay.replace(shootingDay);
+  // The structured rubric (issue #767): a row whose own scoring request failed
+  // carries `scoringFailed` here — the per-row signal the preview renders.
+  if (scoring != null) b.scoring.replace(scoring);
 });
 
 /// The `Ep.:` marker metadata a draft row carries (issue #581).
@@ -338,8 +343,11 @@ class FakeAiImportRepository extends AiImportRepository {
   }
 }
 
-AiImportJob _succeededJob(String id) => AiImportJob(
-  (b) => b
+AiImportJob _succeededJob(
+  String id, {
+  DecisionTelemetry? decisionTelemetry,
+}) => AiImportJob((b) {
+  b
     ..id = id
     ..userId = 'dev-user'
     ..status = JobStatus.succeeded
@@ -351,8 +359,11 @@ AiImportJob _succeededJob(String id) => AiImportJob(
     ..retries = 0
     ..maxRetries = 3
     ..createdAt = DateTime.utc(2026, 1, 1)
-    ..updatedAt = DateTime.utc(2026, 1, 1),
-);
+    ..updatedAt = DateTime.utc(2026, 1, 1);
+  // The job-level Decision Model outcome (issue #767) is absent unless a test
+  // records one — an old job carries no outcome and renders no line.
+  if (decisionTelemetry != null) b.decisionTelemetry.replace(decisionTelemetry);
+});
 
 ApplyAiImportResponse _outcome({
   int appliedCount = 2,
@@ -914,6 +925,12 @@ void main() {
       addTearDown(db.close);
       dao = AiImportJobsCacheDao(db);
       repo = FakeAiImportRepository(BreakdownApi(), dao);
+      // The preview screen reads its job's Decision-Model outcome line (issue
+      // #767). A reachable preview means the job EXISTS, so the fixture answers
+      // `getJobAndCache` — that keeps these tests on the line's silent state
+      // (the job recorded no outcome) instead of its read-failure state, which
+      // has its own tests in decision_outcome_test.dart.
+      repo.jobResult = Right(_succeededJob('job-1'));
       if (applyQueue != null) repo.applyQueue.addAll(applyQueue);
       preview = ValueNotifier(
         previewValue ?? Right(_previewResponse(_scriptPayload())),
@@ -1057,6 +1074,105 @@ void main() {
         find.byKey(const Key('ai-preview-row-scene-score-draft-2')),
         findsNothing,
       );
+      await tester.pump();
+    });
+
+    testWidgets('a row whose scoring request failed renders the explicit '
+        'failure state; a scored row and an unscored row do not (issue #767)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft(
+                'draft-1',
+                number: 1,
+                scoring: DecisionRubric(
+                  (b) => b
+                    ..decisionProvider = LlmProvider.neuralwatt
+                    ..decisionModel = 'glm-5.3'
+                    ..scoringFailed = true,
+                ),
+              ),
+              _draft('draft-2', number: 2, sceneScore: 0.9),
+              _draft('draft-3', number: 3),
+            ]),
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      // draft-1's own scoring request failed: the row STATES it — no stars,
+      // no unexplained empty space.
+      expect(
+        find.byKey(const Key('ai-preview-scoring-failed-draft-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-preview-row-draft-1')),
+          matching: find.text('Scoring failed — no stars.'),
+        ),
+        findsOneWidget,
+      );
+      // … and it fabricates no rating for the failed row.
+      expect(
+        find.byKey(const Key('ai-preview-row-scene-score-draft-1')),
+        findsNothing,
+      );
+      // A scored row keeps its stars and gets NO failure note.
+      expect(
+        find.byKey(const Key('ai-preview-row-scene-score-draft-2')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-scoring-failed-draft-2')),
+        findsNothing,
+      );
+      // An unscored row (no rubric at all: the pass never ran) renders
+      // nothing extra — the honest silence of "no Decision Model".
+      expect(
+        find.byKey(const Key('ai-preview-scoring-failed-draft-3')),
+        findsNothing,
+      );
+      await tester.pump();
+    });
+
+    testWidgets('the preview header names the effective Decision Model, or '
+        'why the import ran without one (issue #767)', (tester) async {
+      await setupContainer();
+      repo.jobResult = Right(
+        _succeededJob(
+          'job-1',
+          decisionTelemetry: DecisionTelemetry(
+            (b) => b
+              ..outcome = DecisionOutcome.scoringFailed
+              ..provider = LlmProvider.neuralwatt
+              ..model = 'glm-5.3'
+              ..failedRows = 2,
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+
+      expect(find.byKey(const Key('ai-decision-outcome')), findsOneWidget);
+      expect(
+        find.text(
+          'Scoring failed — 2 rows without stars (neuralwatt / glm-5.3).',
+        ),
+        findsOneWidget,
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a job without a recorded decision outcome renders no header '
+        'line — the client never guesses a class (issue #767)', (tester) async {
+      await setupContainer();
+      repo.jobResult = Right(_succeededJob('job-1'));
+      await pumpPreview(tester);
+
+      expect(find.byKey(const Key('ai-decision-outcome')), findsNothing);
       await tester.pump();
     });
 

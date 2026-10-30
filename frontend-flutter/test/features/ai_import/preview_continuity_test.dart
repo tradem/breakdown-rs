@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.4 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 + Tier-2 tests for the Pass-2 outfit provenance badges and the
 // wardrobe-gap candidate picker (issue #745, OpenSpec
@@ -29,6 +30,7 @@ import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/decision_outcome.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/preview_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
@@ -311,6 +313,14 @@ void main() {
           aiJobContextProvider.overrideWith(
             (ref, jobId) async =>
                 const AiJobContext(episodeId: 'ep-1', projectId: 'project-1'),
+          ),
+          // The Decision-Model outcome line (issue #767) reads the job
+          // snapshot, and this fixture carries no job row — pin the line's
+          // silent state ("the job recorded no outcome") instead of a read
+          // failure, which would render its degraded line in the goldens. The
+          // failure state has its own tests in decision_outcome_test.dart.
+          aiJobDecisionTelemetryProvider.overrideWith(
+            (ref, jobId) async => null,
           ),
           scenesListFetchProvider.overrideWith(
             (ref, episodeId) async => const Right(<SceneView>[]),
