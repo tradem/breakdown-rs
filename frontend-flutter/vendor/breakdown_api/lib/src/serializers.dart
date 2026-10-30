@@ -75,7 +75,9 @@ import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/credential_binding_state.dart';
 import 'package:breakdown_api/src/model/currency.dart';
 import 'package:breakdown_api/src/model/dead_letter_entry.dart';
+import 'package:breakdown_api/src/model/decision_outcome.dart';
 import 'package:breakdown_api/src/model/decision_rubric.dart';
+import 'package:breakdown_api/src/model/decision_telemetry.dart';
 import 'package:breakdown_api/src/model/dispo_row.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/draft_character.dart';
@@ -262,7 +264,9 @@ part 'serializers.g.dart';
   CredentialBindingState,
   Currency,
   DeadLetterEntry,
+  DecisionOutcome,
   DecisionRubric,
+  DecisionTelemetry,
   DispoRow,
   DocumentKind,
   DraftCharacter,
