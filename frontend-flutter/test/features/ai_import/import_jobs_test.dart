@@ -102,6 +102,10 @@ class FakeAiImportRepository extends AiImportRepository {
   /// dispatch sent no `X-Document-Filename` header.
   String? lastFileName;
 
+  /// The season the last upload DECLARED as its target (issue #771) — `null`
+  /// when the dispatch sent no `X-Declared-Season` header.
+  String? lastDeclaredSeasonId;
+
   /// The scripted watch stream (a controllable controller per test).
   StreamController<Result<AiImportJob>>? watchController;
 
@@ -114,10 +118,12 @@ class FakeAiImportRepository extends AiImportRepository {
     required Object body,
     required AiScheduleSource source,
     String? fileName,
+    String? declaredSeasonId,
     void Function(int, int)? onSendProgress,
   }) async {
     uploadCalls++;
     lastFileName = fileName;
+    lastDeclaredSeasonId = declaredSeasonId;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -125,10 +131,12 @@ class FakeAiImportRepository extends AiImportRepository {
   Future<Result<AiUploadAck>> uploadScript({
     required Object body,
     String? fileName,
+    String? declaredSeasonId,
     void Function(int, int)? onSendProgress,
   }) async {
     uploadCalls++;
     lastFileName = fileName;
+    lastDeclaredSeasonId = declaredSeasonId;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -269,6 +277,61 @@ void main() {
       expect(repo.jobCalls, 0);
       container.dispose();
     });
+
+    test('an ambient block from ANOTHER season is refused with the scoped '
+        'server code and issues ZERO calls (issue #771)', () async {
+      // The scope names season-1; the screen resolved season-B as the target.
+      // This is the window the wizard CTA opens when the new season has no
+      // block yet: the app refuses instead of importing into season-1.
+      await setupContainer();
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      )..selectKind(AiImportKind.schedule);
+      final res = await controller.submit(
+        AiImportDocument.csv('day,scene\n1,12'),
+        seasonId: 'season-b',
+      );
+      expect(res.isLeft(), isTrue);
+      expect(res.getLeft().toNullable()!.code, 'ai_import.scope_mismatch');
+      expect(res.getLeft().toNullable()!.status, 409);
+      expect(repo.uploadCalls, 0);
+      expect(repo.lastDeclaredSeasonId, isNull);
+      container.dispose();
+    });
+
+    test('a target season the ambient block belongs to dispatches AND '
+        'declares that season on the upload (issue #771)', () async {
+      await setupContainer();
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      )..selectKind(AiImportKind.schedule);
+      final res = await controller.submit(
+        AiImportDocument.csv('day,scene\n1,12'),
+        seasonId: 'season-1',
+      );
+      expect(res.isRight(), isTrue);
+      expect(repo.uploadCalls, 1);
+      expect(repo.lastDeclaredSeasonId, 'season-1');
+      container.dispose();
+    });
+
+    test(
+      'no explicit target keeps the ambient resolution and still declares '
+      'that season — every dispatch states its target (issue #771)',
+      () async {
+        await setupContainer();
+        final controller = container.read(
+          aiImportSubmitControllerProvider.notifier,
+        )..selectKind(AiImportKind.schedule);
+        final res = await controller.submit(
+          AiImportDocument.csv('day,scene\n1,12'),
+        );
+        expect(res.isRight(), isTrue);
+        expect(repo.uploadCalls, 1);
+        expect(repo.lastDeclaredSeasonId, 'season-1');
+        container.dispose();
+      },
+    );
 
     test('the dispatch forwards the picked document name so the upload can '
         'identify the job later (issue #763)', () async {

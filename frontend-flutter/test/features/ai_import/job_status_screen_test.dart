@@ -45,9 +45,22 @@ AiImportJob _job(
   AiImportProgress? progress,
   CostBreakdown? cost,
   JobTelemetrySummary? telemetry,
+  AiImportTarget? target,
 }) => AiImportJob(
   (b) => b
     ..id = 'job-1'
+    // Issue #771: the recorded target. Defaulted so every existing scenario
+    // renders the real line; the "no target recorded" arm is asserted
+    // separately with an explicit `target: null`.
+    ..target =
+        (target ??
+                AiImportTarget(
+                  (b) => b
+                    ..seasonId = 'season-2'
+                    ..seasonNumber = 2
+                    ..blockNumber = 3,
+                ))
+            .toBuilder()
     ..userId = 'dev-user'
     ..status = status
     ..documentKind = DocumentKind.schedule
@@ -559,6 +572,48 @@ void main() {
     await pumpScreen(tester);
     expect(find.byKey(const Key('ai-job-succeeded')), findsOneWidget);
     expect(find.byKey(const Key('ai-job-open-preview')), findsOneWidget);
+    await tester.pump();
+  });
+
+  testWidgets('the job repeats its recorded import target (issue #771)', (
+    tester,
+  ) async {
+    await setupContainer(Right(_job(JobStatus.succeeded)));
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-target')), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-job-target-line'))).data,
+      'Season 2 · Block 3',
+    );
+    await tester.pump();
+  });
+
+  testWidgets('a job uploaded before the target field existed says so '
+      'instead of inventing a season (issue #771)', (tester) async {
+    await setupContainer(
+      Right(
+        AiImportJob(
+          (b) => b
+            ..id = 'job-old'
+            ..userId = 'dev-user'
+            ..status = JobStatus.succeeded
+            ..documentKind = DocumentKind.schedule
+            ..sourceFormat = SourceFormat.csv
+            ..dedupKey = 'dedup'
+            ..documentDigest = 'digest'
+            ..sourceHandle = 'handle'
+            ..retries = 0
+            ..maxRetries = 3
+            ..createdAt = DateTime.utc(2026, 1, 1)
+            ..updatedAt = DateTime.utc(2026, 1, 1),
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-job-target-line'))).data,
+      'Target not recorded (import from an older app version).',
+    );
     await tester.pump();
   });
 

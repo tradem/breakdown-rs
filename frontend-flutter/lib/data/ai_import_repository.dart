@@ -53,6 +53,17 @@ String scheduleContentType(AiScheduleSource source) => switch (source) {
 /// The wire header carrying the picked document's name (issue #763).
 const String kDocumentFileNameHeader = 'X-Document-Filename';
 
+/// The wire header carrying the season the client resolved as the import
+/// target (issue #771).
+///
+/// The write target stays the ambient `X-Active-Block` header. This declaration
+/// exists so a contradiction (`the screen shows season B, the request carries
+/// season A's block`) is refused by the server with 409
+/// `ai-import.scope-mismatch` instead of silently importing into the wrong
+/// season — the reported defect. A raw-body upload cannot carry it in the body
+/// (the body IS the document), so it travels as a header like the name.
+const String kDeclaredSeasonHeader = 'X-Declared-Season';
+
 /// Percent-encodes a file name for [kDocumentFileNameHeader].
 ///
 /// HTTP header values are ASCII, so a UTF-8 name (`Erlösung Skript.pdf`) must
@@ -174,12 +185,14 @@ class AiImportRepository extends BaseRepository {
     required Object body,
     required AiScheduleSource source,
     String? fileName,
+    String? declaredSeasonId,
     void Function(int count, int total)? onSendProgress,
   }) => _upload(
     '/v1/ai-import/schedules',
     body,
     scheduleContentType(source),
     fileName,
+    declaredSeasonId,
     onSendProgress,
   );
 
@@ -194,12 +207,14 @@ class AiImportRepository extends BaseRepository {
   Future<Result<AiUploadAck>> uploadScript({
     required Object body,
     String? fileName,
+    String? declaredSeasonId,
     void Function(int count, int total)? onSendProgress,
   }) => _upload(
     '/v1/ai-import/scripts',
     body,
     kScriptContentType,
     fileName,
+    declaredSeasonId,
     onSendProgress,
   );
 
@@ -207,11 +222,18 @@ class AiImportRepository extends BaseRepository {
   /// a [ProblemError] keyed on the backend problem `code` (413/415/403/404
   /// all arrive as RFC 9457 problem+json — AGENTS.md §5). [body] is a
   /// [String] (UTF-8 text) or [Uint8List] (raw bytes, e.g. PDFs).
+  ///
+  /// [declaredSeasonId] is the season the UI resolved as the target (issue
+  /// #771) and travels as [`kDeclaredSeasonHeader`]: the server refuses a
+  /// declared season that does not own the active block, so this request can
+  /// never write into a season the user was not shown. `null` sends no
+  /// declaration (the header's own degradation path).
   Future<Result<AiUploadAck>> _upload(
     String path,
     Object body,
     String contentType,
     String? fileName,
+    String? declaredSeasonId,
     void Function(int count, int total)? onSendProgress,
   ) async {
     try {
@@ -223,10 +245,14 @@ class AiImportRepository extends BaseRepository {
           // Issue #763: the document's name rides along as a header. Only
           // `Content-Type` is overridden by `Options.contentType`; a caller
           // header set here survives, so the declared CSV/PDF media type
-          // contract above is untouched.
-          headers: fileName == null
-              ? null
-              : {kDocumentFileNameHeader: encodeDocumentFileName(fileName)},
+          // contract above is untouched. Issue #771 adds the declared season
+          // to the same map — both are metadata, never part of the body.
+          headers: {
+            if (fileName != null)
+              kDocumentFileNameHeader: encodeDocumentFileName(fileName),
+            if (declaredSeasonId != null && declaredSeasonId.isNotEmpty)
+              kDeclaredSeasonHeader: declaredSeasonId,
+          },
           // Both 200 (duplicate) and 202 (enqueued) are acknowledged —
           // the branch happens on the status code below.
           validateStatus: (status) => status == 200 || status == 202,

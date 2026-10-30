@@ -2348,6 +2348,72 @@ abstract class AppLocalizations {
   /// **'Zum Import senden'**
   String get aiImportSubmit;
 
+  /// No description provided for @aiImportTargetTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Importziel'**
+  String get aiImportTargetTitle;
+
+  /// No description provided for @aiImportTargetLine.
+  ///
+  /// In de, this message translates to:
+  /// **'{seasonLabel} · {blockLabel}'**
+  String aiImportTargetLine(Object seasonLabel, Object blockLabel);
+
+  /// No description provided for @aiImportTargetHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Episoden, Szenen und Drehtage dieses Imports landen in diesem Block. Passt das Ziel nicht, wechsle zuerst den Block.'**
+  String get aiImportTargetHint;
+
+  /// No description provided for @aiImportTargetNotRecorded.
+  ///
+  /// In de, this message translates to:
+  /// **'Ziel nicht aufgezeichnet (Import aus einer älteren App-Version).'**
+  String get aiImportTargetNotRecorded;
+
+  /// No description provided for @aiImportTargetLoading.
+  ///
+  /// In de, this message translates to:
+  /// **'Importziel wird ermittelt …'**
+  String get aiImportTargetLoading;
+
+  /// No description provided for @aiImportTargetNoSeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Wähle zuerst eine Staffel aus – ohne Staffel hat der Import kein Ziel.'**
+  String get aiImportTargetNoSeason;
+
+  /// No description provided for @aiImportTargetNoBlocks.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Staffel hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.'**
+  String get aiImportTargetNoBlocks;
+
+  /// No description provided for @aiImportTargetPickBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Ziel-Block wählen'**
+  String get aiImportTargetPickBlock;
+
+  /// No description provided for @aiImportTargetUnknownSeason.
+  ///
+  /// In de, this message translates to:
+  /// **'Staffel unbekannt'**
+  String get aiImportTargetUnknownSeason;
+
+  /// No description provided for @aiImportTargetUnknownBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Block unbekannt'**
+  String get aiImportTargetUnknownBlock;
+
+  /// No description provided for @aiImportScopeMismatch.
+  ///
+  /// In de, this message translates to:
+  /// **'Der aktive Block gehört zu einer anderen Staffel als der Import. Der Upload wurde nicht gesendet.'**
+  String get aiImportScopeMismatch;
+
   /// No description provided for @commonAdd.
   ///
   /// In de, this message translates to:

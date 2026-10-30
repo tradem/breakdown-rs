@@ -1466,6 +1466,46 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiImportSubmit => 'Zum Import senden';
 
   @override
+  String get aiImportTargetTitle => 'Importziel';
+
+  @override
+  String aiImportTargetLine(Object seasonLabel, Object blockLabel) {
+    return '$seasonLabel · $blockLabel';
+  }
+
+  @override
+  String get aiImportTargetHint =>
+      'Episoden, Szenen und Drehtage dieses Imports landen in diesem Block. Passt das Ziel nicht, wechsle zuerst den Block.';
+
+  @override
+  String get aiImportTargetNotRecorded =>
+      'Ziel nicht aufgezeichnet (Import aus einer älteren App-Version).';
+
+  @override
+  String get aiImportTargetLoading => 'Importziel wird ermittelt …';
+
+  @override
+  String get aiImportTargetNoSeason =>
+      'Wähle zuerst eine Staffel aus – ohne Staffel hat der Import kein Ziel.';
+
+  @override
+  String get aiImportTargetNoBlocks =>
+      'Diese Staffel hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.';
+
+  @override
+  String get aiImportTargetPickBlock => 'Ziel-Block wählen';
+
+  @override
+  String get aiImportTargetUnknownSeason => 'Staffel unbekannt';
+
+  @override
+  String get aiImportTargetUnknownBlock => 'Block unbekannt';
+
+  @override
+  String get aiImportScopeMismatch =>
+      'Der aktive Block gehört zu einer anderen Staffel als der Import. Der Upload wurde nicht gesendet.';
+
+  @override
   String get commonAdd => 'Hinzufügen';
 
   @override

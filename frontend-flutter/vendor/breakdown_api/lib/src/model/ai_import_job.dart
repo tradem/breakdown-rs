@@ -12,6 +12,7 @@ import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/applied_episode.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/ai_import_progress.dart';
+import 'package:breakdown_api/src/model/ai_import_target.dart';
 import 'package:breakdown_api/src/model/cost_breakdown.dart';
 import 'package:breakdown_api/src/model/ai_import_attempt.dart';
 import 'package:built_value/built_value.dart';
@@ -41,6 +42,7 @@ part 'ai_import_job.g.dart';
 /// * [sourceFormat]
 /// * [sourceHandle]
 /// * [status]
+/// * [target] - The production target this job imports INTO, snapshotted at dispatch time (issue #771). `None` for every job created before the field existed (pre-#771 rows carry no target) and for any upload whose season/block read metadata could not be resolved at the API edge.  The authoritative write target stays [`Self::block_id`] — the block named by the required `X-Active-Block` header, which the apply path pins itself to (the CWE-639 guard). This field exists so the visible target and the write target can be compared after the fact: the reported defect was an import that silently landed in the *previously* active season because nothing named where it would go.
 /// * [telemetry] - Content-free operational telemetry recorded for this job (issue #675). `None` until a worker or the API apply path records telemetry; additive on the wire.
 /// * [updatedAt]
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
@@ -113,6 +115,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   @BuiltValueField(wireName: r'status')
   JobStatus get status;
   // enum statusEnum {  pending,  running,  succeeded,  failed,  dead_letter,  payload_unavailable,  };
+
+  /// The production target this job imports INTO, snapshotted at dispatch time (issue #771). `None` for every job created before the field existed (pre-#771 rows carry no target) and for any upload whose season/block read metadata could not be resolved at the API edge.  The authoritative write target stays [`Self::block_id`] — the block named by the required `X-Active-Block` header, which the apply path pins itself to (the CWE-639 guard). This field exists so the visible target and the write target can be compared after the fact: the reported defect was an import that silently landed in the *previously* active season because nothing named where it would go.
+  @BuiltValueField(wireName: r'target')
+  AiImportTarget? get target;
 
   /// Content-free operational telemetry recorded for this job (issue #675). `None` until a worker or the API apply path records telemetry; additive on the wire.
   @BuiltValueField(wireName: r'telemetry')
@@ -261,6 +267,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       object.status,
       specifiedType: const FullType(JobStatus),
     );
+    if (object.target != null) {
+      yield r'target';
+      yield serializers.serialize(
+        object.target,
+        specifiedType: const FullType.nullable(AiImportTarget),
+      );
+    }
     if (object.telemetry != null) {
       yield r'telemetry';
       yield serializers.serialize(
@@ -446,6 +459,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
             specifiedType: const FullType(JobStatus),
           ) as JobStatus;
           result.status = valueDes;
+          break;
+        case r'target':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(AiImportTarget),
+          ) as AiImportTarget?;
+          if (valueDes == null) continue;
+          result.target.replace(valueDes);
           break;
         case r'telemetry':
           final valueDes = serializers.deserialize(

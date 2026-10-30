@@ -59,7 +59,7 @@ final class ActiveEpisodeProvider
   }
 }
 
-String _$activeEpisodeHash() => r'466ee157ed9c5a48b33c10da1babeefd7fe8d26a';
+String _$activeEpisodeHash() => r'5b0dd59cc18d7847ccd42edd3ec8ed8156c1e6ca';
 
 /// The sticky active-episode scope. `null` means no episode is in context
 /// (fresh boot, signed out, or the scope was cleared) — the quick-create

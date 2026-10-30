@@ -29,6 +29,7 @@ export 'package:breakdown_api/src/model/ai_import_job_response.dart';
 export 'package:breakdown_api/src/model/ai_import_preview_response.dart';
 export 'package:breakdown_api/src/model/ai_import_progress.dart';
 export 'package:breakdown_api/src/model/ai_import_stage.dart';
+export 'package:breakdown_api/src/model/ai_import_target.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
