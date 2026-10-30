@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'active_block_store.dart';
+import 'active_episode.dart';
 
 part 'active_block.g.dart';
 
@@ -89,6 +91,12 @@ class ActiveBlock extends _$ActiveBlock {
   /// the scope chip can render a visible label — never a second projection
   /// lookup (CQRS boundary).
   ///
+  /// **Reverse half of the "episode implies its block" invariant**
+  /// (issue #765): an episode scope whose block is not this one is dropped
+  /// (`ActiveEpisode.clearForForeignBlock`), so the shell can never display
+  /// or act on "Block B · Episode of block A". The forward half — picking an
+  /// episode sets its block — lives in `ActiveEpisode.set`.
+  ///
   /// The in-memory state updates synchronously (call sites — e.g. the
   /// `BlocksScreen` tap — must observe it before navigating); the
   /// per-season persistence follows fire-and-forget and refreshes
@@ -119,6 +127,13 @@ class ActiveBlock extends _$ActiveBlock {
             ref.invalidate(activeBlockPersistedProvider);
           }),
     );
+    // Issue #765: a foreign episode scope never survives a block switch. The
+    // episode notifier owns the guard (a matching block is a no-op), so the
+    // forward cascade in `ActiveEpisode.set`, which sets the episode FIRST,
+    // is not undone here.
+    ref
+        .read(activeEpisodeProvider.notifier)
+        .clearForForeignBlock(seasonId: seasonId, blockId: blockId);
   }
 
   /// Clears the scope (sign-out / session teardown) including its

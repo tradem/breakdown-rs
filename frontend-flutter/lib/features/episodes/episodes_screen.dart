@@ -5,6 +5,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -151,7 +152,12 @@ class EpisodesScreen extends ConsumerWidget {
                                                   // episode scope (from the
                                                   // DTO acted on — CQRS
                                                   // boundary) before the
-                                                  // push.
+                                                  // push. Issue #765: that
+                                                  // write cascades the block
+                                                  // scope too, so the pair
+                                                  // can never diverge; the
+                                                  // block number comes from
+                                                  // the block DTO in hand.
                                                   ref
                                                       .read(
                                                         activeEpisodeProvider
@@ -167,6 +173,8 @@ class EpisodesScreen extends ConsumerWidget {
                                                             row.episode.number,
                                                         episodeName:
                                                             row.episode.name,
+                                                        blockNumber:
+                                                            block.number,
                                                       );
                                                   unawaited(
                                                     Navigator.of(context).push(
@@ -207,7 +215,9 @@ class EpisodesScreen extends ConsumerWidget {
                                             // Issue #624: entering an
                                             // episode's day board sets the
                                             // sticky active-episode scope
-                                            // before the push.
+                                            // before the push. Issue #765:
+                                            // the block scope comes along
+                                            // (with the block number).
                                             ref
                                                 .read(
                                                   activeEpisodeProvider
@@ -220,6 +230,7 @@ class EpisodesScreen extends ConsumerWidget {
                                                   episodeNumber:
                                                       row.episode.number,
                                                   episodeName: row.episode.name,
+                                                  blockNumber: block.number,
                                                 );
                                             unawaited(
                                               Navigator.of(context).push(

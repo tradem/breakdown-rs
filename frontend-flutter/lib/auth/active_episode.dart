@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'active_block.dart';
 import 'active_episode_store.dart';
 
 part 'active_episode.g.dart';
@@ -83,19 +85,41 @@ class ActiveEpisode extends _$ActiveEpisode {
   @override
   ActiveEpisodeScope? build() => null;
 
-  /// Sets the scope from the episode DTO the user acted on.
+  /// Sets the scope from the episode DTO the user acted on, and CASCADES the
+  /// active-block scope from the same DTO (issue #765).
+  ///
+  /// **Invariant — an episode implies its block.** An episode belongs to
+  /// exactly one block, so every write of the episode scope also establishes
+  /// the block scope. That block scope is not cosmetic: `X-Active-Block` rides
+  /// on every request (`ActiveBlockInterceptor`) and the backend rejects a
+  /// MISSING header with 400 on the block-scoped routes (episodes, scenes,
+  /// shooting days, scene shoots, pieces, characters) — an episode scope
+  /// without its block scope would leave the app acting headerless. THIS
+  /// method is the one seam: every `activeEpisodeProvider.notifier.set(...)`
+  /// call site gets the block scope along, so no future picker or screen can
+  /// forget it (the invariant is structural, not a review checklist item).
+  ///
+  /// The reverse direction — a BLOCK switch dropping an episode scope that no
+  /// longer belongs to it — lives in `ActiveBlock.set`, so the two scopes can
+  /// never disagree.
   ///
   /// The in-memory state updates synchronously (call sites must observe it
   /// before navigating); the per-season persistence follows fire-and-forget
   /// and refreshes [activeEpisodePersistedProvider] once settled so watchers
   /// converge. The refresh is `mounted`-guarded: the write may settle after
   /// the provider was invalidated or disposed (sign-out, test teardown).
+  ///
+  /// [blockNumber] is the acted-on block's number when the caller holds the
+  /// `BlockView`; `null` is honest — the block chip's CACHE-ONLY number
+  /// backfill then resolves the label (never a fabricated number, never a
+  /// network fetch).
   void set({
     required String seasonId,
     required String blockId,
     required String episodeId,
     required int episodeNumber,
     String? episodeName,
+    int? blockNumber,
   }) {
     state = ActiveEpisodeScope(
       seasonId: seasonId,
@@ -120,6 +144,60 @@ class ActiveEpisode extends _$ActiveEpisode {
             ref.invalidate(activeEpisodePersistedProvider);
           }),
     );
+    _cascadeBlockScope(
+      seasonId: seasonId,
+      blockId: blockId,
+      blockNumber: blockNumber,
+    );
+  }
+
+  /// Establishes the block scope the acted-on episode belongs to (issue #765).
+  ///
+  /// A block scope that ALREADY names this season/block pair is left
+  /// untouched: that preserves a `blockNumber` the chip resolved earlier (a
+  /// cascade must never degrade a known label back to "unknown") and it is
+  /// what keeps this from looping with `ActiveBlock.set`'s reverse cascade —
+  /// the episode is already in place, so there is nothing to drop.
+  void _cascadeBlockScope({
+    required String seasonId,
+    required String blockId,
+    int? blockNumber,
+  }) {
+    final current = ref.read(activeBlockProvider);
+    if (current != null &&
+        current.seasonId == seasonId &&
+        current.blockId == blockId) {
+      return;
+    }
+    ref
+        .read(activeBlockProvider.notifier)
+        .set(seasonId: seasonId, blockId: blockId, blockNumber: blockNumber);
+  }
+
+  /// Drops the scope because the BLOCK scope moved to a different block
+  /// (issue #765): an episode belongs to exactly one block, so the pair
+  /// "Block B · Episode of block A" must never be displayable or acted on.
+  ///
+  /// The in-memory scope always goes (when it is foreign at all). A scope
+  /// belonging to [seasonId] additionally has its persisted document evicted,
+  /// so a cold start cannot resurrect the stale pair; a scope from ANOTHER
+  /// season keeps its document — per-season memory is the season-switch
+  /// path's concern (see [discard]).
+  void clearForForeignBlock({
+    required String seasonId,
+    required String blockId,
+  }) {
+    final current = state;
+    if (current == null || current.blockId == blockId) return;
+    state = null;
+    if (current.seasonId != seasonId) return;
+    unawaited(
+      ref.read(activeEpisodeStoreProvider).removeScope(seasonId).then((r) {
+        r.fold((_) {}, (_) {});
+        if (!ref.mounted) return;
+        ref.invalidate(activeEpisodePersistedProvider);
+      }),
+    );
   }
 
   /// Clears the scope (sign-out / session teardown) including its persisted
@@ -139,6 +217,7 @@ class ActiveEpisode extends _$ActiveEpisode {
   /// documents (issue #624, CodeRabbit review): used when the active season
   /// changes and the new season has no remembered episode — the previous
   /// season's scope must not linger as a foreign chip, while each season
-  /// keeps its own persisted entry.
+  /// keeps its own persisted entry. (A BLOCK switch uses
+  /// [clearForForeignBlock] instead: there the pair is stale for good.)
   void discard() => state = null;
 }

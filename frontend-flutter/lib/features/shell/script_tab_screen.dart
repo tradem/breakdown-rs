@@ -202,6 +202,10 @@ class _ScriptRowTile extends ConsumerWidget {
   ///
   /// Issue #624: entering an episode's scene sets the sticky active-episode
   /// scope (from the row's acted-on DTOs — CQRS boundary) before the push.
+  /// Issue #765: that write also cascades the BLOCK scope from the same row
+  /// (`ActiveEpisode.set`), so the Script view's season-wide composition can
+  /// never leave the request scope headerless; the block number travels with
+  /// it from the row's `BlockView` so the block pill needs no backfill.
   void _open(BuildContext context, WidgetRef ref) {
     ref
         .read(activeEpisodeProvider.notifier)
@@ -211,6 +215,7 @@ class _ScriptRowTile extends ConsumerWidget {
           episodeId: row.episode.id,
           episodeNumber: row.episode.number,
           episodeName: row.episode.name,
+          blockNumber: row.block.number,
         );
     unawaited(
       Navigator.of(context).push(

@@ -4,6 +4,7 @@
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: space-bunny (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Navigation Shell — Screen Spec
 
@@ -161,6 +162,12 @@ destination's internal position (per-destination navigators stay alive).
 Tapping a scope pill opens its picker: the season picker always, the block
 picker for the active season, the episode picker for the active block; a
 pick sets the sticky scope and pops, so all three views rescope at once.
+The episode and block levels are **one pair**: picking an episode also sets
+its block scope (an episode belongs to exactly one block, so the block pill
+follows the episode and the `X-Active-Block` request scope can never stay
+unset behind a highlighted episode), and switching the block scope drops an
+episode from the previous block — the pills never show a pair that does not
+belong together.
 Tapping the profile action opens the profile sheet; tapping the search
 affordance opens the OmniSearch surface inside the active destination's
 navigator. System back: pops within the active destination first; at a

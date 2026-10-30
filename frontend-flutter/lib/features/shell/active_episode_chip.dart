@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
@@ -104,6 +105,13 @@ class ActiveEpisodeChip extends ConsumerWidget {
 /// the SAME seam the episodes screen uses (`episodesListFetchProvider`) and
 /// sets the sticky scope from the acted-on `EpisodeView` on pick (CQRS
 /// boundary — the DTO the user acted on, never a second lookup), then pops.
+///
+/// Issue #765: the pick goes through `ActiveEpisode.set`, which cascades the
+/// BLOCK scope from the picked episode's `blockId` — so a pick here can no
+/// longer leave the shell with an episode scope but no block scope (the
+/// headerless-request state the chip's restored-scope arm used to produce).
+/// The block scope's number is left `null` unless a matching scope already
+/// carries one; the block chip's cache-only backfill resolves the label.
 class EpisodeScopePickerScreen extends ConsumerWidget {
   const EpisodeScopePickerScreen({
     super.key,
