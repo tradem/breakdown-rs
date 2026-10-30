@@ -179,7 +179,7 @@ render it, and neither ever fabricates a rating.
 
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| Effective Decision Model (preview header) | Icon + body-small line under the naming line (`auto_awesome_outlined`, `onSurfaceVariant`) | Names the `provider / model` that actually scored the import — the model behind the stars, which is NOT the extraction model of the naming line above. A pair the wire carries only partially degrades to the part it has | `aiDecisionRan`, `aiDecisionModelUnnamed` |
+| Effective Decision Model (preview header) | Icon + body-small line under the naming header card (`auto_awesome_outlined`, `onSurfaceVariant`) | Names the `provider / model` that actually scored the import — the model behind the stars, which is NOT the extraction model of the header card above. A pair the wire carries only partially degrades to the part it has | `aiDecisionRan`, `aiDecisionModelUnnamed` |
 | Ran without a model (preview header, job cost card) | Icon + body-small line (`info_outline`, tertiary) | States that no Decision Model was configured — distinguishable from the `client_unavailable` copy, which names the CONFIGURED pair the worker resolved. A native CSV schedule or a pure merge renders the "no scoring needed" variant | `aiDecisionSkippedNoConfig`, `aiDecisionClientUnavailable`, `aiDecisionSkippedNotApplicable` |
 | Scoring failed (preview header, job cost card) | Icon + body-small line (`report_outlined`, error) | Names the failure and the number of affected rows from `decision_telemetry.failed_rows` (ICU plural, de + en). The rows that did score keep their stars | `aiDecisionScoringFailed` |
 | Outcome not recorded | — (renders nothing) | A pre-#767 job carries no outcome; the client renders NO line rather than a guessed class. Same arm for an unrecognized future `outcome` value (neutral `aiDecisionNotRecorded` copy) | `aiDecisionNotRecorded` |
@@ -195,6 +195,26 @@ an `Ok` job yields a line (or none, when it recorded no outcome), while a
 failed `GET` yields the unavailable line with the retry — never the silent
 "no outcome" arm. The job-status cost card renders from the job it already
 holds, so a read failure never reaches it.
+
+## Preview — provider/model header and the Decision Model disclosure (issue #760)
+
+The preview's provider/model statement was one `bodySmall` line wedged between
+the app bar and the scene cards, so in a long preview the machinery that
+produced the rows was effectively invisible; and a configuration WITHOUT a
+Decision Model ran silently, which made the absent Pass-2 continuity
+suggestions and the absent star ratings look like a defect instead of a
+configuration state.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Provider/model header | Card (`surfaceContainerHighest`) as the FIRST child of the preview list, above the payload banner | Model as the primary line (`titleSmall`, ONE line, ellipsized — a curated id never pushes the rows off screen), provider as the secondary line (`labelLarge`), and the unchanged EU AI Act Art. 50 sentence as the caption, so promoting the facts does not weaken the disclosure. Shared with the submit/apply surfaces through ONE resolution (`aiNamingSentence`), so the wording cannot drift. The leading `memory_outlined` glyph reinforces only — the visible text carries the meaning | `aiNamingLine`, `aiPreviewNamingProvider` |
+| Honest degradation | The same card, one line | Unconfigured account OR failed discovery → the existing "no AI configuration" copy and NO model/provider line (a name is never invented); pending discovery → the loading note. A reload keeps the last resolved naming (`skipLoadingOnReload`) | `aiDisclosureNamingBodyUnconfigured`, `aiDisclosureNamingBodyLoading` |
+| No Decision Model configured | Non-blocking card (`tertiaryContainer`) under the outcome line, directly above the payload/apply section | Renders ONLY for a RESOLVED configuration whose `decisionProvider`/`decisionModel` are unset. States the two factual consequences — Pass-2 wardrobe continuity suggestions and the scene/synopsis ratings are skipped — and that the import still runs. The action opens the AI configuration screen; the apply is never blocked. A pending discovery, an unconfigured account and a FAILED read render nothing (a failed read is not the fact "unset"). One instance only: the apply section sits in the same scroll view directly below, so a second card at the dispatch point would duplicate UI, not information | `aiPreviewDecisionModelWarningTitle`, `aiPreviewDecisionModelWarningBody`, `aiPreviewDecisionModelWarningAction` |
+
+The Decision Model state comes from `configuredAiNamingProvider` — the caller's
+newest non-revoked configuration, i.e. the same configuration the import
+handler resolves — so no extra endpoint, no extra call (one cached discovery
+per container), and no warning about somebody else's config.
 
 ## Preview & Apply — outfit provenance and wardrobe gaps (issue #745)
 
@@ -228,7 +248,16 @@ note inside its card and NO stars, a scored row renders stars and no note, and a
 row without a rubric renders neither (issue #767); the preview header and the
 job cost card name the recorded outcome and stay silent for a job without one;
 unit tests cover every outcome class in de + en including the `scoring_failed`
-plural. Widget tests: the degraded-extraction row line renders for `scenes_synthesized > 0`
+plural. Widget tests (issue #760): the preview header renders the model as the
+primary line, the provider as the secondary line and the Art. 50 sentence as the
+caption (inside a `Card`, not a `bodySmall` line), a long model id stays on one
+line and ellipsizes without an overflow, the "no Decision Model" card renders
+exactly for a configured-but-empty Decision Model slot and leaves the apply
+reachable after the review acknowledgement, and both the unconfigured account
+and a failed discovery fall back to the "no AI configuration" copy with no
+warning (never a claim the app did not read). The AI-naming trajectories for
+the preview goldens configure a Decision Model, so the warning stays out of
+them. Widget tests: the degraded-extraction row line renders for `scenes_synthesized > 0`
 and stays absent for a clean run (issue #758); the script preview subtitle
 states detected vs extracted and names the rebuilt rows, and keeps the row
 count alone for a pre-#758 payload; rows render kind + date + status text + icon; tap pushes the

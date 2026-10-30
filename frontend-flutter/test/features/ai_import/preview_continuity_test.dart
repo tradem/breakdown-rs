@@ -51,6 +51,10 @@ const devAuthConfig = AppConfig(
   defaultProjectId: 'project-1',
 );
 
+/// The configured naming fixture the preview header renders (issue #608);
+/// the Decision Model slot (issue #722) is CONFIGURED so the "no Decision
+/// Model" warning of issue #760 stays out of these provenance/gap tests and
+/// their goldens.
 AiConfigView _namingConfig() => AiConfigView(
   (b) => b
     ..id = 'config-1'
@@ -61,7 +65,9 @@ AiConfigView _namingConfig() => AiConfigView(
     ..prompts.replace(BuiltMap<String, String>())
     ..promptKinds.replace(BuiltList<DocumentKind>())
     ..revoked = false
-    ..version = 1,
+    ..version = 1
+    ..decisionModel = 'decision-model-1'
+    ..decisionProvider = LlmProvider.openai,
 );
 
 DraftOutfit _outfit(

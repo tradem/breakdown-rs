@@ -52,16 +52,27 @@ class AiPreviewScreen extends ConsumerWidget {
         key: const Key('ai-preview-screen'),
         padding: const EdgeInsets.all(16),
         children: [
-          // Provider/model labelling line (EU AI Act Art. 50, issue #608):
+          // Provider/model HEADER CARD (EU AI Act Art. 50, issues #608/#760):
           // the preview names the configured import machinery above the
-          // AI-extracted rows (honest degradation when unconfigured).
-          AiNamingLine(key: const Key('ai-preview-naming')),
+          // AI-extracted rows at header weight — a `bodySmall` line between
+          // the app bar and the scene cards disappeared in a long preview
+          // (honest degradation when unconfigured / still loading).
+          const AiNamingCard(key: Key('ai-preview-naming')),
           // The EFFECTIVE Decision Model and what its scoring pass did
-          // (issue #767): the naming line above names the extraction model,
+          // (issue #767): the header card above names the extraction model,
           // which is a different model from the one that produced the stars
           // — and the one the reporter configured. Silent when the job
           // recorded no outcome (pre-#767 rows).
           AiDecisionOutcomeLine(jobId: jobId),
+          // A configuration WITHOUT a Decision Model (issue #760): the import
+          // is valid, the Pass-2 continuity suggestions and the scene/synopsis
+          // ratings simply do not run — stated non-blockingly here, one card
+          // above the payload, because the apply section sits directly below
+          // in the same scroll view (a second instance at the dispatch point
+          // would be duplicate UI, not extra information). Renders nothing
+          // when a Decision Model is configured, while the discovery is
+          // pending, or when the read failed (a failed read is not "unset").
+          const AiDecisionModelWarning(),
           const SizedBox(height: 8),
           switch (preview) {
             AsyncData(:final value) => value.match(

@@ -23,6 +23,38 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The import preview now shows WHICH provider/model produced the rows — and
+  says so when no Decision Model is configured** (`0.4.0-beta.25+117 →
+  0.4.0-beta.26+118`, issue #760). Provider and model were one tiny `bodySmall`
+  line between the app bar and the scene cards, so in a long preview the
+  machinery behind the rows was invisible; and a configuration without a
+  Decision Model ran silently, so the missing wardrobe continuity suggestions
+  and the missing star ratings looked like a defect. Both are preview-header
+  disclosures — no new endpoint, no extra call (the state comes from the
+  already-cached configuration discovery).
+
+  - **Header card.** `AiNamingCard` replaces the footnote: the model as the
+    primary line (`titleSmall`, one line, ellipsized — a long curated id never
+    pushes the rows off screen), the provider as the secondary line
+    (`labelLarge`), and the unchanged EU AI Act Art. 50 sentence as the caption,
+    so the visual promotion does not weaken the disclosure. The submit
+    disclosure and the apply section keep their compact line; both surfaces now
+    render the SAME shared sentence (`aiNamingSentence`), so the wording cannot
+    drift.
+  - **Honest degradation.** An unconfigured account or a failed discovery keeps
+    the existing "no AI configuration" copy with no model/provider line (a name
+    is never invented); a pending discovery keeps the loading note; a reload
+    keeps the resolved naming instead of flickering.
+  - **"No Decision Model" warning.** A non-blocking card states the two factual
+    consequences — Pass-2 wardrobe continuity suggestions and the scene/synopsis
+    ratings are skipped — plus that the import still runs, with a link into the
+    AI configuration (new keys `aiPreviewDecisionModelWarningTitle`,
+    `aiPreviewDecisionModelWarningBody`, `aiPreviewDecisionModelWarningAction`,
+    `aiPreviewNamingProvider`). It renders only for a RESOLVED configuration
+    with an empty Decision Model slot, never blocks the apply, and never claims
+    "unset" from a read that merely failed.
+  - Preview goldens re-cut for the new header.
+
 - **A script import that lost scenes is no longer invisible in the app**
   (`0.4.0-beta.22+114 → 0.4.0-beta.23+115`, issue #758, client part of the
   backend fix): importing the 57-scene script 299 "Erlösung" produced an

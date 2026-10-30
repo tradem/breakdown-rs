@@ -2992,6 +2992,22 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String aiPreviewNamingProvider(Object provider) {
+    return 'Provider: $provider';
+  }
+
+  @override
+  String get aiPreviewDecisionModelWarningTitle =>
+      'No Decision Model configured';
+
+  @override
+  String get aiPreviewDecisionModelWarningBody =>
+      'Wardrobe continuity suggestions (Pass 2) and the scene and synopsis ratings are skipped. The import still runs.';
+
+  @override
+  String get aiPreviewDecisionModelWarningAction => 'Configure now';
+
+  @override
   String get aiPreviewAiBanner => 'AI-extracted content — review carefully';
 
   @override
