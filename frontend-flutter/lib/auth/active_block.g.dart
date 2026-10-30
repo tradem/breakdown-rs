@@ -59,7 +59,7 @@ final class ActiveBlockProvider
   }
 }
 
-String _$activeBlockHash() => r'b776c8d3d2e71edc9ab5ec6d43c6a593ff077446';
+String _$activeBlockHash() => r'52fc69ecd5c8ab00c3fcc346b672354e3877575b';
 
 /// The sticky active-block scope. `null` means no scope is set (fresh boot
 /// or signed out) — requests go out headerless, which is valid for the

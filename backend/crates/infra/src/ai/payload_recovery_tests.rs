@@ -91,6 +91,7 @@ impl RecordingQueue {
                 telemetry: None,
                 cost: None,
                 source_file_name: None,
+                target: None,
                 applied_episodes: Vec::new(),
             },
             handed_out: Arc::new(Mutex::new(false)),

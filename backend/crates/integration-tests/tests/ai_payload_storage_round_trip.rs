@@ -302,6 +302,7 @@ async fn ai_payload_storage_lifecycle_survives_restart() -> Result<()> {
             document_digest: "digest".to_owned(),
             source_handle: source_handle.clone(),
             source_file_name: None,
+            target: None,
         })
         .await?;
     assert_eq!(enqueued, AiImportEnqueueResult::Enqueued(job_id));
@@ -428,6 +429,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             document_digest: "digest".to_owned(),
             source_handle: source_handle.clone(),
             source_file_name: None,
+            target: None,
         })
         .await?;
     assert_eq!(enqueued, AiImportEnqueueResult::Enqueued(job_id));

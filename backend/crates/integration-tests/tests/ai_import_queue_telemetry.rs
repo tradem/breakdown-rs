@@ -53,6 +53,7 @@ async fn seed_job(queue: &PgAiImportQueue, user: &str, dedup: &str) -> AiImportJ
             document_digest: "digest".to_owned(),
             source_handle: "handle".to_owned(),
             source_file_name: None,
+            target: None,
         })
         .await
         .unwrap();

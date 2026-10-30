@@ -67,6 +67,11 @@ String aiUploadErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'ai_import.forbidden' => l10n.pieceErrorForbidden,
       'ai-import.disabled' => l10n.aiUploadDisabled,
       'ai_import.scope_missing' => l10n.aiUploadScopeMissing,
+      // Issue #771: the server refused a declared season that does not own the
+      // active block (and the client refuses the same contradiction locally,
+      // with the scoped server code so one narrative covers both provenances).
+      'ai-import.scope-mismatch' ||
+      'ai_import.scope_mismatch' => l10n.aiImportScopeMismatch,
       'authz.denied' || 'membership.pending' => l10n.aiUploadPermissions,
       _ when error.code.startsWith('transport.') => l10n.aiUploadNetwork,
       _ => l10n.aiUploadGeneric(error.code),

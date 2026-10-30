@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 108;
+const PROBLEM_CODE_COUNT: usize = 109;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1045,6 +1045,20 @@ problem_codes! {
         code: "ai-import.job-not-deletable",
         status: 409,
         title: "AI import job is not in a deletable state",
+        extensions: &[],
+    },
+
+    /// 409 — the upload declared an intended season (`X-Declared-Season`)
+    /// that does not own the block in `X-Active-Block` (issue #771). The
+    /// header stays the authoritative write target; a contradictory request
+    /// is refused instead of silently importing into another season's block.
+    /// Distinct from the generic `domain.conflict` so the client can render
+    /// its "the import target moved — pick the season again" narrative and
+    /// re-resolve the scope instead of retrying blindly.
+    AI_IMPORT_SCOPE_MISMATCH {
+        code: "ai-import.scope-mismatch",
+        status: 409,
+        title: "AI import target season does not match the active block",
         extensions: &[],
     },
 

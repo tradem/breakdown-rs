@@ -384,6 +384,23 @@
   "aiImportDocMissing": "Wähle zuerst eine Datei.",
   "aiImportStampWarning": "Import gestartet – der Episodenkontext konnte nicht gespeichert werden ({code}); wähle die Episode beim Anwenden.",
   "aiImportSubmit": "Zum Import senden",
+  "aiImportTargetTitle": "Importziel",
+  "aiImportTargetLine": "{seasonLabel} · {blockLabel}",
+  "@aiImportTargetLine": {
+    "placeholders": {
+      "seasonLabel": {},
+      "blockLabel": {}
+    }
+  },
+  "aiImportTargetHint": "Episoden, Szenen und Drehtage dieses Imports landen in diesem Block. Passt das Ziel nicht, wechsle zuerst den Block.",
+  "aiImportTargetNotRecorded": "Ziel nicht aufgezeichnet.",
+  "aiImportTargetLoading": "Importziel wird ermittelt …",
+  "aiImportTargetNoSeason": "Wähle zuerst eine Staffel aus – ohne Staffel hat der Import kein Ziel.",
+  "aiImportTargetNoBlocks": "Diese Staffel hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.",
+  "aiImportTargetPickBlock": "Ziel-Block wählen",
+  "aiImportTargetUnknownSeason": "Staffel unbekannt",
+  "aiImportTargetUnknownBlock": "Block unbekannt",
+  "aiImportScopeMismatch": "Der aktive Block gehört zu einer anderen Staffel als der Import. Der Upload wurde nicht gesendet.",
   "commonAdd": "Hinzufügen",
   "captureDeniedCamera": "Kamera-Zugriff ist deaktiviert. Aktiviere den Kamera-Zugriff in den Einstellungen, um Kleidungsstücke zu dokumentieren.",
   "captureDeniedGallery": "Foto-Zugriff ist deaktiviert. Aktiviere den Foto-Zugriff in den Einstellungen, um Kleidungsstücke zu dokumentieren.",

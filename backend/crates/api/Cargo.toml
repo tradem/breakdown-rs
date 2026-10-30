@@ -9,7 +9,7 @@
 
 [package]
 name = "api"
-version = "0.47.0"
+version = "0.48.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -28,8 +28,8 @@ test-support = ["breakdown_core/test-support", "infra/test-support"]
 
 [dependencies]
 # Domäne & Infrastruktur
-breakdown_core = { path = "../core", version = "0.48.0" }
-infra = { path = "../infra", version = "0.57.0" }
+breakdown_core = { path = "../core", version = "0.49.0" }
+infra = { path = "../infra", version = "0.58.0" }
 
 # Web-Framework
 axum.workspace = true
@@ -98,6 +98,12 @@ accept-language = "3"
 [dev-dependencies]
 # `test-util` enables deterministic Tokio clock control for cache-expiry tests.
 tokio = { workspace = true, features = ["test-util"] }
+# Issue #771 review: the handler tests assert that a REFUSED upload stores no
+# source document, which needs the in-memory payload store's test-only
+# inspection helper (gated behind `infra/test-support`). Enabling it on the
+# dev-dependency makes it available to every `cargo test -p api` run — the same
+# feature the CI test job and the stored-preview fixture already assume.
+infra = { path = "../infra", version = "0.58.0", features = ["test-support"] }
 # OpenAPI drift check (issue #29): render the utoipa-generated doc as YAML to
 # compare against the checked-in review artifact `openapi.yaml`. Tests only.
 serde_yaml = "0.9"

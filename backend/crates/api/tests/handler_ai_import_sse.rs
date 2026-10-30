@@ -73,6 +73,7 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         telemetry: None,
         cost: None,
         source_file_name: None,
+        target: None,
         applied_episodes: Vec::new(),
     }
 }

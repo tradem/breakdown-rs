@@ -11,11 +11,15 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../auth/active_block.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../../blocks/active_block_gate.dart';
+import '../../blocks/blocks_controller.dart';
 import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../ai_config/ai_config_screen.dart';
 import 'import_state.dart';
+import 'import_target.dart';
 import '../naming_line.dart';
 
 // Re-exported for callers that need the ack/document shapes (task 3.1
@@ -43,6 +47,16 @@ class AiImportSubmitScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final kind = ref.watch(aiImportSubmitControllerProvider);
     final controller = ref.read(aiImportSubmitControllerProvider.notifier);
+    // Issue #771: the target is resolved DELIBERATELY, from the one season
+    // context the dispatch will also read — never from the ambient scope
+    // alone. `null` means the screen has no season at all (no explicit season
+    // from the wizard CTA and no ambient scope): the import then has no
+    // target and the submit affordance stays disabled.
+    final targetSeasonId = ref.watch(aiImportSeasonContextProvider(seasonId));
+    final resolution = targetSeasonId == null
+        ? null
+        : ref.watch(blockScopeResolutionProvider(targetSeasonId));
+    final target = aiImportResolvedScope(resolution);
 
     return Scaffold(
       appBar: AppBar(
@@ -96,8 +110,13 @@ class AiImportSubmitScreen extends ConsumerWidget {
             // action, at scroll position above the button — never skippable
             // content below the fold.
             _DisclosureCard(),
+            const SizedBox(height: 12),
+            // Issue #771: the visible write target. Sits directly above the
+            // submit action, next to the disclosure, because it is the one
+            // fact that decides where every imported row lands.
+            _ImportTargetCard(seasonId: targetSeasonId, resolution: resolution),
             const SizedBox(height: 24),
-            _SubmitButton(seasonId: seasonId),
+            _SubmitButton(seasonId: targetSeasonId, target: target),
           ],
         ),
       ),
@@ -245,13 +264,160 @@ class _DisclosureCard extends ConsumerWidget {
   );
 }
 
+/// The visible import TARGET (issue #771): `Season {n} · Block {n}` above the
+/// submit action.
+///
+/// The reported defect was an import whose write target was invisible ambient
+/// state: the season came from `X-Active-Block`, nothing on screen named it, and
+/// a freshly created season therefore changed nothing. This card closes that
+/// gap and also makes the target RESOLVABLE before dispatch:
+///
+/// - no season context → the actionable "select a season" state (no target);
+/// - resolution pending → the honest "resolving" state (no target);
+/// - exactly one block in the season → adopted automatically (the resolution
+///   seam sets the sticky scope, so the header follows the line);
+/// - several blocks → the inline picker, whose pick sets the sticky scope;
+/// - none → "create a block first" (no target);
+/// - fetch failure → the code-keyed retry surface.
+///
+/// The numbers come from read DTOs only: the season number is resolved
+/// CACHE-ONLY and degrades to its explicit "unknown" narrative, the block number
+/// rides on the resolved scope. Nothing is invented.
+class _ImportTargetCard extends ConsumerWidget {
+  const _ImportTargetCard({required this.seasonId, required this.resolution});
+
+  final String? seasonId;
+  final AsyncValue<BlockScopeResolution>? resolution;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
+    final theme = Theme.of(context);
+    final resolved = aiImportResolvedScope(resolution);
+    final seasonNumber = seasonId == null
+        ? null
+        : ref.watch(aiImportSeasonNumberProvider(seasonId!)).value;
+
+    final Widget body;
+    if (seasonId == null) {
+      body = Text(
+        l10n.aiImportTargetNoSeason,
+        key: const Key('ai-import-target-missing'),
+      );
+    } else if (resolution == null) {
+      // Unreachable in practice (a null season returns above), but the card
+      // never fabricates a target: with no resolution there is nothing to show.
+      body = Text(l10n.aiImportTargetNoSeason);
+    } else {
+      body = switch (resolution!) {
+        AsyncLoading() => Text(
+          l10n.aiImportTargetLoading,
+          key: const Key('ai-import-target-loading'),
+        ),
+        AsyncError(:final error) => Row(
+          key: const Key('ai-import-target-error'),
+          children: [
+            Expanded(
+              child: Text(l10n.blocksFetchError(blockScopeErrorCode(error))),
+            ),
+            TextButton(
+              key: const Key('ai-import-target-retry'),
+              onPressed: () =>
+                  ref.invalidate(blocksListFetchProvider(seasonId!)),
+              child: Text(l10n.commonRetry),
+            ),
+          ],
+        ),
+        AsyncData(:final value) when value.isEmpty => Text(
+          l10n.aiImportTargetNoBlocks,
+          key: const Key('ai-import-target-no-blocks'),
+        ),
+        AsyncData(:final value) when value.candidates != null => Column(
+          key: const Key('ai-import-target-picker'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.aiImportTargetPickBlock),
+            const SizedBox(height: 4),
+            for (final block in value.candidates!)
+              ListTile(
+                key: Key('ai-import-target-pick-${block.id}'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n.blockTileLabel('${block.number}')),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => ref
+                    .read(activeBlockProvider.notifier)
+                    .set(
+                      seasonId: seasonId!,
+                      blockId: block.id,
+                      blockNumber: block.number,
+                    ),
+              ),
+          ],
+        ),
+        AsyncData() => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.aiImportTargetLine(
+                seasonNumber == null
+                    ? l10n.aiImportTargetUnknownSeason
+                    : l10n.blockSeasonNumber(seasonNumber),
+                resolved?.blockNumber == null
+                    ? l10n.aiImportTargetUnknownBlock
+                    : l10n.blockTileLabel('${resolved!.blockNumber}'),
+              ),
+              key: const Key('ai-import-target-line'),
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              l10n.aiImportTargetHint,
+              key: const Key('ai-import-target-hint'),
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      };
+    }
+
+    return Card(
+      key: const Key('ai-import-target'),
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.aiImportTargetTitle,
+              key: const Key('ai-import-target-title'),
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            body,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// The submit dispatch for the picked file. Shows linear progress while the
 /// upload is in flight; on a 200 duplicate the status screen opens with the
 /// duplicate callout; on a 202 the plain status screen opens.
 class _SubmitButton extends ConsumerStatefulWidget {
-  const _SubmitButton({this.seasonId});
+  const _SubmitButton({this.seasonId, this.target});
 
   final String? seasonId;
+
+  /// The resolved target block (issue #771). `null` while the target is still
+  /// unresolved (loading, pending picker, no block, fetch failure): the submit
+  /// affordance stays DISABLED so a dispatch can never carry a block the user
+  /// was not shown. The controller re-checks the same fact before the network
+  /// call, because a widget guard alone cannot cover the wizard path whose
+  /// season has no block yet.
+  final ActiveScope? target;
 
   @override
   ConsumerState<_SubmitButton> createState() => _SubmitButtonState();
@@ -278,7 +444,13 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
       // determinate progress is surfaced via the linear indicator below.
       final res = await ref
           .read(aiImportSubmitControllerProvider.notifier)
-          .submit(document, seasonId: widget.seasonId);
+          .submit(
+            document,
+            // The resolved block's own season wins over the entry-point hint:
+            // the declared header, the AUTHZ gate and the visible line must all
+            // name the same season (issue #771).
+            seasonId: widget.target?.seasonId ?? widget.seasonId,
+          );
       if (!mounted) return;
       res.match(
         (err) {
@@ -328,7 +500,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
       const SizedBox(height: 12),
       FilledButton(
         key: const Key('ai-import-submit'),
-        onPressed: _busy ? null : _submit,
+        onPressed: _busy || widget.target == null ? null : _submit,
         child: Text(l10nOf(context).aiImportSubmit),
       ),
     ],

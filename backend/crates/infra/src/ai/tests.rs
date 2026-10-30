@@ -155,6 +155,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 telemetry: None,
                 cost: None,
                 source_file_name: None,
+                target: None,
                 applied_episodes: Vec::new(),
             };
             Ok(Some(job))
@@ -433,6 +434,7 @@ async fn merge_worker_success_records_telemetry() {
         telemetry: None,
         cost: None,
         source_file_name: None,
+        target: None,
         applied_episodes: Vec::new(),
     };
     let queue = Arc::new(MergeCaptureQueue {
@@ -711,6 +713,7 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         telemetry: None,
         cost: None,
         source_file_name: None,
+        target: None,
         applied_episodes: Vec::new(),
     }
 }
@@ -806,6 +809,7 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         telemetry: None,
         cost: None,
         source_file_name: None,
+        target: None,
         applied_episodes: Vec::new(),
     }
 }

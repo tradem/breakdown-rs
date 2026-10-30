@@ -11290,6 +11290,7 @@ class HandlersApi {
   /// Parameters:
   /// * [body]
   /// * [xDocumentFilename] - Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job's `source_file_name`.
+  /// * [xDeclaredSeason] - Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -11302,6 +11303,7 @@ class HandlersApi {
   Future<Response<String>> uploadAiSchedule({
     required String body,
     String? xDocumentFilename,
+    String? xDeclaredSeason,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -11314,6 +11316,7 @@ class HandlersApi {
       method: r'POST',
       headers: <String, dynamic>{
         r'X-Document-Filename': xDocumentFilename,
+        r'X-Declared-Season': xDeclaredSeason,
         ...?headers,
       },
       extra: <String, dynamic>{
@@ -11382,6 +11385,7 @@ class HandlersApi {
   /// Parameters:
   /// * [body]
   /// * [xDocumentFilename] - Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job's `source_file_name`.
+  /// * [xDeclaredSeason] - Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -11394,6 +11398,7 @@ class HandlersApi {
   Future<Response<String>> uploadAiScript({
     required String body,
     String? xDocumentFilename,
+    String? xDeclaredSeason,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -11406,6 +11411,7 @@ class HandlersApi {
       method: r'POST',
       headers: <String, dynamic>{
         r'X-Document-Filename': xDocumentFilename,
+        r'X-Declared-Season': xDeclaredSeason,
         ...?headers,
       },
       extra: <String, dynamic>{

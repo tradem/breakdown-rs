@@ -34,6 +34,7 @@ fn make_request(user_id: &str, source_file_name: Option<&str>) -> AiImportEnqueu
         document_digest: format!("digest-{}", Uuid::now_v7()),
         source_handle: format!("handle-{}", Uuid::now_v7()),
         source_file_name: source_file_name.map(str::to_owned),
+        target: None,
     }
 }
 

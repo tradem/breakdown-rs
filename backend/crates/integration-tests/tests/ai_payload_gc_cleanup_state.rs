@@ -72,6 +72,7 @@ async fn seed_job(queue: &PgAiImportQueue, dedup: &str) -> AiImportJobId {
             document_digest: "digest".to_owned(),
             source_handle: format!("ai-import/{}/source", id.as_uuid()),
             source_file_name: None,
+            target: None,
         })
         .await
         .unwrap();

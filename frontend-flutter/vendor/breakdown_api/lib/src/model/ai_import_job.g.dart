@@ -46,6 +46,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final JobStatus status;
   @override
+  final AiImportTarget? target;
+  @override
   final JobTelemetrySummary? telemetry;
   @override
   final DateTime updatedAt;
@@ -75,6 +77,7 @@ class _$AiImportJob extends AiImportJob {
       required this.sourceFormat,
       required this.sourceHandle,
       required this.status,
+      this.target,
       this.telemetry,
       required this.updatedAt,
       required this.userId})
@@ -109,6 +112,7 @@ class _$AiImportJob extends AiImportJob {
         sourceFormat == other.sourceFormat &&
         sourceHandle == other.sourceHandle &&
         status == other.status &&
+        target == other.target &&
         telemetry == other.telemetry &&
         updatedAt == other.updatedAt &&
         userId == other.userId;
@@ -136,6 +140,7 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, sourceFormat.hashCode);
     _$hash = $jc(_$hash, sourceHandle.hashCode);
     _$hash = $jc(_$hash, status.hashCode);
+    _$hash = $jc(_$hash, target.hashCode);
     _$hash = $jc(_$hash, telemetry.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, userId.hashCode);
@@ -165,6 +170,7 @@ class _$AiImportJob extends AiImportJob {
           ..add('sourceFormat', sourceFormat)
           ..add('sourceHandle', sourceHandle)
           ..add('status', status)
+          ..add('target', target)
           ..add('telemetry', telemetry)
           ..add('updatedAt', updatedAt)
           ..add('userId', userId))
@@ -263,6 +269,11 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   JobStatus? get status => _$this._status;
   set status(JobStatus? status) => _$this._status = status;
 
+  AiImportTargetBuilder? _target;
+  AiImportTargetBuilder get target =>
+      _$this._target ??= AiImportTargetBuilder();
+  set target(AiImportTargetBuilder? target) => _$this._target = target;
+
   JobTelemetrySummaryBuilder? _telemetry;
   JobTelemetrySummaryBuilder get telemetry =>
       _$this._telemetry ??= JobTelemetrySummaryBuilder();
@@ -303,6 +314,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _sourceFormat = $v.sourceFormat;
       _sourceHandle = $v.sourceHandle;
       _status = $v.status;
+      _target = $v.target?.toBuilder();
       _telemetry = $v.telemetry?.toBuilder();
       _updatedAt = $v.updatedAt;
       _userId = $v.userId;
@@ -357,6 +369,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
                 sourceHandle, r'AiImportJob', 'sourceHandle'),
             status: BuiltValueNullFieldError.checkNotNull(
                 status, r'AiImportJob', 'status'),
+            target: _target?.build(),
             telemetry: _telemetry?.build(),
             updatedAt: BuiltValueNullFieldError.checkNotNull(
                 updatedAt, r'AiImportJob', 'updatedAt'),
@@ -377,6 +390,8 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
         _$failedField = 'progress';
         _progress?.build();
 
+        _$failedField = 'target';
+        _target?.build();
         _$failedField = 'telemetry';
         _telemetry?.build();
       } catch (e) {

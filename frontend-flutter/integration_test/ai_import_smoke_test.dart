@@ -114,6 +114,7 @@ class FakePipelineRepository extends AiImportRepository {
     required Object body,
     required AiScheduleSource source,
     String? fileName,
+    String? declaredSeasonId,
     void Function(int, int)? onSendProgress,
   }) async => Right(AiUploadAck(jobId: 'job-e2e', duplicate: false));
 

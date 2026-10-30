@@ -127,6 +127,17 @@ never the sole carrier either. All copy via the ARB catalogs (`aiJobs*`,
 backend `detail` text never renders on this screen. Row semantics announce
 the title (name or kind + date), the identity/target line and the status.
 
+## Job status — the recorded import target (issue #771)
+
+The job status screen repeats the target the submit screen showed, so an import
+is attributable after the fact instead of only being believed. The value comes
+from the job row's own snapshot (`AiImportJob.target`) — no second read, no
+guessed season.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Target card | Card (surface container highest) under the status card | `{season} · {block}` from the server-snapshotted `season_number` / `block_number`. A job without a snapshot (pre-#771 row, or a fresh upload whose season read failed) renders the honest, cause-neutral "not recorded" narrative instead of an invented season | `aiImportTargetTitle` / `aiImportTargetLine` / `aiImportTargetNotRecorded` |
+
 ## Preview & Apply — detected vs extracted scenes (issue #758)
 
 The script preview's subtitle states what the DOCUMENT had, not only what the

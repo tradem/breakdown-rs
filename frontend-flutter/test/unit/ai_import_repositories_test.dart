@@ -1018,6 +1018,47 @@ void main() {
       expect(opts.contentType, 'application/pdf');
     });
 
+    test('the declared target season rides as X-Declared-Season on both '
+        'upload routes (issue #771)', () async {
+      for (final kind in ['schedule', 'script']) {
+        final api = _api(
+          _ScriptInterceptor(status: 202, respond: (_) => 'job-1'),
+        );
+        final repo = AiImportRepository(api, _dao());
+        if (kind == 'schedule') {
+          await repo.uploadSchedule(
+            body: 'day,scene\n1,12',
+            source: AiScheduleSource.csv,
+            declaredSeasonId: 'season-b',
+          );
+        } else {
+          await repo.uploadScript(
+            body: '%PDF-1.4',
+            declaredSeasonId: 'season-b',
+          );
+        }
+        final opts = _scriptOf(api).requests.first;
+        expect(
+          opts.headers[kDeclaredSeasonHeader],
+          'season-b',
+          reason:
+              'the server refuses a declared season that contradicts the '
+              'active block, so the declaration must travel on every route',
+        );
+      }
+    });
+
+    test('an upload without a resolved target sends NO X-Declared-Season '
+        'header — the server then keeps the header block authoritative '
+        '(issue #771)', () async {
+      final api = _api(
+        _ScriptInterceptor(status: 202, respond: (_) => 'job-1'),
+      );
+      await AiImportRepository(api, _dao()).uploadScript(body: '%PDF-1.4');
+      final opts = _scriptOf(api).requests.first;
+      expect(opts.headers.containsKey(kDeclaredSeasonHeader), isFalse);
+    });
+
     test('encodeDocumentFileName keeps only the RFC 3986 unreserved set '
         'verbatim', () {
       expect(encodeDocumentFileName('board-01_a.pdf~'), 'board-01_a.pdf~');

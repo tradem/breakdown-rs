@@ -51,10 +51,21 @@ class AiImportSubmitController extends _$AiImportSubmitController {
   /// screen navigates to the job status screen); every failure surfaces
   /// keyed on its stable problem `code`.
   ///
-  /// [seasonId] overrides the gate's season scope explicitly (the wizard's
-  /// created-season CTA passes the ack-sourced id — CQRS boundary: the
-  /// acting context is never re-derived from the ambient active-block
-  /// scope). `null` keeps the established active-block resolution.
+  /// [seasonId] names the season the screen resolved as the import TARGET
+  /// (issue #771) — the wizard's created-season CTA passes the ack-sourced id,
+  /// every other entry passes the resolved scope's season. It drives three
+  /// things that must never disagree: the AUTHZ gate, the `X-Declared-Season`
+  /// header, and the refusal below. `null` keeps the established active-block
+  /// resolution (and sends no declaration).
+  ///
+  /// **The ambient block may not silently win.** If the active block belongs to
+  /// a different season than [seasonId], the dispatch is refused with the
+  /// scoped server code `ai-import.scope-mismatch` — the same code the server
+  /// answers when a declared season contradicts the header — and ZERO calls are
+  /// issued. This is the residue the screen's resolution cannot cover: the
+  /// wizard's freshly created season has no block yet, so the scope may still
+  /// point at the previous season while the user believes they import into the
+  /// new one.
   ///
   /// // AUTHZ-GATE: schedule/script uploads and the apply command are
   /// season-membership-gated server-side (`authorize_season_result
@@ -74,6 +85,15 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     if (gateSeasonId == null) {
       const error = ProblemError(code: 'ai_import.scope_missing', status: 400);
       return const Left(error);
+    }
+    // Issue #771: a target season the active block does not belong to is never
+    // uploaded "into". Refused BEFORE the gate/capability fetch, so no call is
+    // issued at all (the screen's resolution normally already re-scoped, which
+    // makes this the guard against the window where it could not).
+    if (seasonId != null && scope != null && scope.seasonId != seasonId) {
+      return const Left(
+        ProblemError(code: 'ai_import.scope_mismatch', status: 409),
+      );
     }
     // The membership read is an AsyncValue provider: a pending fetch is
     // NOT a resolved denial (D3 — disabled-with-retry, never the 403
@@ -137,9 +157,17 @@ class AiImportSubmitController extends _$AiImportSubmitController {
         // Issue #763: the picked file's own name travels as a header so the
         // jobs list can identify the row afterwards. A pasted body sends none.
         fileName: document.fileName,
+        // Issue #771: the season the user was SHOWN travels as the declared
+        // target, so the server refuses a request whose block belongs
+        // elsewhere instead of importing into the wrong season.
+        declaredSeasonId: gateSeasonId,
       ),
       AiImportKind.script when document.source == AiScheduleSource.pdf =>
-        repo.uploadScript(body: document.body, fileName: document.fileName),
+        repo.uploadScript(
+          body: document.body,
+          fileName: document.fileName,
+          declaredSeasonId: gateSeasonId,
+        ),
       AiImportKind.script => Future<Result<AiUploadAck>>.value(
         const Left(
           ProblemError(code: 'ai_import.unsupported_media_type', status: 415),

@@ -1445,6 +1445,45 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiImportSubmit => 'Submit for import';
 
   @override
+  String get aiImportTargetTitle => 'Import target';
+
+  @override
+  String aiImportTargetLine(Object seasonLabel, Object blockLabel) {
+    return '$seasonLabel · $blockLabel';
+  }
+
+  @override
+  String get aiImportTargetHint =>
+      'The episodes, scenes and shooting days of this import land in this block. If that is not what you want, switch the block first.';
+
+  @override
+  String get aiImportTargetNotRecorded => 'Target not recorded.';
+
+  @override
+  String get aiImportTargetLoading => 'Resolving the import target …';
+
+  @override
+  String get aiImportTargetNoSeason =>
+      'Select a season first — without one the import has no target.';
+
+  @override
+  String get aiImportTargetNoBlocks =>
+      'This season has no block yet. Create a block first, then you can import.';
+
+  @override
+  String get aiImportTargetPickBlock => 'Choose the target block';
+
+  @override
+  String get aiImportTargetUnknownSeason => 'Season unknown';
+
+  @override
+  String get aiImportTargetUnknownBlock => 'Block unknown';
+
+  @override
+  String get aiImportScopeMismatch =>
+      'The active block belongs to a different season than this import. Nothing was uploaded.';
+
+  @override
   String get commonAdd => 'Add';
 
   @override

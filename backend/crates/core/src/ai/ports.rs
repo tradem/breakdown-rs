@@ -24,8 +24,8 @@ use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::views::{
-    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AppliedEpisode, DocumentKind,
-    ModelPricing, SourceFormat, Telemetry,
+    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget, AppliedEpisode,
+    DocumentKind, ModelPricing, SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -277,6 +277,13 @@ pub struct AiImportEnqueueRequest {
     pub document_kind: DocumentKind,
     pub source_format: SourceFormat,
     pub block_id: Option<BlockId>,
+    /// The target the upload DECLARED, resolved at the API edge (issue #771).
+    ///
+    /// Persisted alongside [`Self::block_id`] as display metadata, not as a
+    /// second write target: the apply path keeps pinning itself to `block_id`.
+    /// `None` when the season's read metadata could not be resolved — an
+    /// honest absence the wire renders as `null`, never a fabricated season.
+    pub target: Option<AiImportTarget>,
     pub dedup_key: String,
     pub document_digest: String,
     pub source_handle: String,

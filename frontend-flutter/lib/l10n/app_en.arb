@@ -384,6 +384,23 @@
   "aiImportDocMissing": "Pick a file first.",
   "aiImportStampWarning": "Import started — the episode context could not be saved ({code}); pick the episode when applying.",
   "aiImportSubmit": "Submit for import",
+  "aiImportTargetTitle": "Import target",
+  "aiImportTargetLine": "{seasonLabel} · {blockLabel}",
+  "@aiImportTargetLine": {
+    "placeholders": {
+      "seasonLabel": {},
+      "blockLabel": {}
+    }
+  },
+  "aiImportTargetHint": "The episodes, scenes and shooting days of this import land in this block. If that is not what you want, switch the block first.",
+  "aiImportTargetNotRecorded": "Target not recorded.",
+  "aiImportTargetLoading": "Resolving the import target …",
+  "aiImportTargetNoSeason": "Select a season first — without one the import has no target.",
+  "aiImportTargetNoBlocks": "This season has no block yet. Create a block first, then you can import.",
+  "aiImportTargetPickBlock": "Choose the target block",
+  "aiImportTargetUnknownSeason": "Season unknown",
+  "aiImportTargetUnknownBlock": "Block unknown",
+  "aiImportScopeMismatch": "The active block belongs to a different season than this import. Nothing was uploaded.",
   "commonAdd": "Add",
   "captureDeniedCamera": "Camera access is disabled. Enable camera access in settings to document pieces.",
   "captureDeniedGallery": "Photo library access is disabled. Enable photo access in settings to document pieces.",

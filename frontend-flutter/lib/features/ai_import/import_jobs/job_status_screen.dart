@@ -86,7 +86,17 @@ class AiJobStatusScreen extends ConsumerWidget {
                 ),
               ),
             switch (status) {
-              AsyncData(:final value) => _JobCard(job: value),
+              // Issue #771: the job repeats the target the submit screen
+              // showed, so an import is attributable AFTER the fact instead of
+              // only being believed.
+              AsyncData(:final value) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _JobCard(job: value),
+                  const SizedBox(height: 12),
+                  _JobTargetCard(job: value),
+                ],
+              ),
               AsyncError(:final error) => _WatchErrorCard(
                 jobId: jobId,
                 error: error is ProblemError
@@ -101,6 +111,51 @@ class AiJobStatusScreen extends ConsumerWidget {
             },
             const SizedBox(height: 16),
             const _NoCancelNotice(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The job's recorded import TARGET (issue #771).
+///
+/// `AiImportJob.target` carries the season id + both production-global numbers
+/// as the server snapshotted them at dispatch. The card therefore needs no
+/// second read — and a job uploaded before the field existed renders the honest
+/// "not recorded" narrative instead of a guessed season.
+class _JobTargetCard extends StatelessWidget {
+  const _JobTargetCard({required this.job});
+
+  final AiImportJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final target = job.target;
+    return Card(
+      key: const Key('ai-job-target'),
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.aiImportTargetTitle,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              target == null
+                  ? l10n.aiImportTargetNotRecorded
+                  : l10n.aiImportTargetLine(
+                      l10n.blockSeasonNumber('${target.seasonNumber}'),
+                      l10n.blockTileLabel('${target.blockNumber}'),
+                    ),
+              key: const Key('ai-job-target-line'),
+            ),
           ],
         ),
       ),

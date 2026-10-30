@@ -150,6 +150,34 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **An AI import names its target, and a contradictory target is refused
+  (issue #771; `core 0.48.0 → 0.49.0`, `infra 0.57.0 → 0.58.0`,
+  `api 0.47.0 → 0.48.0`).** A job's write target is the block in the required
+  `X-Active-Block` header, and the season follows from that block — but nothing
+  on the wire said so. A user who created a new season to isolate a second
+  import round watched the episodes land in the *previous* season: the upload
+  still carried the stale active block, and no row recorded where it had been
+  meant to go.
+
+  - **`X-Declared-Season` (optional header, both upload routes).** The client
+    sends the season it resolved as the target. The server compares it with the
+    season owning the `X-Active-Block` block and refuses a mismatch with the
+    registered 409 `ai-import.scope-mismatch` — before a document is stored or a
+    job row exists. The header stays the authoritative write target; the
+    declaration only makes a contradiction visible instead of silent. An absent
+    or unparsable value degrades to "no declaration" (same discipline as
+    `X-Document-Filename`): a client that cannot spell a header must still be
+    able to import.
+  - **`AiImportJob.target`** (additive, nullable) snapshots the target as
+    `{ season_id, season_number, block_number }`, resolved at the API edge from
+    the block's owning season. It is display/attribution metadata — the apply
+    path keeps pinning itself to `block_id` (the CWE-639 guard) — and degrades
+    to `null` when the season read fails, so a finished import is attributable
+    to a season and block number rather than to an opaque id.
+  - **Migration `20261101000001_ai_import_job_target`** adds the three nullable
+    snapshot columns. No backfill: a pre-#771 row's intended target cannot be
+    reconstructed without inventing data.
+
 - **AI-import jobs are identifiable: the uploaded file name and the imported
   episode(s)** (issue #763; `core 0.46.0 → 0.47.0`, `infra 0.55.0 → 0.56.0`,
   `api 0.45.0 → 0.46.0`). A jobs-list row was titled only `kind · date`, so after

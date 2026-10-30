@@ -79,6 +79,7 @@ impl MockQueue {
             telemetry: None,
             cost: None,
             source_file_name: None,
+            target: None,
             applied_episodes: Vec::new(),
         };
         self.jobs.lock().await.push(job);
@@ -114,6 +115,7 @@ impl AiImportQueue for MockQueue {
             telemetry: None,
             cost: None,
             source_file_name: None,
+            target: None,
             applied_episodes: Vec::new(),
         };
         self.jobs.lock().await.push(job);

@@ -583,7 +583,7 @@ final class AiConfigControllerProvider
 }
 
 String _$aiConfigControllerHash() =>
-    r'f44a0960a6d186406d5f20d2c49e02d29229506c';
+    r'575f8cfa281d1256f0f5a2aefc1ad807af72527e';
 
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///
