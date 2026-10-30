@@ -5858,6 +5858,54 @@ abstract class AppLocalizations {
   /// **'Niedrige Bewertung ≤ ★★★ ({count})'**
   String aiPreviewFilterLowScore(Object count);
 
+  /// No description provided for @aiDecisionRan.
+  ///
+  /// In de, this message translates to:
+  /// **'Bewertet mit {pair}.'**
+  String aiDecisionRan(Object pair);
+
+  /// No description provided for @aiDecisionSkippedNoConfig.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Entscheidungsmodell ausgeführt – keine Sternchen (kein Modell konfiguriert).'**
+  String get aiDecisionSkippedNoConfig;
+
+  /// No description provided for @aiDecisionClientUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Entscheidungsmodell {pair} nicht verfügbar – die Vorschau wurde ohne Bewertung erstellt.'**
+  String aiDecisionClientUnavailable(Object pair);
+
+  /// No description provided for @aiDecisionScoringFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Bewertung fehlgeschlagen – {count, plural, =1{1 Zeile} other{{count} Zeilen}} ohne Sternchen ({pair}).'**
+  String aiDecisionScoringFailed(num count, Object pair);
+
+  /// No description provided for @aiDecisionSkippedNotApplicable.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diesen Import war keine Bewertung nötig.'**
+  String get aiDecisionSkippedNotApplicable;
+
+  /// No description provided for @aiDecisionNotRecorded.
+  ///
+  /// In de, this message translates to:
+  /// **'Bewertungsausgang nicht aufgezeichnet.'**
+  String get aiDecisionNotRecorded;
+
+  /// No description provided for @aiDecisionModelUnnamed.
+  ///
+  /// In de, this message translates to:
+  /// **'unbenanntes Modell'**
+  String get aiDecisionModelUnnamed;
+
+  /// No description provided for @aiPreviewScoringFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Bewertung fehlgeschlagen – keine Sternchen.'**
+  String get aiPreviewScoringFailed;
+
   /// No description provided for @aiPreviewSceneScore.
   ///
   /// In de, this message translates to:

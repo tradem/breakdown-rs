@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-2 widget tests for the job-status screen
 // (`flutter-ai-import-workflow` tasks 3.4 + D3/D5): all six statuses
@@ -46,6 +47,7 @@ AiImportJob _job(
   CostBreakdown? cost,
   JobTelemetrySummary? telemetry,
   AiImportTarget? target,
+  DecisionTelemetry? decisionTelemetry,
 }) => AiImportJob(
   (b) => b
     ..id = 'job-1'
@@ -84,6 +86,9 @@ AiImportJob _job(
             ))
     ..cost = cost?.toBuilder()
     ..telemetry = telemetry?.toBuilder()
+    // The Decision Model outcome (issue #767) — absent unless a scenario
+    // records one, exactly like a pre-#767 job row.
+    ..decisionTelemetry = decisionTelemetry?.toBuilder()
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
@@ -686,6 +691,56 @@ void main() {
       expect(find.textContaining('Price as of:'), findsOneWidget);
       // Honesty: never a fabricated $0.00.
       expect(find.textContaining(r'$0.00 '), findsNothing);
+    });
+
+    testWidgets('the cost card names the effective Decision Model and its '
+        'outcome — and stays silent for a job without one (issue #767)', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(),
+            telemetry: _telemetry(),
+            decisionTelemetry: DecisionTelemetry(
+              (b) => b
+                ..outcome = DecisionOutcome.scoringFailed
+                ..provider = LlmProvider.neuralwatt
+                ..model = 'glm-5.3'
+                ..failedRows = 4,
+            ),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-decision-outcome')), findsOneWidget);
+      expect(
+        find.text(
+          'Scoring failed — 4 rows without stars (neuralwatt / glm-5.3).',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a job whose row carries no decision outcome renders no '
+        'outcome line on the cost card (issue #767: never a guessed class)', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-job-cost-card')), findsOneWidget);
+      expect(find.byKey(const Key('ai-decision-outcome')), findsNothing);
     });
 
     testWidgets('the energy preference highlights the energy cost as the '

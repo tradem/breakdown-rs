@@ -1029,6 +1029,14 @@
       "count": {}
     }
   },
+  "aiDecisionRan": "Scored with {pair}.",
+  "aiDecisionSkippedNoConfig": "Ran without a decision model — no stars (no model configured).",
+  "aiDecisionClientUnavailable": "Decision model {pair} unavailable — the preview was created without scoring.",
+  "aiDecisionScoringFailed": "Scoring failed — {count, plural, =1{1 row} other{{count} rows}} without stars ({pair}).",
+  "aiDecisionSkippedNotApplicable": "This import needed no scoring.",
+  "aiDecisionNotRecorded": "Scoring outcome not recorded.",
+  "aiDecisionModelUnnamed": "unnamed model",
+  "aiPreviewScoringFailed": "Scoring failed — no stars.",
   "aiPreviewSceneScore": "Scene score:",
   "@aiPreviewSceneScore": {},
   "aiPreviewSynopsisScore": "Synopsis (TL;DR):",

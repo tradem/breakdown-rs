@@ -3611,6 +3611,45 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String aiDecisionRan(Object pair) {
+    return 'Bewertet mit $pair.';
+  }
+
+  @override
+  String get aiDecisionSkippedNoConfig =>
+      'Ohne Entscheidungsmodell ausgeführt – keine Sternchen (kein Modell konfiguriert).';
+
+  @override
+  String aiDecisionClientUnavailable(Object pair) {
+    return 'Entscheidungsmodell $pair nicht verfügbar – die Vorschau wurde ohne Bewertung erstellt.';
+  }
+
+  @override
+  String aiDecisionScoringFailed(num count, Object pair) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Zeilen',
+      one: '1 Zeile',
+    );
+    return 'Bewertung fehlgeschlagen – $_temp0 ohne Sternchen ($pair).';
+  }
+
+  @override
+  String get aiDecisionSkippedNotApplicable =>
+      'Für diesen Import war keine Bewertung nötig.';
+
+  @override
+  String get aiDecisionNotRecorded => 'Bewertungsausgang nicht aufgezeichnet.';
+
+  @override
+  String get aiDecisionModelUnnamed => 'unbenanntes Modell';
+
+  @override
+  String get aiPreviewScoringFailed =>
+      'Bewertung fehlgeschlagen – keine Sternchen.';
+
+  @override
   String get aiPreviewSceneScore => 'Szenen-Bewertung:';
 
   @override

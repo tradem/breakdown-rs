@@ -22,6 +22,7 @@ import '../../episodes/episodes_controller.dart';
 import 'apply_controller.dart';
 import 'apply_screen.dart';
 import 'continuity_gap.dart';
+import 'decision_outcome.dart';
 import 'job_status_controller.dart';
 import '../naming_line.dart';
 
@@ -55,6 +56,12 @@ class AiPreviewScreen extends ConsumerWidget {
           // the preview names the configured import machinery above the
           // AI-extracted rows (honest degradation when unconfigured).
           AiNamingLine(key: const Key('ai-preview-naming')),
+          // The EFFECTIVE Decision Model and what its scoring pass did
+          // (issue #767): the naming line above names the extraction model,
+          // which is a different model from the one that produced the stars
+          // — and the one the reporter configured. Silent when the job
+          // recorded no outcome (pre-#767 rows).
+          AiDecisionOutcomeLine(jobId: jobId),
           const SizedBox(height: 8),
           switch (preview) {
             AsyncData(:final value) => value.match(
@@ -641,6 +648,10 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           sceneScore: scene.sceneScore,
           synopsisScore: scene.synopsisScore,
           dayScore: scene.shootingDay?.score,
+          // Whether THIS row's own scoring request failed (issue #767). The
+          // row then states the failure instead of leaving unexplained
+          // empty space where the stars would be.
+          scoringFailed: scene.scoring?.scoringFailed ?? false,
         ),
       );
     }
@@ -754,6 +765,7 @@ class _PreviewRowCard extends ConsumerWidget {
     this.sceneScore,
     this.synopsisScore,
     this.dayScore,
+    this.scoringFailed = false,
   });
 
   final String jobId;
@@ -766,6 +778,11 @@ class _PreviewRowCard extends ConsumerWidget {
   final double? sceneScore;
   final double? synopsisScore;
   final double? dayScore;
+
+  /// `DecisionRubric.scoringFailed` of this row (issue #767): its own scoring
+  /// request failed after the bounded retry, so its scores are honestly absent.
+  /// The row says so instead of rendering nothing.
+  final bool scoringFailed;
 
   /// The row's extracted shooting day (issue #706) — display-only here;
   /// the accept/reject decision lives in the apply card. `null` on a
@@ -854,6 +871,10 @@ class _PreviewRowCard extends ConsumerWidget {
                 label: l10nOf(context).aiPreviewShootingDayScore,
                 score: dayScore,
               ),
+            // A row whose scoring pass failed states the degradation once,
+            // under its category lines — never a fabricated rating and never
+            // silence (issue #767).
+            if (scoringFailed) AiScoringFailedNote(draftRef: draftRef),
             const SizedBox(height: 8),
             SegmentedButton<String>(
               key: Key('ai-row-decision-$draftRef'),
