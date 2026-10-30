@@ -22,6 +22,9 @@ part 'job_telemetry_summary.g.dart';
 /// * [latencyTotalMs]
 /// * [model]
 /// * [provider]
+/// * [scenesDetected] - Scene headings the deterministic scan detected (issue #758): the count the *document* states, as opposed to the preview rows the model produced. Additive with `serde(default)`; `0` for schedule jobs.
+/// * [scenesExtracted] - Preview rows the extraction model returned (issue #758). A client can explain a short preview by comparing this with `scenes_detected` instead of guessing.
+/// * [scenesSynthesized] - Preview rows rebuilt from the deterministic heading because their chunk returned no rows (issue #758). A nonzero value names the degradation.
 /// * [tokensIn]
 /// * [tokensOut]
 @BuiltValue()
@@ -49,6 +52,18 @@ abstract class JobTelemetrySummary
   @BuiltValueField(wireName: r'provider')
   LlmProvider? get provider;
   // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  /// Scene headings the deterministic scan detected (issue #758): the count the *document* states, as opposed to the preview rows the model produced. Additive with `serde(default)`; `0` for schedule jobs.
+  @BuiltValueField(wireName: r'scenes_detected')
+  int? get scenesDetected;
+
+  /// Preview rows the extraction model returned (issue #758). A client can explain a short preview by comparing this with `scenes_detected` instead of guessing.
+  @BuiltValueField(wireName: r'scenes_extracted')
+  int? get scenesExtracted;
+
+  /// Preview rows rebuilt from the deterministic heading because their chunk returned no rows (issue #758). A nonzero value names the degradation.
+  @BuiltValueField(wireName: r'scenes_synthesized')
+  int? get scenesSynthesized;
 
   @BuiltValueField(wireName: r'tokens_in')
   int get tokensIn;
@@ -124,6 +139,27 @@ class _$JobTelemetrySummarySerializer
       yield serializers.serialize(
         object.provider,
         specifiedType: const FullType.nullable(LlmProvider),
+      );
+    }
+    if (object.scenesDetected != null) {
+      yield r'scenes_detected';
+      yield serializers.serialize(
+        object.scenesDetected,
+        specifiedType: const FullType(int),
+      );
+    }
+    if (object.scenesExtracted != null) {
+      yield r'scenes_extracted';
+      yield serializers.serialize(
+        object.scenesExtracted,
+        specifiedType: const FullType(int),
+      );
+    }
+    if (object.scenesSynthesized != null) {
+      yield r'scenes_synthesized';
+      yield serializers.serialize(
+        object.scenesSynthesized,
+        specifiedType: const FullType(int),
       );
     }
     yield r'tokens_in';
@@ -212,6 +248,30 @@ class _$JobTelemetrySummarySerializer
           ) as LlmProvider?;
           if (valueDes == null) continue;
           result.provider = valueDes;
+          break;
+        case r'scenes_detected':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.scenesDetected = valueDes;
+          break;
+        case r'scenes_extracted':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.scenesExtracted = valueDes;
+          break;
+        case r'scenes_synthesized':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.scenesSynthesized = valueDes;
           break;
         case r'tokens_in':
           final valueDes = serializers.deserialize(

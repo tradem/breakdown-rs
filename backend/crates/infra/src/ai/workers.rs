@@ -18,7 +18,7 @@ use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
     ApplyGateError, ApplyMapping, ApplyMappingDecision, CategoryVocabularyEntry,
-    CharacterApplyPlan, CostBreakdown, DecisionClient, DocumentKind, EpisodeGroupPlan,
+    CharacterApplyPlan, CostBreakdown, DecisionClient, DocumentKind, DraftScene, EpisodeGroupPlan,
     LlmCallUsage, LlmChatRequest, LlmClient, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL,
     PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ReviewerDecisions, SceneApplyCommand,
     SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
@@ -427,6 +427,14 @@ where
         // pushes into `context.scenes`.
         let mut sanitized_flags: Vec<bool> = Vec::new();
         let mut dropped_costumes: Vec<usize> = Vec::new();
+        // Scene reconciliation counters (issue #758). `scenes_extracted` counts
+        // the rows the MODEL returned; `scenes_synthesized` counts rows rebuilt
+        // from the deterministic heading after a chunk returned no rows at all.
+        // The two never overlap, so `chunk_count > scenes_extracted` keeps
+        // naming the shortfall even when the synthesized rows preserve every
+        // scene.
+        let mut scenes_extracted = 0u32;
+        let mut scenes_synthesized = 0u32;
         // Throttled live progress (issue #664): published once after
         // chunking, once per completed chunk, and at the storing boundary —
         // NEVER per LLM token. Owner-fenced, so a displaced worker's write
@@ -471,6 +479,14 @@ where
                     // #722): the scoring pass slices the chunk's scenes out
                     // of the preview.
                     let chunk_first_scene = context.scenes.len();
+                    // Issue #758: the model's own row count for THIS chunk,
+                    // captured before the loop consumes the vector. Zero rows
+                    // is the one unambiguous loss signal; a merged
+                    // index+body heading legitimately yields a single row, so
+                    // "fewer rows than headings" is NOT a defect.
+                    let chunk_model_rows = partial.scenes.len();
+                    scenes_extracted = scenes_extracted
+                        .saturating_add(u32::try_from(chunk_model_rows).unwrap_or(u32::MAX));
                     // Issue #675: accumulate real token/energy usage across
                     // every chunk of the job.
                     total_usage.accumulate(call_usage);
@@ -648,6 +664,55 @@ where
                         )
                         .await;
                     }
+                    // Issue #758 (silent data loss): a chunk that returned no
+                    // rows used to vanish without a trace — the job still
+                    // reached `succeeded` and the preview simply carried fewer
+                    // rows than the document had headings (measured live: 57
+                    // headings, 4 rows). Dropping the row must never be the
+                    // default behaviour, so the scene is rebuilt from the
+                    // document metadata the deterministic scan already parsed
+                    // (`heading`, `scene_number`, `mood`, `episode`,
+                    // `shooting_day`) with empty content fields, plus a
+                    // non-blocking `DroppedRow` uncertainty that names the
+                    // degradation for the reviewer. Deliberately placed AFTER
+                    // the Decision scoring pass: a row without content has
+                    // nothing to score, and scoring must not invent a value for
+                    // it.
+                    if chunk_model_rows == 0 {
+                        tracing::warn!(
+                            job_id = %job.id.as_uuid(),
+                            chunk_index = chunk.index,
+                            chunk = chunk_index + 1,
+                            chunks = chunk_count,
+                            heading = %chunk.heading,
+                            "ai-extraction: chunk produced no scenes; rebuilding the row from the document heading (issue #758)"
+                        );
+                        scenes_synthesized = scenes_synthesized.saturating_add(1);
+                        scene_ordinal += 1;
+                        context.uncertainties.push(Uncertainty {
+                            // 0-based index of the row pushed just below.
+                            scene_index: context.scenes.len(),
+                            field: "extraction".to_owned(),
+                            note: format!(
+                                "chunk produced no rows; row carries document metadata only (heading {:?})",
+                                chunk.heading
+                            ),
+                            suggested_value: None,
+                            kind: UncertaintyKind::DroppedRow,
+                            candidates: Vec::new(),
+                        });
+                        context.scenes.push(DraftScene {
+                            draft_ref: stable_draft_ref(scene_ordinal, &chunk.heading, 0),
+                            scene_number: chunk.scene_number,
+                            mood: chunk.mood.clone(),
+                            episode: chunk.episode.clone(),
+                            shooting_day: chunk.shooting_day.clone(),
+                            // Every content field stays empty: this row states
+                            // what the DOCUMENT says about the scene and never
+                            // what a model failed to extract.
+                            ..DraftScene::default()
+                        });
+                    }
                 }
                 Err(error) => {
                     self.fail(job.id, worker_id, &error).await?;
@@ -696,6 +761,27 @@ where
         context
             .uncertainties
             .extend(category_conflict_uncertainties(&context));
+        // Issue #758: stamp the reconciliation counters on the stored preview so
+        // the reviewer sees "detected vs extracted" BEFORE applying and the
+        // shortfall cannot hide behind the row count. Server-derived truth, set
+        // here rather than taken from the model's answer.
+        context.scenes_detected = chunk_count;
+        context.scenes_extracted = scenes_extracted;
+        context.scenes_synthesized = scenes_synthesized;
+        // One job-level line for the reconciliation outcome: a nonzero
+        // `scenes_synthesized`, or any divergence between the document's
+        // heading count and the model's row count, is the prompt/model
+        // regression signal an operator can alert on.
+        if scenes_synthesized > 0 || scenes_extracted != chunk_count {
+            tracing::warn!(
+                job_id = %job.id.as_uuid(),
+                scenes_detected = chunk_count,
+                scenes_extracted,
+                scenes_synthesized,
+                preview_rows = context.scenes.len(),
+                "ai-extraction: preview rows diverge from the detected scene headings (issue #758)"
+            );
+        }
         let payload = to_vec(&context).map_err(|error| {
             DomainError::validation(format!("could not serialize script preview: {error}"))
         })?;
@@ -748,6 +834,12 @@ where
                     cached_tokens_in: total_usage.cached_tokens_in,
                     energy_millijoules: total_usage.energy_millijoules,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    // Scene reconciliation counters (issue #758): what the
+                    // document said, what the model produced, and how many rows
+                    // had to be rebuilt from the heading.
+                    scenes_detected: chunk_count,
+                    scenes_extracted,
+                    scenes_synthesized,
                     // Cost snapshot computed from the pricing row active at
                     // completion, persisted before `mark_succeeded` (issue
                     // #675). The job only reached preview; the apply outcome
@@ -1056,6 +1148,11 @@ where
                     // field is a compile error, not a surviving mutant
                     // (issue #307). Real token/energy counts (issue #675).
                     chunk_count: 0,
+                    // A schedule document has no scene headings, so there is
+                    // nothing to reconcile (issue #758).
+                    scenes_detected: 0,
+                    scenes_extracted: 0,
+                    scenes_synthesized: 0,
                     tokens_in: total_usage.tokens_in,
                     tokens_out: total_usage.tokens_out,
                     cached_tokens_in: total_usage.cached_tokens_in,

@@ -6,7 +6,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
-// Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
@@ -857,6 +857,9 @@ async fn get_ai_import_preview_reads_through_the_preview_store_port() {
             ..DraftScene::default()
         }],
         uncertainties: vec![],
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let mut job = succeeded_job("placeholder");
     let handle = ports
@@ -907,6 +910,9 @@ async fn seed_applyable_script_job(
             })
             .collect(),
         uncertainties: vec![],
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let mut job = succeeded_job("placeholder");
     job.block_id = block_id;
@@ -1031,6 +1037,9 @@ async fn seed_multi_episode_script_job(
             },
         ],
         uncertainties: vec![],
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let mut job = succeeded_job("placeholder");
     job.block_id = block_id;
@@ -2859,6 +2868,9 @@ async fn seed_episode_grouped_script_job(
             })
             .collect(),
         uncertainties: vec![],
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let mut job = succeeded_job("placeholder");
     job.block_id = block_id;
@@ -3163,6 +3175,9 @@ async fn seed_blocking_uncertainty_job(
                 candidates: Vec::new(),
             },
         ],
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let mut job = succeeded_job("placeholder");
     job.block_id = block_id;
@@ -3556,6 +3571,9 @@ async fn get_ai_import_job_serves_the_persisted_cost_snapshot() {
         cached_tokens_in: 0,
         energy_millijoules: 4_200_000,
         latency_total_ms: 9_000,
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     });
     job.cost = Some(breakdown_core::ai::CostBreakdown {
         status: breakdown_core::ai::CostStatus::Known,

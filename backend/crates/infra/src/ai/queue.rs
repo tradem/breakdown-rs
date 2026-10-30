@@ -4,6 +4,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -832,7 +833,9 @@ impl AiImportQueue for PgAiImportQueue {
             SET provider = $3, model = $4, chunk_count = $5,
                 tokens_in = $6, tokens_out = $7, latency_total_ms = $8,
                 cached_tokens_in = $9, energy_millijoules = $10, cost = $11,
-                accept_as_is = $12, edit_distance = $13, updated_at = now()
+                accept_as_is = $12, edit_distance = $13,
+                scenes_detected = $14, scenes_extracted = $15,
+                scenes_synthesized = $16, updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
             RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
@@ -1060,6 +1063,20 @@ impl AiImportQueue for PgAiImportQueue {
     }
 }
 
+/// Narrow one script scene reconciliation counter (issue #758) to its database
+/// type.
+///
+/// Extracted so the three counters cannot drift into three hand-written range
+/// checks, and so a `u32` above `i32::MAX` fails loudly instead of wrapping into
+/// a negative count.
+fn scene_count(value: u32, label: &str) -> Result<i32, DomainError> {
+    i32::try_from(value).map_err(|error| {
+        DomainError::validation(format!(
+            "AI {label} scene counter exceeds database range: {error}"
+        ))
+    })
+}
+
 /// Telemetry values narrowed to their database types once, so the fenced and
 /// unfenced writes cannot drift in their range checks.
 struct TelemetryValues {
@@ -1074,6 +1091,9 @@ struct TelemetryValues {
     latency_total: i64,
     accept_as_is: Option<bool>,
     edit_distance: Option<i32>,
+    scenes_detected: i32,
+    scenes_extracted: i32,
+    scenes_synthesized: i32,
 }
 
 impl TelemetryValues {
@@ -1131,10 +1151,13 @@ impl TelemetryValues {
                     })
                 })
                 .transpose()?,
+            scenes_detected: scene_count(telemetry.scenes_detected, "detected")?,
+            scenes_extracted: scene_count(telemetry.scenes_extracted, "extracted")?,
+            scenes_synthesized: scene_count(telemetry.scenes_synthesized, "synthesized")?,
         })
     }
 
-    /// Bind the eleven telemetry columns in the exact order both UPDATE
+    /// Bind the fourteen telemetry columns in the exact order both UPDATE
     /// statements declare their placeholders: `tokens_in`, `tokens_out`,
     /// `latency_total_ms`, then the #675 trio `cached_tokens_in`,
     /// `energy_millijoules`, `cost` — a wrong order would be silently
@@ -1156,6 +1179,9 @@ impl TelemetryValues {
             .bind(self.cost)
             .bind(self.accept_as_is)
             .bind(self.edit_distance)
+            .bind(self.scenes_detected)
+            .bind(self.scenes_extracted)
+            .bind(self.scenes_synthesized)
     }
 }
 
@@ -1316,6 +1342,12 @@ fn decode_job_telemetry(row: &sqlx::postgres::PgRow) -> Option<JobTelemetrySumma
     let cached_tokens_in: i64 = row.try_get("cached_tokens_in").unwrap_or(0);
     let energy_millijoules: Option<i64> = row.try_get("energy_millijoules").unwrap_or(None);
     let latency_total_ms: i64 = row.try_get("latency_total_ms").unwrap_or(0);
+    // Scene reconciliation counters (issue #758). `NOT NULL DEFAULT 0`, so an
+    // absent value only happens for a row selected from a pre-migration view;
+    // it degrades to 0 ("not recorded") rather than failing the read.
+    let scenes_detected: i32 = row.try_get("scenes_detected").unwrap_or(0);
+    let scenes_extracted: i32 = row.try_get("scenes_extracted").unwrap_or(0);
+    let scenes_synthesized: i32 = row.try_get("scenes_synthesized").unwrap_or(0);
     let has_telemetry = provider.is_some()
         || chunk_count > 0
         || tokens_in > 0
@@ -1334,6 +1366,9 @@ fn decode_job_telemetry(row: &sqlx::postgres::PgRow) -> Option<JobTelemetrySumma
         cached_tokens_in: cached_tokens_in.max(0) as u64,
         energy_millijoules: energy_millijoules.unwrap_or(0).max(0) as u64,
         latency_total_ms: latency_total_ms.max(0) as u64,
+        scenes_detected: scenes_detected.max(0) as u32,
+        scenes_extracted: scenes_extracted.max(0) as u32,
+        scenes_synthesized: scenes_synthesized.max(0) as u32,
     })
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Database-backed telemetry persistence contract for the AI import queue
 //! (issue #171, CodeRabbit review).
@@ -133,5 +134,68 @@ async fn record_telemetry_applied_zero_edits_persists_zero() -> Result<()> {
         Some(0),
         "applied zero-edit must persist edit_distance = 0"
     );
+    Ok(())
+}
+
+/// Issue #758: the three scene reconciliation counters survive the round trip.
+///
+/// `record_worker_telemetry` is owner-fenced, so the job has to be CLAIMED
+/// first — a bare `record_telemetry` (the apply-path write) deliberately
+/// touches only the accept signal and would leave the counters NULL-by-default
+/// rather than recorded, which is exactly the conflation this test rules out.
+#[tokio::test]
+async fn worker_telemetry_persists_scene_reconciliation_counters() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = seed_job(&queue, "reconcile-user", "reconcile").await;
+    let worker_id = "reconcile-worker";
+    let job = queue
+        .claim_next(worker_id)
+        .await?
+        .expect("the seeded job must be claimable");
+
+    queue
+        .record_worker_telemetry(
+            id,
+            worker_id,
+            Telemetry {
+                provider: Some(breakdown_core::ai::LlmProvider::Neuralwatt),
+                model: Some("deepseek-v4-flash".to_owned()),
+                doc_kind: Some(DocumentKind::Script),
+                chunk_count: 57,
+                scenes_detected: 57,
+                scenes_extracted: 4,
+                scenes_synthesized: 53,
+                ..Telemetry::default()
+            },
+        )
+        .await?;
+
+    let (detected, extracted, synthesized): (i32, i32, i32) = sqlx::query_as(
+        r#"
+        SELECT scenes_detected, scenes_extracted, scenes_synthesized
+        FROM ai_import.ai_import_job
+        WHERE id = $1
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(detected, 57, "detected scene headings are persisted");
+    assert_eq!(extracted, 4, "model row count is persisted");
+    assert_eq!(synthesized, 53, "rebuilt row count is persisted");
+
+    // The wire summary the job view exposes carries the same three numbers.
+    let read_back = queue
+        .get(job.id)
+        .await?
+        .expect("the job row must still exist");
+    let telemetry = read_back
+        .telemetry
+        .expect("the telemetry summary must be exposed");
+    assert_eq!(telemetry.scenes_detected, 57);
+    assert_eq!(telemetry.scenes_extracted, 4);
+    assert_eq!(telemetry.scenes_synthesized, 53);
     Ok(())
 }

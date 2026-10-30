@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -494,6 +495,22 @@ pub struct Telemetry {
     pub cost: Option<CostBreakdown>,
     /// Apply outcome; `NotApplied` while the job is preview-only.
     pub apply_state: TelemetryApplyState,
+    /// Scene headings the deterministic scan detected for a script job (issue
+    /// #758) — the chunk count after duplicate-heading merging. `0` for
+    /// schedule jobs (which have no scene headings) and for pre-#758 rows.
+    #[serde(default)]
+    pub scenes_detected: u32,
+    /// Preview rows the extraction model returned for a script job (issue
+    /// #758), summed over all chunks and excluding rows rebuilt from document
+    /// metadata. `scenes_detected > scenes_extracted` is the shortfall the
+    /// reviewer must be able to see.
+    #[serde(default)]
+    pub scenes_extracted: u32,
+    /// Preview rows the worker rebuilt from the deterministic heading because
+    /// their chunk produced no rows at all (issue #758). `0` on a healthy run
+    /// and for schedule jobs.
+    #[serde(default)]
+    pub scenes_synthesized: u32,
 }
 
 // ===========================================================================
@@ -697,6 +714,20 @@ pub struct JobTelemetrySummary {
     pub cached_tokens_in: u64,
     pub energy_millijoules: u64,
     pub latency_total_ms: u64,
+    /// Scene headings the deterministic scan detected (issue #758): the count
+    /// the *document* states, as opposed to the preview rows the model
+    /// produced. Additive with `serde(default)`; `0` for schedule jobs.
+    #[serde(default)]
+    pub scenes_detected: u32,
+    /// Preview rows the extraction model returned (issue #758). A client can
+    /// explain a short preview by comparing this with `scenes_detected` instead
+    /// of guessing.
+    #[serde(default)]
+    pub scenes_extracted: u32,
+    /// Preview rows rebuilt from the deterministic heading because their chunk
+    /// returned no rows (issue #758). A nonzero value names the degradation.
+    #[serde(default)]
+    pub scenes_synthesized: u32,
 }
 
 impl From<&Telemetry> for JobTelemetrySummary {
@@ -711,6 +742,9 @@ impl From<&Telemetry> for JobTelemetrySummary {
             cached_tokens_in: t.cached_tokens_in,
             energy_millijoules: t.energy_millijoules,
             latency_total_ms: t.latency_total,
+            scenes_detected: t.scenes_detected,
+            scenes_extracted: t.scenes_extracted,
+            scenes_synthesized: t.scenes_synthesized,
         }
     }
 }

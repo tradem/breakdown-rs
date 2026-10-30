@@ -510,11 +510,37 @@ pub fn shooting_day_group_refs(preview: &ScriptContext) -> Vec<String> {
 
 /// Static LLM target for script extraction. Optional fields express the
 /// null-on-doubt rule: uncertain values must not be asserted by the model.
+///
+/// The three `scenes_*` counters are **server-derived reconciliation data**
+/// (issue #758), not model output: the extraction worker overwrites them at the
+/// storing boundary from what the deterministic scan and the model actually
+/// produced. They exist because the pipeline had no way to notice that a
+/// 57-heading script had turned into a 4-row preview — every consumer saw only
+/// `scenes.len()`. All three are additive with `serde(default)`, so previews
+/// stored before this field existed still load (they simply carry `0`, which a
+/// client renders as "not recorded").
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ScriptContext {
     pub title: Option<String>,
     pub scenes: Vec<DraftScene>,
     pub uncertainties: Vec<Uncertainty>,
+    /// Scene headings the deterministic scan detected — the chunk count after
+    /// [`merge_duplicate_scene_numbers`] (issue #758). This is the number the
+    /// document states, not the number the model produced.
+    #[serde(default)]
+    pub scenes_detected: u32,
+    /// Preview rows the model itself returned, summed over all chunks (issue
+    /// #758). Deliberately **excludes** rows rebuilt from document metadata, so
+    /// `scenes_extracted < scenes_detected` is the visible shortfall.
+    #[serde(default)]
+    pub scenes_extracted: u32,
+    /// Preview rows rebuilt from the deterministic heading because their chunk
+    /// returned no rows at all (issue #758). `scenes.len()` is
+    /// `scenes_extracted + scenes_synthesized`; a nonzero value is the
+    /// code-keyed degradation signal, mirrored per row by a `DroppedRow`
+    /// uncertainty with `field = "extraction"`.
+    #[serde(default)]
+    pub scenes_synthesized: u32,
 }
 
 /// One constituent garment of a [`DraftOutfit`].

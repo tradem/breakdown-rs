@@ -459,6 +459,9 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
             episode: None,
         }],
         uncertainties: vec![],
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     };
     let preview_handle = storage_a.put(job_id, serde_json::to_vec(&context)?).await?;
     let claimed = queue_a

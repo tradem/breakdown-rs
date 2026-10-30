@@ -78,6 +78,9 @@ fn preview() -> ScriptContext {
             },
         ],
         uncertainties: vec![],
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
     }
 }
 
