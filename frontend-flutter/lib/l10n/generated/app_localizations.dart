@@ -5900,6 +5900,12 @@ abstract class AppLocalizations {
   /// **'unbenanntes Modell'**
   String get aiDecisionModelUnnamed;
 
+  /// No description provided for @aiDecisionUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Bewertungsausgang konnte nicht gelesen werden.'**
+  String get aiDecisionUnavailable;
+
   /// No description provided for @aiPreviewScoringFailed.
   ///
   /// In de, this message translates to:

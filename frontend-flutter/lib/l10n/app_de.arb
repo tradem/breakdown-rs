@@ -1036,6 +1036,7 @@
   "aiDecisionSkippedNotApplicable": "Für diesen Import war keine Bewertung nötig.",
   "aiDecisionNotRecorded": "Bewertungsausgang nicht aufgezeichnet.",
   "aiDecisionModelUnnamed": "unbenanntes Modell",
+  "aiDecisionUnavailable": "Bewertungsausgang konnte nicht gelesen werden.",
   "aiPreviewScoringFailed": "Bewertung fehlgeschlagen – keine Sternchen.",
   "aiPreviewSceneScore": "Szenen-Bewertung:",
   "@aiPreviewSceneScore": {},

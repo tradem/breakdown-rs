@@ -14,8 +14,10 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/decision_outcome.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_de.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
@@ -169,6 +171,90 @@ void main() {
       await _pump(tester, const AiDecisionOutcomeText(telemetry: null));
       expect(find.byKey(const Key('ai-decision-outcome')), findsNothing);
       expect(find.byType(Text), findsNothing);
+    });
+  });
+
+  group('AiDecisionOutcomeLine — a failed read is surfaced (AGENTS.md §4)', () {
+    // The reported defect: `aiJobDecisionTelemetry` mapped an `Err` to `null`
+    // exactly like "no outcome recorded", so a transient snapshot failure
+    // looked like a pre-#767 job — and nothing invalidated the provider, so
+    // the silent gap survived every rebuild. These tests pin the opposite: the
+    // failure is an `AsyncError` rendered as the localized unavailable line
+    // WITH the retry that re-reads the job.
+    Future<List<int>> pumpLine(
+      WidgetTester tester, {
+      required Future<DecisionTelemetry?> Function() read,
+    }) async {
+      final reads = <int>[];
+      var calls = 0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            aiJobDecisionTelemetryProvider.overrideWith((ref, jobId) {
+              calls++;
+              reads.add(calls);
+              return read();
+            }),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: AiDecisionOutcomeLine(jobId: 'job-1')),
+          ),
+        ),
+      );
+      await tester.pump();
+      return reads;
+    }
+
+    testWidgets('an Err renders the unavailable line, not silence', (
+      tester,
+    ) async {
+      await pumpLine(
+        tester,
+        read: () async => throw const ProblemError(code: 'http.500'),
+      );
+      expect(
+        find.byKey(const Key('ai-decision-outcome-unavailable')),
+        findsOneWidget,
+      );
+      expect(find.text('Scoring outcome could not be read.'), findsOneWidget);
+      // The failure state never fabricates an outcome line or a rating.
+      expect(find.byKey(const Key('ai-decision-outcome')), findsNothing);
+      expect(find.byIcon(Icons.star), findsNothing);
+    });
+
+    testWidgets('the retry affordance re-reads the job and shows the outcome', (
+      tester,
+    ) async {
+      var attempt = 0;
+      await pumpLine(
+        tester,
+        read: () async {
+          attempt++;
+          if (attempt == 1) throw const ProblemError(code: 'http.500');
+          return _telemetry();
+        },
+      );
+      await tester.tap(find.byKey(const Key('ai-decision-outcome-retry')));
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(
+        find.byKey(const Key('ai-decision-outcome-unavailable')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('ai-decision-outcome')), findsOneWidget);
+      expect(find.text('Scored with neuralwatt / glm-5.3.'), findsOneWidget);
+      expect(attempt, 2);
+    });
+
+    testWidgets('a successful read recording NO outcome stays silent (the '
+        'unreadable case is the only one that speaks)', (tester) async {
+      await pumpLine(tester, read: () async => null);
+      expect(
+        find.byKey(const Key('ai-decision-outcome-unavailable')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('ai-decision-outcome')), findsNothing);
     });
   });
 

@@ -4,6 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
@@ -924,6 +925,12 @@ void main() {
       addTearDown(db.close);
       dao = AiImportJobsCacheDao(db);
       repo = FakeAiImportRepository(BreakdownApi(), dao);
+      // The preview screen reads its job's Decision-Model outcome line (issue
+      // #767). A reachable preview means the job EXISTS, so the fixture answers
+      // `getJobAndCache` — that keeps these tests on the line's silent state
+      // (the job recorded no outcome) instead of its read-failure state, which
+      // has its own tests in decision_outcome_test.dart.
+      repo.jobResult = Right(_succeededJob('job-1'));
       if (applyQueue != null) repo.applyQueue.addAll(applyQueue);
       preview = ValueNotifier(
         previewValue ?? Right(_previewResponse(_scriptPayload())),

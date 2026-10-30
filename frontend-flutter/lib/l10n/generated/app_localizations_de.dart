@@ -3646,6 +3646,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiDecisionModelUnnamed => 'unbenanntes Modell';
 
   @override
+  String get aiDecisionUnavailable =>
+      'Bewertungsausgang konnte nicht gelesen werden.';
+
+  @override
   String get aiPreviewScoringFailed =>
       'Bewertung fehlgeschlagen – keine Sternchen.';
 

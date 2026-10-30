@@ -3604,6 +3604,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiDecisionModelUnnamed => 'unnamed model';
 
   @override
+  String get aiDecisionUnavailable => 'Scoring outcome could not be read.';
+
+  @override
   String get aiPreviewScoringFailed => 'Scoring failed — no stars.';
 
   @override

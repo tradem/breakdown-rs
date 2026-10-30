@@ -45,20 +45,37 @@ part 'decision_outcome.g.dart';
 
 /// The job's recorded Decision Model outcome (issue #767).
 ///
-/// `null` means "the wire carries no outcome" — a job recorded before the field
-/// existed, or a read that failed. The provider never invents one: an
-/// unreadable job renders no line at all, which is the honest degradation for
-/// data that does not exist.
+/// `null` means exactly one thing: **the wire carries no outcome** — a job
+/// recorded before the field existed. The provider never invents one, so
+/// "nothing recorded" keeps rendering no line at all.
+///
+/// A FAILED read is not `null`: it is an [AsyncError] the caller must show
+/// (AGENTS.md §4 — "a failed refetch is surfaced as `AsyncError`, never
+/// swallowed"). Mapping the failure to `null` as well made a transient
+/// snapshot fault indistinguishable from a pre-#767 job, and nothing
+/// invalidated the provider, so the silent gap outlived every rebuild.
 ///
 /// `getJobAndCache` (NOT the SSE watch) keeps this a single cheap snapshot: the
 /// preview and the job screen read one authoritative fact, and the app's single
 /// SSE consumer stays the job-status controller (battery contract D5).
-@riverpod
+///
+/// No automatic retry: Riverpod 3's default re-runs a failed provider on an
+/// exponential backoff timer, which is unbounded, wall-clock driven (AGENTS.md
+/// §6 forbids timing-gated tests) and would flag the state `isLoading` while the
+/// backoff is pending. The refetch here is user-driven —
+/// [AiDecisionOutcomeLine]'s retry button invalidates the provider.
+@Riverpod(retry: _noAutoRetry)
 Future<DecisionTelemetry?> aiJobDecisionTelemetry(Ref ref, String jobId) async {
   final repo = ref.read(aiImportRepositoryProvider);
   final job = await repo.getJobAndCache(jobId);
-  return job.match((_) => null, (job) => job.decisionTelemetry);
+  // `Err` re-throws into Riverpod's error channel; the widget layer renders
+  // it as the localized unavailable line with a retry affordance.
+  return job.match((err) => throw err, (job) => job.decisionTelemetry);
 }
+
+/// The `retry: null` policy for [aiJobDecisionTelemetry] — never retry on a
+/// timer (see the provider doc).
+Duration? _noAutoRetry(int retryCount, Object error) => null;
 
 /// How prominently the outcome line states its class.
 enum AiDecisionTone {
@@ -158,9 +175,15 @@ AiDecisionSummary aiDecisionSummary(
 /// scored the import. The job status screen already holds the job and renders
 /// [AiDecisionOutcomeText] directly (no second read).
 ///
-/// Renders [SizedBox.shrink] while loading, for an unrecorded outcome
-/// (pre-#767 jobs) and for a failed read: the line explains a *recorded*
-/// outcome, and silence without a record is honest.
+/// Three states, three honest renderings:
+///
+/// * **loading** — [SizedBox.shrink]: the line explains a *recorded* outcome,
+///   and nothing is recorded yet;
+/// * **data(null)** — [SizedBox.shrink]: the job recorded no outcome (pre-#767
+///   rows are never guessed into a class);
+/// * **error** — [AiDecisionOutcomeUnavailable]: the read failed, so the line
+///   says so and offers a retry instead of pretending nothing was recorded
+///   (AGENTS.md §4, "no silent discard").
 class AiDecisionOutcomeLine extends ConsumerWidget {
   const AiDecisionOutcomeLine({required this.jobId, super.key});
 
@@ -168,11 +191,63 @@ class AiDecisionOutcomeLine extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final outcome = ref.watch(aiJobDecisionTelemetryProvider(jobId));
+    if (outcome.hasError) {
+      return AiDecisionOutcomeUnavailable(
+        // The one action that can resolve the state (no automatic retry: see
+        // the provider).
+        onRetry: () => ref.invalidate(aiJobDecisionTelemetryProvider(jobId)),
+      );
+    }
     // `AsyncValue.value` keeps the last resolved outcome across a reload
     // (Riverpod 3 `skipLoadingOnReload` semantics): a refresh never blanks the
-    // line, and an unrecorded/unreadable outcome stays silent.
-    final telemetry = ref.watch(aiJobDecisionTelemetryProvider(jobId)).value;
-    return AiDecisionOutcomeText(telemetry: telemetry);
+    // line, and an unrecorded outcome stays silent.
+    return AiDecisionOutcomeText(telemetry: outcome.value);
+  }
+}
+
+/// The "outcome could not be read" line (issue #767).
+///
+/// The degraded sibling of [AiDecisionOutcomeText]: it states that the job
+/// snapshot could not be read — a different fact from "the job recorded no
+/// outcome" — and carries the retry that re-reads it. Never silent, never a
+/// guessed class, never a fabricated rating.
+class AiDecisionOutcomeUnavailable extends StatelessWidget {
+  const AiDecisionOutcomeUnavailable({this.onRetry, super.key});
+
+  /// Re-reads the job snapshot. `null` renders the line action-less for a
+  /// caller that cannot refresh.
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final retry = onRetry;
+    return Semantics(
+      key: const Key('ai-decision-outcome-unavailable'),
+      container: true,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.report_outlined, size: 16, color: scheme.error),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              l10nOf(context).aiDecisionUnavailable,
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: scheme.error),
+            ),
+          ),
+          if (retry != null)
+            TextButton(
+              key: const Key('ai-decision-outcome-retry'),
+              onPressed: retry,
+              child: Text(l10nOf(context).commonRetry),
+            ),
+        ],
+      ),
+    );
   }
 }
 
