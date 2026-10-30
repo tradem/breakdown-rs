@@ -79,6 +79,18 @@ pub const DELETE_ORDER: &[&str] = &[
     "episode",
 ];
 
+/// Mapping kinds that own a deletable aggregate. Every other kind (the beat
+/// kinds, the retired `costume` kind) needs no aggregate delete, so its
+/// provenance rows are removed with the job.
+const MAPPING_KINDS: &[&str] = &[
+    "scene",
+    "character",
+    "piece",
+    "outfit",
+    "shooting_day",
+    "scene_shoot",
+];
+
 /// One AI import job row (the dedup blocker).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ImportJobRow {
@@ -267,10 +279,28 @@ pub async fn execute(
         DELETE_ORDER.join(" → ")
     ));
 
+    // Payload objects first: their handles exist **only** in the job rows, so a
+    // purge that cannot run has to stop the reset before those rows go —
+    // otherwise the objects are unreachable garbage (issue #770 review).
+    if let Err(error) = purge_payloads(&jobs, options, &mut report).await {
+        report.failures.push(error);
+        report.failures.push(
+            "aborted before deleting the job rows: their payload handles are the only way to \
+             find the objects. Configure AI_PAYLOAD_S3_* (see \
+             scripts/enable-dev-ai-import.sh) or pass --skip-payload-purge deliberately"
+                .to_string(),
+        );
+        return Ok(report);
+    }
+
     delete_aggregates(context, &targets, &mut report).await;
 
-    purge_payloads(&jobs, &mut report).await;
-    delete_job_rows(&context.pool, &jobs, &mut report).await;
+    // Only the provenance of the aggregates that are actually gone is deleted:
+    // a failed delete keeps its mapping row so a re-run can still find it
+    // (issue #770 review).
+    // Taken before the mutable borrow of the report below.
+    let deleted_aggregates = report.deleted_aggregates.clone();
+    delete_job_rows(&context.pool, &jobs, &deleted_aggregates, &mut report).await;
 
     report.lines.push(format!(
         "deleted {} job row(s); re-uploading the same document now enqueues a fresh job",
@@ -400,9 +430,21 @@ async fn delete_aggregates(context: &mut Context, targets: &Targets, report: &mu
                 id: SceneShootId(id)
             }
         );
-        if let Some((scene_id, shooting_day_id)) = pair {
-            let key = scene_shoot_pair_key(scene_id, shooting_day_id.0);
-            release_claim(&reservations, &key, id, report).await;
+        let deleted = report.deleted_aggregates.contains(&id);
+        match pair {
+            Some((scene_id, shooting_day_id)) => {
+                let key = scene_shoot_pair_key(scene_id, shooting_day_id.0);
+                release_claim(&reservations, &key, id, report).await;
+            }
+            // The ADR-036 key is built from the projection row; without it the
+            // claim stays held and a re-import of the same (scene, day) pair is
+            // refused with a 409 (issue #770 review).
+            None if deleted => report.failures.push(format!(
+                "released no ADR-036 claim for the deleted scene_shoot {id}: its projection row \
+                 was already gone, so the pair key could not be rebuilt — a re-import of the same \
+                 (scene, day) pair would answer 409; the reset is PARTIAL"
+            )),
+            None => {}
         }
     }
 
@@ -640,20 +682,38 @@ async fn release_claim(
 }
 
 /// Deletes the source document and preview objects of every job.
-async fn purge_payloads(jobs: &[ImportJobRow], report: &mut ResetReport) {
+///
+/// Returns an error when the objects could **not** be purged — the caller then
+/// aborts before deleting the job rows, because those rows are the only place
+/// the object handles are recorded. `--skip-payload-purge` is the explicit
+/// opt-out for a deliberately unreachable bucket.
+async fn purge_payloads(
+    jobs: &[ImportJobRow],
+    options: &ResetOptions,
+    report: &mut ResetReport,
+) -> Result<(), String> {
     let Some(storage) = OpenDalAiPayloadStorage::from_env() else {
-        report.lines.push(
-            "AI payload storage not configured (AI_PAYLOAD_S3_* unset): payload objects were \
-             not purged"
+        if options.skip_payload_purge {
+            report.lines.push(
+                "--skip-payload-purge: AI payload storage is not configured, so the source and \
+                 preview objects were left in place (they become unreachable once the job rows \
+                 go)"
+                .to_string(),
+            );
+            return Ok(());
+        }
+        return Err(
+            "AI payload storage is not configured (AI_PAYLOAD_S3_* unset), so the payload \
+             objects cannot be purged"
                 .to_string(),
         );
-        return;
     };
     let mut purged = 0usize;
+    let mut failures = Vec::new();
     for job in jobs {
         match storage.delete_source(&job.source_handle).await {
             Ok(()) => purged += 1,
-            Err(error) => report.failures.push(format!(
+            Err(error) => failures.push(format!(
                 "purge source {} of job {}: {error}",
                 job.source_handle, job.id
             )),
@@ -661,20 +721,30 @@ async fn purge_payloads(jobs: &[ImportJobRow], report: &mut ResetReport) {
         if let Some(handle) = job.preview_handle.as_deref() {
             match storage.delete(handle).await {
                 Ok(()) => purged += 1,
-                Err(error) => report
-                    .failures
-                    .push(format!("purge preview {handle} of job {}: {error}", job.id)),
+                Err(error) => {
+                    failures.push(format!("purge preview {handle} of job {}: {error}", job.id))
+                }
             }
         }
     }
     report
         .lines
         .push(format!("purged {purged} AI payload object(s)"));
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
 /// Deletes the job rows (cascading attempts and cleanup bookkeeping), their
 /// provenance rows and their users' concurrency permits.
-async fn delete_job_rows(pool: &PgPool, jobs: &[ImportJobRow], report: &mut ResetReport) {
+async fn delete_job_rows(
+    pool: &PgPool,
+    jobs: &[ImportJobRow],
+    deleted_aggregates: &[Uuid],
+    report: &mut ResetReport,
+) {
     let job_ids: Vec<Uuid> = jobs.iter().map(|job| job.id).collect();
     let user_ids: Vec<String> = jobs
         .iter()
@@ -695,9 +765,15 @@ async fn delete_job_rows(pool: &PgPool, jobs: &[ImportJobRow], report: &mut Rese
 
     // Provenance first: the mapping table has no foreign key to the job row.
     let mapping = sqlx::query(
-        "DELETE FROM ai_import.projection_ai_import_mapping WHERE preview_id = ANY($1)",
+        r#"
+        DELETE FROM ai_import.projection_ai_import_mapping
+        WHERE preview_id = ANY($1)
+          AND (aggregate_id = ANY($2) OR NOT (aggregate_kind = ANY($3)))
+        "#,
     )
     .bind(&job_ids)
+    .bind(deleted_aggregates)
+    .bind(MAPPING_KINDS)
     .execute(&mut *transaction)
     .await;
     let permits = sqlx::query("DELETE FROM ai_import.concurrency_permit WHERE user_id = ANY($1)")
@@ -747,7 +823,7 @@ mod tests {
     use super::*;
 
     /// Mapping kinds this level can delete, mapped to their delete order index.
-    const MAPPING_KINDS: &[&str] = &[
+    const TEST_MAPPING_KINDS: &[&str] = &[
         "scene",
         "character",
         "piece",
@@ -784,7 +860,7 @@ mod tests {
 
     #[test]
     fn every_mapping_kind_has_a_delete_bucket() {
-        for kind in MAPPING_KINDS {
+        for kind in TEST_MAPPING_KINDS {
             let targets = collect_targets(&[mapping(kind, Uuid::now_v7())]);
             assert_eq!(
                 targets.total(),
@@ -865,7 +941,7 @@ mod tests {
 
     #[test]
     fn delete_order_covers_the_mapping_kinds_and_the_episode_heuristic() {
-        for kind in MAPPING_KINDS {
+        for kind in TEST_MAPPING_KINDS {
             assert!(
                 DELETE_ORDER.contains(kind),
                 "mapping kind {kind:?} has no entry in DELETE_ORDER"
@@ -873,7 +949,7 @@ mod tests {
         }
         // Episodes have no provenance rows (#763) and are resolved heuristically,
         // so they are the one extra entry.
-        assert_eq!(DELETE_ORDER.len(), MAPPING_KINDS.len() + 1);
+        assert_eq!(DELETE_ORDER.len(), TEST_MAPPING_KINDS.len() + 1);
         assert!(DELETE_ORDER.contains(&"episode"));
     }
 }

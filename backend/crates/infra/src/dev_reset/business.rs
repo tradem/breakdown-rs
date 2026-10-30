@@ -232,6 +232,19 @@ async fn wipe_phase(
 
     require_empty_event_store(context, &export, &mut report).await?;
 
+    // 0. AI payload objects first and strictly: their handles exist only in the
+    //    job rows, so a purge that cannot run must stop the wipe before those
+    //    rows go (issue #770 review).
+    if let Err(error) = purge_payloads(context, options, &mut report).await {
+        report.failures.push(error);
+        report.failures.push(
+            "aborted the wipe before deleting the job rows: their payload handles are the only \
+             way to find the objects. Configure AI_PAYLOAD_S3_* or pass --skip-payload-purge"
+                .to_string(),
+        );
+        return Ok(report);
+    }
+
     // 1. Report jobs reference the shooting-day projection with ON DELETE
     //    RESTRICT — they must go first.
     delete_static(&context.pool, REPORT_JOB_DELETE, &mut report).await;
@@ -241,8 +254,7 @@ async fn wipe_phase(
         delete_static(&context.pool, category.truncate_sql(), &mut report).await;
     }
 
-    // 3. Operational bookkeeping (payload purge happens before the job rows go).
-    purge_payloads(context, &mut report).await;
+    // 3. Operational bookkeeping.
     for statement in OPERATIONAL_DELETES {
         delete_static(&context.pool, statement, &mut report).await;
     }
@@ -459,30 +471,44 @@ async fn delete_static(pool: &PgPool, statement: &'static str, report: &mut Rese
 }
 
 /// Purges the AI payload objects of the jobs that are about to be deleted.
-async fn purge_payloads(context: &mut Context, report: &mut ResetReport) {
+///
+/// Returns an error when the objects could not be purged: the caller then
+/// aborts before deleting the job rows, whose handles are the only way to find
+/// them. `--skip-payload-purge` is the explicit opt-out.
+async fn purge_payloads(
+    context: &mut Context,
+    options: &ResetOptions,
+    report: &mut ResetReport,
+) -> Result<(), String> {
     let Some(storage) = OpenDalAiPayloadStorage::from_env() else {
-        report.lines.push(
-            "AI payload storage not configured (AI_PAYLOAD_S3_* unset): payload objects were \
-             not purged"
+        if options.skip_payload_purge {
+            report.lines.push(
+                "--skip-payload-purge: AI payload storage is not configured, so the objects were \
+                 left in place (unreachable once the job rows go)"
+                    .to_string(),
+            );
+            return Ok(());
+        }
+        return Err(
+            "AI payload storage is not configured (AI_PAYLOAD_S3_* unset), so the payload \
+             objects cannot be purged"
                 .to_string(),
         );
-        return;
     };
-    let jobs = super::imports::load_jobs(&context.pool).await;
-    let jobs = match jobs {
+    let jobs = match super::imports::load_jobs(&context.pool).await {
         Ok(jobs) => jobs,
         Err(error) => {
-            report.failures.push(format!(
+            return Err(format!(
                 "load AI import jobs for the payload purge: {error}"
             ));
-            return;
         }
     };
     let mut purged = 0usize;
+    let mut failures = Vec::new();
     for job in &jobs {
         match storage.delete_source(&job.source_handle).await {
             Ok(()) => purged += 1,
-            Err(error) => report.failures.push(format!(
+            Err(error) => failures.push(format!(
                 "purge source {} of job {}: {error}",
                 job.source_handle, job.id
             )),
@@ -490,15 +516,20 @@ async fn purge_payloads(context: &mut Context, report: &mut ResetReport) {
         if let Some(handle) = job.preview_handle.as_deref() {
             match storage.delete(handle).await {
                 Ok(()) => purged += 1,
-                Err(error) => report
-                    .failures
-                    .push(format!("purge preview {handle} of job {}: {error}", job.id)),
+                Err(error) => {
+                    failures.push(format!("purge preview {handle} of job {}: {error}", job.id))
+                }
             }
         }
     }
     report
         .lines
         .push(format!("purged {purged} AI payload object(s)"));
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
 /// Deletes every photo object (SSE-C, resolved through Vault).
