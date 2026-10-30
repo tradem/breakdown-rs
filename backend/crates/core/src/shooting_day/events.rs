@@ -78,6 +78,12 @@ pub enum ShootingDayEvent {
         wrapped_at: DateTime<Utc>,
         version: AggregateVersion,
     },
+    /// The ShootingDay was deleted (issue #770, dev data reset). The projector
+    /// removes the row; the stream keeps its history and the audit row.
+    ShootingDayDeleted {
+        id: ShootingDayId,
+        version: AggregateVersion,
+    },
 }
 
 impl kameo_es::EventType for ShootingDayEvent {
@@ -89,6 +95,7 @@ impl kameo_es::EventType for ShootingDayEvent {
             Self::ShootingDayReordered { .. } => "ShootingDayReordered",
             Self::ShootingDayArchived { .. } => "ShootingDayArchived",
             Self::ShootingDayWrapped { .. } => "ShootingDayWrapped",
+            Self::ShootingDayDeleted { .. } => "ShootingDayDeleted",
         }
     }
 }

@@ -16,6 +16,11 @@ pub enum ShootingDayError {
     #[error("ShootingDay({id}) not found")]
     NotFound { id: ShootingDayId },
 
+    /// The aggregate was deleted (issue #770): a deleted stream rejects every
+    /// further command instead of appending events the projection can no longer
+    /// apply.
+    #[error("ShootingDay({id}) was deleted")]
+    Deleted { id: ShootingDayId },
     #[error("ShootingDay({id}) is archived and cannot be mutated")]
     ArchivedCannotBeMutated { id: ShootingDayId },
 

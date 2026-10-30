@@ -26,6 +26,70 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **Safe, repeatable dev data reset that preserves the configuration (issue
+  #770; `core 0.49.0 → 0.50.0`, `infra 0.58.0 → 0.59.0`, `api 0.48.0 →
+  0.49.0`).** Replaying AI script imports for integration verification was
+  blocked twice over: `ai_import.ai_import_job` is unique on `(user_id,
+  dedup_key)`, so re-uploading the same PDF returned the old `succeeded` job
+  (`200`) instead of extracting again, and the import target is the ambient
+  `X-Active-Block` — a new season changes nothing. The new maintenance binary
+  `reset-dev-data` (engine in `infra::dev_reset`, wrapper
+  `scripts/reset-dev-data.sh`) resets the **data set** while keeping the
+  **configuration** (AI config incl. the Decision Model, credential bindings,
+  roles). Two levels:
+
+  - **`--level imports`** deletes the AI job rows (the dedup blocker), purges
+    the source/preview payload objects and removes the aggregates the imports
+    created — **through real domain commands**, children first
+    (`scene_shoot` → `scene` → `shooting_day` → `outfit` → `piece` →
+    `character` → `episode`), never by truncating projections behind the event
+    store's back. Import-created episodes are resolved heuristically from the
+    job's `block_id` + `created_at` recency (the import → episode provenance is
+    still missing, #763) and the report says so.
+  - **`--level business`** exports the keep-list streams (`ai_config`,
+    `settings`, `membership`) **verbatim** (`ESCAN`, payload/metadata bytes,
+    event name, id, timestamp), wipes every business projection, the
+    operational bookkeeping and the business buckets, then replays the export
+    with `EMAPPEND` on the same stream ids. SierraDB 0.3.1 has no delete
+    command at all, so the event store is emptied by dropping its data volume —
+    the script drives the phases (`export` / `wipe` / `replay` / `verify`)
+    around that drop. Vault is never touched, `ai_model_pricing` is exported
+    for the backup but deliberately kept, and the keep projections are rebuilt
+    by the projectors from the replayed events (their checkpoints are cleared
+    too).
+  - **New domain commands:** `DeleteScene`, `DeleteEpisode`,
+    `DeleteShootingDay`, `DeleteSceneShoot`, `DeleteCharacter`, `DeletePiece`,
+    `DeleteOutfit` (+ `*Deleted` events and idempotent projection deletes). They
+    deliberately have **no HTTP route and no write-port method** — a delete
+    endpoint is a footgun; the reset binary is the only dispatcher. The
+    `shooting_day` delete also clears the `report_ops.report_job` rows that
+    reference the day with `ON DELETE RESTRICT` (otherwise the delete would
+    dead-letter the projector, #37), and the reset path releases the ADR-036
+    `(project_id, number)` / `(scene_id, shooting_day_id)` claims so a
+    re-import may reuse the number/pair.
+  - **Safety envelope:** no HTTP surface; prod refusal (`--env dev` required,
+    `APP_ENV` must be development, `REQUIRE_IN_TRANSIT_TLS=true` refuses, both
+    connection URLs must be loopback); `--dry-run` prints the complete
+    keep/reset plan (categories, tables, buckets, counts) and writes nothing;
+    backup by default (`--no-backup` must be typed) into
+    `backups/reset-<timestamp>/`; interactive target confirmation unless
+    `--yes`; a **closed** keep/reset classification (`AggregateCategory`, an
+    exhaustive `match` plus a workspace source scan, so a new aggregate cannot
+    silently default into "keep"); and an audit line with mode, target,
+    counts and the backup path.
+  - Docs: runbook "13. Dev data reset (issue #770)" (levels, phase table,
+    post-conditions, client-side reset), the local-dev runtime instruction and
+    the root README dev section.
+  - **Resilience found in the E2E run:** a stream holding a retired event
+    variant (the pre-split `CostumeBeatAdded`, the retired `costume` photo
+    variant) panics its entity actor, and that panic kills the shared command
+    service actor. The reset loop now classifies a dead service separately,
+    rebuilds it and continues, so one unreplayable stream cannot block the whole
+    reset; the aggregate is reported as a failure and the run exits non-zero
+    with an explicit "the reset is PARTIAL" hint.
+
 ### Fixed
 
 - **A script import can no longer lose scenes silently (issue #758;

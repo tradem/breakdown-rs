@@ -89,3 +89,25 @@ impl kameo_es::CommandName for UpdateCharacterCategory {
         "UpdateCharacterCategory"
     }
 }
+
+/// Delete a Character (issue #770 — dev data reset).
+///
+/// The undo path for an AI script import: the reset tooling removes the
+/// aggregates an import created through **real domain commands** instead of
+/// truncating projections behind the event store's back (AGENTS.md §1).
+///
+/// There is deliberately **no HTTP route** and no port method (issue #770: a
+/// delete endpoint is a footgun); the `reset-dev-data` maintenance binary is
+/// the only dispatcher, and it deletes children first — a delete does not
+/// cascade across aggregates, because a projection-side cascade would leave the
+/// child streams without their own deleted event.
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
+pub struct DeleteCharacter {
+    pub id: Uuid,
+}
+
+impl kameo_es::CommandName for DeleteCharacter {
+    fn command_name() -> &'static str {
+        "DeleteCharacter"
+    }
+}

@@ -11,6 +11,11 @@ dev-certs/
 # token, and the dev-only bootstrap seed. Never grant real-vault semantics.
 backend/.vault-dev/
 
+# Dev data-reset backups (issue #770, scripts/reset-dev-data.sh): keep-list
+# event exports, AI import job rows, pg_dump and event-store volume tarballs.
+# Development data, never committed.
+backend/backups/
+
 # Android release keystore material (never commit; see
 # frontend-flutter/docs/release-signing-key-custody.md — D9, one key,
 # backed up offline). Material flows through CI environment secrets only.

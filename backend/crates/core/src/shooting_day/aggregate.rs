@@ -11,8 +11,8 @@ use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, LexicalSortKey, ShootingDayId};
 
 use super::commands::{
-    ArchiveShootingDay, CreateShootingDay, EnsureShootingDayOpen, RenameShootingDay,
-    ReorderShootingDay, RescheduleShootingDay, WrapShootingDay,
+    ArchiveShootingDay, CreateShootingDay, DeleteShootingDay, EnsureShootingDayOpen,
+    RenameShootingDay, ReorderShootingDay, RescheduleShootingDay, WrapShootingDay,
 };
 use super::error::ShootingDayError;
 use super::events::{ShootingDayEvent, ShootingDaySource};
@@ -34,6 +34,10 @@ pub struct ShootingDayAggregate {
     pub archived: bool,
     /// When this shooting day was wrapped (finalised). `None` means open.
     pub wrapped_at: Option<DateTime<Utc>>,
+    /// Set by the terminal `ShootingDayDeleted` event: a deleted
+    /// aggregate rejects every further command (issue #770 — a delete
+    /// must not leave a stream that still accepts mutations).
+    pub deleted: bool,
     pub version: AggregateVersion,
 }
 
@@ -48,6 +52,7 @@ impl Default for ShootingDayAggregate {
             source: ShootingDaySource::Manual,
             archived: false,
             wrapped_at: None,
+            deleted: false,
             version: AggregateVersion::default(),
         }
     }
@@ -66,6 +71,13 @@ impl Entity for ShootingDayAggregate {
 impl Apply for ShootingDayAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            ShootingDayEvent::ShootingDayDeleted { version, .. } => {
+                self.deleted = true;
+                self.version = version;
+            }
             ShootingDayEvent::ShootingDayCreated {
                 id,
                 episode_id,
@@ -121,6 +133,9 @@ impl Command<CreateShootingDay> for ShootingDayAggregate {
         cmd: CreateShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(ShootingDayError::Deleted { id: self.id });
+        }
         Ok(vec![ShootingDayEvent::ShootingDayCreated {
             id: cmd.id,
             episode_id: cmd.episode_id,
@@ -140,6 +155,9 @@ impl Command<RenameShootingDay> for ShootingDayAggregate {
         cmd: RenameShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(ShootingDayError::Deleted { id: self.id });
+        }
         if self.archived {
             return Err(ShootingDayError::ArchivedCannotBeMutated { id: self.id });
         }
@@ -165,6 +183,9 @@ impl Command<RescheduleShootingDay> for ShootingDayAggregate {
         cmd: RescheduleShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(ShootingDayError::Deleted { id: self.id });
+        }
         if self.archived {
             return Err(ShootingDayError::ArchivedCannotBeMutated { id: self.id });
         }
@@ -190,6 +211,9 @@ impl Command<ReorderShootingDay> for ShootingDayAggregate {
         cmd: ReorderShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(ShootingDayError::Deleted { id: self.id });
+        }
         if self.archived {
             return Err(ShootingDayError::ArchivedCannotBeMutated { id: self.id });
         }
@@ -215,6 +239,9 @@ impl Command<ArchiveShootingDay> for ShootingDayAggregate {
         cmd: ArchiveShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(ShootingDayError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(ShootingDayError::VersionMismatch {
                 expected: cmd.version,
@@ -242,6 +269,9 @@ impl Command<WrapShootingDay> for ShootingDayAggregate {
         cmd: WrapShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(ShootingDayError::Deleted { id: self.id });
+        }
         // Idempotent: already-wrapped → no-op, emit nothing.
         if self.wrapped_at.is_some() {
             return Ok(vec![]);
@@ -274,9 +304,38 @@ impl Command<EnsureShootingDayOpen> for ShootingDayAggregate {
         cmd: EnsureShootingDayOpen,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(ShootingDayError::Deleted { id: self.id });
+        }
         if self.wrapped_at.is_some() {
             return Err(ShootingDayError::Wrapped { id: cmd.id });
         }
         Ok(vec![])
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a ShootingDay. See
+// `DeleteShootingDay` for why it has no HTTP route and no port method.
+impl Command<DeleteShootingDay> for ShootingDayAggregate {
+    type Error = ShootingDayError;
+    fn handle(
+        &self,
+        cmd: DeleteShootingDay,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: deleting an already-deleted aggregate is a no-op.
+        if self.deleted {
+            return Ok(vec![]);
+        }
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.0.is_nil() {
+            return Err(ShootingDayError::NotFound { id: cmd.id });
+        }
+        Ok(vec![ShootingDayEvent::ShootingDayDeleted {
+            id: self.id,
+            version: self.version.next(),
+        }])
     }
 }

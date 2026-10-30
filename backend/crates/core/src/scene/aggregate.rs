@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, ShootingDayId};
 
 use super::commands::{
-    AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
+    AddOutfitBeat, AssignCharacter, CreateScene, DeleteScene, RemoveCharacter, RemoveOutfitBeat,
     ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
     UpdateSceneDetails,
 };
@@ -41,6 +41,10 @@ pub struct SceneAggregate {
     pub outfit_beats: Vec<SceneOutfitBeat>,
     /// Provenance discriminator (Manual | AiExtracted); see `SceneSource`.
     pub source: SceneSource,
+    /// Set by the terminal `SceneDeleted` event: a deleted
+    /// aggregate rejects every further command (issue #770 — a delete
+    /// must not leave a stream that still accepts mutations).
+    pub deleted: bool,
     pub version: AggregateVersion,
 }
 
@@ -59,6 +63,13 @@ impl Entity for SceneAggregate {
 impl Apply for SceneAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            SceneEvent::SceneDeleted { version, .. } => {
+                self.deleted = true;
+                self.version = version;
+            }
             SceneEvent::SceneCreated {
                 id,
                 episode_id,
@@ -184,6 +195,9 @@ impl Command<CreateScene> for SceneAggregate {
         cmd: CreateScene,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         Ok(vec![SceneEvent::SceneCreated {
             id: cmd.id,
             episode_id: cmd.episode_id,
@@ -202,6 +216,9 @@ impl Command<UpdateSceneDetails> for SceneAggregate {
         cmd: UpdateSceneDetails,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -229,6 +246,9 @@ impl Command<AssignCharacter> for SceneAggregate {
         cmd: AssignCharacter,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -254,6 +274,9 @@ impl Command<RemoveCharacter> for SceneAggregate {
         cmd: RemoveCharacter,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -301,6 +324,9 @@ impl Command<ScheduleSceneOnShootingDay> for SceneAggregate {
         cmd: ScheduleSceneOnShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -341,7 +367,12 @@ impl Command<ScheduleSceneOnShootingDay> for SceneAggregate {
         cmd: &ScheduleSceneOnShootingDay,
         _ctx: Context<'_, Self>,
     ) -> bool {
-        self.shooting_day_ids.contains(&cmd.shooting_day_id)
+        // `kameo_es` asks this **before** `handle`, so the deleted guard in
+        // `handle` would never run for an already-linked day and a deleted scene
+        // would answer 200 with the current version (issue #770 review). A
+        // deleted aggregate is never idempotent — it must reach `handle` and be
+        // rejected with `SceneError::Deleted`.
+        !self.deleted && self.shooting_day_ids.contains(&cmd.shooting_day_id)
     }
 }
 
@@ -352,6 +383,9 @@ impl Command<UnscheduleSceneFromShootingDay> for SceneAggregate {
         cmd: UnscheduleSceneFromShootingDay,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -379,6 +413,9 @@ impl Command<AddOutfitBeat> for SceneAggregate {
         cmd: AddOutfitBeat,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -433,6 +470,9 @@ impl Command<UpdateOutfitBeat> for SceneAggregate {
         cmd: UpdateOutfitBeat,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -473,6 +513,9 @@ impl Command<RemoveOutfitBeat> for SceneAggregate {
         cmd: RemoveOutfitBeat,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(SceneError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(SceneError::VersionMismatch {
                 expected: cmd.version,
@@ -522,5 +565,31 @@ impl Command<RemoveOutfitBeat> for SceneAggregate {
                 }])
             }
         }
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a Scene. See
+// `DeleteScene` for why it has no HTTP route and no port method.
+impl Command<DeleteScene> for SceneAggregate {
+    type Error = SceneError;
+    fn handle(
+        &self,
+        cmd: DeleteScene,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: deleting an already-deleted aggregate is a no-op.
+        if self.deleted {
+            return Ok(vec![]);
+        }
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.is_nil() {
+            return Err(SceneError::NotFound { id: cmd.id });
+        }
+        Ok(vec![SceneEvent::SceneDeleted {
+            id: self.id,
+            version: self.version.next(),
+        }])
     }
 }

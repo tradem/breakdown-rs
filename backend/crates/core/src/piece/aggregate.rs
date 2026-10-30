@@ -38,6 +38,10 @@ pub struct PieceAggregate {
     pub notes: String,
     pub details: Vec<PieceDetail>,
     pub photos: Vec<Uuid>,
+    /// Set by the terminal `PieceDeleted` event: a deleted
+    /// aggregate rejects every further command (issue #770 — a delete
+    /// must not leave a stream that still accepts mutations).
+    pub deleted: bool,
     pub version: AggregateVersion,
 }
 
@@ -63,6 +67,13 @@ impl Entity for PieceAggregate {
 impl Apply for PieceAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            PieceEvent::PieceDeleted { version, .. } => {
+                self.deleted = true;
+                self.version = version;
+            }
             PieceEvent::PieceCreated {
                 id,
                 name,
@@ -163,6 +174,9 @@ impl Command<CreatePiece> for PieceAggregate {
         cmd: CreatePiece,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         let name = normalize_name(&cmd.name)?;
         Ok(vec![PieceEvent::PieceCreated {
             id: cmd.id,
@@ -184,6 +198,9 @@ impl Command<RenamePiece> for PieceAggregate {
         cmd: RenamePiece,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -210,6 +227,9 @@ impl Command<UpdatePieceNotes> for PieceAggregate {
         cmd: UpdatePieceNotes,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -234,6 +254,9 @@ impl Command<AddPieceToSeason> for PieceAggregate {
         cmd: AddPieceToSeason,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -262,6 +285,9 @@ impl Command<RemovePieceFromSeason> for PieceAggregate {
         cmd: RemovePieceFromSeason,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -286,6 +312,9 @@ impl Command<AddPieceDetail> for PieceAggregate {
         cmd: AddPieceDetail,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -307,6 +336,9 @@ impl Command<UpdatePieceDetail> for PieceAggregate {
         cmd: UpdatePieceDetail,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -334,6 +366,9 @@ impl Command<RemovePieceDetail> for PieceAggregate {
         cmd: RemovePieceDetail,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -358,6 +393,9 @@ impl Command<SetPieceCategory> for PieceAggregate {
         cmd: SetPieceCategory,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -386,6 +424,9 @@ impl Command<LinkPiecePhoto> for PieceAggregate {
         cmd: LinkPiecePhoto,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -410,6 +451,9 @@ impl Command<UnlinkPiecePhoto> for PieceAggregate {
         cmd: UnlinkPiecePhoto,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(PieceError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(PieceError::VersionMismatch {
                 expected: cmd.version,
@@ -422,6 +466,32 @@ impl Command<UnlinkPiecePhoto> for PieceAggregate {
         Ok(vec![PieceEvent::PiecePhotoUnlinked {
             id: self.id,
             photo_id: cmd.photo_id,
+            version: self.version.next(),
+        }])
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a Piece. See
+// `DeletePiece` for why it has no HTTP route and no port method.
+impl Command<DeletePiece> for PieceAggregate {
+    type Error = PieceError;
+    fn handle(
+        &self,
+        cmd: DeletePiece,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: deleting an already-deleted aggregate is a no-op.
+        if self.deleted {
+            return Ok(vec![]);
+        }
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.is_nil() {
+            return Err(PieceError::NotFound { id: cmd.id });
+        }
+        Ok(vec![PieceEvent::PieceDeleted {
+            id: self.id,
             version: self.version.next(),
         }])
     }

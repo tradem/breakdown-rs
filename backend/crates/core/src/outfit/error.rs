@@ -21,6 +21,11 @@ pub enum OutfitError {
     #[error("Outfit not found: {id}")]
     NotFound { id: Uuid },
 
+    /// The aggregate was deleted (issue #770): a deleted stream rejects every
+    /// further command instead of appending events the projection can no longer
+    /// apply.
+    #[error("Outfit({id}) was deleted")]
+    Deleted { id: Uuid },
     #[error("version mismatch: expected {expected:?}, actual {actual:?}")]
     VersionMismatch {
         expected: AggregateVersion,

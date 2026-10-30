@@ -34,6 +34,9 @@ pub enum EpisodeEvent {
         name: Option<String>,
         version: AggregateVersion,
     },
+    /// The episode was deleted (issue #770, dev data reset). The projector
+    /// removes the row; the stream keeps its history and the audit row.
+    EpisodeDeleted { id: Uuid, version: AggregateVersion },
 }
 
 impl kameo_es::EventType for EpisodeEvent {
@@ -41,6 +44,7 @@ impl kameo_es::EventType for EpisodeEvent {
         match self {
             Self::EpisodeCreated { .. } => "EpisodeCreated",
             Self::EpisodeRenamed { .. } => "EpisodeRenamed",
+            Self::EpisodeDeleted { .. } => "EpisodeDeleted",
         }
     }
 }

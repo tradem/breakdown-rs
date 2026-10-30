@@ -851,3 +851,208 @@ The four #404 projection unique indexes stay the last authority; the
 projector savepoint-skips continue to log the same warn as before (they are
 now expected to see approximately zero duplicates because the claim closes
 the pre-check-to-append race at the write boundary).
+
+## 13. Dev data reset (issue #770)
+
+**Dev only.** This section describes how to reset the *data set* of a local
+development stack while keeping the *configuration* — the AI config (provider,
+assistant/image/decision model, prompts), the credential bindings and the roles
+— so AI script imports can be replayed for integration verification.
+
+Why it is needed: the upload dedup (`ai_import.ai_import_job` is unique on
+`(user_id, dedup_key)`) turns a re-upload of the same document into a no-op
+(`200` + the existing job), and the import target is the ambient
+`X-Active-Block`, so "create a new season" does not scope an import. Replaying
+imports therefore requires deleting the job rows — and, for a clean slate,
+the business data.
+
+The tooling is a maintenance **binary**, never an HTTP route:
+
+- `crates/api/src/bin/reset-dev-data.rs` — CLI (parse, render, exit code)
+- `crates/infra/src/dev_reset/` — the engine (plan, guards, export/replay)
+- `scripts/reset-dev-data.sh` — wrapper that owns the container/volume steps
+
+### Levels
+
+| Level | What it does | Keeps |
+|---|---|---|
+| `imports` | Deletes the AI job rows (dedup blocker), purges the payload objects, removes the aggregates the imports created **through real domain commands** (children first: `scene_shoot` → `scene` → `shooting_day` → `outfit` → `piece` → `character` → `episode`) | all other business aggregates, `ai_config`, `settings`, `membership`, Vault |
+| `business` | Exports the keep-list streams verbatim, wipes every business projection + the operational bookkeeping + the business buckets, then replays the keep-list | `ai_config`, `settings`, `membership` (replayed), `ai_model_pricing`, Vault |
+
+### Plan first (always)
+
+```bash
+./scripts/reset-dev-data.sh plan --level imports
+./scripts/reset-dev-data.sh plan --level business
+```
+
+`plan` is `--dry-run`: it prints every keep/reset category with its row count,
+the operational tables, the object-storage buckets and the level's notes, and
+writes nothing.
+
+### Level `imports` (the usual re-import case)
+
+The API must be **running** — the delete events are projected by the running
+projectors.
+
+```bash
+./scripts/reset-dev-data.sh imports            # prompts for the target name
+./scripts/reset-dev-data.sh imports --yes      # non-interactive
+```
+
+Backups are on by default (`backups/reset-<timestamp>/imports.json`, holding
+the job rows and the provenance mapping); `--no-backup` must be typed
+explicitly. Afterwards:
+
+1. let the API catch up: `curl localhost:3000/v1/ops/projector-health` (port = `BIND_ADDR`);
+2. re-upload a previously imported document — it must answer **202 with a new
+   job id** (the dedup reset proof).
+
+Known provenance limit: `ai_import.projection_ai_import_mapping` does not record
+`episode` (episode groups only report a count, #763), so import-created episodes
+are resolved **heuristically** from the job's `block_id` plus `created_at`
+recency. The report states how many episodes the heuristic attributed.
+
+Because that heuristic reads the job rows, the tool writes an `episode`
+provenance row for every episode whose delete **failed** before it deletes the
+job rows — otherwise the target would be undiscoverable on a re-run. Those
+retained rows are consumed by the next run and removed once the delete succeeds.
+
+**Retired event variants make a stream unreplayable.** A dev store written
+before a domain cut can hold events the current code cannot deserialize (the
+pre-split `CostumeBeatAdded` on a `scene` stream, the retired `costume` photo
+variant). The aggregate actor panics while resyncing such a stream and takes the
+shared command service with it; the tool rebuilds the service, records the
+aggregate as a **failure** and continues, so the rest of the reset still runs —
+but that aggregate stays in the read model and the run exits non-zero with
+"the reset is PARTIAL". Re-run after the store is cleaned, or use
+`--level business` (which wipes the store instead of replaying it).
+
+### Level `business` (full business reset, configuration preserved)
+
+SierraDB 0.3.1 has **no** delete command (`FLUSHALL`, `FLUSHDB`, `KEYS`, `SCAN`,
+`EDELETE` all answer `-INVALIDARG unknown command`), so a selective "delete the
+business streams, keep the configuration" is impossible at the store level. The
+event store is emptied by dropping its data volume, and the configuration is
+exported → wiped → replayed around that:
+
+```bash
+# 1. stop the API (the script refuses to run while /v1/health answers)
+./scripts/reset-dev-data.sh business        # export → pg_dump + volume tarball
+                                            # → drop volume → wipe → replay
+# 2. start the API again
+set -a; . ./.env.local; set +a; cargo run -p api
+# 3. assert the post-conditions (fails unless the API is reachable and the
+#    projector health is green — set OPS_ADMIN_SUBS=<sub> if the ops endpoint
+#    answers 403 for your dev user, see below)
+./scripts/reset-dev-data.sh verify
+```
+
+The script's phases map onto the binary one-to-one:
+
+| Step | Command |
+|---|---|
+| export keep-list + pricing + manifest | `reset-dev-data --level business --phase export --env dev` |
+| database backup | `docker compose -f docker-compose.dev.yml exec -T postgres pg_dump -U postgres breakdown` |
+| event-store backup | `docker run --rm -v <volume>:/data:ro -v <backup>:/backup alpine:3.20 tar czf /backup/sierradb-data.tgz -C /data .` |
+| empty the event store | `docker compose stop sierradb && docker volume rm <volume> && docker compose up -d sierradb` |
+| wipe read model + buckets | `reset-dev-data --level business --phase wipe --env dev` |
+| replay keep-list | `reset-dev-data --level business --phase replay --env dev` |
+| verify | `reset-dev-data --level business --phase verify --env dev` |
+
+`--skip-volume-reset` re-runs the wipe/replay half without dropping the volume
+(e.g. after a failed wipe).
+
+Two details the script handles for you, both learned the hard way:
+
+- **A stopped container still references its volume.** `docker compose stop
+  sierradb` is not enough — Docker refuses to remove a volume that *any*
+  container references, so the script removes the stopped container
+  (`docker compose rm -f sierradb`) before `docker volume rm`, and reports the
+  referencing containers if one is left.
+- **The replay needs a genuinely empty store.** SierraDB runs in strict
+  versioning mode and rejects `EXPECTED_VERSION any` (`-INVALIDARG`), so every
+  replayed event is appended with an explicit expected version (`EMPTY` for the
+  first event of a stream, `EXACT(n-1)` afterwards). Replaying into a store that
+  still holds events therefore fails loudly instead of duplicating history.
+
+`--skip-payload-purge` continues when the AI payload objects cannot be purged.
+Without it a failed purge **aborts** the run before the job rows are deleted:
+those rows are the only place the object handles are recorded, so deleting them
+would leave unreachable garbage. The wrapper forwards the flag to the `business`
+wipe phase (where the purge happens) and to the `imports` run.
+
+**What survives:** the `ai_config`, `settings` and `membership` streams (same
+stream ids, same events, replayed verbatim), the `ai_model_pricing` rows
+(exported for the backup but deliberately never deleted — the cost snapshot
+depends on them), and **Vault** (never touched: the `settings` → Vault
+credential bindings stay resolvable because the settings stream keeps its id).
+The keep projections are not restored by hand: the projector checkpoints are
+cleared too, so the replayed events rebuild them exactly like a fresh boot.
+
+**The membership rows survive, their blocks do not.** `membership` is in the
+keep-list, but it is block-scoped and the blocks are business data — after a
+`business` reset the replayed membership rows point at block ids that no longer
+exist. They keep the dev user's *credential role* gate satisfied, but an import
+still needs a real block: create a season + block (or re-run
+`scripts/bootstrap-dev-credential-role.sh` once a block exists) before
+uploading. Membership for a *new* block has to be granted again.
+
+`--phase verify` is read-only and never prompts. It **fails** (non-zero exit)
+when a business projection still holds rows, a keep stream is missing events, a
+keep projection was not rebuilt, `ai_model_pricing` is empty, the API is
+unreachable, or the projector health is not green — a reset is only "done" when
+all of that holds. The projector-health endpoint is the deployment-scoped ops
+surface (#409), so a dev user needs `OPS_ADMIN_SUBS=<sub>` (or an `ops_admin`
+membership) to let `verify` assert it.
+
+**Post-conditions** (asserted by `--phase verify`, plus the API checks in step 3):
+
+- every business projection count is 0;
+- every keep stream still holds its exported events;
+- `ai_model_pricing` is non-empty;
+- `GET /v1/ai-import/config/{id}` still returns the provider/model/decision
+  triple (the worker resolves the same config);
+- re-uploading a previously imported PDF answers 202 with a new job id;
+- `GET /v1/ops/projector-health` is green, no lag.
+
+### Safety envelope
+
+- **No HTTP route** — a reset endpoint would be a footgun even behind dev-auth.
+- **Prod refusal:** the binary aborts unless `--env dev` is passed, `APP_ENV` is
+  `development`/`dev` (or unset), `REQUIRE_IN_TRANSIT_TLS` is not `true`, and
+  `DATABASE_URL`, `SIERRADB_URL` **and the object-storage endpoints**
+  (`AI_PAYLOAD_S3_ENDPOINT`, `S3_ENDPOINT` — the reset deletes objects there, so
+  a local database with a shared bucket would purge someone else's data) resolve
+  to a loopback host. The script additionally refuses a non-local docker daemon
+  (context **and** `DOCKER_HOST`) and a running API.
+- **`--dry-run`** prints the plan; **`--yes`** or retyping the target
+  (`host/database`) is required before any write.
+- **Backup by default**, `--no-backup` must be typed.
+- **Closed keep-list:** `infra::dev_reset::classification` classifies every
+  aggregate category as keep or reset in an exhaustive `match`; a new aggregate
+  fails the suite until it is classified (a unit test scans the workspace for
+  `Entity::category()` literals).
+- **Audit line:** every run logs `reset-dev-data audit: … | backup: … |
+  failures: …` with mode, target, counts and the backup path.
+
+### Client-side reset (Flutter)
+
+The server reset does not touch the app's local state. **What survives on the
+server** — and therefore must survive on the client too — is the AI
+configuration: the `ai_config` stream, its id and the credential bindings in
+`settings` are exported and replayed by both levels, so the remembered AI-config
+id and the remembered provider credentials stay valid. Do **not** clear them.
+
+What goes stale:
+
+- the persisted **business scope** (season/block/episode ids) — and after a
+  `business` reset the production structure itself, which has to be created
+  again;
+- any remembered **import job id** (the job rows are deleted).
+
+Clear the **Drift** database (projections cache + AI handoff store) via
+`adb shell pm clear <applicationId>` or a reinstall of the dev build, and drop
+the persisted scope from **secure storage**, keeping the AI-config id. A
+dev-only "clear local cache" action in the app settings is a possible
+follow-up; today the reset procedure includes the manual clear.

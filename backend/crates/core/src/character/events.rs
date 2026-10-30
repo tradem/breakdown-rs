@@ -72,6 +72,9 @@ pub enum CharacterEvent {
         category: CharacterCategory,
         version: AggregateVersion,
     },
+    /// The Character was deleted (issue #770, dev data reset). The projector
+    /// removes the row; the stream keeps its history and the audit row.
+    CharacterDeleted { id: Uuid, version: AggregateVersion },
 }
 
 impl kameo_es::EventType for CharacterEvent {
@@ -81,6 +84,7 @@ impl kameo_es::EventType for CharacterEvent {
             Self::MeasurementsUpdated { .. } => "MeasurementsUpdated",
             Self::ContactInfoUpdated { .. } => "ContactInfoUpdated",
             Self::CategoryChanged { .. } => "CharacterCategoryChanged",
+            Self::CharacterDeleted { .. } => "CharacterDeleted",
         }
     }
 }

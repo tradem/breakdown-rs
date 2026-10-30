@@ -13,7 +13,8 @@ use crate::shared::{AggregateVersion, EventMetadata, SeasonId};
 
 use super::category::CharacterCategory;
 use super::commands::{
-    CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
+    CreateCharacter, DeleteCharacter, UpdateCharacterCategory, UpdateContactInfo,
+    UpdateMeasurements,
 };
 use super::error::CharacterError;
 use super::events::{CharacterEvent, CharacterMeasurements, ContactInfo};
@@ -30,6 +31,10 @@ pub struct CharacterAggregate {
     pub category: CharacterCategory,
     pub measurements: CharacterMeasurements,
     pub contact_info: ContactInfo,
+    /// Set by the terminal `CharacterDeleted` event: a deleted
+    /// aggregate rejects every further command (issue #770 — a delete
+    /// must not leave a stream that still accepts mutations).
+    pub deleted: bool,
     pub version: AggregateVersion,
 }
 
@@ -48,6 +53,13 @@ impl Entity for CharacterAggregate {
 impl Apply for CharacterAggregate {
     fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
         match event {
+            // Issue #770 (dev data reset): the delete carries no further state
+            // change — the projector removes the projection row and the stream
+            // keeps its history for the audit trail.
+            CharacterEvent::CharacterDeleted { version, .. } => {
+                self.deleted = true;
+                self.version = version;
+            }
             CharacterEvent::CharacterCreated {
                 id,
                 season_id,
@@ -100,6 +112,9 @@ impl Command<CreateCharacter> for CharacterAggregate {
         cmd: CreateCharacter,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(CharacterError::Deleted { id: self.id });
+        }
         if cmd.name.is_empty() {
             return Err(CharacterError::ValidationError(
                 "Name must not be empty".to_string(),
@@ -124,6 +139,9 @@ impl Command<UpdateMeasurements> for CharacterAggregate {
         cmd: UpdateMeasurements,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(CharacterError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(CharacterError::VersionMismatch {
                 expected: cmd.version,
@@ -151,6 +169,9 @@ impl Command<UpdateContactInfo> for CharacterAggregate {
         cmd: UpdateContactInfo,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(CharacterError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(CharacterError::VersionMismatch {
                 expected: cmd.version,
@@ -178,6 +199,9 @@ impl Command<UpdateCharacterCategory> for CharacterAggregate {
         cmd: UpdateCharacterCategory,
         _ctx: Context<'_, Self>,
     ) -> Result<Vec<Self::Event>, Self::Error> {
+        if self.deleted {
+            return Err(CharacterError::Deleted { id: self.id });
+        }
         if cmd.version != self.version {
             return Err(CharacterError::VersionMismatch {
                 expected: cmd.version,
@@ -199,6 +223,32 @@ impl Command<UpdateCharacterCategory> for CharacterAggregate {
             id: self.id,
             category: cmd.category,
             version: new_version,
+        }])
+    }
+}
+
+// Issue #770 (dev data reset): the delete path for a Character. See
+// `DeleteCharacter` for why it has no HTTP route and no port method.
+impl Command<DeleteCharacter> for CharacterAggregate {
+    type Error = CharacterError;
+    fn handle(
+        &self,
+        cmd: DeleteCharacter,
+        _ctx: Context<'_, Self>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        // Idempotent: deleting an already-deleted aggregate is a no-op.
+        if self.deleted {
+            return Ok(vec![]);
+        }
+        // An absent aggregate replays to a default state; deleting it must not
+        // fabricate a stream. A repeat delete on an existing aggregate is
+        // idempotent at the projection (the DELETE matches nothing twice).
+        if self.id.is_nil() {
+            return Err(CharacterError::NotFound { id: cmd.id });
+        }
+        Ok(vec![CharacterEvent::CharacterDeleted {
+            id: self.id,
+            version: self.version.next(),
         }])
     }
 }

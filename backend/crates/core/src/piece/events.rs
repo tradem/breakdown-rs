@@ -110,6 +110,9 @@ pub enum PieceEvent {
         photo_id: Uuid,
         version: AggregateVersion,
     },
+    /// The Piece was deleted (issue #770, dev data reset). The projector
+    /// removes the row; the stream keeps its history and the audit row.
+    PieceDeleted { id: Uuid, version: AggregateVersion },
 }
 
 impl kameo_es::EventType for PieceEvent {
@@ -126,6 +129,7 @@ impl kameo_es::EventType for PieceEvent {
             Self::PieceCategorySet { .. } => "PieceCategorySet",
             Self::PiecePhotoLinked { .. } => "PiecePhotoLinked",
             Self::PiecePhotoUnlinked { .. } => "PiecePhotoUnlinked",
+            Self::PieceDeleted { .. } => "PieceDeleted",
         }
     }
 }

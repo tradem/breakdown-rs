@@ -84,6 +84,9 @@ pub enum OutfitEvent {
         photo_id: Uuid,
         version: AggregateVersion,
     },
+    /// The Outfit was deleted (issue #770, dev data reset). The projector
+    /// removes the row; the stream keeps its history and the audit row.
+    OutfitDeleted { id: Uuid, version: AggregateVersion },
 }
 
 impl kameo_es::EventType for OutfitEvent {
@@ -97,6 +100,7 @@ impl kameo_es::EventType for OutfitEvent {
             Self::OutfitPieceRemoved { .. } => "OutfitPieceRemoved",
             Self::OutfitPhotoLinked { .. } => "OutfitPhotoLinked",
             Self::OutfitPhotoUnlinked { .. } => "OutfitPhotoUnlinked",
+            Self::OutfitDeleted { .. } => "OutfitDeleted",
         }
     }
 }

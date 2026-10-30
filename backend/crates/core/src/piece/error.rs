@@ -23,6 +23,11 @@ pub enum PieceError {
     #[error("Piece not found: {id}")]
     NotFound { id: Uuid },
 
+    /// The aggregate was deleted (issue #770): a deleted stream rejects every
+    /// further command instead of appending events the projection can no longer
+    /// apply.
+    #[error("Piece({id}) was deleted")]
+    Deleted { id: Uuid },
     /// The piece exists, but the addressed detail does not. A dedicated
     /// variant so the HTTP edge can answer 404 `piece-detail.not-found` and a
     /// client can tell "the detail is gone" apart from a validation failure.

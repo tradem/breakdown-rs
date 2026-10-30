@@ -16,6 +16,11 @@ pub enum EpisodeError {
     #[error("Episode not found: {id}")]
     NotFound { id: uuid::Uuid },
 
+    /// The aggregate was deleted (issue #770): a deleted stream rejects every
+    /// further command instead of appending events the projection can no longer
+    /// apply.
+    #[error("Episode({id}) was deleted")]
+    Deleted { id: uuid::Uuid },
     #[error("version mismatch: expected {expected:?}, actual {actual:?}")]
     VersionMismatch {
         expected: AggregateVersion,
