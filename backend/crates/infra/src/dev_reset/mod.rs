@@ -188,22 +188,27 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
         };
         report.lines.push(plan.render());
         report.lines.push(match plan.imports_scope {
+            // No total-reset-row count here: `imports` deletes *some* of those
+            // rows, so printing the sum would read as a remainder and contradict
+            // the deletion scope (issue #770 review). The `IMPORT SCOPE` block
+            // above already states what this level deletes.
             Some(scope) => format!(
                 "would delete {} imported aggregate(s) plus up to {} episode candidate(s), from {} \
-                 provenance row(s) — the {} reset-category row(s) stay untouched",
-                scope.imported_aggregates,
-                scope.episode_candidates,
-                scope.provenance_rows,
-                plan.reset_rows()
+                 provenance row(s); other reset-category rows stay untouched",
+                scope.imported_aggregates, scope.episode_candidates, scope.provenance_rows
             ),
             None => format!("would touch {} business rows", plan.reset_rows()),
         });
         return Ok(report);
     }
 
-    // `verify` is read-only: it never needs a confirmation, so it also runs
-    // unattended (issue #770 review).
-    if !options.assume_yes && plan.phase != ResetPhase::Verify {
+    // `verify` is read-only — but only on the `business` level: `imports::execute`
+    // ignores the phase and deletes, so a library caller passing
+    // `Imports` + `Verify` must not skip the typed-target confirmation
+    // (issue #770 review).
+    let read_only_verify =
+        plan.phase == ResetPhase::Verify && matches!(plan.level, ResetLevel::Business);
+    if !options.assume_yes && !read_only_verify {
         let typed = options.confirmation.as_deref().unwrap_or_default().trim();
         if typed != plan.database_target {
             bail!(

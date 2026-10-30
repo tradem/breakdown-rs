@@ -367,7 +367,12 @@ impl Command<ScheduleSceneOnShootingDay> for SceneAggregate {
         cmd: &ScheduleSceneOnShootingDay,
         _ctx: Context<'_, Self>,
     ) -> bool {
-        self.shooting_day_ids.contains(&cmd.shooting_day_id)
+        // `kameo_es` asks this **before** `handle`, so the deleted guard in
+        // `handle` would never run for an already-linked day and a deleted scene
+        // would answer 200 with the current version (issue #770 review). A
+        // deleted aggregate is never idempotent — it must reach `handle` and be
+        // rejected with `SceneError::Deleted`.
+        !self.deleted && self.shooting_day_ids.contains(&cmd.shooting_day_id)
     }
 }
 

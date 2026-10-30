@@ -24,6 +24,12 @@ pub struct DevEnvironment {
     pub app_env: Option<String>,
     pub database_url: String,
     pub sierradb_url: String,
+    /// `AI_PAYLOAD_S3_ENDPOINT` — the bucket the reset deletes payload objects
+    /// from. `None` when AI payload storage is not configured.
+    pub ai_payload_endpoint: Option<String>,
+    /// `S3_ENDPOINT` — the bucket the reset deletes photo (and report staging)
+    /// objects from. `None` when object storage is not configured.
+    pub object_storage_endpoint: Option<String>,
     pub require_in_transit_tls: bool,
 }
 
@@ -78,6 +84,8 @@ impl DevEnvironment {
             app_env: std::env::var("APP_ENV").ok(),
             database_url: std::env::var("DATABASE_URL").unwrap_or_default(),
             sierradb_url: std::env::var("SIERRADB_URL").unwrap_or_default(),
+            ai_payload_endpoint: non_empty_env("AI_PAYLOAD_S3_ENDPOINT"),
+            object_storage_endpoint: non_empty_env("S3_ENDPOINT"),
             require_in_transit_tls: std::env::var("REQUIRE_IN_TRANSIT_TLS")
                 .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
                 .unwrap_or(false),
@@ -135,7 +143,33 @@ pub fn check(env: &DevEnvironment, dev_ack: bool) -> Result<(), Refusal> {
         });
     }
 
+    // The reset also **deletes objects**, so the buckets it purges must be local
+    // too: a local database with a shared/remote bucket would delete data that
+    // is not part of this dev stack (issue #770 review).
+    for (which, endpoint) in [
+        ("AI_PAYLOAD_S3_ENDPOINT", env.ai_payload_endpoint.as_deref()),
+        ("S3_ENDPOINT", env.object_storage_endpoint.as_deref()),
+    ] {
+        let Some(endpoint) = endpoint else {
+            continue;
+        };
+        let host = url_host(endpoint).ok_or_else(|| Refusal::UnparseableUrl {
+            which,
+            value: redact_url(endpoint),
+        })?;
+        if !is_loopback(&host) {
+            return Err(Refusal::NonLocalTarget { which, host });
+        }
+    }
+
     Ok(())
+}
+
+/// Reads an env var, treating an empty value as "not configured".
+fn non_empty_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 /// `development`, `dev` and `local` are the accepted development spellings.
@@ -221,6 +255,8 @@ mod tests {
             app_env: None,
             database_url: database.to_string(),
             sierradb_url: event_store.to_string(),
+            ai_payload_endpoint: None,
+            object_storage_endpoint: None,
             require_in_transit_tls: false,
         }
     }
@@ -424,6 +460,47 @@ mod tests {
         ] {
             assert!(!is_loopback(host), "{host} must not be loopback");
         }
+    }
+
+    /// A local database with a remote bucket would delete someone else's objects
+    /// (issue #770 review).
+    #[test]
+    fn remote_object_storage_refuses() {
+        let mut environment = local();
+        environment.ai_payload_endpoint = Some("https://s3.eu-central-1.example.com".to_string());
+        assert_eq!(
+            check(&environment, true),
+            Err(Refusal::NonLocalTarget {
+                which: "AI_PAYLOAD_S3_ENDPOINT",
+                host: "s3.eu-central-1.example.com".to_string()
+            })
+        );
+
+        let mut environment = local();
+        environment.object_storage_endpoint = Some("http://10.0.0.5:3900".to_string());
+        assert_eq!(
+            check(&environment, true),
+            Err(Refusal::NonLocalTarget {
+                which: "S3_ENDPOINT",
+                host: "10.0.0.5".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn local_object_storage_is_allowed() {
+        let mut environment = local();
+        environment.ai_payload_endpoint = Some("http://localhost:3900".to_string());
+        environment.object_storage_endpoint = Some("http://127.0.0.1:3900".to_string());
+        assert_eq!(check(&environment, true), Ok(()));
+    }
+
+    #[test]
+    fn unparsable_object_storage_endpoint_is_redacted() {
+        let mut environment = local();
+        environment.object_storage_endpoint = Some("user:s3cr3t@broken".to_string());
+        let refusal = check(&environment, true).expect_err("must refuse");
+        assert!(!refusal.reason().contains("s3cr3t"), "{refusal:?}");
     }
 
     #[test]

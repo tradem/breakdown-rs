@@ -41,7 +41,19 @@ usage() {
   sed -n '6,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
+# Private temp directory of the current run (created on demand, removed by
+# `die` and at the end of the check that created it).
+RESET_TMPDIR=""
+
+cleanup_tmpdir() {
+  if [[ -n "${RESET_TMPDIR}" ]]; then
+    rm -rf "${RESET_TMPDIR}"
+    RESET_TMPDIR=""
+  fi
+}
+
 die() {
+  cleanup_tmpdir
   printf 'reset-dev-data: %s\n' "$1" >&2
   exit 1
 }
@@ -130,20 +142,35 @@ wait_for_tcp() {
   return 1
 }
 
+# Prints `<host> <port>` of SIERRADB_URL (IPv6 literals handled).
+event_store_host_port() {
+  local url="${SIERRADB_URL#*://}"
+  url="${url%%/*}"
+  url="${url##*@}"
+  local host port
+  if [[ "${url}" == \[* ]]; then
+    host="${url%%]*}"
+    host="${host#\[}"
+    port="${url#*]}"
+    port="${port#:}"
+  else
+    host="${url%%:*}"
+    port="${url##*:}"
+    if [[ "${port}" == "${host}" ]]; then
+      port=""
+    fi
+  fi
+  printf '%s %s\n' "${host}" "${port:-9090}"
+}
+
 # The export phase reads both tiers, so they must accept connections - a
 # previously aborted run leaves sierradb stopped on purpose (the volume drop
 # stops it), and `compose up` alone is not enough because the containers are
 # "running" before they are ready.
 require_stack_running() {
   compose up -d "${POSTGRES_SERVICE}" "${SIERRADB_SERVICE}" >/dev/null
-  local url="${SIERRADB_URL#*://}"
-  url="${url%%/*}"
-  url="${url##*@}"
-  local host="${url%%:*}"
-  local port="${url##*:}"
-  if [[ "${port}" == "${host}" ]]; then
-    port=9090
-  fi
+  local host port
+  read -r host port <<<"$(event_store_host_port)"
   wait_for_tcp "${host}" "${port}" \
     || die "SierraDB is not accepting connections at ${host}:${port}"
   compose exec -T "${POSTGRES_SERVICE}" \
@@ -238,12 +265,19 @@ reset_event_store() {
   local attempt
   for attempt in $(seq 1 30); do
     if compose ps --status running -q "${SIERRADB_SERVICE}" | grep -q .; then
-      sleep 1
-      return 0
+      break
     fi
     sleep 1
   done
-  die "${SIERRADB_SERVICE} did not come back up"
+  if ! compose ps --status running -q "${SIERRADB_SERVICE}" | grep -q .; then
+    die "${SIERRADB_SERVICE} did not come back up"
+  fi
+  # "running" is not "accepting connections": the wipe phase connects once, and
+  # it would abort AFTER the volume is already gone (issue #770 review).
+  local host port
+  read -r host port <<<"$(event_store_host_port)"
+  wait_for_tcp "${host}" "${port}" \
+    || die "SierraDB is not accepting connections at ${host}:${port} after the volume reset"
 }
 
 check_api_postconditions() {
@@ -254,32 +288,38 @@ check_api_postconditions() {
     die "API not reachable at ${API_HEALTH_URL} — start it before running verify"
   fi
 
+  # Private, unpredictable paths: a fixed /tmp name is a symlink/TOCTOU target
+  # (CWE-377, issue #770 review). `die` removes the directory on the failure
+  # paths, the tail of this function on the success path.
+  RESET_TMPDIR="$(mktemp -d)"
+  local tmpdir="${RESET_TMPDIR}"
+
   local status body
   log "GET ${HEALTH_URL}"
-  status="$(curl -s -o /tmp/reset-dev-data-health.json -w '%{http_code}' \
+  status="$(curl -s -o "${tmpdir}/health.json" -w '%{http_code}' \
     --max-time 5 "${HEALTH_URL}" || echo 000)"
   if [[ "${status}" != "200" ]]; then
-    die "health answered ${status}: $(cat /tmp/reset-dev-data-health.json 2>/dev/null)"
+    die "health answered ${status}: $(cat "${tmpdir}/health.json" 2>/dev/null)"
   fi
-  body="$(cat /tmp/reset-dev-data-health.json)"
+  body="$(cat "${tmpdir}/health.json")"
   case "${body}" in
     *'"status":"Healthy"'*|*'"status":"healthy"'*) ;;
     *) die "health is not green: ${body}" ;;
   esac
 
   log "GET ${PROJECTOR_HEALTH_URL}"
-  status="$(curl -s -o /tmp/reset-dev-data-projector-health.json -w '%{http_code}' \
+  status="$(curl -s -o "${tmpdir}/projector-health.json" -w '%{http_code}' \
     --max-time 5 "${PROJECTOR_HEALTH_URL}" || echo 000)"
   case "${status}" in
     2*)
-      printf '%s\n' "$(cat /tmp/reset-dev-data-projector-health.json)"
+      printf '%s\n' "$(cat "${tmpdir}/projector-health.json")"
       local dead_letters
       dead_letters="$(grep -o '"dead_letter_count":[[:space:]]*[0-9]\+' \
-        /tmp/reset-dev-data-projector-health.json | grep -o '[0-9]\+' | head -n 1)"
+        "${tmpdir}/projector-health.json" | grep -o '[0-9]\+' | head -n 1)"
       if [[ "${dead_letters:-0}" != "0" ]]; then
         die "projector health reports ${dead_letters} dead-lettered event(s) — the reset left poison state"
       fi
-      if ! grep -q '"checkpoints":\[[[:space:]]*{' /tmp/reset-dev-data-projector-health.json; then
+      if ! grep -q '"checkpoints":\[[[:space:]]*{' "${tmpdir}/projector-health.json"; then
         die "projector health reports no checkpoint progress — the projectors have not caught up"
       fi
       ;;
@@ -290,9 +330,10 @@ check_api_postconditions() {
       die "projector health endpoint did not answer (${PROJECTOR_HEALTH_URL})"
       ;;
     *)
-      die "projector health answered ${status}: $(cat /tmp/reset-dev-data-projector-health.json 2>/dev/null)"
+      die "projector health answered ${status}: $(cat "${tmpdir}/projector-health.json" 2>/dev/null)"
       ;;
   esac
+  cleanup_tmpdir
 }
 
 cmd_plan() {
@@ -322,12 +363,14 @@ cmd_business() {
   local assume_yes=0
   local backup=1
   local skip_volume_reset=0
+  local payload_purge_args=()
   local passthrough=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --yes) assume_yes=1; passthrough+=("$1"); shift ;;
       --no-backup) backup=0; passthrough+=("$1"); shift ;;
       --skip-volume-reset) skip_volume_reset=1; shift ;;
+      --skip-payload-purge) payload_purge_args+=("$1"); shift ;;
       --backup-dir) passthrough+=("$1" "${2:?--backup-dir requires a path}"); shift 2 ;;
       *) die "unknown argument for business: $1" ;;
     esac
@@ -370,7 +413,8 @@ cmd_business() {
   # The operator confirmed the whole business flow once; every phase runs under
   # that confirmation (re-prompting per phase would also break --yes runs).
   log "phase wipe (read model + business buckets; event store must be empty)"
-  run_binary --level business --phase wipe --env dev --backup-dir "${backup_dir}" --yes
+  run_binary --level business --phase wipe --env dev --backup-dir "${backup_dir}" --yes \
+    ${payload_purge_args[@]+"${payload_purge_args[@]}"}
 
   log "phase replay (keep-list back into the fresh event store)"
   run_binary --level business --phase replay --env dev --backup-dir "${backup_dir}" --yes

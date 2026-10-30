@@ -89,7 +89,16 @@ const MAPPING_KINDS: &[&str] = &[
     "outfit",
     "shooting_day",
     "scene_shoot",
+    // Episodes have no import provenance of their own (#763), so the reset
+    // **writes** an `episode` row for every episode delete that failed — that is
+    // the retry path once the job rows (the heuristic's input) are gone
+    // (issue #770 review).
+    "episode",
 ];
+
+/// `draft_ref` of the synthetic provenance row written for a failed episode
+/// delete.
+const FAILED_EPISODE_DRAFT_REF: &str = "reset-episode-heuristic";
 
 /// One AI import job row (the dedup blocker).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::FromRow)]
@@ -136,6 +145,9 @@ pub struct Targets {
     pub piece: BTreeSet<Uuid>,
     pub character: BTreeSet<Uuid>,
     pub episode: BTreeSet<EpisodeTarget>,
+    /// Episode ids recorded in the provenance by a previous run (a failed delete
+    /// left the row behind) — resolved against the projection afterwards.
+    pub episode_ids: BTreeSet<Uuid>,
     /// Mapping kinds with no aggregate of their own (beats live inside the
     /// scene stream; `costume` is the retired pre-split kind).
     pub ignored_kinds: BTreeMap<String, usize>,
@@ -164,6 +176,10 @@ pub fn collect_targets(mapping: &[MappingRow]) -> Targets {
             "outfit" => Some(&mut targets.outfit),
             "shooting_day" => Some(&mut targets.shooting_day),
             "scene_shoot" => Some(&mut targets.scene_shoot),
+            "episode" => {
+                targets.episode_ids.insert(row.aggregate_id);
+                None
+            }
             other => {
                 *targets.ignored_kinds.entry(other.to_string()).or_insert(0) += 1;
                 None
@@ -258,6 +274,16 @@ pub async fn execute(
     }
 
     let mut targets = collect_targets(&mapping);
+    // Episodes recorded by a previous run whose delete failed: the provenance
+    // row is the only retry path once those job rows are gone.
+    if !targets.episode_ids.is_empty() {
+        let retained = resolve_episodes_by_id(&context.pool, &targets.episode_ids).await?;
+        report.lines.push(format!(
+            "episodes: {} retained from the provenance of an earlier failed delete",
+            retained.len()
+        ));
+        targets.episode.extend(retained);
+    }
     let episodes = resolve_episodes(&context.pool, &jobs).await?;
     if !episodes.is_empty() {
         report.lines.push(format!(
@@ -295,11 +321,16 @@ pub async fn execute(
 
     delete_aggregates(context, &targets, &mut report).await;
 
+    // A failed episode delete has no provenance row of its own (episode groups
+    // only report a count, #763) and the heuristic that found it reads the job
+    // rows, which are deleted below — so the target is persisted first, or the
+    // retry path is lost (issue #770 review).
+    let deleted_aggregates = report.deleted_aggregates.clone();
+    persist_failed_episodes(&context.pool, &targets, &deleted_aggregates, &mut report).await;
+
     // Only the provenance of the aggregates that are actually gone is deleted:
     // a failed delete keeps its mapping row so a re-run can still find it
     // (issue #770 review).
-    // Taken before the mutable borrow of the report below.
-    let deleted_aggregates = report.deleted_aggregates.clone();
     delete_job_rows(&context.pool, &jobs, &deleted_aggregates, &mut report).await;
 
     report.lines.push(format!(
@@ -341,6 +372,73 @@ pub async fn load_mapping(pool: &PgPool) -> Result<Vec<MappingRow>> {
     .await
     .context("load AI import provenance")?;
     Ok(rows)
+}
+
+/// Resolves episode targets by id (the provenance rows of an earlier failed
+/// delete). A row whose projection is gone is dropped — that episode no longer
+/// exists, so there is nothing left to delete.
+pub async fn resolve_episodes_by_id(
+    pool: &PgPool,
+    ids: &BTreeSet<Uuid>,
+) -> Result<Vec<EpisodeTarget>> {
+    let ids: Vec<Uuid> = ids.iter().copied().collect();
+    let episodes = sqlx::query_as::<_, EpisodeTarget>(
+        r#"
+        SELECT id, project_id, number
+        FROM projection_episode
+        WHERE id = ANY($1)
+        ORDER BY project_id, number
+        "#,
+    )
+    .bind(&ids)
+    .fetch_all(pool)
+    .await
+    .context("resolve retained episode targets")?;
+    Ok(episodes)
+}
+
+/// Writes a provenance row for every episode whose delete failed, so a re-run
+/// can find it after the job rows are gone.
+async fn persist_failed_episodes(
+    pool: &PgPool,
+    targets: &Targets,
+    deleted_aggregates: &[Uuid],
+    report: &mut ResetReport,
+) {
+    let failed: Vec<Uuid> = targets
+        .episode
+        .iter()
+        .map(|episode| episode.id)
+        .filter(|id| !deleted_aggregates.contains(id))
+        .collect();
+    if failed.is_empty() {
+        return;
+    }
+    let inserted = sqlx::query(
+        r#"
+        INSERT INTO ai_import.projection_ai_import_mapping
+            (preview_id, draft_ref, aggregate_kind, aggregate_id, aggregate_version, ordinal)
+        SELECT $1, $2, 'episode', id, 0, 0
+        FROM unnest($3::uuid[]) AS id
+        ON CONFLICT (preview_id, draft_ref, aggregate_kind, ordinal) DO NOTHING
+        "#,
+    )
+    .bind(Uuid::nil())
+    .bind(FAILED_EPISODE_DRAFT_REF)
+    .bind(&failed)
+    .execute(pool)
+    .await;
+    match inserted {
+        Ok(result) => report.lines.push(format!(
+            "retained {} failed episode target(s) in the import provenance for a re-run",
+            result.rows_affected()
+        )),
+        Err(error) => report.failures.push(format!(
+            "could not persist the {} failed episode target(s): {error} — a re-run cannot \
+             rediscover them once the job rows are gone",
+            failed.len()
+        )),
+    }
 }
 
 /// Episode heuristic: episodes in a job's block, created at or after the
@@ -588,6 +686,12 @@ fn rebuild_command_service(context: &mut Context) {
 ///
 /// One static statement per category; the join chain is the aggregate's
 /// hierarchy path (`season` → `project`).
+// ast-grep-ignore: cqrs-boundary
+// Justification (AGENTS.md §1 escape hatch): this is a dev-only maintenance
+// binary, not a command adapter — the read exists solely to attribute the
+// delete event in the audit trail, it is best-effort (a miss leaves `None`) and
+// it can never block the delete, which is exactly the "audit metadata must never
+// block command processing" doctrine.
 async fn project_id_for(pool: &PgPool, label: &str, id: Uuid) -> Option<Uuid> {
     let sql = match label {
         "episode" => "SELECT project_id FROM projection_episode WHERE id = $1",
@@ -764,11 +868,15 @@ async fn delete_job_rows(
     };
 
     // Provenance first: the mapping table has no foreign key to the job row.
+    // Two independent scopes: the non-aggregate rows of THESE jobs (beats, the
+    // retired `costume` kind) go, and so does any row whose aggregate was just
+    // deleted — the latter also matches the synthetic `episode` rows a previous
+    // run wrote with no job behind them.
     let mapping = sqlx::query(
         r#"
         DELETE FROM ai_import.projection_ai_import_mapping
-        WHERE preview_id = ANY($1)
-          AND (aggregate_id = ANY($2) OR NOT (aggregate_kind = ANY($3)))
+        WHERE (preview_id = ANY($1) AND NOT (aggregate_kind = ANY($3)))
+           OR aggregate_id = ANY($2)
         "#,
     )
     .bind(&job_ids)

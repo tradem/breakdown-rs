@@ -913,6 +913,11 @@ Known provenance limit: `ai_import.projection_ai_import_mapping` does not record
 are resolved **heuristically** from the job's `block_id` plus `created_at`
 recency. The report states how many episodes the heuristic attributed.
 
+Because that heuristic reads the job rows, the tool writes an `episode`
+provenance row for every episode whose delete **failed** before it deletes the
+job rows — otherwise the target would be undiscoverable on a re-run. Those
+retained rows are consumed by the next run and removed once the delete succeeds.
+
 **Retired event variants make a stream unreplayable.** A dev store written
 before a domain cut can hold events the current code cannot deserialize (the
 pre-split `CostumeBeatAdded` on a `scene` stream, the retired `costume` photo
@@ -974,7 +979,8 @@ Two details the script handles for you, both learned the hard way:
 `--skip-payload-purge` continues when the AI payload objects cannot be purged.
 Without it a failed purge **aborts** the run before the job rows are deleted:
 those rows are the only place the object handles are recorded, so deleting them
-would leave unreachable garbage (the same rule applies to both levels).
+would leave unreachable garbage. The wrapper forwards the flag to the `business`
+wipe phase (where the purge happens) and to the `imports` run.
 
 **What survives:** the `ai_config`, `settings` and `membership` streams (same
 stream ids, same events, replayed verbatim), the `ai_model_pricing` rows
@@ -1015,8 +1021,11 @@ membership) to let `verify` assert it.
 - **No HTTP route** — a reset endpoint would be a footgun even behind dev-auth.
 - **Prod refusal:** the binary aborts unless `--env dev` is passed, `APP_ENV` is
   `development`/`dev` (or unset), `REQUIRE_IN_TRANSIT_TLS` is not `true`, and
-  both `DATABASE_URL` and `SIERRADB_URL` resolve to a loopback host. The script
-  additionally refuses a non-local docker context and a running API.
+  `DATABASE_URL`, `SIERRADB_URL` **and the object-storage endpoints**
+  (`AI_PAYLOAD_S3_ENDPOINT`, `S3_ENDPOINT` — the reset deletes objects there, so
+  a local database with a shared bucket would purge someone else's data) resolve
+  to a loopback host. The script additionally refuses a non-local docker daemon
+  (context **and** `DOCKER_HOST`) and a running API.
 - **`--dry-run`** prints the plan; **`--yes`** or retyping the target
   (`host/database`) is required before any write.
 - **Backup by default**, `--no-backup` must be typed.
