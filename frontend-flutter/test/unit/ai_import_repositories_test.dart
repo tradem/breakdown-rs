@@ -1752,6 +1752,56 @@ void main() {
       },
     );
 
+    // Issue #767: the job-level Decision Model outcome is a projection field,
+    // so the cache persists it (Drift `decision_telemetry_json`) and a
+    // cached-first read gets the same outcome the fetched row carries — the
+    // field is never silently dropped between the two row sources.
+    test(
+      'a job with a Decision Model outcome round trips through the cache, and '
+      'a legacy row reads as "not recorded"',
+      () async {
+        final dao = _dao();
+        final reported = _job('j1').rebuild(
+          (b) => b
+            ..decisionTelemetry.replace(
+              DecisionTelemetry(
+                (t) => t
+                  ..provider = LlmProvider.neuralwatt
+                  ..model = 'clef-flash'
+                  ..outcome = DecisionOutcome.scoringFailed
+                  ..failedRows = 2,
+              ),
+            ),
+        );
+        await dao.upsertAll([reported, _job('j2')], DateTime.utc(2026, 1, 1));
+
+        final rows = await dao.readAll('user-a');
+        expect(rows, hasLength(2));
+        final cached =
+            decisionTelemetryFromWire(rows.firstWhere((r) => r.id == 'j1').decisionTelemetryJson);
+        expect(cached?.provider, LlmProvider.neuralwatt);
+        expect(cached?.model, 'clef-flash');
+        expect(cached?.outcome, DecisionOutcome.scoringFailed);
+        expect(cached?.failedRows, 2);
+        expect(
+          rows.firstWhere((r) => r.id == 'j2').decisionTelemetryJson,
+          isNull,
+          reason: 'no outcome reported means no outcome persisted',
+        );
+      },
+    );
+
+    test('an unknown or corrupt decision payload degrades to no outcome', () {
+      // An outcome class from a newer server must never fail the whole read
+      // (the same strictness the other wire parsers have).
+      expect(
+        decisionTelemetryFromWire('{"outcome":"invented_by_a_newer_server"}'),
+        isNull,
+      );
+      expect(decisionTelemetryFromWire('not json'), isNull);
+      expect(decisionTelemetryFromWire(null), isNull);
+    });
+
     test('clearCache wipes the job rows', () async {
       final dao = _dao();
       await dao.upsertAll([_job('j1')], DateTime.utc(2026, 1, 1));

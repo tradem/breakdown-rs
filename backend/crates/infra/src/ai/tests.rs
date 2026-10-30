@@ -5782,6 +5782,146 @@ async fn resolve_decision_without_a_config_resolves_to_nothing() {
     );
 }
 
+/// A schedule LLM client whose single row carries NO day label — the shape
+/// that makes the schedule scoring pass have nothing to score.
+#[derive(Clone, Default)]
+struct UnlabelledScheduleClient;
+
+#[async_trait]
+impl LlmClient for UnlabelledScheduleClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "UnlabelledScheduleClient only extracts schedules",
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ShootingSchedule {
+                block_id: None,
+                rows: vec![ShootingScheduleRow {
+                    row_ref: "row-0".to_owned(),
+                    scene_number: Some(1),
+                    episode_number: None,
+                    // No day label: nothing for the schedule pass to score.
+                    shooting_day_label: None,
+                    date: None,
+                    location: None,
+                    order: None,
+                    shooting_day_score: None,
+                }],
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+}
+
+/// A native CSV schedule is parsed by the production tool, so a configured
+/// Decision Model must NOT be reported as having run: no scoring request is
+/// issued for those rows at all (issue #767 review).
+#[tokio::test]
+async fn a_native_csv_schedule_records_skipped_not_applicable_even_with_a_configured_decision_model()
+ {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let recorder = RecordingDecisionClient::default();
+    let mut worker = schedule_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::new(RecordingScheduleClient::default()),
+    );
+    worker.decision = Some(super::DecisionResolution::Available(Arc::new(
+        super::DecisionPass {
+            client: Arc::new(recorder.clone()),
+            provider: LlmProvider::Neuralwatt,
+            model: "clef-flash".to_owned(),
+        },
+    )));
+    let job = schedule_job(SourceFormat::Csv);
+
+    worker
+        .process(
+            &job,
+            "test-worker",
+            b"scene_number,shooting_day_label\n1,T1\n".as_slice(),
+        )
+        .await
+        .expect("the native CSV path never scores");
+
+    assert!(
+        recorder.states.lock().unwrap().is_empty(),
+        "a CSV schedule must never issue a decision request"
+    );
+    let state = queue.state.lock().unwrap();
+    let decision = state.telemetry[0]
+        .decision
+        .as_ref()
+        .expect("every completed job records its decision outcome");
+    assert_eq!(
+        decision.outcome,
+        breakdown_core::ai::DecisionOutcome::SkippedNotApplicable,
+        "no model produced those rows, so the pass must not claim it ran"
+    );
+    assert_eq!(decision.provider, None);
+    assert_eq!(decision.model, None);
+    assert_eq!(decision.failed_rows, 0);
+}
+
+/// The schedule pass answered NOTHING and no row had an assignment to score:
+/// the failure must still be recorded (issue #767 review — the outcome used to
+/// be derived from the row count alone, so this job claimed `ran`).
+#[tokio::test]
+async fn a_failed_schedule_scoring_request_without_labelled_rows_records_scoring_failed() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let mut worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: Arc::new(UnlabelledScheduleClient),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    worker.decision = Some(super::DecisionResolution::Available(Arc::new(
+        super::DecisionPass {
+            client: Arc::new(FailingDecisionClient),
+            provider: LlmProvider::Neuralwatt,
+            model: "clef-flash".to_owned(),
+        },
+    )));
+    let job = schedule_job(SourceFormat::PlainText);
+
+    worker
+        .process(&job, "test-worker", b"T1 - scene 1: kitchen\n".as_slice())
+        .await
+        .expect("a scoring outage must never fail the job");
+
+    let state = queue.state.lock().unwrap();
+    let decision = state.telemetry[0]
+        .decision
+        .as_ref()
+        .expect("every completed job records its decision outcome");
+    assert_eq!(
+        decision.outcome,
+        breakdown_core::ai::DecisionOutcome::ScoringFailed,
+        "the request failed even though no row had an assignment to score"
+    );
+    assert_eq!(
+        decision.failed_rows, 0,
+        "an unlabelled row was never in scope, so it is not a failed row"
+    );
+}
+
 // ── Pass 2 apply: a continued outfit reuses the source scene's Outfit
 // (OpenSpec `ai-import-decision-outfit-continuity`, design D3) ──
 

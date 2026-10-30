@@ -1762,10 +1762,17 @@ components:
       properties:
         failed_rows:
           description: |-
-            Preview rows whose own scoring request failed (their rubric carries
-            `scoring_failed`). `0` unless the outcome is
-            [`DecisionOutcome::ScoringFailed`]; a partially failed chunk leaves the
-            successful rows scored and only counts the failures.
+            Rows this job's scoring pass left without a score. `0` unless the
+            outcome is [`DecisionOutcome::ScoringFailed`].
+
+            The pass is unit-based, so "row" means the granularity that unit could
+            count: a **preview row** of a failed script chunk (that row also carries
+            the honest `scoring_failed` rubric), and — for the single-request
+            schedule pass, which has no per-row rubric — every **schedule row that
+            carried a day label**, i.e. every row that had an assignment to score.
+            A partially failed chunk leaves the successful rows scored and only
+            counts the failures; an unlabelled schedule row had nothing to score and
+            is never counted.
           format: int32
           minimum: 0
           type: integer

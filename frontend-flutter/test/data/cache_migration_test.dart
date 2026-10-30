@@ -88,7 +88,9 @@ void main() {
     addTearDown(db.close);
     // v17 (issue #763) adds the nullable AI-import job identity columns
     // (`source_file_name`, `applied_episodes_json`) — again additive only.
-    expect(db.schemaVersion, 17);
+    // v18 (issue #767) adds the nullable AI-import `decision_telemetry_json`
+    // column — additive, never destructive.
+    expect(db.schemaVersion, 18);
     final dao = PieceCacheDao(db);
     expect(await dao.readBySeason('s-1'), isEmpty);
 

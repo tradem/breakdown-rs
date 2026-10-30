@@ -286,22 +286,35 @@ impl DecisionResolution {
 ///
 /// `native_csv` distinguishes the one legitimate "nothing to score" case: a
 /// native CSV schedule's rows came from the production tool, so no model
-/// produced them and there is no scoring pass to miss.
+/// produced them and there is no scoring pass to miss. It is therefore decided
+/// **before** the resolution: a configured Decision Model must never make a
+/// CSV parse report `ran`, because no request was issued for it.
 fn decision_telemetry(
     resolution: Option<&DecisionResolution>,
     native_csv: bool,
-    failed_rows: u32,
+    scoring: super::decision_scoring::ScoringReport,
 ) -> DecisionTelemetry {
+    if native_csv {
+        return DecisionTelemetry {
+            provider: None,
+            model: None,
+            outcome: DecisionOutcome::SkippedNotApplicable,
+            failed_rows: 0,
+        };
+    }
     match resolution {
         Some(DecisionResolution::Available(pass)) => DecisionTelemetry {
             provider: Some(pass.provider),
             model: Some(pass.model.clone()),
-            outcome: if failed_rows > 0 {
+            // `is_failure` — NOT `failed_rows > 0`: a pass whose requests never
+            // answered is a failure even when no row had anything to score
+            // (issue #767 review).
+            outcome: if scoring.is_failure() {
                 DecisionOutcome::ScoringFailed
             } else {
                 DecisionOutcome::Ran
             },
-            failed_rows,
+            failed_rows: scoring.failed_rows,
         },
         Some(DecisionResolution::Unavailable { provider, model }) => DecisionTelemetry {
             provider: Some(*provider),
@@ -312,11 +325,7 @@ fn decision_telemetry(
         None => DecisionTelemetry {
             provider: None,
             model: None,
-            outcome: if native_csv {
-                DecisionOutcome::SkippedNotApplicable
-            } else {
-                DecisionOutcome::SkippedNoConfig
-            },
+            outcome: DecisionOutcome::SkippedNoConfig,
             failed_rows: 0,
         },
     }
@@ -517,10 +526,11 @@ where
         let mut scenes_extracted = 0u32;
         let mut scenes_synthesized = 0u32;
         // Preview rows whose own Decision Model scoring request failed after
-        // the bounded quick retry (issue #767). Summed across chunks and
-        // recorded in the job's decision telemetry, which is what turns
-        // "no stars on some rows" into an explainable, persisted fact.
-        let mut decision_failed_rows = 0u32;
+        // the bounded quick retry, plus whether any request failed at all
+        // (issue #767). Summed across chunks and recorded in the job's decision
+        // telemetry, which is what turns "no stars on some rows" into an
+        // explainable, persisted fact.
+        let mut decision_scoring = super::decision_scoring::ScoringReport::default();
         // Throttled live progress (issue #664): published once after
         // chunking, once per completed chunk, and at the storing boundary —
         // NEVER per LLM token. Owner-fenced, so a displaced worker's write
@@ -732,7 +742,7 @@ where
                             })
                             .collect();
                         let scenes = &mut context.scenes[chunk_first_scene..];
-                        let scoring_failed_rows = super::decision_scoring::score_script_chunk(
+                        let scoring = super::decision_scoring::score_script_chunk(
                             decision,
                             &chunk.heading,
                             &chunk.text,
@@ -754,8 +764,7 @@ where
                         // Rows whose own scoring request failed (issue #767):
                         // summed across chunks into the job-level decision
                         // telemetry, so a partially scored import says so.
-                        decision_failed_rows =
-                            decision_failed_rows.saturating_add(scoring_failed_rows);
+                        decision_scoring.merge(scoring);
                     }
                     // Issue #758 (silent data loss): a chunk that returned no
                     // rows used to vanish without a trace — the job still
@@ -953,7 +962,7 @@ where
                     decision: Some(decision_telemetry(
                         self.decision.as_ref(),
                         false,
-                        decision_failed_rows,
+                        decision_scoring,
                     )),
                 },
             )
@@ -1179,9 +1188,10 @@ where
         // Issue #675: usage of the single LLM call (zeros for the native CSV
         // path, which never invokes an LLM).
         let mut total_usage = LlmCallUsage::default();
-        // Rows the schedule scoring request failed to score (issue #767);
-        // `0` for the native CSV path, which never scores at all.
-        let mut decision_failed_rows = 0u32;
+        // Rows the schedule scoring request left unscored and whether that
+        // request failed (issue #767); both stay empty on the native CSV path,
+        // which never scores at all.
+        let mut decision_scoring = super::decision_scoring::ScoringReport::default();
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
@@ -1218,7 +1228,7 @@ where
         if let Some(decision) = self.decision.as_ref().and_then(DecisionResolution::pass)
             && !native_csv
         {
-            let scoring_failed_rows = super::decision_scoring::score_schedule_rows(
+            let scoring = super::decision_scoring::score_schedule_rows(
                 decision,
                 &mut schedule.rows,
                 &mut total_usage,
@@ -1226,7 +1236,7 @@ where
             .await;
             // A schedule scores in ONE request, so a failure marks every row
             // that had an assignment to score (issue #767).
-            decision_failed_rows = decision_failed_rows.saturating_add(scoring_failed_rows);
+            decision_scoring.merge(scoring);
         }
         if schedule.block_id.is_none() {
             schedule.block_id = job.block_id;
@@ -1288,7 +1298,7 @@ where
                     decision: Some(decision_telemetry(
                         self.decision.as_ref(),
                         native_csv,
-                        decision_failed_rows,
+                        decision_scoring,
                     )),
                 },
             )

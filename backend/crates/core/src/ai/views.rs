@@ -810,10 +810,17 @@ pub struct DecisionTelemetry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     pub outcome: DecisionOutcome,
-    /// Preview rows whose own scoring request failed (their rubric carries
-    /// `scoring_failed`). `0` unless the outcome is
-    /// [`DecisionOutcome::ScoringFailed`]; a partially failed chunk leaves the
-    /// successful rows scored and only counts the failures.
+    /// Rows this job's scoring pass left without a score. `0` unless the
+    /// outcome is [`DecisionOutcome::ScoringFailed`].
+    ///
+    /// The pass is unit-based, so "row" means the granularity that unit could
+    /// count: a **preview row** of a failed script chunk (that row also carries
+    /// the honest `scoring_failed` rubric), and — for the single-request
+    /// schedule pass, which has no per-row rubric — every **schedule row that
+    /// carried a day label**, i.e. every row that had an assignment to score.
+    /// A partially failed chunk leaves the successful rows scored and only
+    /// counts the failures; an unlabelled schedule row had nothing to score and
+    /// is never counted.
     #[serde(default)]
     pub failed_rows: u32,
 }
@@ -827,16 +834,22 @@ pub enum DecisionOutcome {
     /// A decision configuration resolved, its client was built, and every
     /// scoring request answered — preview rows may carry scores.
     Ran,
-    /// No decision configuration resolved at claim time (the triple was never
-    /// stored, or it was cleared). The import ran without a scoring pass.
+    /// No decision configuration resolved for this job (the triple was never
+    /// stored, or it was cleared before the worker resolved it). The import
+    /// ran without a scoring pass.
+    ///
+    /// "Resolved" is deliberately not "claimed": the worker resolves the
+    /// configuration after the claimed job's source is loaded, so a
+    /// configuration cleared in between is reported here.
     SkippedNoConfig,
     /// A decision configuration resolved but its client could not be built
     /// (credential fetch or transport failure). The import ran without a
     /// scoring pass — best-effort by contract, never fatal.
     ClientUnavailable,
-    /// The pass ran and at least one unit's request failed after the bounded
-    /// quick retry. Those rows degrade to no score and keep an honest
-    /// `scoring_failed` rubric.
+    /// The pass ran and at least one unit produced no score: its request failed
+    /// after the bounded quick retry, or it answered without the answer its
+    /// rows needed. Those rows degrade to no score, and a chunk's rows keep an
+    /// honest `scoring_failed` rubric.
     ScoringFailed,
     /// The job had nothing to score: a native CSV schedule was parsed from the
     /// production tool's own text, so no model produced the rows.

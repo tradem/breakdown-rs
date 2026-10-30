@@ -15,14 +15,14 @@ part 'decision_telemetry.g.dart';
 /// What the Decision Model scoring pass did for one import job (issue #767).  Server-derived truth, written by the worker in the same completion write as the extraction telemetry (owner-fenced) — never inferred by a client and never fabricated when the pass could not run.
 ///
 /// Properties:
-/// * [failedRows] - Preview rows whose own scoring request failed (their rubric carries `scoring_failed`). `0` unless the outcome is [`DecisionOutcome::ScoringFailed`]; a partially failed chunk leaves the successful rows scored and only counts the failures.
+/// * [failedRows] - Rows this job's scoring pass left without a score. `0` unless the outcome is [`DecisionOutcome::ScoringFailed`].  The pass is unit-based, so \"row\" means the granularity that unit could count: a **preview row** of a failed script chunk (that row also carries the honest `scoring_failed` rubric), and — for the single-request schedule pass, which has no per-row rubric — every **schedule row that carried a day label**, i.e. every row that had an assignment to score. A partially failed chunk leaves the successful rows scored and only counts the failures; an unlabelled schedule row had nothing to score and is never counted.
 /// * [model] - The decision model id the job resolved for scoring. Same presence rules as [`Self::provider`].
 /// * [outcome]
 /// * [provider] - The provider the job *resolved* for scoring. `Some` for every outcome except [`DecisionOutcome::SkippedNoConfig`] and [`DecisionOutcome::SkippedNotApplicable`] — a job whose configuration named a provider names it here even when the client could not be built, so \"did my config reach the worker?\" is answerable after the fact.
 @BuiltValue()
 abstract class DecisionTelemetry
     implements Built<DecisionTelemetry, DecisionTelemetryBuilder> {
-  /// Preview rows whose own scoring request failed (their rubric carries `scoring_failed`). `0` unless the outcome is [`DecisionOutcome::ScoringFailed`]; a partially failed chunk leaves the successful rows scored and only counts the failures.
+  /// Rows this job's scoring pass left without a score. `0` unless the outcome is [`DecisionOutcome::ScoringFailed`].  The pass is unit-based, so \"row\" means the granularity that unit could count: a **preview row** of a failed script chunk (that row also carries the honest `scoring_failed` rubric), and — for the single-request schedule pass, which has no per-row rubric — every **schedule row that carried a day label**, i.e. every row that had an assignment to score. A partially failed chunk leaves the successful rows scored and only counts the failures; an unlabelled schedule row had nothing to score and is never counted.
   @BuiltValueField(wireName: r'failed_rows')
   int? get failedRows;
 

@@ -47,26 +47,45 @@ tag. Never edit a released entry afterwards.
     telemetry, so it can never describe a run that did not happen. Pre-#767
     rows stay `NULL` ("not recorded") — their outcome cannot be reconstructed
     without inventing data.
-  - **`info` log when no Decision Model resolves at claim time** (`job_id`,
-    `config_id`), so the previously traceless path is greppable and checkable
-    against `GET /v1/ai-import/config/{id}`. The existing `warn`s for the
+  - **`info` log when no Decision Model resolves** (`job_id`, `config_id`),
+    so the previously traceless path is greppable and checkable against
+    `GET /v1/ai-import/config/{id}`. The log (and the `skipped_no_config`
+    documentation) says *resolution time*, not claim time: the worker resolves
+    the configuration for an already-claimed job **after** its source loads, so
+    a configuration cleared in that window is reported here rather than
+    mislabelled as claim-time state. The existing `warn`s for the
     credential/build and scoring failures are unchanged.
-  - **Failure counting:** the scoring pass now reports how many rows it left
-    unscored (per failed script chunk; every labelled schedule row for the
-    single-request schedule pass), which is what makes a partial outage
-    visible instead of hiding behind the rows that did score.
+  - **Failure counting:** the scoring pass reports whether its request failed
+    *and* how many rows it left unscored (per failed script chunk; every
+    labelled schedule row for the single-request schedule pass) — the outcome
+    is no longer derived from the row count alone, so a pass that answered
+    nothing is `scoring_failed` even when no row had an assignment to score,
+    and a 2xx that omits the day-assignment answer counts the rows it left
+    unscored instead of reporting a clean run.
+  - **A native CSV schedule is always `skipped_not_applicable`,** even with a
+    Decision Model configured: those rows came from the production tool, so no
+    scoring request is issued and the job must not claim one ran.
+  - **Stale outcomes cannot outlive their attempt:** every claim path, both
+    `mark_failed` branches and `mark_payload_unavailable` now clear
+    `decision_telemetry`, so a running, backed-off or dead-lettered job never
+    shows an earlier attempt's outcome (the completion write precedes
+    `mark_succeeded`, so a crash in between used to leave it on the row).
   - **Tests (the regression guard that was missing):** the configured path is
     asserted end to end through the production worker (non-null `scene_score`/
     `synopsis_score`, rubric `decision_provider`/`decision_model` matching the
     configuration, outcome `ran`), plus the three degradation paths
     (`client_unavailable` with the job still succeeding and no decision request
     issued, `skipped_no_config`, `scoring_failed` with its row count), the
-    credential failure resolved at the worker-loop boundary, the additive wire
-    contract, and a Postgres round trip of the new column.
-  - **Client-visible surface:** `DecisionTelemetry` is rendered by
-    `frontend-flutter` (per-row failure state, effective-model line, job cost
-    card) — that side ships in its own change and regenerates its Dart client
-    from the updated `openapi.yaml`.
+    answerless-schedule-response count, a configured-but-CSV job recording
+    `skipped_not_applicable` with no decision request, a failed schedule pass
+    with zero labelled rows still recording `scoring_failed`, the credential
+    failure resolved at the worker-loop boundary, the additive wire contract,
+    and a Postgres round trip of the new column.
+  - **Client-visible surface:** this change adds the generated
+    `DecisionTelemetry` Dart client only. The `frontend-flutter` UI (per-row
+    failure state, effective-model line, job cost card) ships in a separate
+    change — it consumes the regenerated client and persists the telemetry in
+    its own Drift migration with the rest of the surface.
 
 - **Safe, repeatable dev data reset that preserves the configuration (issue
   #770; `core 0.49.0 → 0.50.0`, `infra 0.58.0 → 0.59.0`, `api 0.48.0 →

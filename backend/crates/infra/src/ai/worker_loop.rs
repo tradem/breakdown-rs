@@ -252,7 +252,7 @@ pub(super) async fn resolve_decision(
             info!(
                 job_id = %job_id.as_uuid(),
                 config_id = %config.config_id,
-                "ai-import: no Decision Model configured at claim time; running without the scoring pass (issue #767)"
+                "ai-import: no Decision Model configured at resolution time; running without the scoring pass (issue #767)"
             );
             None
         }

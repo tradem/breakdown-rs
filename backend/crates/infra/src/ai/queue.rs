@@ -231,6 +231,12 @@ impl AiImportQueue for PgAiImportQueue {
                 -- Stale progress from a prior attempt must never flash
                 -- before the new attempt's first `mark_progress` (issue #664).
                 progress = NULL,
+                -- Stale decision telemetry from a prior attempt must not be
+                -- read as THIS attempt's outcome (issue #767). The column is
+                -- written in the same completion write as the extraction
+                -- telemetry, so a crash between that write and
+                -- `mark_succeeded` leaves it set on a job that gets reclaimed.
+                decision_telemetry = NULL,
                 lease_expires_at = now() + make_interval(secs => $2),
                 updated_at = now()
             FROM next_job
@@ -280,6 +286,9 @@ impl AiImportQueue for PgAiImportQueue {
                 permit_id = NULL,
                 -- See `claim_next`: no stale progress across attempts.
                 progress = NULL,
+                -- See `claim_next`: no stale decision telemetry across
+                -- attempts (issue #767).
+                decision_telemetry = NULL,
                 lease_expires_at = now() + make_interval(secs => $3),
                 updated_at = now()
             FROM next_job
@@ -341,6 +350,9 @@ impl AiImportQueue for PgAiImportQueue {
                     worker_id = $1,
                     permit_id = NULL,
                     progress = NULL,
+                    -- Stale decision telemetry never outlives its attempt
+                    -- (issue #767) — same rule as `claim_next`.
+                    decision_telemetry = NULL,
                     lease_expires_at = now() + make_interval(secs => $2),
                     updated_at = now()
                 FROM next_job
@@ -396,6 +408,9 @@ impl AiImportQueue for PgAiImportQueue {
                     worker_id = $2,
                     permit_id = NULL,
                     progress = NULL,
+                    -- Stale decision telemetry never outlives its attempt
+                    -- (issue #767) — same rule as `claim_next`.
+                    decision_telemetry = NULL,
                     lease_expires_at = now() + make_interval(secs => $3),
                     updated_at = now()
                 FROM next_job
@@ -696,6 +711,15 @@ impl AiImportQueue for PgAiImportQueue {
                         WHEN $4 AND retries + 1 < max_retries THEN progress
                         ELSE NULL
                     END,
+                    -- The decision outcome describes THIS attempt's scoring
+                    -- pass, and a failed attempt recorded none: a value left
+                    -- over from an earlier attempt (whose completion write
+                    -- landed but whose `mark_succeeded` never did) would
+                    -- describe a run this row is not in (issue #767). Cleared
+                    -- on the retryable branch too — the job is backing off
+                    -- until it is re-claimed, and a reader must not see the
+                    -- old attempt's outcome in the meantime.
+                    decision_telemetry = NULL,
                     -- A terminal or backing-off job holds no claim: releasing the
                     -- lease here keeps `running` the only leased state, so the
                     -- reclaim predicate can never resurrect a failed job early.
@@ -759,6 +783,10 @@ impl AiImportQueue for PgAiImportQueue {
                     next_attempt_at = NULL,
                     -- Terminal, so no live stage survives it (issue #763).
                     progress = NULL,
+                    -- Terminal, and no scoring pass ran for THIS attempt: an
+                    -- earlier attempt's outcome must not survive it (issue
+                    -- #767).
+                    decision_telemetry = NULL,
                     worker_id = NULL,
                     lease_expires_at = NULL,
                     permit_id = NULL,
