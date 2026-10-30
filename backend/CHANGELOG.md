@@ -28,6 +28,46 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **The Decision Model scoring outcome is recorded on the job, and the two
+  silent degradation paths are no longer silent (issue #767; `core 0.50.0 →
+  0.51.0`, `infra 0.59.0 → 0.60.0`, `api 0.49.0 → 0.50.0`).** A configured
+  Decision Model that produced no star ratings had four different causes and
+  one identical, unexplained user-visible state: the triple never resolved
+  (`decision: None`, no log at all), the decision client could not be built
+  (one backend `warn`), the scoring call failed (a `warn` plus a per-row
+  `scoring_failed` rubric no client reads), or the provider answered partially
+  (scores honestly `None`). None of them was answerable from the app.
+
+  - **`AiImportJob.decision_telemetry`** (additive, `serde(default)`; JSONB
+    column `ai_import.ai_import_job.decision_telemetry`, migration
+    `20261102000001`) carries the resolved `provider`/`model`, the
+    `outcome` class (`ran`, `skipped_no_config`, `client_unavailable`,
+    `scoring_failed`, `skipped_not_applicable`) and `failed_rows`. It is
+    written by the **same owner-fenced completion write** as the extraction
+    telemetry, so it can never describe a run that did not happen. Pre-#767
+    rows stay `NULL` ("not recorded") — their outcome cannot be reconstructed
+    without inventing data.
+  - **`info` log when no Decision Model resolves at claim time** (`job_id`,
+    `config_id`), so the previously traceless path is greppable and checkable
+    against `GET /v1/ai-import/config/{id}`. The existing `warn`s for the
+    credential/build and scoring failures are unchanged.
+  - **Failure counting:** the scoring pass now reports how many rows it left
+    unscored (per failed script chunk; every labelled schedule row for the
+    single-request schedule pass), which is what makes a partial outage
+    visible instead of hiding behind the rows that did score.
+  - **Tests (the regression guard that was missing):** the configured path is
+    asserted end to end through the production worker (non-null `scene_score`/
+    `synopsis_score`, rubric `decision_provider`/`decision_model` matching the
+    configuration, outcome `ran`), plus the three degradation paths
+    (`client_unavailable` with the job still succeeding and no decision request
+    issued, `skipped_no_config`, `scoring_failed` with its row count), the
+    credential failure resolved at the worker-loop boundary, the additive wire
+    contract, and a Postgres round trip of the new column.
+  - **Client-visible surface:** `DecisionTelemetry` is rendered by
+    `frontend-flutter` (per-row failure state, effective-model line, job cost
+    card) — that side ships in its own change and regenerates its Dart client
+    from the updated `openapi.yaml`.
+
 - **Safe, repeatable dev data reset that preserves the configuration (issue
   #770; `core 0.49.0 → 0.50.0`, `infra 0.58.0 → 0.59.0`, `api 0.48.0 →
   0.49.0`).** Replaying AI script imports for integration verification was

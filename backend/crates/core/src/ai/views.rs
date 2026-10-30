@@ -398,6 +398,20 @@ pub struct AiImportJob {
     /// episode's persisted location.
     #[serde(default)]
     pub applied_episodes: Vec<AppliedEpisode>,
+    /// What the optional Decision Model scoring pass actually did for this job
+    /// (issue #767). Additive with `serde(default)`: `None` for every job
+    /// recorded before the field existed, so an older client reading a newer
+    /// view — and a newer client reading an older view — still deserializes.
+    ///
+    /// The reported defect was an import that produced no star ratings and no
+    /// explanation: "no decision model configured", "the decision client could
+    /// not be built", "the scoring call failed" and "the provider answered
+    /// partially" all collapsed into the same empty space. The per-row rubric
+    /// only explains the last two *after* a preview exists; this field is the
+    /// job-level answer ("did the worker use my Decision Model at all?") that
+    /// survives even when no row was ever scored.
+    #[serde(default)]
+    pub decision_telemetry: Option<DecisionTelemetry>,
 }
 
 /// The production target an AI import writes into, snapshotted at dispatch
@@ -552,6 +566,12 @@ pub struct Telemetry {
     /// and for schedule jobs.
     #[serde(default)]
     pub scenes_synthesized: u32,
+    /// The Decision Model scoring outcome (issue #767), written by the same
+    /// completion write as the counters above. Additive: `None` on rows no
+    /// worker recorded it for — including every pre-#767 row — so a reader
+    /// renders "not recorded" instead of guessing an outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<DecisionTelemetry>,
 }
 
 // ===========================================================================
@@ -769,6 +789,58 @@ pub struct JobTelemetrySummary {
     /// returned no rows (issue #758). A nonzero value names the degradation.
     #[serde(default)]
     pub scenes_synthesized: u32,
+}
+
+/// What the Decision Model scoring pass did for one import job (issue #767).
+///
+/// Server-derived truth, written by the worker in the same completion write as
+/// the extraction telemetry (owner-fenced) — never inferred by a client and
+/// never fabricated when the pass could not run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DecisionTelemetry {
+    /// The provider the job *resolved* for scoring. `Some` for every outcome
+    /// except [`DecisionOutcome::SkippedNoConfig`] and
+    /// [`DecisionOutcome::SkippedNotApplicable`] — a job whose configuration
+    /// named a provider names it here even when the client could not be built,
+    /// so "did my config reach the worker?" is answerable after the fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<LlmProvider>,
+    /// The decision model id the job resolved for scoring. Same presence rules
+    /// as [`Self::provider`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub outcome: DecisionOutcome,
+    /// Preview rows whose own scoring request failed (their rubric carries
+    /// `scoring_failed`). `0` unless the outcome is
+    /// [`DecisionOutcome::ScoringFailed`]; a partially failed chunk leaves the
+    /// successful rows scored and only counts the failures.
+    #[serde(default)]
+    pub failed_rows: u32,
+}
+
+/// The outcome class of one job's Decision Model scoring pass (issue #767).
+/// The wire values are stable and additive: a client localizes its own copy
+/// per variant and never parses a free-text reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionOutcome {
+    /// A decision configuration resolved, its client was built, and every
+    /// scoring request answered — preview rows may carry scores.
+    Ran,
+    /// No decision configuration resolved at claim time (the triple was never
+    /// stored, or it was cleared). The import ran without a scoring pass.
+    SkippedNoConfig,
+    /// A decision configuration resolved but its client could not be built
+    /// (credential fetch or transport failure). The import ran without a
+    /// scoring pass — best-effort by contract, never fatal.
+    ClientUnavailable,
+    /// The pass ran and at least one unit's request failed after the bounded
+    /// quick retry. Those rows degrade to no score and keep an honest
+    /// `scoring_failed` rubric.
+    ScoringFailed,
+    /// The job had nothing to score: a native CSV schedule was parsed from the
+    /// production tool's own text, so no model produced the rows.
+    SkippedNotApplicable,
 }
 
 impl From<&Telemetry> for JobTelemetrySummary {

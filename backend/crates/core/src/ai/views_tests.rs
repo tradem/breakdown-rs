@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use super::{DocumentKind, SourceFormat, TelemetryApplyState};
 
@@ -257,6 +258,59 @@ fn record_episode_ignores_episodes_without_a_label() {
         title: Some("   ".into()),
     }));
     assert!(progress.episodes_seen.is_empty());
+}
+
+/// Issue #767: the job-level decision outcome is additive in BOTH directions —
+/// a pre-#767 payload (no field) still deserializes, and a recorded outcome
+/// serializes with the stable snake_case outcome classes a client branches on.
+#[test]
+fn ai_import_job_decision_telemetry_is_additive_on_the_wire() {
+    let job: super::AiImportJob = serde_json::from_str(
+        r#"{
+            "id": "01950000-0000-7000-8000-000000000002",
+            "user_id": "user-1",
+            "document_kind": "script",
+            "source_format": "pdf",
+            "dedup_key": "k",
+            "document_digest": "d",
+            "source_handle": "h",
+            "status": "succeeded",
+            "retries": 0,
+            "max_retries": 5,
+            "created_at": "2026-11-02T00:00:00Z",
+            "updated_at": "2026-11-02T00:00:00Z"
+        }"#,
+    )
+    .expect("a pre-#767 payload deserializes");
+    assert_eq!(job.decision_telemetry, None);
+
+    let recorded = super::DecisionTelemetry {
+        provider: Some(super::LlmProvider::Neuralwatt),
+        model: Some("glm-5.3".to_owned()),
+        outcome: super::DecisionOutcome::ScoringFailed,
+        failed_rows: 3,
+    };
+    let json = serde_json::to_value(&recorded).expect("serializes");
+    assert_eq!(json["outcome"], "scoring_failed");
+    assert_eq!(json["failed_rows"], 3);
+    assert_eq!(
+        serde_json::from_value::<super::DecisionTelemetry>(json).ok(),
+        Some(recorded),
+        "the recorded outcome round-trips"
+    );
+
+    // A "nothing was configured" outcome names no provider/model at all: the
+    // optional fields stay absent instead of serializing a null pair.
+    let unconfigured = super::DecisionTelemetry {
+        provider: None,
+        model: None,
+        outcome: super::DecisionOutcome::SkippedNoConfig,
+        failed_rows: 0,
+    };
+    let json = serde_json::to_value(&unconfigured).expect("serializes");
+    assert_eq!(json["outcome"], "skipped_no_config");
+    assert!(json.get("provider").is_none());
+    assert!(json.get("model").is_none());
 }
 
 #[test]

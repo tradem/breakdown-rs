@@ -8,8 +8,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use breakdown_core::ai::{
-    AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage, CostBreakdown, DocumentKind,
-    MergeInput, MergedPreview, Telemetry, TelemetryApplyState, merge_from_input,
+    AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage, CostBreakdown, DecisionOutcome,
+    DecisionTelemetry, DocumentKind, MergeInput, MergedPreview, Telemetry, TelemetryApplyState,
+    merge_from_input,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::EpisodeId;
@@ -150,6 +151,15 @@ where
                     cost: Some(CostBreakdown::not_applicable()),
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     apply_state: TelemetryApplyState::NotApplied,
+                    // The merge is a pure in-process transform: no Decision
+                    // Model call happens, so there is no scoring outcome to
+                    // report beyond "not applicable" (issue #767).
+                    decision: Some(DecisionTelemetry {
+                        provider: None,
+                        model: None,
+                        outcome: DecisionOutcome::SkippedNotApplicable,
+                        failed_rows: 0,
+                    }),
                 },
             )
             .await?;

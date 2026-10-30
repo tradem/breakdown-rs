@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Missing-payload semantics for the AI import workers (issue #181).
 //!
@@ -93,6 +94,8 @@ impl RecordingQueue {
                 source_file_name: None,
                 target: None,
                 applied_episodes: Vec::new(),
+                // No Decision Model outcome recorded by a test fixture (issue #767).
+                decision_telemetry: None,
             },
             handed_out: Arc::new(Mutex::new(false)),
             transitions: Arc::new(Mutex::new(Vec::new())),

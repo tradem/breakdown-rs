@@ -81,6 +81,8 @@ impl MockQueue {
             source_file_name: None,
             target: None,
             applied_episodes: Vec::new(),
+            // No Decision Model outcome recorded by a test fixture (issue #767).
+            decision_telemetry: None,
         };
         self.jobs.lock().await.push(job);
         id
@@ -117,6 +119,8 @@ impl AiImportQueue for MockQueue {
             source_file_name: None,
             target: None,
             applied_episodes: Vec::new(),
+            // No Decision Model outcome recorded by a test fixture (issue #767).
+            decision_telemetry: None,
         };
         self.jobs.lock().await.push(job);
         Ok(AiImportEnqueueResult::Enqueued(request.id))

@@ -393,6 +393,23 @@ components:
         created_at:
           format: date-time
           type: string
+        decision_telemetry:
+          oneOf:
+          - $ref: '#/components/schemas/DecisionTelemetry'
+            description: |-
+              What the optional Decision Model scoring pass actually did for this job
+              (issue #767). Additive with `serde(default)`: `None` for every job
+              recorded before the field existed, so an older client reading a newer
+              view — and a newer client reading an older view — still deserializes.
+
+              The reported defect was an import that produced no star ratings and no
+              explanation: "no decision model configured", "the decision client could
+              not be built", "the scoring call failed" and "the provider answered
+              partially" all collapsed into the same empty space. The per-row rubric
+              only explains the last two *after* a preview exists; this field is the
+              job-level answer ("did the worker use my Decision Model at all?") that
+              survives even when no row was ever scored.
+          - type: 'null'
         dedup_key:
           type: string
         document_digest:
@@ -1684,6 +1701,18 @@ components:
       - first_seen_at
       - last_seen_at
       type: object
+    DecisionOutcome:
+      description: |-
+        The outcome class of one job's Decision Model scoring pass (issue #767).
+        The wire values are stable and additive: a client localizes its own copy
+        per variant and never parses a free-text reason.
+      enum:
+      - ran
+      - skipped_no_config
+      - client_unavailable
+      - scoring_failed
+      - skipped_not_applicable
+      type: string
     DecisionRubric:
       description: |-
         Structured rubric sub-scores persisted on the preview payload (issue
@@ -1722,6 +1751,45 @@ components:
           propertyNames:
             type: string
           type: object
+      type: object
+    DecisionTelemetry:
+      description: |-
+        What the Decision Model scoring pass did for one import job (issue #767).
+
+        Server-derived truth, written by the worker in the same completion write as
+        the extraction telemetry (owner-fenced) — never inferred by a client and
+        never fabricated when the pass could not run.
+      properties:
+        failed_rows:
+          description: |-
+            Preview rows whose own scoring request failed (their rubric carries
+            `scoring_failed`). `0` unless the outcome is
+            [`DecisionOutcome::ScoringFailed`]; a partially failed chunk leaves the
+            successful rows scored and only counts the failures.
+          format: int32
+          minimum: 0
+          type: integer
+        model:
+          description: |-
+            The decision model id the job resolved for scoring. Same presence rules
+            as [`Self::provider`].
+          type:
+          - string
+          - 'null'
+        outcome:
+          $ref: '#/components/schemas/DecisionOutcome'
+        provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              The provider the job *resolved* for scoring. `Some` for every outcome
+              except [`DecisionOutcome::SkippedNoConfig`] and
+              [`DecisionOutcome::SkippedNotApplicable`] — a job whose configuration
+              named a provider names it here even when the client could not be built,
+              so "did my config reach the worker?" is answerable after the fact.
+          - type: 'null'
+      required:
+      - outcome
       type: object
     DispoRow:
       description: A single row in the Dispo (planned / Soll) report.

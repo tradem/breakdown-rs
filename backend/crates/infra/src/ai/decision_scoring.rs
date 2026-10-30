@@ -144,6 +144,11 @@ fn score5_expected(
 /// `synopsis_score`, the structured [`DecisionRubric`], and — when its day
 /// group matches the chunk's day — the day group's `shooting_day_score` on
 /// its own [`DraftShootingDay`] clone.
+///
+/// Returns the number of rows this unit left unscored because its own request
+/// failed after the bounded quick retry (issue #767) — `0` on success. The
+/// caller sums it into the job's decision telemetry, so a partial outage is
+/// counted instead of disappearing behind the rows that did score.
 #[allow(clippy::too_many_arguments)]
 pub async fn score_script_chunk(
     pass: &DecisionPass,
@@ -157,9 +162,9 @@ pub async fn score_script_chunk(
     dropped_costumes: &[usize],
     open_ambiguities: &[usize],
     usage: &mut LlmCallUsage,
-) {
+) -> u32 {
     if scenes.is_empty() {
-        return;
+        return 0;
     }
     let request = DecisionRequest {
         provider: pass.provider,
@@ -211,10 +216,13 @@ pub async fn score_script_chunk(
                 grounding_factor: None,
                 scoring_failed: true,
             };
+            // Count before the loop consumes the slice: every row of this
+            // unit is left unscored by the failed request (issue #767).
+            let failed_rows = u32::try_from(scenes.len()).unwrap_or(u32::MAX);
             for scene in scenes {
                 scene.scoring = Some(failed.clone());
             }
-            return;
+            return failed_rows;
         }
     };
     usage.accumulate(outcome.usage);
@@ -306,6 +314,8 @@ pub async fn score_script_chunk(
             scoring_failed: false,
         });
     }
+    // The request answered: no row was left unscored by a failed unit.
+    0
 }
 
 /// Score the rows of one LLM-extracted shooting schedule (issue #722 §3.3).
@@ -314,13 +324,19 @@ pub async fn score_script_chunk(
 /// deterministic grounding signal per row is whether the row carries a
 /// parseable day label at all. Rows are grouped by day label — the score is
 /// exposed per row and aggregates per `DraftShootingDay` group on apply.
+///
+/// Returns the number of rows this request left unscored because it failed
+/// after the bounded quick retry (issue #767) — `0` on success. The whole
+/// schedule scores in ONE request, so a failure leaves every row that had an
+/// assignment to score without one; counting exactly those rows is what the
+/// job's decision telemetry reports.
 pub async fn score_schedule_rows(
     pass: &DecisionPass,
     rows: &mut [breakdown_core::ai::ShootingScheduleRow],
     usage: &mut LlmCallUsage,
-) {
+) -> u32 {
     if rows.is_empty() {
-        return;
+        return 0;
     }
     let mut questions = BTreeMap::new();
     questions.insert(
@@ -365,7 +381,14 @@ pub async fn score_schedule_rows(
                 "ai-decision: schedule scoring pass failed after the bounded quick retry; \
                  scores degrade to None (non-fatal, issue #722)"
             );
-            return;
+            // A row without a day label had no assignment to score in the
+            // first place, so only the labelled rows are counted as failed.
+            return u32::try_from(
+                rows.iter()
+                    .filter(|row| row.shooting_day_label.is_some())
+                    .count(),
+            )
+            .unwrap_or(u32::MAX);
         }
     };
     usage.accumulate(outcome.usage);
@@ -382,6 +405,8 @@ pub async fn score_schedule_rows(
         }
         row.shooting_day_score = compute_shooting_day_score(true, consistency);
     }
+    // The request answered: no row was left unscored by a failed unit.
+    0
 }
 
 #[cfg(test)]

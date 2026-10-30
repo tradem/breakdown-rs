@@ -157,6 +157,8 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 source_file_name: None,
                 target: None,
                 applied_episodes: Vec::new(),
+                // No Decision Model outcome recorded by a test fixture (issue #767).
+                decision_telemetry: None,
             };
             Ok(Some(job))
         }
@@ -436,6 +438,8 @@ async fn merge_worker_success_records_telemetry() {
         source_file_name: None,
         target: None,
         applied_episodes: Vec::new(),
+        // No Decision Model outcome recorded by a test fixture (issue #767).
+        decision_telemetry: None,
     };
     let queue = Arc::new(MergeCaptureQueue {
         job: job.clone(),
@@ -715,6 +719,8 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         source_file_name: None,
         target: None,
         applied_episodes: Vec::new(),
+        // No Decision Model outcome recorded by a test fixture (issue #767).
+        decision_telemetry: None,
     }
 }
 
@@ -811,6 +817,8 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         source_file_name: None,
         target: None,
         applied_episodes: Vec::new(),
+        // No Decision Model outcome recorded by a test fixture (issue #767).
+        decision_telemetry: None,
     }
 }
 
@@ -5386,7 +5394,7 @@ fn scoring_worker(
         prompt: "fixture prompt".to_owned(),
         bounds: AiImportBounds::default(),
         pricing: None,
-        decision: Some(decision),
+        decision: Some(super::DecisionResolution::Available(decision)),
     }
 }
 
@@ -5476,6 +5484,301 @@ async fn scoring_receives_chunk_local_grounding_signals_and_honors_the_summary_c
     assert_eq!(
         telemetry.energy_millijoules,
         10 + (continuity_calls as u64) * 5
+    );
+
+    // Issue #767: the rubric names the Decision Model that produced the stars,
+    // so a client can say WHICH model scored the row instead of only showing
+    // five glyphs.
+    let rubric = preview.scenes[1]
+        .scoring
+        .as_ref()
+        .expect("a scored row carries its rubric");
+    assert_eq!(rubric.decision_provider, Some(LlmProvider::Neuralwatt));
+    assert_eq!(rubric.decision_model.as_deref(), Some("clef-flash"));
+    assert!(!rubric.scoring_failed);
+
+    // … and the job-level outcome records that the configured pass RAN with
+    // that same pair — the answer to "did my configuration reach the worker?"
+    // that a star-less preview could never give (issue #767).
+    let decision = telemetry
+        .decision
+        .as_ref()
+        .expect("a configured Decision Model records its outcome");
+    assert_eq!(decision.outcome, breakdown_core::ai::DecisionOutcome::Ran);
+    assert_eq!(decision.provider, Some(LlmProvider::Neuralwatt));
+    assert_eq!(decision.model.as_deref(), Some("clef-flash"));
+    assert_eq!(decision.failed_rows, 0);
+}
+
+// ===========================================================================
+// Decision telemetry (issue #767): the silent-degradation paths
+// ===========================================================================
+
+/// A permanently failing decision endpoint: the bounded quick retry gives up,
+/// the unit's rows degrade to `None`, and the rubric keeps the honest
+/// `scoring_failed` flag. This is the third of #767's four silent paths — the
+/// one that used to reach the user as nothing but empty space.
+struct FailingDecisionClient;
+
+#[async_trait::async_trait]
+impl DecisionClient for FailingDecisionClient {
+    async fn decide(&self, _req: DecisionRequest) -> Result<DecisionCallOutcome, DomainError> {
+        Err(DomainError::ServiceUnavailable {
+            code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
+            reason: "decision endpoint down".into(),
+        })
+    }
+}
+
+/// A credential vault that refuses every read — the production failure
+/// (credential fetch) that used to disable the scoring pass behind an invisible
+/// `warn`, leaving no trace on the job (issue #767).
+struct UnreadableCredentialVault;
+
+#[async_trait::async_trait]
+impl breakdown_core::settings::CredentialVault for UnreadableCredentialVault {
+    async fn store(
+        &self,
+        _settings_id: uuid::Uuid,
+        _provider: &str,
+        _secret: breakdown_core::settings::SecretValue,
+    ) -> Result<breakdown_core::settings::VaultBinding, DomainError> {
+        Err(DomainError::validation(
+            "vault is read-only in this fixture",
+        ))
+    }
+
+    async fn fetch(
+        &self,
+        _settings_id: uuid::Uuid,
+        _vault_key_id: &str,
+    ) -> Result<breakdown_core::settings::SecretValue, DomainError> {
+        Err(DomainError::ServiceUnavailable {
+            code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
+            reason: "vault unavailable".into(),
+        })
+    }
+
+    async fn destroy(
+        &self,
+        _settings_id: uuid::Uuid,
+        _vault_key_id: &str,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    async fn check(&self) -> Result<(), DomainError> {
+        Ok(())
+    }
+}
+
+/// A resolved worker config whose decision slot the caller chooses.
+fn worker_decision_config(
+    decision: Option<crate::queries::ai_config::AiWorkerDecisionConfig>,
+) -> crate::queries::ai_config::AiWorkerConfig {
+    crate::queries::ai_config::AiWorkerConfig {
+        config_id: uuid::Uuid::now_v7(),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        vault_key_id: format!("settings-{}", uuid::Uuid::now_v7()),
+        decision,
+    }
+}
+
+/// Criterion 5 of issue #767: a decision client that could not be built (the
+/// credential/transport failure) must leave the job SUCCEEDING with honestly
+/// `None` scores — and must record `client_unavailable`, which is what makes
+/// the degradation visible after the fact.
+#[tokio::test]
+async fn unbuilt_decision_client_keeps_the_job_green_and_records_client_unavailable() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let recorder = RecordingDecisionClient::default();
+    let mut worker = scoring_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::new(super::DecisionPass {
+            client: Arc::new(recorder.clone()),
+            provider: LlmProvider::Neuralwatt,
+            model: "clef-flash".to_owned(),
+        }),
+    );
+    // Exactly what the worker loop hands over when the build failed: the reason
+    // survives, the pass does not.
+    worker.decision = Some(super::DecisionResolution::Unavailable {
+        provider: LlmProvider::Neuralwatt,
+        model: "clef-flash".to_owned(),
+    });
+
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen trägt einen Schutzhelm.\n\n2. INT. GARAGE - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .expect("a scoring outage must never fail the job");
+
+    // No request was issued at all — therefore no score could be invented.
+    assert!(
+        recorder.states.lock().unwrap().is_empty(),
+        "an unbuilt client must not issue a decision request"
+    );
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.scenes.len(), 2);
+    for scene in &preview.scenes {
+        assert_eq!(scene.scene_score, None);
+        assert_eq!(scene.synopsis_score, None);
+        assert_eq!(scene.scoring, None, "no request, no rubric");
+    }
+
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.succeeded, vec![job.id], "the job still succeeded");
+    let decision = state.telemetry[0]
+        .decision
+        .as_ref()
+        .expect("the job records WHY it ran without scoring");
+    assert_eq!(
+        decision.outcome,
+        breakdown_core::ai::DecisionOutcome::ClientUnavailable
+    );
+    // The resolved triple is named even though it produced nothing: that is the
+    // difference between "your config never arrived" and "your config arrived
+    // but the credential failed".
+    assert_eq!(decision.provider, Some(LlmProvider::Neuralwatt));
+    assert_eq!(decision.model.as_deref(), Some("clef-flash"));
+    assert_eq!(decision.failed_rows, 0);
+}
+
+/// The first of #767's silent paths: NO decision config at all. The job runs
+/// (unchanged behaviour) but now records `skipped_no_config`, so "did my
+/// configuration reach the worker?" is answerable from the job view.
+#[tokio::test]
+async fn job_without_a_decision_config_records_skipped_no_config() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = script_worker(Arc::clone(&queue), Arc::clone(&previews), 4);
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. KITCHEN - DAY\nA\n2. EXT. PARK - NIGHT\nB",
+        )
+        .await
+        .unwrap();
+
+    let state = queue.state.lock().unwrap();
+    let decision = state.telemetry[0]
+        .decision
+        .as_ref()
+        .expect("an unconfigured job records the absence");
+    assert_eq!(
+        decision.outcome,
+        breakdown_core::ai::DecisionOutcome::SkippedNoConfig
+    );
+    assert_eq!(decision.provider, None);
+    assert_eq!(decision.model, None);
+    assert_eq!(decision.failed_rows, 0);
+}
+
+/// The third of #767's silent paths: the scoring call itself failed after the
+/// quick retry. Each row keeps its honest `scoring_failed` rubric AND the job
+/// counts how many rows it left unscored.
+#[tokio::test]
+async fn failed_scoring_request_counts_its_rows_and_records_scoring_failed() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = scoring_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::new(super::DecisionPass {
+            client: Arc::new(FailingDecisionClient),
+            provider: LlmProvider::Neuralwatt,
+            model: "clef-flash".to_owned(),
+        }),
+    );
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen trägt einen Schutzhelm.\n\n2. INT. GARAGE - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .expect("a scoring outage must never fail the job");
+
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.scenes.len(), 2);
+    for scene in &preview.scenes {
+        assert_eq!(scene.scene_score, None, "never fabricate a score");
+        assert_eq!(scene.synopsis_score, None);
+        let rubric = scene.scoring.as_ref().expect("the failed unit is marked");
+        assert!(rubric.scoring_failed);
+        assert_eq!(rubric.decision_provider, Some(LlmProvider::Neuralwatt));
+        assert_eq!(rubric.decision_model.as_deref(), Some("clef-flash"));
+    }
+
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.succeeded, vec![job.id]);
+    let decision = state.telemetry[0].decision.as_ref().expect("recorded");
+    assert_eq!(
+        decision.outcome,
+        breakdown_core::ai::DecisionOutcome::ScoringFailed
+    );
+    assert_eq!(
+        decision.failed_rows, 2,
+        "one unscored row per failed chunk request"
+    );
+}
+
+/// The credential half of the `client_unavailable` path (#767): the worker loop
+/// resolves a configured triple, the vault read fails, and the resolution
+/// states WHY instead of collapsing into the `None` a missing config produces.
+#[tokio::test]
+async fn unreadable_decision_credential_resolves_to_unavailable() {
+    let config = worker_decision_config(Some(crate::queries::ai_config::AiWorkerDecisionConfig {
+        provider: LlmProvider::Neuralwatt,
+        model: "clef-flash".to_owned(),
+        vault_key_id: format!("settings-{}", uuid::Uuid::now_v7()),
+    }));
+    let resolution = super::worker_loop::resolve_decision(
+        &UnreadableCredentialVault,
+        &config,
+        AiImportJobId::new(),
+        std::time::Duration::from_secs(1),
+    )
+    .await
+    .expect("a configured Decision Model resolves, it is never silently dropped");
+    match resolution {
+        super::DecisionResolution::Unavailable { provider, model } => {
+            assert_eq!(provider, LlmProvider::Neuralwatt);
+            assert_eq!(model, "clef-flash");
+        }
+        super::DecisionResolution::Available(_) => {
+            panic!("the vault refused the credential, so no client may exist")
+        }
+    }
+}
+
+/// An unconfigured user resolves to nothing — and never reads a credential.
+#[tokio::test]
+async fn resolve_decision_without_a_config_resolves_to_nothing() {
+    let config = worker_decision_config(None);
+    assert!(
+        super::worker_loop::resolve_decision(
+            &UnreadableCredentialVault,
+            &config,
+            AiImportJobId::new(),
+            std::time::Duration::from_secs(1),
+        )
+        .await
+        .is_none(),
+        "no configuration means no pass (the failure vault would have errored otherwise)"
     );
 }
 

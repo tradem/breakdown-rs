@@ -11,8 +11,9 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, CostBreakdown, DocumentKind,
-    JobStatus, JobTelemetrySummary, LlmProvider, SourceFormat, Telemetry,
+    AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, CostBreakdown,
+    DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary, LlmProvider, SourceFormat,
+    Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -849,7 +850,8 @@ impl AiImportQueue for PgAiImportQueue {
                 cached_tokens_in = $9, energy_millijoules = $10, cost = $11,
                 accept_as_is = $12, edit_distance = $13,
                 scenes_detected = $14, scenes_extracted = $15,
-                scenes_synthesized = $16, updated_at = now()
+                scenes_synthesized = $16, decision_telemetry = $17,
+                updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
             RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
@@ -1108,6 +1110,10 @@ struct TelemetryValues {
     scenes_detected: i32,
     scenes_extracted: i32,
     scenes_synthesized: i32,
+    /// The Decision Model outcome as JSONB (issue #767). `None` for the apply
+    /// path's unfenced write, which must never rewrite the completion-time
+    /// snapshot.
+    decision: Option<serde_json::Value>,
 }
 
 impl TelemetryValues {
@@ -1168,15 +1174,25 @@ impl TelemetryValues {
             scenes_detected: scene_count(telemetry.scenes_detected, "detected")?,
             scenes_extracted: scene_count(telemetry.scenes_extracted, "extracted")?,
             scenes_synthesized: scene_count(telemetry.scenes_synthesized, "synthesized")?,
+            decision: telemetry
+                .decision
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|error| {
+                    DomainError::validation(format!(
+                        "AI decision telemetry cannot be serialized: {error}"
+                    ))
+                })?,
         })
     }
 
-    /// Bind the fourteen telemetry columns in the exact order both UPDATE
+    /// Bind the fifteen telemetry columns in the exact order both UPDATE
     /// statements declare their placeholders: `tokens_in`, `tokens_out`,
     /// `latency_total_ms`, then the #675 trio `cached_tokens_in`,
     /// `energy_millijoules`, `cost` — a wrong order would be silently
     /// type-compatible between the integer columns (the jsonb `cost` binding
-    /// against `energy_millijoules` is the only mismatch Postgres rejects).
+    /// against `energy_millijoules` is the only mismatch Postgres rejects) —
+    /// and, last, the #767 decision `jsonb`.
     fn bind_all<'q>(
         self,
         query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
@@ -1196,6 +1212,7 @@ impl TelemetryValues {
             .bind(self.scenes_detected)
             .bind(self.scenes_extracted)
             .bind(self.scenes_synthesized)
+            .bind(self.decision)
     }
 }
 
@@ -1326,6 +1343,10 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         telemetry: decode_job_telemetry(&row),
         cost: decode_job_cost(&row),
         applied_episodes: decode_applied_episodes(&row),
+        // Job-level Decision Model outcome (issue #767). Advisory: a NULL
+        // column (pre-#767 row, or a job no worker completed) renders as the
+        // honest "not recorded" rather than a guessed class.
+        decision_telemetry: decode_job_decision_telemetry(&row),
     })
 }
 
@@ -1415,6 +1436,25 @@ fn decode_job_telemetry(row: &sqlx::postgres::PgRow) -> Option<JobTelemetrySumma
 fn decode_job_cost(row: &sqlx::postgres::PgRow) -> Option<CostBreakdown> {
     let value: Option<serde_json::Value> = row.try_get("cost").ok().flatten()?;
     serde_json::from_value(value?).ok()
+}
+
+/// Decode the persisted `decision_telemetry` JSONB column (issue #767).
+///
+/// Same contract as [`decode_job_cost`]: transparency data, never correctness
+/// state, so an undecodable payload degrades to `None` ("not recorded") instead
+/// of failing the job read.
+fn decode_job_decision_telemetry(row: &sqlx::postgres::PgRow) -> Option<DecisionTelemetry> {
+    let value: Option<serde_json::Value> = row.try_get("decision_telemetry").ok().flatten()?;
+    match serde_json::from_value::<DecisionTelemetry>(value?) {
+        Ok(telemetry) => Some(telemetry),
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "failed to decode ai_import decision_telemetry payload"
+            );
+            None
+        }
+    }
 }
 
 /// Parse a persisted provider key (canonical key or accepted alias) —

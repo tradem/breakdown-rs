@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (pi)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! AI import queue worker loops (issue #214).
 //!
@@ -48,7 +49,7 @@ use super::preview_store::AiDocumentSource;
 use super::preview_store::AiPreviewStore;
 use super::queue::PgAiImportQueue;
 use super::runtime::AiWorkerRuntime;
-use super::workers::{ScheduleImportWorker, ScriptImportWorker};
+use super::workers::{DecisionResolution, ScheduleImportWorker, ScriptImportWorker};
 use crate::ai::{DecisionPass, HttpDecisionClient};
 use crate::queries::ai_config::{AiConfigRepositoryImpl, AiWorkerConfig, AiWorkerDecisionConfig};
 
@@ -223,17 +224,54 @@ async fn fetch_credential(
     Ok(secret.as_str().to_owned())
 }
 
-/// Build the optional Decision Model scoring client for one job (issue #722).
+/// Resolve the Decision Model scoring pass for one job (issues #722, #767).
+///
+/// Three outcomes, all recorded on the job (`DecisionTelemetry`):
+/// no configuration at all (`None`, logged at `info` so a missing Decision
+/// Model is greppable), a configuration whose client could not be built
+/// ([`DecisionResolution::Unavailable`]) and a usable pass
+/// ([`DecisionResolution::Available`]).
+///
+/// **Best-effort by contract:** only the extraction path itself may fail a
+/// job; a scoring outage may not. The difference #767 fixed is that the
+/// degradation is now *stated* instead of silent.
+pub(super) async fn resolve_decision(
+    credentials: &dyn CredentialVault,
+    config: &AiWorkerConfig,
+    job_id: AiImportJobId,
+    timeout: Duration,
+) -> Option<DecisionResolution> {
+    match config.decision.as_ref() {
+        Some(decision) => Some(build_decision_client(credentials, decision, timeout).await),
+        None => {
+            // Issue #767: this path had NO log at all, so "did my saved
+            // Decision Model even reach the worker?" was unanswerable without
+            // reading the database. `config_id` names which configuration was
+            // resolved, so the answer is checkable against
+            // `GET /v1/ai-import/config/{id}`.
+            info!(
+                job_id = %job_id.as_uuid(),
+                config_id = %config.config_id,
+                "ai-import: no Decision Model configured at claim time; running without the scoring pass (issue #767)"
+            );
+            None
+        }
+    }
+}
+
+/// Build the Decision Model scoring client for ONE resolved configuration
+/// (issue #722), reporting a build failure as
+/// [`DecisionResolution::Unavailable`] instead of collapsing it into the same
+/// `None` a missing configuration produces (issue #767).
 ///
 /// **Best-effort by contract:** a credential-fetch or transport-build failure
-/// logs a warning and returns `None` — the job runs WITHOUT scoring (every
-/// score degrades honestly to `None`) instead of failing. Only the
-/// extraction path itself may fail a job; a scoring outage may not.
-async fn build_decision_client(
+/// logs a warning and disables the pass for this job — the job runs WITHOUT
+/// scoring (every score degrades honestly to `None`) instead of failing.
+pub(super) async fn build_decision_client(
     credentials: &dyn CredentialVault,
     decision: &AiWorkerDecisionConfig,
     timeout: Duration,
-) -> Option<Arc<DecisionPass>> {
+) -> DecisionResolution {
     let api_key = match fetch_credential(credentials, &decision.vault_key_id).await {
         Ok(key) => key,
         Err(error) => {
@@ -243,11 +281,14 @@ async fn build_decision_client(
                 %error,
                 "failed to fetch the decision credential; disabling the scoring pass for this job (non-fatal)"
             );
-            return None;
+            return DecisionResolution::Unavailable {
+                provider: decision.provider,
+                model: decision.model.clone(),
+            };
         }
     };
     match HttpDecisionClient::new(decision.provider, api_key, timeout).await {
-        Ok(client) => Some(Arc::new(DecisionPass {
+        Ok(client) => DecisionResolution::Available(Arc::new(DecisionPass {
             client: Arc::new(client),
             provider: decision.provider,
             model: decision.model.clone(),
@@ -259,7 +300,10 @@ async fn build_decision_client(
                 %error,
                 "failed to build the decision client; disabling the scoring pass for this job (non-fatal)"
             );
-            None
+            DecisionResolution::Unavailable {
+                provider: decision.provider,
+                model: decision.model.clone(),
+            }
         }
     }
 }
@@ -392,17 +436,13 @@ async fn script_worker_tick(
     // Optional Decision Model scoring client (issue #722): built best-effort
     // BEFORE the extraction client so a decision outage only disables
     // scoring, never the job.
-    let decision_pass = match config.decision.as_ref() {
-        Some(decision) => {
-            build_decision_client(
-                deps.credentials.as_ref(),
-                decision,
-                Duration::from_secs(deps.bounds.request_timeout_secs),
-            )
-            .await
-        }
-        None => None,
-    };
+    let decision_pass = resolve_decision(
+        deps.credentials.as_ref(),
+        &config,
+        job.id,
+        Duration::from_secs(deps.bounds.request_timeout_secs),
+    )
+    .await;
 
     // Route the already-claimed job through the runtime so the permit
     // lifecycle and the AiJobGuard (tracked for drain) are managed in one
@@ -631,17 +671,13 @@ async fn schedule_worker_tick(
 
     // Optional Decision Model scoring client (issue #722) — best-effort,
     // exactly like the script tick.
-    let decision_pass = match config.decision.as_ref() {
-        Some(decision) => {
-            build_decision_client(
-                deps.credentials.as_ref(),
-                decision,
-                Duration::from_secs(deps.bounds.request_timeout_secs),
-            )
-            .await
-        }
-        None => None,
-    };
+    let decision_pass = resolve_decision(
+        deps.credentials.as_ref(),
+        &config,
+        job.id,
+        Duration::from_secs(deps.bounds.request_timeout_secs),
+    )
+    .await;
 
     let result = match config.provider {
         LlmProvider::Ollama => {
