@@ -460,6 +460,22 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/JobStatus'
+        target:
+          oneOf:
+          - $ref: '#/components/schemas/AiImportTarget'
+            description: |-
+              The production target this job imports INTO, snapshotted at dispatch
+              time (issue #771). `None` for every job created before the field
+              existed (pre-#771 rows carry no target) and for any upload whose
+              season/block read metadata could not be resolved at the API edge.
+
+              The authoritative write target stays [`Self::block_id`] — the block
+              named by the required `X-Active-Block` header, which the apply path
+              pins itself to (the CWE-639 guard). This field exists so the visible
+              target and the write target can be compared after the fact: the
+              reported defect was an import that silently landed in the *previously*
+              active season because nothing named where it would go.
+          - type: 'null'
         telemetry:
           oneOf:
           - $ref: '#/components/schemas/JobTelemetrySummary'
@@ -574,6 +590,45 @@ components:
       - merging
       - storing_preview
       type: string
+    AiImportTarget:
+      description: |-
+        The production target an AI import writes into, snapshotted at dispatch
+        (issue #771).
+
+        A job's authoritative write target is the block in `X-Active-Block`; the
+        season follows from that block. Nothing on the wire named the target, so a
+        client could only *believe* it knew where its rows would land — the reported
+        defect was a freshly created season whose import silently went into the
+        previous season's block. This snapshot records WHERE the upload declared it
+        was going, resolved at the API edge from the read models (`GET
+        /v1/blocks/{id}` + `GET /v1/seasons/{id}`) — never invented, and never from
+        a second projection lookup inside the write path (CQRS boundary: the
+        handler is the legitimate consumer).
+
+        The numbers are the production-global identities a user speaks in
+        (`Season {n}` / `Block {n}`); they are display metadata, so a failed season
+        read degrades the whole snapshot to `None` rather than blocking the upload.
+      properties:
+        block_number:
+          description: |-
+            The block's production-global number (the block itself is
+            [`AiImportJob::block_id`]).
+          format: int32
+          type: integer
+        season_id:
+          $ref: '#/components/schemas/SeasonId'
+          description: |-
+            The season the imported rows land in (the owning season of the job's
+            block).
+        season_number:
+          description: The season's production-global number.
+          format: int32
+          type: integer
+      required:
+      - season_id
+      - season_number
+      - block_number
+      type: object
     AiPreviewPayload:
       description: |-
         Typed preview payload served by `GET /v1/ai-import/jobs/{id}/preview`
@@ -5211,6 +5266,14 @@ paths:
           type:
           - string
           - 'null'
+      - description: 'Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.'
+        in: header
+        name: X-Declared-Season
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
       requestBody:
         content:
           text/plain:
@@ -5242,6 +5305,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: AI import disabled
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Declared season does not own the active block
         '413':
           content:
             application/problem+json:
@@ -5263,6 +5332,14 @@ paths:
       - description: 'Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job''s `source_file_name`.'
         in: header
         name: X-Document-Filename
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+      - description: 'Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.'
+        in: header
+        name: X-Declared-Season
         required: false
         schema:
           type:
@@ -5299,6 +5376,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: AI import disabled
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Declared season does not own the active block
         '413':
           content:
             application/problem+json:
@@ -10492,6 +10575,11 @@ x-code-registry:
   status: 409
   title: AI import job is not in a deletable state
   type: https://docs.breakdown.example/problems/ai-import.job-not-deletable
+- code: ai-import.scope-mismatch
+  extensions: []
+  status: 409
+  title: AI import target season does not match the active block
+  type: https://docs.breakdown.example/problems/ai-import.scope-mismatch
 - code: ai-config.version-mismatch
   extensions:
   - expected_version

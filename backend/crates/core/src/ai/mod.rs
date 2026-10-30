@@ -70,7 +70,7 @@ pub use preview::{
 pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
-    AppliedEpisode, CostBreakdown, CostDisplayPreference, CostStatus, Currency, DocumentKind,
-    EnergyCostBreakdown, ImageCostBreakdown, JobStatus, JobTelemetrySummary, ModelPricing,
-    PricingSource, SourceFormat, Telemetry, TelemetryApplyState, TokenCostBreakdown,
+    AiImportTarget, AppliedEpisode, CostBreakdown, CostDisplayPreference, CostStatus, Currency,
+    DocumentKind, EnergyCostBreakdown, ImageCostBreakdown, JobStatus, JobTelemetrySummary,
+    ModelPricing, PricingSource, SourceFormat, Telemetry, TelemetryApplyState, TokenCostBreakdown,
 };

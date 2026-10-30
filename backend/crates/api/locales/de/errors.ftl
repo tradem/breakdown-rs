@@ -66,6 +66,9 @@ problem-ai-import-not-found =
 problem-ai-import-job-not-deletable =
     Dieser Import wird noch verarbeitet und kann noch nicht gelöscht werden. Versuchen Sie es erneut, sobald er abgeschlossen ist.
 
+problem-ai-import-scope-mismatch =
+    Die angegebene Season besitzt den aktiven Block dieses Imports nicht. Wählen Sie die gewünschte Season erneut, damit die App auf deren Block wechselt, und versuchen Sie es noch einmal.
+
 problem-ai-import-unsupported-media-type =
     Dieser Dokumenttyp wird für den KI-Import nicht unterstützt.
 

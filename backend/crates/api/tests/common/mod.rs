@@ -2424,6 +2424,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 telemetry: None,
                 cost: None,
                 source_file_name: request.source_file_name,
+                target: request.target,
                 applied_episodes: Vec::new(),
             },
         );
@@ -2548,6 +2549,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 telemetry: None,
                 cost: None,
                 source_file_name: None,
+                target: None,
                 applied_episodes: Vec::new(),
             },
         );

@@ -165,6 +165,8 @@ async fn seed_ai_import_preview<P: crate::state::Ports>(
                 document_digest: format!("test-support-fixture-digest|{}", job_id.as_uuid()),
                 source_handle,
                 source_file_name: None,
+                // The fixture seeds a preview only; it names no target.
+                target: None,
             },
             &preview_handle,
         )

@@ -58,6 +58,7 @@ async fn seed_job(queue: &PgAiImportQueue, user: &str, dedup: &str) -> AiImportJ
             document_digest: "digest".to_owned(),
             source_handle: "handle".to_owned(),
             source_file_name: None,
+            target: None,
         })
         .await
         .unwrap();
@@ -112,6 +113,7 @@ async fn delete_terminal_removes_a_dead_letter_row_and_frees_the_dedup_key() -> 
             document_digest: "digest".to_owned(),
             source_handle: "handle".to_owned(),
             source_file_name: None,
+            target: None,
         })
         .await
         .unwrap();

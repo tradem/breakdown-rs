@@ -42,6 +42,7 @@ use api::handlers::{
     list_ai_import_jobs, revoke_ai_config, update_ai_config, upload_ai_schedule, upload_ai_script,
 };
 use api::state::AppState;
+use breakdown_core::ai::AiImportTarget;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
     AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, CostDisplayPreference,
@@ -53,6 +54,7 @@ use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
 use breakdown_core::scene::views::SceneView;
+use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use chrono::Utc;
 use common::FakePorts;
@@ -79,7 +81,7 @@ fn state(ports: FakePorts) -> AppState<FakePorts> {
 /// user an active piece-dept role in that season, so the AI block/job gates
 /// (`authorize_ai_block`, `authorize_ai_job`) resolve allow from seeded rows
 /// (issue #348).
-async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) {
+async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) -> SeasonId {
     let season_id = SeasonId::new();
     let project_id = ProjectId::new();
     ports.block_repo.blocks.lock().await.insert(
@@ -95,6 +97,21 @@ async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) {
             updated_at: Utc::now(),
         },
     );
+    // Issue #771: the upload snapshots the target from the block's season, so
+    // the season row must exist with a DISTINCT number — a stub `number: 1`
+    // could not tell a real lookup from a fabricated one.
+    ports.season_repo.seasons.lock().await.insert(
+        season_id.0,
+        SeasonView {
+            id: season_id.0,
+            project_id,
+            number: 7,
+            title: Some("Target season".to_owned()),
+            archived: false,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
     ports
         .membership_repo
         .seed_active(
@@ -105,6 +122,7 @@ async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) {
             project_id,
         )
         .await;
+    season_id
 }
 
 /// A PDF upload request carrying the `X-Active-Block` header the AI gate
@@ -166,6 +184,7 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         telemetry: None,
         cost: None,
         source_file_name: None,
+        target: None,
         applied_episodes: Vec::new(),
     }
 }
@@ -240,6 +259,116 @@ async fn upload_ai_schedule_persists_the_percent_encoded_file_name() {
         job.source_file_name.as_deref(),
         Some("Drehplan 299 Erlösung.csv"),
     );
+}
+
+/// Issue #771: an upload that declares its target season snapshots the target
+/// (season + both production-global numbers) on the job, so a finished import
+/// is attributable to the season the user saw before dispatching. The numbers
+/// come from the read models — the season row seeds `number: 7`, so a
+/// fabricated `1` fails the assertion.
+#[tokio::test]
+async fn upload_ai_script_snapshots_the_declared_target() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    let season_id = seed_ai_block_access(&ports, block_id).await;
+
+    let mut headers = pdf_headers(block_id);
+    headers.insert(
+        "x-declared-season",
+        HeaderValue::from_str(&season_id.0.to_string()).expect("uuid is a valid header value"),
+    );
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        headers,
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (status, Json(job_id)) = result.expect("a matching declared season must be accepted");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.target,
+        Some(AiImportTarget {
+            season_id,
+            season_number: 7,
+            block_number: 1,
+        }),
+        "the snapshot must name the resolved target, never a fabricated one"
+    );
+    // The authoritative write target is unchanged and still the header block.
+    assert_eq!(job.block_id, Some(block_id));
+}
+
+/// Issue #771: a declared season that does not own the active block is refused
+/// with the registered 409 BEFORE any document is stored or a job row exists —
+/// the whole point of the backstop. The header stays authoritative; the
+/// declaration is what makes a contradiction visible.
+#[tokio::test]
+async fn upload_ai_script_refuses_a_declared_season_of_another_season() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+    // A season that does not own the header block.
+    let foreign_season = SeasonId::new();
+
+    let mut headers = pdf_headers(block_id);
+    headers.insert(
+        "x-declared-season",
+        HeaderValue::from_str(&foreign_season.0.to_string()).expect("uuid is a valid header value"),
+    );
+
+    let problem = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        headers,
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect_err("a contradictory declared season must be refused")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-import.scope-mismatch");
+    // Detail is localized (ADR-031 D5); the code is the contract.
+    assert!(!problem.detail.is_empty());
+    assert!(
+        queue.jobs.lock().await.is_empty(),
+        "a refused upload must not leave a job row behind"
+    );
+}
+
+/// Issue #771 (degradation rule): the declaration is advisory metadata, so an
+/// unparsable value must not block an import the header already authorized —
+/// same discipline as `X-Document-Filename`. Only a well-formed contradiction
+/// is refused.
+#[tokio::test]
+async fn upload_ai_script_ignores_an_unparsable_declared_season() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    seed_ai_block_access(&ports, block_id).await;
+
+    let mut headers = pdf_headers(block_id);
+    headers.insert("x-declared-season", HeaderValue::from_static("not-a-uuid"));
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        headers,
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (status, Json(_)) = result.expect("an unparsable declaration must not block the upload");
+    assert_eq!(status, StatusCode::ACCEPTED);
 }
 
 /// Issue #763: an upload without the header stores `NULL` — an honest absence,

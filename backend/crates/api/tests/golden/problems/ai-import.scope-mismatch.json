@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.scope-mismatch",
+  "detail": "Die angegebene Season besitzt den aktiven Block dieses Imports nicht. Wählen Sie die gewünschte Season erneut, damit die App auf deren Block wechselt, und versuchen Sie es noch einmal.",
+  "status": 409,
+  "title": "AI import target season does not match the active block",
+  "type": "https://docs.breakdown.example/problems/ai-import.scope-mismatch"
+}

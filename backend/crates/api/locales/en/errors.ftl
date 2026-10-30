@@ -66,6 +66,9 @@ problem-ai-import-not-found =
 problem-ai-import-job-not-deletable =
     This import is still being processed and cannot be deleted yet. Try again once it has finished.
 
+problem-ai-import-scope-mismatch =
+    The declared season does not own this import's active block. Pick the intended season again so the app can switch to its block, then retry.
+
 problem-ai-import-unsupported-media-type =
     This document type is not supported for AI import.
 

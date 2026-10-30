@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, BlockId, UserId};
+use crate::shared::{AggregateVersion, BlockId, SeasonId, UserId};
 
 use super::ports::LlmProvider;
 use super::preview::DraftEpisode;
@@ -325,6 +325,19 @@ pub struct AiImportJob {
     /// is an opaque storage coordinate and never a name.
     #[serde(default)]
     pub source_file_name: Option<String>,
+    /// The production target this job imports INTO, snapshotted at dispatch
+    /// time (issue #771). `None` for every job created before the field
+    /// existed (pre-#771 rows carry no target) and for any upload whose
+    /// season/block read metadata could not be resolved at the API edge.
+    ///
+    /// The authoritative write target stays [`Self::block_id`] — the block
+    /// named by the required `X-Active-Block` header, which the apply path
+    /// pins itself to (the CWE-639 guard). This field exists so the visible
+    /// target and the write target can be compared after the fact: the
+    /// reported defect was an import that silently landed in the *previously*
+    /// active season because nothing named where it would go.
+    #[serde(default)]
+    pub target: Option<AiImportTarget>,
     pub status: JobStatus,
     pub preview_handle: Option<String>,
     pub last_error: Option<String>,
@@ -385,6 +398,34 @@ pub struct AiImportJob {
     /// episode's persisted location.
     #[serde(default)]
     pub applied_episodes: Vec<AppliedEpisode>,
+}
+
+/// The production target an AI import writes into, snapshotted at dispatch
+/// (issue #771).
+///
+/// A job's authoritative write target is the block in `X-Active-Block`; the
+/// season follows from that block. Nothing on the wire named the target, so a
+/// client could only *believe* it knew where its rows would land — the reported
+/// defect was a freshly created season whose import silently went into the
+/// previous season's block. This snapshot records WHERE the upload declared it
+/// was going, resolved at the API edge from the read models (`GET
+/// /v1/blocks/{id}` + `GET /v1/seasons/{id}`) — never invented, and never from
+/// a second projection lookup inside the write path (CQRS boundary: the
+/// handler is the legitimate consumer).
+///
+/// The numbers are the production-global identities a user speaks in
+/// (`Season {n}` / `Block {n}`); they are display metadata, so a failed season
+/// read degrades the whole snapshot to `None` rather than blocking the upload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AiImportTarget {
+    /// The season the imported rows land in (the owning season of the job's
+    /// block).
+    pub season_id: SeasonId,
+    /// The season's production-global number.
+    pub season_number: i32,
+    /// The block's production-global number (the block itself is
+    /// [`AiImportJob::block_id`]).
+    pub block_number: i32,
 }
 
 /// One target episode of an applied AI-import preview (issue #763).

@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportProgress, AiImportQueue, AppliedEpisode, CostBreakdown, DocumentKind, JobStatus,
-    JobTelemetrySummary, LlmProvider, SourceFormat, Telemetry,
+    AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, CostBreakdown, DocumentKind,
+    JobStatus, JobTelemetrySummary, LlmProvider, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -153,8 +153,9 @@ impl AiImportQueue for PgAiImportQueue {
         let row = sqlx::query(
             r#"
             INSERT INTO ai_import.ai_import_job
-                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, source_file_name)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, source_file_name,
+                 target_season_id, target_season_number, target_block_number)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             -- The conflict target only echoes the key it collided on: a
             -- duplicate re-upload must NOT overwrite the existing row's
             -- display name (issue #763). The row the user already knows keeps
@@ -173,6 +174,12 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(&request.document_digest)
         .bind(&request.source_handle)
         .bind(request.source_file_name.as_deref())
+        // Import-target snapshot (issue #771): display/attribution metadata
+        // resolved at the API edge from the block's owning season. All three
+        // columns stay NULL together when the snapshot could not be resolved.
+        .bind(request.target.as_ref().map(|t| t.season_id.0))
+        .bind(request.target.as_ref().map(|t| t.season_number))
+        .bind(request.target.as_ref().map(|t| t.block_number))
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -592,6 +599,12 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(&request.document_digest)
         .bind(&request.source_handle)
         .bind(request.source_file_name.as_deref())
+        // Import-target snapshot (issue #771): display/attribution metadata
+        // resolved at the API edge from the block's owning season. All three
+        // columns stay NULL together when the snapshot could not be resolved.
+        .bind(request.target.as_ref().map(|t| t.season_id.0))
+        .bind(request.target.as_ref().map(|t| t.season_number))
+        .bind(request.target.as_ref().map(|t| t.block_number))
         .bind(preview_handle)
         .execute(&self.pool)
         .await
@@ -1284,6 +1297,10 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         // uploads that carried no name — the wire field is `null`, and no
         // client invents a name from the opaque handle.
         source_file_name: row.try_get("source_file_name").map_err(map_sqlx_error)?,
+        // The declared import target (issue #771). Resolved at the API edge,
+        // stored purely for attribution: `block_id` stays the authoritative
+        // write target. Absent for pre-#771 rows.
+        target: decode_import_target(&row),
         status,
         preview_handle: row.try_get("preview_handle").map_err(map_sqlx_error)?,
         last_error: row.try_get("last_error").map_err(map_sqlx_error)?,
@@ -1309,6 +1326,25 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         cost: decode_job_cost(&row),
         applied_episodes: decode_applied_episodes(&row),
     })
+}
+
+/// Decode the import-target snapshot columns (issue #771).
+///
+/// The three columns are written together, so a partial set means an
+/// inconsistent row (or a column added mid-flight): the snapshot degrades to
+/// `None` rather than rendering a half-invented target.
+fn decode_import_target(row: &sqlx::postgres::PgRow) -> Option<AiImportTarget> {
+    let season_id: Option<Uuid> = row.try_get("target_season_id").ok().flatten();
+    let season_number: Option<i32> = row.try_get("target_season_number").ok().flatten();
+    let block_number: Option<i32> = row.try_get("target_block_number").ok().flatten();
+    match (season_id, season_number, block_number) {
+        (Some(season_id), Some(season_number), Some(block_number)) => Some(AiImportTarget {
+            season_id: breakdown_core::shared::SeasonId::from_uuid(season_id),
+            season_number,
+            block_number,
+        }),
+        _ => None,
+    }
 }
 
 /// Decode the persisted `applied_episodes` JSONB list (issue #763).

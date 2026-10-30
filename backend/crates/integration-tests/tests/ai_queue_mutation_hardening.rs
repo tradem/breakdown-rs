@@ -31,6 +31,7 @@ fn make_enqueue_request(user_id: &str, kind: DocumentKind) -> AiImportEnqueueReq
         document_digest: format!("digest-{}", Uuid::now_v7()),
         source_handle: format!("handle-{}", Uuid::now_v7()),
         source_file_name: None,
+        target: None,
     }
 }
 
