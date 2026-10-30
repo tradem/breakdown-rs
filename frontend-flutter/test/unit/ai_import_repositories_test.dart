@@ -1777,8 +1777,9 @@ void main() {
 
         final rows = await dao.readAll('user-a');
         expect(rows, hasLength(2));
-        final cached =
-            decisionTelemetryFromWire(rows.firstWhere((r) => r.id == 'j1').decisionTelemetryJson);
+        final cached = decisionTelemetryFromWire(
+          rows.firstWhere((r) => r.id == 'j1').decisionTelemetryJson,
+        );
         expect(cached?.provider, LlmProvider.neuralwatt);
         expect(cached?.model, 'clef-flash');
         expect(cached?.outcome, DecisionOutcome.scoringFailed);
