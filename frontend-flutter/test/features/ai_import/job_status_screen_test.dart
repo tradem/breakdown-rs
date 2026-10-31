@@ -95,48 +95,108 @@ AiImportJob _job(
 
 /// The telemetry summary the worker records alongside the cost snapshot
 /// (issue #675): model identity + token/energy usage.
-JobTelemetrySummary _telemetry({int cached = 500}) => JobTelemetrySummary(
-  (b) => b
-    ..model = 'neu-1'
-    ..provider = LlmProvider.neuralwatt
-    ..tokensIn = 4700
-    ..tokensOut = 1200
-    ..cachedTokensIn = cached
-    ..energyMillijoules = 1800000
-    ..latencyTotalMs = 2400
-    ..chunkCount = 1,
-);
-
-/// A `known` cost snapshot (issue #675): token total $0.0235 plus a
-/// Neuralwatt-style energy cost ($0.00005, capped when [capped]).
-CostBreakdown _knownCost({bool withEnergy = true, bool capped = false}) =>
-    CostBreakdown(
+JobTelemetrySummary _telemetry({int cached = 500, String model = 'neu-1'}) =>
+    JobTelemetrySummary(
       (b) => b
-        ..status = CostStatus.known
-        ..currency = Currency.USD
+        ..model = model
+        ..provider = LlmProvider.neuralwatt
+        ..tokensIn = 4700
+        ..tokensOut = 1200
+        ..cachedTokensIn = cached
+        ..energyMillijoules = 1800000
+        ..latencyTotalMs = 2400
+        ..chunkCount = 1,
+    );
+
+/// A `known` cost snapshot (issue #675) carrying the #768 additions: the
+/// explicit `total` (skippable for pre-#768 rows), an optional Decision-Model
+/// component and an optional image component.
+///
+/// Token total $0.0235 plus a Neuralwatt-style energy cost ($0.00005, capped
+/// when [capped]), so the `known` total is $0.02355 unless the status refuses
+/// a sum.
+CostBreakdown _knownCost({
+  bool withEnergy = true,
+  bool capped = false,
+  bool withTotal = true,
+  CostTotalStatus totalStatus = CostTotalStatus.known,
+  DecisionCostBreakdown? decision,
+  ImageCostBreakdown? image,
+}) {
+  final energyNano = capped ? 23500000 : 50000;
+  return CostBreakdown(
+    (b) => b
+      ..status = CostStatus.known
+      ..currency = Currency.USD
+      ..priceAsOf = DateTime.utc(2026, 1, 1)
+      ..pricingSource = PricingSource.curatedSeed
+      ..total = withTotal
+          ? (CostTotal(
+              (t) => t
+                ..status = totalStatus
+                ..currency = Currency.USD
+                // `total_nano` is present exactly when the status is `known`.
+                ..totalNano = totalStatus == CostTotalStatus.known
+                    ? 23500000 + (withEnergy ? energyNano : 0)
+                    : null,
+            )).toBuilder()
+          : null
+      ..tokenCost = TokenCostBreakdown(
+        (b) => b
+          ..tokensIn = 4700
+          ..tokensOut = 1200
+          ..cachedTokensIn = 500
+          ..cachedInputRateNanoPerMillion = 362500
+          ..inputRateNanoPerMillion = 1450000000
+          ..outputRateNanoPerMillion = 4000000000
+          ..totalNano = 23500000,
+      ).toBuilder()
+      ..energyCost = withEnergy
+          ? EnergyCostBreakdown(
+              (b) => b
+                ..energyMillijoules = 1800000
+                ..rateNanoPerKwh = 10000000000
+                ..rawEnergyNano = 50000
+                ..effectiveCappedNano = energyNano
+                ..cappedByTokenCost = capped,
+            ).toBuilder()
+          : null
+      ..decision = decision?.toBuilder()
+      ..imageCost = image?.toBuilder(),
+  );
+}
+
+/// The Decision-Model component (issue #768): its OWN provider/model and rate
+/// card (EUR — deliberately a different currency from the extraction
+/// snapshot's USD, which is exactly why `total.status` refuses a sum there).
+DecisionCostBreakdown _decisionCost({bool priced = true}) =>
+    DecisionCostBreakdown(
+      (b) => b
+        ..provider = LlmProvider.eurouter
+        ..model = 'clef-flash'
+        ..status = priced ? CostStatus.known : CostStatus.unknown
+        ..currency = priced ? Currency.EUR : null
+        ..tokensIn = 1000
+        ..tokensOut = 200
+        ..cachedTokensIn = 0
+        ..energyMillijoules = 900000
+        ..inputRateNanoPerMillion = 150000000
+        ..outputRateNanoPerMillion = 600000000
+        ..energyRateNanoPerKwh = 10000000000
         ..priceAsOf = DateTime.utc(2026, 1, 1)
         ..pricingSource = PricingSource.curatedSeed
-        ..tokenCost = TokenCostBreakdown(
-          (b) => b
-            ..tokensIn = 4700
-            ..tokensOut = 1200
-            ..cachedTokensIn = 500
-            ..cachedInputRateNanoPerMillion = 362500
-            ..inputRateNanoPerMillion = 1450000000
-            ..outputRateNanoPerMillion = 4000000000
-            ..totalNano = 23500000,
-        ).toBuilder()
-        ..energyCost = withEnergy
-            ? EnergyCostBreakdown(
-                (b) => b
-                  ..energyMillijoules = 1800000
-                  ..rateNanoPerKwh = 10000000000
-                  ..rawEnergyNano = 50000
-                  ..effectiveCappedNano = capped ? 23500000 : 50000
-                  ..cappedByTokenCost = capped,
-              ).toBuilder()
-            : null,
+        ..tokenCostNano = priced ? 1200000 : null
+        ..energyCostNano = priced ? 3000 : null,
     );
+
+/// The image component (issue #673 slot) — always `null` for text imports,
+/// but priced into `cost.total` when present, so the card must explain it.
+ImageCostBreakdown _imageCost() => ImageCostBreakdown(
+  (b) => b
+    ..images = 2
+    ..imageOutputTokens = 0
+    ..totalNano = 40000000,
+);
 
 CostBreakdown _unknownCost() =>
     CostBreakdown((b) => b..status = CostStatus.unknown);
@@ -246,8 +306,9 @@ void main() {
     bool duplicate = false,
     ThemeMode mode = ThemeMode.light,
     TargetPlatform? platform,
+    Size size = const Size(800, 1200),
   }) async {
-    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     // Restore, don't clear: pumpScreen does not own the platform
@@ -652,10 +713,9 @@ void main() {
     await tester.pump();
   });
 
-  group('detailed cost breakdown (issue #675, flutter-ai-import-workflow)', () {
-    testWidgets('a succeeded job with a known cost renders the full '
-        'breakdown: model, token counts (cached line when non-zero), '
-        'token total as the default primary, energy rows, price_as_of', (
+  group('detailed cost breakdown (issues #675/#761/#768)', () {
+    testWidgets('a succeeded job with a known cost renders the hero figure, '
+        'the model/provider identity chips and every detail row', (
       tester,
     ) async {
       await setupContainer(
@@ -671,26 +731,285 @@ void main() {
 
       expect(find.byKey(const Key('ai-job-cost-card')), findsOneWidget);
       expect(find.text('Cost of this import'), findsOneWidget);
-      expect(find.text('Model: neu-1'), findsOneWidget);
+
+      // Hero (issue #761): the money the user pays, large and LABELLED — the
+      // #768 total, not a single component.
+      expect(find.byKey(const Key('ai-job-cost-hero')), findsOneWidget);
+      expect(find.text('Total cost'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-value')))
+            .data,
+        r'$0.02355',
+      );
+
+      // Identity chips: model AND provider, both explicitly labelled (the
+      // provider was on the wire but never rendered before #761).
+      expect(find.byKey(const Key('ai-job-cost-model')), findsOneWidget);
+      expect(find.text('Model'), findsOneWidget);
+      expect(find.text('neu-1'), findsOneWidget);
+      expect(find.byKey(const Key('ai-job-cost-provider')), findsOneWidget);
+      expect(find.text('Provider'), findsOneWidget);
+      expect(find.text('neuralwatt'), findsOneWidget);
+
+      // Usage, still whole (spec #675: an unpriced model keeps its counts).
       expect(find.text('Tokens in: 4700'), findsOneWidget);
       expect(find.text('Tokens out: 1200'), findsOneWidget);
       expect(find.text('of which cached: 500'), findsOneWidget);
-      // Token total is the DEFAULT primary (preference token).
+
+      // Component costs: the token figure stays the emphasised detail row
+      // under the default `token` preference.
       final tokenRow = tester.widget<Text>(
         find.byKey(const Key('ai-job-cost-token-total')),
       );
       expect(tokenRow.style?.fontWeight, FontWeight.bold);
       expect(find.textContaining(r'Token cost: $0.0235'), findsOneWidget);
-      // Energy rows render alongside.
       final energyRow = tester.widget<Text>(
         find.byKey(const Key('ai-job-cost-energy-total')),
       );
       expect(energyRow.style?.fontWeight, isNot(FontWeight.bold));
       expect(find.textContaining(r'Energy cost: $0.00005'), findsOneWidget);
       expect(find.text('Energy consumption: 0.5 Wh'), findsOneWidget);
+
+      // Snapshot rates + price date survive the redesign.
+      expect(find.textContaining(r'Input rate: $1.45'), findsOneWidget);
+      expect(find.textContaining(r'Output rate: $4'), findsOneWidget);
+      expect(find.byKey(const Key('ai-job-cost-price-as-of')), findsOneWidget);
       expect(find.textContaining('Price as of:'), findsOneWidget);
+
       // Honesty: never a fabricated $0.00.
       expect(find.textContaining(r'$0.00 '), findsNothing);
+    });
+
+    testWidgets('the energy preference swaps the hero to the energy figure '
+        'and emphasises the energy cost row', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(),
+            telemetry: _telemetry(),
+          ),
+        ),
+        preference: CostDisplayPreference.energy,
+      );
+      await pumpScreen(tester);
+
+      expect(find.text('Energy cost'), findsWidgets);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-label')))
+            .data,
+        'Energy cost',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-value')))
+            .data,
+        r'$0.00005',
+      );
+      final energyRow = tester.widget<Text>(
+        find.byKey(const Key('ai-job-cost-energy-total')),
+      );
+      expect(energyRow.style?.fontWeight, FontWeight.bold);
+      final tokenRow = tester.widget<Text>(
+        find.byKey(const Key('ai-job-cost-token-total')),
+      );
+      expect(tokenRow.style?.fontWeight, isNot(FontWeight.bold));
+    });
+
+    testWidgets('a #768 total that is incomplete states WHY the sum is '
+        'refused instead of presenting a component as the total', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(totalStatus: CostTotalStatus.incomplete),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      // The hero degrades to the priced component, explicitly labelled as a
+      // component.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-label')))
+            .data,
+        'Token cost',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-value')))
+            .data,
+        r'$0.0235',
+      );
+      expect(find.byKey(const Key('ai-job-cost-total-note')), findsOneWidget);
+      expect(
+        find.text('Total unavailable — one cost component is not priced.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a mixed-currency total is refused without a conversion '
+        '(design D2)', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(totalStatus: CostTotalStatus.mixedCurrency),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.text(
+          'Total unavailable — the components are priced in different '
+          'currencies.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a pre-#768 snapshot carries no total: the hero shows the '
+        'token cost and claims NO total', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(withTotal: false),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-label')))
+            .data,
+        'Token cost',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-value')))
+            .data,
+        r'$0.0235',
+      );
+      // An absent total is an absence, not an error: no "unavailable" note.
+      expect(find.byKey(const Key('ai-job-cost-total-note')), findsNothing);
+    });
+
+    testWidgets('a Decision-Model component renders its OWN provider/model, '
+        'usage and priced figures (issue #768)', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(decision: _decisionCost()),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-job-cost-decision')), findsOneWidget);
+      expect(find.text('Decision Model'), findsOneWidget);
+      // The split exists precisely because this pair differs from the
+      // extraction model above.
+      expect(find.text('eurouter / clef-flash'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-job-cost-decision-token-total')),
+            )
+            .data,
+        'Decision token cost: €0.0012',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-job-cost-decision-energy-total')),
+            )
+            .data,
+        'Decision energy cost: €0.000003',
+      );
+      // Its own usage counts, not the extraction ones.
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-job-cost-decision-tokens-in')),
+            )
+            .data,
+        'Tokens in: 1000',
+      );
+      expect(
+        find.byKey(const Key('ai-job-cost-decision-unpriced')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an unpriced Decision-Model component keeps its usage counts '
+        'and states that it is not priced — never 0', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(decision: _decisionCost(priced: false)),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-job-cost-decision-unpriced')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Not priced — no price snapshot exists for this model.'),
+        findsOneWidget,
+      );
+      // The usage counts of the unpriced component still render.
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-job-cost-decision-tokens-out')),
+            )
+            .data,
+        'Tokens out: 200',
+      );
+      // No borrowed extraction rate, no fabricated figure.
+      expect(
+        find.byKey(const Key('ai-job-cost-decision-token-total')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an image component renders its own row so the rendered '
+        'total stays explainable (issue #673 slot)', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(image: _imageCost()),
+            telemetry: _telemetry(),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-image-total')))
+            .data,
+        r'Image cost: $0.04',
+      );
     });
 
     testWidgets('the cost card names the effective Decision Model and its '
@@ -743,32 +1062,8 @@ void main() {
       expect(find.byKey(const Key('ai-decision-outcome')), findsNothing);
     });
 
-    testWidgets('the energy preference highlights the energy cost as the '
-        'primary row (the token cost renders secondary)', (tester) async {
-      await setupContainer(
-        Right(
-          _job(
-            JobStatus.succeeded,
-            cost: _knownCost(),
-            telemetry: _telemetry(),
-          ),
-        ),
-        preference: CostDisplayPreference.energy,
-      );
-      await pumpScreen(tester);
-
-      final energyRow = tester.widget<Text>(
-        find.byKey(const Key('ai-job-cost-energy-total')),
-      );
-      expect(energyRow.style?.fontWeight, FontWeight.bold);
-      final tokenRow = tester.widget<Text>(
-        find.byKey(const Key('ai-job-cost-token-total')),
-      );
-      expect(tokenRow.style?.fontWeight, isNot(FontWeight.bold));
-    });
-
-    testWidgets('a capped energy cost renders the cap note (Neuralwatt '
-        'surge protection)', (tester) async {
+    testWidgets('a capped energy cost renders the cap note next to the energy '
+        'figure (Neuralwatt surge protection)', (tester) async {
       await setupContainer(
         Right(
           _job(
@@ -828,6 +1123,36 @@ void main() {
       );
     });
 
+    testWidgets('a long model id never overflows the narrow (compact) layout '
+        'and stays readable: two lines, ellipsized, full value in a tooltip', (
+      tester,
+    ) async {
+      const longModel =
+          'opencode-go/deepseek-v4.1-flash-contributor-preview-2026-10';
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.succeeded,
+            cost: _knownCost(),
+            telemetry: _telemetry(model: longModel),
+          ),
+        ),
+      );
+      // The compact window class (issue #761 acceptance criterion).
+      await pumpScreen(tester, size: const Size(360, 1200));
+
+      expect(tester.takeException(), isNull);
+      final modelText = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('ai-job-cost-model')),
+          matching: find.text(longModel),
+        ),
+      );
+      expect(modelText.maxLines, 2);
+      expect(modelText.overflow, TextOverflow.ellipsis);
+      expect(find.byTooltip(longModel), findsOneWidget);
+    });
+
     testWidgets('the terminal succeeded SSE frame populates the cost '
         'breakdown without a manual refresh (issue #664 × #675)', (
       tester,
@@ -845,6 +1170,12 @@ void main() {
       }
       expect(find.byKey(const Key('ai-job-cost-card')), findsOneWidget);
       expect(find.textContaining(r'Token cost: $0.0235'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-job-cost-hero-value')))
+            .data,
+        r'$0.02355',
+      );
     });
 
     testWidgets('a succeeded job WITHOUT a cost snapshot renders no cost '

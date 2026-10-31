@@ -23,6 +23,50 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The import cost card leads with the money and the model** (`0.4.0-beta.28+120
+  → 0.4.0-beta.29+121`, issues #761/#768). The card of the job-status screen was
+  a flat column of equally weighted `bodySmall` lines, so the two facts an
+  operator actually wants — what the import cost and which model produced it —
+  were buried between token counts, snapshot rates, energy figures and a price
+  date; the provider was not rendered at all. Since #768 the snapshot also has
+  more than one priced component and an explicit `CostTotal` that states whether
+  a sum may be shown — and the client rendered neither.
+
+  - **Hero figure.** `headlineMedium` under an always-visible label: the money
+    the user pays (`cost.total` when `known`, the extraction token cost
+    otherwise), or the energy figure (`effective_capped_nano`, the capped value)
+    under `cost_display_preference = energy`. The label changes with the figure,
+    so a component is never dressed up as the total. A total the server refuses
+    (`incomplete` / `mixed_currency`) renders the priced component PLUS a note
+    stating why — no rate substitution, no currency conversion (design D2). An
+    absent total (every pre-#768 row) claims nothing and stays silent.
+  - **Identity.** Model and provider as two labelled chips in a `Wrap`
+    (`smart_toy_outlined` / `cloud_outlined`), two lines maximum, ellipsized,
+    full value in a tooltip — no overflow at the compact width, and the first
+    surface that renders `telemetry.provider` at all.
+  - **The #768 split.** When `cost.decision` is present, its OWN
+    `provider / model`, its own usage counts and its own priced figures (in the
+    component's own currency) render as a subordinate group. An unpriced
+    component keeps its counts and says "nicht bepreist" — never `0`, never the
+    extraction rate. The image component (`image_cost`) renders its own row,
+    because it is priced into the total.
+  - **Nothing dropped.** Token counts, cached count, snapshot rates, energy
+    consumption, the energy-cap note, `price_as_of` and the #767
+    Decision-Model outcome all still render — now icon-prefixed, grouped by
+    role (usage → component costs → rates → Decision component → price date) and
+    visually subordinate to the hero.
+  - **Unchanged honesty.** `unknown` keeps the localized "Unbekannt" as the HERO
+    VALUE (never `0`), `not_applicable` still states that no AI model was billed,
+    and all math stays the integer nano-currency formatting of
+    `cost_format.dart`.
+  - **The jobs list agrees.** The compact one-line cost line keeps its text and
+    its zero-extra-request behaviour and gains only the metric glyph of the same
+    preference (one shared resolution), so list and detail cannot claim
+    different primary metrics.
+  - Client-only: no wire change, no new request, no second SSE consumer. The
+    published card is `AiJobCostCard` (`job_cost_card.dart`), extracted from the
+    screen so the pure hero decision (`aiCostHero`) is unit-testable.
+
 - **The generated API client is regenerated for the per-request energy cap**
   (`0.4.0-beta.27+119 → 0.4.0-beta.28+120`, issue #794). The backend now states
   the Neuralwatt surge-protection semantics per **request** in the cost

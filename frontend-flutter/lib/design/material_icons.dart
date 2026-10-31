@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter/material.dart';
 
@@ -30,6 +31,54 @@ abstract final class BreakdownMaterialIcons {
   static const locationBlock = Icons.folder_outlined;
   static const locationEpisode = Icons.movie_creation_outlined;
   static const locationScene = Icons.view_agenda_outlined;
+
+  // AI-import cost card (issues #761/#768 — every glyph below reinforces a
+  // visible label; the glossary records the pairs and forbids icon-only
+  // meaning). Grouped by role so the card cannot drift row by row.
+
+  /// Card header ("Kosten dieses Imports").
+  static const aiJobCostTitle = Icons.receipt_long_outlined;
+
+  /// A priced money figure: the hero, the token cost and the Decision-Model
+  /// money rows.
+  static const aiJobCostToken = Icons.payments_outlined;
+
+  /// The energy figure / energy consumption (never colour-only — the visible
+  /// "Wh" / price text carries the meaning).
+  static const aiJobCostEnergy = Icons.bolt_outlined;
+
+  /// Extraction usage counts (`Tokens rein`, `Tokens raus`).
+  static const aiJobCostUsageIn = Icons.input;
+  static const aiJobCostUsageOut = Icons.output;
+
+  /// Cache-hit count.
+  static const aiJobCostCached = Icons.cached;
+
+  /// The identity chips: the model and the provider that produced the rows.
+  static const aiJobCostModel = Icons.smart_toy_outlined;
+  static const aiJobCostProvider = Icons.cloud_outlined;
+
+  /// The snapshot rate rows (`Eingabepreis` / `Ausgabepreis`).
+  static const aiJobCostRate = Icons.price_change_outlined;
+
+  /// The `price_as_of` row.
+  static const aiJobCostPriceAsOf = Icons.event_outlined;
+
+  /// The Decision-Model component group (issue #768).
+  static const aiJobCostDecision = Icons.auto_awesome_outlined;
+
+  /// The image component (issue #673 slot).
+  static const aiJobCostImage = Icons.image_outlined;
+
+  /// Informational notes: a refused total, an unpriced component, the energy
+  /// cap.
+  static const aiJobCostTotalNote = Icons.info_outline;
+
+  /// The honest-unknown cost line (compact jobs list).
+  static const aiJobCostUnknown = Icons.help_outline;
+
+  /// A native import that billed no LLM (compact jobs list).
+  static const aiJobCostNotApplicable = Icons.money_off_outlined;
 
   static IconData forCostumeCategory(String? categoryName) {
     final normalized = categoryName?.trim().toLowerCase();
