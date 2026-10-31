@@ -25,13 +25,23 @@ priced with the rate card of the model that actually consumed it:
   continuity pass), priced from the `(provider, model)` row of the **resolved
   Decision Model** — never from the extraction model's row.
 
+Usage SHALL be retained **per request** within each component (issue #794):
+both components keep the individual `LlmCallUsage` of every billable provider
+request next to the summed counters, because a provider may cap energy per
+request. A component's energy figure SHALL therefore be
+`Σ_calls min(raw_energy_nano_i, token_cost_nano_i)` when the pricing row sets
+`energy_capped_by_token` — never `min(Σ raw_i, Σ token_i)`, which is only an
+upper bound (`Σ min(a_i, b_i) <= min(Σ a_i, Σ b_i)`) and would overstate what
+was billed. `token_cost` (and `DecisionCostBreakdown::token_cost_nano`) SHALL
+stay the figure of the component's **summed** tokens.
+
 `CostBreakdown` SHALL carry:
 - `status: CostStatus` (`"known"`, `"unknown"`, or `"not_applicable"`),
 - `currency: Option<Currency>` (`"USD"` or `"EUR"` when `status == "known"`),
 - `price_as_of: Option<DateTime<Utc>>`,
 - `pricing_source: Option<PricingSource>`,
 - `token_cost: Option<TokenCostBreakdown>` (`tokens_in`, `tokens_out`, `cached_tokens_in`, `input_rate_nano_per_million`, `output_rate_nano_per_million`, `cached_input_rate_nano_per_million`, `total_nano`) — the **extraction** component,
-- `energy_cost: Option<EnergyCostBreakdown>` (populated when both hardware energy telemetry and `energy_nano_per_kwh` exist: `energy_millijoules`, `rate_nano_per_kwh`, `raw_energy_nano`, `effective_capped_nano`, `capped_by_token_cost`) — the **extraction** component,
+- `energy_cost: Option<EnergyCostBreakdown>` (populated when both hardware energy telemetry and `energy_nano_per_kwh` exist: `energy_millijoules`, `rate_nano_per_kwh`, `raw_energy_nano`, `effective_capped_nano`, `capped_by_token_cost`; all three figures SHALL be summed over the requests, each capped on its own — issue #794) — the **extraction** component,
 - `image_cost: Option<ImageCostBreakdown>` (kind-tagged extensibility slot for #673 per-image / image-token costs),
 - `decision: Option<DecisionCostBreakdown>` — the **decision** component, present
   iff the job issued at least one Decision-Model call, carrying `provider`,
@@ -40,7 +50,8 @@ priced with the rate card of the model that actually consumed it:
   `currency` / `price_as_of` / `pricing_source` snapshot, its own
   `input_rate_nano_per_million` / `output_rate_nano_per_million` /
   `cached_input_rate_nano_per_million` / `energy_rate_nano_per_kwh`, and the
-  priced `token_cost_nano` / `energy_cost_nano`; and
+  priced `token_cost_nano` / `energy_cost_nano` (the latter per-request capped,
+  like the extraction component); and
 - `total: CostTotal` (`status: CostTotalStatus`, `currency`, `total_nano`) — the
   figure the user pays, which SHALL only be a number when it is honest:
   `"known"` (every recorded component priced in one currency, `total_nano` is
@@ -63,6 +74,13 @@ already-completed jobs.
 - **THEN** the persisted `job.cost` has `status = "known"`, `token_cost.total_nano = 23500000` (`$0.0235`), `energy_cost.raw_energy_nano = 50000` (`$0.00005`) with `effective_capped_nano = 50000` and `capped_by_token_cost = false`
 - **AND** `total.status = "known"` with `total.total_nano = 23550000` and `total.currency = "USD"`
 - **AND** the terminal `succeeded` SSE frame on `GET /v1/ai-import/jobs/{id}/events` includes `job.cost`
+
+#### Scenario: A multi-request component sums the per-request caps
+- **WHEN** a Neuralwatt script import runs two extraction requests at `$10.00 / kWh` and `$1.45 / 1M` input tokens, where request 1 reports `10000` input tokens and `18000` mJ (`raw = 50000` nano, `token = 14500000` nano) and request 2 reports `1` input token and `18000` mJ (`raw = 50000` nano, `token = 1450` nano)
+- **THEN** `job.cost.token_cost` holds the summed usage (`tokens_in = 10001`, `total_nano = 14501450`)
+- **AND** `job.cost.energy_cost.raw_energy_nano = 100000` and `effective_capped_nano = 51450` (request 1 uncapped, request 2 capped at its own token cost)
+- **AND** `capped_by_token_cost` is `true`, even though capping the sums would have reported `100000` and claimed no cap at all
+- **AND** the Decision-Model component follows the same rule for its own requests
 
 #### Scenario: Ollama import records unknown cost status and never zero
 - **WHEN** an Ollama script import completes with `tokens_in = 8000` and `tokens_out = 1500`

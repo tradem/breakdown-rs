@@ -20,7 +20,7 @@ part 'decision_cost_breakdown.g.dart';
 /// * [cachedInputRateNanoPerMillion]
 /// * [cachedTokensIn]
 /// * [currency] - Currency of the component's own rate card (design D2: no conversion).
-/// * [energyCostNano] - Priced effective energy cost of this component (`min(raw, token)` when the provider caps energy by token cost), `None` when unpriced.
+/// * [energyCostNano] - Priced effective energy cost of this component, `None` when unpriced. Summed over the component's **requests**, each capped on its own when the provider caps energy by token cost: `Σ_calls min(raw_i, token_i)` (issue #794).
 /// * [energyMillijoules]
 /// * [energyRateNanoPerKwh]
 /// * [inputRateNanoPerMillion]
@@ -30,7 +30,7 @@ part 'decision_cost_breakdown.g.dart';
 /// * [pricingSource]
 /// * [provider]
 /// * [status] - `Known` when the component's `(provider, model)` had a pricing row at completion; `Unknown` otherwise. `NotApplicable` never occurs: the component exists only for a job that issued a Decision-Model call.
-/// * [tokenCostNano] - Priced token cost of this component, `None` when unpriced.
+/// * [tokenCostNano] - Priced token cost of this component, `None` when unpriced. Priced once over the component's summed tokens (not per request).
 /// * [tokensIn]
 /// * [tokensOut]
 @BuiltValue()
@@ -47,7 +47,7 @@ abstract class DecisionCostBreakdown
   Currency? get currency;
   // enum currencyEnum {  USD,  EUR,  };
 
-  /// Priced effective energy cost of this component (`min(raw, token)` when the provider caps energy by token cost), `None` when unpriced.
+  /// Priced effective energy cost of this component, `None` when unpriced. Summed over the component's **requests**, each capped on its own when the provider caps energy by token cost: `Σ_calls min(raw_i, token_i)` (issue #794).
   @BuiltValueField(wireName: r'energy_cost_nano')
   int? get energyCostNano;
 
@@ -82,7 +82,7 @@ abstract class DecisionCostBreakdown
   CostStatus get status;
   // enum statusEnum {  known,  unknown,  not_applicable,  };
 
-  /// Priced token cost of this component, `None` when unpriced.
+  /// Priced token cost of this component, `None` when unpriced. Priced once over the component's summed tokens (not per request).
   @BuiltValueField(wireName: r'token_cost_nano')
   int? get tokenCostNano;
 

@@ -208,7 +208,7 @@ impl LlmCallUsage {
 }
 
 /// One cost component's accumulated usage **plus** how many billable calls
-/// produced it (issue #768).
+/// produced it (issue #768) and the per-call usages themselves (issue #794).
 ///
 /// The call count is tracked next to the counters instead of being inferred
 /// from them: a successful provider answer may report no usage metadata at all,
@@ -216,20 +216,49 @@ impl LlmCallUsage {
 /// an absent one. Only `calls == 0` means "this component spent nothing", which
 /// is what keeps an unpriced Decision Model's component (and its honest
 /// `incomplete` total) from being dropped.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `per_call` retains every billable call's own [`LlmCallUsage`] because a
+/// provider may cap energy per **request** (Neuralwatt surge protection): the
+/// honest figure is `Σ_calls min(raw_i, token_i)`, and
+/// `Σ min(a_i, b_i) <= min(Σ a_i, Σ b_i)` — the aggregate cap is only an upper
+/// bound and can overstate what was billed (issue #794). The ledger is bounded
+/// by the job's request budget (`max_chunks_per_script` extraction calls plus
+/// the bounded Decision-Model passes), i.e. a few hundred entries.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UsageAccumulator {
     /// Summed counters of every recorded call.
     pub usage: LlmCallUsage,
     /// Number of billable calls that produced `usage` (saturating).
     pub calls: u32,
+    /// Per-call usage in call order, written only by [`Self::record`] (issue
+    /// #794). `#[serde(default)]`: additive on any persisted payload.
+    #[serde(default)]
+    pub per_call: Vec<LlmCallUsage>,
 }
 
 impl UsageAccumulator {
-    /// Record one call's usage: accumulate the counters and count the call,
-    /// whatever the counters say.
+    /// Record one call's usage: accumulate the counters, keep the entry for the
+    /// per-request pricing of issue #794, and count the call, whatever the
+    /// counters say.
     pub fn record(&mut self, usage: LlmCallUsage) {
         self.usage.accumulate(usage);
         self.calls = self.calls.saturating_add(1);
+        self.per_call.push(usage);
+    }
+
+    /// The requests this component's cost is priced over (issue #794).
+    ///
+    /// Normally the retained per-call ledger. An accumulator whose counters were
+    /// set without a ledger (a hand-built value, or a payload recorded before
+    /// the ledger existed) prices as the single aggregate request — which is
+    /// exactly the pre-#794 figure, never a zero.
+    #[must_use]
+    pub fn priced_calls(&self) -> &[LlmCallUsage] {
+        if self.per_call.is_empty() {
+            std::slice::from_ref(&self.usage)
+        } else {
+            &self.per_call
+        }
     }
 }
 

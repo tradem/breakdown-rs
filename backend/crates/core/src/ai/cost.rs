@@ -83,8 +83,13 @@ pub fn energy_cost_raw_nano(energy_millijoules: u64, rate_nano_per_kwh: i64) -> 
 }
 
 /// Neuralwatt surge-protection cap: the energy cost never exceeds the same
-/// call's token cost. Returns `(effective_nano, capped_by_token_cost)`.
+/// **request's** token cost. Returns `(effective_nano, capped_by_token_cost)`.
 /// Exact equality is *not* a cap (nothing was reduced).
+///
+/// The unit matters (issue #794): the provider caps each request on its own, so
+/// this is applied per [`LlmCallUsage`], never to a job's summed figures —
+/// `Σ min(raw_i, token_i) <= min(Σ raw_i, Σ token_i)`, which makes the
+/// aggregate cap an upper bound instead of the billed amount.
 #[must_use]
 pub fn cap_energy_by_token(raw_energy_nano: i64, token_total_nano: i64) -> (i64, bool) {
     if raw_energy_nano > token_total_nano {
@@ -94,9 +99,13 @@ pub fn cap_energy_by_token(raw_energy_nano: i64, token_total_nano: i64) -> (i64,
     }
 }
 
-/// Compute the token-cost breakdown for one job from its accumulated
-/// telemetry and the pricing snapshot, or `None` when the snapshot is
-/// `None` (the caller records [`CostStatus::Unknown`] instead).
+/// Compute the token-cost breakdown for one component from its accumulated
+/// counters and the pricing snapshot.
+///
+/// Deliberately priced **once** over the summed tokens (issue #794): the
+/// per-request rounding the energy cap needs is confined to the energy figure,
+/// so a job's reported token cost does not move when the same tokens arrive in
+/// one request or in many.
 ///
 /// Cached prompt tokens are billed at the catalog's cached rate when one
 /// exists, otherwise at the plain input rate (no fabricated discount).
@@ -130,6 +139,71 @@ pub fn token_cost_breakdown(
         output_rate_nano_per_million: pricing.output_nano_per_million,
         cached_input_rate_nano_per_million: cached_rate,
         total_nano,
+    }
+}
+
+/// The summed usage of the requests a component's cost is priced over.
+///
+/// Both the token figure and the per-request energy cap are derived from the
+/// same slice (issue #794), so they can never describe different request sets.
+fn aggregate_usage(calls: &[LlmCallUsage]) -> LlmCallUsage {
+    let mut total = LlmCallUsage::default();
+    for call in calls {
+        total.accumulate(*call);
+    }
+    total
+}
+
+/// Priced energy of one component, summed over its requests (issue #794).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct CappedEnergy {
+    /// Sum of the per-request uncapped figures.
+    raw_nano: i64,
+    /// Sum of the per-request capped figures — the cost that counts.
+    effective_nano: i64,
+    /// Whether at least one request was reduced to its token cost.
+    capped: bool,
+}
+
+/// Price the energy of every request **separately**, then sum (issue #794).
+///
+/// The provider (Neuralwatt) caps energy per request, so the honest component
+/// figure is `Σ_calls min(raw_i, token_i)`; capping the aggregate instead can
+/// only overstate it. Each request's token figure is priced from the same rate
+/// card, which is why this needs the whole per-call ledger rather than the
+/// summed counters.
+fn capped_energy(
+    calls: &[LlmCallUsage],
+    rate_nano_per_kwh: i64,
+    capped_by_token_cost: bool,
+    pricing: &ModelPricing,
+) -> CappedEnergy {
+    let mut raw_nano: i128 = 0;
+    let mut effective_nano: i128 = 0;
+    let mut capped = false;
+    for call in calls {
+        let raw = energy_cost_raw_nano(call.energy_millijoules, rate_nano_per_kwh);
+        raw_nano += i128::from(raw);
+        let effective = if capped_by_token_cost {
+            let token = token_cost_breakdown(
+                call.tokens_in,
+                call.tokens_out,
+                call.cached_tokens_in,
+                pricing,
+            )
+            .total_nano;
+            let (effective, was_capped) = cap_energy_by_token(raw, token);
+            capped |= was_capped;
+            effective
+        } else {
+            raw
+        };
+        effective_nano += i128::from(effective);
+    }
+    CappedEnergy {
+        raw_nano: raw_nano.clamp(0, i64::MAX as i128) as i64,
+        effective_nano: effective_nano.clamp(0, i64::MAX as i128) as i64,
+        capped,
     }
 }
 
@@ -257,25 +331,32 @@ fn fold_total(
 /// Compute the **Decision-Model** component of a job's cost snapshot (issue
 /// #768): its own usage, its own rate card, its own currency.
 ///
+/// `usage` is the component's **per-call** ledger ([`UsageAccumulator::per_call`])
+/// — the energy cap is applied per request (issue #794), so the summed counters
+/// are not enough to price it honestly.
+///
 /// `pricing` is the `ai_model_pricing` row of the **Decision Model** — never
 /// the extraction model's. A missing row (or a provider that does not bill) is
 /// the honest unknown: `status = Unknown` with every priced field `None`, the
 /// usage counts kept, and **no** fallback to the extraction rate.
+///
+/// [`UsageAccumulator::per_call`]: super::ports::UsageAccumulator
 #[must_use]
 pub fn decision_cost_breakdown(
     provider: LlmProvider,
     model: &str,
-    usage: LlmCallUsage,
+    usage: &[LlmCallUsage],
     pricing: Option<&ModelPricing>,
 ) -> DecisionCostBreakdown {
+    let aggregate = aggregate_usage(usage);
     let unpriced = |status: CostStatus| DecisionCostBreakdown {
         provider,
         model: model.to_owned(),
         status,
-        tokens_in: usage.tokens_in,
-        tokens_out: usage.tokens_out,
-        cached_tokens_in: usage.cached_tokens_in,
-        energy_millijoules: usage.energy_millijoules,
+        tokens_in: aggregate.tokens_in,
+        tokens_out: aggregate.tokens_out,
+        cached_tokens_in: aggregate.cached_tokens_in,
+        energy_millijoules: aggregate.energy_millijoules,
         currency: None,
         price_as_of: None,
         pricing_source: None,
@@ -292,22 +373,17 @@ pub fn decision_cost_breakdown(
     };
 
     let token = token_cost_breakdown(
-        usage.tokens_in,
-        usage.tokens_out,
-        usage.cached_tokens_in,
+        aggregate.tokens_in,
+        aggregate.tokens_out,
+        aggregate.cached_tokens_in,
         pricing,
     );
     // The energy cap pairs a provider's energy rate with *its own* token cost —
     // the reason the two components must never share an accumulator.
     let (energy_rate, energy_cost_nano) = match pricing.energy_nano_per_kwh {
-        Some(rate) if usage.energy_millijoules > 0 => {
-            let raw = energy_cost_raw_nano(usage.energy_millijoules, rate);
-            let (effective, _capped) = if pricing.energy_capped_by_token {
-                cap_energy_by_token(raw, token.total_nano)
-            } else {
-                (raw, false)
-            };
-            (Some(rate), Some(effective))
+        Some(rate) if aggregate.energy_millijoules > 0 => {
+            let figure = capped_energy(usage, rate, pricing.energy_capped_by_token, pricing);
+            (Some(rate), Some(figure.effective_nano))
         }
         rate => (rate, None),
     };
@@ -316,10 +392,10 @@ pub fn decision_cost_breakdown(
         provider,
         model: model.to_owned(),
         status: CostStatus::Known,
-        tokens_in: usage.tokens_in,
-        tokens_out: usage.tokens_out,
-        cached_tokens_in: usage.cached_tokens_in,
-        energy_millijoules: usage.energy_millijoules,
+        tokens_in: aggregate.tokens_in,
+        tokens_out: aggregate.tokens_out,
+        cached_tokens_in: aggregate.cached_tokens_in,
+        energy_millijoules: aggregate.energy_millijoules,
         currency: Some(pricing.currency),
         price_as_of: Some(pricing.price_as_of),
         pricing_source: Some(pricing.pricing_source),
@@ -358,17 +434,21 @@ pub fn cost_breakdown_unpriced(decision: Option<DecisionCostBreakdown>) -> CostB
 }
 
 /// Compute the full [`CostBreakdown`] snapshot for a completed job (design
-/// D3/D4). `pricing` is the **extraction** model's `ai_model_pricing` row active
-/// at completion; `None` yields [`CostStatus::Unknown`] (never zero-filled).
-/// `decision` is the already-priced Decision-Model component (issue #768) —
-/// `Some` only when the job issued a Decision-Model call — and contributes to
-/// [`CostBreakdown::total`] with **its own** already-computed figure.
+/// D3/D4). `extraction` is the **per-call** ledger of the extraction calls
+/// ([`UsageAccumulator::per_call`]); `pricing` is the **extraction** model's
+/// `ai_model_pricing` row active at completion; `None` yields
+/// [`CostStatus::Unknown`] (never zero-filled). `decision` is the already-priced
+/// Decision-Model component (issue #768) — `Some` only when the job issued a
+/// Decision-Model call — and contributes to [`CostBreakdown::total`] with **its
+/// own** already-computed figure.
+///
+/// The token figure is priced once over the summed tokens; the energy figure is
+/// the sum of the **per-request** caps (issue #794).
+///
+/// [`UsageAccumulator::per_call`]: super::ports::UsageAccumulator
 #[must_use]
 pub fn cost_breakdown(
-    tokens_in: u64,
-    tokens_out: u64,
-    cached_tokens_in: u64,
-    energy_millijoules: u64,
+    extraction: &[LlmCallUsage],
     pricing: Option<&ModelPricing>,
     decision: Option<DecisionCostBreakdown>,
 ) -> CostBreakdown {
@@ -376,22 +456,23 @@ pub fn cost_breakdown(
         return cost_breakdown_unpriced(decision);
     };
 
-    let token_cost = token_cost_breakdown(tokens_in, tokens_out, cached_tokens_in, pricing);
+    let aggregate = aggregate_usage(extraction);
+    let token_cost = token_cost_breakdown(
+        aggregate.tokens_in,
+        aggregate.tokens_out,
+        aggregate.cached_tokens_in,
+        pricing,
+    );
 
     let energy_cost = match pricing.energy_nano_per_kwh {
-        Some(rate) if energy_millijoules > 0 => {
-            let raw = energy_cost_raw_nano(energy_millijoules, rate);
-            let (effective, capped) = if pricing.energy_capped_by_token {
-                cap_energy_by_token(raw, token_cost.total_nano)
-            } else {
-                (raw, false)
-            };
+        Some(rate) if aggregate.energy_millijoules > 0 => {
+            let figure = capped_energy(extraction, rate, pricing.energy_capped_by_token, pricing);
             Some(EnergyCostBreakdown {
-                energy_millijoules,
+                energy_millijoules: aggregate.energy_millijoules,
                 rate_nano_per_kwh: rate,
-                raw_energy_nano: raw,
-                effective_capped_nano: effective,
-                capped_by_token_cost: capped,
+                raw_energy_nano: figure.raw_nano,
+                effective_capped_nano: figure.effective_nano,
+                capped_by_token_cost: figure.capped,
             })
         }
         _ => None,

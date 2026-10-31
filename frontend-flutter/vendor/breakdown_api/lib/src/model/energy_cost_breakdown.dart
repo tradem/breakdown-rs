@@ -10,22 +10,22 @@ import 'package:built_value/serializer.dart';
 
 part 'energy_cost_breakdown.g.dart';
 
-/// Hardware-energy cost of the **extraction** component of one import, in nano-units. Populated only when the job recorded energy telemetry for the extraction calls and the extraction model carries an energy rate.  Decision-Model energy is reported (and priced) on [`DecisionCostBreakdown`] instead (issue #768).
+/// Hardware-energy cost of the **extraction** component of one import, in nano-units. Populated only when the job recorded energy telemetry for the extraction calls and the extraction model carries an energy rate.  Decision-Model energy is reported (and priced) on [`DecisionCostBreakdown`] instead (issue #768).  Every figure sums the job's **requests**, each capped on its own (issue #794): a provider that caps energy by token cost does so per request, so `effective_capped_nano = Σ_calls min(raw_i, token_i)`. Capping the summed figures instead would report `min(Σ raw_i, Σ token_i)`, an upper bound that can only overstate what was billed.
 ///
 /// Properties:
-/// * [cappedByTokenCost] - Whether the token-cost cap reduced the figure.
-/// * [effectiveCappedNano] - The cost that counts: `min(raw_energy_nano, token_cost.total_nano)` when the provider caps energy by token cost (Neuralwatt surge protection), otherwise `raw_energy_nano`.
+/// * [cappedByTokenCost] - Whether the token-cost cap reduced **any** of the requests.
+/// * [effectiveCappedNano] - The cost that counts: `Σ_calls min(raw_i, token_i)` when the provider caps energy by token cost (Neuralwatt surge protection, applied per request), otherwise `raw_energy_nano`.
 /// * [energyMillijoules]
 /// * [rateNanoPerKwh]
-/// * [rawEnergyNano] - Uncapped energy cost (`mJ × rate / 3.6e9`, half-up rounded).
+/// * [rawEnergyNano] - Uncapped energy cost, summed over the requests (`Σ_i mJ_i × rate / 3.6e9`, each term half-up rounded).
 @BuiltValue()
 abstract class EnergyCostBreakdown
     implements Built<EnergyCostBreakdown, EnergyCostBreakdownBuilder> {
-  /// Whether the token-cost cap reduced the figure.
+  /// Whether the token-cost cap reduced **any** of the requests.
   @BuiltValueField(wireName: r'capped_by_token_cost')
   bool get cappedByTokenCost;
 
-  /// The cost that counts: `min(raw_energy_nano, token_cost.total_nano)` when the provider caps energy by token cost (Neuralwatt surge protection), otherwise `raw_energy_nano`.
+  /// The cost that counts: `Σ_calls min(raw_i, token_i)` when the provider caps energy by token cost (Neuralwatt surge protection, applied per request), otherwise `raw_energy_nano`.
   @BuiltValueField(wireName: r'effective_capped_nano')
   int get effectiveCappedNano;
 
@@ -35,7 +35,7 @@ abstract class EnergyCostBreakdown
   @BuiltValueField(wireName: r'rate_nano_per_kwh')
   int get rateNanoPerKwh;
 
-  /// Uncapped energy cost (`mJ × rate / 3.6e9`, half-up rounded).
+  /// Uncapped energy cost, summed over the requests (`Σ_i mJ_i × rate / 3.6e9`, each term half-up rounded).
   @BuiltValueField(wireName: r'raw_energy_nano')
   int get rawEnergyNano;
 

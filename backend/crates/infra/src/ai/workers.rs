@@ -507,7 +507,9 @@ where
         // the Decision-Model calls (chunk scoring + Pass-2 continuity) feed
         // `decision_usage` below, so each component is priced with the rate card
         // of the model that actually consumed it.
-        let mut extraction_usage = LlmCallUsage::default();
+        // Issue #794: it keeps the per-call ledger too, because the provider
+        // caps energy per request — the summed counters cannot be re-split.
+        let mut extraction_usage = UsageAccumulator::default();
         let mut decision_usage = UsageAccumulator::default();
         // Globally unique scene counter across all chunks — the tail of
         // `stable_draft_ref`, which needs a stable identity per preview row
@@ -589,8 +591,9 @@ where
                     scenes_extracted = scenes_extracted
                         .saturating_add(u32::try_from(chunk_model_rows).unwrap_or(u32::MAX));
                     // Issue #675: accumulate real token/energy usage across
-                    // every chunk of the job (extraction component, #768).
-                    extraction_usage.accumulate(call_usage);
+                    // every chunk of the job (extraction component, #768) —
+                    // `record` keeps the call in the ledger as well (#794).
+                    extraction_usage.record(call_usage);
                     if context.title.is_none() {
                         context.title = partial.title;
                     }
@@ -945,10 +948,10 @@ where
                     // Decision-Model usage is recorded on the cost snapshot's
                     // `decision` component and priced with the Decision Model's
                     // own rate card, never folded in here.
-                    tokens_in: extraction_usage.tokens_in,
-                    tokens_out: extraction_usage.tokens_out,
-                    cached_tokens_in: extraction_usage.cached_tokens_in,
-                    energy_millijoules: extraction_usage.energy_millijoules,
+                    tokens_in: extraction_usage.usage.tokens_in,
+                    tokens_out: extraction_usage.usage.tokens_out,
+                    cached_tokens_in: extraction_usage.usage.cached_tokens_in,
+                    energy_millijoules: extraction_usage.usage.energy_millijoules,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     // Scene reconciliation counters (issue #758): what the
                     // document said, what the model produced, and how many rows
@@ -1020,7 +1023,11 @@ where
 /// billable call (a configured pass on a preview with nothing to score spends
 /// nothing). An absent component is not an unknown one: it means "this job has
 /// no decision cost".
-type DecisionUsage = (breakdown_core::ai::LlmProvider, String, LlmCallUsage);
+///
+/// The accumulator carries the **per-call** ledger: the energy cap is applied
+/// per provider request (issue #794), so the summed counters alone cannot be
+/// priced honestly.
+type DecisionUsage = (breakdown_core::ai::LlmProvider, String, UsageAccumulator);
 
 /// The cost snapshot's Decision-Model input, or `None` when no call happened.
 ///
@@ -1037,7 +1044,7 @@ fn decision_cost_input(
         return None;
     }
     let pass = decision.and_then(DecisionResolution::pass)?;
-    Some((pass.provider, pass.model.clone(), accumulated.usage))
+    Some((pass.provider, pass.model.clone(), accumulated))
 }
 
 /// Look up one `(provider, model)` pricing row, degrading a read-model outage to
@@ -1075,11 +1082,15 @@ async fn find_pricing_row(
 /// unwired / failing repository yields `unknown` for **that** component — never
 /// a fabricated zero price, never the other component's rate — while the raw
 /// token/energy telemetry is still recorded.
+///
+/// Both components are priced over their **per-call** ledgers, so a provider
+/// that caps energy per request is billed as the sum of those caps (issue
+/// #794).
 async fn compute_cost_snapshot(
     pricing: Option<&dyn AiModelPricingRepository>,
     provider: breakdown_core::ai::LlmProvider,
     model: &str,
-    extraction_usage: &LlmCallUsage,
+    extraction_usage: &UsageAccumulator,
     decision: Option<DecisionUsage>,
 ) -> CostBreakdown {
     let decision_component = match decision {
@@ -1088,7 +1099,7 @@ async fn compute_cost_snapshot(
             Some(breakdown_core::ai::cost::decision_cost_breakdown(
                 decision_provider,
                 &decision_model,
-                usage,
+                usage.priced_calls(),
                 row.as_ref(),
             ))
         }
@@ -1105,10 +1116,7 @@ async fn compute_cost_snapshot(
     };
 
     breakdown_core::ai::cost::cost_breakdown(
-        extraction_usage.tokens_in,
-        extraction_usage.tokens_out,
-        extraction_usage.cached_tokens_in,
-        extraction_usage.energy_millijoules,
+        extraction_usage.priced_calls(),
         Some(&row),
         decision_component,
     )
@@ -1261,8 +1269,10 @@ where
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         // Issue #675: usage of the single LLM call (zeros for the native CSV
         // path, which never invokes an LLM). Extraction component only — the
-        // schedule scoring call feeds `decision_usage` (issue #768).
-        let mut extraction_usage = LlmCallUsage::default();
+        // schedule scoring call feeds `decision_usage` (issue #768). The
+        // per-call ledger (#794) is a single entry here, but it goes through the
+        // same type as the script worker's chunk ledger.
+        let mut extraction_usage = UsageAccumulator::default();
         let mut decision_usage = UsageAccumulator::default();
         // Rows the schedule scoring request left unscored and whether that
         // request failed (issue #767); both stay empty on the native CSV path,
@@ -1293,7 +1303,7 @@ where
                 self.bounds.max_retries as usize,
             )
             .await?;
-            extraction_usage.accumulate(call_usage);
+            extraction_usage.record(call_usage);
             parsed
         };
         // Best-effort Decision Model scoring pass for LLM-extracted
@@ -1352,10 +1362,10 @@ where
                     // Decision-Model usage is recorded on the cost snapshot's
                     // `decision` component and priced with the Decision Model's
                     // own rate card, never folded in here.
-                    tokens_in: extraction_usage.tokens_in,
-                    tokens_out: extraction_usage.tokens_out,
-                    cached_tokens_in: extraction_usage.cached_tokens_in,
-                    energy_millijoules: extraction_usage.energy_millijoules,
+                    tokens_in: extraction_usage.usage.tokens_in,
+                    tokens_out: extraction_usage.usage.tokens_out,
+                    cached_tokens_in: extraction_usage.usage.cached_tokens_in,
+                    energy_millijoules: extraction_usage.usage.energy_millijoules,
                     latency_total: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     // Cost snapshot (issue #675): `not_applicable` for the
                     // native CSV path (no LLM), computed for the LLM path.

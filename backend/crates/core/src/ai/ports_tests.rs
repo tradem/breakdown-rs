@@ -269,10 +269,50 @@ fn recorded_calls_accumulate_element_wise() {
 }
 
 #[test]
+fn recorded_calls_are_retained_for_per_request_pricing() {
+    // Issue #794: a provider caps energy per request, so the ledger has to
+    // survive accumulation — the summed counters cannot be re-split.
+    let mut accumulator = UsageAccumulator::default();
+    let first = LlmCallUsage {
+        tokens_in: 10,
+        ..Default::default()
+    };
+    let second = LlmCallUsage {
+        tokens_in: 1,
+        energy_millijoules: 18_000,
+        ..Default::default()
+    };
+    accumulator.record(first);
+    accumulator.record(second);
+    assert_eq!(accumulator.per_call, vec![first, second]);
+    assert_eq!(accumulator.priced_calls(), &[first, second]);
+}
+
+#[test]
+fn an_accumulator_without_a_ledger_prices_as_one_aggregate_request() {
+    // A hand-built (or pre-#794 recorded) accumulator carries counters but no
+    // ledger: it must still price — as the single aggregate request, which is
+    // exactly the pre-#794 figure, never a zero.
+    let aggregate = LlmCallUsage {
+        tokens_in: 13,
+        tokens_out: 3,
+        cached_tokens_in: 1,
+        energy_millijoules: 7,
+    };
+    let accumulator = UsageAccumulator {
+        usage: aggregate,
+        calls: 2,
+        per_call: Vec::new(),
+    };
+    assert_eq!(accumulator.priced_calls(), &[aggregate]);
+}
+
+#[test]
 fn the_call_count_saturates_instead_of_wrapping() {
     let mut accumulator = UsageAccumulator {
         usage: LlmCallUsage::default(),
         calls: u32::MAX,
+        per_call: Vec::new(),
     };
     accumulator.record(LlmCallUsage::default());
     assert_eq!(accumulator.calls, u32::MAX);

@@ -170,7 +170,7 @@ fn breakdown_saturates_cached_tokens_to_tokens_in() {
 
 #[test]
 fn cost_breakdown_without_pricing_is_unknown_never_zero() {
-    let c = cost_breakdown(8_000, 1_500, 0, 0, None, None);
+    let c = cost_breakdown(&one_call(8_000, 1_500, 0, 0), None, None);
     assert_eq!(c.status, CostStatus::Unknown);
     assert!(c.token_cost.is_none());
     assert!(c.energy_cost.is_none());
@@ -181,7 +181,7 @@ fn cost_breakdown_without_pricing_is_unknown_never_zero() {
 #[test]
 fn cost_breakdown_neuralwatt_dual_tracking() {
     let p = usd_pricing();
-    let c = cost_breakdown(10_000, 2_000, 0, 18_000, Some(&p), None);
+    let c = cost_breakdown(&one_call(10_000, 2_000, 0, 18_000), Some(&p), None);
     assert_eq!(c.status, CostStatus::Known);
     assert_eq!(c.currency, Some(Currency::Usd));
     let t = c.token_cost.expect("token cost present");
@@ -199,7 +199,7 @@ fn cost_breakdown_caps_energy_by_token_cost() {
     // the 23_500_000 nano token total.
     // $100,000 / kWh: 18_000 mJ -> 5e8 nano, far above the 23.5M token total.
     p.energy_nano_per_kwh = Some(100_000_000_000_000);
-    let c = cost_breakdown(10_000, 2_000, 0, 18_000, Some(&p), None);
+    let c = cost_breakdown(&one_call(10_000, 2_000, 0, 18_000), Some(&p), None);
     let e = c.energy_cost.expect("energy cost present");
     // 18_000 mJ × 1e14 / 3.6e9 = 500_000_000 nano — far above the token total.
     assert_eq!(e.raw_energy_nano, 500_000_000);
@@ -208,9 +208,64 @@ fn cost_breakdown_caps_energy_by_token_cost() {
 }
 
 #[test]
+fn energy_cap_is_applied_per_request_not_to_the_job_aggregate() {
+    // Issue #794: the provider caps each request on its own. Two extraction
+    // chunks with identical energy but wildly different token counts — the cap
+    // binds on the second chunk only, so the job figure is 50_000 + 1_450.
+    // Capping the sums instead would report 100_000 and claim nothing was
+    // capped: min(Σ raw, Σ token) = min(100_000, 14_501_450).
+    let p = usd_pricing();
+    let calls = [usage(10_000, 0, 0, 18_000), usage(1, 0, 0, 18_000)];
+    let c = cost_breakdown(&calls, Some(&p), None);
+
+    let token = c.token_cost.expect("extraction token cost");
+    assert_eq!(token.tokens_in, 10_001);
+    // The token figure stays the aggregate one, priced once over the sum.
+    assert_eq!(
+        token.total_nano,
+        token_cost_nano(10_001, p.input_nano_per_million)
+    );
+
+    let e = c.energy_cost.expect("extraction energy cost");
+    // Both requests report 18_000 mJ at $10/kWh = 50_000 nano each.
+    assert_eq!(e.raw_energy_nano, 100_000);
+    assert_eq!(e.effective_capped_nano, 50_000 + 1_450);
+    assert!(e.capped_by_token_cost, "the second request was capped");
+    assert!(
+        e.effective_capped_nano < e.raw_energy_nano,
+        "the cap reduced the figure"
+    );
+    assert_eq!(e.energy_millijoules, 36_000);
+}
+
+#[test]
+fn decision_energy_cap_is_applied_per_request_too() {
+    // The same rule for the Decision-Model component (issues #768 and #794):
+    // chunk scoring and the Pass-2 continuity pass are separate requests.
+    let decision = decision_pricing();
+    let calls = [usage(3_000, 0, 0, 10_000), usage(1, 0, 0, 10_000)];
+    let component = decision_cost_breakdown(
+        LlmProvider::OpenCodeGo,
+        "clef-flash",
+        &calls,
+        Some(&decision),
+    );
+    assert_eq!(component.tokens_in, 3_001);
+    assert_eq!(
+        component.token_cost_nano,
+        Some(token_cost_nano(3_001, decision.input_nano_per_million))
+    );
+    // 10_000 mJ at $2/kWh = 5_556 nano per request; the 1-token request is
+    // capped to its own 293-nano token cost (11_112 nano aggregate would not be).
+    assert_eq!(component.energy_cost_nano, Some(5_556 + 293));
+    assert_eq!(component.energy_millijoules, 20_000);
+    assert_eq!(component.energy_rate_nano_per_kwh, Some(2_000_000_000));
+}
+
+#[test]
 fn cost_breakdown_omits_energy_without_telemetry() {
     let p = usd_pricing();
-    let c = cost_breakdown(1_000, 1_000, 0, 0, Some(&p), None);
+    let c = cost_breakdown(&one_call(1_000, 1_000, 0, 0), Some(&p), None);
     assert!(c.energy_cost.is_none());
     assert_eq!(c.status, CostStatus::Known);
 }
@@ -219,17 +274,17 @@ fn cost_breakdown_omits_energy_without_telemetry() {
 fn cost_breakdown_omits_energy_without_rate() {
     let mut p = usd_pricing();
     p.energy_nano_per_kwh = None;
-    let c = cost_breakdown(1_000, 1_000, 0, 5_000, Some(&p), None);
+    let c = cost_breakdown(&one_call(1_000, 1_000, 0, 5_000), Some(&p), None);
     assert!(c.energy_cost.is_none());
 }
 
 #[test]
 fn cost_breakdown_is_immutable_snapshot_of_rates() {
     let p = usd_pricing();
-    let c1 = cost_breakdown(1_000, 1_000, 0, 0, Some(&p), None);
+    let c1 = cost_breakdown(&one_call(1_000, 1_000, 0, 0), Some(&p), None);
     let mut later = p.clone();
     later.input_nano_per_million = 99_000_000_000;
-    let c2 = cost_breakdown(1_000, 1_000, 0, 0, Some(&later), None);
+    let c2 = cost_breakdown(&one_call(1_000, 1_000, 0, 0), Some(&later), None);
     assert_ne!(c1, c2, "snapshot must reflect the rates at completion time");
     assert_eq!(c1.price_as_of, Some(p.price_as_of));
 }
@@ -263,15 +318,21 @@ fn usage(tokens_in: u64, tokens_out: u64, cached: u64, energy: u64) -> LlmCallUs
     }
 }
 
+/// A one-request ledger: pricing takes the **per-call** usages (issue #794), so
+/// even a single call goes through the slice the worker really accumulates.
+fn one_call(tokens_in: u64, tokens_out: u64, cached: u64, energy: u64) -> Vec<LlmCallUsage> {
+    vec![usage(tokens_in, tokens_out, cached, energy)]
+}
+
 #[test]
 fn decision_component_is_priced_with_its_own_rate_card() {
     let extraction = usd_pricing();
     let decision = decision_pricing();
-    let decision_usage = usage(3_000, 500, 0, 0);
+    let decision_calls = &one_call(3_000, 500, 0, 0);
     let component = decision_cost_breakdown(
         LlmProvider::OpenCodeGo,
         "clef-flash",
-        decision_usage,
+        decision_calls,
         Some(&decision),
     );
 
@@ -290,7 +351,11 @@ fn decision_component_is_priced_with_its_own_rate_card() {
 
     // The extraction component holds ONLY the extraction usage, priced at the
     // extraction rates.
-    let snapshot = cost_breakdown(10_000, 2_000, 0, 0, Some(&extraction), Some(component));
+    let snapshot = cost_breakdown(
+        &one_call(10_000, 2_000, 0, 0),
+        Some(&extraction),
+        Some(component),
+    );
     let token = snapshot.token_cost.expect("extraction token cost");
     assert_eq!(token.tokens_in, 10_000);
     assert_eq!(token.tokens_out, 2_000);
@@ -311,14 +376,18 @@ fn decision_tokens_are_not_counted_in_the_extraction_component() {
     // 200 out and whose Decision Model used 9_000 in / 800 out therefore
     // reported 10_000 / 1_000 at the extraction rates.
     let extraction = usd_pricing();
-    let decision_usage = usage(9_000, 800, 0, 0);
+    let decision_calls = &one_call(9_000, 800, 0, 0);
     let component = decision_cost_breakdown(
         LlmProvider::Neuralwatt,
         "clef-flash",
-        decision_usage,
+        decision_calls,
         Some(&decision_pricing()),
     );
-    let snapshot = cost_breakdown(1_000, 200, 0, 0, Some(&extraction), Some(component));
+    let snapshot = cost_breakdown(
+        &one_call(1_000, 200, 0, 0),
+        Some(&extraction),
+        Some(component),
+    );
     let token = snapshot.token_cost.expect("extraction token cost");
     assert_eq!(token.tokens_in, 1_000);
     assert_eq!(token.tokens_out, 200);
@@ -337,7 +406,7 @@ fn decision_component_without_pricing_is_an_honest_unknown() {
     let component = decision_cost_breakdown(
         LlmProvider::Ollama,
         "unpriced-local",
-        usage(3_000, 500, 0, 12_000),
+        &one_call(3_000, 500, 0, 12_000),
         None,
     );
     assert_eq!(component.status, CostStatus::Unknown);
@@ -360,10 +429,14 @@ fn unknown_decision_pricing_makes_the_total_incomplete_not_a_wrong_sum() {
     let component = decision_cost_breakdown(
         LlmProvider::Ollama,
         "unpriced",
-        usage(3_000, 500, 0, 0),
+        &one_call(3_000, 500, 0, 0),
         None,
     );
-    let snapshot = cost_breakdown(10_000, 2_000, 0, 0, Some(&extraction), Some(component));
+    let snapshot = cost_breakdown(
+        &one_call(10_000, 2_000, 0, 0),
+        Some(&extraction),
+        Some(component),
+    );
 
     // The extraction component is untouched and still priced.
     assert_eq!(snapshot.status, CostStatus::Known);
@@ -385,10 +458,14 @@ fn components_in_different_currencies_are_never_summed() {
     let component = decision_cost_breakdown(
         LlmProvider::OpenCodeGo,
         "clef-flash",
-        usage(3_000, 500, 0, 0),
+        &one_call(3_000, 500, 0, 0),
         Some(&euro),
     );
-    let snapshot = cost_breakdown(10_000, 2_000, 0, 0, Some(&extraction), Some(component));
+    let snapshot = cost_breakdown(
+        &one_call(10_000, 2_000, 0, 0),
+        Some(&extraction),
+        Some(component),
+    );
 
     assert_eq!(snapshot.total.status, CostTotalStatus::MixedCurrency);
     assert_eq!(snapshot.total.total_nano, None);
@@ -409,7 +486,7 @@ fn decision_energy_is_capped_by_the_decision_token_cost() {
     let component = decision_cost_breakdown(
         LlmProvider::OpenCodeGo,
         "clef-flash",
-        usage(3_000, 500, 0, 18_000),
+        &one_call(3_000, 500, 0, 18_000),
         Some(&decision),
     );
     assert_eq!(component.token_cost_nano, Some(1_462_500));
@@ -422,7 +499,7 @@ fn decision_energy_is_capped_by_the_decision_token_cost() {
 
 #[test]
 fn total_without_any_component_is_unknown() {
-    let snapshot = cost_breakdown(8_000, 1_500, 0, 0, None, None);
+    let snapshot = cost_breakdown(&one_call(8_000, 1_500, 0, 0), None, None);
     assert_eq!(snapshot.status, CostStatus::Unknown);
     assert_eq!(snapshot.decision, None);
     assert_eq!(snapshot.total.status, CostTotalStatus::Unknown);
@@ -439,10 +516,10 @@ fn decision_only_component_never_claims_a_known_total() {
     let component = decision_cost_breakdown(
         LlmProvider::OpenCodeGo,
         "clef-flash",
-        usage(3_000, 500, 0, 0),
+        &one_call(3_000, 500, 0, 0),
         Some(&decision_pricing()),
     );
-    let snapshot = cost_breakdown(1_000, 100, 0, 0, None, Some(component));
+    let snapshot = cost_breakdown(&one_call(1_000, 100, 0, 0), None, Some(component));
     assert_eq!(snapshot.status, CostStatus::Unknown);
     assert_eq!(
         snapshot.decision.as_ref().map(|d| d.status),
