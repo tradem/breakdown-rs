@@ -1781,8 +1781,10 @@ components:
           - type: 'null'
         energy_cost_nano:
           description: |-
-            Priced effective energy cost of this component (`min(raw, token)` when
-            the provider caps energy by token cost), `None` when unpriced.
+            Priced effective energy cost of this component, `None` when unpriced.
+            Summed over the component's **requests**, each capped on its own when the
+            provider caps energy by token cost: `Σ_calls min(raw_i, token_i)` (issue
+            #794).
           format: int64
           type:
           - integer
@@ -1826,7 +1828,9 @@ components:
             completion; `Unknown` otherwise. `NotApplicable` never occurs: the
             component exists only for a job that issued a Decision-Model call.
         token_cost_nano:
-          description: Priced token cost of this component, `None` when unpriced.
+          description: |-
+            Priced token cost of this component, `None` when unpriced. Priced once
+            over the component's summed tokens (not per request).
           format: int64
           type:
           - integer
@@ -2346,15 +2350,21 @@ components:
 
         Decision-Model energy is reported (and priced) on
         [`DecisionCostBreakdown`] instead (issue #768).
+
+        Every figure sums the job's **requests**, each capped on its own (issue
+        #794): a provider that caps energy by token cost does so per request, so
+        `effective_capped_nano = Σ_calls min(raw_i, token_i)`. Capping the summed
+        figures instead would report `min(Σ raw_i, Σ token_i)`, an upper bound that
+        can only overstate what was billed.
       properties:
         capped_by_token_cost:
-          description: Whether the token-cost cap reduced the figure.
+          description: Whether the token-cost cap reduced **any** of the requests.
           type: boolean
         effective_capped_nano:
           description: |-
-            The cost that counts: `min(raw_energy_nano, token_cost.total_nano)`
-            when the provider caps energy by token cost (Neuralwatt surge
-            protection), otherwise `raw_energy_nano`.
+            The cost that counts: `Σ_calls min(raw_i, token_i)` when the provider caps
+            energy by token cost (Neuralwatt surge protection, applied per request),
+            otherwise `raw_energy_nano`.
           format: int64
           type: integer
         energy_millijoules:
@@ -2365,7 +2375,9 @@ components:
           format: int64
           type: integer
         raw_energy_nano:
-          description: Uncapped energy cost (`mJ × rate / 3.6e9`, half-up rounded).
+          description: |-
+            Uncapped energy cost, summed over the requests (`Σ_i mJ_i × rate / 3.6e9`,
+            each term half-up rounded).
           format: int64
           type: integer
       required:

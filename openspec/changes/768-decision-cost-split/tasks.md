@@ -87,6 +87,8 @@
 - [x] 7.2 The decision component is keyed on the **call count**, not on the
       usage counters (`UsageAccumulator`), so a call that reports no usage no
       longer disappears from the snapshot.
-- [ ] 7.3 Per-request energy cap (the Neuralwatt cap applies per request, not to
-      the job aggregate) — deferred to issue #794; it needs per-call usage
-      retention and applies to the extraction component too.
+- [x] 7.3 Per-request energy cap (the Neuralwatt cap applies per request, not to
+      the job aggregate) — **done in issue #794** / change
+      `794-per-request-energy-cap`: `UsageAccumulator::per_call` retains the
+      ledger and both components price energy as
+      `Σ_calls min(raw_i, token_i)`.

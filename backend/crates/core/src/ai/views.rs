@@ -687,17 +687,24 @@ pub struct TokenCostBreakdown {
 ///
 /// Decision-Model energy is reported (and priced) on
 /// [`DecisionCostBreakdown`] instead (issue #768).
+///
+/// Every figure sums the job's **requests**, each capped on its own (issue
+/// #794): a provider that caps energy by token cost does so per request, so
+/// `effective_capped_nano = Σ_calls min(raw_i, token_i)`. Capping the summed
+/// figures instead would report `min(Σ raw_i, Σ token_i)`, an upper bound that
+/// can only overstate what was billed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct EnergyCostBreakdown {
     pub energy_millijoules: u64,
     pub rate_nano_per_kwh: i64,
-    /// Uncapped energy cost (`mJ × rate / 3.6e9`, half-up rounded).
+    /// Uncapped energy cost, summed over the requests (`Σ_i mJ_i × rate / 3.6e9`,
+    /// each term half-up rounded).
     pub raw_energy_nano: i64,
-    /// The cost that counts: `min(raw_energy_nano, token_cost.total_nano)`
-    /// when the provider caps energy by token cost (Neuralwatt surge
-    /// protection), otherwise `raw_energy_nano`.
+    /// The cost that counts: `Σ_calls min(raw_i, token_i)` when the provider caps
+    /// energy by token cost (Neuralwatt surge protection, applied per request),
+    /// otherwise `raw_energy_nano`.
     pub effective_capped_nano: i64,
-    /// Whether the token-cost cap reduced the figure.
+    /// Whether the token-cost cap reduced **any** of the requests.
     pub capped_by_token_cost: bool,
 }
 
@@ -757,11 +764,14 @@ pub struct DecisionCostBreakdown {
     pub cached_input_rate_nano_per_million: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub energy_rate_nano_per_kwh: Option<i64>,
-    /// Priced token cost of this component, `None` when unpriced.
+    /// Priced token cost of this component, `None` when unpriced. Priced once
+    /// over the component's summed tokens (not per request).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_cost_nano: Option<i64>,
-    /// Priced effective energy cost of this component (`min(raw, token)` when
-    /// the provider caps energy by token cost), `None` when unpriced.
+    /// Priced effective energy cost of this component, `None` when unpriced.
+    /// Summed over the component's **requests**, each capped on its own when the
+    /// provider caps energy by token cost: `Σ_calls min(raw_i, token_i)` (issue
+    /// #794).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub energy_cost_nano: Option<i64>,
 }

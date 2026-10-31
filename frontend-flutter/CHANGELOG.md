@@ -23,6 +23,23 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The generated API client is regenerated for the per-request energy cap**
+  (`0.4.0-beta.27+119 → 0.4.0-beta.28+120`, issue #794). The backend now states
+  the Neuralwatt surge-protection semantics per **request** in the cost
+  snapshot's schema descriptions, so `vendor/breakdown_api/` is regenerated via
+  `scripts/regen-client.sh` to keep the committed tree byte-identical to what
+  the `openapi-client-drift` job produces.
+
+  - **Documentation only.** Two models carry the new wording
+    (`energy_cost_breakdown.dart`, `decision_cost_breakdown.dart`):
+    `effective_capped_nano = Σ_calls min(raw_i, token_i)`,
+    `capped_by_token_cost` = "any request was reduced", and the token figure is
+    priced once over the summed tokens. No field, no wire name, no serializer
+    and no Dart API surface changed, so no app code or widget is affected.
+  - Version bumped because the client tree changes: a `pubspec.yaml` bump is the
+    only honest signal that a client build differs from the previous one
+    (ADR-033 D1).
+
 - **The import preview now shows WHICH provider/model produced the rows — and
   says so when no Decision Model is configured** (`0.4.0-beta.25+117 →
   0.4.0-beta.26+118`, issue #760). Provider and model were one tiny `bodySmall`

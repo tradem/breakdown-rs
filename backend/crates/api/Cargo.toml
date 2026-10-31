@@ -9,7 +9,7 @@
 
 [package]
 name = "api"
-version = "0.51.0"
+version = "0.52.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -28,8 +28,8 @@ test-support = ["breakdown_core/test-support", "infra/test-support"]
 
 [dependencies]
 # Domäne & Infrastruktur
-breakdown_core = { path = "../core", version = "0.52.0" }
-infra = { path = "../infra", version = "0.61.0" }
+breakdown_core = { path = "../core", version = "0.53.0" }
+infra = { path = "../infra", version = "0.62.0" }
 
 # Web-Framework
 axum.workspace = true
@@ -103,7 +103,7 @@ tokio = { workspace = true, features = ["test-util"] }
 # inspection helper (gated behind `infra/test-support`). Enabling it on the
 # dev-dependency makes it available to every `cargo test -p api` run — the same
 # feature the CI test job and the stored-preview fixture already assume.
-infra = { path = "../infra", version = "0.61.0", features = ["test-support"] }
+infra = { path = "../infra", version = "0.62.0", features = ["test-support"] }
 # OpenAPI drift check (issue #29): render the utoipa-generated doc as YAML to
 # compare against the checked-in review artifact `openapi.yaml`. Tests only.
 serde_yaml = "0.9"

@@ -28,6 +28,41 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **The Neuralwatt energy cap is applied per provider request instead of once to
+  the job aggregate (issue #794; `core 0.52.0 → 0.53.0`, `infra 0.61.0 → 0.62.0`,
+  `api 0.51.0 → 0.52.0`).** `cost_breakdown` and `decision_cost_breakdown`
+  computed `min(raw_energy_nano(Σ mJ), token_cost_breakdown(Σ tokens))` — the cap
+  once over the job's summed figures. Neuralwatt caps each **request**, so the
+  billed amount is `Σ_calls min(raw_i, token_i)`; because
+  `Σ min(a_i, b_i) <= min(Σ a_i, Σ b_i)`, the aggregate form can only overstate
+  the energy component and, through it, `CostBreakdown.total` — the immutable
+  figure the job is sold on (#675).
+
+  - **The per-call ledger is retained.** `UsageAccumulator` gains
+    `per_call: Vec<LlmCallUsage>` (additive, `serde(default)`, written only by
+    `record()` so ledger and counters cannot drift) and loses `Copy`.
+    `priced_calls()` returns the ledger, or the aggregate as a single request for
+    a value that never kept one — exactly the pre-#794 figure, never a zero. The
+    extraction worker uses the same accumulator as the Decision-Model passes, so
+    both components reach the snapshot with a ledger.
+  - **Both components cap per request.** `cost_breakdown` /
+    `decision_cost_breakdown` take the per-call slice and price
+    `Σ_calls min(raw_i, token_i)`; `raw_energy_nano` is the matching sum of
+    per-request raw figures, so `effective_capped_nano <= raw_energy_nano` still
+    holds and `capped_by_token_cost` now means "at least one request was
+    reduced". `token_cost` deliberately stays the figure of the summed tokens —
+    the per-request split is confined to the energy cap, so a job's token figure
+    does not move with how its requests were divided.
+  - **Tests:** the multi-call case in which the cap binds on one request only —
+    at the pricing level (`core`) and through the production
+    `ScriptImportWorker` with two chunks (`infra`) — asserting the sum of the
+    caps (`51_450` / `51_000`) instead of the cap of the sums (`100_000`, which
+    claimed no cap had engaged), plus its Decision-Model twin and the
+    ledger-retention/fallback rules. `backend/openapi.yaml` and the generated
+    Dart client (`frontend-flutter/vendor/breakdown_api/`, via
+    `scripts/regen-client.sh`) are regenerated — descriptions only, the wire
+    shape and the Dart code are unchanged.
+
 - **Decision-Model token and energy usage is priced with the Decision Model's
   own rate card instead of the extraction model's (issue #768; `core 0.51.0 →
   0.52.0`, `infra 0.60.0 → 0.61.0`, `api 0.50.0 → 0.51.0`).** The script

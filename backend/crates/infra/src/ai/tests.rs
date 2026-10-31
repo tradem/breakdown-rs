@@ -6598,6 +6598,134 @@ async fn an_unpriced_decision_model_degrades_only_its_own_component() {
     assert_eq!(cost.total.total_nano, None);
 }
 
+/// Two chunks, each reporting the same energy but a very different token count:
+/// the per-request energy cap binds on the second chunk only (issue #794).
+#[derive(Clone, Default)]
+struct TwoChunkUsageClient {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl LlmClient for TwoChunkUsageClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        // Call order is the chunk order: `extract_scenes` yields exactly two
+        // chunks for the two-heading fixture of the test below.
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        let usage = if call == 0 {
+            LlmCallUsage {
+                tokens_in: 10_000,
+                tokens_out: 0,
+                cached_tokens_in: 0,
+                energy_millijoules: 18_000,
+            }
+        } else {
+            LlmCallUsage {
+                tokens_in: 1,
+                tokens_out: 0,
+                cached_tokens_in: 0,
+                energy_millijoules: 18_000,
+            }
+        };
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![DraftScene {
+                    draft_ref: format!("chunk-{}", call + 1),
+                    scene_number: Some(u32::try_from(call).unwrap_or(0) + 1),
+                    mood: Some("I/T".into()),
+                    summary: Some("Ben repariert das Auto.".to_owned()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            usage,
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Err(DomainError::validation(
+            "TwoChunkUsageClient only extracts scripts",
+        ))
+    }
+}
+
+fn per_request_cost_worker(
+    queue: Arc<FakeQueue>,
+    previews: Arc<MemoryAiPreviewStore>,
+    pricing: Arc<dyn breakdown_core::ai::AiModelPricingRepository>,
+) -> ScriptImportWorker<FakeQueue, TwoChunkUsageClient> {
+    ScriptImportWorker {
+        queue,
+        client: Arc::new(TwoChunkUsageClient::default()),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds::default(),
+        pricing: Some(pricing),
+        decision: None,
+    }
+}
+
+#[tokio::test]
+async fn the_energy_cap_is_applied_per_provider_request() {
+    // Issue #794: Neuralwatt caps energy per request. Two chunks report the same
+    // 18_000 mJ each but 10_000 vs. 1 input tokens, so the cap binds on the
+    // second chunk only. Capping the job's sums would report
+    // min(100_000, 10_001_000) = 100_000 and claim nothing was capped.
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let pricing = Arc::new(MapPricingRepo::default().with_row(
+        LlmProvider::Neuralwatt,
+        "deepseek-v4-flash",
+        pricing_at(
+            1_000_000_000,  // $1.00 / 1M in
+            2_000_000_000,  // $2.00 / 1M out
+            10_000_000_000, // $10.00 / kWh
+            breakdown_core::ai::PricingSource::CuratedSeed,
+        ),
+    ));
+    let worker = per_request_cost_worker(Arc::clone(&queue), Arc::clone(&previews), pricing);
+    let job = script_job(AiImportJobId::new());
+    // Two INT. headings → exactly two chunks, one request each.
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen traegt einen Schutzhelm.\n\n2. INT. GARAGE - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    // The recorded telemetry is the aggregate of both requests, unchanged.
+    assert_eq!(telemetry.tokens_in, 10_001);
+    assert_eq!(telemetry.tokens_out, 0);
+    assert_eq!(telemetry.energy_millijoules, 36_000);
+
+    let cost = telemetry.cost.expect("cost snapshot recorded");
+    let token = cost.token_cost.as_ref().expect("extraction token cost");
+    assert_eq!(token.total_nano, 10_001_000);
+    let energy = cost.energy_cost.as_ref().expect("extraction energy cost");
+    // 18_000 mJ at $10/kWh = 50_000 nano per request, uncapped in sum.
+    assert_eq!(energy.raw_energy_nano, 100_000);
+    // The second request is capped at its own 1_000-nano token cost.
+    assert_eq!(energy.effective_capped_nano, 50_000 + 1_000);
+    assert!(energy.capped_by_token_cost);
+    assert_eq!(
+        cost.total.status,
+        breakdown_core::ai::CostTotalStatus::Known
+    );
+    assert_eq!(cost.total.total_nano, Some(10_001_000 + 51_000));
+}
+
 #[tokio::test]
 async fn a_job_without_a_decision_pass_records_no_decision_component() {
     let queue = Arc::new(FakeQueue::default());
