@@ -24,8 +24,8 @@
 
 use breakdown_core::ai::{
     ContinuityOutcome, DecisionRequest, DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin,
-    DraftOutfitProvenance, LlmCallUsage, OutfitContinuityGap, ScriptContext, Uncertainty,
-    UncertaintyKind, character_identity, context_look_name, continuity_candidates,
+    DraftOutfitProvenance, OutfitContinuityGap, ScriptContext, Uncertainty, UncertaintyKind,
+    UsageAccumulator, character_identity, context_look_name, continuity_candidates,
     continuity_questions, continuity_state, draft_row_ref, outfit_continuity_gaps, prior_outfit,
     question_keys, resolve_continuity_outcome,
 };
@@ -68,7 +68,10 @@ impl ContinuityPassReport {
 pub async fn run_outfit_continuity_pass(
     pass: &DecisionPass,
     preview: &mut ScriptContext,
-    usage: &mut LlmCallUsage,
+    // The Decision Model's own accumulator (issue #768): it counts the calls as
+    // well as their usage, so a 2xx answer that reports no usage is still a
+    // recorded Decision-Model call.
+    usage: &mut UsageAccumulator,
     claim_lost: impl Fn() -> bool,
 ) -> ContinuityPassReport {
     let gaps = outfit_continuity_gaps(preview);
@@ -118,7 +121,7 @@ pub async fn run_outfit_continuity_pass(
                     break;
                 }
             };
-        usage.accumulate(outcome.usage);
+        usage.record(outcome.usage);
         let answer = outcome.answers.get(question_keys::OUTFIT_CONTINUITY);
         let resolved = answer.and_then(|answer| resolve_continuity_outcome(answer, prior));
         let Some(resolved) = resolved else {

@@ -337,14 +337,22 @@ pub fn decision_cost_breakdown(
 /// its own (issue #768).
 ///
 /// The snapshot `status` stays [`CostStatus::Unknown`] — it describes the
-/// extraction component — while the decision component carries its own status
-/// and the total degrades to `incomplete` rather than silently dropping the
-/// priced part.
+/// extraction component — while the decision component carries its own status.
+///
+/// Once a decision component exists, the extraction calls are known to have run
+/// (they are what the Decision Model scored), so the extraction is *recorded but
+/// unpriced* and the total degrades to [`CostTotalStatus::Incomplete`] with no
+/// number: presenting the decision figure alone as "the total" would under-report
+/// what the user pays. A job with no decision component keeps the pre-#768
+/// meaning — nothing priced, [`CostTotalStatus::Unknown`].
 #[must_use]
 pub fn cost_breakdown_unpriced(decision: Option<DecisionCostBreakdown>) -> CostBreakdown {
+    let extraction = decision
+        .as_ref()
+        .map(|_| (CostStatus::Unknown, None::<ComponentFigure>));
     CostBreakdown {
         decision: decision.clone(),
-        total: fold_total(None, decision.as_ref()),
+        total: fold_total(extraction, decision.as_ref()),
         ..CostBreakdown::unknown()
     }
 }

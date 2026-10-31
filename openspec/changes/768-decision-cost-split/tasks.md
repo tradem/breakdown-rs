@@ -38,8 +38,10 @@
 ## 3. Infra: two accumulators, two pricing lookups
 
 - [x] 3.1 `infra/ai/workers.rs`: `total_usage` → `extraction_usage` and a new
-      `decision_usage` accumulator (`decision_scoring`/`outfit_continuity`
-      signatures unchanged — the caller picks the accumulator).
+      `decision_usage` accumulator. The decision passes take
+      `&mut UsageAccumulator` (usage counters **plus** a call count) so a 2xx
+      answer that reports no usage is still a recorded Decision-Model call
+      (review follow-up); the extraction side keeps the plain `LlmCallUsage`.
 - [x] 3.2 `infra/ai/workers.rs`: script worker — chunk scoring and Pass-2
       continuity feed `decision_usage`; telemetry carries extraction counts.
 - [x] 3.3 `infra/ai/workers.rs`: schedule worker — `score_schedule_rows` feeds
@@ -74,3 +76,17 @@
 - [x] 6.4 `cargo clippy --workspace --all-targets -- -D warnings`
 - [x] 6.5 `cargo fmt --all -- --check`
 - [x] 6.6 Flutter: `flutter analyze`, `flutter test`
+
+## 7. Review follow-ups (CodeRabbit, PR #792)
+
+- [x] 7.1 An unpriced **extraction** with a priced decision component degrades
+      the total to `incomplete` (`total_nano = null`) instead of presenting the
+      decision figure as "the total" — `cost_breakdown_unpriced` records the
+      extraction as present-but-unpriced; a job with no decision component keeps
+      `unknown` (the Ollama scenario).
+- [x] 7.2 The decision component is keyed on the **call count**, not on the
+      usage counters (`UsageAccumulator`), so a call that reports no usage no
+      longer disappears from the snapshot.
+- [ ] 7.3 Per-request energy cap (the Neuralwatt cap applies per request, not to
+      the job aggregate) — deferred to issue #794; it needs per-call usage
+      retention and applies to the extraction component too.

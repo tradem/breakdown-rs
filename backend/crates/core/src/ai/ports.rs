@@ -207,6 +207,32 @@ impl LlmCallUsage {
     }
 }
 
+/// One cost component's accumulated usage **plus** how many billable calls
+/// produced it (issue #768).
+///
+/// The call count is tracked next to the counters instead of being inferred
+/// from them: a successful provider answer may report no usage metadata at all,
+/// so an all-zero [`LlmCallUsage`] is a recorded call with zero counters — not
+/// an absent one. Only `calls == 0` means "this component spent nothing", which
+/// is what keeps an unpriced Decision Model's component (and its honest
+/// `incomplete` total) from being dropped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageAccumulator {
+    /// Summed counters of every recorded call.
+    pub usage: LlmCallUsage,
+    /// Number of billable calls that produced `usage` (saturating).
+    pub calls: u32,
+}
+
+impl UsageAccumulator {
+    /// Record one call's usage: accumulate the counters and count the call,
+    /// whatever the counters say.
+    pub fn record(&mut self, usage: LlmCallUsage) {
+        self.usage.accumulate(usage);
+        self.calls = self.calls.saturating_add(1);
+    }
+}
+
 /// The parsed output of one LLM call plus its usage telemetry (design D3).
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmCallOutcome<T> {

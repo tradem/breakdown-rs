@@ -4,8 +4,9 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use super::{
-    cached_input_cost_nano, cap_energy_by_token, cost_breakdown, decision_cost_breakdown,
-    div_half_up_nonneg, energy_cost_raw_nano, token_cost_breakdown, token_cost_nano,
+    cached_input_cost_nano, cap_energy_by_token, cost_breakdown, cost_breakdown_unpriced,
+    decision_cost_breakdown, div_half_up_nonneg, energy_cost_raw_nano, token_cost_breakdown,
+    token_cost_nano,
 };
 use crate::ai::ports::{LlmCallUsage, LlmProvider};
 use crate::ai::views::{CostStatus, CostTotalStatus, Currency, ModelPricing, PricingSource};
@@ -429,10 +430,12 @@ fn total_without_any_component_is_unknown() {
 }
 
 #[test]
-fn decision_only_components_still_produce_a_known_total() {
+fn decision_only_component_never_claims_a_known_total() {
     // A job whose extraction row vanished from the read model but whose
-    // decision row is intact: the decision component is the only priced part,
-    // and it IS the total.
+    // decision row is intact: the extraction calls demonstrably ran (the
+    // Decision Model scored their output) but cannot be priced, so the total is
+    // `incomplete` — the priced decision figure alone is NOT "the total"
+    // (issue #768 review).
     let component = decision_cost_breakdown(
         LlmProvider::OpenCodeGo,
         "clef-flash",
@@ -445,9 +448,29 @@ fn decision_only_components_still_produce_a_known_total() {
         snapshot.decision.as_ref().map(|d| d.status),
         Some(CostStatus::Known)
     );
-    assert_eq!(snapshot.total.status, CostTotalStatus::Known);
-    assert_eq!(snapshot.total.total_nano, Some(1_462_500));
+    // The priced component stays visible with its own figure...
+    assert_eq!(
+        snapshot
+            .decision
+            .as_ref()
+            .and_then(|decision| decision.token_cost_nano),
+        Some(1_462_500)
+    );
+    // ...but it is not presented as the total.
+    assert_eq!(snapshot.total.status, CostTotalStatus::Incomplete);
+    assert_eq!(snapshot.total.total_nano, None);
     assert_eq!(snapshot.total.currency, Some(Currency::Usd));
+}
+
+#[test]
+fn unpriced_extraction_without_a_decision_component_stays_unknown() {
+    // The Ollama scenario: nothing priced at all, so the total is `unknown`
+    // (never a fabricated `incomplete` with a number, never `0`).
+    let snapshot = cost_breakdown_unpriced(None);
+    assert_eq!(snapshot.status, CostStatus::Unknown);
+    assert_eq!(snapshot.decision, None);
+    assert_eq!(snapshot.total.status, CostTotalStatus::Unknown);
+    assert_eq!(snapshot.total.total_nano, None);
 }
 
 #[test]

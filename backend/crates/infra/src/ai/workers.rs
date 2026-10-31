@@ -24,8 +24,8 @@ use breakdown_core::ai::{
     PlannedShootingDay, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
     ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
     UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind, category_conflict_uncertainties, character_mapping_ref, draft_row_ref,
-    ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
+    UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
+    draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
     parse_script_day, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
     verify_draft_outfits,
 };
@@ -508,7 +508,7 @@ where
         // `decision_usage` below, so each component is priced with the rate card
         // of the model that actually consumed it.
         let mut extraction_usage = LlmCallUsage::default();
-        let mut decision_usage = LlmCallUsage::default();
+        let mut decision_usage = UsageAccumulator::default();
         // Globally unique scene counter across all chunks — the tail of
         // `stable_draft_ref`, which needs a stable identity per preview row
         // that survives the model's own (hallucinated) `draft_ref`.
@@ -1022,15 +1022,22 @@ where
 /// no decision cost".
 type DecisionUsage = (breakdown_core::ai::LlmProvider, String, LlmCallUsage);
 
+/// The cost snapshot's Decision-Model input, or `None` when no call happened.
+///
+/// **The call count decides, not the counters** (issue #768): a provider answer
+/// may report no usage metadata at all, so an all-zero [`LlmCallUsage`] is a
+/// recorded call with zero counters. Dropping it would hide the component — and
+/// with it the honest `unknown`/`incomplete` verdict of an unpriced Decision
+/// Model — from a job that did spend on one.
 fn decision_cost_input(
     decision: Option<&DecisionResolution>,
-    usage: LlmCallUsage,
+    accumulated: UsageAccumulator,
 ) -> Option<DecisionUsage> {
-    if usage == LlmCallUsage::default() {
+    if accumulated.calls == 0 {
         return None;
     }
     let pass = decision.and_then(DecisionResolution::pass)?;
-    Some((pass.provider, pass.model.clone(), usage))
+    Some((pass.provider, pass.model.clone(), accumulated.usage))
 }
 
 /// Look up one `(provider, model)` pricing row, degrading a read-model outage to
@@ -1256,7 +1263,7 @@ where
         // path, which never invokes an LLM). Extraction component only — the
         // schedule scoring call feeds `decision_usage` (issue #768).
         let mut extraction_usage = LlmCallUsage::default();
-        let mut decision_usage = LlmCallUsage::default();
+        let mut decision_usage = UsageAccumulator::default();
         // Rows the schedule scoring request left unscored and whether that
         // request failed (issue #767); both stay empty on the native CSV path,
         // which never scores at all.

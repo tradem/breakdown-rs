@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionRequest, DraftCharacter,
     DraftOutfit, DraftOutfitOrigin, DraftPiece, DraftScene, LlmCallUsage, LlmProvider,
-    ScriptContext, UncertaintyKind, question_keys,
+    ScriptContext, UncertaintyKind, UsageAccumulator, question_keys,
 };
 use breakdown_core::error::DomainError;
 
@@ -130,7 +130,7 @@ async fn a_continuation_attaches_a_continued_from_scene_outfit() {
             ],
         })),
         &mut preview,
-        &mut LlmCallUsage::default(),
+        &mut UsageAccumulator::default(),
         || false,
     )
     .await;
@@ -165,7 +165,7 @@ async fn an_inference_attaches_a_context_look_and_a_review_entry() {
             ],
         })),
         &mut preview,
-        &mut LlmCallUsage::default(),
+        &mut UsageAccumulator::default(),
         || false,
     )
     .await;
@@ -194,7 +194,7 @@ async fn a_gap_answer_records_the_script_derivable_candidates_only() {
             ],
         })),
         &mut preview,
-        &mut LlmCallUsage::default(),
+        &mut UsageAccumulator::default(),
         || false,
     )
     .await;
@@ -222,7 +222,7 @@ async fn a_first_appearance_offers_no_candidates() {
             ],
         })),
         &mut preview,
-        &mut LlmCallUsage::default(),
+        &mut UsageAccumulator::default(),
         || false,
     )
     .await;
@@ -237,7 +237,7 @@ async fn a_decision_failure_leaves_the_preview_untouched() {
     let report = run_outfit_continuity_pass(
         &pass(Arc::new(FailingClient)),
         &mut preview,
-        &mut LlmCallUsage::default(),
+        &mut UsageAccumulator::default(),
         || false,
     )
     .await;
@@ -267,7 +267,7 @@ async fn a_lost_claim_stops_before_the_next_paid_request() {
             ],
         })),
         &mut preview,
-        &mut LlmCallUsage::default(),
+        &mut UsageAccumulator::default(),
         || true,
     )
     .await;
@@ -284,7 +284,7 @@ async fn a_preview_without_gaps_is_a_no_op() {
     let report = run_outfit_continuity_pass(
         &pass(Arc::new(FailingClient)),
         &mut preview,
-        &mut LlmCallUsage::default(),
+        &mut UsageAccumulator::default(),
         || false,
     )
     .await;
@@ -294,7 +294,7 @@ async fn a_preview_without_gaps_is_a_no_op() {
 #[tokio::test]
 async fn pass_two_telemetry_accumulates_into_the_job_usage() {
     let mut preview = continuous_preview();
-    let mut usage = LlmCallUsage::default();
+    let mut usage = UsageAccumulator::default();
     run_outfit_continuity_pass(
         &pass(Arc::new(ChoiceClient {
             distribution: vec![
@@ -308,6 +308,7 @@ async fn pass_two_telemetry_accumulates_into_the_job_usage() {
         || false,
     )
     .await;
-    assert_eq!(usage.tokens_in, 11);
-    assert_eq!(usage.energy_millijoules, 3);
+    assert_eq!(usage.usage.tokens_in, 11);
+    assert_eq!(usage.usage.energy_millijoules, 3);
+    assert_eq!(usage.calls, 1, "one recorded Decision-Model call");
 }
