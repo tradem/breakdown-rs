@@ -5469,9 +5469,12 @@ async fn scoring_receives_chunk_local_grounding_signals_and_honors_the_summary_c
             .contains_key(question_keys::CHARACTERS_COMPLETE)
     );
 
-    // Decision usage accumulates into the job telemetry: two chunk requests
-    // (11 input tokens / 5 mJ each) plus one Pass-2 continuity request per
-    // wardrobe gap the merged preview still carries.
+    // Decision usage accumulates into the job's DECISION component, never into
+    // the extraction counters (issue #768): two chunk requests (11 input tokens
+    // / 5 mJ each) plus one Pass-2 continuity request per wardrobe gap the
+    // merged preview still carries. The extraction client reports a default
+    // (zero) usage, so the extraction component is exactly 0 here — which is
+    // what makes the split visible at all.
     let continuity_calls = {
         let all = recorder.states.lock().unwrap();
         all.iter()
@@ -5480,9 +5483,19 @@ async fn scoring_receives_chunk_local_grounding_signals_and_honors_the_summary_c
     };
     let state = queue.state.lock().unwrap();
     let telemetry = state.telemetry.first().expect("telemetry recorded");
-    assert_eq!(telemetry.tokens_in, 22 + (continuity_calls as u64) * 11);
+    assert_eq!(telemetry.tokens_in, 0, "extraction component only");
+    assert_eq!(telemetry.energy_millijoules, 0);
+    let decision_component = telemetry
+        .cost
+        .as_ref()
+        .and_then(|cost| cost.decision.as_ref())
+        .expect("the decision component records the scoring usage");
     assert_eq!(
-        telemetry.energy_millijoules,
+        decision_component.tokens_in,
+        22 + (continuity_calls as u64) * 11
+    );
+    assert_eq!(
+        decision_component.energy_millijoules,
         10 + (continuity_calls as u64) * 5
     );
 
@@ -6255,4 +6268,363 @@ async fn a_continuity_selection_keeps_its_address_when_others_are_added() {
         .map(|scene| fixture.scenes.beats_of(*scene).len())
         .sum();
     assert_eq!(beats, 3, "one beat per scene: source, gap A, gap B");
+}
+
+// ===========================================================================
+// Per-component cost pricing (issue #768)
+// ===========================================================================
+
+/// Pricing read model with an explicit row set: `(provider, model)` →
+/// `ModelPricing`. The point of these tests is that a *second* row exists (and
+/// is consulted), which the API/infra fakes (all `pricing: null`) cannot show.
+#[derive(Clone, Default)]
+struct MapPricingRepo {
+    rows: Arc<Mutex<Vec<(LlmProvider, String, breakdown_core::ai::ModelPricing)>>>,
+}
+
+impl MapPricingRepo {
+    fn with_row(
+        self,
+        provider: LlmProvider,
+        model: &str,
+        pricing: breakdown_core::ai::ModelPricing,
+    ) -> Self {
+        self.rows
+            .lock()
+            .unwrap()
+            .push((provider, model.to_owned(), pricing));
+        self
+    }
+}
+
+#[async_trait]
+impl breakdown_core::ai::AiModelPricingRepository for MapPricingRepo {
+    async fn find_for_model(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<Option<breakdown_core::ai::ModelPricing>, DomainError> {
+        Ok(self
+            .rows
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(row_provider, row_model, _)| *row_provider == provider && row_model == model)
+            .map(|(_, _, pricing)| pricing.clone()))
+    }
+
+    async fn list_for_provider(
+        &self,
+        provider: LlmProvider,
+    ) -> Result<Vec<breakdown_core::ai::ModelPricingRow>, DomainError> {
+        Ok(self
+            .rows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(row_provider, _, _)| *row_provider == provider)
+            .map(
+                |(row_provider, row_model, pricing)| breakdown_core::ai::ModelPricingRow {
+                    provider: *row_provider,
+                    model: row_model.clone(),
+                    pricing: pricing.clone(),
+                },
+            )
+            .collect())
+    }
+
+    async fn upsert_batch(
+        &self,
+        _entries: Vec<breakdown_core::ai::ModelPricingRow>,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+}
+
+fn pricing_at(
+    input_nano_per_million: i64,
+    output_nano_per_million: i64,
+    energy_nano_per_kwh: i64,
+    source: breakdown_core::ai::PricingSource,
+) -> breakdown_core::ai::ModelPricing {
+    breakdown_core::ai::ModelPricing {
+        currency: breakdown_core::ai::Currency::Usd,
+        input_nano_per_million,
+        output_nano_per_million,
+        cached_input_nano_per_million: None,
+        energy_nano_per_kwh: Some(energy_nano_per_kwh),
+        energy_capped_by_token: true,
+        image_output_nano_per_million: None,
+        image_nano_per_unit: None,
+        pricing_source: source,
+        price_as_of: chrono::DateTime::from_timestamp(1_768_564_800, 0)
+            .expect("static valid timestamp"),
+    }
+}
+
+/// One chunk, one scene, no figures: the decision pass issues exactly ONE
+/// scoring request (no Pass-2 continuity gap exists without characters), so the
+/// two accumulators are exactly countable.
+#[derive(Clone, Default)]
+struct SingleChunkUsageClient;
+
+#[async_trait]
+impl LlmClient for SingleChunkUsageClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                title: Some("fixture".to_owned()),
+                scenes: vec![DraftScene {
+                    draft_ref: "chunk-1".to_owned(),
+                    scene_number: Some(1),
+                    mood: Some("I/T".into()),
+                    summary: Some("Ben repariert das Auto.".to_owned()),
+                    characters: Vec::new(),
+                    outfits: Vec::new(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            // The extraction component's usage (issue #675/#768).
+            LlmCallUsage {
+                tokens_in: 10_000,
+                tokens_out: 2_000,
+                cached_tokens_in: 0,
+                energy_millijoules: 18_000,
+            },
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Err(DomainError::validation(
+            "SingleChunkUsageClient only extracts scripts",
+        ))
+    }
+}
+
+fn cost_worker(
+    queue: Arc<FakeQueue>,
+    previews: Arc<MemoryAiPreviewStore>,
+    pricing: Arc<dyn breakdown_core::ai::AiModelPricingRepository>,
+    decision: Option<super::DecisionResolution>,
+) -> ScriptImportWorker<FakeQueue, SingleChunkUsageClient> {
+    ScriptImportWorker {
+        queue,
+        client: Arc::new(SingleChunkUsageClient),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds::default(),
+        pricing: Some(pricing),
+        decision,
+    }
+}
+
+/// The extraction rate card and the Decision Model's own rate card are
+/// deliberately different, and the Decision Model sits on a DIFFERENT provider:
+/// the exact configuration issue #768 reports as mispriced.
+fn mixed_provider_pricing() -> Arc<MapPricingRepo> {
+    Arc::new(
+        MapPricingRepo::default()
+            // Extraction: Neuralwatt `deepseek-v4-flash`.
+            .with_row(
+                LlmProvider::Neuralwatt,
+                "deepseek-v4-flash",
+                pricing_at(
+                    1_000_000_000,  // $1.00 / 1M in
+                    2_000_000_000,  // $2.00 / 1M out
+                    10_000_000_000, // $10.00 / kWh
+                    breakdown_core::ai::PricingSource::CuratedSeed,
+                ),
+            )
+            // Decision: EURouter `clef-flash`, its own (cheaper) card.
+            .with_row(
+                LlmProvider::EURouter,
+                "clef-flash",
+                pricing_at(
+                    292_500_000,   // $0.2925 / 1M in
+                    1_170_000_000, // $1.17 / 1M out
+                    2_000_000_000, // $2.00 / kWh
+                    breakdown_core::ai::PricingSource::ProviderLive,
+                ),
+            ),
+    )
+}
+
+fn decision_pass(provider: LlmProvider, model: &str) -> super::DecisionResolution {
+    super::DecisionResolution::Available(Arc::new(super::DecisionPass {
+        client: Arc::new(RecordingDecisionClient::default()),
+        provider,
+        model: model.to_owned(),
+    }))
+}
+
+fn the_only_telemetry(queue: &FakeQueue) -> Telemetry {
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.telemetry.len(), 1, "one completion telemetry write");
+    state.telemetry[0].clone()
+}
+
+#[tokio::test]
+async fn a_decision_model_on_its_own_rate_card_is_priced_separately() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = cost_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        mixed_provider_pricing(),
+        Some(decision_pass(LlmProvider::EURouter, "clef-flash")),
+    );
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    // The recorded telemetry is the EXTRACTION component only (issue #768): the
+    // decision tokens are not folded in.
+    assert_eq!(telemetry.tokens_in, 10_000);
+    assert_eq!(telemetry.tokens_out, 2_000);
+    assert_eq!(telemetry.energy_millijoules, 18_000);
+
+    let cost = telemetry.cost.expect("cost snapshot recorded");
+
+    // Extraction component: its own usage, its own rates.
+    let token = cost.token_cost.as_ref().expect("extraction token cost");
+    assert_eq!(token.tokens_in, 10_000);
+    assert_eq!(token.tokens_out, 2_000);
+    assert_eq!(token.input_rate_nano_per_million, 1_000_000_000);
+    assert_eq!(token.output_rate_nano_per_million, 2_000_000_000);
+    // 10_000 × $1/1M = 10_000_000 nano; 2_000 × $2/1M = 4_000_000 nano.
+    assert_eq!(token.total_nano, 14_000_000);
+    let energy = cost.energy_cost.as_ref().expect("extraction energy cost");
+    // 18_000 mJ × $10/kWh = 50_000 nano, uncapped.
+    assert_eq!(energy.effective_capped_nano, 50_000);
+
+    // Decision component: ONE scoring request (11 in, 5 mJ) priced with
+    // EURouter/clef-flash rates, never the extraction rates.
+    let decision = cost.decision.as_ref().expect("decision component present");
+    assert_eq!(decision.provider, LlmProvider::EURouter);
+    assert_eq!(decision.model, "clef-flash");
+    assert_eq!(decision.status, breakdown_core::ai::CostStatus::Known);
+    assert_eq!(decision.tokens_in, 11);
+    assert_eq!(decision.tokens_out, 0);
+    assert_eq!(decision.energy_millijoules, 5);
+    assert_eq!(decision.input_rate_nano_per_million, Some(292_500_000));
+    assert_eq!(decision.output_rate_nano_per_million, Some(1_170_000_000));
+    assert_eq!(decision.currency, Some(breakdown_core::ai::Currency::Usd));
+    assert_eq!(
+        decision.pricing_source,
+        Some(breakdown_core::ai::PricingSource::ProviderLive)
+    );
+    // 11 × $0.2925/1M = 3_217.5 -> half-up 3_218 nano (an extraction-rate
+    // substitution would have produced 11_000 nano).
+    assert_eq!(decision.token_cost_nano, Some(3_218));
+    // 5 mJ × $2/kWh = 2.77 -> 3 nano (extraction rate would give 14).
+    assert_eq!(decision.energy_cost_nano, Some(3));
+
+    // The total is the sum the user pays, in one currency.
+    assert_eq!(
+        cost.total.status,
+        breakdown_core::ai::CostTotalStatus::Known
+    );
+    assert_eq!(cost.total.currency, Some(breakdown_core::ai::Currency::Usd));
+    assert_eq!(cost.total.total_nano, Some(14_050_000 + 3_221));
+}
+
+#[tokio::test]
+async fn an_unpriced_decision_model_degrades_only_its_own_component() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // The extraction row exists; the decision model has no row at all.
+    let pricing = Arc::new(MapPricingRepo::default().with_row(
+        LlmProvider::Neuralwatt,
+        "deepseek-v4-flash",
+        pricing_at(
+            1_000_000_000,
+            2_000_000_000,
+            10_000_000_000,
+            breakdown_core::ai::PricingSource::CuratedSeed,
+        ),
+    ));
+    let worker = cost_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        pricing,
+        Some(decision_pass(LlmProvider::Ollama, "unpriced-local")),
+    );
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let cost = the_only_telemetry(&queue).cost.expect("cost snapshot");
+    // The extraction component is untouched.
+    assert_eq!(cost.status, breakdown_core::ai::CostStatus::Known);
+    assert_eq!(
+        cost.token_cost.as_ref().map(|token| token.total_nano),
+        Some(14_000_000)
+    );
+    // The decision component states its usage and refuses a rate.
+    let decision = cost.decision.as_ref().expect("decision component present");
+    assert_eq!(decision.status, breakdown_core::ai::CostStatus::Unknown);
+    assert_eq!(decision.tokens_in, 11, "usage kept");
+    assert_eq!(decision.input_rate_nano_per_million, None);
+    assert_eq!(decision.token_cost_nano, None, "never a fabricated 0");
+    assert_eq!(decision.energy_cost_nano, None);
+    // And the total refuses a partial sum.
+    assert_eq!(
+        cost.total.status,
+        breakdown_core::ai::CostTotalStatus::Incomplete
+    );
+    assert_eq!(cost.total.total_nano, None);
+}
+
+#[tokio::test]
+async fn a_job_without_a_decision_pass_records_no_decision_component() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = cost_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        mixed_provider_pricing(),
+        None,
+    );
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let cost = the_only_telemetry(&queue).cost.expect("cost snapshot");
+    assert!(cost.decision.is_none(), "no pass, no component");
+    assert_eq!(
+        cost.total.status,
+        breakdown_core::ai::CostTotalStatus::Known
+    );
+    // Extraction-only jobs keep the pre-#768 meaning: the total is the
+    // extraction component.
+    assert_eq!(cost.total.total_nano, Some(14_000_000 + 50_000));
 }

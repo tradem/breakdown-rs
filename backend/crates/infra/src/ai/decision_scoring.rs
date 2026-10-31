@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 
 use breakdown_core::ai::{
     DecisionClient, DecisionQuestion, DecisionRequest, DecisionRubric, DraftScene,
-    DraftShootingDay, LlmCallUsage, compute_scene_score, compute_shooting_day_score,
+    DraftShootingDay, UsageAccumulator, compute_scene_score, compute_shooting_day_score,
     compute_synopsis_score, question_keys, scene_grounding_factor,
 };
 use breakdown_core::error::DomainError;
@@ -209,7 +209,10 @@ pub async fn score_script_chunk(
     sanitized: &[bool],
     dropped_costumes: &[usize],
     open_ambiguities: &[usize],
-    usage: &mut LlmCallUsage,
+    // The Decision Model's own accumulator (issue #768): it counts the calls as
+    // well as their usage, so a 2xx answer that reports no usage is still a
+    // recorded Decision-Model call.
+    usage: &mut UsageAccumulator,
 ) -> ScoringReport {
     if scenes.is_empty() {
         return ScoringReport::SCORED;
@@ -276,7 +279,7 @@ pub async fn score_script_chunk(
             };
         }
     };
-    usage.accumulate(outcome.usage);
+    usage.record(outcome.usage);
     let answers = outcome.answers;
     let resolved = ChunkAnswers {
         characters_complete: noul_p(&answers, question_keys::CHARACTERS_COMPLETE),
@@ -387,7 +390,7 @@ pub async fn score_script_chunk(
 pub async fn score_schedule_rows(
     pass: &DecisionPass,
     rows: &mut [breakdown_core::ai::ShootingScheduleRow],
-    usage: &mut LlmCallUsage,
+    usage: &mut UsageAccumulator,
 ) -> ScoringReport {
     if rows.is_empty() {
         return ScoringReport::SCORED;
@@ -450,7 +453,7 @@ pub async fn score_schedule_rows(
             };
         }
     };
-    usage.accumulate(outcome.usage);
+    usage.record(outcome.usage);
     let consistency = outcome
         .answers
         .get(question_keys::DAY_ASSIGNMENT_CONSISTENT)
@@ -481,7 +484,7 @@ pub async fn score_schedule_rows(
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use breakdown_core::ai::{DecisionAnswer, DecisionCallOutcome, LlmCallUsage};
+    use breakdown_core::ai::{DecisionAnswer, DecisionCallOutcome, LlmCallUsage, UsageAccumulator};
     use std::sync::Arc;
 
     struct FailingClient;
@@ -580,7 +583,7 @@ mod tests {
         // untouched, every score honestly `None`, and a `scoring_failed`
         // rubric as the telemetry signal.
         let mut scenes = vec![scene("s1"), scene("s2")];
-        let mut usage = LlmCallUsage::default();
+        let mut usage = UsageAccumulator::default();
         score_script_chunk(
             &pass(Arc::new(FailingClient)),
             "1 I/T - OP",
@@ -614,13 +617,14 @@ mod tests {
             Some(breakdown_core::ai::LlmProvider::Neuralwatt)
         );
         // No usage: the failed call consumed nothing.
-        assert_eq!(usage.tokens_in, 0);
+        assert_eq!(usage.usage.tokens_in, 0);
+        assert_eq!(usage.calls, 0, "a failed call recorded nothing");
     }
 
     #[tokio::test]
     async fn a_successful_pass_scores_every_dimension() {
         let mut scenes = vec![scene("s1")];
-        let mut usage = LlmCallUsage::default();
+        let mut usage = UsageAccumulator::default();
         score_script_chunk(
             &pass(Arc::new(OkClient)),
             "1 I/T - OP",
@@ -652,8 +656,9 @@ mod tests {
         assert_eq!(rubric.sub_scores.len(), 7);
         assert_eq!(rubric.grounding_factor, Some(0.9));
         // Usage accumulated (input tokens + energy).
-        assert_eq!(usage.tokens_in, 42);
-        assert_eq!(usage.energy_millijoules, 7);
+        assert_eq!(usage.usage.tokens_in, 42);
+        assert_eq!(usage.usage.energy_millijoules, 7);
+        assert_eq!(usage.calls, 1, "the answered call is counted");
     }
 
     #[tokio::test]
@@ -680,12 +685,12 @@ mod tests {
                 shooting_day_score: None,
             },
         ];
-        let mut usage = LlmCallUsage::default();
+        let mut usage = UsageAccumulator::default();
         let report = score_schedule_rows(&pass(Arc::new(OkClient)), &mut rows, &mut usage).await;
         assert!(rows[0].shooting_day_score.is_some());
         // A row without a day label has no assignment to score — honest None.
         assert!(rows[1].shooting_day_score.is_none());
-        assert_eq!(usage.tokens_in, 42);
+        assert_eq!(usage.usage.tokens_in, 42);
         // The answered pass left nothing unscored (issue #767): the unlabelled
         // row was never in scope, so it is not a failure count.
         assert_eq!(report, ScoringReport::SCORED);
@@ -712,7 +717,7 @@ mod tests {
         // for a request that never answered. The failure signal is independent
         // of the row count.
         let mut rows = vec![schedule_row("r1", None), schedule_row("r2", None)];
-        let mut usage = LlmCallUsage::default();
+        let mut usage = UsageAccumulator::default();
         let report =
             score_schedule_rows(&pass(Arc::new(FailingClient)), &mut rows, &mut usage).await;
         assert!(report.request_failed, "the request did not answer");
@@ -727,7 +732,7 @@ mod tests {
     #[tokio::test]
     async fn a_failed_schedule_request_counts_its_labelled_rows() {
         let mut rows = vec![schedule_row("r1", Some("Tag 1")), schedule_row("r2", None)];
-        let mut usage = LlmCallUsage::default();
+        let mut usage = UsageAccumulator::default();
         let report =
             score_schedule_rows(&pass(Arc::new(FailingClient)), &mut rows, &mut usage).await;
         assert!(report.request_failed);
@@ -743,7 +748,7 @@ mod tests {
             schedule_row("r1", Some("Tag 1")),
             schedule_row("r2", Some("Tag 2")),
         ];
-        let mut usage = LlmCallUsage::default();
+        let mut usage = UsageAccumulator::default();
         let report =
             score_schedule_rows(&pass(Arc::new(SilentClient)), &mut rows, &mut usage).await;
         assert!(!report.request_failed, "the endpoint answered");
@@ -752,7 +757,7 @@ mod tests {
         assert!(rows.iter().all(|row| row.shooting_day_score.is_none()));
         // The answered call still billed its usage: the count reports the
         // missing SCORE, never a phantom failed request.
-        assert_eq!(usage.tokens_in, 42);
+        assert_eq!(usage.usage.tokens_in, 42);
     }
 
     #[test]

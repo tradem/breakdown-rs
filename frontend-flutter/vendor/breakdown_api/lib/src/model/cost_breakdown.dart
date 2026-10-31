@@ -8,9 +8,11 @@
 import 'package:breakdown_api/src/model/pricing_source.dart';
 import 'package:breakdown_api/src/model/currency.dart';
 import 'package:breakdown_api/src/model/token_cost_breakdown.dart';
+import 'package:breakdown_api/src/model/decision_cost_breakdown.dart';
 import 'package:breakdown_api/src/model/cost_status.dart';
 import 'package:breakdown_api/src/model/image_cost_breakdown.dart';
 import 'package:breakdown_api/src/model/energy_cost_breakdown.dart';
+import 'package:breakdown_api/src/model/cost_total.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -20,12 +22,14 @@ part 'cost_breakdown.g.dart';
 ///
 /// Properties:
 /// * [currency] - Present only for `Known` snapshots.
+/// * [decision] - The **Decision-Model** component (issue #768): `Some` iff the job issued at least one Decision-Model call, so its usage is not lost and its rates are visibly its own. Additive — `None` on every pre-#768 snapshot and on every job that ran no scoring pass.
 /// * [energyCost]
 /// * [imageCost]
 /// * [priceAsOf] - Price snapshot timestamp of the pricing row used for computation.
 /// * [pricingSource]
 /// * [status]
 /// * [tokenCost]
+/// * [total] - The figure the user pays, summed over the priced components (issue #768). Additive with `serde(default)`: a pre-#768 snapshot reports `status = \"unknown\"` and carries no total rather than a guessed sum.
 @BuiltValue()
 abstract class CostBreakdown
     implements Built<CostBreakdown, CostBreakdownBuilder> {
@@ -33,6 +37,10 @@ abstract class CostBreakdown
   @BuiltValueField(wireName: r'currency')
   Currency? get currency;
   // enum currencyEnum {  USD,  EUR,  };
+
+  /// The **Decision-Model** component (issue #768): `Some` iff the job issued at least one Decision-Model call, so its usage is not lost and its rates are visibly its own. Additive — `None` on every pre-#768 snapshot and on every job that ran no scoring pass.
+  @BuiltValueField(wireName: r'decision')
+  DecisionCostBreakdown? get decision;
 
   @BuiltValueField(wireName: r'energy_cost')
   EnergyCostBreakdown? get energyCost;
@@ -54,6 +62,10 @@ abstract class CostBreakdown
 
   @BuiltValueField(wireName: r'token_cost')
   TokenCostBreakdown? get tokenCost;
+
+  /// The figure the user pays, summed over the priced components (issue #768). Additive with `serde(default)`: a pre-#768 snapshot reports `status = \"unknown\"` and carries no total rather than a guessed sum.
+  @BuiltValueField(wireName: r'total')
+  CostTotal? get total;
 
   CostBreakdown._();
 
@@ -85,6 +97,13 @@ class _$CostBreakdownSerializer implements PrimitiveSerializer<CostBreakdown> {
       yield serializers.serialize(
         object.currency,
         specifiedType: const FullType.nullable(Currency),
+      );
+    }
+    if (object.decision != null) {
+      yield r'decision';
+      yield serializers.serialize(
+        object.decision,
+        specifiedType: const FullType.nullable(DecisionCostBreakdown),
       );
     }
     if (object.energyCost != null) {
@@ -127,6 +146,13 @@ class _$CostBreakdownSerializer implements PrimitiveSerializer<CostBreakdown> {
         specifiedType: const FullType.nullable(TokenCostBreakdown),
       );
     }
+    if (object.total != null) {
+      yield r'total';
+      yield serializers.serialize(
+        object.total,
+        specifiedType: const FullType(CostTotal),
+      );
+    }
   }
 
   @override
@@ -159,6 +185,14 @@ class _$CostBreakdownSerializer implements PrimitiveSerializer<CostBreakdown> {
           ) as Currency?;
           if (valueDes == null) continue;
           result.currency = valueDes;
+          break;
+        case r'decision':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DecisionCostBreakdown),
+          ) as DecisionCostBreakdown?;
+          if (valueDes == null) continue;
+          result.decision.replace(valueDes);
           break;
         case r'energy_cost':
           final valueDes = serializers.deserialize(
@@ -206,6 +240,14 @@ class _$CostBreakdownSerializer implements PrimitiveSerializer<CostBreakdown> {
           ) as TokenCostBreakdown?;
           if (valueDes == null) continue;
           result.tokenCost.replace(valueDes);
+          break;
+        case r'total':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(CostTotal),
+          ) as CostTotal?;
+          if (valueDes == null) continue;
+          result.total.replace(valueDes);
           break;
         default:
           unhandled.add(key);

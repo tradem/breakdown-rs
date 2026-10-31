@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Pure integer nano-currency cost calculations (issue #675).
 //!
@@ -14,8 +15,10 @@
 //! Every function is pure and deterministic so workers, tests, and future
 //! callers compute byte-identical snapshots.
 
+use super::ports::{LlmCallUsage, LlmProvider};
 use super::views::{
-    CostBreakdown, CostStatus, EnergyCostBreakdown, ModelPricing, TokenCostBreakdown,
+    CostBreakdown, CostStatus, CostTotal, CostTotalStatus, Currency, DecisionCostBreakdown,
+    EnergyCostBreakdown, ImageCostBreakdown, ModelPricing, TokenCostBreakdown,
 };
 
 /// Nano-units per currency major unit (`1_000_000_000` nano = 1.00).
@@ -130,9 +133,236 @@ pub fn token_cost_breakdown(
     }
 }
 
+/// One priced component's contribution to the total (issue #768).
+///
+/// `None` = the component was recorded but could not be priced; `Some(0)` is a
+/// legitimate, fully priced zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ComponentFigure {
+    currency: Currency,
+    total_nano: i64,
+}
+
+/// The sum of a component's token, energy and image figures. The energy figure
+/// is the **effective** (possibly token-capped) one — the cost that counts.
+fn component_figure(
+    currency: Currency,
+    token: Option<&TokenCostBreakdown>,
+    energy: Option<&EnergyCostBreakdown>,
+    image: Option<&ImageCostBreakdown>,
+) -> ComponentFigure {
+    let nano = i128::from(token.map_or(0, |t| t.total_nano))
+        + i128::from(energy.map_or(0, |e| e.effective_capped_nano))
+        + i128::from(image.map_or(0, |i| i.total_nano));
+    ComponentFigure {
+        currency,
+        total_nano: nano.clamp(0, i64::MAX as i128) as i64,
+    }
+}
+
+/// Fold the priced components into the figure the user pays (issue #768).
+///
+/// Honesty rules, in order:
+/// - nothing recorded was priced → [`CostTotalStatus::Unknown`];
+/// - a recorded component is unpriced → [`CostTotalStatus::Incomplete`] with no
+///   number (a partial sum presented as "the total" would under-report);
+/// - the components' rate cards disagree on the currency → design D2 forbids a
+///   conversion, so [`CostTotalStatus::MixedCurrency`] with no number;
+/// - otherwise [`CostTotalStatus::Known`] with the sum.
+#[must_use]
+fn fold_total(
+    extraction: Option<(CostStatus, Option<ComponentFigure>)>,
+    decision: Option<&DecisionCostBreakdown>,
+) -> CostTotal {
+    let extraction_figure = extraction.and_then(|(status, figure)| {
+        if status == CostStatus::Known {
+            figure
+        } else {
+            None
+        }
+    });
+    let extraction_recorded = extraction.is_some();
+    let decision_recorded = decision.is_some();
+    if !extraction_recorded && !decision_recorded {
+        return CostTotal::default();
+    }
+
+    let decision_figure = decision.and_then(|component| {
+        match (
+            component.status,
+            component.currency,
+            component.token_cost_nano,
+            component.energy_cost_nano,
+        ) {
+            // `Known` without a token figure would be a broken snapshot; treating
+            // it as unpriced keeps the total honest instead of summing a hole.
+            (CostStatus::Known, Some(currency), Some(token), energy) => {
+                let nano = i128::from(token) + i128::from(energy.unwrap_or(0));
+                Some(ComponentFigure {
+                    currency,
+                    total_nano: nano.clamp(0, i64::MAX as i128) as i64,
+                })
+            }
+            _ => None,
+        }
+    });
+
+    match (
+        extraction_recorded,
+        extraction_figure,
+        decision_recorded,
+        decision_figure,
+    ) {
+        // A recorded component that could not be priced makes the total
+        // incomplete — never a sum of the parts that happened to work.
+        (true, None, _, _) | (_, _, true, None) => CostTotal {
+            status: CostTotalStatus::Incomplete,
+            currency: extraction_figure
+                .map(|figure| figure.currency)
+                .or_else(|| decision.and_then(|component| component.currency)),
+            total_nano: None,
+        },
+        (_, Some(extraction), false, _) => CostTotal {
+            status: CostTotalStatus::Known,
+            currency: Some(extraction.currency),
+            total_nano: Some(extraction.total_nano),
+        },
+        (false, _, _, Some(decision)) => CostTotal {
+            status: CostTotalStatus::Known,
+            currency: Some(decision.currency),
+            total_nano: Some(decision.total_nano),
+        },
+        (_, Some(extraction), true, Some(decision)) => {
+            if extraction.currency != decision.currency {
+                return CostTotal {
+                    status: CostTotalStatus::MixedCurrency,
+                    currency: None,
+                    total_nano: None,
+                };
+            }
+            let nano = i128::from(extraction.total_nano) + i128::from(decision.total_nano);
+            CostTotal {
+                status: CostTotalStatus::Known,
+                currency: Some(extraction.currency),
+                total_nano: Some(nano.clamp(0, i64::MAX as i128) as i64),
+            }
+        }
+        // Unreachable by construction (the two catch-alls above cover every
+        // remaining arm), but written as the honest alternative rather than an
+        // `unreachable!()` (AGENTS.md §3).
+        (_, None, false, None) => CostTotal::default(),
+    }
+}
+
+/// Compute the **Decision-Model** component of a job's cost snapshot (issue
+/// #768): its own usage, its own rate card, its own currency.
+///
+/// `pricing` is the `ai_model_pricing` row of the **Decision Model** — never
+/// the extraction model's. A missing row (or a provider that does not bill) is
+/// the honest unknown: `status = Unknown` with every priced field `None`, the
+/// usage counts kept, and **no** fallback to the extraction rate.
+#[must_use]
+pub fn decision_cost_breakdown(
+    provider: LlmProvider,
+    model: &str,
+    usage: LlmCallUsage,
+    pricing: Option<&ModelPricing>,
+) -> DecisionCostBreakdown {
+    let unpriced = |status: CostStatus| DecisionCostBreakdown {
+        provider,
+        model: model.to_owned(),
+        status,
+        tokens_in: usage.tokens_in,
+        tokens_out: usage.tokens_out,
+        cached_tokens_in: usage.cached_tokens_in,
+        energy_millijoules: usage.energy_millijoules,
+        currency: None,
+        price_as_of: None,
+        pricing_source: None,
+        input_rate_nano_per_million: None,
+        output_rate_nano_per_million: None,
+        cached_input_rate_nano_per_million: None,
+        energy_rate_nano_per_kwh: None,
+        token_cost_nano: None,
+        energy_cost_nano: None,
+    };
+
+    let Some(pricing) = pricing else {
+        return unpriced(CostStatus::Unknown);
+    };
+
+    let token = token_cost_breakdown(
+        usage.tokens_in,
+        usage.tokens_out,
+        usage.cached_tokens_in,
+        pricing,
+    );
+    // The energy cap pairs a provider's energy rate with *its own* token cost —
+    // the reason the two components must never share an accumulator.
+    let (energy_rate, energy_cost_nano) = match pricing.energy_nano_per_kwh {
+        Some(rate) if usage.energy_millijoules > 0 => {
+            let raw = energy_cost_raw_nano(usage.energy_millijoules, rate);
+            let (effective, _capped) = if pricing.energy_capped_by_token {
+                cap_energy_by_token(raw, token.total_nano)
+            } else {
+                (raw, false)
+            };
+            (Some(rate), Some(effective))
+        }
+        rate => (rate, None),
+    };
+
+    DecisionCostBreakdown {
+        provider,
+        model: model.to_owned(),
+        status: CostStatus::Known,
+        tokens_in: usage.tokens_in,
+        tokens_out: usage.tokens_out,
+        cached_tokens_in: usage.cached_tokens_in,
+        energy_millijoules: usage.energy_millijoules,
+        currency: Some(pricing.currency),
+        price_as_of: Some(pricing.price_as_of),
+        pricing_source: Some(pricing.pricing_source),
+        input_rate_nano_per_million: Some(pricing.input_nano_per_million),
+        output_rate_nano_per_million: Some(pricing.output_nano_per_million),
+        cached_input_rate_nano_per_million: pricing.cached_input_nano_per_million,
+        energy_rate_nano_per_kwh: energy_rate,
+        token_cost_nano: Some(token.total_nano),
+        energy_cost_nano,
+    }
+}
+
+/// Snapshot for a job whose **extraction** `(provider, model)` could not be
+/// priced, with the Decision-Model component attached when it could be priced on
+/// its own (issue #768).
+///
+/// The snapshot `status` stays [`CostStatus::Unknown`] — it describes the
+/// extraction component — while the decision component carries its own status.
+///
+/// Once a decision component exists, the extraction calls are known to have run
+/// (they are what the Decision Model scored), so the extraction is *recorded but
+/// unpriced* and the total degrades to [`CostTotalStatus::Incomplete`] with no
+/// number: presenting the decision figure alone as "the total" would under-report
+/// what the user pays. A job with no decision component keeps the pre-#768
+/// meaning — nothing priced, [`CostTotalStatus::Unknown`].
+#[must_use]
+pub fn cost_breakdown_unpriced(decision: Option<DecisionCostBreakdown>) -> CostBreakdown {
+    let extraction = decision
+        .as_ref()
+        .map(|_| (CostStatus::Unknown, None::<ComponentFigure>));
+    CostBreakdown {
+        decision: decision.clone(),
+        total: fold_total(extraction, decision.as_ref()),
+        ..CostBreakdown::unknown()
+    }
+}
+
 /// Compute the full [`CostBreakdown`] snapshot for a completed job (design
-/// D3/D4). `pricing` is the `ai_model_pricing` row active at completion;
-/// `None` yields [`CostStatus::Unknown`] (never zero-filled).
+/// D3/D4). `pricing` is the **extraction** model's `ai_model_pricing` row active
+/// at completion; `None` yields [`CostStatus::Unknown`] (never zero-filled).
+/// `decision` is the already-priced Decision-Model component (issue #768) —
+/// `Some` only when the job issued a Decision-Model call — and contributes to
+/// [`CostBreakdown::total`] with **its own** already-computed figure.
 #[must_use]
 pub fn cost_breakdown(
     tokens_in: u64,
@@ -140,9 +370,10 @@ pub fn cost_breakdown(
     cached_tokens_in: u64,
     energy_millijoules: u64,
     pricing: Option<&ModelPricing>,
+    decision: Option<DecisionCostBreakdown>,
 ) -> CostBreakdown {
     let Some(pricing) = pricing else {
-        return CostBreakdown::unknown();
+        return cost_breakdown_unpriced(decision);
     };
 
     let token_cost = token_cost_breakdown(tokens_in, tokens_out, cached_tokens_in, pricing);
@@ -166,6 +397,19 @@ pub fn cost_breakdown(
         _ => None,
     };
 
+    let total = fold_total(
+        Some((
+            CostStatus::Known,
+            Some(component_figure(
+                pricing.currency,
+                Some(&token_cost),
+                energy_cost.as_ref(),
+                None,
+            )),
+        )),
+        decision.as_ref(),
+    );
+
     CostBreakdown {
         status: CostStatus::Known,
         currency: Some(pricing.currency),
@@ -174,6 +418,8 @@ pub fn cost_breakdown(
         token_cost: Some(token_cost),
         energy_cost,
         image_cost: None,
+        decision,
+        total,
     }
 }
 

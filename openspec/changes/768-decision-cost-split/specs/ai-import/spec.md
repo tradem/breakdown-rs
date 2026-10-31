@@ -1,0 +1,98 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
+
+# ai-import Delta (768-decision-cost-split)
+
+## MODIFIED Requirements
+
+### Requirement: Per-import immutable cost breakdown snapshot in integer nano-units
+At job completion (immediately before `mark_succeeded`), the import worker
+SHALL compute an immutable `CostBreakdown` snapshot from the job's accumulated
+telemetry and the current `ai_import.ai_model_pricing` rows and persist it in
+`ai_import.ai_import_job.cost` (`JSONB`). All cost math SHALL use integer
+arithmetic (`i64` / `i128`, no floats).
+
+Usage SHALL be accumulated **per component**, and each component SHALL be
+priced with the rate card of the model that actually consumed it:
+
+- the **extraction** component is the job's extraction provider/model usage
+  (`Telemetry.tokens_in` / `tokens_out` / `cached_tokens_in` /
+  `energy_millijoules` SHALL describe this component only), priced from the
+  `(provider, model)` row of the job's extraction model;
+- the **decision** component is the usage of the optional Decision Model
+  scoring pass (script chunk scoring, schedule scoring and the Pass-2 outfit
+  continuity pass), priced from the `(provider, model)` row of the **resolved
+  Decision Model** — never from the extraction model's row.
+
+`CostBreakdown` SHALL carry:
+- `status: CostStatus` (`"known"`, `"unknown"`, or `"not_applicable"`),
+- `currency: Option<Currency>` (`"USD"` or `"EUR"` when `status == "known"`),
+- `price_as_of: Option<DateTime<Utc>>`,
+- `pricing_source: Option<PricingSource>`,
+- `token_cost: Option<TokenCostBreakdown>` (`tokens_in`, `tokens_out`, `cached_tokens_in`, `input_rate_nano_per_million`, `output_rate_nano_per_million`, `cached_input_rate_nano_per_million`, `total_nano`) — the **extraction** component,
+- `energy_cost: Option<EnergyCostBreakdown>` (populated when both hardware energy telemetry and `energy_nano_per_kwh` exist: `energy_millijoules`, `rate_nano_per_kwh`, `raw_energy_nano`, `effective_capped_nano`, `capped_by_token_cost`) — the **extraction** component,
+- `image_cost: Option<ImageCostBreakdown>` (kind-tagged extensibility slot for #673 per-image / image-token costs),
+- `decision: Option<DecisionCostBreakdown>` — the **decision** component, present
+  iff the job issued at least one Decision-Model call, carrying `provider`,
+  `model`, `status` (`"known"` or `"unknown"`), that component's own
+  `tokens_in` / `tokens_out` / `cached_tokens_in` / `energy_millijoules`, its own
+  `currency` / `price_as_of` / `pricing_source` snapshot, its own
+  `input_rate_nano_per_million` / `output_rate_nano_per_million` /
+  `cached_input_rate_nano_per_million` / `energy_rate_nano_per_kwh`, and the
+  priced `token_cost_nano` / `energy_cost_nano`; and
+- `total: CostTotal` (`status: CostTotalStatus`, `currency`, `total_nano`) — the
+  figure the user pays, which SHALL only be a number when it is honest:
+  `"known"` (every recorded component priced in one currency, `total_nano` is
+  their sum), `"incomplete"` (a recorded component has no pricing row, so
+  `total_nano` is `null` and the priced parts stay visible), `"mixed_currency"`
+  (the components are priced in different currencies; no conversion exists per
+  design D2, so `total_nano` is `null`), or `"unknown"` (nothing priced, and the
+  `serde(default)` value for snapshots recorded before this field existed).
+
+A missing pricing row for a component SHALL degrade **only that component** to
+an explicit unknown — never `0`, never a substituted rate. The snapshot SHALL
+be exposed on `AiImportJob` in `GET /v1/ai-import/jobs`,
+`GET /v1/ai-import/jobs/{id}`, and the SSE `event: job` frames of
+`GET /v1/ai-import/jobs/{id}/events`. Subsequent changes to
+`ai_import.ai_model_pricing` SHALL NOT mutate the persisted `cost` snapshot of
+already-completed jobs.
+
+#### Scenario: Neuralwatt import records both token and energy cost snapshots
+- **WHEN** a Neuralwatt script import completes with `tokens_in = 10000`, `tokens_out = 2000`, `energy_millijoules = 18000` (5 µkWh), and model pricing of `$1.45 / 1M` in, `$4.50 / 1M` out, `$10.00 / kWh` energy
+- **THEN** the persisted `job.cost` has `status = "known"`, `token_cost.total_nano = 23500000` (`$0.0235`), `energy_cost.raw_energy_nano = 50000` (`$0.00005`) with `effective_capped_nano = 50000` and `capped_by_token_cost = false`
+- **AND** `total.status = "known"` with `total.total_nano = 23550000` and `total.currency = "USD"`
+- **AND** the terminal `succeeded` SSE frame on `GET /v1/ai-import/jobs/{id}/events` includes `job.cost`
+
+#### Scenario: Ollama import records unknown cost status and never zero
+- **WHEN** an Ollama script import completes with `tokens_in = 8000` and `tokens_out = 1500`
+- **THEN** the persisted `job.cost` has `status = "unknown"`, `token_cost = null`, and `energy_cost = null`
+- **AND** `total.status = "unknown"` and `total.total_nano = null`
+- **AND** the job still records `tokens_in = 8000` and `tokens_out = 1500` in its telemetry
+
+#### Scenario: Native CSV schedule import records not_applicable cost status
+- **WHEN** a CSV schedule import completes via the native parser without invoking an LLM
+- **THEN** the persisted `job.cost` has `status = "not_applicable"`
+- **AND** `job.cost.decision = null`
+
+#### Scenario: A Decision Model on its own rate card is priced with its own rates
+- **WHEN** a script import extracts 10000 in / 2000 out tokens with model `a` at `$1.45 / 1M` in and `$4.50 / 1M` out, and its Decision Model `b` consumes 3000 in / 500 out tokens at `$0.2925 / 1M` in and `$1.17 / 1M` out
+- **THEN** `job.cost.token_cost` carries **only** the extraction usage (`tokens_in = 10000`, `tokens_out = 2000`, `total_nano = 23500000`)
+- **AND** `job.cost.decision` carries `provider`/`model` of `b` with `tokens_in = 3000`, `tokens_out = 500`, `status = "known"`, `input_rate_nano_per_million = 292500000`, and `token_cost_nano = 1462500`
+- **AND** `job.cost.total.status = "known"` with `total_nano = 24962500` (the sum of both components, what the user pays)
+
+#### Scenario: Unknown decision pricing degrades only the decision component
+- **WHEN** a script import completes successfully with a priced extraction model and a Decision Model whose `(provider, model)` has no `ai_model_pricing` row
+- **THEN** `job.cost.token_cost` and the snapshot `status` are unchanged (the extraction component is priced)
+- **AND** `job.cost.decision.status = "unknown"` with `token_cost_nano = null`, `energy_cost_nano = null`, `currency = null`, and its recorded `tokens_in`/`tokens_out` still present
+- **AND** `job.cost.total.status = "incomplete"` and `total.total_nano = null` — no partial sum is presented as the total and no extraction rate is substituted
+
+#### Scenario: Components priced in different currencies are never summed
+- **WHEN** a job's extraction model is priced in `USD` and its Decision Model in `EUR`
+- **THEN** `job.cost.total.status = "mixed_currency"` and `total.total_nano = null`
+- **AND** both components still carry their own `currency` and priced figures
+
+#### Scenario: An old snapshot does not claim a total it does not carry
+- **WHEN** a job whose `cost` JSONB was recorded before the `decision`/`total` fields existed is read
+- **THEN** it deserializes with `decision = null` and `total.status = "unknown"`, `total.total_nano = null`
+- **AND** the pre-existing `status`, `token_cost` and `energy_cost` fields keep their recorded values

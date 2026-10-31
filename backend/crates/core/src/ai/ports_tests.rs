@@ -7,7 +7,10 @@
 
 use uuid::Uuid;
 
-use super::{AggregateVersion, AiImportMapping, CURATED_PROVIDERS, DocumentKind, LlmProvider};
+use super::{
+    AggregateVersion, AiImportMapping, CURATED_PROVIDERS, DocumentKind, LlmCallUsage, LlmProvider,
+    UsageAccumulator,
+};
 
 // ===========================================================================
 // P3.3 — LlmClient-Port-Defaults
@@ -224,4 +227,53 @@ fn document_kind_as_str_matches_variant() {
 #[test]
 fn reserved_version_is_zero() {
     assert_eq!(AiImportMapping::RESERVED_VERSION, AggregateVersion(0));
+}
+
+// --- UsageAccumulator: a zero-usage call is still a call (issue #768) -----
+
+#[test]
+fn a_zero_usage_call_is_counted_as_a_call() {
+    // A provider may answer without any usage metadata. The counters stay 0,
+    // but the call happened — the cost snapshot must not treat it as absent.
+    let mut accumulator = UsageAccumulator::default();
+    accumulator.record(LlmCallUsage::default());
+    assert_eq!(accumulator.usage, LlmCallUsage::default());
+    assert_eq!(accumulator.calls, 1);
+}
+
+#[test]
+fn recorded_calls_accumulate_element_wise() {
+    let mut accumulator = UsageAccumulator::default();
+    accumulator.record(LlmCallUsage {
+        tokens_in: 10,
+        tokens_out: 2,
+        cached_tokens_in: 1,
+        energy_millijoules: 5,
+    });
+    accumulator.record(LlmCallUsage {
+        tokens_in: 3,
+        tokens_out: 1,
+        cached_tokens_in: 0,
+        energy_millijoules: 2,
+    });
+    assert_eq!(
+        accumulator.usage,
+        LlmCallUsage {
+            tokens_in: 13,
+            tokens_out: 3,
+            cached_tokens_in: 1,
+            energy_millijoules: 7,
+        }
+    );
+    assert_eq!(accumulator.calls, 2);
+}
+
+#[test]
+fn the_call_count_saturates_instead_of_wrapping() {
+    let mut accumulator = UsageAccumulator {
+        usage: LlmCallUsage::default(),
+        calls: u32::MAX,
+    };
+    accumulator.record(LlmCallUsage::default());
+    assert_eq!(accumulator.calls, u32::MAX);
 }

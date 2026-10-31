@@ -10,7 +10,7 @@ import 'package:built_value/serializer.dart';
 
 part 'energy_cost_breakdown.g.dart';
 
-/// Hardware-energy cost of one import, in nano-units. Populated only when the job recorded energy telemetry and the model carries an energy rate.
+/// Hardware-energy cost of the **extraction** component of one import, in nano-units. Populated only when the job recorded energy telemetry for the extraction calls and the extraction model carries an energy rate.  Decision-Model energy is reported (and priced) on [`DecisionCostBreakdown`] instead (issue #768).
 ///
 /// Properties:
 /// * [cappedByTokenCost] - Whether the token-cost cap reduced the figure.

@@ -10,6 +10,8 @@ class _$CostBreakdown extends CostBreakdown {
   @override
   final Currency? currency;
   @override
+  final DecisionCostBreakdown? decision;
+  @override
   final EnergyCostBreakdown? energyCost;
   @override
   final ImageCostBreakdown? imageCost;
@@ -21,18 +23,22 @@ class _$CostBreakdown extends CostBreakdown {
   final CostStatus status;
   @override
   final TokenCostBreakdown? tokenCost;
+  @override
+  final CostTotal? total;
 
   factory _$CostBreakdown([void Function(CostBreakdownBuilder)? updates]) =>
       (CostBreakdownBuilder()..update(updates))._build();
 
   _$CostBreakdown._(
       {this.currency,
+      this.decision,
       this.energyCost,
       this.imageCost,
       this.priceAsOf,
       this.pricingSource,
       required this.status,
-      this.tokenCost})
+      this.tokenCost,
+      this.total})
       : super._();
   @override
   CostBreakdown rebuild(void Function(CostBreakdownBuilder) updates) =>
@@ -46,24 +52,28 @@ class _$CostBreakdown extends CostBreakdown {
     if (identical(other, this)) return true;
     return other is CostBreakdown &&
         currency == other.currency &&
+        decision == other.decision &&
         energyCost == other.energyCost &&
         imageCost == other.imageCost &&
         priceAsOf == other.priceAsOf &&
         pricingSource == other.pricingSource &&
         status == other.status &&
-        tokenCost == other.tokenCost;
+        tokenCost == other.tokenCost &&
+        total == other.total;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, currency.hashCode);
+    _$hash = $jc(_$hash, decision.hashCode);
     _$hash = $jc(_$hash, energyCost.hashCode);
     _$hash = $jc(_$hash, imageCost.hashCode);
     _$hash = $jc(_$hash, priceAsOf.hashCode);
     _$hash = $jc(_$hash, pricingSource.hashCode);
     _$hash = $jc(_$hash, status.hashCode);
     _$hash = $jc(_$hash, tokenCost.hashCode);
+    _$hash = $jc(_$hash, total.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -72,12 +82,14 @@ class _$CostBreakdown extends CostBreakdown {
   String toString() {
     return (newBuiltValueToStringHelper(r'CostBreakdown')
           ..add('currency', currency)
+          ..add('decision', decision)
           ..add('energyCost', energyCost)
           ..add('imageCost', imageCost)
           ..add('priceAsOf', priceAsOf)
           ..add('pricingSource', pricingSource)
           ..add('status', status)
-          ..add('tokenCost', tokenCost))
+          ..add('tokenCost', tokenCost)
+          ..add('total', total))
         .toString();
   }
 }
@@ -89,6 +101,12 @@ class CostBreakdownBuilder
   Currency? _currency;
   Currency? get currency => _$this._currency;
   set currency(Currency? currency) => _$this._currency = currency;
+
+  DecisionCostBreakdownBuilder? _decision;
+  DecisionCostBreakdownBuilder get decision =>
+      _$this._decision ??= DecisionCostBreakdownBuilder();
+  set decision(DecisionCostBreakdownBuilder? decision) =>
+      _$this._decision = decision;
 
   EnergyCostBreakdownBuilder? _energyCost;
   EnergyCostBreakdownBuilder get energyCost =>
@@ -121,6 +139,10 @@ class CostBreakdownBuilder
   set tokenCost(TokenCostBreakdownBuilder? tokenCost) =>
       _$this._tokenCost = tokenCost;
 
+  CostTotalBuilder? _total;
+  CostTotalBuilder get total => _$this._total ??= CostTotalBuilder();
+  set total(CostTotalBuilder? total) => _$this._total = total;
+
   CostBreakdownBuilder() {
     CostBreakdown._defaults(this);
   }
@@ -129,12 +151,14 @@ class CostBreakdownBuilder
     final $v = _$v;
     if ($v != null) {
       _currency = $v.currency;
+      _decision = $v.decision?.toBuilder();
       _energyCost = $v.energyCost?.toBuilder();
       _imageCost = $v.imageCost?.toBuilder();
       _priceAsOf = $v.priceAsOf;
       _pricingSource = $v.pricingSource;
       _status = $v.status;
       _tokenCost = $v.tokenCost?.toBuilder();
+      _total = $v.total?.toBuilder();
       _$v = null;
     }
     return this;
@@ -159,6 +183,7 @@ class CostBreakdownBuilder
       _$result = _$v ??
           _$CostBreakdown._(
             currency: currency,
+            decision: _decision?.build(),
             energyCost: _energyCost?.build(),
             imageCost: _imageCost?.build(),
             priceAsOf: priceAsOf,
@@ -166,10 +191,13 @@ class CostBreakdownBuilder
             status: BuiltValueNullFieldError.checkNotNull(
                 status, r'CostBreakdown', 'status'),
             tokenCost: _tokenCost?.build(),
+            total: _total?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'decision';
+        _decision?.build();
         _$failedField = 'energyCost';
         _energyCost?.build();
         _$failedField = 'imageCost';
@@ -177,6 +205,8 @@ class CostBreakdownBuilder
 
         _$failedField = 'tokenCost';
         _tokenCost?.build();
+        _$failedField = 'total';
+        _total?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'CostBreakdown', _$failedField, e.toString());

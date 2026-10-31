@@ -48,7 +48,7 @@ pub use ports::{
     AiConfigCommands, AiConfigRepository, AiImportEnqueueRequest, AiImportEnqueueResult,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
     CURATED_PROVIDERS, CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
-    LlmModelCatalog, ModelInfo, ModelPricingRow, PRIMARY_ORDINAL, mapping_kind,
+    LlmModelCatalog, ModelInfo, ModelPricingRow, PRIMARY_ORDINAL, UsageAccumulator, mapping_kind,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
@@ -70,8 +70,8 @@ pub use preview::{
 pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
-    AiImportTarget, AppliedEpisode, CostBreakdown, CostDisplayPreference, CostStatus, Currency,
-    DecisionOutcome, DecisionTelemetry, DocumentKind, EnergyCostBreakdown, ImageCostBreakdown,
-    JobStatus, JobTelemetrySummary, ModelPricing, PricingSource, SourceFormat, Telemetry,
-    TelemetryApplyState, TokenCostBreakdown,
+    AiImportTarget, AppliedEpisode, CostBreakdown, CostDisplayPreference, CostStatus, CostTotal,
+    CostTotalStatus, Currency, DecisionCostBreakdown, DecisionOutcome, DecisionTelemetry,
+    DocumentKind, EnergyCostBreakdown, ImageCostBreakdown, JobStatus, JobTelemetrySummary,
+    ModelPricing, PricingSource, SourceFormat, Telemetry, TelemetryApplyState, TokenCostBreakdown,
 };

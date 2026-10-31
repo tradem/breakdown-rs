@@ -59,6 +59,8 @@ import 'package:breakdown_api/src/model/contact_info.dart';
 import 'package:breakdown_api/src/model/cost_breakdown.dart';
 import 'package:breakdown_api/src/model/cost_display_preference.dart';
 import 'package:breakdown_api/src/model/cost_status.dart';
+import 'package:breakdown_api/src/model/cost_total.dart';
+import 'package:breakdown_api/src/model/cost_total_status.dart';
 import 'package:breakdown_api/src/model/costume_category_view.dart';
 import 'package:breakdown_api/src/model/create_ai_config_request.dart';
 import 'package:breakdown_api/src/model/create_block_request.dart';
@@ -75,6 +77,7 @@ import 'package:breakdown_api/src/model/create_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/credential_binding_state.dart';
 import 'package:breakdown_api/src/model/currency.dart';
 import 'package:breakdown_api/src/model/dead_letter_entry.dart';
+import 'package:breakdown_api/src/model/decision_cost_breakdown.dart';
 import 'package:breakdown_api/src/model/decision_outcome.dart';
 import 'package:breakdown_api/src/model/decision_rubric.dart';
 import 'package:breakdown_api/src/model/decision_telemetry.dart';
@@ -248,6 +251,8 @@ part 'serializers.g.dart';
   CostBreakdown,
   CostDisplayPreference,
   CostStatus,
+  CostTotal,
+  CostTotalStatus,
   CostumeCategoryView,
   CreateAiConfigRequest,
   CreateBlockRequest,
@@ -264,6 +269,7 @@ part 'serializers.g.dart';
   CredentialBindingState,
   Currency,
   DeadLetterEntry,
+  DecisionCostBreakdown,
   DecisionOutcome,
   DecisionRubric,
   DecisionTelemetry,

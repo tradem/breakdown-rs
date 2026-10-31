@@ -23,8 +23,8 @@ use api::auth::CurrentUser;
 use api::handlers::stream_ai_import_job_events;
 use api::state::AppState;
 use breakdown_core::ai::{
-    AiImportJob, AiImportJobId, AiImportProgress, AiImportStage, DocumentKind, JobStatus,
-    SourceFormat,
+    AiImportJob, AiImportJobId, AiImportProgress, AiImportStage, DecisionCostBreakdown,
+    DocumentKind, JobStatus, SourceFormat,
 };
 use breakdown_core::shared::UserId;
 use chrono::Utc;
@@ -349,6 +349,26 @@ async fn terminal_succeeded_frame_carries_the_job_cost_snapshot() {
     let mut terminal = job.clone();
     terminal.status = JobStatus::Succeeded;
     terminal.preview_handle = Some("preview".to_owned());
+    // Issue #768: the snapshot carries the Decision-Model component on its own
+    // rate card plus the summed total, both additive on the wire.
+    let decision = DecisionCostBreakdown {
+        provider: breakdown_core::ai::LlmProvider::EURouter,
+        model: "clef-flash".to_owned(),
+        status: breakdown_core::ai::CostStatus::Known,
+        tokens_in: 3_000,
+        tokens_out: 500,
+        cached_tokens_in: 0,
+        energy_millijoules: 0,
+        currency: Some(breakdown_core::ai::Currency::Usd),
+        price_as_of: Some(Utc::now()),
+        pricing_source: Some(breakdown_core::ai::PricingSource::ProviderLive),
+        input_rate_nano_per_million: Some(292_500_000),
+        output_rate_nano_per_million: Some(1_170_000_000),
+        cached_input_rate_nano_per_million: None,
+        energy_rate_nano_per_kwh: None,
+        token_cost_nano: Some(1_462_500),
+        energy_cost_nano: None,
+    };
     terminal.cost = Some(CostBreakdown {
         status: breakdown_core::ai::CostStatus::Known,
         currency: Some(breakdown_core::ai::Currency::Usd),
@@ -365,6 +385,12 @@ async fn terminal_succeeded_frame_carries_the_job_cost_snapshot() {
         }),
         energy_cost: None,
         image_cost: None,
+        total: breakdown_core::ai::CostTotal {
+            status: breakdown_core::ai::CostTotalStatus::Known,
+            currency: Some(breakdown_core::ai::Currency::Usd),
+            total_nano: Some(3_700_000_000 + 1_462_500),
+        },
+        decision: Some(decision),
     });
     terminal.updated_at = Utc::now();
     ports.ai_import_queue.update_and_notify(terminal).await;
@@ -378,6 +404,26 @@ async fn terminal_succeeded_frame_carries_the_job_cost_snapshot() {
     assert_eq!(
         cost["token_cost"]["total_nano"],
         serde_json::json!(3_700_000_000_i64)
+    );
+    // The Decision-Model component keeps its own identity and rate card
+    // (issue #768) …
+    assert_eq!(cost["decision"]["provider"], "eurouter");
+    assert_eq!(cost["decision"]["model"], "clef-flash");
+    assert_eq!(cost["decision"]["tokens_in"], 3_000u64);
+    assert_eq!(
+        cost["decision"]["input_rate_nano_per_million"],
+        serde_json::json!(292_500_000_i64)
+    );
+    assert_eq!(
+        cost["decision"]["token_cost_nano"],
+        serde_json::json!(1_462_500_i64)
+    );
+    // … and the total is the sum the user pays, not a single component.
+    assert_eq!(cost["total"]["status"], "known");
+    assert_eq!(cost["total"]["currency"], "USD");
+    assert_eq!(
+        cost["total"]["total_nano"],
+        serde_json::json!(3_700_000_000_i64 + 1_462_500_i64)
     );
     assert!(next_frame(&mut body).await.is_none());
 }

@@ -659,8 +659,12 @@ pub enum CostStatus {
     NotApplicable,
 }
 
-/// Token-based cost of one import, in nano-units. Rates are the snapshot
-/// rates active at completion time.
+/// Token-based cost of the **extraction** component of one import, in
+/// nano-units. Rates are the snapshot rates active at completion time.
+///
+/// Since issue #768 the counts are extraction-only: Decision-Model calls are
+/// accumulated into their own [`DecisionCostBreakdown`] and priced with the
+/// Decision Model's rate card, never folded in here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct TokenCostBreakdown {
     pub tokens_in: u64,
@@ -677,8 +681,12 @@ pub struct TokenCostBreakdown {
     pub total_nano: i64,
 }
 
-/// Hardware-energy cost of one import, in nano-units. Populated only when
-/// the job recorded energy telemetry and the model carries an energy rate.
+/// Hardware-energy cost of the **extraction** component of one import, in
+/// nano-units. Populated only when the job recorded energy telemetry for the
+/// extraction calls and the extraction model carries an energy rate.
+///
+/// Decision-Model energy is reported (and priced) on
+/// [`DecisionCostBreakdown`] instead (issue #768).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct EnergyCostBreakdown {
     pub energy_millijoules: u64,
@@ -710,6 +718,91 @@ pub struct ImageCostBreakdown {
     pub total_nano: i64,
 }
 
+/// The **Decision-Model** component of a job's cost snapshot (issue #768).
+///
+/// A job's Decision Model may be a different provider/model than its extraction
+/// model (split billing, #722/#723). Its usage is accumulated separately and
+/// priced from **its own** `ai_model_pricing` row — never folded into the
+/// extraction component and never costed at the extraction rates.
+///
+/// The usage counts are recorded whether or not the component could be priced,
+/// so an unpriced Decision Model still states how much it consumed. The priced
+/// fields stay `None` when [`Self::status`] is [`CostStatus::Unknown`] — the
+/// honest-unknown rule of #675, applied per component: no fabricated rate, no
+/// substituted extraction rate, no `0`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DecisionCostBreakdown {
+    pub provider: LlmProvider,
+    pub model: String,
+    /// `Known` when the component's `(provider, model)` had a pricing row at
+    /// completion; `Unknown` otherwise. `NotApplicable` never occurs: the
+    /// component exists only for a job that issued a Decision-Model call.
+    pub status: CostStatus,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cached_tokens_in: u64,
+    pub energy_millijoules: u64,
+    /// Currency of the component's own rate card (design D2: no conversion).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<Currency>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_as_of: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pricing_source: Option<PricingSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_rate_nano_per_million: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_rate_nano_per_million: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_rate_nano_per_million: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_rate_nano_per_kwh: Option<i64>,
+    /// Priced token cost of this component, `None` when unpriced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_cost_nano: Option<i64>,
+    /// Priced effective energy cost of this component (`min(raw, token)` when
+    /// the provider caps energy by token cost), `None` when unpriced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub energy_cost_nano: Option<i64>,
+}
+
+/// Whether a job's total figure could be computed honestly (issue #768).
+///
+/// The per-import snapshot has more than one component once a Decision Model is
+/// used. A number is only offered when every recorded component is priced in
+/// **one** currency; otherwise the priced parts stay visible and the total is
+/// explicitly refused rather than misreported.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CostTotalStatus {
+    /// Every recorded component is priced in one currency: `total_nano` is the
+    /// sum the user pays.
+    Known,
+    /// At least one recorded component has no pricing row (or the pricing read
+    /// model was unavailable). The priced components render, `total_nano` is
+    /// `None` — no partial sum is presented as the total.
+    Incomplete,
+    /// The components are priced in different currencies. Design D2 bans
+    /// currency conversion, so no sum is honest.
+    MixedCurrency,
+    /// Nothing was priced — also the `#[serde(default)]` value, so a snapshot
+    /// recorded before this field existed never claims a total it cannot carry.
+    #[default]
+    Unknown,
+}
+
+/// The figure the user pays: the sum over a job's priced cost components
+/// (issue #768). `total_nano` is present exactly when [`Self::status`] is
+/// [`CostTotalStatus::Known`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CostTotal {
+    pub status: CostTotalStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<Currency>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_nano: Option<i64>,
+}
+
 /// Immutable per-import cost snapshot persisted on a completed job (design
 /// D4). Honesty rule: `Known` populates breakdowns; `Unknown` and
 /// `NotApplicable` leave them `None` — never a fabricated zero.
@@ -730,6 +823,17 @@ pub struct CostBreakdown {
     pub energy_cost: Option<EnergyCostBreakdown>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_cost: Option<ImageCostBreakdown>,
+    /// The **Decision-Model** component (issue #768): `Some` iff the job issued
+    /// at least one Decision-Model call, so its usage is not lost and its rates
+    /// are visibly its own. Additive — `None` on every pre-#768 snapshot and on
+    /// every job that ran no scoring pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<DecisionCostBreakdown>,
+    /// The figure the user pays, summed over the priced components (issue
+    /// #768). Additive with `serde(default)`: a pre-#768 snapshot reports
+    /// `status = "unknown"` and carries no total rather than a guessed sum.
+    #[serde(default)]
+    pub total: CostTotal,
 }
 
 impl CostBreakdown {
@@ -744,6 +848,8 @@ impl CostBreakdown {
             token_cost: None,
             energy_cost: None,
             image_cost: None,
+            decision: None,
+            total: CostTotal::default(),
         }
     }
 
@@ -758,6 +864,10 @@ impl CostBreakdown {
             token_cost: None,
             energy_cost: None,
             image_cost: None,
+            // A job that never invoked an LLM has no Decision-Model component
+            // and nothing to total (issue #768).
+            decision: None,
+            total: CostTotal::default(),
         }
     }
 }
