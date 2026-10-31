@@ -39,6 +39,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/design/material_icons.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -1407,6 +1408,12 @@ void main() {
         await pumpScreen(tester);
         expect(find.byKey(const Key('ai-jobs-row-cost-job-c')), findsOneWidget);
         expect(find.textContaining(r'$0.0235'), findsOneWidget);
+        // The metric glyph reinforces the visible line (issue #761); it never
+        // replaces it.
+        expect(
+          find.byIcon(BreakdownMaterialIcons.aiJobCostToken),
+          findsOneWidget,
+        );
       });
 
       testWidgets('an unknown-cost row renders Unknown and never a zero', (
@@ -1423,6 +1430,10 @@ void main() {
         );
         expect(line.data, contains('Unknown'));
         expect(line.data!.contains('0'), isFalse);
+        expect(
+          find.byIcon(BreakdownMaterialIcons.aiJobCostUnknown),
+          findsOneWidget,
+        );
       });
 
       testWidgets('a not-applicable row renders the no-AI-billed copy '
@@ -1444,6 +1455,12 @@ void main() {
           findsOneWidget,
         );
         expect(find.textContaining('Cost:'), findsNothing);
+        // No cost line rendered, so no metric glyph either (issue #761: the
+        // icon is part of the line, never a standalone badge).
+        expect(
+          find.byIcon(BreakdownMaterialIcons.aiJobCostToken),
+          findsNothing,
+        );
       });
 
       testWidgets('the energy preference switches the row badge to the '
@@ -1465,6 +1482,12 @@ void main() {
         await pumpScreen(tester);
         expect(find.textContaining(r'$0.00005'), findsOneWidget);
         expect(find.textContaining(r'$0.0235'), findsNothing);
+        // The glyph follows the same preference as the figure (issue #761):
+        // list and job card cannot disagree about the primary metric.
+        expect(
+          find.byIcon(BreakdownMaterialIcons.aiJobCostEnergy),
+          findsOneWidget,
+        );
       });
     });
 
