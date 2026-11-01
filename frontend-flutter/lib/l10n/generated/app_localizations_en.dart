@@ -1144,8 +1144,48 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiJobCostTitle => 'Cost of this import';
 
   @override
-  String aiJobCostModel(Object model) {
-    return 'Model: $model';
+  String get aiJobCostModelLabel => 'Model';
+
+  @override
+  String get aiJobCostProviderLabel => 'Provider';
+
+  @override
+  String get aiJobCostHeroTotal => 'Total cost';
+
+  @override
+  String get aiJobCostHeroToken => 'Token cost';
+
+  @override
+  String get aiJobCostHeroEnergy => 'Energy cost';
+
+  @override
+  String get aiJobCostTotalIncomplete =>
+      'Total unavailable — one cost component is not priced.';
+
+  @override
+  String get aiJobCostTotalMixedCurrency =>
+      'Total unavailable — the components are priced in different currencies.';
+
+  @override
+  String get aiJobCostDecisionTitle => 'Decision Model';
+
+  @override
+  String aiJobCostDecisionTokenTotal(Object price) {
+    return 'Decision token cost: $price';
+  }
+
+  @override
+  String aiJobCostDecisionEnergyTotal(Object price) {
+    return 'Decision energy cost: $price';
+  }
+
+  @override
+  String get aiJobCostDecisionUnpriced =>
+      'Not priced — no price snapshot exists for this model.';
+
+  @override
+  String aiJobCostImageTotal(Object price) {
+    return 'Image cost: $price';
   }
 
   @override

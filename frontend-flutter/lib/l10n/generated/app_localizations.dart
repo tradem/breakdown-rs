@@ -1903,11 +1903,77 @@ abstract class AppLocalizations {
   /// **'Kosten dieses Imports'**
   String get aiJobCostTitle;
 
-  /// No description provided for @aiJobCostModel.
+  /// No description provided for @aiJobCostModelLabel.
   ///
   /// In de, this message translates to:
-  /// **'Modell: {model}'**
-  String aiJobCostModel(Object model);
+  /// **'Modell'**
+  String get aiJobCostModelLabel;
+
+  /// No description provided for @aiJobCostProviderLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Anbieter'**
+  String get aiJobCostProviderLabel;
+
+  /// No description provided for @aiJobCostHeroTotal.
+  ///
+  /// In de, this message translates to:
+  /// **'Gesamtkosten'**
+  String get aiJobCostHeroTotal;
+
+  /// No description provided for @aiJobCostHeroToken.
+  ///
+  /// In de, this message translates to:
+  /// **'Tokenkosten'**
+  String get aiJobCostHeroToken;
+
+  /// No description provided for @aiJobCostHeroEnergy.
+  ///
+  /// In de, this message translates to:
+  /// **'Energiekosten'**
+  String get aiJobCostHeroEnergy;
+
+  /// No description provided for @aiJobCostTotalIncomplete.
+  ///
+  /// In de, this message translates to:
+  /// **'Gesamtkosten nicht verfügbar – eine Kostenkomponente ist nicht bepreist.'**
+  String get aiJobCostTotalIncomplete;
+
+  /// No description provided for @aiJobCostTotalMixedCurrency.
+  ///
+  /// In de, this message translates to:
+  /// **'Gesamtkosten nicht verfügbar – die Komponenten sind in unterschiedlichen Währungen bepreist.'**
+  String get aiJobCostTotalMixedCurrency;
+
+  /// No description provided for @aiJobCostDecisionTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Decision-Modell'**
+  String get aiJobCostDecisionTitle;
+
+  /// No description provided for @aiJobCostDecisionTokenTotal.
+  ///
+  /// In de, this message translates to:
+  /// **'Decision-Tokenkosten: {price}'**
+  String aiJobCostDecisionTokenTotal(Object price);
+
+  /// No description provided for @aiJobCostDecisionEnergyTotal.
+  ///
+  /// In de, this message translates to:
+  /// **'Decision-Energiekosten: {price}'**
+  String aiJobCostDecisionEnergyTotal(Object price);
+
+  /// No description provided for @aiJobCostDecisionUnpriced.
+  ///
+  /// In de, this message translates to:
+  /// **'Nicht bepreist – für dieses Modell liegt kein Preisstand vor.'**
+  String get aiJobCostDecisionUnpriced;
+
+  /// No description provided for @aiJobCostImageTotal.
+  ///
+  /// In de, this message translates to:
+  /// **'Bildkosten: {price}'**
+  String aiJobCostImageTotal(Object price);
 
   /// No description provided for @aiJobCostTokensIn.
   ///

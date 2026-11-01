@@ -18,6 +18,7 @@ import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../../../l10n/locale_formatters.dart';
 import '../../../data/ai_import_providers.dart';
 import 'import_submit_screen.dart' show AiImportSubmitScreen;
+import 'job_cost_card.dart' show aiJobCostMetricIcon;
 import 'job_status_screen.dart';
 import 'import_state.dart' show aiJobStageCopy;
 import 'jobs_controller.dart';
@@ -233,10 +234,30 @@ class _JobRow extends ConsumerWidget {
               ),
           ],
           if (costLine != null)
-            Text(
-              costLine,
-              key: Key('ai-jobs-row-cost-${job.id}'),
-              style: Theme.of(context).textTheme.bodySmall,
+            // Compact cost line (issue #675) with its metric glyph (issue
+            // #761): the icon reinforces the always-visible "Kosten: …" text
+            // and mirrors the job card's hero choice, so list and detail
+            // agree on which figure is primary (glossary: never icon-only).
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  aiJobCostMetricIcon(
+                    job.cost,
+                    ref.watch(aiCostDisplayPreferenceProvider),
+                  ),
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppSpacing.space8),
+                Expanded(
+                  child: Text(
+                    costLine,
+                    key: Key('ai-jobs-row-cost-${job.id}'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
             ),
           // Degraded-extraction line (issue #758): rows the extraction could
           // only rebuild from the document heading are named here, so a

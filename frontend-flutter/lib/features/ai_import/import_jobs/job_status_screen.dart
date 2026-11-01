@@ -13,16 +13,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
-import '../../../data/ai_import_providers.dart';
 import '../../../data/cache/relative_time.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../l10n/app_localizations_provider.dart';
-import '../../../l10n/locale_formatters.dart';
 import '../clippy/clippy_trigger.dart';
-import '../cost_format.dart';
-import 'decision_outcome.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import 'import_state.dart';
+import 'job_cost_card.dart';
 import 'job_status_controller.dart';
 import 'preview_screen.dart';
 
@@ -399,7 +396,7 @@ class _JobCard extends ConsumerWidget {
             // terminal `succeeded` SSE frame carries `job.cost` (#664),
             // so this card appears with the completion push — no extra
             // refresh.
-            _JobCostCard(job: job),
+            AiJobCostCard(job: job),
             const SizedBox(height: 12),
             FilledButton(
               key: const Key('ai-job-open-preview'),
@@ -413,188 +410,6 @@ class _JobCard extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// The detailed per-import cost breakdown (issue #675, `flutter-ai-import`
-/// workflow detailed view).
-///
-/// Honesty matrix (spec): `known` renders the full breakdown (provider/
-/// model, token counts, snapshot rates + `price_as_of`, token total, and
-/// — when present — the energy consumption and energy cost) with the
-/// user's `cost_display_preference` metric rendered as the PRIMARY row;
-/// `unknown` renders localized "Unbekannt" / "Unknown" (NEVER `0`) while
-/// still showing the recorded token counts; `not_applicable` states that
-/// no AI model was billed.
-class _JobCostCard extends ConsumerWidget {
-  const _JobCostCard({required this.job});
-
-  final AiImportJob job;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cost = job.cost;
-    if (cost == null) return const SizedBox.shrink();
-    final l10n = l10nOf(context);
-    final theme = Theme.of(context);
-    final preference = ref.watch(aiCostDisplayPreferenceProvider);
-
-    final header = Text(
-      l10n.aiJobCostTitle,
-      key: const Key('ai-job-cost-title'),
-      style: const TextStyle(fontWeight: FontWeight.bold),
-    );
-
-    if (cost.status == CostStatus.notApplicable) {
-      return Column(
-        key: const Key('ai-job-cost-not-applicable'),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          header,
-          const SizedBox(height: 4),
-          Text(l10n.aiJobCostNotApplicable),
-          const SizedBox(height: 4),
-          // The Decision Model outcome belongs on the cost card (issue #767):
-          // this is where an operator looks after a star-less import, and the
-          // render is silent for a job that recorded no outcome.
-          AiDecisionOutcomeText(telemetry: job.decisionTelemetry),
-        ],
-      );
-    }
-
-    final telemetry = job.telemetry;
-    final bodyStyle = theme.textTheme.bodySmall;
-    final rows = <Widget>[];
-
-    if (cost.status == CostStatus.unknown) {
-      // The honest unknown: localized "Unbekannt" / "Unknown" — never a
-      // fabricated `$0.00` — while the RECORDED token counts still render.
-      rows.add(
-        Text(
-          l10n.commonUnknown,
-          key: const Key('ai-job-cost-unknown'),
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-      );
-    }
-
-    if (telemetry?.model != null) {
-      rows.add(Text(l10n.aiJobCostModel(telemetry!.model!), style: bodyStyle));
-    }
-    if (telemetry != null) {
-      rows.add(
-        Text(l10n.aiJobCostTokensIn('${telemetry.tokensIn}'), style: bodyStyle),
-      );
-      rows.add(
-        Text(
-          l10n.aiJobCostTokensOut('${telemetry.tokensOut}'),
-          style: bodyStyle,
-        ),
-      );
-      if (telemetry.cachedTokensIn > 0) {
-        rows.add(
-          Text(
-            l10n.aiJobCostCachedTokens('${telemetry.cachedTokensIn}'),
-            style: bodyStyle,
-          ),
-        );
-      }
-    }
-
-    final currency = cost.currency;
-    final token = cost.tokenCost;
-    if (currency != null && token != null) {
-      final primary = preference != CostDisplayPreference.energy;
-      rows.add(
-        Text(
-          l10n.aiJobCostTokenTotal(
-            formatNanoCurrency(token.totalNano, currency),
-          ),
-          key: const Key('ai-job-cost-token-total'),
-          style: primary
-              ? const TextStyle(fontWeight: FontWeight.bold)
-              : bodyStyle,
-        ),
-      );
-      rows.add(
-        Text(
-          l10n.aiJobCostRateInput(
-            formatNanoCurrency(token.inputRateNanoPerMillion, currency),
-          ),
-          style: bodyStyle,
-        ),
-      );
-      rows.add(
-        Text(
-          l10n.aiJobCostRateOutput(
-            formatNanoCurrency(token.outputRateNanoPerMillion, currency),
-          ),
-          style: bodyStyle,
-        ),
-      );
-    }
-
-    final energy = cost.energyCost;
-    if (currency != null && energy != null) {
-      final primary = preference == CostDisplayPreference.energy;
-      rows.add(
-        Text(
-          l10n.aiJobCostEnergyTotal(
-            formatNanoCurrency(energy.effectiveCappedNano, currency),
-          ),
-          key: const Key('ai-job-cost-energy-total'),
-          style: primary
-              ? const TextStyle(fontWeight: FontWeight.bold)
-              : bodyStyle,
-        ),
-      );
-      rows.add(
-        Text(
-          l10n.aiJobCostEnergyConsumption(
-            formatMillijoulesAsWh(energy.energyMillijoules),
-          ),
-          key: const Key('ai-job-cost-energy-consumption'),
-          style: bodyStyle,
-        ),
-      );
-      if (energy.cappedByTokenCost) {
-        rows.add(
-          Text(
-            l10n.aiJobCostEnergyCapped,
-            key: const Key('ai-job-cost-energy-capped'),
-            style: bodyStyle,
-          ),
-        );
-      }
-    }
-
-    final priceAsOf = cost.priceAsOf;
-    if (priceAsOf != null) {
-      rows.add(
-        Text(
-          l10n.aiJobCostPriceAsOf(formatMediumDate(context, priceAsOf)),
-          key: const Key('ai-job-cost-price-as-of'),
-          style: bodyStyle,
-        ),
-      );
-    }
-
-    // Which Decision Model scored this import — or why it did not (issue
-    // #767). Silent when the job recorded no outcome (pre-#767 rows), so the
-    // card never regresses a known-shaped payload into a guessed class.
-    final decisionOutcome = AiDecisionOutcomeText(
-      telemetry: job.decisionTelemetry,
-    );
-    if (job.decisionTelemetry != null) {
-      rows.add(const SizedBox(height: 4));
-      rows.add(decisionOutcome);
-    }
-
-    return Column(
-      key: const Key('ai-job-cost-card'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [header, const SizedBox(height: 4), ...rows],
     );
   }
 }
