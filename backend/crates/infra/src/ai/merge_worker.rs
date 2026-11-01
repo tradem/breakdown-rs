@@ -48,6 +48,11 @@ where
         // boundaries — deterministic join start and preview upload.
         let mut progress = AiImportProgress {
             stage: AiImportStage::Merging,
+            // ETA anchor (issue #762): the claim stamp of THIS attempt. A merge
+            // publishes no counters (it is a single deterministic join), so the
+            // anchor is all a client can get — and all it needs to say "still
+            // running since <claim>" without inventing a percentage.
+            started_at: Some(job.updated_at),
             ..AiImportProgress::default()
         };
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;

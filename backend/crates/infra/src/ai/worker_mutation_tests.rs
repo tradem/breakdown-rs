@@ -567,6 +567,58 @@ async fn script_worker_publishes_throttled_progress_frames() {
     // Storing boundary.
     assert_eq!(log[3].stage, AiImportStage::StoringPreview);
     assert_eq!(log[3].chunk, Some(2));
+    // Issue #762: every frame of one attempt carries the SAME time anchor —
+    // the claim stamp — so a client can recompute a rate per frame without
+    // accumulating state, and a reconnecting client can still see it.
+    assert_eq!(log[0].started_at, Some(job.updated_at));
+    for frame in log.iter() {
+        assert_eq!(
+            frame.started_at,
+            Some(job.updated_at),
+            "the attempt's anchor never moves between frames"
+        );
+    }
+}
+
+#[tokio::test]
+async fn script_worker_publishes_a_monotone_byte_budget() {
+    let queue = Arc::new(MockQueue::new());
+    queue.enqueue_job(DocumentKind::Script).await;
+    let worker = script_worker(Arc::clone(&queue), Arc::new(EpisodeMockClient));
+    let job = claim_script_job(&queue).await;
+
+    let result = worker
+        .process_text(&job, "worker-progress", TWO_CHUNK_SCRIPT)
+        .await;
+    assert!(result.is_ok(), "script run should succeed: {result:?}");
+
+    let log = queue.progress_log.lock().await;
+    // Issue #762: the byte budget is known once the chunks are (first frame)
+    // and the numerator never overtakes the denominator.
+    let total = log[0].total_bytes.expect("byte budget on the first frame");
+    assert!(total > 0, "two chunks of prose are more than zero bytes");
+    assert_eq!(
+        log[0].done_bytes,
+        Some(0),
+        "chunking finished, no chunk done"
+    );
+    assert!(
+        log[1].done_bytes > log[0].done_bytes && log[2].done_bytes > log[1].done_bytes,
+        "each completed chunk advances the numerator: {:?}",
+        log.iter().map(|f| f.done_bytes).collect::<Vec<_>>()
+    );
+    for frame in log.iter() {
+        assert_eq!(frame.total_bytes, Some(total), "budget is stable");
+        assert!(
+            frame.done_bytes.unwrap_or(0) <= total,
+            "numerator never overtakes the denominator"
+        );
+    }
+    // The last extraction frame accounts for the whole document.
+    assert_eq!(log[2].done_bytes, Some(total));
+    // `storing_preview` is a stage boundary, not a chunk: the numerator holds
+    // at 100% instead of resetting or overshooting.
+    assert_eq!(log[3].done_bytes, Some(total));
 }
 
 #[tokio::test]
@@ -626,6 +678,11 @@ async fn schedule_worker_publishes_extraction_and_storing_progress() {
     assert_eq!(log.len(), 2, "extraction boundary + storing boundary");
     assert_eq!(log[0].stage, AiImportStage::Extracting);
     assert_eq!(log[0].chunks_total, Some(1));
+    // Issue #762: a schedule is ONE extraction unit — the attempt anchor is
+    // published, the byte pair is honestly absent instead of faked.
+    assert!(log[0].started_at.is_some(), "claim stamp is the anchor");
+    assert_eq!(log[0].done_bytes, None);
+    assert_eq!(log[0].total_bytes, None);
     assert_eq!(log[1].stage, AiImportStage::StoringPreview);
     assert_eq!(log[1].chunk, Some(1));
 }
@@ -759,6 +816,9 @@ async fn claim_resets_progress_from_a_prior_attempt() {
             chunk: Some(2),
             chunks_total: Some(2),
             episodes_seen: vec!["Ep. 3".to_owned()],
+            started_at: None,
+            done_bytes: None,
+            total_bytes: None,
         });
         queue.jobs.lock().await.push(job);
     }

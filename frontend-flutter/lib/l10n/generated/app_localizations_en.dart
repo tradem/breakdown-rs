@@ -867,6 +867,35 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiJobEtaCalculating => 'Estimating remaining time …';
+
+  @override
+  String get aiJobEtaDelayed => 'Delayed – no reliable estimate.';
+
+  @override
+  String get aiJobEtaImminent => 'Almost done …';
+
+  @override
+  String aiJobEtaMinutes(int count) {
+    return 'About $count min left';
+  }
+
+  @override
+  String aiJobEtaHours(int count) {
+    return 'About $count h left';
+  }
+
+  @override
+  String aiJobEtaRangeMinutes(int lower, int upper) {
+    return 'About $lower–$upper min left';
+  }
+
+  @override
+  String aiJobEtaRangeHours(int lower, int upper) {
+    return 'About $lower–$upper h left';
+  }
+
+  @override
   String aiJobChunkProgress(Object chunk, Object chunksTotal) {
     return 'Chunk $chunk of $chunksTotal';
   }

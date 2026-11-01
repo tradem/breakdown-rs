@@ -538,6 +538,14 @@ where
         // telemetry, which is what turns "no stars on some rows" into an
         // explainable, persisted fact.
         let mut decision_scoring = super::decision_scoring::ScoringReport::default();
+        // Issue #762: the source-text bytes of every chunk, in chunk order —
+        // exactly the bytes the model is handed below (`source_text`). Their
+        // sum is this attempt's byte budget, their per-chunk values are the
+        // increments of the published numerator.
+        let chunks_bytes: Vec<u64> = chunks
+            .iter()
+            .map(|chunk| u64::try_from(source_text_len(chunk)).unwrap_or(u64::MAX))
+            .collect();
         // Throttled live progress (issue #664): published once after
         // chunking, once per completed chunk, and at the storing boundary —
         // NEVER per LLM token. Owner-fenced, so a displaced worker's write
@@ -547,7 +555,20 @@ where
             chunk: Some(0),
             chunks_total: Some(chunk_count),
             episodes_seen: Vec::new(),
+            // ETA anchor (issue #762). `claim_next*` stamps `updated_at = now()`
+            // in the same statement that flips the job to `running` and clears
+            // `progress`, so this anchor and the counters next to it always
+            // belong to the CURRENT attempt: a retry restarts the estimate
+            // instead of inheriting the previous attempt's rate.
+            started_at: Some(job.updated_at),
+            // Byte budget (issue #762) — published below, once the chunks are
+            // known. Chunk cost is heterogeneous (one scene per chunk, scene
+            // lengths differ by an order of magnitude), so bytes are the
+            // materially better ETA basis than the chunk count.
+            done_bytes: None,
+            total_bytes: None,
         };
+        progress.set_byte_budget(chunks_bytes.iter().copied().fold(0u64, u64::saturating_add));
         if let Some(first) = chunks.first() {
             progress.record_episode(first.episode.as_ref());
         }
@@ -840,6 +861,9 @@ where
                 ))
             })?);
             progress.record_episode(chunk.episode.as_ref());
+            // Issue #762: count the bytes just extracted, so the published
+            // numerator advances with the same cadence as the chunk counter.
+            progress.record_done_bytes(chunks_bytes.get(chunk_index).copied().unwrap_or(0));
             super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         }
         // Pass 2 (OpenSpec `ai-import-decision-outfit-continuity`): after EVERY
@@ -1122,6 +1146,20 @@ async fn compute_cost_snapshot(
     )
 }
 
+/// Source bytes of one chunk exactly as the model receives them (issue #762).
+///
+/// `process_text` assembles the request body as `format!("{heading}\n{text}")`,
+/// so the byte budget must count those same three parts: a budget measured on
+/// the raw document would make the published fraction drift away from the work
+/// that is actually left.
+fn source_text_len(chunk: &breakdown_core::ai::SceneChunk) -> usize {
+    chunk
+        .heading
+        .len()
+        .saturating_add(1)
+        .saturating_add(chunk.text.len())
+}
+
 /// The job was reclaimed by another worker while this one was still working.
 /// Surfaced as a `Conflict` so the caller abandons the job instead of retrying
 /// — the new owner is already redoing the work.
@@ -1265,6 +1303,14 @@ where
             chunk: Some(0),
             chunks_total: Some(1),
             episodes_seen: Vec::new(),
+            // ETA anchor (issue #762), same contract as the script worker:
+            // the claim stamps `updated_at`, the counters restart with it.
+            // No byte budget: a schedule is ONE extraction unit, so there is
+            // no meaningful numerator/denominator pair to publish — `None` is
+            // the honest absence, and the client falls back to the counters.
+            started_at: Some(job.updated_at),
+            done_bytes: None,
+            total_bytes: None,
         };
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         // Issue #675: usage of the single LLM call (zeros for the native CSV

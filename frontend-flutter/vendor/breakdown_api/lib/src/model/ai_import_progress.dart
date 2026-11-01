@@ -17,8 +17,11 @@ part 'ai_import_progress.g.dart';
 /// Properties:
 /// * [chunk] - Chunk counter of the extraction progress. `0` is a deliberate published state — \"chunking finished, the first chunk has not yet completed\" (the frame emitted right after the deterministic scan) — so the schema floor is 0, not 1. For every later frame this is the 1-based index of the last **completed** chunk (`1..=chunks_total`).
 /// * [chunksTotal] - Total chunks in the document (known once chunking finishes).
+/// * [doneBytes] - Source-text bytes already extracted (issue #762), summed over the **completed** chunks. `0` is a deliberate published state, mirroring [`Self::chunk`].  Chunk cost is heterogeneous by an order of magnitude — one chunk is one scene and scene lengths differ wildly — so a byte denominator is a materially better ETA basis than a chunk count. Additive with `serde(default)`: `None` when the worker has no byte budget for the job (a schedule job is a single extraction unit).
 /// * [episodesSeen] - Human-readable episode labels discovered so far, in first-seen order, deduplicated (e.g. `[\"Ep. 3\", \"Ep. 4\"]`). Built at zero extra LLM token cost from the deterministic `Ep.:` marker scan and per-chunk extracted `DraftEpisode` metadata — never script prose.
 /// * [stage]
+/// * [startedAt] - When the **current attempt** was claimed (issue #762).  The time anchor the counters above lack: without it a client can only run a stopwatch while its own screen stays open, and a reconnecting or restarted client can never reconstruct a rate from `chunk`/`chunks_total` alone. Every frame of one attempt carries the same value, so a client can recompute the estimate on every frame without accumulating state.  Additive with `serde(default)`: frames written before the field existed deserialize as `None`, and a client then simply shows no estimate — never a fabricated one. A retry starts cleanly because the claim clears [`Self::chunk`]/[`Self::done_bytes`] and writes a fresh anchor.
+/// * [totalBytes] - Total source-text bytes the document splits into (issue #762), known once the deterministic chunk scan finishes. Same `serde(default)` contract as [`Self::done_bytes`]; a client prefers the byte pair when `total_bytes > 0` and falls back to the chunk counters otherwise.
 @BuiltValue()
 abstract class AiImportProgress
     implements Built<AiImportProgress, AiImportProgressBuilder> {
@@ -30,6 +33,10 @@ abstract class AiImportProgress
   @BuiltValueField(wireName: r'chunks_total')
   int? get chunksTotal;
 
+  /// Source-text bytes already extracted (issue #762), summed over the **completed** chunks. `0` is a deliberate published state, mirroring [`Self::chunk`].  Chunk cost is heterogeneous by an order of magnitude — one chunk is one scene and scene lengths differ wildly — so a byte denominator is a materially better ETA basis than a chunk count. Additive with `serde(default)`: `None` when the worker has no byte budget for the job (a schedule job is a single extraction unit).
+  @BuiltValueField(wireName: r'done_bytes')
+  int? get doneBytes;
+
   /// Human-readable episode labels discovered so far, in first-seen order, deduplicated (e.g. `[\"Ep. 3\", \"Ep. 4\"]`). Built at zero extra LLM token cost from the deterministic `Ep.:` marker scan and per-chunk extracted `DraftEpisode` metadata — never script prose.
   @BuiltValueField(wireName: r'episodes_seen')
   BuiltList<String>? get episodesSeen;
@@ -37,6 +44,14 @@ abstract class AiImportProgress
   @BuiltValueField(wireName: r'stage')
   AiImportStage get stage;
   // enum stageEnum {  extracting_text,  extracting,  merging,  storing_preview,  };
+
+  /// When the **current attempt** was claimed (issue #762).  The time anchor the counters above lack: without it a client can only run a stopwatch while its own screen stays open, and a reconnecting or restarted client can never reconstruct a rate from `chunk`/`chunks_total` alone. Every frame of one attempt carries the same value, so a client can recompute the estimate on every frame without accumulating state.  Additive with `serde(default)`: frames written before the field existed deserialize as `None`, and a client then simply shows no estimate — never a fabricated one. A retry starts cleanly because the claim clears [`Self::chunk`]/[`Self::done_bytes`] and writes a fresh anchor.
+  @BuiltValueField(wireName: r'started_at')
+  DateTime? get startedAt;
+
+  /// Total source-text bytes the document splits into (issue #762), known once the deterministic chunk scan finishes. Same `serde(default)` contract as [`Self::done_bytes`]; a client prefers the byte pair when `total_bytes > 0` and falls back to the chunk counters otherwise.
+  @BuiltValueField(wireName: r'total_bytes')
+  int? get totalBytes;
 
   AiImportProgress._();
 
@@ -78,6 +93,13 @@ class _$AiImportProgressSerializer
         specifiedType: const FullType.nullable(int),
       );
     }
+    if (object.doneBytes != null) {
+      yield r'done_bytes';
+      yield serializers.serialize(
+        object.doneBytes,
+        specifiedType: const FullType.nullable(int),
+      );
+    }
     if (object.episodesSeen != null) {
       yield r'episodes_seen';
       yield serializers.serialize(
@@ -90,6 +112,20 @@ class _$AiImportProgressSerializer
       object.stage,
       specifiedType: const FullType(AiImportStage),
     );
+    if (object.startedAt != null) {
+      yield r'started_at';
+      yield serializers.serialize(
+        object.startedAt,
+        specifiedType: const FullType.nullable(DateTime),
+      );
+    }
+    if (object.totalBytes != null) {
+      yield r'total_bytes';
+      yield serializers.serialize(
+        object.totalBytes,
+        specifiedType: const FullType.nullable(int),
+      );
+    }
   }
 
   @override
@@ -131,6 +167,14 @@ class _$AiImportProgressSerializer
           if (valueDes == null) continue;
           result.chunksTotal = valueDes;
           break;
+        case r'done_bytes':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.doneBytes = valueDes;
+          break;
         case r'episodes_seen':
           final valueDes = serializers.deserialize(
             value,
@@ -146,6 +190,22 @@ class _$AiImportProgressSerializer
             specifiedType: const FullType(AiImportStage),
           ) as AiImportStage;
           result.stage = valueDes;
+          break;
+        case r'started_at':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DateTime),
+          ) as DateTime?;
+          if (valueDes == null) continue;
+          result.startedAt = valueDes;
+          break;
+        case r'total_bytes':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.totalBytes = valueDes;
           break;
         default:
           unhandled.add(key);

@@ -234,6 +234,51 @@
   "aiJobStageMerging": "Spielplan wird zusammengeführt …",
   "aiJobStageStoringPreview": "Vorschau wird gespeichert …",
   "aiJobStageUnknown": "Unbekannte Phase ({name}).",
+  "aiJobEtaCalculating": "Restzeit wird berechnet …",
+  "aiJobEtaDelayed": "Verzögert – keine verlässliche Schätzung.",
+  "aiJobEtaImminent": "Gleich fertig …",
+  "aiJobEtaMinutes": "Noch ca. {count} min",
+  "@aiJobEtaMinutes": {
+    "description": "Coarse remaining-time estimate in minutes for a running AI import (issue #762). Never a seconds-precision countdown.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "aiJobEtaHours": "Noch ca. {count} h",
+  "@aiJobEtaHours": {
+    "description": "Coarse remaining-time estimate in whole hours for a running AI import (issue #762).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "aiJobEtaRangeMinutes": "Noch ca. {lower}–{upper} min",
+  "@aiJobEtaRangeMinutes": {
+    "description": "Remaining-time estimate as a range when the observed cadence was unsteady (issue #762).",
+    "placeholders": {
+      "lower": {
+        "type": "int"
+      },
+      "upper": {
+        "type": "int"
+      }
+    }
+  },
+  "aiJobEtaRangeHours": "Noch ca. {lower}–{upper} h",
+  "@aiJobEtaRangeHours": {
+    "description": "Remaining-time range in whole hours (issue #762).",
+    "placeholders": {
+      "lower": {
+        "type": "int"
+      },
+      "upper": {
+        "type": "int"
+      }
+    }
+  },
   "aiJobChunkProgress": "Abschnitt {chunk} von {chunksTotal}",
   "aiJobEpisodesSeenLabel": "Gefundene Episoden:",
   "aiPreviewTitle": "Import-Vorschau",

@@ -20,6 +20,7 @@ import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import 'import_state.dart';
 import 'job_cost_card.dart';
+import 'job_eta.dart';
 import 'job_status_controller.dart';
 import 'preview_screen.dart';
 
@@ -301,6 +302,11 @@ class _JobCard extends ConsumerWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
+              // Issue #762: the coarse remaining-time estimate. Only a
+              // RUNNING job has a time anchor — `pending` means queued, and
+              // its wait is not extraction time. The widget renders nothing
+              // (and occupies no space) when it has nothing to say.
+              if (job.status == JobStatus.running) _JobExtractionEta(job: job),
               if (episodes != null && episodes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -446,6 +452,127 @@ class _WatchErrorCard extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Live, coarse remaining-time estimate of the extraction phase
+/// (issue #762).
+///
+/// The math is the pure [estimateAiJobEta]; this widget only owns the two
+/// things a pure function cannot: the previous frame's estimate (the EMA
+/// carrier) and a bounded local ticker. The ticker rebuilds *this* widget
+/// only — it never touches the network, so the "no polling" decision of
+/// #664/#547 stands, and the SSE remains the only source of job state.
+///
+/// A ticker rebuild deliberately does NOT re-run the EMA: the counters did not
+/// change, so re-deriving a per-unit cost from a growing elapsed time would
+/// make the countdown climb. The EMA advances only when the backend publishes
+/// new counters; the ticker only re-evaluates the stall window.
+class _JobExtractionEta extends ConsumerStatefulWidget {
+  const _JobExtractionEta({required this.job});
+
+  final AiImportJob job;
+
+  @override
+  ConsumerState<_JobExtractionEta> createState() => _JobExtractionEtaState();
+}
+
+class _JobExtractionEtaState extends ConsumerState<_JobExtractionEta> {
+  /// Coarse refresh of the stall window; no network involved.
+  static const Duration _tick = Duration(seconds: 30);
+
+  Timer? _timer;
+
+  /// The counter pair the current [AiJobEta] was derived from — the guard that
+  /// keeps the EMA from re-running on a ticker rebuild.
+  AiJobProgressUnits? _units;
+
+  /// The smoothed estimate of the last counter frame (EMA carrier).
+  AiJobEta? _eta;
+
+  @override
+  void initState() {
+    super.initState();
+    _captureEstimate();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _JobExtractionEta oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextUnits = aiJobProgressUnits(widget.job.progress);
+    if (nextUnits != _units) {
+      // New counters (a live SSE frame) — advance the EMA against the last
+      // estimate so one slow chunk cannot make the countdown jump.
+      _captureEstimate();
+    }
+    _syncTimer();
+  }
+
+  void _captureEstimate() {
+    final units = aiJobProgressUnits(widget.job.progress);
+    _units = units;
+    _eta = estimateAiJobEta(
+      progress: widget.job.progress,
+      now: ref.read(clockProvider).now(),
+      previous: _eta,
+    );
+  }
+
+  void _syncTimer() {
+    final needsTimer = _units != null;
+    if (needsTimer && _timer == null) {
+      _timer = Timer.periodic(_tick, (_) {
+        if (mounted) setState(() {});
+      });
+    } else if (!needsTimer && _timer != null) {
+      _timer!.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _timer = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // No counters (a pre-#762 frame, a schedule job's single unit) → nothing
+    // to estimate. Rendering "estimating …" forever would be noise, not
+    // honesty.
+    if (_units == null) return const SizedBox.shrink();
+    final l10n = l10nOf(context);
+    final now = ref.watch(clockProvider).now();
+    final eta = _eta;
+    final stalled =
+        eta != null &&
+        aiJobEtaStalled(eta: eta, lastFrameAt: widget.job.updatedAt, now: now);
+    return Padding(
+      // The spacing lives HERE so an absent estimate takes no layout space: a
+      // job without counters must render byte-identically to pre-#762.
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        aiJobEtaText(
+          eta: eta,
+          stalled: stalled,
+          copy: AiJobEtaCopy(
+            calculating: l10n.aiJobEtaCalculating,
+            delayed: l10n.aiJobEtaDelayed,
+            imminent: l10n.aiJobEtaImminent,
+            minutes: (count) => l10n.aiJobEtaMinutes(count),
+            hours: (count) => l10n.aiJobEtaHours(count),
+            rangeMinutes: (lower, upper) =>
+                l10n.aiJobEtaRangeMinutes(lower, upper),
+            rangeHours: (lower, upper) => l10n.aiJobEtaRangeHours(lower, upper),
+          ),
+        ),
+        key: const Key('ai-job-eta'),
+        style: Theme.of(context).textTheme.bodySmall,
       ),
     );
   }

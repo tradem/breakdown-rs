@@ -580,6 +580,22 @@ components:
           type:
           - integer
           - 'null'
+        done_bytes:
+          description: |-
+            Source-text bytes already extracted (issue #762), summed over the
+            **completed** chunks. `0` is a deliberate published state, mirroring
+            [`Self::chunk`].
+
+            Chunk cost is heterogeneous by an order of magnitude — one chunk is
+            one scene and scene lengths differ wildly — so a byte denominator is a
+            materially better ETA basis than a chunk count. Additive with
+            `serde(default)`: `None` when the worker has no byte budget for the
+            job (a schedule job is a single extraction unit).
+          format: int64
+          minimum: 0
+          type:
+          - integer
+          - 'null'
         episodes_seen:
           description: |-
             Human-readable episode labels discovered so far, in first-seen order,
@@ -591,6 +607,35 @@ components:
           type: array
         stage:
           $ref: '#/components/schemas/AiImportStage'
+        started_at:
+          description: |-
+            When the **current attempt** was claimed (issue #762).
+
+            The time anchor the counters above lack: without it a client can only
+            run a stopwatch while its own screen stays open, and a reconnecting or
+            restarted client can never reconstruct a rate from `chunk`/`chunks_total`
+            alone. Every frame of one attempt carries the same value, so a client
+            can recompute the estimate on every frame without accumulating state.
+
+            Additive with `serde(default)`: frames written before the field existed
+            deserialize as `None`, and a client then simply shows no estimate —
+            never a fabricated one. A retry starts cleanly because the claim clears
+            [`Self::chunk`]/[`Self::done_bytes`] and writes a fresh anchor.
+          format: date-time
+          type:
+          - string
+          - 'null'
+        total_bytes:
+          description: |-
+            Total source-text bytes the document splits into (issue #762), known
+            once the deterministic chunk scan finishes. Same `serde(default)`
+            contract as [`Self::done_bytes`]; a client prefers the byte pair when
+            `total_bytes > 0` and falls back to the chunk counters otherwise.
+          format: int64
+          minimum: 0
+          type:
+          - integer
+          - 'null'
       required:
       - stage
       type: object

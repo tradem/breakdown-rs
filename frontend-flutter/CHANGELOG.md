@@ -23,6 +23,35 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The extraction phase shows an honest, coarse ETA** (`0.4.0-beta.29+121 →
+  0.4.0-beta.30+122`, backend issue #762). The job-status screen had a
+  determinate chunk bar but nothing about the remaining time, and the client
+  could not compute one: the progress counters carried no time anchor, so a
+  reconnecting or restarted client had no way back to a rate.
+
+  - **Wire.** `AiImportProgress` now carries `started_at` (the claim stamp of
+    the current attempt, identical on every frame of that attempt) and the
+    deterministic byte budget `done_bytes` / `total_bytes`. All four are
+    additive (`serde(default)`); a pre-#762 frame deserializes and simply yields
+    no estimate.
+  - **Pure estimator** (`features/ai_import/import_jobs/job_eta.dart`):
+    `estimateAiJobEta(...)` returns `null` until two units are done and then a
+    coarse remaining time, re-derived from the smoothed per-unit cost on every
+    frame. The per-unit cost is an EMA whose step is clamped to 1.5× per frame,
+    so one slow chunk can never make the countdown jump backwards; bytes beat
+    chunk counts whenever a budget exists (one chunk is one scene, and scene
+    lengths differ by an order of magnitude), and an estimate beyond 24 h is
+    refused as a broken anchor. 21 Tier-1 unit tests cover first frame,
+    byte-vs-chunk preference, monotone smoothing, stall, absurds and clamping.
+  - **Copy.** "Noch ca. 3 min" / "Noch ca. 2–4 min" / "Noch ca. 2 h", plus
+    "Restzeit wird berechnet …" while nothing is defensible and "Verzögert –
+    keine verlässliche Schätzung." when frames stop (3× the observed cadence,
+    clamped to 2–30 min). Never `0 min`, never a seconds-precision timer.
+  - **Honesty.** A `pending` job shows no ETA at all — queueing is not
+    extraction time — and a job without counters renders nothing, byte-identical
+    to the pre-#762 card (the existing goldens still pass unchanged). The 30 s
+    ticker is local only: no network traffic beyond the existing SSE stream.
+
 - **The import cost card leads with the money and the model** (`0.4.0-beta.28+120
   → 0.4.0-beta.29+121`, issues #761/#768). The card of the job-status screen was
   a flat column of equally weighted `bodySmall` lines, so the two facts an

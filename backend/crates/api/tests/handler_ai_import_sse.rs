@@ -65,6 +65,9 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
             chunk: Some(4),
             chunks_total: Some(12),
             episodes_seen: vec!["Ep. 3".to_owned(), "Ep. 4".to_owned()],
+            started_at: None,
+            done_bytes: None,
+            total_bytes: None,
         }),
         next_attempt_at: None,
         attempts: Vec::new(),
@@ -200,6 +203,9 @@ async fn live_progress_and_status_frames_are_pushed_and_terminal_closes() {
         chunk: Some(5),
         chunks_total: Some(12),
         episodes_seen: vec!["Ep. 3".to_owned()],
+        started_at: None,
+        done_bytes: None,
+        total_bytes: None,
     });
     updated.updated_at = Utc::now();
     ports

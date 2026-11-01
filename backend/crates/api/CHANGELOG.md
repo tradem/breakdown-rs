@@ -8,6 +8,7 @@
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Changelog
 
@@ -15,6 +16,19 @@ All notable changes to the `api` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.53.0] - Unreleased
+
+### Added — ETA anchor and byte budget on the job wire (issue #762)
+
+- `AiImportProgress` on the AI-import job wire now carries `started_at`,
+  `done_bytes` and `total_bytes`, so the job-status screen can compute an
+  honest, cadence-based ETA from the job's own frames instead of a client-side
+  stopwatch.
+- `backend/openapi.yaml` regenerated (`UPDATE_OPENAPI=1 cargo test -p api
+  --test contract openapi_drift`); the Dart client is regenerated from it.
+- Consumes `breakdown_core` 0.54.0 and `infra` 0.63.0.
+- Public API change: **0.52.0 → 0.53.0** (MINOR; additive wire fields).
 
 ## [0.38.1] - Unreleased
 

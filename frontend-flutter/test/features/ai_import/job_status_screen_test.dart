@@ -49,6 +49,7 @@ AiImportJob _job(
   JobTelemetrySummary? telemetry,
   AiImportTarget? target,
   DecisionTelemetry? decisionTelemetry,
+  DateTime? updatedAt,
 }) => AiImportJob(
   (b) => b
     ..id = 'job-1'
@@ -82,16 +83,21 @@ AiImportJob _job(
             ..stage = progress.stage
             ..chunk = progress.chunk
             ..chunksTotal = progress.chunksTotal
-            ..episodesSeen.replace(
-              progress.episodesSeen ?? BuiltList<String>(),
-            ))
+            ..episodesSeen.replace(progress.episodesSeen ?? BuiltList<String>())
+            // Issue #762: the ETA's time anchor + byte budget.
+            ..startedAt = progress.startedAt
+            ..doneBytes = progress.doneBytes
+            ..totalBytes = progress.totalBytes)
     ..cost = cost?.toBuilder()
     ..telemetry = telemetry?.toBuilder()
     // The Decision Model outcome (issue #767) — absent unless a scenario
     // records one, exactly like a pre-#767 job row.
     ..decisionTelemetry = decisionTelemetry?.toBuilder()
     ..createdAt = DateTime.utc(2026, 1, 1)
-    ..updatedAt = DateTime.utc(2026, 1, 1),
+    // `updatedAt` is the freshest-frame stamp the ETA stall window measures
+    // against (issue #762). Defaulted to the fixture's fixed instant so no
+    // pre-existing scenario or golden changes.
+    ..updatedAt = updatedAt ?? DateTime.utc(2026, 1, 1),
 );
 
 /// The telemetry summary the worker records alongside the cost snapshot
@@ -457,6 +463,146 @@ void main() {
     expect(find.byKey(const Key('ai-job-indeterminate')), findsOneWidget);
     expect(find.byKey(const Key('ai-job-chunk-progress')), findsNothing);
     expect(find.byKey(const Key('ai-job-chunk-counter')), findsNothing);
+  });
+
+  group('extraction ETA (issue #762)', () {
+    // `now` is the injectable clock; a job whose last frame is `now` is
+    // live, and one whose frame is older than the stall window is delayed.
+    AiImportProgress progressAt({
+      required DateTime startedAt,
+      int chunk = 2,
+      int chunksTotal = 8,
+      int? doneBytes,
+      int? totalBytes,
+    }) => AiImportProgress(
+      (b) => b
+        ..stage = AiImportStage.extracting
+        ..chunk = chunk
+        ..chunksTotal = chunksTotal
+        ..doneBytes = doneBytes
+        ..totalBytes = totalBytes
+        ..startedAt = startedAt
+        ..episodesSeen.replace(BuiltList<String>()),
+    );
+
+    testWidgets('two completed units produce a coarse ETA', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.running,
+            // 2 of 8 units in 2 min → 1 min/unit → 6 min left.
+            progress: progressAt(
+              startedAt: now.subtract(const Duration(minutes: 2)),
+            ),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('ai-job-eta')), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('ai-job-eta'))).data,
+        'About 6 min left',
+      );
+    });
+
+    testWidgets('one completed unit renders "estimating", never a number', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.running,
+            progress: progressAt(
+              startedAt: now.subtract(const Duration(minutes: 2)),
+              chunk: 1,
+            ),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('ai-job-eta'))).data,
+        'Estimating remaining time …',
+      );
+    });
+
+    testWidgets('a pending job shows no ETA — queueing is not running time', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.pending,
+            // A stale progress record from an earlier attempt would still be
+            // no license to estimate a queued job.
+            progress: progressAt(
+              startedAt: now.subtract(const Duration(minutes: 2)),
+            ),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('ai-job-eta')), findsNothing);
+    });
+
+    testWidgets('a running job without counters renders no ETA line', (
+      tester,
+    ) async {
+      await setupContainer(Right(_job(JobStatus.running, updatedAt: now)));
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('ai-job-eta')), findsNothing);
+    });
+
+    testWidgets('frames that stopped arriving drop the estimate — "delayed"', (
+      tester,
+    ) async {
+      final startedAt = now.subtract(const Duration(minutes: 2));
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.running,
+            progress: progressAt(startedAt: startedAt),
+            // No frame for an hour: way beyond 3× the observed cadence.
+            updatedAt: now.subtract(const Duration(hours: 1)),
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('ai-job-eta'))).data,
+        'Delayed – no reliable estimate.',
+      );
+    });
+
+    testWidgets('the byte budget drives the estimate when it exists', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.running,
+            // The chunk pair would say "6 of 8 chunks left"; the bytes say
+            // only 10% of the document is still outstanding.
+            progress: progressAt(
+              startedAt: now.subtract(const Duration(minutes: 2)),
+              chunk: 2,
+              chunksTotal: 8,
+              doneBytes: 9000,
+              totalBytes: 10000,
+            ),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      final text = tester
+          .widget<Text>(find.byKey(const Key('ai-job-eta')))
+          .data;
+      expect(text, 'Almost done …');
+    });
   });
 
   testWidgets('running without progress renders the plain status copy '
