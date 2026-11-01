@@ -2207,6 +2207,24 @@ abstract class AppLocalizations {
   /// **'{updates} Aktualisierung(en), {skips} Überspringen – Bearbeitungsabstand {distance}.'**
   String aiApplySelectionSummary(Object distance, Object skips, Object updates);
 
+  /// No description provided for @aiApplyProgressWaiting.
+  ///
+  /// In de, this message translates to:
+  /// **'Import läuft – Zeilenfortschritt wird ermittelt …'**
+  String get aiApplyProgressWaiting;
+
+  /// Per-row apply progress (issue #762): rows dispatched by this apply run.
+  ///
+  /// In de, this message translates to:
+  /// **'Zeile {applied} von {total} übernommen'**
+  String aiApplyProgressRows(String applied, String total);
+
+  /// No description provided for @aiApplyProgressFinalizing.
+  ///
+  /// In de, this message translates to:
+  /// **'Alle Zeilen übernommen – Abschluss läuft …'**
+  String get aiApplyProgressFinalizing;
+
   /// No description provided for @aiApplySubmit.
   ///
   /// In de, this message translates to:

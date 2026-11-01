@@ -46,7 +46,9 @@ import 'package:breakdown_api/src/model/apply_mapping.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of_update.dart';
+import 'package:breakdown_api/src/model/apply_progress.dart';
 import 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
+import 'package:breakdown_api/src/model/apply_stage.dart';
 import 'package:breakdown_api/src/model/assign_character_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
 import 'package:breakdown_api/src/model/block_view.dart';
@@ -238,7 +240,9 @@ part 'serializers.g.dart';
   ApplyMappingDecision,
   ApplyMappingDecisionOneOf,
   ApplyMappingDecisionOneOfUpdate,
+  ApplyProgress,
   ApplyShootingDayRequest,
+  ApplyStage,
   AssignCharacterRequest,
   AuditEntry,
   BlockView,

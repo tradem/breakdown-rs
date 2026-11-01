@@ -523,6 +523,125 @@ class AiImportRepository extends BaseRepository {
     yield const Left(ProblemError(code: 'ai_import.watch_exhausted'));
   }
 
+  /// Watches an **apply run**'s progress (issue #762):
+  /// `GET /v1/ai-import/jobs/{id}/apply-events`.
+  ///
+  /// A second stream is necessary, not a convenience: an apply is a `POST`
+  /// against a job that is already `succeeded`, and the job stream closes on
+  /// the terminal frame — so the apply's own progress cannot ride it.
+  ///
+  /// Contract, mirroring [watch]:
+  /// * same pinned-CA Dio client, `ResponseType.stream`, the read-idle
+  ///   watchdog and the SSE parser — no third-party SSE package, no polling;
+  /// * the first frame of every connect is the current run snapshot;
+  /// * a transient drop reconnects through the bounded [scheduler];
+  /// * a frame whose `apply_progress` is `null` is the run's **end**: it
+  ///   yields a final `Right(null)` and the loop stops (the server closed the
+  ///   stream, nothing is reconnecting);
+  /// * `403`/`404` are definitive and stop immediately.
+  ///
+  /// Nothing is cached: an apply run is transient state, and a stale
+  /// "applying 12/57" in Drift would outlive its run.
+  Stream<Result<ApplyProgress?>> watchApplyProgress(
+    String jobId, {
+    ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
+    int maxAttempts = kMaxJobWatchAttempts,
+    Duration receiveTimeout = kSseReceiveTimeout,
+    CancelToken? cancelToken,
+  }) async* {
+    String? lastEventId;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) await scheduler.tick(attempt - 1);
+      Response<ResponseBody> response;
+      try {
+        response = await api.dio.get<ResponseBody>(
+          '/v1/ai-import/jobs/$jobId/apply-events',
+          options: Options(
+            responseType: ResponseType.stream,
+            receiveTimeout: receiveTimeout,
+            headers: {
+              'Accept': 'text/event-stream',
+              'Last-Event-ID': ?lastEventId,
+            },
+          ),
+          cancelToken: cancelToken,
+        );
+      } on DioException catch (e) {
+        final status = e.response?.statusCode;
+        if (status == 403 || status == 404) {
+          yield Left(problemErrorFromDio(e));
+          return;
+        }
+        yield Left(problemErrorFromDio(e));
+        continue;
+      }
+      var finished = false;
+      try {
+        final parser = SseEventParser();
+        final lines = response.data!.stream
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter());
+        await for (final line in lines) {
+          final event = parser.addLine(line);
+          // `: keep-alive` comments and frame-interior lines yield null.
+          if (event == null) continue;
+          if (event.id != null) lastEventId = event.id;
+          if (event.event != 'apply' || event.data.isEmpty) continue;
+          final decoded = _decodeApplyProgressFrame(event.data);
+          final progress = decoded.fold<ApplyProgress?>((_) => null, (p) => p);
+          // A malformed body must not look like "no run": yield the error and
+          // keep the stream open (the next frame may be well-formed).
+          if (!decoded.isRight()) {
+            yield decoded;
+            continue;
+          }
+          yield Right(progress);
+          if (progress == null) finished = true;
+        }
+      } on DioException catch (e) {
+        yield Left(problemErrorFromDio(e));
+      }
+      if (finished) {
+        // The run ended (or its payload went stale server-side); the server
+        // closed the stream — no reconnect.
+        return;
+      }
+      // The stream ended without an end frame (drop / process restart):
+      // reconnect within the bounded budget; the next snapshot re-states the
+      // run.
+    }
+    yield const Left(ProblemError(code: 'ai_import.watch_exhausted'));
+  }
+
+  /// Decodes one `event: apply` SSE data payload (issue #762).
+  ///
+  /// The frame is `{ "job_id": …, "apply_progress": … }`, and only the nested
+  /// progress is needed: the stream is per-job already. Decoding it by hand
+  /// keeps a nested `null` distinguishable from a malformed body — the former
+  /// is the run's end signal, the latter is `ai_import.dto_invalid`. Same
+  /// never-throw discipline as [_decodeJobFrame].
+  static Result<ApplyProgress?> _decodeApplyProgressFrame(String data) {
+    const malformed = Left<ProblemError, ApplyProgress?>(
+      ProblemError(code: 'ai_import.dto_invalid'),
+    );
+    try {
+      final decoded = jsonDecode(data);
+      if (decoded is! Map<String, dynamic>) return malformed;
+      if (!decoded.containsKey('apply_progress')) return malformed;
+      final raw = decoded['apply_progress'];
+      if (raw == null) return const Right<ProblemError, ApplyProgress?>(null);
+      final progress = standardSerializers.deserializeWith(
+        ApplyProgress.serializer,
+        raw,
+      );
+      if (progress == null) return malformed;
+      return Right<ProblemError, ApplyProgress?>(progress);
+    } on Object {
+      return malformed;
+    }
+  }
+
   /// Decodes one `event: job` SSE data payload into the generated
   /// [AiImportJob]. A body the serializers reject (unknown future field
   /// shape) is a malformed frame — surfaced as

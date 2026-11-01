@@ -7,6 +7,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +34,27 @@ part 'apply_controller.g.dart';
 @riverpod
 Future<Result<AiImportPreviewResponse>> aiPreview(Ref ref, String jobId) =>
     ref.watch(aiImportRepositoryProvider).getPreview(jobId);
+
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// `null` means "no run in flight" — the initial state and the end signal the
+/// server sends when the run finishes.
+@riverpod
+Stream<ApplyProgress?> aiApplyRun(Ref ref, String jobId) {
+  final cancelToken = CancelToken();
+  ref.onDispose(cancelToken.cancel);
+  final repo = ref.watch(aiImportRepositoryProvider);
+  return repo
+      .watchApplyProgress(jobId, cancelToken: cancelToken)
+      .where((result) => result.isRight())
+      .map((result) => result.getOrElse((_) => null));
+}
 
 /// The per-row apply decision (task 4.2). The `draft_ref` is carried
 /// VERBATIM from the preview row the user acted on — never recomputed,

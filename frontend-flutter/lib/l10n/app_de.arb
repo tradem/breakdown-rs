@@ -388,6 +388,20 @@
   "aiApplyNoContextSubtitle": "Wähle unten eine Episode, um das Anwenden zu aktivieren.",
   "aiApplyAcceptAsIs": "Alle Entwürfe unverändert erstellen (ohne Bearbeitung).",
   "aiApplySelectionSummary": "{updates} Aktualisierung(en), {skips} Überspringen – Bearbeitungsabstand {distance}.",
+  "aiApplyProgressWaiting": "Import läuft – Zeilenfortschritt wird ermittelt …",
+  "aiApplyProgressRows": "Zeile {applied} von {total} übernommen",
+  "@aiApplyProgressRows": {
+    "description": "Per-row apply progress (issue #762): rows dispatched by this apply run.",
+    "placeholders": {
+      "applied": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyProgressFinalizing": "Alle Zeilen übernommen – Abschluss läuft …",
   "aiApplySubmit": "Import anwenden",
   "aiApplyPickEpisode": "Episode wählen…",
   "aiApplyUngroupedHeading": "Ohne Episoden-Marker – Ziel: Episode {episode}",

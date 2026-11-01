@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, CostBreakdown,
+    AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, CostBreakdown,
     DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary, LlmProvider, SourceFormat,
     Telemetry,
 };
@@ -823,6 +823,48 @@ impl AiImportQueue for PgAiImportQueue {
     /// lapsed gets `Conflict` here instead of overwriting the new owner's
     /// progress — and aborts before its next billable LLM call. Called only
     /// at stage boundaries and completed chunks, never per LLM token.
+    /// Publish (or clear, with `None`) the progress of an **apply run**
+    /// (issue #762).
+    ///
+    /// Deliberately NOT owner-fenced: the job is already terminal
+    /// (`succeeded`) while its apply runs, so there is no claim to fence on —
+    /// the same shape as [`AiImportQueue::record_telemetry`], the other write
+    /// the API edge performs. The status predicate is the guard instead: an
+    /// apply can only ever run against a `succeeded` job, so a row that left
+    /// that state (deleted, or moved on) never gets an apply's progress.
+    ///
+    /// Every write bumps `updated_at` and notifies the wake-up hub, so the
+    /// dedicated apply stream pushes a frame per write without polling.
+    async fn mark_apply_progress(
+        &self,
+        id: AiImportJobId,
+        progress: Option<&ApplyProgress>,
+    ) -> Result<(), DomainError> {
+        let payload = match progress {
+            Some(progress) => Some(serde_json::to_value(progress).map_err(|error| {
+                DomainError::validation(format!(
+                    "AI import apply progress is not serializable: {error}"
+                ))
+            })?),
+            None => None,
+        };
+        sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET apply_progress = $2, updated_at = now()
+            WHERE id = $1 AND status = 'succeeded'
+            RETURNING pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(payload)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        self.hub.notify(id);
+        Ok(())
+    }
+
     async fn mark_progress(
         &self,
         id: AiImportJobId,
@@ -1375,7 +1417,27 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         // column (pre-#767 row, or a job no worker completed) renders as the
         // honest "not recorded" rather than a guessed class.
         decision_telemetry: decode_job_decision_telemetry(&row),
+        // Apply-run progress (issue #762). Advisory like `progress`: a NULL
+        // column (no apply in flight) or an undecodable payload degrades to
+        // `None`, which the stream reads as "run finished".
+        apply_progress: decode_apply_progress(&row),
     })
+}
+
+/// Decode the nullable `apply_progress` JSONB column (issue #762).
+///
+/// Advisory visibility data: a `NULL` column (no apply running), an
+/// undecodable payload or a missing column degrades to `None` instead of
+/// failing the whole job read.
+fn decode_apply_progress(row: &sqlx::postgres::PgRow) -> Option<ApplyProgress> {
+    let value: Option<serde_json::Value> = row.try_get("apply_progress").ok().flatten()?;
+    match serde_json::from_value::<ApplyProgress>(value?) {
+        Ok(progress) => Some(progress),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode ai_import apply progress payload");
+            None
+        }
+    }
 }
 
 /// Decode the import-target snapshot columns (issue #771).

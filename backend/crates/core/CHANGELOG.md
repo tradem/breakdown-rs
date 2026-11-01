@@ -16,6 +16,31 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.55.0] - Unreleased
+
+### Added — apply-run progress for AI imports (issue #762)
+
+- `ApplyProgress` (`stage`, `applied`, `total`, `started_at`, `updated_at`) is
+  the state of one **apply run**: an apply is a `POST` against a job that is
+  already `succeeded`, so its progress cannot ride the job status, and the job
+  stream has already closed on its terminal frame.
+- `ApplyStage` (`applying` | `finalizing`) says whether rows are still being
+  dispatched or the run is closing out.
+- `AiImportJob.apply_progress` (additive with `serde(default)`) carries it on
+  the job read; `None` means "no apply in flight", which a client renders as
+  nothing at all.
+- `ApplyProgressFrame` (`job_id` + optional progress) is the payload of the
+  dedicated apply stream; a `null` progress is the run's **end** signal, so a
+  client closes on a definite event instead of a timeout.
+- `ApplyProgress::is_stale_at` / `fraction` keep the two decisions that matter
+  pure and testable: a payload older than `STALE_AFTER` describes a run whose
+  process died (the stream drops it rather than holding a connection open), and
+  a percentage is never derived from an empty plan.
+- `AiImportQueue::mark_apply_progress` (default no-op) publishes or clears the
+  payload. Not owner-fenced — the job is terminal while it runs — so adapters
+  guard on the status instead, exactly like `record_telemetry`.
+- Public API change: **0.54.0 → 0.55.0** (MINOR; purely additive).
+
 ## [0.54.0] - Unreleased
 
 ### Added — ETA anchor and byte budget on AI-import progress (issue #762)

@@ -159,6 +159,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 applied_episodes: Vec::new(),
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
+                apply_progress: None,
             };
             Ok(Some(job))
         }
@@ -440,6 +441,7 @@ async fn merge_worker_success_records_telemetry() {
         applied_episodes: Vec::new(),
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
+        apply_progress: None,
     };
     let queue = Arc::new(MergeCaptureQueue {
         job: job.clone(),
@@ -501,6 +503,13 @@ fn telemetry_serialization_is_content_free() {
     assert!(serialized.contains("\"applied\""));
 }
 
+impl FakeQueue {
+    /// The apply-progress frames published through this queue, in order.
+    fn apply_progress_log(&self) -> Vec<Option<breakdown_core::ai::ApplyProgress>> {
+        self.state.lock().unwrap().apply_progress.clone()
+    }
+}
+
 #[test]
 fn feature_flag_parser_is_off_for_unrecognised_values() {
     assert!(!AiImportFeature::from_enabled_value("maybe").enabled);
@@ -518,6 +527,9 @@ struct FakeQueueState {
     succeeded: Vec<AiImportJobId>,
     failed: Vec<AiImportJobId>,
     telemetry: Vec<Telemetry>,
+    /// Every apply-progress write the worker published, in order (issue #762).
+    /// `None` is the run's end signal.
+    apply_progress: Vec<Option<breakdown_core::ai::ApplyProgress>>,
 }
 
 #[async_trait]
@@ -568,6 +580,19 @@ impl AiImportQueue for FakeQueue {
         _retryable: bool,
     ) -> Result<(), DomainError> {
         self.state.lock().unwrap().failed.push(id);
+        Ok(())
+    }
+
+    async fn mark_apply_progress(
+        &self,
+        _id: AiImportJobId,
+        progress: Option<&breakdown_core::ai::ApplyProgress>,
+    ) -> Result<(), DomainError> {
+        self.state
+            .lock()
+            .unwrap()
+            .apply_progress
+            .push(progress.cloned());
         Ok(())
     }
 
@@ -721,6 +746,7 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         applied_episodes: Vec::new(),
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
+        apply_progress: None,
     }
 }
 
@@ -819,6 +845,7 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         applied_episodes: Vec::new(),
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
+        apply_progress: None,
     }
 }
 
@@ -3580,6 +3607,93 @@ async fn script_apply_without_a_mapping_decision_answers_the_dedicated_code() {
         }
         other => panic!("expected Conflict, got {other:?}"),
     }
+}
+
+/// Issue #762: the apply publishes its own progress — one frame per planned
+/// row (through a bounded stride), a `finalizing` boundary, and an explicit
+/// `None` when the run ends.
+///
+/// The apply runs against a job that is already `succeeded`, so the job status
+/// cannot carry this; the worker would otherwise be a pure spinner for however
+/// long a 57-row preview takes.
+#[tokio::test]
+async fn script_apply_publishes_apply_progress_and_clears_it_at_the_end() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_outfit("1. INT. OP", &["BEN"], &[]),
+            row_with_outfit("2. INT. OP", &["BEN"], &[]),
+        ],
+        ..Default::default()
+    };
+    let decisions = vec![
+        create_decision(&preview.scenes[0].draft_ref),
+        create_decision(&preview.scenes[1].draft_ref),
+    ];
+    fixture.apply(&preview, &decisions).await.unwrap();
+
+    let log = fixture.queue.apply_progress_log();
+    // First frame: the run starts at 0 of 2, `applying`.
+    let first = log
+        .first()
+        .expect("the run publishes before the first row")
+        .clone()
+        .expect("a start frame, not a clear");
+    assert_eq!(first.stage, breakdown_core::ai::ApplyStage::Applying);
+    assert_eq!(first.applied, 0);
+    assert_eq!(first.total, 2);
+
+    // Every planned row advances the counter, and the last row is always
+    // written (the stride never swallows it).
+    let applying: Vec<u32> = log
+        .iter()
+        .flatten()
+        .filter(|frame| frame.stage == breakdown_core::ai::ApplyStage::Applying)
+        .map(|frame| frame.applied)
+        .collect();
+    assert!(
+        applying.contains(&2),
+        "the final row is published, got {applying:?}"
+    );
+    assert_eq!(applying.last(), Some(&2), "monotone, ending at the total");
+
+    // The trailing work announces itself instead of freezing the bar at 100 %.
+    assert!(
+        log.iter()
+            .flatten()
+            .any(|frame| frame.stage == breakdown_core::ai::ApplyStage::Finalizing),
+        "the run reports its finalizing stage"
+    );
+
+    // And the run ends with an explicit clear — the stream's close signal.
+    assert_eq!(
+        log.last(),
+        Some(&None),
+        "the run must be cleared on the way out, got {log:?}"
+    );
+}
+
+/// Issue #762: a FAILED apply clears its progress too. Otherwise the client's
+/// stream would stay open until the staleness window expired, showing an
+/// "applying" bar for a run that is already over.
+#[tokio::test]
+async fn a_failed_script_apply_still_clears_its_progress() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![row_with_outfit("1. INT. OP", &["BEN"], &[])],
+        ..Default::default()
+    };
+    // No decisions: the planner refuses the row, so the run errors out.
+    let error = fixture.apply(&preview, &[]).await.unwrap_err();
+    assert!(
+        matches!(error, DomainError::Conflict { .. }),
+        "the fixture must fail the way the test assumes, got {error:?}"
+    );
+    assert_eq!(
+        fixture.queue.apply_progress_log().last(),
+        Some(&None),
+        "every exit path clears the run progress"
+    );
 }
 
 /// Issue #677: the draft character's extracted category flows end-to-end

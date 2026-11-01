@@ -23,6 +23,30 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The apply shows staged per-row progress and an ETA** (`0.4.0-beta.30+122 →
+  0.4.0-beta.31+123`, backend issue #762). Applying a reviewed preview was a
+  bare button spinner for however many minutes a 57-row import took: the apply
+  is one synchronous `POST` and the job stream had already closed on its
+  terminal frame, so nothing reported what it was doing.
+
+  - **Wire.** `AiImportJob.apply_progress` (`stage`, `applied`, `total`,
+    `started_at`, `updated_at`; additive, `serde(default)`) plus a dedicated
+    stream `GET /v1/ai-import/jobs/{id}/apply-events`. The job stream cannot
+    carry this: an apply runs against a job that is already `succeeded`, so its
+    stream closes on the first frame.
+  - **Subscription lifetime = run lifetime.** `AiApplyProgressCard` mounts only
+    while the submit is in flight and watches `aiApplyRunProvider`, which
+    subscribes to the apply stream and disposes with the card — no background
+    subscription, no polling (the #547/#664 decision stands). A frame whose
+    `apply_progress` is `null` is the run's end and closes the watcher.
+  - **Progress.** A determinate bar on `applied / total`, the localized
+    "Zeile n von m übernommen" counter (replaced by "Abschluss läuft …" in the
+    `finalizing` stage), and — from the SAME pure estimator as the extraction
+    phase (`estimateEtaFrom`) — a coarse ETA: "Noch ca. 3 min", a range when the
+    cadence is unsteady, nothing before two rows, and "verzögert" when frames
+    stop. A run that has not published anything yet renders the indeterminate
+    line instead of a guessed number.
+
 - **The extraction phase shows an honest, coarse ETA** (`0.4.0-beta.29+121 →
   0.4.0-beta.30+122`, backend issue #762). The job-status screen had a
   determinate chunk bar but nothing about the remaining time, and the client

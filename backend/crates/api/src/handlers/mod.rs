@@ -6833,6 +6833,273 @@ where
     )
 }
 
+/// Keep-alive/tick cadence of the apply stream (issue #762).
+///
+/// The apply stream additionally *re-reads* on this tick: it must be able to
+/// notice that a run's payload went stale (the process died) or that no run
+/// ever started, without holding a connection open forever.
+const SSE_APPLY_TICK_SECS: u64 = 30;
+
+/// How many idle ticks the apply stream waits for a run to start before it
+/// gives up (2 min). A client subscribes a moment before its `POST` lands, so
+/// an immediate close would race; waiting forever would leak a connection for
+/// a preview nobody applies.
+const SSE_APPLY_IDLE_TICKS: u64 = 4;
+
+/// Push-based **apply-run** progress stream (issue #762).
+///
+/// Why a second stream: an apply is a `POST` against a job that is already
+/// `succeeded`, so the job stream has closed by the time the apply starts — the
+/// job's status never changes during the run. This endpoint streams the run's
+/// own state (`AiImportJob.apply_progress`) instead, with the same contract as
+/// the job stream:
+///
+/// * snapshot-first — the first frame is the current run state, so a
+///   reconnecting client needs no replay buffer;
+/// * subsequent frames are pushed through the queue's wake-up port, and every
+///   frame re-reads the authoritative row (duplicate notifications are
+///   harmless);
+/// * anti-buffering headers identical to the job stream.
+///
+/// The stream ends when the run ends: the worker clears `apply_progress` on
+/// every exit path, and the final frame carries `null`. Two defensive rules
+/// bound a stream that would otherwise never see that event:
+///
+/// * the stream waits (instead of closing) while no run has started yet — a
+///   client may subscribe a moment before its `POST` reaches the handler — and
+///   closes after [`SSE_APPLY_TICK_SECS`] worth of ticks with nothing to say;
+/// * a run payload older than
+///   [`ApplyProgress::STALE_AFTER`](breakdown_core::ai::ApplyProgress) is
+///   treated as finished, so a crashed apply cannot pin a connection open.
+#[utoipa::path(
+    get,
+    path = "/ai-import/jobs/{id}/apply-events",
+    params(("id" = Uuid, Path)),
+    responses(
+        (status = 200, description = "SSE stream of ApplyProgressFrame frames (event: apply)",
+            content_type = "text/event-stream"),
+        (status = 403, body = ProblemDetails, description = "Not authorized"),
+        (status = 404, body = ProblemDetails, description = "Job not found or AI import disabled")
+    )
+)]
+pub async fn stream_ai_import_apply_events<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<AiImportJobId>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    if !state.ai_import_enabled {
+        return Err(ApiError::FeatureDisabled("AI import is disabled"));
+    }
+    // Accepted per the SSE contract; snapshot-first makes it informational.
+    let _last_event_id = headers
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok());
+
+    let queue = state.ports.ai_import_queue().clone();
+    // Subscribe BEFORE the snapshot read (same race-free order as the job
+    // stream).
+    let wakeups = queue.subscribe(id);
+    let job = queue.get(id).await?;
+    let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
+    // AUTHZ-GATE: the apply stream is privileged exactly like the single-job
+    // read and like the apply itself — ownership plus an active piece-dept
+    // role in the job's season, evaluated BEFORE the stream opens so a
+    // rejected caller gets a problem document instead of a text/event-stream.
+    authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
+
+    let stream = sse_apply_stream(queue, id, job.apply_progress, wakeups);
+    let mut response = Sse::new(stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(SSE_KEEP_ALIVE_SECS))
+                .text("keep-alive"),
+        )
+        .into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-transform"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("x-accel-buffering"),
+        HeaderValue::from_static("no"),
+    );
+    Ok(response)
+}
+
+/// Interior state of the apply-stream unfold loop.
+struct SseApplyStream<Q: AiImportQueue> {
+    queue: Q,
+    id: AiImportJobId,
+    wakeups: std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>>,
+    /// Snapshot waiting to be emitted (initial connect / reconnect).
+    pending: Option<Option<breakdown_core::ai::ApplyProgress>>,
+    last_emitted: Option<ApplyWatermark>,
+    /// True once a live run was observed; only then does "no payload" mean
+    /// "the run finished" instead of "nothing started yet".
+    saw_run: bool,
+    /// Consecutive idle ticks without a run; bounds a stream opened outside an
+    /// apply run.
+    idle_ticks: u64,
+    done: bool,
+}
+
+/// Watermark of one emitted apply frame: the payload's own `updated_at`, plus
+/// its presence. A re-read that changed neither emits nothing.
+type ApplyWatermark = (bool, Option<chrono::DateTime<chrono::Utc>>);
+
+/// What the stream decided about the current row (issue #762).
+///
+/// Public so the apply stream's close/emit conditions can be unit-tested
+/// without a stream, a timer or a database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplyStreamVerdict {
+    /// A live run is in flight: emit the payload.
+    Running(breakdown_core::ai::ApplyProgress),
+    /// The run ended (or its payload went stale): emit a final `null` frame
+    /// and close.
+    Finished,
+    /// Nothing started yet: wait for a wake-up or the next tick.
+    Idle,
+}
+
+/// Classify the current row for the apply stream. Pure apart from `now`, so
+/// the close condition is unit-testable without a stream or a clock.
+pub fn classify_apply_run(
+    progress: Option<breakdown_core::ai::ApplyProgress>,
+    saw_run: bool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> ApplyStreamVerdict {
+    match progress {
+        Some(progress) if !progress.is_stale_at(now) => ApplyStreamVerdict::Running(progress),
+        // A payload we watched go stale is a finished run: the process that
+        // owned it is gone.
+        Some(_) => ApplyStreamVerdict::Finished,
+        None if saw_run => ApplyStreamVerdict::Finished,
+        None => ApplyStreamVerdict::Idle,
+    }
+}
+
+/// Build the per-job apply frame stream (see
+/// [`stream_ai_import_apply_events`]).
+fn sse_apply_stream<Q>(
+    queue: Q,
+    id: AiImportJobId,
+    initial: Option<breakdown_core::ai::ApplyProgress>,
+    wakeups: std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>>,
+) -> impl futures::Stream<Item = Result<Event, std::convert::Infallible>> + Send
+where
+    Q: AiImportQueue + Send + Sync + 'static,
+{
+    futures::stream::unfold(
+        SseApplyStream {
+            queue,
+            id,
+            wakeups,
+            pending: Some(initial),
+            last_emitted: None,
+            saw_run: false,
+            idle_ticks: 0,
+            done: false,
+        },
+        |mut state| async move {
+            loop {
+                if state.done {
+                    return None;
+                }
+                let snapshot: Option<breakdown_core::ai::ApplyProgress> =
+                    if let Some(progress) = state.pending.take() {
+                        progress
+                    } else {
+                        // Wake on a state/progress write, but never wait
+                        // forever: the tick re-reads so a stale run or an
+                        // apply that never started still ends the stream.
+                        match tokio::time::timeout(
+                            Duration::from_secs(SSE_APPLY_TICK_SECS),
+                            state.wakeups.as_mut().next(),
+                        )
+                        .await
+                        {
+                            Ok(Some(_)) => {}
+                            // The wake-up stream ended (job deleted, runtime
+                            // shutdown): close.
+                            Ok(None) => return None,
+                            Err(_elapsed) => {
+                                state.idle_ticks = state.idle_ticks.saturating_add(1);
+                            }
+                        }
+                        match state.queue.get(state.id).await {
+                            Ok(Some(job)) => job.apply_progress,
+                            // Job deleted while watching (issue #671 route):
+                            // nothing left to stream.
+                            Ok(None) => return None,
+                            Err(error) => {
+                                tracing::warn!(
+                                    job_id = %state.id.as_uuid(),
+                                    %error,
+                                    "failed to re-read AI import job for an apply frame; \
+                                     waiting for the next wake-up"
+                                );
+                                continue;
+                            }
+                        }
+                    };
+
+                let verdict = classify_apply_run(snapshot, state.saw_run, chrono::Utc::now());
+                let watermark: ApplyWatermark = match &verdict {
+                    ApplyStreamVerdict::Running(progress) => (true, Some(progress.updated_at)),
+                    ApplyStreamVerdict::Finished => (false, None),
+                    ApplyStreamVerdict::Idle => (false, None),
+                };
+                if matches!(verdict, ApplyStreamVerdict::Idle) {
+                    // Nothing started: do not emit an empty frame forever, and
+                    // close once waiting has clearly outlived the POST.
+                    if state.idle_ticks >= SSE_APPLY_IDLE_TICKS {
+                        return None;
+                    }
+                    continue;
+                }
+                if state.last_emitted.as_ref() == Some(&watermark) {
+                    // Duplicate notification (local hub + echoed pg_notify) or
+                    // an unrelated job write: nothing changed for the run.
+                    continue;
+                }
+                let payload = match &verdict {
+                    ApplyStreamVerdict::Running(progress) => Some(progress.clone()),
+                    _ => None,
+                };
+                state.saw_run = state.saw_run || payload.is_some();
+                state.done = matches!(verdict, ApplyStreamVerdict::Finished);
+                state.last_emitted = Some(watermark);
+                let frame = breakdown_core::ai::ApplyProgressFrame {
+                    job_id: state.id,
+                    apply_progress: payload,
+                };
+                let event_id = frame
+                    .apply_progress
+                    .as_ref()
+                    .map(|p| p.updated_at.timestamp_micros().to_string())
+                    .unwrap_or_else(|| state.id.as_uuid().to_string());
+                match serde_json::to_string(&frame) {
+                    Ok(data) => {
+                        let event = Event::default().event("apply").id(event_id).data(data);
+                        return Some((Ok(event), state));
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            job_id = %state.id.as_uuid(),
+                            %error,
+                            "failed to serialize an AI import apply frame; closing stream"
+                        );
+                        return None;
+                    }
+                }
+            }
+        },
+    )
+}
+
 /// Stored-row scan window for `list_ai_import_jobs` (issue #337 review).
 ///
 /// Every `list_for_user` backend clamps `LIMIT` to `1..=100`, so a wider
@@ -9111,6 +9378,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/ai-import/jobs/{id}/events",
             routing::get(stream_ai_import_job_events::<ProductionPorts>),
+        )
+        .route(
+            "/ai-import/jobs/{id}/apply-events",
+            routing::get(stream_ai_import_apply_events::<ProductionPorts>),
         )
         .route(
             "/ai-import/jobs/{id}/preview",

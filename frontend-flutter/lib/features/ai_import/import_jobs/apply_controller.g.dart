@@ -108,6 +108,135 @@ final class AiPreviewFamily extends $Family
   String toString() => r'aiPreviewProvider';
 }
 
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// `null` means "no run in flight" — the initial state and the end signal the
+/// server sends when the run finishes.
+
+@ProviderFor(aiApplyRun)
+final aiApplyRunProvider = AiApplyRunFamily._();
+
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// `null` means "no run in flight" — the initial state and the end signal the
+/// server sends when the run finishes.
+
+final class AiApplyRunProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ApplyProgress?>,
+          ApplyProgress?,
+          Stream<ApplyProgress?>
+        >
+    with $FutureModifier<ApplyProgress?>, $StreamProvider<ApplyProgress?> {
+  /// Live progress of the apply run in flight (issue #762).
+  ///
+  /// Subscribed by the apply screen only while its `POST` is out, so the stream
+  /// exists exactly as long as the run does — no background subscription, no
+  /// polling. The stream is a second SSE channel because an apply runs against a
+  /// job that is already `succeeded` (its own stream has closed):
+  /// `GET /v1/ai-import/jobs/{id}/apply-events`.
+  ///
+  /// `null` means "no run in flight" — the initial state and the end signal the
+  /// server sends when the run finishes.
+  AiApplyRunProvider._({
+    required AiApplyRunFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiApplyRunProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiApplyRunHash();
+
+  @override
+  String toString() {
+    return r'aiApplyRunProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $StreamProviderElement<ApplyProgress?> $createElement(
+    $ProviderPointer pointer,
+  ) => $StreamProviderElement(pointer);
+
+  @override
+  Stream<ApplyProgress?> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiApplyRun(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiApplyRunProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiApplyRunHash() => r'65d4f5cf96c091812e99ea62d1180d1e12360d15';
+
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// `null` means "no run in flight" — the initial state and the end signal the
+/// server sends when the run finishes.
+
+final class AiApplyRunFamily extends $Family
+    with $FunctionalFamilyOverride<Stream<ApplyProgress?>, String> {
+  AiApplyRunFamily._()
+    : super(
+        retry: null,
+        name: r'aiApplyRunProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// Live progress of the apply run in flight (issue #762).
+  ///
+  /// Subscribed by the apply screen only while its `POST` is out, so the stream
+  /// exists exactly as long as the run does — no background subscription, no
+  /// polling. The stream is a second SSE channel because an apply runs against a
+  /// job that is already `succeeded` (its own stream has closed):
+  /// `GET /v1/ai-import/jobs/{id}/apply-events`.
+  ///
+  /// `null` means "no run in flight" — the initial state and the end signal the
+  /// server sends when the run finishes.
+
+  AiApplyRunProvider call(String jobId) =>
+      AiApplyRunProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiApplyRunProvider';
+}
+
 /// The apply controller (task 4.2): builds + submits the mappings.
 
 @ProviderFor(AiApplyController)

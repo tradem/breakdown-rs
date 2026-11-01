@@ -7,6 +7,8 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+import 'dart:async';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
@@ -28,6 +30,7 @@ import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
 import 'continuity_gap.dart';
 import 'import_submit_screen.dart';
+import 'job_eta.dart';
 import 'job_status_controller.dart';
 import '../naming_line.dart';
 
@@ -792,6 +795,15 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                       )
                     : Text(l10nOf(context).aiApplySubmit),
               ),
+              // The apply used to be a bare spinner for however long a
+              // 57-row preview took (issue #762). While the POST is out, the
+              // run's own push stream reports rows applied and a coarse ETA;
+              // a run that never starts degrades to the indeterminate line
+              // rather than a guessed number.
+              if (_applying) ...[
+                const SizedBox(height: 12),
+                AiApplyProgressCard(jobId: jobId),
+              ],
               const SizedBox(height: 8),
               // The explicit episode re-pick (also the missing-context
               // path): the picker runs over the season's episodes from
@@ -1225,3 +1237,139 @@ String aiUnappliedOutfitReasonCopy(
   UnappliedOutfitReason.beatRejected => l10n.aiApplyUnappliedReasonBeatRejected,
   _ => l10n.commonUnknown,
 };
+
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribes to the dedicated apply stream only while it is mounted — the
+/// section owns the `POST`, so mounting it inside `_applying` makes the
+/// subscription's lifetime exactly the run's. Nothing here polls: every frame
+/// is pushed, and a run that has not started yet renders the indeterminate
+/// line instead of a fabricated percentage.
+///
+/// The ETA is the SAME pure estimator the extraction phase uses
+/// (`estimateEtaFrom`), so both phases obey one honesty contract: coarse
+/// units, a range when the cadence is unsteady, nothing before two rows.
+class AiApplyProgressCard extends ConsumerStatefulWidget {
+  const AiApplyProgressCard({required this.jobId, super.key});
+
+  final String jobId;
+
+  @override
+  ConsumerState<AiApplyProgressCard> createState() =>
+      _AiApplyProgressCardState();
+}
+
+class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
+  /// Coarse re-evaluation of the estimate/stall window; no network.
+  static const Duration _tick = Duration(seconds: 30);
+
+  Timer? _timer;
+
+  /// The counter pair the current EMA was derived from (the guard that keeps
+  /// the estimate from re-running on a ticker rebuild).
+  int? _applied;
+  AiJobEta? _eta;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(_tick, (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _timer = null;
+    super.dispose();
+  }
+
+  AiJobEta? _estimate(ApplyProgress progress, DateTime now) {
+    // `applied`/`total` are optional on the wire (additive fields, issue
+    // #762); an absent pair means "no counter", never a zeroed one.
+    final applied = progress.applied;
+    final total = progress.total;
+    if (applied == null || total == null) return null;
+    if (_applied != applied) {
+      _applied = applied;
+      _eta = estimateEtaFrom(
+        startedAt: progress.startedAt,
+        done: applied,
+        total: total,
+        now: now,
+        previous: _eta,
+      );
+    }
+    return _eta;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final run = ref.watch(aiApplyRunProvider(widget.jobId)).value;
+    final now = ref.watch(clockProvider).now();
+    final theme = Theme.of(context);
+    final etaCopy = AiJobEtaCopy(
+      calculating: l10n.aiJobEtaCalculating,
+      delayed: l10n.aiJobEtaDelayed,
+      imminent: l10n.aiJobEtaImminent,
+      minutes: (count) => l10n.aiJobEtaMinutes(count),
+      hours: (count) => l10n.aiJobEtaHours(count),
+      rangeMinutes: (lower, upper) => l10n.aiJobEtaRangeMinutes(lower, upper),
+      rangeHours: (lower, upper) => l10n.aiJobEtaRangeHours(lower, upper),
+    );
+
+    if (run == null) {
+      // No run published yet (the POST has not reached the worker, or the
+      // stream has not delivered its snapshot): say so, estimate nothing.
+      return Column(
+        key: const Key('ai-apply-progress-pending'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const LinearProgressIndicator(
+            key: Key('ai-apply-progress-bar'),
+            minHeight: 6,
+          ),
+          const SizedBox(height: 4),
+          Text(l10n.aiApplyProgressWaiting, style: theme.textTheme.bodySmall),
+        ],
+      );
+    }
+
+    final applied = run.applied;
+    final total = run.total;
+    final appliedFraction = (applied != null && total != null && total > 0)
+        ? (applied / total).clamp(0.0, 1.0)
+        : null;
+    final eta = _estimate(run, now);
+    final stalled =
+        eta != null &&
+        aiJobEtaStalled(eta: eta, lastFrameAt: run.updatedAt, now: now);
+    return Column(
+      key: const Key('ai-apply-progress'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LinearProgressIndicator(
+          key: const Key('ai-apply-progress-bar'),
+          minHeight: 6,
+          value: appliedFraction,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          key: const Key('ai-apply-progress-stage'),
+          run.stage == ApplyStage.finalizing
+              ? l10n.aiApplyProgressFinalizing
+              : l10n.aiApplyProgressRows('${applied ?? 0}', '${total ?? 0}'),
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          key: const Key('ai-apply-progress-eta'),
+          aiJobEtaText(eta: eta, stalled: stalled, copy: etaCopy),
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+}

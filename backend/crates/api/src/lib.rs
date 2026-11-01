@@ -162,6 +162,7 @@ use utoipa::OpenApi;
         handlers::list_ai_import_jobs,
         handlers::get_ai_import_job,
         handlers::stream_ai_import_job_events,
+        handlers::stream_ai_import_apply_events,
         handlers::delete_ai_import_job,
         handlers::get_ai_import_preview,
         handlers::apply_ai_import,

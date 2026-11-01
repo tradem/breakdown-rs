@@ -17,6 +17,26 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.54.0] - Unreleased
+
+### Added — `GET /ai-import/jobs/{id}/apply-events` (issue #762)
+
+- A dedicated SSE stream for the **apply run** of a preview. The job stream
+  cannot carry it: an apply runs against a job that is already `succeeded`, so
+  the job stream has closed by the time it starts.
+- Same contract as the job stream — snapshot-first, push via the queue
+  wake-up port, identical anti-buffering headers, and the same handler-internal
+  AUTHZ-GATE (ownership + active piece-dept role) evaluated before the stream
+  opens.
+- The stream ends on the run's own end signal (the worker clears the payload)
+  and is defensively bounded: it waits while no run started yet (a client
+  subscribes a moment before its `POST` lands) and treats a payload older than
+  `ApplyProgress::STALE_AFTER` as finished, so a crashed apply cannot pin a
+  connection open.
+- `backend/openapi.yaml` regenerated; the Dart client is regenerated from it.
+- Consumes `breakdown_core` 0.55.0 and `infra` 0.64.0.
+- Public API change: **0.53.0 → 0.54.0** (MINOR; additive route).
+
 ## [0.53.0] - Unreleased
 
 ### Added — ETA anchor and byte budget on the job wire (issue #762)

@@ -10,6 +10,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final BuiltList<AppliedEpisode>? appliedEpisodes;
   @override
+  final ApplyProgress? applyProgress;
+  @override
   final BuiltList<AiImportAttempt>? attempts;
   @override
   final String? blockId;
@@ -61,6 +63,7 @@ class _$AiImportJob extends AiImportJob {
 
   _$AiImportJob._(
       {this.appliedEpisodes,
+      this.applyProgress,
       this.attempts,
       this.blockId,
       this.cost,
@@ -97,6 +100,7 @@ class _$AiImportJob extends AiImportJob {
     if (identical(other, this)) return true;
     return other is AiImportJob &&
         appliedEpisodes == other.appliedEpisodes &&
+        applyProgress == other.applyProgress &&
         attempts == other.attempts &&
         blockId == other.blockId &&
         cost == other.cost &&
@@ -126,6 +130,7 @@ class _$AiImportJob extends AiImportJob {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, appliedEpisodes.hashCode);
+    _$hash = $jc(_$hash, applyProgress.hashCode);
     _$hash = $jc(_$hash, attempts.hashCode);
     _$hash = $jc(_$hash, blockId.hashCode);
     _$hash = $jc(_$hash, cost.hashCode);
@@ -157,6 +162,7 @@ class _$AiImportJob extends AiImportJob {
   String toString() {
     return (newBuiltValueToStringHelper(r'AiImportJob')
           ..add('appliedEpisodes', appliedEpisodes)
+          ..add('applyProgress', applyProgress)
           ..add('attempts', attempts)
           ..add('blockId', blockId)
           ..add('cost', cost)
@@ -192,6 +198,12 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _$this._appliedEpisodes ??= ListBuilder<AppliedEpisode>();
   set appliedEpisodes(ListBuilder<AppliedEpisode>? appliedEpisodes) =>
       _$this._appliedEpisodes = appliedEpisodes;
+
+  ApplyProgressBuilder? _applyProgress;
+  ApplyProgressBuilder get applyProgress =>
+      _$this._applyProgress ??= ApplyProgressBuilder();
+  set applyProgress(ApplyProgressBuilder? applyProgress) =>
+      _$this._applyProgress = applyProgress;
 
   ListBuilder<AiImportAttempt>? _attempts;
   ListBuilder<AiImportAttempt> get attempts =>
@@ -308,6 +320,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
     final $v = _$v;
     if ($v != null) {
       _appliedEpisodes = $v.appliedEpisodes?.toBuilder();
+      _applyProgress = $v.applyProgress?.toBuilder();
       _attempts = $v.attempts?.toBuilder();
       _blockId = $v.blockId;
       _cost = $v.cost?.toBuilder();
@@ -355,6 +368,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _$result = _$v ??
           _$AiImportJob._(
             appliedEpisodes: _appliedEpisodes?.build(),
+            applyProgress: _applyProgress?.build(),
             attempts: _attempts?.build(),
             blockId: blockId,
             cost: _cost?.build(),
@@ -395,6 +409,8 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       try {
         _$failedField = 'appliedEpisodes';
         _appliedEpisodes?.build();
+        _$failedField = 'applyProgress';
+        _applyProgress?.build();
         _$failedField = 'attempts';
         _attempts?.build();
 

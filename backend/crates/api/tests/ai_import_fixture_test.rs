@@ -135,6 +135,7 @@ fn foreign_pending_job() -> AiImportJob {
         applied_episodes: Vec::new(),
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
+        apply_progress: None,
     }
 }
 

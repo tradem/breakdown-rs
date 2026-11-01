@@ -226,6 +226,45 @@ AiJobEta? estimateAiJobEta({
   // frame with a single chunk done must not produce a number.
   final chunksDone = progress?.chunk;
   if (chunksDone != null && chunksDone < aiJobEtaMinUnits) return null;
+  final elapsedMicros = now.difference(startedAt).inMicroseconds;
+  if (elapsedMicros <= 0) return null;
+  return estimateEtaFrom(
+    startedAt: startedAt,
+    done: units.done,
+    total: units.total,
+    basis: units.basis,
+    now: now,
+    previous: previous,
+    // The stall watchdog measures the CHUNK cadence: on the byte basis a unit is
+    // a byte, so its cost says nothing about when the next frame may arrive.
+    chunkCadence: chunksDone != null && chunksDone >= aiJobEtaMinUnits
+        ? Duration(microseconds: (elapsedMicros / chunksDone).round())
+        : null,
+  );
+}
+
+/// Estimate the remaining time from any counter pair (issue #762).
+///
+/// The extraction phase feeds it `AiImportProgress` through
+/// [estimateAiJobEta]; the apply run feeds it its own `applied`/`total`. Same
+/// policy for both — that is the point: one estimator, one honesty contract, so
+/// the two phases cannot drift into different "is this defensible?" rules.
+///
+/// [chunkCadence] is the observed cost of one completed **chunk** when the
+/// caller can express it (the extraction phase can; an apply run has no separate
+/// chunk notion and its rows ARE the units, so it falls back to [perUnit]).
+AiJobEta? estimateEtaFrom({
+  required DateTime? startedAt,
+  required int done,
+  required int total,
+  required DateTime now,
+  AiJobEta? previous,
+  AiJobEtaBasis basis = AiJobEtaBasis.chunks,
+  Duration? chunkCadence,
+}) {
+  if (startedAt == null) return null;
+  final units = AiJobProgressUnits(done: done, total: total, basis: basis);
+  if (units.total <= 0) return null;
   if (units.done < aiJobEtaMinUnits) return null;
   final elapsedMicros = now.difference(startedAt).inMicroseconds;
   if (elapsedMicros <= 0) return null;
@@ -266,11 +305,7 @@ AiJobEta? estimateAiJobEta({
     perUnit: _nonNegative(perUnitMicros),
     basis: units.basis,
     spread: spread,
-    // Chunk cadence, not per-unit cost: on the byte basis the "unit" is a byte,
-    // so its cost says nothing about when the next frame may arrive.
-    chunkCadence: chunksDone != null && chunksDone >= aiJobEtaMinUnits
-        ? Duration(microseconds: (elapsedMicros / chunksDone).round())
-        : _nonNegative(perUnitMicros),
+    chunkCadence: chunkCadence ?? _nonNegative(perUnitMicros),
   );
 }
 

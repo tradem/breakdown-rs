@@ -16,6 +16,7 @@ import 'package:breakdown_api/src/model/ai_import_progress.dart';
 import 'package:breakdown_api/src/model/ai_import_target.dart';
 import 'package:breakdown_api/src/model/cost_breakdown.dart';
 import 'package:breakdown_api/src/model/ai_import_attempt.dart';
+import 'package:breakdown_api/src/model/apply_progress.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -25,6 +26,7 @@ part 'ai_import_job.g.dart';
 ///
 /// Properties:
 /// * [appliedEpisodes] - The episodes a successful **script** apply landed this job's rows in (issue #763), so the jobs list can name the import's target instead of only its date. Additive with `serde(default)`: empty for a job no apply has run for yet, and for a schedule apply (which merges onto the project's existing scenes and days and therefore has no single target episode). Written by the apply path from the plan and target data it already holds.  The summary is written by the applies that actually dispatched rows, and merged per episode: a re-apply of an already-applied preview contributes nothing (a confirmed row is not re-attributed to the retry's target), so the earlier entries survive. It is best-effort by design (the scene rows are already committed), so an empty list also means \"no apply has written a summary\" — a client renders its kind/date copy either way. An entry only carries `number`/`name` when they are authoritative for that episode's persisted location.
+/// * [applyProgress] - Live progress of an **apply run** for this (already `succeeded`) job (issue #762). Additive with `serde(default)`: `None` whenever no apply is in flight — for every job created before the field existed, for a preview nobody has applied yet, and again once a run has finished (the run clears the column, so a stale \"applying 3/57\" can never outlive its run).  Its presence is what keeps the apply stream open: the job itself is terminal the whole time, because an apply is a POST against a job that already succeeded.
 /// * [attempts] - Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
 /// * [blockId] - Opaque identifier for a `Block` aggregate.
 /// * [cost] - Immutable per-import cost snapshot persisted at completion time (issue #675). Never recomputed when pricing changes later.
@@ -53,6 +55,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   /// The episodes a successful **script** apply landed this job's rows in (issue #763), so the jobs list can name the import's target instead of only its date. Additive with `serde(default)`: empty for a job no apply has run for yet, and for a schedule apply (which merges onto the project's existing scenes and days and therefore has no single target episode). Written by the apply path from the plan and target data it already holds.  The summary is written by the applies that actually dispatched rows, and merged per episode: a re-apply of an already-applied preview contributes nothing (a confirmed row is not re-attributed to the retry's target), so the earlier entries survive. It is best-effort by design (the scene rows are already committed), so an empty list also means \"no apply has written a summary\" — a client renders its kind/date copy either way. An entry only carries `number`/`name` when they are authoritative for that episode's persisted location.
   @BuiltValueField(wireName: r'applied_episodes')
   BuiltList<AppliedEpisode>? get appliedEpisodes;
+
+  /// Live progress of an **apply run** for this (already `succeeded`) job (issue #762). Additive with `serde(default)`: `None` whenever no apply is in flight — for every job created before the field existed, for a preview nobody has applied yet, and again once a run has finished (the run clears the column, so a stale \"applying 3/57\" can never outlive its run).  Its presence is what keeps the apply stream open: the job itself is terminal the whole time, because an apply is a POST against a job that already succeeded.
+  @BuiltValueField(wireName: r'apply_progress')
+  ApplyProgress? get applyProgress;
 
   /// Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
   @BuiltValueField(wireName: r'attempts')
@@ -165,6 +171,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       yield serializers.serialize(
         object.appliedEpisodes,
         specifiedType: const FullType(BuiltList, [FullType(AppliedEpisode)]),
+      );
+    }
+    if (object.applyProgress != null) {
+      yield r'apply_progress';
+      yield serializers.serialize(
+        object.applyProgress,
+        specifiedType: const FullType.nullable(ApplyProgress),
       );
     }
     if (object.attempts != null) {
@@ -337,6 +350,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
           ) as BuiltList<AppliedEpisode>?;
           if (valueDes == null) continue;
           result.appliedEpisodes.replace(valueDes);
+          break;
+        case r'apply_progress':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(ApplyProgress),
+          ) as ApplyProgress?;
+          if (valueDes == null) continue;
+          result.applyProgress.replace(valueDes);
           break;
         case r'attempts':
           final valueDes = serializers.deserialize(

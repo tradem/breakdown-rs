@@ -199,6 +199,104 @@ async fn mark_progress_on_a_non_running_job_is_rejected() -> Result<()> {
     Ok(())
 }
 
+/// Issue #762: the apply-run progress round-trips through the JSONB column.
+///
+/// The apply runs against a job that is already `succeeded`, so its progress
+/// cannot ride the job status — and the write is deliberately NOT owner-fenced
+/// (there is no claim left to fence on). What guards it is the status
+/// predicate.
+#[tokio::test]
+async fn apply_progress_round_trips_on_a_succeeded_job() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+
+    let request = make_enqueue_request("user-apply-progress");
+    let id = request.id;
+    queue.enqueue(request).await?;
+    let _claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    queue
+        .mark_succeeded(id, "worker-1", "ai-preview/handle")
+        .await?;
+
+    let started = chrono::Utc::now();
+    let run = breakdown_core::ai::ApplyProgress {
+        stage: breakdown_core::ai::ApplyStage::Applying,
+        applied: 3,
+        total: 57,
+        started_at: started,
+        updated_at: started,
+    };
+    queue.mark_apply_progress(id, Some(&run)).await?;
+
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(
+        job.apply_progress,
+        Some(run),
+        "the run's own numbers survive the round trip, anchor included"
+    );
+
+    // Clearing is the end signal the apply stream closes on.
+    queue.mark_apply_progress(id, None).await?;
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(job.apply_progress, None, "the run is gone once it ended");
+    Ok(())
+}
+
+/// Issue #762: an apply can only ever run against a `succeeded` job, so the
+/// adapter must refuse the payload for any other state — and it must not touch
+/// the claim/lease columns while it does (an apply is not a worker transition).
+#[tokio::test]
+async fn apply_progress_is_refused_for_a_running_job_and_leaves_the_lease_alone() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    let request = make_enqueue_request("user-apply-progress-running");
+    let id = request.id;
+    queue.enqueue(request).await?;
+    let claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    let lease_before: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT lease_expires_at FROM ai_import.ai_import_job WHERE id = $1")
+            .bind(id.as_uuid())
+            .fetch_one(&pool)
+            .await?;
+
+    let now = chrono::Utc::now();
+    queue
+        .mark_apply_progress(
+            id,
+            Some(&breakdown_core::ai::ApplyProgress {
+                stage: breakdown_core::ai::ApplyStage::Applying,
+                applied: 1,
+                total: 2,
+                started_at: now,
+                updated_at: now,
+            }),
+        )
+        .await?;
+
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(
+        job.apply_progress, None,
+        "a running job never carries apply progress"
+    );
+    assert_eq!(job.status, JobStatus::Running, "the status is untouched");
+    let (lease_after, worker_id): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) =
+        sqlx::query_as(
+            "SELECT lease_expires_at, worker_id FROM ai_import.ai_import_job WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(lease_after, lease_before, "the lease is not disturbed");
+    assert_eq!(
+        worker_id.as_deref(),
+        Some("worker-1"),
+        "the claim owner is not disturbed"
+    );
+    assert_eq!(claimed.id, id);
+    Ok(())
+}
+
 /// Issue #763: `succeeded` is terminal, so the job must not keep advertising the
 /// stage it finished at. The last frame a worker publishes is
 /// `storing_preview`, which every consumer then rendered forever — the stale

@@ -388,6 +388,20 @@
   "aiApplyNoContextSubtitle": "Pick an episode below to enable the apply.",
   "aiApplyAcceptAsIs": "Create all drafts as-is (no edits).",
   "aiApplySelectionSummary": "{updates} update(s), {skips} skip(s) — edit distance {distance}.",
+  "aiApplyProgressWaiting": "Applying – determining row progress …",
+  "aiApplyProgressRows": "Row {applied} of {total} applied",
+  "@aiApplyProgressRows": {
+    "description": "Per-row apply progress (issue #762): rows dispatched by this apply run.",
+    "placeholders": {
+      "applied": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyProgressFinalizing": "All rows applied – finishing up …",
   "aiApplySubmit": "Apply import",
   "aiApplyPickEpisode": "Pick episode…",
   "aiApplyUngroupedHeading": "No episode marker — target: episode {episode}",

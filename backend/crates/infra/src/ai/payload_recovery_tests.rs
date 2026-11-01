@@ -96,6 +96,7 @@ impl RecordingQueue {
                 applied_episodes: Vec::new(),
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
+                apply_progress: None,
             },
             handed_out: Arc::new(Mutex::new(false)),
             transitions: Arc::new(Mutex::new(Vec::new())),

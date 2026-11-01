@@ -25,7 +25,7 @@ use crate::shared::{AggregateVersion, BlockId, UserId};
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::views::{
     AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget, AppliedEpisode,
-    DocumentKind, ModelPricing, SourceFormat, Telemetry,
+    ApplyProgress, DocumentKind, ModelPricing, SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -554,6 +554,30 @@ pub trait AiImportQueue: Send + Sync {
         _id: AiImportJobId,
         _worker_id: &str,
         _progress: &AiImportProgress,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// Publish (or clear, with `None`) the progress of an **apply run**
+    /// (issue #762).
+    ///
+    /// Not owner-fenced: an apply runs against a job that is already terminal
+    /// (`succeeded`), so there is no worker claim to fence against — the same
+    /// contract as [`record_telemetry`](Self::record_telemetry), the other
+    /// write the API edge performs. Production adapters MUST refuse the write
+    /// while the job is not `succeeded`, so an apply's progress can never
+    /// overwrite a job that moved on.
+    ///
+    /// `None` clears the payload: the run ended (successfully or not) and the
+    /// dedicated apply stream closes on that signal instead of on a timeout.
+    /// Every write is expected to wake [`subscribe`](Self::subscribe).
+    ///
+    /// The default is a no-op for backends and test fakes that do not track
+    /// apply progress.
+    async fn mark_apply_progress(
+        &self,
+        _id: AiImportJobId,
+        _progress: Option<&ApplyProgress>,
     ) -> Result<(), DomainError> {
         Ok(())
     }

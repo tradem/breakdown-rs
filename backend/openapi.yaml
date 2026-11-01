@@ -367,6 +367,21 @@ components:
           items:
             $ref: '#/components/schemas/AppliedEpisode'
           type: array
+        apply_progress:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyProgress'
+            description: |-
+              Live progress of an **apply run** for this (already `succeeded`) job
+              (issue #762). Additive with `serde(default)`: `None` whenever no apply
+              is in flight — for every job created before the field existed, for a
+              preview nobody has applied yet, and again once a run has finished (the
+              run clears the column, so a stale "applying 3/57" can never outlive its
+              run).
+
+              Its presence is what keeps the apply stream open: the job itself is
+              terminal the whole time, because an apply is a POST against a job that
+              already succeeded.
+          - type: 'null'
         attempts:
           description: |-
             Per-attempt failure history, newest first (issue #637).
@@ -1067,6 +1082,53 @@ components:
         required:
         - Update
         type: object
+    ApplyProgress:
+      description: |-
+        Live progress of one apply run (issue #762).
+
+        The apply used to be a pure spinner: `POST /ai-import/jobs/{id}/apply`
+        resolves the plan and awaits `ApplyWorker::apply_script` over every
+        mapping, so a 57-row preview and a 4-row preview looked identical for
+        however many minutes they took.
+
+        Written by the apply worker from the plan it already holds (never from a
+        projection read) and cleared when the run ends — including on failure — so
+        the client's stream closes on a definite event rather than on a timeout.
+      properties:
+        applied:
+          description: Work units completed by **this** run (rows dispatched).
+          format: int32
+          minimum: 0
+          type: integer
+        stage:
+          $ref: '#/components/schemas/ApplyStage'
+        started_at:
+          description: |-
+            When this run started: the anchor an ETA needs (the same role
+            [`AiImportProgress::started_at`] plays for extraction).
+          format: date-time
+          type: string
+        total:
+          description: |-
+            Work units the run planned (the plan's row count). `0` is an honest
+            state — an empty plan still runs its trailing work — and never a
+            divisor the client may trust blindly.
+          format: int32
+          minimum: 0
+          type: integer
+        updated_at:
+          description: |-
+            Last write of this payload. The stream uses it to recognise a run whose
+            process died: an abandoned run must not keep a stream open forever, so
+            a payload older than [`ApplyProgress::STALE_AFTER`] is treated as
+            finished.
+          format: date-time
+          type: string
+      required:
+      - stage
+      - started_at
+      - updated_at
+      type: object
     ApplyShootingDayRequest:
       description: |-
         One shooting-day group's reviewer decision on the wire (issue #706).
@@ -1085,6 +1147,17 @@ components:
       - day_ref
       - accepted
       type: object
+    ApplyStage:
+      description: |-
+        Which part of an apply run is executing (issue #762).
+
+        Coarse on purpose: the per-row counter is the progress signal, and these
+        stages only say whether rows are still being dispatched or the run is
+        closing out (shooting-day links, the applied-episode summary).
+      enum:
+      - applying
+      - finalizing
+      type: string
     AssignCharacterRequest:
       properties:
         character_id:
@@ -5343,6 +5416,60 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/ai-import/jobs/{id}/apply-events:
+    get:
+      description: |-
+        Why a second stream: an apply is a `POST` against a job that is already
+        `succeeded`, so the job stream has closed by the time the apply starts — the
+        job's status never changes during the run. This endpoint streams the run's
+        own state (`AiImportJob.apply_progress`) instead, with the same contract as
+        the job stream:
+
+        * snapshot-first — the first frame is the current run state, so a
+          reconnecting client needs no replay buffer;
+        * subsequent frames are pushed through the queue's wake-up port, and every
+          frame re-reads the authoritative row (duplicate notifications are
+          harmless);
+        * anti-buffering headers identical to the job stream.
+
+        The stream ends when the run ends: the worker clears `apply_progress` on
+        every exit path, and the final frame carries `null`. Two defensive rules
+        bound a stream that would otherwise never see that event:
+
+        * the stream waits (instead of closing) while no run has started yet — a
+          client may subscribe a moment before its `POST` reaches the handler — and
+          closes after [`SSE_APPLY_TICK_SECS`] worth of ticks with nothing to say;
+        * a run payload older than
+          [`ApplyProgress::STALE_AFTER`](breakdown_core::ai::ApplyProgress) is
+          treated as finished, so a crashed apply cannot pin a connection open.
+      operationId: stream_ai_import_apply_events
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      responses:
+        '200':
+          content:
+            text/event-stream: {}
+          description: 'SSE stream of ApplyProgressFrame frames (event: apply)'
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Job not found or AI import disabled
+      summary: 'Push-based **apply-run** progress stream (issue #762).'
       tags:
       - handlers
   /v1/ai-import/jobs/{id}/events:
