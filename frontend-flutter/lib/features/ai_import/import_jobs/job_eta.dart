@@ -87,12 +87,15 @@ class AiJobEta {
     required this.upper,
     required this.perUnit,
     required this.basis,
-  });
+    this.spread = 0,
+    Duration? chunkCadence,
+  }) : chunkCadence = chunkCadence ?? perUnit;
 
   /// Optimistic remaining time (never negative).
   final Duration lower;
 
-  /// Pessimistic remaining time (at least [lower]).
+  /// Pessimistic remaining time (at least [lower]); equal to [lower] for a
+  /// point estimate.
   final Duration upper;
 
   /// Smoothed cost of one completed unit — the carrier that survives frames so
@@ -102,11 +105,29 @@ class AiJobEta {
   /// Which counter pair produced this estimate.
   final AiJobEtaBasis basis;
 
+  /// Smoothed relative uncertainty of [perUnit], in `0..=`[aiJobEtaMaxSpread].
+  ///
+  /// Carried across frames like [perUnit]: the rendered width is derived from
+  /// it, so it has to be smoothed too. An unsmoothed spread would turn a point
+  /// estimate into a full-width range on the strength of one slow chunk.
+  final double spread;
+
+  /// How long one **completed chunk** took on average.
+  ///
+  /// The stall watchdog measures this cadence, not the cost of one *unit*: on
+  /// the byte basis a unit is a single byte, so a per-byte cost multiplied by
+  /// the stall factor stays inside the floor forever and a slow-but-healthy
+  /// chunk cycle would be reported as "delayed". Equal to [perUnit] when the
+  /// measured pair already is the chunk pair.
+  final Duration chunkCadence;
+
   /// True when the cadence was unsteady enough that only a range is honest.
   ///
-  /// A single figure would claim a precision the data does not carry, so the
-  /// client renders "2–4 min" instead of a point value.
-  bool get isRange => upper > lower;
+  /// Derived from [aiJobEtaRangeThreshold], never from `upper > lower` alone:
+  /// that would report a range for any nonzero width, including one whose
+  /// bounds round to neighbouring coarse figures ("5–6 min" where the data only
+  /// supports "6 min").
+  bool get isRange => spread >= aiJobEtaRangeThreshold && upper > lower;
 
   @override
   bool operator ==(Object other) =>
@@ -114,15 +135,19 @@ class AiJobEta {
       other.lower == lower &&
       other.upper == upper &&
       other.perUnit == perUnit &&
-      other.basis == basis;
+      other.basis == basis &&
+      other.spread == spread &&
+      other.chunkCadence == chunkCadence;
 
   @override
-  int get hashCode => Object.hash(lower, upper, perUnit, basis);
+  int get hashCode =>
+      Object.hash(lower, upper, perUnit, basis, spread, chunkCadence);
 
   @override
   String toString() =>
-      'AiJobEta(${lower.inSeconds}s..${upper.inSeconds}s/unit '
-      '${perUnit.inMilliseconds}ms, ${basis.name})';
+      'AiJobEta(${lower.inSeconds}s..${upper.inSeconds}s, ${basis.name}, '
+      'spread=${spread.toStringAsFixed(2)}, unit ${perUnit.inMilliseconds}ms, '
+      'chunk ${chunkCadence.inMilliseconds}ms)';
 }
 
 /// Minimum completed units before an estimate is defensible.
@@ -134,12 +159,17 @@ const int aiJobEtaMinUnits = 2;
 /// EMA weight of the newest frame in the per-unit cost.
 const double aiJobEtaSmoothingAlpha = 0.35;
 
-/// Largest factor by which the smoothed per-unit cost may move between two
-/// frames.
+/// Largest factor by which the smoothed per-unit cost — and therefore the
+/// rendered estimate — may move between two adjacent frames.
 ///
-/// Prevents the countdown from jumping backwards on one slow chunk (or
-/// collapsing on one fast one): a step is absorbed gradually, so a user sees a
-/// stable number instead of a timer that bounces.
+/// One slow chunk is absorbed gradually instead of yanking the figure, so a user
+/// sees a stable number rather than a timer that bounces.
+///
+/// What it deliberately does **not** do is freeze the countdown: when the
+/// slowdown is real (the following chunks are slow too), the estimate must rise
+/// — suppressing that would be a lie. The clamp refuses only the *single-sample*
+/// jump, and the range (see [aiJobEtaRangeThreshold]) is how sustained
+/// uncertainty is disclosed instead of a false-precision figure.
 const double aiJobEtaMaxStepFactor = 1.5;
 
 /// Cap of the rendered range half-width.
@@ -172,11 +202,17 @@ const Duration aiJobEtaStallCeiling = Duration(minutes: 30);
 /// remaining time beyond [aiJobEtaMaxHorizon]); the caller then renders the
 /// "estimating …" state instead of a number.
 ///
-/// Smoothing is an EMA over the per-unit cost, and the newest sample is first
-/// clamped to [aiJobEtaMaxStepFactor] of the previous value. Re-deriving
-/// `remaining = perUnit × unitsRemaining` on every frame is what keeps the
-/// countdown monotone while units complete: a countdown that jumps *up* would
-/// be a lie, and the clamp bounds how far one slow chunk may stretch it.
+/// `now` should be the frame's own write stamp ([AiImportProgress.writtenAt])
+/// whenever the backend publishes one: the measured interval is then extraction
+/// time, not "wall-clock time since the attempt started", which would count
+/// every second the screen was closed as work.
+///
+/// Smoothing is an EMA over the per-unit cost **and** over the relative
+/// uncertainty, and each is step-bounded: between two adjacent frames the cost
+/// moves by at most [aiJobEtaMaxStepFactor] and the width by one EMA step. A
+/// corroborated slowdown still raises the estimate — that is the honest answer —
+/// but a single slow chunk cannot yank the figure or teleport it into a
+/// full-width range.
 AiJobEta? estimateAiJobEta({
   required AiImportProgress? progress,
   required DateTime now,
@@ -185,13 +221,19 @@ AiJobEta? estimateAiJobEta({
   final units = aiJobProgressUnits(progress);
   final startedAt = progress?.startedAt;
   if (units == null || startedAt == null) return null;
+  // The two-sample floor is about COMPLETED CHUNKS, independent of the basis the
+  // rate uses: one chunk is one sample whatever its byte count, so a byte-basis
+  // frame with a single chunk done must not produce a number.
+  final chunksDone = progress?.chunk;
+  if (chunksDone != null && chunksDone < aiJobEtaMinUnits) return null;
   if (units.done < aiJobEtaMinUnits) return null;
   final elapsedMicros = now.difference(startedAt).inMicroseconds;
   if (elapsedMicros <= 0) return null;
 
   final rawPerUnit = elapsedMicros / units.done;
+  final rawSpread = _relativeGap(rawPerUnit, previous?.perUnit);
   var perUnitMicros = rawPerUnit;
-  var spread = 0.0;
+  var spread = rawSpread;
   final base = previous?.perUnit.inMicroseconds.toDouble();
   if (base != null && base > 0) {
     final bounded = rawPerUnit.clamp(
@@ -199,27 +241,47 @@ AiJobEta? estimateAiJobEta({
       base * aiJobEtaMaxStepFactor,
     );
     perUnitMicros = base + (bounded - base) * aiJobEtaSmoothingAlpha;
-    final larger = rawPerUnit > perUnitMicros ? rawPerUnit : perUnitMicros;
-    if (larger > 0) {
-      spread = ((rawPerUnit - perUnitMicros).abs() / larger).clamp(
-        0.0,
-        aiJobEtaMaxSpread,
-      );
-    }
+    // The uncertainty is smoothed like the cost: unsmoothed, one slow chunk
+    // would take a point estimate straight to a full-width range.
+    spread =
+        previous!.spread +
+        (rawSpread - previous.spread) * aiJobEtaSmoothingAlpha;
   }
 
   final remainingMicros = perUnitMicros * units.remaining;
   if (remainingMicros > aiJobEtaMaxHorizon.inMicroseconds) return null;
-  final lowerMicros = remainingMicros * (1 - spread);
-  final upperMicros = remainingMicros * (1 + spread);
   final isRange = spread >= aiJobEtaRangeThreshold;
+  // Below the threshold no width is reported at all: a range whose bounds round
+  // to neighbouring coarse figures ("5–6 min") would claim an uncertainty the
+  // data does not support, so both bounds ARE the point estimate.
+  final lowerMicros = isRange
+      ? remainingMicros * (1 - spread)
+      : remainingMicros;
+  final upperMicros = isRange
+      ? remainingMicros * (1 + spread)
+      : remainingMicros;
   return AiJobEta(
     lower: _nonNegative(lowerMicros),
-    // A point estimate carries no width; a range must actually be wider.
-    upper: isRange ? _nonNegative(upperMicros) : _nonNegative(remainingMicros),
+    upper: _nonNegative(upperMicros),
     perUnit: _nonNegative(perUnitMicros),
     basis: units.basis,
+    spread: spread,
+    // Chunk cadence, not per-unit cost: on the byte basis the "unit" is a byte,
+    // so its cost says nothing about when the next frame may arrive.
+    chunkCadence: chunksDone != null && chunksDone >= aiJobEtaMinUnits
+        ? Duration(microseconds: (elapsedMicros / chunksDone).round())
+        : _nonNegative(perUnitMicros),
   );
+}
+
+/// Relative distance between the newest per-unit sample and the cost it is about
+/// to be blended into, clamped to [aiJobEtaMaxSpread].
+double _relativeGap(double rawPerUnit, Duration? previousPerUnit) {
+  final base = previousPerUnit?.inMicroseconds.toDouble();
+  if (base == null || base <= 0) return 0;
+  final larger = rawPerUnit > base ? rawPerUnit : base;
+  if (larger <= 0) return 0;
+  return ((rawPerUnit - base).abs() / larger).clamp(0.0, aiJobEtaMaxSpread);
 }
 
 Duration _nonNegative(double micros) {
@@ -230,10 +292,11 @@ Duration _nonNegative(double micros) {
 
 /// How long without a progress frame counts as "stalled" for [eta].
 ///
-/// [aiJobEtaStallCadenceFactor] × the observed per-unit cost, clamped into
+/// [aiJobEtaStallCadenceFactor] × the observed **chunk** cadence
+/// ([AiJobEta.chunkCadence], not the per-byte cost), clamped into
 /// [aiJobEtaStallFloor]..[aiJobEtaStallCeiling].
 Duration aiJobEtaStallWindow(AiJobEta eta) {
-  final raw = eta.perUnit.inMicroseconds * aiJobEtaStallCadenceFactor;
+  final raw = eta.chunkCadence.inMicroseconds * aiJobEtaStallCadenceFactor;
   final window = Duration(microseconds: raw.round());
   if (window < aiJobEtaStallFloor) return aiJobEtaStallFloor;
   if (window > aiJobEtaStallCeiling) return aiJobEtaStallCeiling;

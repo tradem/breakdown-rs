@@ -263,6 +263,20 @@ pub struct AiImportProgress {
     /// `total_bytes > 0` and falls back to the chunk counters otherwise.
     #[serde(default)]
     pub total_bytes: Option<u64>,
+    /// When **this frame** was written, on the server's clock (issue #762).
+    ///
+    /// The end of the measured interval: `written_at - started_at` is extraction
+    /// time, whereas a client-side "now" also counts every second the screen
+    /// was closed, backgrounded or offline — which inflates the per-unit cost
+    /// and with it the estimate. A heartbeat-driven `updated_at` is no
+    /// substitute (a live worker refreshes it continuously), so the stamp
+    /// travels with the frame it describes.
+    ///
+    /// Additive with `serde(default)`: a frame written before the field existed
+    /// deserializes as `None`, and a client then falls back to its own clock as
+    /// it did before.
+    #[serde(default)]
+    pub written_at: Option<DateTime<Utc>>,
 }
 
 impl AiImportProgress {

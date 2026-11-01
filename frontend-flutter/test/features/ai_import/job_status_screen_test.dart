@@ -87,7 +87,10 @@ AiImportJob _job(
             // Issue #762: the ETA's time anchor + byte budget.
             ..startedAt = progress.startedAt
             ..doneBytes = progress.doneBytes
-            ..totalBytes = progress.totalBytes)
+            ..totalBytes = progress.totalBytes
+            // The server stamp of THIS frame — the end of the measured
+            // interval. Absent means "fall back to the client clock".
+            ..writtenAt = progress.writtenAt)
     ..cost = cost?.toBuilder()
     ..telemetry = telemetry?.toBuilder()
     // The Decision Model outcome (issue #767) — absent unless a scenario
@@ -474,6 +477,7 @@ void main() {
       int chunksTotal = 8,
       int? doneBytes,
       int? totalBytes,
+      DateTime? writtenAt,
     }) => AiImportProgress(
       (b) => b
         ..stage = AiImportStage.extracting
@@ -482,6 +486,7 @@ void main() {
         ..doneBytes = doneBytes
         ..totalBytes = totalBytes
         ..startedAt = startedAt
+        ..writtenAt = writtenAt ?? now
         ..episodesSeen.replace(BuiltList<String>()),
     );
 
@@ -559,14 +564,20 @@ void main() {
     testWidgets('frames that stopped arriving drop the estimate — "delayed"', (
       tester,
     ) async {
-      final startedAt = now.subtract(const Duration(minutes: 2));
       await setupContainer(
         Right(
           _job(
             JobStatus.running,
-            progress: progressAt(startedAt: startedAt),
-            // No frame for an hour: way beyond 3× the observed cadence.
-            updatedAt: now.subtract(const Duration(hours: 1)),
+            progress: progressAt(
+              // 4 of 8 chunks in one hour → a 15-min cadence, so the stall
+              // window is 45 min. The newest frame is an hour old: well past
+              // it. The stamp travels with the frame; the job's `updated_at`
+              // is refreshed by heartbeats and would mask exactly this.
+              startedAt: now.subtract(const Duration(hours: 2)),
+              writtenAt: now.subtract(const Duration(hours: 1)),
+              chunk: 4,
+            ),
+            updatedAt: now,
           ),
         ),
       );
@@ -574,6 +585,76 @@ void main() {
       expect(
         tester.widget<Text>(find.byKey(const Key('ai-job-eta'))).data,
         'Delayed – no reliable estimate.',
+      );
+    });
+
+    testWidgets('a reconnected NEW attempt drops the previous attempt rate', (
+      tester,
+    ) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.running,
+            // Attempt 1: 2 of 8 chunks in 2 minutes → 1 min/chunk → 6 min left.
+            progress: progressAt(
+              startedAt: now.subtract(const Duration(minutes: 2)),
+            ),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('ai-job-eta'))).data,
+        'About 6 min left',
+      );
+
+      // A retry re-claimed the job: the claim clears the counters and writes a
+      // FRESH `started_at`. 3 of 8 chunks in 10 s is a far faster cadence —
+      // smoothing it against attempt 1's rate would keep showing minutes.
+      job.value = Right(
+        _job(
+          JobStatus.running,
+          progress: progressAt(
+            startedAt: now.subtract(const Duration(seconds: 10)),
+            chunk: 3,
+          ),
+          updatedAt: now,
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(
+        tester.widget<Text>(find.byKey(const Key('ai-job-eta'))).data,
+        'Almost done …',
+        reason: 'the new attempt must not inherit the old attempt\'s rate',
+      );
+    });
+
+    testWidgets('the estimate is anchored to the server write stamp, not the '
+        'screen clock', (tester) async {
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.running,
+            // 2 chunks done. Extraction time = written_at − started_at = 2 min;
+            // a client-clock anchor would read 3 min and inflate every figure
+            // by 50 % (58 min vs 87 min on 60 chunks).
+            progress: progressAt(
+              startedAt: now.subtract(const Duration(minutes: 3)),
+              writtenAt: now.subtract(const Duration(minutes: 1)),
+              chunksTotal: 60,
+            ),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('ai-job-eta'))).data,
+        'About 58 min left',
+        reason: 'the idle minute since the write is not extraction time',
       );
     });
 
@@ -1431,6 +1512,48 @@ void main() {
         platform: TargetPlatform.macOS,
       );
     });
+
+    // Running-with-ETA (issue #762): the extraction ETA line under the chunk
+    // counter, {light,dark}×{android,macos}. Deterministic by construction —
+    // the estimate is derived from the frame's own server stamp, not from the
+    // wall clock — so it is golden-testable at all.
+    for (final (mode, platform, suffix) in [
+      (ThemeMode.light, TargetPlatform.android, 'light_android'),
+      (ThemeMode.dark, TargetPlatform.android, 'dark_android'),
+      (ThemeMode.light, TargetPlatform.macOS, 'light_macos'),
+      (ThemeMode.dark, TargetPlatform.macOS, 'dark_macos'),
+    ]) {
+      testWidgets('golden $suffix (running with extraction ETA)', (
+        tester,
+      ) async {
+        await setupContainer(
+          Right(
+            _job(
+              JobStatus.running,
+              progress: AiImportProgress(
+                (b) => b
+                  ..stage = AiImportStage.extracting
+                  // 2 of 8 chunks in 2 minutes → 1 min/chunk → 6 min left.
+                  ..chunk = 2
+                  ..chunksTotal = 8
+                  ..startedAt = now.subtract(const Duration(minutes: 2))
+                  ..writtenAt = now
+                  ..episodesSeen.replace(
+                    BuiltList<String>(const ['Ep. 3', 'Ep. 4']),
+                  ),
+              ),
+              updatedAt: now,
+            ),
+          ),
+        );
+        await pumpGolden(
+          tester,
+          golden: 'ai_job_status_eta_$suffix.png',
+          mode: mode,
+          platform: platform,
+        );
+      });
+    }
 
     // Retryable-with-ETA (issue #639): the live "next retry in …" and the
     // code-keyed reason, {light,dark}×{android,macos}.

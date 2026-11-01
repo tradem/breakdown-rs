@@ -22,9 +22,10 @@ commits (ADR-020 D5).
 ### Added — ETA anchor and byte budget on the job wire (issue #762)
 
 - `AiImportProgress` on the AI-import job wire now carries `started_at`,
-  `done_bytes` and `total_bytes`, so the job-status screen can compute an
-  honest, cadence-based ETA from the job's own frames instead of a client-side
-  stopwatch.
+  `done_bytes`, `total_bytes` and `written_at`, so the job-status screen can
+  compute an honest, cadence-based ETA from the job's own frames instead of a
+  client-side stopwatch — and measure the elapsed interval on the server's
+  clock rather than on however long its own screen happened to be open.
 - `backend/openapi.yaml` regenerated (`UPDATE_OPENAPI=1 cargo test -p api
   --test contract openapi_drift`); the Dart client is regenerated from it.
 - Consumes `breakdown_core` 0.54.0 and `infra` 0.63.0.

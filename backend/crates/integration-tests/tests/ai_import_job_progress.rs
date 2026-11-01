@@ -43,6 +43,7 @@ fn progress(stage: AiImportStage, chunk: u32, episodes: &[&str]) -> AiImportProg
         started_at: None,
         done_bytes: None,
         total_bytes: None,
+        written_at: None,
     }
 }
 

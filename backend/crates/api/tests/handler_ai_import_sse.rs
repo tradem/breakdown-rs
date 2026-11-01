@@ -68,6 +68,7 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
             started_at: None,
             done_bytes: None,
             total_bytes: None,
+            written_at: None,
         }),
         next_attempt_at: None,
         attempts: Vec::new(),
@@ -206,6 +207,7 @@ async fn live_progress_and_status_frames_are_pushed_and_terminal_closes() {
         started_at: None,
         done_bytes: None,
         total_bytes: None,
+        written_at: None,
     });
     updated.updated_at = Utc::now();
     ports

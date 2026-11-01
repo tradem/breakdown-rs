@@ -30,6 +30,9 @@ commits (ADR-020 D5).
 - The byte budget counts exactly the bytes the model is handed
   (`heading` + `\n` + `text` per chunk), so the published fraction tracks the
   work that is actually left.
+- Every published frame is stamped with `written_at` in `publish_progress` —
+  the single funnel all worker frames go through — so the stamp always describes
+  the write it travels with and no call site can forget it.
 - The schedule and merge workers publish the anchor only; a schedule job is a
   single extraction unit and a merge is a single deterministic join, so their
   byte pair stays `None` rather than inventing a numerator.

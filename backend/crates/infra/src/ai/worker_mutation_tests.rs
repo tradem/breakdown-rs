@@ -577,6 +577,14 @@ async fn script_worker_publishes_throttled_progress_frames() {
             Some(job.updated_at),
             "the attempt's anchor never moves between frames"
         );
+        // Issue #762: every published frame carries the server stamp of ITS
+        // own write — the end of the interval an ETA measures. A client-side
+        // "now" would count the time the screen was closed as extraction
+        // time, and a heartbeat-refreshed `updated_at` would mask a stall.
+        assert!(
+            frame.written_at.is_some(),
+            "every frame is stamped at publication"
+        );
     }
 }
 
@@ -819,6 +827,7 @@ async fn claim_resets_progress_from_a_prior_attempt() {
             started_at: None,
             done_bytes: None,
             total_bytes: None,
+            written_at: None,
         });
         queue.jobs.lock().await.push(job);
     }

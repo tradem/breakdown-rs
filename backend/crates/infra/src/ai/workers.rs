@@ -154,7 +154,12 @@ pub(crate) async fn publish_progress<Q: AiImportQueue + ?Sized>(
     worker_id: &str,
     progress: &AiImportProgress,
 ) -> Result<(), DomainError> {
-    if let Err(error) = queue.mark_progress(id, worker_id, progress).await {
+    // Stamp the frame with the server's clock (issue #762) HERE, in the single
+    // funnel every worker frame goes through: the stamp describes exactly this
+    // write, so no call site can forget it and no two frames can disagree.
+    let mut frame = progress.clone();
+    frame.written_at = Some(chrono::Utc::now());
+    if let Err(error) = queue.mark_progress(id, worker_id, &frame).await {
         if matches!(error, DomainError::Conflict { .. }) {
             return Err(error);
         }
@@ -567,6 +572,8 @@ where
             // materially better ETA basis than the chunk count.
             done_bytes: None,
             total_bytes: None,
+            // Stamped by `publish_progress` with the actual write time.
+            written_at: None,
         };
         progress.set_byte_budget(chunks_bytes.iter().copied().fold(0u64, u64::saturating_add));
         if let Some(first) = chunks.first() {
@@ -1311,6 +1318,8 @@ where
             started_at: Some(job.updated_at),
             done_bytes: None,
             total_bytes: None,
+            // Stamped by `publish_progress` with the actual write time.
+            written_at: None,
         };
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
         // Issue #675: usage of the single LLM call (zeros for the native CSV

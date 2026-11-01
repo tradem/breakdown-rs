@@ -71,6 +71,102 @@ void main() {
   });
 
   group('estimateAiJobEta', () {
+    test('the byte basis still needs two COMPLETED CHUNKS, not two bytes', () {
+      // One chunk done already exceeds two bytes — the floor is about samples,
+      // not about the unit the rate happens to be measured in.
+      final oneChunk = estimateAiJobEta(
+        progress: _progress(
+          chunk: 1,
+          chunksTotal: 8,
+          doneBytes: 4096,
+          totalBytes: 16384,
+          startedAt: _started,
+        ),
+        now: _started.add(const Duration(minutes: 1)),
+      );
+      expect(oneChunk, isNull);
+
+      // The same frame with a second completed chunk is a defensible estimate.
+      final twoChunks = estimateAiJobEta(
+        progress: _progress(
+          chunk: 2,
+          chunksTotal: 8,
+          doneBytes: 4096,
+          totalBytes: 16384,
+          startedAt: _started,
+        ),
+        now: _started.add(const Duration(minutes: 1)),
+      );
+      expect(twoChunks, isNotNull);
+      expect(twoChunks!.basis, AiJobEtaBasis.bytes);
+    });
+
+    test('a below-threshold spread is a figure, never a narrow range', () {
+      // A tiny per-frame deviation must not render "5–6 min" where the data
+      // only supports "6 min".
+      final first = estimateAiJobEta(
+        progress: _progress(chunk: 2, chunksTotal: 8, startedAt: _started),
+        now: _started.add(const Duration(minutes: 1)),
+      );
+      expect(first, isNotNull);
+      // 1.2 s/unit against a 1 s/unit baseline: a 17 % gap, below the 20 %
+      // threshold.
+      final second = estimateAiJobEta(
+        progress: _progress(chunk: 3, chunksTotal: 8, startedAt: _started),
+        now: _started.add(const Duration(minutes: 1, seconds: 12)),
+        previous: first,
+      );
+      expect(second, isNotNull);
+      expect(second!.spread, lessThan(aiJobEtaRangeThreshold));
+      expect(second.isRange, isFalse);
+      expect(
+        second.lower,
+        second.upper,
+        reason: 'below the threshold both bounds ARE the point estimate',
+      );
+    });
+
+    test(
+      'the stall window follows the CHUNK cadence, not the per-byte cost',
+      () {
+        // Byte basis: 16 KiB over 2 chunks in 2 minutes. The per-byte cost is
+        // ~7 ms, whose 3× is far below the floor — but one chunk took a minute,
+        // which is what the watchdog must measure.
+        final eta = estimateAiJobEta(
+          progress: _progress(
+            chunk: 2,
+            chunksTotal: 40,
+            doneBytes: 16384,
+            totalBytes: 327680,
+            startedAt: _started,
+          ),
+          now: _started.add(const Duration(minutes: 2)),
+        );
+        expect(eta, isNotNull);
+        expect(eta!.basis, AiJobEtaBasis.bytes);
+        expect(eta.perUnit.inMilliseconds, lessThan(10));
+        expect(eta.chunkCadence, const Duration(minutes: 1));
+        expect(aiJobEtaStallWindow(eta), const Duration(minutes: 3));
+
+        // A healthy byte-basis job is NOT stalled after 2.5 minutes of silence:
+        // its window is the 3-minute chunk cadence, whereas the per-byte cost
+        // would have clamped to the 2-minute floor and reported "delayed" for a
+        // job that is simply between two slow chunks.
+        final lastFrame = _started.add(const Duration(minutes: 10));
+        const silentFor = Duration(minutes: 2, seconds: 30);
+        expect(silentFor, greaterThan(aiJobEtaStallFloor));
+        expect(silentFor, lessThan(const Duration(minutes: 3)));
+        expect(
+          aiJobEtaStalled(
+            eta: eta,
+            lastFrameAt: lastFrame,
+            now: lastFrame.add(silentFor),
+          ),
+          isFalse,
+        );
+      },
+    );
+
     test('first frame: no estimate before two completed units', () {
       final progress = _progress(chunk: 1, chunksTotal: 8, startedAt: _started);
       expect(
@@ -203,9 +299,34 @@ void main() {
             (first.perUnit.inMicroseconds * aiJobEtaMaxStepFactor).round(),
           ),
         );
-        // The unsteady cadence is disclosed as a range instead of a figure.
-        expect(second.isRange, isTrue);
-        expect(second.upper, greaterThan(second.lower));
+        // ONE slow chunk is a single sample: it may lift the figure by at most
+        // the documented step factor and must NOT flip it into a range — the
+        // uncertainty is smoothed too, so the width cannot teleport from 0 to
+        // full spread in one frame.
+        expect(
+          second.upper.inMicroseconds,
+          lessThanOrEqualTo(
+            (first.upper.inMicroseconds * aiJobEtaMaxStepFactor).round(),
+          ),
+          reason: 'a single slow chunk may raise the estimate only gradually',
+        );
+        expect(
+          second.isRange,
+          isFalse,
+          reason: 'one slow chunk is not yet a corroborated slowdown',
+        );
+        expect(second.lower, second.upper);
+
+        // The slowdown is corroborated by the NEXT slow chunk: now the honest
+        // answer is a range, and it is disclosed.
+        final third = estimateAiJobEta(
+          progress: _progress(chunk: 4, chunksTotal: 10, startedAt: _started),
+          now: _started.add(const Duration(minutes: 21)),
+          previous: second,
+        );
+        expect(third, isNotNull);
+        expect(third!.isRange, isTrue);
+        expect(third.upper, greaterThan(third.lower));
       },
     );
 
@@ -349,6 +470,9 @@ void main() {
         upper: const Duration(minutes: 4),
         perUnit: const Duration(seconds: 30),
         basis: AiJobEtaBasis.chunks,
+        // `isRange` is threshold-driven: a hand-built envelope must declare the
+        // spread it represents, not rely on `upper > lower`.
+        spread: aiJobEtaRangeThreshold,
       );
       expect(aiJobEtaText(eta: range, stalled: false, copy: copy()), '2–4 min');
     });
@@ -359,6 +483,7 @@ void main() {
         upper: const Duration(minutes: 200),
         perUnit: const Duration(minutes: 5),
         basis: AiJobEtaBasis.chunks,
+        spread: aiJobEtaRangeThreshold,
       );
       expect(aiJobEtaText(eta: hours, stalled: false, copy: copy()), '2–3 h');
       // A range that collapses to one displayed hour is a figure, not a
@@ -368,6 +493,7 @@ void main() {
         upper: const Duration(minutes: 140),
         perUnit: const Duration(minutes: 5),
         basis: AiJobEtaBasis.chunks,
+        spread: aiJobEtaRangeThreshold,
       );
       expect(aiJobEtaText(eta: collapsed, stalled: false, copy: copy()), '2 h');
       final point = AiJobEta(

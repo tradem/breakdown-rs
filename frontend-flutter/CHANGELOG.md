@@ -30,10 +30,11 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   reconnecting or restarted client had no way back to a rate.
 
   - **Wire.** `AiImportProgress` now carries `started_at` (the claim stamp of
-    the current attempt, identical on every frame of that attempt) and the
-    deterministic byte budget `done_bytes` / `total_bytes`. All four are
-    additive (`serde(default)`); a pre-#762 frame deserializes and simply yields
-    no estimate.
+    the current attempt, identical on every frame of that attempt), the
+    deterministic byte budget `done_bytes` / `total_bytes`, and `written_at`
+    (the server stamp of the frame itself). All are additive
+    (`serde(default)`); a pre-#762 frame deserializes and simply yields no
+    estimate.
   - **Pure estimator** (`features/ai_import/import_jobs/job_eta.dart`):
     `estimateAiJobEta(...)` returns `null` until two units are done and then a
     coarse remaining time, re-derived from the smoothed per-unit cost on every
@@ -49,8 +50,15 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     clamped to 2–30 min). Never `0 min`, never a seconds-precision timer.
   - **Honesty.** A `pending` job shows no ETA at all — queueing is not
     extraction time — and a job without counters renders nothing, byte-identical
-    to the pre-#762 card (the existing goldens still pass unchanged). The 30 s
-    ticker is local only: no network traffic beyond the existing SSE stream.
+    to a pre-#762 card. The elapsed interval ends at the frame's own
+    `written_at`, so time the screen was closed is never counted as work, the
+    stall watchdog measures the observed **chunk** cadence (a per-byte cost
+    cannot express how long a chunk takes), a new attempt (new `started_at`)
+    drops the previous attempt's smoothing, and the uncertainty is smoothed like
+    the rate so one slow chunk cannot flip a figure into a full-width range. The
+    30 s ticker is local only: no network traffic beyond the existing SSE
+    stream. Four new goldens (`ai_job_status_eta_*`) lock the running-with-ETA
+    card — deterministic because the estimate no longer depends on the clock.
 
 - **The import cost card leads with the money and the model** (`0.4.0-beta.28+120
   → 0.4.0-beta.29+121`, issues #761/#768). The card of the job-status screen was

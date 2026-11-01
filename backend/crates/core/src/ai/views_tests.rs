@@ -319,6 +319,7 @@ fn ai_import_progress_eta_fields_are_additive_on_the_wire() {
         ),
         done_bytes: Some(4096),
         total_bytes: Some(16384),
+        written_at: None,
     };
     let json = serde_json::to_value(&current).expect("progress serializes");
     assert_eq!(json["done_bytes"], 4096);
@@ -423,6 +424,7 @@ fn ai_import_job_progress_is_optional_on_the_wire() {
         started_at: None,
         done_bytes: None,
         total_bytes: None,
+        written_at: None,
     };
     let json = serde_json::to_value(&with_progress).ok();
     assert_eq!(

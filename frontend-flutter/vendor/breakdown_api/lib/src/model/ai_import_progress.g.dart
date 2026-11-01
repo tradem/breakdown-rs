@@ -21,6 +21,8 @@ class _$AiImportProgress extends AiImportProgress {
   final DateTime? startedAt;
   @override
   final int? totalBytes;
+  @override
+  final DateTime? writtenAt;
 
   factory _$AiImportProgress(
           [void Function(AiImportProgressBuilder)? updates]) =>
@@ -33,7 +35,8 @@ class _$AiImportProgress extends AiImportProgress {
       this.episodesSeen,
       required this.stage,
       this.startedAt,
-      this.totalBytes})
+      this.totalBytes,
+      this.writtenAt})
       : super._();
   @override
   AiImportProgress rebuild(void Function(AiImportProgressBuilder) updates) =>
@@ -53,7 +56,8 @@ class _$AiImportProgress extends AiImportProgress {
         episodesSeen == other.episodesSeen &&
         stage == other.stage &&
         startedAt == other.startedAt &&
-        totalBytes == other.totalBytes;
+        totalBytes == other.totalBytes &&
+        writtenAt == other.writtenAt;
   }
 
   @override
@@ -66,6 +70,7 @@ class _$AiImportProgress extends AiImportProgress {
     _$hash = $jc(_$hash, stage.hashCode);
     _$hash = $jc(_$hash, startedAt.hashCode);
     _$hash = $jc(_$hash, totalBytes.hashCode);
+    _$hash = $jc(_$hash, writtenAt.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -79,7 +84,8 @@ class _$AiImportProgress extends AiImportProgress {
           ..add('episodesSeen', episodesSeen)
           ..add('stage', stage)
           ..add('startedAt', startedAt)
-          ..add('totalBytes', totalBytes))
+          ..add('totalBytes', totalBytes)
+          ..add('writtenAt', writtenAt))
         .toString();
   }
 }
@@ -118,6 +124,10 @@ class AiImportProgressBuilder
   int? get totalBytes => _$this._totalBytes;
   set totalBytes(int? totalBytes) => _$this._totalBytes = totalBytes;
 
+  DateTime? _writtenAt;
+  DateTime? get writtenAt => _$this._writtenAt;
+  set writtenAt(DateTime? writtenAt) => _$this._writtenAt = writtenAt;
+
   AiImportProgressBuilder() {
     AiImportProgress._defaults(this);
   }
@@ -132,6 +142,7 @@ class AiImportProgressBuilder
       _stage = $v.stage;
       _startedAt = $v.startedAt;
       _totalBytes = $v.totalBytes;
+      _writtenAt = $v.writtenAt;
       _$v = null;
     }
     return this;
@@ -163,6 +174,7 @@ class AiImportProgressBuilder
                 stage, r'AiImportProgress', 'stage'),
             startedAt: startedAt,
             totalBytes: totalBytes,
+            writtenAt: writtenAt,
           );
     } catch (_) {
       late String _$failedField;

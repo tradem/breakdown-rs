@@ -489,6 +489,15 @@ class _JobExtractionEtaState extends ConsumerState<_JobExtractionEta> {
   /// keeps the EMA from re-running on a ticker rebuild.
   AiJobProgressUnits? _units;
 
+  /// The attempt (`AiImportProgress.startedAt`) [_eta] belongs to.
+  ///
+  /// A silent SSE reconnect can deliver the first snapshot of a NEW attempt
+  /// (a retry the worker re-claimed): its counters happen to differ, so the
+  /// counter guard alone would smooth the new attempt's rate against the
+  /// previous attempt's estimate. The backend's claim clears its progress for
+  /// exactly that reason; the client must drop its smoothing state with it.
+  DateTime? _attemptStartedAt;
+
   /// The smoothed estimate of the last counter frame (EMA carrier).
   AiJobEta? _eta;
 
@@ -502,24 +511,44 @@ class _JobExtractionEtaState extends ConsumerState<_JobExtractionEta> {
   @override
   void didUpdateWidget(covariant _JobExtractionEta oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final nextUnits = aiJobProgressUnits(widget.job.progress);
-    if (nextUnits != _units) {
-      // New counters (a live SSE frame) — advance the EMA against the last
-      // estimate so one slow chunk cannot make the countdown jump.
+    final progress = widget.job.progress;
+    final nextUnits = aiJobProgressUnits(progress);
+    if (nextUnits != _units || progress?.startedAt != _attemptStartedAt) {
+      // New counters or a new attempt (a live SSE frame) — advance the EMA
+      // against the last estimate of THIS attempt, so one slow chunk cannot
+      // make the countdown jump and a retry does not inherit the old rate.
       _captureEstimate();
     }
     _syncTimer();
   }
 
   void _captureEstimate() {
-    final units = aiJobProgressUnits(widget.job.progress);
-    _units = units;
+    final progress = widget.job.progress;
+    final startedAt = progress?.startedAt;
+    if (startedAt != _attemptStartedAt) {
+      // A different attempt: its cadence says nothing about this one.
+      _eta = null;
+      _attemptStartedAt = startedAt;
+    }
+    _units = aiJobProgressUnits(progress);
     _eta = estimateAiJobEta(
-      progress: widget.job.progress,
-      now: ref.read(clockProvider).now(),
+      progress: progress,
+      // The frame's OWN write stamp, not the screen clock: the measured
+      // interval must be extraction time. A client-side `now` would count every
+      // second the screen was closed, backgrounded or offline as work — the
+      // cost, the estimate and the stall window would all grow with the time
+      // the screen stayed away. A pre-#762 frame carries no stamp; the clock is
+      // then the only option left.
+      now: progress?.writtenAt ?? ref.read(clockProvider).now(),
       previous: _eta,
     );
   }
+
+  /// The freshest progress-frame stamp, or the job's write time when a frame
+  /// carries none (pre-#762 backend). Never `updated_at` while a stamp exists:
+  /// heartbeats refresh that continuously, so it would mask a real stall.
+  DateTime get _lastFrameAt =>
+      widget.job.progress?.writtenAt ?? widget.job.updatedAt;
 
   void _syncTimer() {
     final needsTimer = _units != null;
@@ -551,7 +580,7 @@ class _JobExtractionEtaState extends ConsumerState<_JobExtractionEta> {
     final eta = _eta;
     final stalled =
         eta != null &&
-        aiJobEtaStalled(eta: eta, lastFrameAt: widget.job.updatedAt, now: now);
+        aiJobEtaStalled(eta: eta, lastFrameAt: _lastFrameAt, now: now);
     return Padding(
       // The spacing lives HERE so an absent estimate takes no layout space: a
       // job without counters must render byte-identically to pre-#762.

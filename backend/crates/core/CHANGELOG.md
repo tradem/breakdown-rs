@@ -31,6 +31,10 @@ commits (ADR-020 D5).
   lengths differ by an order of magnitude, so bytes are a materially better ETA
   basis than a chunk count. `None` is honest absence (a schedule job is a single
   extraction unit) — never a fabricated zero.
+- `AiImportProgress.written_at` (`serde(default)`): the server stamp of the
+  frame itself. `written_at - started_at` is extraction time, so a client never
+  counts the time its screen was closed as work; a heartbeat-refreshed
+  `updated_at` cannot serve that role (it also hides a stopped stream).
 - `AiImportProgress::set_byte_budget` / `record_done_bytes`: the pair's
   invariants live in core rather than in the worker — the numerator saturates
   and is clamped to the budget, so a client dividing the two can never see a

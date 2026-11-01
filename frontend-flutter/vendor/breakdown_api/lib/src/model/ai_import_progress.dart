@@ -22,6 +22,7 @@ part 'ai_import_progress.g.dart';
 /// * [stage]
 /// * [startedAt] - When the **current attempt** was claimed (issue #762).  The time anchor the counters above lack: without it a client can only run a stopwatch while its own screen stays open, and a reconnecting or restarted client can never reconstruct a rate from `chunk`/`chunks_total` alone. Every frame of one attempt carries the same value, so a client can recompute the estimate on every frame without accumulating state.  Additive with `serde(default)`: frames written before the field existed deserialize as `None`, and a client then simply shows no estimate — never a fabricated one. A retry starts cleanly because the claim clears [`Self::chunk`]/[`Self::done_bytes`] and writes a fresh anchor.
 /// * [totalBytes] - Total source-text bytes the document splits into (issue #762), known once the deterministic chunk scan finishes. Same `serde(default)` contract as [`Self::done_bytes`]; a client prefers the byte pair when `total_bytes > 0` and falls back to the chunk counters otherwise.
+/// * [writtenAt] - When **this frame** was written, on the server's clock (issue #762).  The end of the measured interval: `written_at - started_at` is extraction time, whereas a client-side \"now\" also counts every second the screen was closed, backgrounded or offline — which inflates the per-unit cost and with it the estimate. A heartbeat-driven `updated_at` is no substitute (a live worker refreshes it continuously), so the stamp travels with the frame it describes.  Additive with `serde(default)`: a frame written before the field existed deserializes as `None`, and a client then falls back to its own clock as it did before.
 @BuiltValue()
 abstract class AiImportProgress
     implements Built<AiImportProgress, AiImportProgressBuilder> {
@@ -52,6 +53,10 @@ abstract class AiImportProgress
   /// Total source-text bytes the document splits into (issue #762), known once the deterministic chunk scan finishes. Same `serde(default)` contract as [`Self::done_bytes`]; a client prefers the byte pair when `total_bytes > 0` and falls back to the chunk counters otherwise.
   @BuiltValueField(wireName: r'total_bytes')
   int? get totalBytes;
+
+  /// When **this frame** was written, on the server's clock (issue #762).  The end of the measured interval: `written_at - started_at` is extraction time, whereas a client-side \"now\" also counts every second the screen was closed, backgrounded or offline — which inflates the per-unit cost and with it the estimate. A heartbeat-driven `updated_at` is no substitute (a live worker refreshes it continuously), so the stamp travels with the frame it describes.  Additive with `serde(default)`: a frame written before the field existed deserializes as `None`, and a client then falls back to its own clock as it did before.
+  @BuiltValueField(wireName: r'written_at')
+  DateTime? get writtenAt;
 
   AiImportProgress._();
 
@@ -124,6 +129,13 @@ class _$AiImportProgressSerializer
       yield serializers.serialize(
         object.totalBytes,
         specifiedType: const FullType.nullable(int),
+      );
+    }
+    if (object.writtenAt != null) {
+      yield r'written_at';
+      yield serializers.serialize(
+        object.writtenAt,
+        specifiedType: const FullType.nullable(DateTime),
       );
     }
   }
@@ -206,6 +218,14 @@ class _$AiImportProgressSerializer
           ) as int?;
           if (valueDes == null) continue;
           result.totalBytes = valueDes;
+          break;
+        case r'written_at':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(DateTime),
+          ) as DateTime?;
+          if (valueDes == null) continue;
+          result.writtenAt = valueDes;
           break;
         default:
           unhandled.add(key);

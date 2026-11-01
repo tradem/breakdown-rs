@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
-<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) <!--
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # 762 — Honest, cadence-based ETAs for extraction and apply progress
 
