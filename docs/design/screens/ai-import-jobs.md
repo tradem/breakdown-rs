@@ -187,7 +187,7 @@ grouped detail rows — without dropping a single figure from #675.
   "Kosten dieses Imports"
   ==
   "Gesamtkosten"
-  **1,45 EUR**
+  **0,02475 USD**
   --
   { "Modell" | "gpt-5.6-luna" }
   { "Anbieter" | "neuralwatt" }
@@ -202,11 +202,19 @@ grouped detail rows — without dropping a single figure from #675.
   "Ausgabepreis: 4,00 USD / 1M Tokens"
   "Decision-Modell"
   "   eurouter / clef-flash"
-  "   Decision-Tokenkosten: 0,0012 EUR"
+  "   Decision-Tokenkosten: 0,0012 USD"
   "Preisstand: 1. Jan. 2026"
 }
 @endsalt
 ```
+
+The example is deliberately priced in ONE currency, because that is the only
+shape in which the card shows a `Gesamtkosten` figure: `0,02475 USD` is exactly
+`0,0235 + 0,00005 + 0,0012`. When the components are priced in DIFFERENT
+currencies, or one of them is unpriced, the server refuses the sum and the hero
+degenerates to the priced component under a component label plus the refusal
+note below it (see the table) — the card NEVER adds or converts currencies to
+produce a total the backend did not publish.
 
 Compact (window width class < medium): the same card, one column — the
 identity chips wrap instead of shrinking (`Wrap`), and a long curated model id
@@ -216,12 +224,12 @@ nothing overflows at 360 dp. Nothing is fixed-width.
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
 | Card header | Icon + `titleMedium` row (`receipt_long_outlined`, `surfaceContainerHighest` card, `AppSpacing` padding) | Titles the card; the icon reinforces only | `aiJobCostTitle` |
-| Hero figure | `headlineMedium` (bold) under a visible `labelLarge` label | The number the user pays: `cost.total` when the wire publishes one (`known`), otherwise the extraction token cost; with `cost_display_preference = energy` the energy figure (`effective_capped_nano`, i.e. the capped value — never the raw one). The label is ALWAYS rendered, and it changes with the figure (`Gesamtkosten` / `Tokenkosten` / `Energiekosten`) so a component is never dressed up as the total. No inline preference switch: the preference is a settings value, and the job screen does not write settings | `aiJobCostHeroTotal`, `aiJobCostHeroToken`, `aiJobCostHeroEnergy` |
-| Refused total | Tertiary icon + `bodySmall` note directly under the hero | Renders only when `cost.total.status` is `incomplete` (a recorded component is unpriced) or `mixed_currency` (design D2 forbids a conversion): the priced component shows, and the note states WHY the sum is absent. `unknown` and an absent total (every pre-#768 row) render NO note — an absence is not an error | `aiJobCostTotalIncomplete`, `aiJobCostTotalMixedCurrency` |
+| Hero figure | `headlineMedium` (bold) under a visible `labelLarge` label | The number the user pays — resolved ONCE for both surfaces by `costPrimaryFigure`: `cost.total` when the wire publishes one (`known`), otherwise the extraction token cost; with `cost_display_preference = energy` the energy figure (`effective_capped_nano`, i.e. the capped value — never the raw one). The label is ALWAYS rendered and changes with the figure (`Gesamtkosten` / `Tokenkosten` / `Energiekosten`), so a component is never dressed up as the total. No inline preference switch: the preference is a settings value, and the job screen does not write settings | `aiJobCostHeroTotal`, `aiJobCostHeroToken`, `aiJobCostHeroEnergy` |
+| Refused total | Tertiary icon + `bodySmall` note directly under the hero | Renders only when `cost.total.status` is `incomplete` (a recorded component is unpriced) or `mixed_currency` (design D2 forbids a conversion): the priced component shows, and the note states WHY the sum is absent — under BOTH preferences, since the refusal is a fact about the snapshot, not about the figure the user chose to see first. `unknown` and an absent total (every pre-#768 row) render NO note — an absence is not an error | `aiJobCostTotalIncomplete`, `aiJobCostTotalMixedCurrency` |
 | Model chip | Labelled chip (`smart_toy_outlined`) in a `Wrap` | The model that produced the rows (`telemetry.model`), two lines max, ellipsized, full value in a tooltip. The visible label "Modell" carries the meaning | `aiJobCostModelLabel` |
 | Provider chip | Labelled chip (`cloud_outlined`) in the same `Wrap` | The provider (`telemetry.provider.name`) — newly visible in #761; also two lines max + tooltip | `aiJobCostProviderLabel` |
 | Usage rows | Icon + `bodySmall` (`input` / `output` / `cached`) | The extraction component's counts; the cached row renders only when `cached_tokens_in > 0`. They survive an `unknown` price — an unpriced model still states its consumption | `aiJobCostTokensIn`, `aiJobCostTokensOut`, `aiJobCostCachedTokens` |
-| Component costs | Icon + `bodySmall` (`payments_outlined`, `bolt_outlined`), the preference-selected row bold | Token cost and energy cost (plus the capped note when `capped_by_token_cost`), so the hero is always reconstructable from the rows below it and the list/detail surfaces agree on the primary metric | `aiJobCostTokenTotal`, `aiJobCostEnergyTotal`, `aiJobCostEnergyConsumption`, `aiJobCostEnergyCapped` |
+| Component costs | Icon + `bodySmall`, the preference-selected row bold | Token cost (`payments_outlined`) and the energy block — consumption, energy cost and the Extraction/Decision energy prices all use `bolt_outlined`, so the energy rows read as one group. The hero is always reconstructable from the rows below it, and the rows never contradict it | `aiJobCostTokenTotal`, `aiJobCostEnergyTotal`, `aiJobCostEnergyConsumption`, `aiJobCostEnergyCapped` |
 | Snapshot rates | Icon + `bodySmall` (`price_change_outlined`) | The rates frozen into the snapshot — never a live lookup | `aiJobCostRateInput`, `aiJobCostRateOutput` |
 | Decision component | Group: icon + `labelLarge` header (`auto_awesome_outlined`), then the component's OWN `provider / model`, its own usage counts and its own priced figures; an unpriced component keeps its counts and says it is not priced | Issue #768: the Decision Model may be a DIFFERENT provider/model than the extraction model, so its usage and rates are its own. An unpriced component never borrows the extraction rate and never renders `0` | `aiJobCostDecisionTitle`, `aiJobCostDecisionTokenTotal`, `aiJobCostDecisionEnergyTotal`, `aiJobCostDecisionUnpriced` |
 | Image component | Icon + `bodySmall` (`image_outlined`) | The #673 slot. Always absent for text imports, but it is priced INTO `cost.total`, so a rendered total must stay explainable by the rows around it | `aiJobCostImageTotal` |
@@ -231,12 +239,13 @@ nothing overflows at 360 dp. Nothing is fixed-width.
 | Nothing billed | Header + `bodySmall` narrative (`ai-job-cost-not-applicable`) | `cost.status == not_applicable` (native CSV schedule): states that no AI model was billed instead of showing an unknown or zero price | `aiJobCostNotApplicable` |
 
 The **compact jobs-list line** (`aiJobCostCompactCopy`) keeps its single-line,
-zero-extra-request behaviour and gains only the metric glyph of the same
-preference (`payments_outlined` / `bolt_outlined`, `help_outline` for unknown,
+zero-extra-request behaviour and renders the SAME primary figure as the card
+(both call `costPrimaryFigure`, so the total-aware rule cannot drift between the
+surfaces); it gains only the metric glyph of the same preference
+(`payments_outlined` / `bolt_outlined`, `help_outline` for unknown,
 `money_off_outlined` for nothing-billed), resolved by ONE helper
-(`aiJobCostMetricIcon`) so the list and the card cannot disagree. A cached row
-carries `cost: null`, so the line (and its glyph) is simply absent until the
-authoritative list read refreshes it.
+(`aiJobCostMetricIcon`). A cached row carries `cost: null`, so the line (and its
+glyph) is simply absent until the authoritative list read refreshes it.
 
 Everything the card shows comes from the job the screen already holds (`cost`
 snapshot + `telemetry` + `decision_telemetry`): no second projection read, no

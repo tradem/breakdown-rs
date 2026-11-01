@@ -103,3 +103,20 @@
 - [x] 6.5 `scripts/check-design-diagrams.sh`
 - [x] 6.6 CHANGELOG entry + `pubspec.yaml` version bump (ADR-033: the client
       build changes).
+
+## 7. Review follow-ups (CodeRabbit, PR #796)
+
+- [x] 7.1 ONE primary-figure rule: `costPrimaryFigure` lives in
+      `cost_format.dart` and is called by BOTH the jobs-list line
+      (`aiJobCostCompactCopy`) and the detail hero (`aiCostHero`), so the two
+      surfaces cannot claim different primary amounts when a job carries an
+      explicit `cost.total` (the list line is now total-aware).
+- [x] 7.2 The refusal note renders under EVERY preference, including
+      `"energy"` (the refusal is a fact about the snapshot, not about the
+      chosen figure).
+- [x] 7.3 Both energy-PRICE rows (extraction and Decision) use the energy glyph
+      `bolt_outlined`, matching the glossary's energy-block mapping.
+- [x] 7.4 The screen-spec wireframe is priced in ONE currency with a sum that
+      actually adds up (`0,0235 + 0,00005 + 0,0012 = 0,02475 USD`), so the
+      example never shows a total the card must refuse; the refusal path is
+      documented in prose and in the table instead.

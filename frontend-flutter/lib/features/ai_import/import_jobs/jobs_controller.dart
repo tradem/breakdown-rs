@@ -619,10 +619,14 @@ List<String> missingRememberedIds(
 
 /// The compact jobs-list cost line (issue #675, pure + Tier-1 testable):
 /// `null` when no cost snapshot exists (no line renders). Honesty rules:
-/// * `known` — the formatted primary figure per the caller's [preference]
-///   (energy when preferred AND present, the token total otherwise); a
-///   `known` snapshot missing BOTH breakdowns (a defensive wire shape)
-///   degrades to the localized unknown copy, never `0`;
+/// * `known` — the formatted primary figure of [costPrimaryFigure]: the
+///   energy component when the preference asks for it AND the snapshot carries
+///   one, the explicit total when the wire publishes an honest one (issue
+///   #768), the extraction token component otherwise. This is the SAME
+///   resolution the job-status hero uses, so the row and the detail card can
+///   never show different primary amounts (issue #761); a `known` snapshot
+///   with nothing priced (a defensive wire shape) degrades to the localized
+///   unknown copy, never `0`;
 /// * `unknown` — the localized "Unbekannt" / "Unknown" copy, never `0`;
 /// * `notApplicable` — the "no AI model was billed" copy.
 String? aiJobCostCompactCopy(
@@ -639,37 +643,15 @@ String? aiJobCostCompactCopy(
   if (cost.status == CostStatus.unknown) {
     return l10n.aiJobCostCompact(l10n.commonUnknown);
   }
-  // `known`: the formatted primary figure per the caller's [preference]
-  // (energy when preferred AND present, the token total otherwise); a
-  // `known` snapshot missing BOTH breakdowns (a defensive wire shape)
-  // degrades to the localized unknown copy, never `0`.
-  final currency = cost.currency;
-  final energy = cost.energyCost;
   // The defensive unknown outputs share the same "Cost: …" prefix as the
   // `unknown` status branch — in the row a bare "Unknown" would sit
   // unlabeled under the status line (CodeRabbit review, PR #699).
   final unknown = l10n.aiJobCostCompact(l10n.commonUnknown);
-  if (preference == CostDisplayPreference.energy && energy != null) {
-    return currency == null
-        ? unknown
-        : l10n.aiJobCostCompact(
-            formatNanoCurrency(energy.effectiveCappedNano, currency),
-          );
-  }
-  final token = cost.tokenCost;
-  if (token != null) {
-    return currency == null
-        ? unknown
-        : l10n.aiJobCostCompact(formatNanoCurrency(token.totalNano, currency));
-  }
-  if (energy != null) {
-    return currency == null
-        ? unknown
-        : l10n.aiJobCostCompact(
-            formatNanoCurrency(energy.effectiveCappedNano, currency),
-          );
-  }
-  return unknown;
+  final figure = costPrimaryFigure(cost, preference);
+  if (figure == null) return unknown;
+  return l10n.aiJobCostCompact(
+    formatNanoCurrency(figure.nano, figure.currency),
+  );
 }
 
 /// Localized label of one applied-episode entry (issue #763).

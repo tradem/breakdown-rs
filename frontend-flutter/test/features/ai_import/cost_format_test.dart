@@ -95,4 +95,159 @@ void main() {
       expect(formatMillijoulesAsWh(-3600000), '-1');
     });
   });
+
+  group('costPrimaryFigure (issues #761/#768 — ONE rule for list + hero)', () {
+    CostBreakdown cost({
+      bool withToken = true,
+      bool withEnergy = true,
+      bool capped = false,
+      CostStatus status = CostStatus.known,
+      Currency? currency = Currency.USD,
+      CostTotal? total,
+    }) => CostBreakdown(
+      (b) => b
+        ..status = status
+        ..currency = currency
+        ..total = total?.toBuilder()
+        ..tokenCost = withToken
+            ? TokenCostBreakdown(
+                (t) => t
+                  ..tokensIn = 4700
+                  ..tokensOut = 1200
+                  ..cachedTokensIn = 500
+                  ..inputRateNanoPerMillion = 1450000000
+                  ..outputRateNanoPerMillion = 4000000000
+                  ..totalNano = 23500000,
+              ).toBuilder()
+            : null
+        ..energyCost = withEnergy
+            ? EnergyCostBreakdown(
+                (t) => t
+                  ..energyMillijoules = 1800000
+                  ..rateNanoPerKwh = 10000000000
+                  ..rawEnergyNano = 50000
+                  ..effectiveCappedNano = capped ? 23500000 : 50000
+                  ..cappedByTokenCost = capped,
+              ).toBuilder()
+            : null,
+    );
+
+    CostTotal total(
+      CostTotalStatus status, {
+      int? totalNano,
+      Currency? currency,
+    }) => CostTotal(
+      (b) => b
+        ..status = status
+        ..currency = currency
+        ..totalNano = totalNano,
+    );
+
+    test('a known total wins under the token preference — the figure the user '
+        'actually pays', () {
+      final figure = costPrimaryFigure(
+        cost(total: total(CostTotalStatus.known, totalNano: 23755000)),
+        CostDisplayPreference.token,
+      )!;
+      expect(figure.kind, CostPrimaryKind.total);
+      expect(figure.nano, 23755000);
+      expect(figure.currency, Currency.USD);
+    });
+
+    test('a snapshot without a total falls back to the extraction token '
+        'component (every pre-#768 row)', () {
+      final figure = costPrimaryFigure(cost(), CostDisplayPreference.token)!;
+      expect(figure.kind, CostPrimaryKind.tokenCost);
+      expect(figure.nano, 23500000);
+    });
+
+    test('a refused total is never reconstructed from a component', () {
+      for (final status in [
+        CostTotalStatus.incomplete,
+        CostTotalStatus.mixedCurrency,
+        CostTotalStatus.unknown,
+      ]) {
+        final figure = costPrimaryFigure(
+          cost(withEnergy: false, total: total(status)),
+          CostDisplayPreference.token,
+        )!;
+        expect(figure.kind, CostPrimaryKind.tokenCost, reason: '$status');
+        expect(figure.nano, 23500000, reason: '$status');
+      }
+    });
+
+    test(
+      'the energy preference selects the EFFECTIVE (capped) energy figure',
+      () {
+        final figure = costPrimaryFigure(
+          cost(capped: true, total: total(CostTotalStatus.known, totalNano: 1)),
+          CostDisplayPreference.energy,
+        )!;
+        expect(figure.kind, CostPrimaryKind.energyCost);
+        expect(figure.nano, 23500000);
+      },
+    );
+
+    test('the energy preference falls back to the money figure when no energy '
+        'component exists', () {
+      final figure = costPrimaryFigure(
+        cost(
+          withEnergy: false,
+          total: total(CostTotalStatus.known, totalNano: 1),
+        ),
+        CostDisplayPreference.energy,
+      )!;
+      expect(figure.kind, CostPrimaryKind.total);
+    });
+
+    test('the total carries its own currency and is never converted (D2)', () {
+      final figure = costPrimaryFigure(
+        cost(
+          total: total(
+            CostTotalStatus.known,
+            totalNano: 5,
+            currency: Currency.EUR,
+          ),
+        ),
+        CostDisplayPreference.token,
+      )!;
+      expect(figure.currency, Currency.EUR);
+    });
+
+    test('a priced component without a snapshot currency is not rendered', () {
+      expect(
+        costPrimaryFigure(cost(currency: null), CostDisplayPreference.token),
+        isNull,
+      );
+    });
+
+    test('unknown and not_applicable snapshots have no primary figure — the '
+        'callers render the honest copy, never 0', () {
+      expect(
+        costPrimaryFigure(
+          cost(status: CostStatus.unknown),
+          CostDisplayPreference.token,
+        ),
+        isNull,
+      );
+      expect(
+        costPrimaryFigure(
+          cost(status: CostStatus.notApplicable),
+          CostDisplayPreference.token,
+        ),
+        isNull,
+      );
+    });
+
+    test('a defensive known snapshot with nothing priced has no primary '
+        'figure', () {
+      expect(
+        costPrimaryFigure(
+          cost(withToken: false, withEnergy: false),
+          CostDisplayPreference.token,
+        ),
+        isNull,
+      );
+    });
+  });
 }

@@ -107,6 +107,40 @@ void main() {
       expect(hero.value, r'$0.0235');
     });
 
+    test('the energy preference carries the refusal note too: the missing '
+        'total is a fact about the snapshot, not about the chosen figure '
+        '(CodeRabbit review, PR #796)', () {
+      for (final (status, note) in [
+        (
+          CostTotalStatus.incomplete,
+          'Total unavailable — one cost component is not priced.',
+        ),
+        (
+          CostTotalStatus.mixedCurrency,
+          'Total unavailable — the components are priced in different '
+              'currencies.',
+        ),
+      ]) {
+        final hero = aiCostHero(
+          en,
+          _withTotal(_cost(), _total(status)),
+          CostDisplayPreference.energy,
+        );
+        expect(hero.label, 'Energy cost', reason: '$status');
+        expect(hero.value, r'$0.00005', reason: '$status');
+        expect(hero.note, note, reason: '$status');
+      }
+    });
+
+    test('a known total carries NO refusal note under either preference', () {
+      final cost = _withTotal(
+        _cost(),
+        _total(CostTotalStatus.known, totalNano: 23550000),
+      );
+      expect(aiCostHero(en, cost, CostDisplayPreference.token).note, isNull);
+      expect(aiCostHero(en, cost, CostDisplayPreference.energy).note, isNull);
+    });
+
     test('the energy preference degrades to the money figure when the '
         'snapshot recorded no energy telemetry (never an invented figure)', () {
       final hero = aiCostHero(

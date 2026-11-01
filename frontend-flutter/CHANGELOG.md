@@ -60,9 +60,10 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     and all math stays the integer nano-currency formatting of
     `cost_format.dart`.
   - **The jobs list agrees.** The compact one-line cost line keeps its text and
-    its zero-extra-request behaviour and gains only the metric glyph of the same
-    preference (one shared resolution), so list and detail cannot claim
-    different primary metrics.
+    its zero-extra-request behaviour and now shows the SAME primary figure as the
+    card — both read one rule (`costPrimaryFigure`), so the line is total-aware
+    too and the two surfaces cannot claim different amounts — plus the metric
+    glyph of the same preference.
   - Client-only: no wire change, no new request, no second SSE consumer. The
     published card is `AiJobCostCard` (`job_cost_card.dart`), extracted from the
     screen so the pure hero decision (`aiCostHero`) is unit-testable.

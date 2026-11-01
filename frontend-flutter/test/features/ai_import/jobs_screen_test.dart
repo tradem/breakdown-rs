@@ -1386,6 +1386,52 @@ void main() {
           expect(copy.contains('0'), isFalse);
         });
 
+        test('known with a published total: the line shows the TOTAL, the same '
+            'figure the detail hero shows (issues #761/#768 — the two surfaces '
+            'must not claim different primary amounts)', () {
+          // Built_value is immutable: `rebuild` yields a NEW snapshot.
+          final cost = _knownCost(withEnergy: true).rebuild(
+            (b) => b
+              ..total = (CostTotal(
+                (t) => t
+                  ..status = CostTotalStatus.known
+                  ..currency = Currency.USD
+                  ..totalNano = 23755000,
+              )).toBuilder(),
+          );
+          expect(
+            aiJobCostCompactCopy(
+              AppLocalizationsEn(),
+              cost,
+              CostDisplayPreference.token,
+            ),
+            r'Cost: $0.023755',
+          );
+        });
+
+        test(
+          'a REFUSED total falls back to the token component — a partial sum '
+          'is never presented as the total',
+          () {
+            final cost = _knownCost().rebuild(
+              (b) => b
+                ..total = (CostTotal(
+                  (t) => t
+                    ..status = CostTotalStatus.incomplete
+                    ..currency = Currency.USD,
+                )).toBuilder(),
+            );
+            expect(
+              aiJobCostCompactCopy(
+                AppLocalizationsEn(),
+                cost,
+                CostDisplayPreference.token,
+              ),
+              r'Cost: $0.0235',
+            );
+          },
+        );
+
         test('not_applicable renders the no-AI-billed copy', () {
           expect(
             aiJobCostCompactCopy(

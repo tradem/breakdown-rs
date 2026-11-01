@@ -47,16 +47,20 @@ math, and a non-zero amount SHALL NEVER render as `0`):
 - **A refused total** SHALL be rendered honestly: `cost.total.status`
   `"incomplete"` or `"mixed_currency"` SHALL render the priced component plus a
   localized note stating why no sum is shown (no rate substitution, and no
-  currency conversion — design D2). `"unknown"`, or a snapshot that carries no
-  total at all (every pre-#768 row), SHALL claim no total and SHALL render no
-  note.
-- **Compact view (jobs list):** SHALL render the primary formatted total in
-  `cost.currency`, chosen exactly like the detailed hero (`energy_cost
-  .effective_capped_nano` under the `"energy"` preference when present, the
-  token total otherwise), with a metric icon that mirrors the same choice. The
-  icon is reinforcement only: the visible `"Kosten: …"` text SHALL always be
-  present, and the line SHALL NOT trigger any additional request (a cached row
-  carries no cost and renders no line).
+  currency conversion — design D2). The note SHALL be rendered under EVERY
+  display preference, including `"energy"`: the refusal is a property of the
+  snapshot, not of the figure the user chose to see first. `"unknown"`, or a
+  snapshot that carries no total at all (every pre-#768 row), SHALL claim no
+  total and SHALL render no note.
+- **Compact view (jobs list):** SHALL render the SAME primary figure as the
+  detailed hero, resolved by ONE shared rule: `cost.total.total_nano` when the
+  wire publishes a `"known"` total, `cost.energy_cost.effective_capped_nano`
+  under the `"energy"` preference when a component exists, and the extraction
+  `token_cost.total_nano` otherwise — so the two surfaces can never claim
+  different primary amounts. The line SHALL carry a metric icon that mirrors
+  the same choice. The icon is reinforcement only: the visible `"Kosten: …"`
+  text SHALL always be present, and the line SHALL NOT trigger any additional
+  request (a cached row carries no cost and renders no line).
 - When `cost.status == "unknown"`: both views SHALL render localized
   `"Unbekannt"` / `"Unknown"` copy (the detailed view as the hero VALUE, while
   still displaying the recorded token counts) and SHALL NEVER display `0` or
@@ -70,6 +74,11 @@ math, and a non-zero amount SHALL NEVER render as `0`):
 - **THEN** the jobs list compact line displays the energy cost as the primary figure and carries the energy metric icon
 - **AND** the job detail card displays the energy figure as its labelled hero
 - **AND** the job detail card displays both the energy breakdown and the token breakdown below it
+
+#### Scenario: The list line and the detail hero show one primary figure
+- **WHEN** a completed job carries a `"known"` `cost.total` of `$0.023755` whose components include a Decision-Model share
+- **THEN** the jobs list compact line and the detail hero both render `$0.023755`
+- **AND** a job without a total renders the extraction token cost in both places
 
 #### Scenario: The detail card names the model and the provider
 - **WHEN** a completed job carries `telemetry.model = "gpt-5.6-luna"` and `telemetry.provider = "neuralwatt"`
@@ -85,6 +94,11 @@ math, and a non-zero amount SHALL NEVER render as `0`):
 - **THEN** the hero figure is the priced component under a component label
 - **AND** a localized note states why no total is shown
 - **AND** no rate is substituted and no currency is converted
+
+#### Scenario: The refusal note survives the energy preference
+- **WHEN** the preference is `"energy"` and `cost.total.status` is `"incomplete"` or `"mixed_currency"`
+- **THEN** the hero shows the energy figure under its energy label
+- **AND** the localized refusal note still renders below it
 
 #### Scenario: A pre-#768 snapshot claims no total
 - **WHEN** a job's cost snapshot carries no `total` at all

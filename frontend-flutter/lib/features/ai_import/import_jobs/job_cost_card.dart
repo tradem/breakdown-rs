@@ -34,9 +34,10 @@
 ///   Nothing the #675 card rendered is dropped.
 ///
 /// Integer nano-currency math only ([formatNanoCurrency]), snapshot rates only
-/// (never a live lookup), and the preference-selected figure stays emphasised
-/// in the detail rows as well, so the card and the jobs list agree on the
-/// primary metric.
+/// (never a live lookup), the preference-selected figure stays emphasised in the
+/// detail rows, and the hero takes its FIGURE from the same [costPrimaryFigure]
+/// resolution the compact jobs-list line uses — the two surfaces cannot claim
+/// different primary amounts.
 library;
 
 import 'package:breakdown_api/breakdown_api.dart';
@@ -85,29 +86,38 @@ class AiCostHero {
 /// Chooses the hero figure for [cost] under the user's [preference] (pure,
 /// Tier-1 testable).
 ///
-/// The money arm prefers `cost.total` — the figure the user actually pays
-/// (issue #768) — and falls back to the extraction token cost when the snapshot
-/// carries no total (pre-#768 rows deserialize as `unknown`, which is an absence,
-/// not an error, so no note is rendered for it). A snapshot whose total is
-/// `incomplete` or `mixed_currency` renders the priced component AND the reason
-/// the sum is missing.
+/// The FIGURE comes from [costPrimaryFigure] — the same resolution the compact
+/// jobs-list line uses, so the two surfaces cannot disagree about the primary
+/// amount — and only the LABEL is added here, because the hero must state what
+/// the number actually is:
 ///
-/// The energy arm shows the energy component when the snapshot has one; a
-/// snapshot without energy telemetry degrades to the money arm rather than
-/// inventing an energy figure.
+/// * the explicit total (issue #768) → a total label;
+/// * the extraction token component → a token-cost label (this is the shipped
+///   behaviour of every pre-#768 snapshot and every refused total);
+/// * the energy component → an energy label.
+///
+/// A snapshot whose total the server REFUSES (`incomplete` / `mixed_currency`)
+/// carries the reason as [AiCostHero.note] — on every preference, including the
+/// energy one, because the refusal is a fact about the snapshot and not about
+/// the figure the user chose to see first.
 AiCostHero aiCostHero(
   AppLocalizations l10n,
   CostBreakdown cost,
   CostDisplayPreference preference,
 ) {
-  final energy = cost.energyCost;
-  final currency = cost.currency;
   final energyLabel = l10n.aiJobCostHeroEnergy;
-
-  // The honest unknown (spec #675): no priced component to show at all. The
-  // label still names the metric the user asked to see, the value is the
-  // localized "Unbekannt" — never `0`.
-  if (cost.status == CostStatus.unknown || currency == null) {
+  // Why no sum is on offer, when the wire actively refuses one. `unknown` and
+  // an absent total (every pre-#768 row) are ABSENCES, not errors: no note.
+  final refusal = switch (cost.total?.status) {
+    CostTotalStatus.incomplete => l10n.aiJobCostTotalIncomplete,
+    CostTotalStatus.mixedCurrency => l10n.aiJobCostTotalMixedCurrency,
+    _ => null,
+  };
+  final figure = costPrimaryFigure(cost, preference);
+  if (figure == null) {
+    // The honest unknown (spec #675): nothing is priced. The label still names
+    // the metric the user asked to see, the value is the localized "Unbekannt"
+    // — never `0`.
     return AiCostHero(
       label: preference == CostDisplayPreference.energy
           ? energyLabel
@@ -116,55 +126,15 @@ AiCostHero aiCostHero(
       isUnknown: true,
     );
   }
-
-  if (preference == CostDisplayPreference.energy && energy != null) {
-    return AiCostHero(
-      label: energyLabel,
-      value: formatNanoCurrency(energy.effectiveCappedNano, currency),
-    );
-  }
-
-  final total = cost.total;
-  final totalNano = total?.totalNano;
-  if (total != null &&
-      total.status == CostTotalStatus.known &&
-      totalNano != null) {
-    return AiCostHero(
-      label: l10n.aiJobCostHeroTotal,
-      value: formatNanoCurrency(totalNano, total.currency ?? currency),
-    );
-  }
-
-  // No sum is on offer: show the priced extraction component and, for a
-  // snapshot that actively refuses a total, say why. `null` (an unknown /
-  // not-applicable snapshot, whose total is absent by contract) and `unknown`
-  // (every pre-#768 row) are absences, not errors — they render no note.
-  final note = switch (total?.status) {
-    CostTotalStatus.incomplete => l10n.aiJobCostTotalIncomplete,
-    CostTotalStatus.mixedCurrency => l10n.aiJobCostTotalMixedCurrency,
-    _ => null,
-  };
-  final token = cost.tokenCost;
-  if (token != null) {
-    return AiCostHero(
-      label: l10n.aiJobCostHeroToken,
-      value: formatNanoCurrency(token.totalNano, currency),
-      note: note,
-    );
-  }
-  if (energy != null) {
-    return AiCostHero(
-      label: energyLabel,
-      value: formatNanoCurrency(energy.effectiveCappedNano, currency),
-      note: note,
-    );
-  }
-  // A `known` snapshot without any priced component is a defensive wire shape:
-  // stay honest instead of rendering an empty hero.
   return AiCostHero(
-    label: l10n.aiJobCostHeroTotal,
-    value: l10n.commonUnknown,
-    isUnknown: true,
+    label: switch (figure.kind) {
+      CostPrimaryKind.total => l10n.aiJobCostHeroTotal,
+      CostPrimaryKind.tokenCost => l10n.aiJobCostHeroToken,
+      CostPrimaryKind.energyCost => energyLabel,
+    },
+    value: formatNanoCurrency(figure.nano, figure.currency),
+    // Only a component needs the refusal note: a `known` total IS the answer.
+    note: figure.kind == CostPrimaryKind.total ? null : refusal,
   );
 }
 
@@ -434,7 +404,10 @@ class AiJobCostCard extends ConsumerWidget {
         )
         ..add(
           _CostLine(
-            icon: BreakdownMaterialIcons.aiJobCostToken,
+            // The energy glyph, not the money one: the glossary maps both
+            // energy-price rows to `bolt_outlined` so the energy group reads as
+            // one block (CodeRabbit review, PR #796).
+            icon: BreakdownMaterialIcons.aiJobCostEnergy,
             text: l10n.aiJobCostEnergyTotal(
               formatNanoCurrency(energy.effectiveCappedNano, currency),
             ),
@@ -609,7 +582,8 @@ class AiJobCostCard extends ConsumerWidget {
                 textKey: const Key('ai-job-cost-decision-energy-consumption'),
               ),
               _CostLine(
-                icon: BreakdownMaterialIcons.aiJobCostToken,
+                // The energy glyph (see the extraction energy row above).
+                icon: BreakdownMaterialIcons.aiJobCostEnergy,
                 text: l10n.aiJobCostDecisionEnergyTotal(
                   formatNanoCurrency(energyCost, currency),
                 ),

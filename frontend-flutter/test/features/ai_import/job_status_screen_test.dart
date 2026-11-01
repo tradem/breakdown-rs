@@ -33,6 +33,7 @@ import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/design/material_icons.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_screen.dart';
 
@@ -235,6 +236,16 @@ const devAuthConfig = AppConfig(
   appVersion: '1.0.0+1',
   defaultProjectId: 'series-1',
 );
+
+/// The glyph a keyed cost row actually renders (the row primitive is
+/// icon + text, so the icon is an ancestor-sibling of the text).
+IconData costRowGlyph(WidgetTester tester, String key) {
+  final row = find
+      .ancestor(of: find.byKey(Key(key)), matching: find.byType(Row))
+      .first;
+  final icon = find.descendant(of: row, matching: find.byType(Icon)).first;
+  return tester.widget<Icon>(icon).icon!;
+}
 
 void main() {
   CacheDatabase? db;
@@ -771,6 +782,22 @@ void main() {
       expect(find.textContaining(r'Energy cost: $0.00005'), findsOneWidget);
       expect(find.text('Energy consumption: 0.5 Wh'), findsOneWidget);
 
+      // The glyphs follow the glossary: money rows carry the money glyph, the
+      // whole energy block (consumption AND both energy PRICES) carries the
+      // energy glyph (CodeRabbit review, PR #796).
+      expect(
+        costRowGlyph(tester, 'ai-job-cost-token-total'),
+        BreakdownMaterialIcons.aiJobCostToken,
+      );
+      expect(
+        costRowGlyph(tester, 'ai-job-cost-energy-consumption'),
+        BreakdownMaterialIcons.aiJobCostEnergy,
+      );
+      expect(
+        costRowGlyph(tester, 'ai-job-cost-energy-total'),
+        BreakdownMaterialIcons.aiJobCostEnergy,
+      );
+
       // Snapshot rates + price date survive the redesign.
       expect(find.textContaining(r'Input rate: $1.45'), findsOneWidget);
       expect(find.textContaining(r'Output rate: $4'), findsOneWidget);
@@ -938,6 +965,12 @@ void main() {
             )
             .data,
         'Decision energy cost: €0.000003',
+      );
+      // The Decision energy PRICE also carries the energy glyph, not the money
+      // one (CodeRabbit review, PR #796).
+      expect(
+        costRowGlyph(tester, 'ai-job-cost-decision-energy-total'),
+        BreakdownMaterialIcons.aiJobCostEnergy,
       );
       // Its own usage counts, not the extraction ones.
       expect(
