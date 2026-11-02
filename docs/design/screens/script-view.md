@@ -24,6 +24,18 @@ empty state. AUTHZ-GATE: the view dispatches no command; the pushed detail
 screen keeps its own membership checks for the scene's character/costume
 writes.
 
+**Post-import landing (issue #759).** The view is also the destination of a
+completed AI-import apply: after `POST /v1/ai-import/jobs/{id}/apply`
+succeeds, the app selects this destination with the sticky episode scope
+switched to the imported episode and pops the import stack, so the review
+screen is left behind and the freshly created scenes are visible without a
+restart. Landing resets this destination's own nested navigator to its root
+route — a scene detail pushed before the apply belongs to the previous scope.
+The apply's report (counts, skipped day groups, unapplied outfit rows with
+their reasons, and the OTHER episodes of a multi-episode document) is
+rendered as a dismissible card above the rows, because it would otherwise be
+lost with the review screen.
+
 ## Location & Context
 The shell renders the location strip and the season + block scope chips
 above this view. As a destination ROOT the strip stays hidden; pushing the
@@ -41,6 +53,7 @@ reuse rule the scope chip renders as „gilt hier nicht").
   --
   { "Scope: Season {n}" | "Filter: Block {n}" }
   --
+  [playlist_add_check "Import angewendet — {n} Szene(n) …"]?
   [warning_amber_outlined "Teilweise geladen: {n} Blöcke/Episoden …"]?
   --
   { "1 | Szene {summary}" | "2 | Szene {summary}" | "…" }
@@ -48,9 +61,9 @@ reuse rule the scope chip renders as „gilt hier nicht").
 @endsalt
 ```
 
-Static structure only: an optional partial-load notice row above the scene
-rows; ordering, numbering and degradation rules live in Interactions and
-States.
+Static structure only: an optional post-import report card and an optional
+partial-load notice row above the scene rows; ordering, numbering and
+degradation rules live in Interactions and States.
 
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
@@ -59,6 +72,7 @@ States.
 | Profile action | Icon button with tooltip | Identity, Über die App, Einstellungen, Abmelden | `profileTooltip` |
 | Scene row | List item with leading number avatar | Projected scene number as the visible label, scene summary as the title, its episode as the subtitle | `scriptSceneNumber` / `scriptSceneNumberUnknown` / `scriptEpisodeLabel` |
 | Partial-load notice | List item | Names how many blocks / episodes could not be read (one notice per failed level) | `scriptPartialBlocks` / `scriptPartialLoad` |
+| Post-import report | Card (`primaryContainer`) with a close action | The last apply's outcome, its skipped day groups, every row that did not become a look (with the reason) and the additional episodes of a multi-episode import, each with its row count | `aiPostImportReportTitle` / `aiPostImportReportDismiss` / `aiPostImportReportOthersTitle` / `aiPostImportReportOtherEpisode` / `aiApplyOutcome` / `aiApplyOutcomeScript` / `aiApplyUnappliedOutfit` / `aiApplySkippedDayGroups` |
 | Empty state | Centered narrative | „Noch keine Szenen in dieser Season." | `scriptNoScenes` |
 | Error state | Centered narrative + retry | Keyed on the stable problem code | `scriptFetchError` |
 
@@ -79,6 +93,12 @@ last and say so). Pull-to-refresh re-runs the composition. Tapping a row
 pushes the scene detail. Selecting another season (scope picker) recomposes
 the view for that season. No command is dispatched from this view.
 
+A completed AI-import apply publishes the report and switches the sticky
+scope to the imported episode; the view composes for that episode and shows
+the report card until the user dismisses it (or another apply replaces it).
+Dismissing the card changes nothing else — the episode scope stays as the
+import left it.
+
 ## Input & Validation
 N/A — this view hosts no forms.
 
@@ -90,5 +110,6 @@ via keys; goldens use the German template locale.
 ## Tests
 Unit (Tier 1): merge order, unnumbered-last, deterministic tie-break, and
 the provider's Ok/Err/partial branches. Widget (Tier 2): season-empty state,
-numbered rows, empty state, partial notice, error state. Goldens: the view
-root in {light, dark}.
+numbered rows, empty state, partial notice, error state, and the post-import
+report card (rendered, names the additional episodes, dismissible).
+Goldens: the view root in {light, dark}.

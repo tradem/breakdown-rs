@@ -3923,4 +3923,28 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get aiApplyReapplyBodyUnknown =>
       'Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt.';
+
+  @override
+  String get aiPostImportReportTitle => 'Import angewendet';
+
+  @override
+  String get aiPostImportReportDismiss => 'Bericht ausblenden';
+
+  @override
+  String get aiPostImportReportOthersTitle => 'Zusätzlich angelegt';
+
+  @override
+  String aiPostImportReportOtherEpisode(String label, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Zeilen',
+      one: '1 Zeile',
+    );
+    return '$label: $_temp0';
+  }
+
+  @override
+  String get aiApplyNavigationUnresolved =>
+      'Der Import wurde angewendet, aber die importierte Episode ließ sich nicht automatisch öffnen. Öffne sie über Skript oder die Episodenliste.';
 }

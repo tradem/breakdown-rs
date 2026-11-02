@@ -23,6 +23,42 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The apply lands on the imported episode, and the app refreshes itself**
+  (`0.4.0-beta.32+124 → 0.4.0-beta.33+125`, frontend issue #759). Applying a
+  reviewed preview used to end where it started: the outcome card rendered on the
+  review screen, the only way out led back to the imports list, and the freshly
+  created episode plus its scenes stayed invisible until the app was restarted.
+
+  - **The destination is the material, not the review.** A successful apply
+    resolves the target episode from the response (`applied_episodes`: the
+    episode the reviewer explicitly targeted first, then the biggest
+    contribution, ties in server order), switches the sticky episode scope — which
+    cascades its block scope — sets the active season when it differs, selects
+    the **Script** destination and pops the import stack. Arrival also resets the
+    destination's own nested navigator, so a scene detail opened before the apply
+    cannot hide the imported rows (the scope changed under it).
+  - **Honest degradation instead of a half-navigation.** When the destination
+    cannot be resolved (a schedule apply has no target episode; a season or an
+    episode number is not in the read caches) the review screen stays, with the
+    full outcome card and an explicit hint. No invented number, no network read
+    on the navigation path.
+  - **The outcome survives the navigation.** A dismissible card at the top of the
+    Script view carries the applied counts, the skipped day groups, every
+    `unapplied_outfits` row with its reason and — for a document that spans
+    episodes — the OTHER episodes with their row counts, which the episode scope
+    would otherwise hide. It stays until dismissed.
+  - **The bug component: post-apply refresh.** The #666 invalidation covered only
+    `episodesListFetch` + `blocksListFetch`. The apply now also invalidates
+    `scenesListFetch` for every episode the response names (the whole family when
+    it names none), their TTL staleness memos, and the season-script composition
+    — the Script view is mounted for the whole import (the shell's
+    `IndexedStack`), so its composed rows otherwise served a pre-import
+    projection until the TTL expired or the app restarted.
+  - **Already shipped, deliberately not re-implemented:** the visible apply
+    progress (issue #762's staged apply stream + `AiApplyProgressCard`) and the
+    `applied_episodes` wire data (backend issue #763). The per-row stage labels
+    the report sketches do not exist on the wire and are not fabricated.
+
 - **An already-imported preview says so, and a second apply asks first**
   (`0.4.0-beta.31+123 → 0.4.0-beta.32+124`, backend issue #800). The apply-run
   progress slot was keyed by job id only, so a re-apply of the same preview could

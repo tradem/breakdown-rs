@@ -1321,5 +1321,21 @@
   "aiApplyReapplyTitle": "Vorschau erneut anwenden?",
   "aiApplyReapplyBody": "Diese Vorschau wurde bereits importiert. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt. Nutze es, wenn ein früherer Lauf unterbrochen wurde.",
   "aiApplyReapplyConfirm": "Erneut anwenden",
-  "aiApplyReapplyBodyUnknown": "Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt."
+  "aiApplyReapplyBodyUnknown": "Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt.",
+  "aiPostImportReportTitle": "Import angewendet",
+  "aiPostImportReportDismiss": "Bericht ausblenden",
+  "aiPostImportReportOthersTitle": "Zusätzlich angelegt",
+  "aiPostImportReportOtherEpisode": "{label}: {count, plural, =1{1 Zeile} other{{count} Zeilen}}",
+  "@aiPostImportReportOtherEpisode": {
+    "description": "One additional episode of a multi-episode import (issue #759), with the number of scene rows this apply wrote into it.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "aiApplyNavigationUnresolved": "Der Import wurde angewendet, aber die importierte Episode ließ sich nicht automatisch öffnen. Öffne sie über Skript oder die Episodenliste."
 }

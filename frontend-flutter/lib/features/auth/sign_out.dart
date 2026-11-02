@@ -20,6 +20,7 @@ import '../../features/ai_import/ai_config/ai_config_controller.dart'
     show aiImportHandoffProvider;
 import '../../features/ai_import/import_jobs/job_status_controller.dart';
 import '../../features/ai_import/import_jobs/jobs_controller.dart';
+import '../../features/ai_import/import_jobs/post_import_report.dart';
 import '../../data/cache/ai_import_jobs_cache_dao.dart';
 import '../../data/cache/cache_generation.dart';
 import '../../data/cache/seasons_cache_providers.dart';
@@ -369,7 +370,10 @@ class SessionReset extends Notifier<void> {
       // scope — the next session must never inherit the previous user's
       // episode. The persisted per-season map was wiped by the caller.
       ..invalidate(activeEpisodeProvider)
-      ..invalidate(activeEpisodePersistedProvider);
+      ..invalidate(activeEpisodePersistedProvider)
+      // Issue #759: the AI-apply report names episodes and counts of the
+      // PREVIOUS identity's import — it must not greet the next session.
+      ..invalidate(aiPostImportReportProvider);
   }
 
   /// Resets read state after a backend switch (session kept): like
@@ -393,7 +397,10 @@ class SessionReset extends Notifier<void> {
       // Episode ids are backend-scoped (issue #624): the persisted map was
       // wiped in `_applyNewBase`; this drops the cached read alongside it.
       ..invalidate(activeEpisodeProvider)
-      ..invalidate(activeEpisodePersistedProvider);
+      ..invalidate(activeEpisodePersistedProvider)
+      // Issue #759: the report's episode ids belong to the OLD backend — a
+      // banner naming them after a base switch could only 404.
+      ..invalidate(aiPostImportReportProvider);
   }
 }
 
