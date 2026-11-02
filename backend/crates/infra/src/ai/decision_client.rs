@@ -61,6 +61,12 @@ pub fn decision_endpoint(provider: LlmProvider) -> Option<&'static str> {
     }
 }
 
+/// Maximum number of bytes read from a NON-2xx response body before the
+/// failure is classified. The detail kept for the error is further truncated to
+/// 400 characters; this constant only bounds the READ, so a large error body
+/// cannot hold the worker's permit for the whole request timeout.
+const MAX_ERROR_DETAIL_BYTES: usize = 1024;
+
 /// One wire answer of the Decision API. All three curated gateways normalize
 /// on the same envelope (mirroring the chat adapters' normalization): a named
 /// map of per-question probability payloads plus a usage object.
@@ -224,7 +230,7 @@ impl DecisionClient for HttpDecisionClient {
             "state": req.state,
             "questions": questions,
         });
-        let response = self
+        let mut response = self
             .http
             .post(self.endpoint)
             .timeout(self.timeout)
@@ -239,7 +245,22 @@ impl DecisionClient for HttpDecisionClient {
             // a 404 names the route). Discarding it made every failure look
             // alike — a wrong curated URL and a rejected rubric both surfaced
             // as an unexplained `scoring_failed` row (issue #767).
-            let detail = response.text().await.unwrap_or_default();
+            // Bound the READ of that body, not just the characters kept: the
+            // 400-character cap below applies after the body is in memory, so
+            // `Response::text()` would first buffer whatever the provider sends
+            // (a chatty or hostile error could stream for the whole request
+            // timeout while holding the job's concurrency permit). One KiB is
+            // far more than any provider error message needs, and the read stops
+            // there instead of waiting for the body to finish.
+            let mut collected: Vec<u8> = Vec::with_capacity(MAX_ERROR_DETAIL_BYTES);
+            while collected.len() < MAX_ERROR_DETAIL_BYTES {
+                let Some(chunk) = response.chunk().await.map_err(classify_transport_error)? else {
+                    break;
+                };
+                let remaining = MAX_ERROR_DETAIL_BYTES - collected.len();
+                collected.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+            }
+            let detail = String::from_utf8_lossy(&collected);
             return Err(classify_http_status_with_detail(status, &detail));
         }
         let wire = response

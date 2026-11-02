@@ -209,15 +209,23 @@ fn classify_http_status_with_detail_keeps_the_class_and_appends_the_body() {
         }
         other => panic!("expected validation, got {other:?}"),
     }
-    // A chatty body is bounded (it can echo the request).
+    // A chatty body is bounded (it can echo the request). The bound is asserted
+    // on the DETAIL suffix, not on the whole message: a total-length check would
+    // also pass for a 500-character detail, because the status prefix and the
+    // separator already take 58 characters (CodeRabbit review).
     let long = "x".repeat(2_000);
     let err = classify_http_status_with_detail(StatusCode::BAD_REQUEST, &long);
     match err {
         breakdown_core::error::DomainError::Validation { reason, .. } => {
-            assert!(
-                reason.chars().count() < 600,
-                "detail must be truncated, got {} chars",
-                reason.chars().count()
+            let detail_part = reason
+                .split_once(" \u{2014} ")
+                .map(|(_, d)| d)
+                .unwrap_or("");
+            assert_eq!(
+                detail_part.chars().count(),
+                400,
+                "detail must be truncated to exactly 400 chars, got {}",
+                detail_part.chars().count()
             );
         }
         other => panic!("expected validation, got {other:?}"),
