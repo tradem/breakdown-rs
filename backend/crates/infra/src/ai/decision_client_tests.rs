@@ -39,7 +39,10 @@ fn decision_endpoints_are_curated() {
     );
     assert_eq!(
         decision_endpoint(LlmProvider::EURouter),
-        Some("https://api.eurouter.ai/api/v1/decisions")
+        // The System One surface — NOT `/api/v1/decisions`, which 404s (see the
+        // `decision_endpoint` doc: that path produced `scoring_failed` on
+        // every row of a live import).
+        Some("https://api.eurouter.ai/api/v1/systemone")
     );
     assert_eq!(
         decision_endpoint(LlmProvider::OpenRouter),

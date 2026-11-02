@@ -28,6 +28,33 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **The Decision Model's scoring pass reaches EURouter at all (the reported
+  "`eurouter`/`clef-flash` failed, no stars"; `infra 0.65.0 → 0.65.1`).** A live
+  episode-300 import recorded `decision_telemetry =
+  {provider: eurouter, model: clef-flash, outcome: scoring_failed, failed_rows:
+  59}`: the configuration was resolved, but every scoring call failed.
+
+  - **Root cause — a curated endpoint that does not exist.**
+    `decision_endpoint(LlmProvider::EURouter)` pointed at
+    `https://api.eurouter.ai/api/v1/decisions`, which answers `404 {"error":
+    {"code":404,"message":"Route not found"}}` for every request (verified
+    live, together with the `/v1/decisions`, `/api/decisions` and
+    `/decisions/evaluate` variants). EURouter proxies the same **System One**
+    surface Neuralwatt hosts: `POST /api/v1/systemone` answers `401 invalid
+    credentials` without a key, i.e. the route exists. The registry now uses
+    that path.
+  - **The failure is no longer silent about WHY.** `classify_http_status`
+    dropped the provider's response body, so a wrong route and a rejected
+    rubric both surfaced as the same unexplained `scoring_failed` row (the
+    issue #767 class). The Decision adapter now classifies through
+    `classify_http_status_with_detail`, which appends the provider's own error
+    text — bounded to 400 characters, no credential — while the retryable /
+    permanent class stays exactly as before.
+  - **Verified:** 6 decision-client unit tests + 35 client-classification tests
+    green (`cargo test -p infra --lib`), `cargo clippy -p infra` clean. The live
+    end-to-end check needs a restart of the API and one new import (scoring runs
+    during extraction, not during apply).
+
 - **An AI import's apply run has an identity, a liveness signal and a
   single-flight gate (issue #800; `core 0.55.0 → 0.56.0`, `infra 0.64.0 → 0.65.0`,
   `api 0.54.0 → 0.55.0`).** Four CodeRabbit findings on PR #798 were symptoms of

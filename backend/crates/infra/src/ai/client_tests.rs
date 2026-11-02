@@ -11,8 +11,8 @@ use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 use reqwest::StatusCode;
 
 use super::{
-    OpenAiCompatibleChatClient, classify_http_status, classify_transport_error,
-    next_truncation_budget,
+    OpenAiCompatibleChatClient, classify_http_status, classify_http_status_with_detail,
+    classify_transport_error, next_truncation_budget,
 };
 
 // ===========================================================================
@@ -171,6 +171,57 @@ fn classify_http_200_is_unexpected_validation() {
         err,
         breakdown_core::error::DomainError::Validation { .. }
     ));
+}
+
+// ===========================================================================
+// classify_http_status_with_detail — the provider's own error text
+// ===========================================================================
+
+/// The status alone cannot be acted on: a wrong curated endpoint answers 404
+/// "Route not found" and a rejected rubric answers 400 naming a property. Both
+/// used to surface as an unexplained `scoring_failed` row (issue #767), so the
+/// body must reach the error while the classification stays the same.
+#[test]
+fn classify_http_status_with_detail_keeps_the_class_and_appends_the_body() {
+    let detail = r#"{"error":{"code":404,"message":"Route not found"}}"#;
+    let err = classify_http_status_with_detail(StatusCode::NOT_FOUND, detail);
+    match err {
+        breakdown_core::error::DomainError::Validation { reason, .. } => {
+            assert!(reason.contains("404"), "status must stay visible: {reason}");
+            assert!(
+                reason.contains("Route not found"),
+                "the provider's reason must be carried: {reason}"
+            );
+        }
+        other => panic!("404 must stay a validation error, got {other:?}"),
+    }
+    // A retryable status keeps its class — the detail never re-classifies it.
+    let err = classify_http_status_with_detail(StatusCode::TOO_MANY_REQUESTS, "slow down");
+    assert!(matches!(
+        err,
+        breakdown_core::error::DomainError::ServiceUnavailable { .. }
+    ));
+    // An empty body degrades to exactly the plain classification.
+    let err = classify_http_status_with_detail(StatusCode::BAD_REQUEST, "   ");
+    match err {
+        breakdown_core::error::DomainError::Validation { reason, .. } => {
+            assert!(!reason.contains('—'), "no empty detail separator: {reason}");
+        }
+        other => panic!("expected validation, got {other:?}"),
+    }
+    // A chatty body is bounded (it can echo the request).
+    let long = "x".repeat(2_000);
+    let err = classify_http_status_with_detail(StatusCode::BAD_REQUEST, &long);
+    match err {
+        breakdown_core::error::DomainError::Validation { reason, .. } => {
+            assert!(
+                reason.chars().count() < 600,
+                "detail must be truncated, got {} chars",
+                reason.chars().count()
+            );
+        }
+        other => panic!("expected validation, got {other:?}"),
+    }
 }
 
 // ===========================================================================
