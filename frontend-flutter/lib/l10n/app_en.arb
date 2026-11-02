@@ -206,6 +206,7 @@
   "aiJobsRowEpisodeNumberName": "{number} {name}",
   "aiJobsRowApplied": "{count} applied",
   "aiJobsRowScenesRebuilt": "{count} scene(s) from document metadata only",
+  "aiJobsRowAlreadyImported": "Already imported",
   "aiJobEpisodesSeenValues": "Episodes discovered: {episodes}",
   "aiJobsLoadError": "The job list could not be loaded ({code}).",
   "aiJobsDeleteTooltip": "Delete import",
@@ -373,6 +374,7 @@
   "aiApplyErrorNetwork": "Network problem — the apply may not have gone through. Check the affected episode before retrying.",
   "aiApplyErrorGeneric": "The apply failed ({code}).",
   "aiApplyErrorApplyBlocked": "The preview still carries unresolved review questions — confirm them below to apply.",
+  "aiApplyErrorApplyInFlight": "An apply is already running for this preview. Follow its progress — a second one becomes possible once it ends.",
   "aiApplyErrorMissingMapping": "A script row has no review decision — refresh the preview and re-apply.",
   "aiApplyErrorMissingEpisodeGroup": "An episode target no longer matches the preview — refresh the preview and re-apply.",
   "aiApplyErrorUnknownContinuityCandidate": "The preview no longer offers this wardrobe choice — refresh the preview and apply again.",
@@ -413,6 +415,7 @@
   },
   "aiApplyProgressRetry": "Retry progress",
   "aiApplySubmit": "Apply import",
+  "aiApplyReapplySubmit": "Apply again",
   "aiApplyPickEpisode": "Pick episode…",
   "aiApplyUngroupedHeading": "No episode marker — target: episode {episode}",
   "aiApplyUngroupedHeadingNoTarget": "No episode marker — pick the target below",
@@ -1169,5 +1172,9 @@
   "outfitDetailGone": "This look is no longer available.",
   "outfitPickPieceTitle": "Pick piece",
   "outfitPickPieceEmpty": "No piece in this season's repertoire.",
-  "outfitVariantCreated": "Variant created."
+  "outfitVariantCreated": "Variant created.",
+  "aiApplyReapplyTitle": "Apply this preview again?",
+  "aiApplyReapplyBody": "This preview has already been imported. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed. Use it when an earlier run was interrupted.",
+  "aiApplyReapplyConfirm": "Apply again",
+  "aiApplyReapplyBodyUnknown": "Whether this preview was already imported could not be read. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed."
 }

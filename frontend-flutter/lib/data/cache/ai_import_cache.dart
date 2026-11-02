@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/drift.dart';
@@ -77,6 +78,18 @@ class AiImportJobCacheRows extends Table {
   /// same reason as [progressJson]: an unknown future payload degrades to "not
   /// known" at read, never to a DB fault. `null` until an apply has run.
   TextColumn get appliedEpisodesJson => text().nullable()();
+
+  /// Whether this preview has ever been applied (issue #800) — the server's
+  /// `AiImportJob.applied`, persisted so the "already imported" badge survives
+  /// a cached-first paint.
+  ///
+  /// Deliberately NOT derived from [appliedEpisodesJson]: that summary is empty
+  /// for a schedule import by design, so it cannot answer "was this imported?".
+  /// `false` is honest presence for a row cached before the field existed (an
+  /// unknown-ness flag would make every old row look never-applied AND
+  /// never-unknown, which is worse than the conservative default: the badge is
+  /// an affordance hint, and the server stays authoritative for the apply).
+  BoolColumn get applied => boolean().withDefault(const Constant(false))();
 
   /// The job-level Decision Model scoring outcome (issue #767), serialized as
   /// the generated `DecisionTelemetry` JSON object — `null` for a pre-#767 row

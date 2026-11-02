@@ -1300,6 +1300,11 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // blocking items from its extensions inline (the widget appends them);
       // the copy here is the narrative header.
       'ai-import.apply-blocked' => l10n.aiApplyErrorApplyBlocked,
+      // Issue #800: a live run owns the job's slot. The reconciliation path
+      // treats this as "keep waiting" (`isApplyInFlight`), so this copy only
+      // reaches the user when the budget ran out while another run was still
+      // going — it names that state instead of implying a broken apply.
+      'ai-import.apply-in-flight' => l10n.aiApplyErrorApplyInFlight,
       'ai-import.apply-missing-mapping' => l10n.aiApplyErrorMissingMapping,
       'ai-import.apply-missing-episode-group' =>
         l10n.aiApplyErrorMissingEpisodeGroup,

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:convert';
 
@@ -188,6 +189,10 @@ class AiImportJobsCacheDao {
                 serializers.serializeWith(AppliedEpisode.serializer, episode),
             ]),
           ),
+    // Whether this preview has ever been applied (issue #800). Server-derived
+    // and additive: a pre-change job reports `false`/absent, which is the
+    // honest "no apply recorded" reading.
+    applied: Value(job.applied ?? false),
     // The Decision Model scoring outcome (issue #767), serialized like the
     // other structured payloads. A job the worker reported no outcome for
     // stays `null` — the cache never invents an outcome class.

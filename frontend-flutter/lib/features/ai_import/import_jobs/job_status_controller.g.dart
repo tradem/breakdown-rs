@@ -439,3 +439,116 @@ final class AiJobBlockInfoFamily extends $Family
   @override
   String toString() => r'aiJobBlockInfoProvider';
 }
+
+/// Whether a job's preview has already been **imported** (issue #800), read from
+/// the cached job row.
+///
+/// The server owns the fact (`AiImportJob.applied`, derived from the recorded
+/// apply telemetry) and the Drift cache persists it, so this answers from the
+/// cached row instead of refetching. `false` when the row is unknown/offline: an
+/// unknown job is not an imported one, and the apply itself stays gated by the
+/// server.
+
+@ProviderFor(aiJobApplied)
+final aiJobAppliedProvider = AiJobAppliedFamily._();
+
+/// Whether a job's preview has already been **imported** (issue #800), read from
+/// the cached job row.
+///
+/// The server owns the fact (`AiImportJob.applied`, derived from the recorded
+/// apply telemetry) and the Drift cache persists it, so this answers from the
+/// cached row instead of refetching. `false` when the row is unknown/offline: an
+/// unknown job is not an imported one, and the apply itself stays gated by the
+/// server.
+
+final class AiJobAppliedProvider
+    extends $FunctionalProvider<AsyncValue<bool>, bool, FutureOr<bool>>
+    with $FutureModifier<bool>, $FutureProvider<bool> {
+  /// Whether a job's preview has already been **imported** (issue #800), read from
+  /// the cached job row.
+  ///
+  /// The server owns the fact (`AiImportJob.applied`, derived from the recorded
+  /// apply telemetry) and the Drift cache persists it, so this answers from the
+  /// cached row instead of refetching. `false` when the row is unknown/offline: an
+  /// unknown job is not an imported one, and the apply itself stays gated by the
+  /// server.
+  AiJobAppliedProvider._({
+    required AiJobAppliedFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiJobAppliedProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiJobAppliedHash();
+
+  @override
+  String toString() {
+    return r'aiJobAppliedProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<bool> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<bool> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiJobApplied(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiJobAppliedProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiJobAppliedHash() => r'215276ebb403ea35c3b463c4bee511a7158925a3';
+
+/// Whether a job's preview has already been **imported** (issue #800), read from
+/// the cached job row.
+///
+/// The server owns the fact (`AiImportJob.applied`, derived from the recorded
+/// apply telemetry) and the Drift cache persists it, so this answers from the
+/// cached row instead of refetching. `false` when the row is unknown/offline: an
+/// unknown job is not an imported one, and the apply itself stays gated by the
+/// server.
+
+final class AiJobAppliedFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<bool>, String> {
+  AiJobAppliedFamily._()
+    : super(
+        retry: null,
+        name: r'aiJobAppliedProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// Whether a job's preview has already been **imported** (issue #800), read from
+  /// the cached job row.
+  ///
+  /// The server owns the fact (`AiImportJob.applied`, derived from the recorded
+  /// apply telemetry) and the Drift cache persists it, so this answers from the
+  /// cached row instead of refetching. `false` when the row is unknown/offline: an
+  /// unknown job is not an imported one, and the apply itself stays gated by the
+  /// server.
+
+  AiJobAppliedProvider call(String jobId) =>
+      AiJobAppliedProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiJobAppliedProvider';
+}

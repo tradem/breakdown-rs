@@ -349,6 +349,7 @@ class AiImportJobRowView {
     this.appliedEpisodes = const [],
     this.scenesSynthesized,
     this.decisionTelemetry,
+    this.applied = false,
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -430,6 +431,21 @@ class AiImportJobRowView {
   /// True when the row can name its import target at all.
   bool get hasAppliedEpisode => appliedEpisodes.isNotEmpty;
 
+  /// Whether the server reports this preview as **already imported**
+  /// (issue #800) — the "Bereits importiert" badge and the re-apply
+  /// confirmation gate.
+  ///
+  /// Server-owned and never inferred from [appliedEpisodes]: that summary is
+  /// empty for a schedule import, so it cannot answer the question. `false` for
+  /// a job no apply has run for yet, and for a cache row written before the
+  /// field existed.
+  final bool applied;
+
+  /// The badge is an affordance hint, not a lock: a second apply stays possible
+  /// (idempotent recovery of an interrupted run), it just must not look like a
+  /// first one.
+  bool get isAlreadyImported => applied;
+
   /// True when the row carries a server-side error detail (the
   /// `last_error` presence indicator).
   bool get hasLastError => lastError != null && lastError!.isNotEmpty;
@@ -496,6 +512,7 @@ class AiImportJobRowView {
           other.sourceFileName == sourceFileName &&
           other.scenesSynthesized == scenesSynthesized &&
           other.decisionTelemetry == decisionTelemetry &&
+          other.applied == applied &&
           _sameEpisodes(other.appliedEpisodes, appliedEpisodes);
 
   @override
@@ -514,6 +531,7 @@ class AiImportJobRowView {
     sourceFileName,
     scenesSynthesized,
     decisionTelemetry,
+    applied,
     Object.hashAll(appliedEpisodes),
   );
 
@@ -543,6 +561,9 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   // `decisionTelemetryJson`, so this is the ONE structured field both row
   // sources carry identically.
   decisionTelemetry: job.decisionTelemetry,
+  // Whether the preview has ever been applied (issue #800). Additive on the
+  // wire, so an older server reports `null` — read as "no apply recorded".
+  applied: job.applied ?? false,
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).
@@ -579,6 +600,9 @@ AiImportJobRowView jobRowViewFromCacheRow(AiImportJobCacheRow row) =>
       // paint and the fetched row agree instead of the field vanishing until
       // the next authoritative read.
       decisionTelemetry: decisionTelemetryFromWire(row.decisionTelemetryJson),
+      // Persisted since v19 (issue #800): the badge survives a cached-first
+      // paint instead of flickering in after the authoritative read.
+      applied: row.applied,
     );
 
 /// Cache-first seed merge (pure, Tier-1 testable): remembered ids paint

@@ -90,7 +90,10 @@ void main() {
     // (`source_file_name`, `applied_episodes_json`) — again additive only.
     // v18 (issue #767) adds the nullable AI-import `decision_telemetry_json`
     // column — additive, never destructive.
-    expect(db.schemaVersion, 18);
+    // v19 (issue #800) adds the AI-import `applied` flag (default `false`) —
+    // additive, and the conservative default is the honest reading for a row
+    // cached before the field existed.
+    expect(db.schemaVersion, 19);
     final dao = PieceCacheDao(db);
     expect(await dao.readBySeason('s-1'), isEmpty);
 

@@ -16,6 +16,38 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.65.0] - Unreleased
+
+### Added — apply runs have an identity, a heartbeat and a drop guard (issue #800)
+
+- Migration `20261104000001_ai_apply_run_identity` adds
+  `ai_import.ai_import_job.apply_run_id` (the owning run, released with the
+  payload) and `apply_run_seq` (monotonic, never cleared — the start/completion
+  signal that survives a re-read). No backfill: a pre-#800 run cannot be
+  reconstructed.
+- `PgAiImportQueue::claim_apply_run` is the single-flight gate: one conditional
+  `UPDATE` either wins a free slot or steals one whose owner is demonstrably dead
+  (its payload is older than `ApplyProgress::STALE_AFTER`, computed in Rust from
+  that constant so the window has one definition). `mark_apply_progress` is
+  conditional on `apply_run_id`, so a superseded run can neither publish nor
+  clear, and `apply_run_state` exposes owner + counter + payload to the stream.
+
+### Fixed — a live apply is no longer mistaken for a dead one (issues #800 #3/#4)
+
+- `ApplyWorker::apply_script` claims the slot, generates the run id and installs a
+  run-scoped **drop guard**: a client disconnect (hyper dropping the handler
+  future) now clears that run's payload instead of leaving `applying 12/57` behind
+  for the whole staleness window. The clear is conditional on the run identity, so
+  a deferred clear can never remove a newer run's progress; the apply itself is
+  never detached.
+- A run-scoped **heartbeat** refreshes the payload's `updated_at` at a quarter of
+  the staleness window while the row phase and the trailing work run. Staleness
+  now means "the process is gone" rather than "this row is slow": a single scene
+  with several character/outfit creates no longer makes the stream declare a live
+  run finished mid-apply.
+- The worker's progress writes carry the run id, so every frame of one apply is
+  attributable to one run.
+
 ## [0.64.0] - Unreleased
 
 ### Added — the apply worker reports its own progress (issue #762)

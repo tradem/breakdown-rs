@@ -1334,6 +1334,12 @@ abstract class AppLocalizations {
   /// **'{count} Szene(n) nur aus Dokument-Metadaten'**
   String aiJobsRowScenesRebuilt(Object count);
 
+  /// No description provided for @aiJobsRowAlreadyImported.
+  ///
+  /// In de, this message translates to:
+  /// **'Bereits importiert'**
+  String get aiJobsRowAlreadyImported;
+
   /// No description provided for @aiJobEpisodesSeenValues.
   ///
   /// In de, this message translates to:
@@ -2113,6 +2119,12 @@ abstract class AppLocalizations {
   /// **'Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.'**
   String get aiApplyErrorApplyBlocked;
 
+  /// No description provided for @aiApplyErrorApplyInFlight.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diese Vorschau läuft bereits eine Übernahme. Verfolge deren Fortschritt – ein zweiter Start ist erst danach möglich.'**
+  String get aiApplyErrorApplyInFlight;
+
   /// No description provided for @aiApplyErrorMissingMapping.
   ///
   /// In de, this message translates to:
@@ -2242,6 +2254,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Import anwenden'**
   String get aiApplySubmit;
+
+  /// No description provided for @aiApplyReapplySubmit.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneut anwenden'**
+  String get aiApplyReapplySubmit;
 
   /// No description provided for @aiApplyPickEpisode.
   ///
@@ -6301,6 +6319,30 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Variante erstellt.'**
   String get outfitVariantCreated;
+
+  /// No description provided for @aiApplyReapplyTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Vorschau erneut anwenden?'**
+  String get aiApplyReapplyTitle;
+
+  /// No description provided for @aiApplyReapplyBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Vorschau wurde bereits importiert. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt. Nutze es, wenn ein früherer Lauf unterbrochen wurde.'**
+  String get aiApplyReapplyBody;
+
+  /// No description provided for @aiApplyReapplyConfirm.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneut anwenden'**
+  String get aiApplyReapplyConfirm;
+
+  /// No description provided for @aiApplyReapplyBodyUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt.'**
+  String get aiApplyReapplyBodyUnknown;
 }
 
 class _AppLocalizationsDelegate

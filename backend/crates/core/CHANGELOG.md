@@ -16,6 +16,41 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.56.0] - Unreleased
+
+### Added — an apply run names itself and proves it happened (issue #800)
+
+- `ApplyRunId` (wire `run_id`, additive with `serde(default)`) is the identity
+  of one apply run. The progress slot was keyed by job id alone, so two accepted
+  applies of one `succeeded` job overwrote each other's counters and the first
+  run to finish cleared the slot out from under the other. `ApplyProgress.run_id`
+  is also the client's **run boundary**: two frames with different ids are two
+  runs, so a re-apply resets the counters and the ETA instead of looking like a
+  jump backwards. A pre-#800 payload decodes to the nil id, which never owns a
+  claim.
+- `ApplyRunState` (`owner`, `seq`, `progress`) is the run slot as the apply
+  stream reads it. `seq` is bumped on every claim and never cleared, which is the
+  missing fact behind the "a run started and ended between two reads" bug: a
+  non-zero delta since the subscriber's baseline proves a run happened even when
+  its payload is already gone (`ApplyRunState::advanced_since`).
+- `AiImportJob.applied` (additive with `serde(default)`) is the persisted
+  "already imported" fact, derived by the adapter from the recorded apply
+  telemetry. Never inferred from `applied_episodes`, which is empty for a
+  schedule apply by design.
+
+### Changed — the apply queue port is run-scoped and single-flight (issue #800)
+
+- `AiImportQueue::claim_apply_run` wins the slot atomically, steals a claim whose
+  payload is older than `ApplyProgress::STALE_AFTER` (so a crashed run blocks
+  later applies for at most one window) and bumps the run counter.
+- `AiImportQueue::mark_apply_progress` takes the run identity; a write from a run
+  that no longer owns the slot is a no-op, and `None` releases the ownership
+  while keeping the counter.
+- `AiImportQueue::apply_run_state` reads the slot (owner + counter + payload).
+  All three default to "no slot", so adapters without one keep compiling.
+- New problem code `ai-import.apply-in-flight` (409): a second apply of one job
+  is refused while a live run owns the slot instead of interleaving two runs.
+
 ## [0.55.0] - Unreleased
 
 ### Added — apply-run progress for AI imports (issue #762)

@@ -1427,6 +1427,83 @@ void main() {
       expect(outcomes[1].requests.single.uri.path, '/v1/ai-import/jobs/j1');
     });
 
+    test('applyWithReconciliation: 409 ai-import.apply-in-flight is a WAIT, '
+        'not a block (issue #800)', () async {
+      // The server refuses a second apply of one job while a live run owns the
+      // progress slot. That is exactly what the ambiguous-timeout retry hits
+      // (the first POST is still running), so it must consume the bounded
+      // budget and retry — never surface the blocking apply-error card.
+      final appliedBody = serializers.serializeWith(
+        ApplyAiImportResponse.serializer,
+        ApplyAiImportResponse(
+          (b) => b
+            ..appliedCount = 1
+            ..createdDays = 0
+            ..plannedSceneShoots = 0
+            ..createdCharacters = 0
+            ..createdPieces = 0
+            ..createdOutfits = 0
+            ..createdEpisodes = 0
+            ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
+        ),
+      )!;
+      final requests = <RequestOptions>[];
+      var call = 0;
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            call++;
+            if (call == 1) {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response<Object>(
+                    requestOptions: options,
+                    statusCode: 409,
+                    data: <String, dynamic>{
+                      'code': 'ai-import.apply-in-flight',
+                      'title': 'apply in flight',
+                      'status': 409,
+                    },
+                  ),
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response<Object>(
+                requestOptions: options,
+                statusCode: 200,
+                data: appliedBody,
+              ),
+            );
+          },
+        ),
+      );
+      final scheduler = _FakeScheduler();
+      final outcome = await AiImportRepository(
+        BreakdownApi(dio: dio),
+        _dao(),
+      ).applyWithReconciliation('j1', _applyRequest(), scheduler: scheduler);
+      expect(outcome, isA<ApplySucceeded>());
+      expect(
+        scheduler.ticks,
+        1,
+        reason: 'the in-flight 409 waits out a tick, then retries',
+      );
+      expect(
+        requests.map((r) => r.uri.path).toList(),
+        ['/v1/ai-import/jobs/j1/apply', '/v1/ai-import/jobs/j1/apply'],
+        reason:
+            'two applies and NO job re-read: an in-flight 409 is not an '
+            'ambiguous outcome, so the retry re-dispatches the (idempotent) '
+            'apply instead of guessing from a projection read',
+      );
+    });
+
     test('applyWithReconciliation: job re-read not-succeeded blocks (no '
         're-dispatch)', () async {
       final outcomes = <_Outcome>[

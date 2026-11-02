@@ -8,6 +8,8 @@ part of 'ai_import_job.dart';
 
 class _$AiImportJob extends AiImportJob {
   @override
+  final bool? applied;
+  @override
   final BuiltList<AppliedEpisode>? appliedEpisodes;
   @override
   final ApplyProgress? applyProgress;
@@ -62,7 +64,8 @@ class _$AiImportJob extends AiImportJob {
       (AiImportJobBuilder()..update(updates))._build();
 
   _$AiImportJob._(
-      {this.appliedEpisodes,
+      {this.applied,
+      this.appliedEpisodes,
       this.applyProgress,
       this.attempts,
       this.blockId,
@@ -99,6 +102,7 @@ class _$AiImportJob extends AiImportJob {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is AiImportJob &&
+        applied == other.applied &&
         appliedEpisodes == other.appliedEpisodes &&
         applyProgress == other.applyProgress &&
         attempts == other.attempts &&
@@ -129,6 +133,7 @@ class _$AiImportJob extends AiImportJob {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, applied.hashCode);
     _$hash = $jc(_$hash, appliedEpisodes.hashCode);
     _$hash = $jc(_$hash, applyProgress.hashCode);
     _$hash = $jc(_$hash, attempts.hashCode);
@@ -161,6 +166,7 @@ class _$AiImportJob extends AiImportJob {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'AiImportJob')
+          ..add('applied', applied)
           ..add('appliedEpisodes', appliedEpisodes)
           ..add('applyProgress', applyProgress)
           ..add('attempts', attempts)
@@ -192,6 +198,10 @@ class _$AiImportJob extends AiImportJob {
 
 class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   _$AiImportJob? _$v;
+
+  bool? _applied;
+  bool? get applied => _$this._applied;
+  set applied(bool? applied) => _$this._applied = applied;
 
   ListBuilder<AppliedEpisode>? _appliedEpisodes;
   ListBuilder<AppliedEpisode> get appliedEpisodes =>
@@ -319,6 +329,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   AiImportJobBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _applied = $v.applied;
       _appliedEpisodes = $v.appliedEpisodes?.toBuilder();
       _applyProgress = $v.applyProgress?.toBuilder();
       _attempts = $v.attempts?.toBuilder();
@@ -367,6 +378,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
     try {
       _$result = _$v ??
           _$AiImportJob._(
+            applied: applied,
             appliedEpisodes: _appliedEpisodes?.build(),
             applyProgress: _applyProgress?.build(),
             attempts: _attempts?.build(),

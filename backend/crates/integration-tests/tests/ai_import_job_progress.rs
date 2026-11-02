@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Postgres integration tests for the owner-fenced job progress writes
 //! (issue #664): persistence + decode, `episodes_seen` accumulation,
@@ -14,7 +15,7 @@ use anyhow::Result;
 use breakdown_core::ai::JobStatus;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage,
-    DocumentKind,
+    ApplyProgress, ApplyRunId, ApplyStage, DocumentKind,
 };
 use infra::ai::queue::PgAiImportQueue;
 use uuid::Uuid;
@@ -199,46 +200,220 @@ async fn mark_progress_on_a_non_running_job_is_rejected() -> Result<()> {
     Ok(())
 }
 
-/// Issue #762: the apply-run progress round-trips through the JSONB column.
-///
-/// The apply runs against a job that is already `succeeded`, so its progress
-/// cannot ride the job status — and the write is deliberately NOT owner-fenced
-/// (there is no claim left to fence on). What guards it is the status
-/// predicate.
-#[tokio::test]
-async fn apply_progress_round_trips_on_a_succeeded_job() -> Result<()> {
-    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
-    let queue = PgAiImportQueue::new(pool);
+/// An apply payload owned by `run_id` (issues #762, #800).
+fn apply_run_frame(run_id: ApplyRunId, applied: u32, total: u32) -> ApplyProgress {
+    let now = chrono::Utc::now();
+    ApplyProgress {
+        stage: ApplyStage::Applying,
+        applied,
+        total,
+        started_at: now,
+        updated_at: now,
+        run_id,
+    }
+}
 
-    let request = make_enqueue_request("user-apply-progress");
+/// A `succeeded` job ready for an apply (issues #762, #800).
+async fn succeeded_job(queue: &PgAiImportQueue, user: &str) -> Result<AiImportJobId> {
+    let request = make_enqueue_request(user);
     let id = request.id;
     queue.enqueue(request).await?;
     let _claimed = queue.claim_next("worker-1").await?.expect("claimable");
     queue
         .mark_succeeded(id, "worker-1", "ai-preview/handle")
         .await?;
+    Ok(id)
+}
 
-    let started = chrono::Utc::now();
-    let run = breakdown_core::ai::ApplyProgress {
-        stage: breakdown_core::ai::ApplyStage::Applying,
-        applied: 3,
-        total: 57,
-        started_at: started,
-        updated_at: started,
-    };
-    queue.mark_apply_progress(id, Some(&run)).await?;
+/// Issue #762 + #800: the apply-run progress round-trips through the JSONB
+/// column, and the run counter proves the run happened even after it cleared.
+#[tokio::test]
+async fn apply_progress_round_trips_on_a_succeeded_job() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+    let id = succeeded_job(&queue, "user-apply-progress").await?;
+
+    let run_id = ApplyRunId::new();
+    assert!(
+        queue.claim_apply_run(id, run_id).await?,
+        "a free slot is claimable"
+    );
+    let run = apply_run_frame(run_id, 3, 57);
+    queue.mark_apply_progress(id, run_id, Some(&run)).await?;
 
     let job = queue.get(id).await?.expect("job exists");
     assert_eq!(
         job.apply_progress,
-        Some(run),
-        "the run's own numbers survive the round trip, anchor included"
+        Some(run.clone()),
+        "the run's own numbers survive the round trip, anchor and run id included"
+    );
+
+    // The slot now answers "who owns it, and how many runs have started".
+    let state = queue
+        .apply_run_state(id)
+        .await?
+        .expect("a stored job has a run slot");
+    assert_eq!(state.owner, Some(run_id), "the claim is visible");
+    assert_eq!(state.seq, 1, "the claim bumped the run counter once");
+    assert_eq!(
+        state.progress,
+        Some(run.clone()),
+        "and it carries the payload"
     );
 
     // Clearing is the end signal the apply stream closes on.
-    queue.mark_apply_progress(id, None).await?;
+    queue.mark_apply_progress(id, run_id, None).await?;
     let job = queue.get(id).await?.expect("job exists");
     assert_eq!(job.apply_progress, None, "the run is gone once it ended");
+    let state = queue
+        .apply_run_state(id)
+        .await?
+        .expect("a stored job has a run slot");
+    assert_eq!(state.owner, None, "the ended run released the slot");
+    assert_eq!(
+        state.seq, 1,
+        "but the counter stays — that is what proves the run to the stream"
+    );
+    Ok(())
+}
+
+/// Issue #800: two applies cannot interleave. The second claim is refused while
+/// the first run is live, and its writes cannot touch the owner's payload.
+#[tokio::test]
+async fn a_second_apply_claim_is_refused_and_cannot_write() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+    let id = succeeded_job(&queue, "user-apply-single-flight").await?;
+
+    let live = ApplyRunId::new();
+    assert!(queue.claim_apply_run(id, live).await?);
+    queue
+        .mark_apply_progress(id, live, Some(&apply_run_frame(live, 3, 57)))
+        .await?;
+
+    let intruder = ApplyRunId::new();
+    assert!(
+        !queue.claim_apply_run(id, intruder).await?,
+        "a live run keeps the slot"
+    );
+    // … and without the slot its writes are no-ops, for the payload AND the
+    // clear (that is what keeps a superseded run from ending the stream).
+    queue
+        .mark_apply_progress(id, intruder, Some(&apply_run_frame(intruder, 40, 57)))
+        .await?;
+    queue.mark_apply_progress(id, intruder, None).await?;
+
+    let state = queue.apply_run_state(id).await?.expect("run slot");
+    assert_eq!(state.owner, Some(live), "ownership is unchanged");
+    assert_eq!(
+        state.progress.as_ref().map(|frame| frame.applied),
+        Some(3),
+        "the live run's counters are untouched"
+    );
+    assert_eq!(state.seq, 1, "the refused claim did not bump the counter");
+    Ok(())
+}
+
+/// Issue #800: a claim whose process died is stolen, not locked forever. The
+/// staleness cutoff comes from `ApplyProgress::STALE_AFTER`, so the test moves
+/// the *payload* into the past instead of sleeping (AGENTS.md §4).
+#[tokio::test]
+async fn a_stale_claim_is_stolen_by_the_next_apply() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+    let id = succeeded_job(&queue, "user-apply-stale-steal").await?;
+
+    let dead = ApplyRunId::new();
+    assert!(queue.claim_apply_run(id, dead).await?);
+    let mut stale = apply_run_frame(dead, 3, 57);
+    stale.updated_at =
+        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    queue.mark_apply_progress(id, dead, Some(&stale)).await?;
+
+    let next = ApplyRunId::new();
+    assert!(
+        queue.claim_apply_run(id, next).await?,
+        "a claim older than the staleness window is dead and must be stealable"
+    );
+    let state = queue.apply_run_state(id).await?.expect("run slot");
+    assert_eq!(state.owner, Some(next), "the stealer owns the slot");
+    assert_eq!(state.seq, 2, "and the run counter recorded the new run");
+    assert_eq!(
+        state.progress, None,
+        "the claim clears the previous run's payload: a stolen frame would make \
+         the stream close on its first read instead of following the new run"
+    );
+    Ok(())
+}
+
+/// Issue #800 review: a run that holds the slot but has **not published its
+/// first frame yet** must not be displaced. Its payload is `NULL`, so the steal
+/// predicate judges that owner by the row's own `updated_at` (which the claim
+/// stamps) — never by "no payload means free".
+#[tokio::test]
+async fn a_claim_without_a_published_payload_is_not_stolen() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = succeeded_job(&queue, "user-apply-claim-fresh").await?;
+
+    let live = ApplyRunId::new();
+    assert!(queue.claim_apply_run(id, live).await?);
+    // Deliberately no `mark_apply_progress`: the run has published nothing.
+    assert!(
+        !queue.claim_apply_run(id, ApplyRunId::new()).await?,
+        "a freshly claimed slot is live even without a payload"
+    );
+
+    // Age the claim itself (the row stamp), exactly like a crashed worker would
+    // by doing nothing for a staleness window — no sleeping (AGENTS.md §4).
+    let stale_before =
+        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    sqlx::query("UPDATE ai_import.ai_import_job SET updated_at = $2 WHERE id = $1")
+        .bind(id.as_uuid())
+        .bind(stale_before)
+        .execute(&pool)
+        .await?;
+
+    let next = ApplyRunId::new();
+    assert!(
+        queue.claim_apply_run(id, next).await?,
+        "a claim that never published is stealable once its own stamp is stale"
+    );
+    let state = queue.apply_run_state(id).await?.expect("run slot");
+    assert_eq!(state.owner, Some(next));
+    assert_eq!(state.seq, 2, "the steal bumped the counter");
+    Ok(())
+}
+
+/// Issue #800: `AiImportJob.applied` is the persisted "already imported" fact,
+/// derived from the apply telemetry the apply path records.
+#[tokio::test]
+async fn applied_tracks_the_recorded_apply_telemetry() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+    let id = succeeded_job(&queue, "user-apply-applied-flag").await?;
+
+    let before = queue.get(id).await?.expect("job exists");
+    assert!(!before.applied, "a preview nobody applied is not imported");
+
+    queue
+        .record_telemetry(
+            id,
+            breakdown_core::ai::Telemetry {
+                apply_state: breakdown_core::ai::TelemetryApplyState::Applied {
+                    accept_as_is: true,
+                    edit_distance: 0,
+                },
+                ..breakdown_core::ai::Telemetry::default()
+            },
+        )
+        .await?;
+
+    let after = queue.get(id).await?.expect("job exists");
+    assert!(
+        after.applied,
+        "the recorded apply makes the job an applied one"
+    );
     Ok(())
 }
 
@@ -260,18 +435,15 @@ async fn apply_progress_is_refused_for_a_running_job_and_leaves_the_lease_alone(
             .fetch_one(&pool)
             .await?;
 
-    let now = chrono::Utc::now();
+    // Issue #800: the claim is the gate, and a non-`succeeded` job has no slot
+    // at all — so there is nothing an apply could write to.
+    let run_id = ApplyRunId::new();
+    assert!(
+        !queue.claim_apply_run(id, run_id).await?,
+        "a running job has no apply slot"
+    );
     queue
-        .mark_apply_progress(
-            id,
-            Some(&breakdown_core::ai::ApplyProgress {
-                stage: breakdown_core::ai::ApplyStage::Applying,
-                applied: 1,
-                total: 2,
-                started_at: now,
-                updated_at: now,
-            }),
-        )
+        .mark_apply_progress(id, run_id, Some(&apply_run_frame(run_id, 1, 2)))
         .await?;
 
     let job = queue.get(id).await?.expect("job exists");

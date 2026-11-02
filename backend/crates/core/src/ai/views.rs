@@ -171,6 +171,45 @@ impl AiImportJobId {
     }
 }
 
+/// Identity of one **apply run** (issue #800).
+///
+/// The apply-run progress slot was keyed by job id alone, so two accepted
+/// applies of one `succeeded` job could overwrite each other's counters, and
+/// the first run to finish cleared the slot out from under the other one. The
+/// run therefore names itself: the owning id travels on the wire inside
+/// [`ApplyProgress`], and every run-scoped write (progress, clear, heartbeat)
+/// is conditional on the run that owns the slot.
+///
+/// A pre-#800 payload decodes to the nil id (`serde(default)`), which never
+/// owns a claim — an old payload can be *read* (and rendered) but never
+/// *cleared* by a client-side or worker write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(transparent)]
+pub struct ApplyRunId(pub Uuid);
+
+impl ApplyRunId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    #[must_use]
+    pub const fn from_uuid(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    #[must_use]
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for ApplyRunId {
+    fn default() -> Self {
+        Self(Uuid::nil())
+    }
+}
+
 impl Default for AiImportJobId {
     fn default() -> Self {
         Self::new()
@@ -498,6 +537,19 @@ pub struct AiImportJob {
     /// already succeeded.
     #[serde(default)]
     pub apply_progress: Option<ApplyProgress>,
+    /// Whether this preview has ever been **applied** (issue #800). Additive
+    /// with `serde(default)`: `false` for a job no apply has run for yet, and
+    /// for every job created before the field existed.
+    ///
+    /// Derived server-side from the persisted apply telemetry
+    /// (`TelemetryApplyState::Applied`), never inferred from
+    /// [`Self::applied_episodes`] — that summary is empty for a schedule apply
+    /// by design, so it cannot answer "was this imported?". Its purpose is the
+    /// honest "already imported" badge and the re-apply confirmation: a second
+    /// apply stays *possible* (idempotent recovery of an interrupted run), but
+    /// it must never look like a first one.
+    #[serde(default)]
+    pub applied: bool,
 }
 
 /// Which part of an apply run is executing (issue #762).
@@ -552,8 +604,19 @@ pub struct ApplyProgress {
     /// Last write of this payload. The stream uses it to recognise a run whose
     /// process died: an abandoned run must not keep a stream open forever, so
     /// a payload older than [`ApplyProgress::STALE_AFTER`] is treated as
-    /// finished.
+    /// finished. The worker **heartbeats** it while a single row is in flight
+    /// (issue #800), so a slow row can no longer make a live run look dead —
+    /// staleness now means "the process is gone".
     pub updated_at: DateTime<Utc>,
+    /// The run this payload belongs to (issue #800). Additive with
+    /// `serde(default)`: a pre-#800 payload decodes to the nil id, which never
+    /// owns a claim.
+    ///
+    /// It is the client's **run boundary**: two frames with different
+    /// `run_id`s are two runs, so a re-apply (or a reconciled retry) resets the
+    /// counters and the ETA instead of looking like a jump backwards.
+    #[serde(default)]
+    pub run_id: ApplyRunId,
 }
 
 impl ApplyProgress {
@@ -600,6 +663,45 @@ pub struct ApplyProgressFrame {
     pub job_id: AiImportJobId,
     #[serde(default)]
     pub apply_progress: Option<ApplyProgress>,
+}
+
+/// The apply-run slot of one job: who owns it, how many runs have started, and
+/// what the current owner last published (issue #800).
+///
+/// Why a read of its own instead of reading it off [`AiImportJob`]: the apply
+/// stream must be able to tell **"no run ever started"** from **"a run started
+/// and already ended"**. The payload alone cannot say that — a run that starts
+/// and clears between two re-reads leaves `None` behind, which is exactly the
+/// frame a client interpreted as a dropped connection (#800 #2). `seq` is the
+/// missing fact: it is bumped on every claim and **never** cleared, so a
+/// non-zero delta since the subscriber's baseline *is* proof that a run
+/// happened.
+///
+/// `owner` is the run holding the slot right now. It is cleared together with
+/// the payload, so `owner: None` + a seq delta means "that run is over", while
+/// `owner: Some(_)` + no payload (yet) means "a run is live but has published
+/// nothing" — two states a job-id-keyed slot could not distinguish.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApplyRunState {
+    /// The run that currently owns the slot; `None` when no run is live.
+    pub owner: Option<ApplyRunId>,
+    /// Monotonic run counter of this job: bumped on every claim, never cleared.
+    pub seq: i64,
+    /// What the owning run last published; `None` before its first write and
+    /// after it cleared the slot.
+    pub progress: Option<ApplyProgress>,
+}
+
+impl ApplyRunState {
+    /// Whether a run started (or ended) since `baseline_seq` was observed.
+    ///
+    /// This is the fact the apply stream was missing: `true` means the client's
+    /// "nothing started yet, keep waiting" and "the run already ended" are
+    /// distinguishable even when no frame was ever emitted for that run.
+    #[must_use]
+    pub const fn advanced_since(&self, baseline_seq: i64) -> bool {
+        self.seq > baseline_seq
+    }
 }
 
 /// The production target an AI import writes into, snapshotted at dispatch

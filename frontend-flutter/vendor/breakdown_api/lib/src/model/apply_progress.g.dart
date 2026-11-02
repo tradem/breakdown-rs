@@ -10,6 +10,8 @@ class _$ApplyProgress extends ApplyProgress {
   @override
   final int? applied;
   @override
+  final String? runId;
+  @override
   final ApplyStage stage;
   @override
   final DateTime startedAt;
@@ -23,6 +25,7 @@ class _$ApplyProgress extends ApplyProgress {
 
   _$ApplyProgress._(
       {this.applied,
+      this.runId,
       required this.stage,
       required this.startedAt,
       this.total,
@@ -40,6 +43,7 @@ class _$ApplyProgress extends ApplyProgress {
     if (identical(other, this)) return true;
     return other is ApplyProgress &&
         applied == other.applied &&
+        runId == other.runId &&
         stage == other.stage &&
         startedAt == other.startedAt &&
         total == other.total &&
@@ -50,6 +54,7 @@ class _$ApplyProgress extends ApplyProgress {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, applied.hashCode);
+    _$hash = $jc(_$hash, runId.hashCode);
     _$hash = $jc(_$hash, stage.hashCode);
     _$hash = $jc(_$hash, startedAt.hashCode);
     _$hash = $jc(_$hash, total.hashCode);
@@ -62,6 +67,7 @@ class _$ApplyProgress extends ApplyProgress {
   String toString() {
     return (newBuiltValueToStringHelper(r'ApplyProgress')
           ..add('applied', applied)
+          ..add('runId', runId)
           ..add('stage', stage)
           ..add('startedAt', startedAt)
           ..add('total', total)
@@ -77,6 +83,10 @@ class ApplyProgressBuilder
   int? _applied;
   int? get applied => _$this._applied;
   set applied(int? applied) => _$this._applied = applied;
+
+  String? _runId;
+  String? get runId => _$this._runId;
+  set runId(String? runId) => _$this._runId = runId;
 
   ApplyStage? _stage;
   ApplyStage? get stage => _$this._stage;
@@ -102,6 +112,7 @@ class ApplyProgressBuilder
     final $v = _$v;
     if ($v != null) {
       _applied = $v.applied;
+      _runId = $v.runId;
       _stage = $v.stage;
       _startedAt = $v.startedAt;
       _total = $v.total;
@@ -128,6 +139,7 @@ class ApplyProgressBuilder
     final _$result = _$v ??
         _$ApplyProgress._(
           applied: applied,
+          runId: runId,
           stage: BuiltValueNullFieldError.checkNotNull(
               stage, r'ApplyProgress', 'stage'),
           startedAt: BuiltValueNullFieldError.checkNotNull(

@@ -25,6 +25,7 @@ part 'ai_import_job.g.dart';
 /// Operational job row. Preview blobs and errors are represented by opaque handles/summaries; credentials and document bytes are deliberately absent.
 ///
 /// Properties:
+/// * [applied] - Whether this preview has ever been **applied** (issue #800). Additive with `serde(default)`: `false` for a job no apply has run for yet, and for every job created before the field existed.  Derived server-side from the persisted apply telemetry (`TelemetryApplyState::Applied`), never inferred from [`Self::applied_episodes`] — that summary is empty for a schedule apply by design, so it cannot answer \"was this imported?\". Its purpose is the honest \"already imported\" badge and the re-apply confirmation: a second apply stays *possible* (idempotent recovery of an interrupted run), but it must never look like a first one.
 /// * [appliedEpisodes] - The episodes a successful **script** apply landed this job's rows in (issue #763), so the jobs list can name the import's target instead of only its date. Additive with `serde(default)`: empty for a job no apply has run for yet, and for a schedule apply (which merges onto the project's existing scenes and days and therefore has no single target episode). Written by the apply path from the plan and target data it already holds.  The summary is written by the applies that actually dispatched rows, and merged per episode: a re-apply of an already-applied preview contributes nothing (a confirmed row is not re-attributed to the retry's target), so the earlier entries survive. It is best-effort by design (the scene rows are already committed), so an empty list also means \"no apply has written a summary\" — a client renders its kind/date copy either way. An entry only carries `number`/`name` when they are authoritative for that episode's persisted location.
 /// * [applyProgress] - Live progress of an **apply run** for this (already `succeeded`) job (issue #762). Additive with `serde(default)`: `None` whenever no apply is in flight — for every job created before the field existed, for a preview nobody has applied yet, and again once a run has finished (the run clears the column, so a stale \"applying 3/57\" can never outlive its run).  Advisory, so `None` alone is **not** proof that nothing is running: every progress write (the run's first one included) is best-effort — a failed write must never abort an apply — so an active run can be invisible here until the next throttled write lands, and for a whole run if the store keeps failing. A client therefore renders `None` as \"no progress published\", never as \"idle\" (issue #762).  Its presence is what keeps the apply stream open: the job itself is terminal the whole time, because an apply is a POST against a job that already succeeded.
 /// * [attempts] - Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the history is not fetched, so it is additive on the wire.
@@ -52,6 +53,10 @@ part 'ai_import_job.g.dart';
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
 @BuiltValue()
 abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
+  /// Whether this preview has ever been **applied** (issue #800). Additive with `serde(default)`: `false` for a job no apply has run for yet, and for every job created before the field existed.  Derived server-side from the persisted apply telemetry (`TelemetryApplyState::Applied`), never inferred from [`Self::applied_episodes`] — that summary is empty for a schedule apply by design, so it cannot answer \"was this imported?\". Its purpose is the honest \"already imported\" badge and the re-apply confirmation: a second apply stays *possible* (idempotent recovery of an interrupted run), but it must never look like a first one.
+  @BuiltValueField(wireName: r'applied')
+  bool? get applied;
+
   /// The episodes a successful **script** apply landed this job's rows in (issue #763), so the jobs list can name the import's target instead of only its date. Additive with `serde(default)`: empty for a job no apply has run for yet, and for a schedule apply (which merges onto the project's existing scenes and days and therefore has no single target episode). Written by the apply path from the plan and target data it already holds.  The summary is written by the applies that actually dispatched rows, and merged per episode: a re-apply of an already-applied preview contributes nothing (a confirmed row is not re-attributed to the retry's target), so the earlier entries survive. It is best-effort by design (the scene rows are already committed), so an empty list also means \"no apply has written a summary\" — a client renders its kind/date copy either way. An entry only carries `number`/`name` when they are authoritative for that episode's persisted location.
   @BuiltValueField(wireName: r'applied_episodes')
   BuiltList<AppliedEpisode>? get appliedEpisodes;
@@ -166,6 +171,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
     AiImportJob object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.applied != null) {
+      yield r'applied';
+      yield serializers.serialize(
+        object.applied,
+        specifiedType: const FullType(bool),
+      );
+    }
     if (object.appliedEpisodes != null) {
       yield r'applied_episodes';
       yield serializers.serialize(
@@ -342,6 +354,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'applied':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.applied = valueDes;
+          break;
         case r'applied_episodes':
           final valueDes = serializers.deserialize(
             value,

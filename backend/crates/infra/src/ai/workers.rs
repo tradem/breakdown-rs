@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
-    ApplyGateError, ApplyMapping, ApplyMappingDecision, ApplyProgress, ApplyStage,
+    ApplyGateError, ApplyMapping, ApplyMappingDecision, ApplyProgress, ApplyRunId, ApplyStage,
     CategoryVocabularyEntry, CharacterApplyPlan, CostBreakdown, DecisionClient, DecisionOutcome,
     DecisionTelemetry, DocumentKind, DraftScene, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest,
     LlmClient, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
@@ -35,8 +35,9 @@ use breakdown_core::episode::commands::CreateEpisode;
 use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    AI_IMPORT_APPLY_MISSING_EPISODE_GROUP, AI_IMPORT_APPLY_MISSING_MAPPING,
-    AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP, AI_IMPORT_APPLY_UNKNOWN_CONTINUITY_CANDIDATE,
+    AI_IMPORT_APPLY_IN_FLIGHT, AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
+    AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_APPLY_MISSING_SHOOTING_DAY_GROUP,
+    AI_IMPORT_APPLY_UNKNOWN_CONTINUITY_CANDIDATE,
 };
 use breakdown_core::error_registry::{SCENE_CHARACTER_ALREADY_ASSIGNED, SCENE_VALIDATION};
 use breakdown_core::outfit::commands::{AddPieceToOutfit, CreateOutfit, UpdateOutfitNotes};
@@ -2029,28 +2030,60 @@ where
     }
 
     /// Apply one reviewed script preview, publishing the run's progress
-    /// (issue #762).
+    /// (issues #762, #800).
     ///
-    /// The wrapper exists for exactly one reason: the apply stream must learn
-    /// that the run ended on **every** exit path. The run's payload is cleared
-    /// here, after `run_script_apply` returned either way — a failed apply that
-    /// left "applying 12/57" behind would keep the client's stream open until
-    /// the staleness window expired.
+    /// The wrapper owns the run's **lifecycle**, which is why it sits here and
+    /// not in the handler: it claims the single-flight slot, installs the
+    /// run-scoped drop guard, and clears the run's payload on every exit path
+    /// (success, failure, and — via the guard — a dropped future).
+    ///
+    /// The claim is what makes a run unique. Without it two accepted applies of
+    /// one `succeeded` job interleave their counters, and the first to finish
+    /// clears the slot out from under the other one; the loser now answers
+    /// `409 ai-import.apply-in-flight` instead.
     pub async fn apply_script(
         &self,
         request: ApplyScriptRequest<'_>,
     ) -> Result<ScriptApplyResult, DomainError> {
         let preview_id = request.preview_id;
-        let result = self.run_script_apply(request).await;
-        // Advisory: clearing the run progress must never turn a successful
-        // apply into a failure, nor replace the real error on the way out.
-        if let Err(error) = self.queue.mark_apply_progress(preview_id, None).await {
-            tracing::warn!(
-                job_id = %preview_id.as_uuid(),
-                %error,
-                "failed to clear the AI import apply progress; the stream will \
-                 close on its staleness window instead"
-            );
+        let run_id = ApplyRunId::new();
+        if !self.queue.claim_apply_run(preview_id, run_id).await? {
+            return Err(DomainError::Conflict {
+                code: &AI_IMPORT_APPLY_IN_FLIGHT,
+                reason: "another apply run already owns this job's progress slot".to_string(),
+            });
+        }
+        // Armed for exactly as long as this future lives: a client that
+        // disconnects mid-apply drops it, and the guard clears this run's
+        // payload instead of leaving "applying 12/57" behind for the whole
+        // staleness window (issue #800 #4).
+        let mut guard = ApplyRunGuard::new(Arc::clone(&self.queue), preview_id, run_id);
+        let result = self.run_script_apply(request, run_id).await;
+        // The run ended, either way. Advisory: clearing the run progress must
+        // never turn a successful apply into a failure, nor replace the real
+        // error on the way out.
+        match self
+            .queue
+            .mark_apply_progress(preview_id, run_id, None)
+            .await
+        {
+            Ok(()) => guard.disarm(),
+            // A failed clear leaves this run holding the slot, which would
+            // answer `409 ai-import.apply-in-flight` to the next apply until the
+            // staleness window passed (issue #800 review). Keeping the guard
+            // armed is the free retry: `Drop` runs as this function returns and
+            // issues the clear once more. A store that keeps failing falls back
+            // to the stale-claim steal — the documented backstop.
+            Err(error) => {
+                tracing::warn!(
+                    job_id = %preview_id.as_uuid(),
+                    run_id = %run_id.as_uuid(),
+                    %error,
+                    "failed to clear the AI import apply progress; retrying once \
+                     as the run's guard drops, otherwise the stream closes on its \
+                     staleness window"
+                );
+            }
         }
         result
     }
@@ -2060,6 +2093,7 @@ where
     async fn run_script_apply(
         &self,
         request: ApplyScriptRequest<'_>,
+        run_id: ApplyRunId,
     ) -> Result<ScriptApplyResult, DomainError> {
         let ApplyScriptRequest {
             actor,
@@ -2179,12 +2213,22 @@ where
             total: u32::try_from(plan.scenes.len()).unwrap_or(u32::MAX),
             started_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            run_id,
         };
         // At most ~20 frames for the row phase, and always the last row: a
         // 57-row apply is fine per row, a 5000-row one is not.
         let progress_stride = (apply_progress.total / 20).max(1);
-        self.publish_apply_progress(preview_id, &apply_progress)
+        self.publish_apply_progress(preview_id, run_id, &apply_progress)
             .await;
+        // The counters only change at row boundaries, so the heartbeat follows
+        // them through this channel instead of re-reading the row (issue #800
+        // #3): one slow row must not be able to look like a dead process.
+        let (progress_tx, progress_rx) = tokio::sync::watch::channel(apply_progress.clone());
+        // Bound (not `let _ =`, which would drop it immediately): the heartbeat
+        // lives until the end of this function, so it covers the row phase and
+        // the trailing work.
+        let _heartbeat =
+            ApplyRunHeartbeat::spawn(Arc::clone(&self.queue), preview_id, run_id, progress_rx);
 
         for row in &plan.scenes {
             // `(episode, created by THIS apply)` — the flag decides whether the
@@ -2602,17 +2646,24 @@ where
             // write count bounded for a large preview, the last row and the
             // finalizing boundary always write.
             apply_progress.applied = apply_progress.applied.saturating_add(1);
+            // The heartbeat publishes whatever the counters say right now, so it
+            // learns every row boundary (issue #800 #3); `send_replace` has no
+            // receiver-error to swallow — a stopped heartbeat simply does not
+            // read it.
+            progress_tx.send_replace(apply_progress.clone());
             let last_row = apply_progress.applied >= apply_progress.total;
             if last_row || apply_progress.applied.is_multiple_of(progress_stride) {
-                self.publish_apply_progress(preview_id, &apply_progress)
+                self.publish_apply_progress(preview_id, run_id, &apply_progress)
                     .await;
             }
         }
         // Every row is dispatched; the trailing work (episode summary,
-        // telemetry) is still running (issue #762).
+        // telemetry) is still running (issue #762). The heartbeat stays alive
+        // for it — the summary can be slow for a large plan too.
         apply_progress.stage = ApplyStage::Finalizing;
         apply_progress.updated_at = chrono::Utc::now();
-        self.publish_apply_progress(preview_id, &apply_progress)
+        progress_tx.send_replace(apply_progress.clone());
+        self.publish_apply_progress(preview_id, run_id, &apply_progress)
             .await;
         if let Some(telemetry) = telemetry {
             self.queue.record_telemetry(preview_id, telemetry).await?;
@@ -2628,16 +2679,22 @@ where
     /// bar, not a broken import. Every error is therefore logged and swallowed
     /// — the opposite trade-off from the owner-fenced worker writes, where a
     /// lost claim must abort before the next billable call.
-    async fn publish_apply_progress(&self, preview_id: AiImportJobId, progress: &ApplyProgress) {
+    async fn publish_apply_progress(
+        &self,
+        preview_id: AiImportJobId,
+        run_id: ApplyRunId,
+        progress: &ApplyProgress,
+    ) {
         let mut frame = progress.clone();
         frame.updated_at = chrono::Utc::now();
         if let Err(error) = self
             .queue
-            .mark_apply_progress(preview_id, Some(&frame))
+            .mark_apply_progress(preview_id, run_id, Some(&frame))
             .await
         {
             tracing::warn!(
                 job_id = %preview_id.as_uuid(),
+                run_id = %run_id.as_uuid(),
                 %error,
                 "advisory AI import apply progress write failed; continuing the apply"
             );
@@ -3958,5 +4015,159 @@ where
             Ok(domain_error) => Err(domain_error),
             Err(other) => Err(DomainError::validation(other.to_string())),
         },
+    }
+}
+
+/// Heartbeat cadence of one apply run's progress payload (issue #800 #3).
+///
+/// A quarter of the stream's staleness window: four consecutive missed
+/// heartbeats still leave the run looking live, while a payload that stops
+/// moving really does mean the process is gone. Derived from
+/// [`ApplyProgress::STALE_AFTER`] rather than a second literal, so retuning the
+/// window retunes the cadence with it.
+pub(super) fn apply_heartbeat_interval() -> std::time::Duration {
+    // `STALE_AFTER` is a fixed positive constant, so the conversion cannot
+    // fail; the fallback keeps the function panic-free regardless.
+    ApplyProgress::STALE_AFTER
+        .to_std()
+        .unwrap_or(std::time::Duration::from_secs(600))
+        / 4
+}
+
+/// Refresh an apply run's payload while the row phase is in flight (issue #800
+/// #3).
+///
+/// Why it exists: `ApplyProgress::is_stale_at` judges a run by the payload's
+/// `updated_at`, which the worker only writes per **completed** row. A single
+/// row that legitimately takes longer than the staleness window (a scene with
+/// several character/outfit creates) therefore made the apply stream classify a
+/// live run as finished, emit its final `null` frame and close while the `POST`
+/// was still running.
+///
+/// The heartbeat keeps writing the counters the row loop publishes (through a
+/// `watch` channel, so the task never re-reads the database and never sees a
+/// half-updated counter) with a fresh `updated_at`. Staleness means "the process
+/// is gone" again. Every write is run-scoped, so a superseded run's heartbeat
+/// cannot touch the current run's payload.
+pub(super) struct ApplyRunHeartbeat {
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl ApplyRunHeartbeat {
+    pub(super) fn spawn<Q>(
+        queue: Arc<Q>,
+        id: AiImportJobId,
+        run_id: ApplyRunId,
+        mut progress: tokio::sync::watch::Receiver<ApplyProgress>,
+    ) -> Self
+    where
+        Q: AiImportQueue + 'static,
+    {
+        let handle = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(apply_heartbeat_interval());
+            // A missed tick must not produce a burst of catch-up writes.
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // The first tick is immediate; the caller just published, so skip it.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                // Cloned out of the channel before the await: the guard must not
+                // be held across it.
+                let mut frame = progress.borrow_and_update().clone();
+                frame.updated_at = chrono::Utc::now();
+                if let Err(error) = queue.mark_apply_progress(id, run_id, Some(&frame)).await {
+                    // Advisory, exactly like every other progress write: a lost
+                    // heartbeat costs a stale bar, never a broken apply.
+                    tracing::warn!(
+                        job_id = %id.as_uuid(),
+                        run_id = %run_id.as_uuid(),
+                        %error,
+                        "AI import apply heartbeat write failed; continuing the apply"
+                    );
+                }
+            }
+        });
+        Self { handle }
+    }
+}
+
+impl Drop for ApplyRunHeartbeat {
+    fn drop(&mut self) {
+        // Aborting (rather than signalling) is enough: the task's only job is a
+        // write the run-scoped guard repeats if needed, and `Drop` cannot await.
+        self.handle.abort();
+    }
+}
+
+/// Clear an apply run's progress if the run is dropped mid-flight (issue #800
+/// #4).
+///
+/// When a client disconnects, hyper drops the handler future and the apply stops
+/// where it is — but the last `Applying` payload would stay on the job and read
+/// as `Running` until the staleness window expired. This guard closes that
+/// window: it clears the run's own payload when it is dropped without being
+/// disarmed.
+///
+/// The clear is conditional on the run identity, which is exactly why it can be
+/// written at all: a superseded run's deferred clear is a no-op, so it can never
+/// remove a newer run's progress. `Drop` cannot await, so the write is handed to
+/// the runtime; the apply itself is never detached — only this one clear is.
+pub(super) struct ApplyRunGuard<Q: AiImportQueue + 'static> {
+    queue: Arc<Q>,
+    id: AiImportJobId,
+    run_id: ApplyRunId,
+    armed: bool,
+}
+
+impl<Q: AiImportQueue + 'static> ApplyRunGuard<Q> {
+    pub(super) fn new(queue: Arc<Q>, id: AiImportJobId, run_id: ApplyRunId) -> Self {
+        Self {
+            queue,
+            id,
+            run_id,
+            armed: true,
+        }
+    }
+
+    /// The run ended on its normal path and has already cleared its own
+    /// progress: nothing left to do if the future is dropped afterwards.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl<Q: AiImportQueue + 'static> Drop for ApplyRunGuard<Q> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let queue = Arc::clone(&self.queue);
+        let id = self.id;
+        let run_id = self.run_id;
+        // `Drop` cannot await: hand the one clear to the runtime. Outside a
+        // runtime there is nothing to hand it to, and the payload simply falls
+        // back to the staleness window (the pre-#800 behaviour).
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(async move {
+                    if let Err(error) = queue.mark_apply_progress(id, run_id, None).await {
+                        tracing::warn!(
+                            job_id = %id.as_uuid(),
+                            run_id = %run_id.as_uuid(),
+                            %error,
+                            "failed to clear the AI import apply progress of a dropped run"
+                        );
+                    }
+                });
+            }
+            Err(_) => {
+                tracing::warn!(
+                    job_id = %id.as_uuid(),
+                    run_id = %run_id.as_uuid(),
+                    "AI import apply run dropped outside a runtime; \
+                     its progress will expire with the staleness window"
+                );
+            }
+        }
     }
 }

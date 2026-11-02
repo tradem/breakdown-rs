@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, CostBreakdown,
-    DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary, LlmProvider, SourceFormat,
-    Telemetry,
+    AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
+    ApplyRunState, CostBreakdown, DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary,
+    LlmProvider, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -823,21 +823,127 @@ impl AiImportQueue for PgAiImportQueue {
     /// lapsed gets `Conflict` here instead of overwriting the new owner's
     /// progress — and aborts before its next billable LLM call. Called only
     /// at stage boundaries and completed chunks, never per LLM token.
-    /// Publish (or clear, with `None`) the progress of an **apply run**
-    /// (issue #762).
+    /// Claim (or steal) the apply-run slot of one job (issue #800).
     ///
-    /// Deliberately NOT owner-fenced: the job is already terminal
-    /// (`succeeded`) while its apply runs, so there is no claim to fence on —
-    /// the same shape as [`AiImportQueue::record_telemetry`], the other write
-    /// the API edge performs. The status predicate is the guard instead: an
-    /// apply can only ever run against a `succeeded` job, so a row that left
-    /// that state (deleted, or moved on) never gets an apply's progress.
+    /// Single-flight, one statement: the claim wins when the slot is free
+    /// (`apply_run_id IS NULL`) **or** when the current owner is demonstrably
+    /// dead — its payload has not been written for longer than
+    /// [`ApplyProgress::STALE_AFTER`]. The cutoff is computed in Rust from that
+    /// constant (never a second interval literal in SQL), so the window has
+    /// exactly one definition.
     ///
-    /// Every write bumps `updated_at` and notifies the wake-up hub, so the
-    /// dedicated apply stream pushes a frame per write without polling.
+    /// The steal is what makes the crash/release path need no separate reaper: a
+    /// run whose process died blocks later applies for at most one staleness
+    /// window, and the next apply takes the slot over in the same statement.
+    ///
+    /// Two details keep that honest (issue #800 review):
+    ///
+    /// * a claim **clears** `apply_progress`: a stolen slot must not leave the
+    ///   previous run's payload behind, or the stream would read the new owner
+    ///   with a stale (or already full) payload and close on the first frame
+    ///   instead of waiting for the new run's;
+    /// * an owner that has **not published yet** (`apply_progress IS NULL`) is
+    ///   judged by the row's own `updated_at` — the claim stamps it — never by
+    ///   "no payload means free". Otherwise a second apply could take the slot
+    ///   from a run that simply had not written its first frame.
+    ///
+    /// `false` means a live run owns the slot — the request answers
+    /// `409 ai-import.apply-in-flight` instead of interleaving two runs.
+    async fn claim_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: ApplyRunId,
+    ) -> Result<bool, DomainError> {
+        // A payload older than this belongs to a run whose process is gone.
+        // Bound as a timestamptz, compared against the payload's own
+        // `updated_at` — the same field the stream classifies staleness by.
+        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET apply_run_id = $2,
+                -- The slot starts empty for the new owner: a stolen payload
+                -- describes a run that is over (issue #800 review).
+                apply_progress = NULL,
+                apply_run_seq = apply_run_seq + 1,
+                updated_at = now()
+            WHERE id = $1
+              AND status = 'succeeded'
+              AND (
+                  apply_run_id IS NULL
+                  -- Claimed but nothing published yet: the claim's own row
+                  -- stamp decides whether that owner is still alive.
+                  OR (apply_progress IS NULL AND updated_at < $3)
+                  OR (apply_progress->>'updated_at')::timestamptz < $3
+              )
+            RETURNING pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(run_id.as_uuid())
+        .bind(stale_before)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        if result.is_some() {
+            self.hub.notify(id);
+        }
+        Ok(result.is_some())
+    }
+
+    /// Read the apply-run slot: owner, run counter, published payload (issue
+    /// #800).
+    ///
+    /// `Ok(None)` when the job does not exist (the stream closes). A row that
+    /// predates the migration decodes as an empty slot (`owner: None`, `seq: 0`),
+    /// which the stream reads exactly like a job no apply ran for.
+    async fn apply_run_state(
+        &self,
+        id: AiImportJobId,
+    ) -> Result<Option<ApplyRunState>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT apply_progress, apply_run_id, apply_run_seq
+            FROM ai_import.ai_import_job
+            WHERE id = $1
+            "#,
+        )
+        .bind(id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let owner: Option<Uuid> = row.try_get("apply_run_id").map_err(map_sqlx_error)?;
+        let seq: i64 = row.try_get("apply_run_seq").map_err(map_sqlx_error)?;
+        Ok(Some(ApplyRunState {
+            owner: owner.map(ApplyRunId::from_uuid),
+            seq,
+            progress: decode_apply_progress(&row),
+        }))
+    }
+
+    /// Run-scoped (not job-scoped) apply-progress write (issues #762, #800).
+    ///
+    /// Fenced by the run identity instead of a worker lease: the job is already
+    /// terminal (`succeeded`) while its apply runs, so there is no claim to
+    /// fence on — the same shape as [`AiImportQueue::record_telemetry`], the
+    /// other write the API edge performs. The status predicate stays as the
+    /// outer guard: an apply can only ever run against a `succeeded` job.
+    ///
+    /// A write from a run that no longer owns the slot affects 0 rows and is a
+    /// no-op — that is what keeps a superseded run (its claim went stale and was
+    /// stolen) from overwriting or clearing the current run's progress.
+    ///
+    /// `None` clears the payload **and** releases the claim (`apply_run_id`),
+    /// leaving `apply_run_seq` untouched so the ended run stays provable. Every
+    /// write bumps `updated_at` and notifies the wake-up hub, so the dedicated
+    /// apply stream pushes a frame per write without polling.
     async fn mark_apply_progress(
         &self,
         id: AiImportJobId,
+        run_id: ApplyRunId,
         progress: Option<&ApplyProgress>,
     ) -> Result<(), DomainError> {
         let payload = match progress {
@@ -851,12 +957,15 @@ impl AiImportQueue for PgAiImportQueue {
         sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
-            SET apply_progress = $2, updated_at = now()
-            WHERE id = $1 AND status = 'succeeded'
+            SET apply_progress = $3,
+                apply_run_id = CASE WHEN $3::jsonb IS NULL THEN NULL ELSE apply_run_id END,
+                updated_at = now()
+            WHERE id = $1 AND status = 'succeeded' AND apply_run_id = $2
             RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
         )
         .bind(id.as_uuid())
+        .bind(run_id.as_uuid())
         .bind(payload)
         .execute(&self.pool)
         .await
@@ -1421,6 +1530,15 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         // column (no apply in flight) or an undecodable payload degrades to
         // `None`, which the stream reads as "run finished".
         apply_progress: decode_apply_progress(&row),
+        // Whether an apply ever landed for this preview (issue #800). The
+        // telemetry write records `Applied` (`accept_as_is` set) on the first
+        // successful apply and never resets it, so this is the persisted
+        // "already imported" fact — independent of `applied_episodes`, which is
+        // empty for a schedule apply by design.
+        applied: row
+            .try_get::<Option<bool>, _>("accept_as_is")
+            .map_err(map_sqlx_error)?
+            .is_some(),
     })
 }
 

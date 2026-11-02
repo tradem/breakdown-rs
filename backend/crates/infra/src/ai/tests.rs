@@ -160,6 +160,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
                 apply_progress: None,
+                applied: false,
             };
             Ok(Some(job))
         }
@@ -442,6 +443,7 @@ async fn merge_worker_success_records_telemetry() {
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
         apply_progress: None,
+        applied: false,
     };
     let queue = Arc::new(MergeCaptureQueue {
         job: job.clone(),
@@ -520,6 +522,42 @@ fn feature_flag_parser_is_off_for_unrecognised_values() {
 #[derive(Clone, Default)]
 struct FakeQueue {
     state: Arc<Mutex<FakeQueueState>>,
+    /// Test-only gate that parks the apply that WINS the slot (issue #800
+    /// review): without it a concurrent-apply test depends on the loser
+    /// reaching the claim before the winner finishes, which is a scheduling
+    /// coin flip.
+    claim_gate: Option<Arc<ClaimGate>>,
+    /// How many apply-progress **clears** still have to fail (issue #800
+    /// review): proves the run-scoped guard retries a failed clear instead of
+    /// leaving the slot claimed for a whole staleness window.
+    fail_clear_count: Arc<Mutex<usize>>,
+}
+
+/// Parks the apply that won the single-flight claim until the test releases it.
+struct ClaimGate {
+    /// Signalled once the claim is held (the winner is parked right after it).
+    won: tokio::sync::Notify,
+    /// The test adds permits to let the parked winner continue.
+    release: tokio::sync::Semaphore,
+}
+
+impl Default for ClaimGate {
+    fn default() -> Self {
+        // Zero permits: a winner parks until the test releases it.
+        Self {
+            won: tokio::sync::Notify::new(),
+            release: tokio::sync::Semaphore::new(0),
+        }
+    }
+}
+
+impl FakeQueue {
+    fn with_claim_gate(gate: Arc<ClaimGate>) -> Self {
+        Self {
+            claim_gate: Some(gate),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -530,6 +568,10 @@ struct FakeQueueState {
     /// Every apply-progress write the worker published, in order (issue #762).
     /// `None` is the run's end signal.
     apply_progress: Vec<Option<breakdown_core::ai::ApplyProgress>>,
+    /// The run that currently owns the apply slot (issue #800).
+    apply_run: Option<breakdown_core::ai::ApplyRunId>,
+    /// Monotonic run counter, bumped on every claim and never cleared.
+    apply_run_seq: i64,
 }
 
 #[async_trait]
@@ -583,16 +625,69 @@ impl AiImportQueue for FakeQueue {
         Ok(())
     }
 
+    async fn claim_apply_run(
+        &self,
+        _id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+    ) -> Result<bool, DomainError> {
+        {
+            let mut state = self.state.lock().unwrap();
+            if state.apply_run.is_some() {
+                // A live run owns the slot: a second apply is refused (issue #800).
+                return Ok(false);
+            }
+            state.apply_run = Some(run_id);
+            state.apply_run_seq += 1;
+        }
+        // Park the winner so a concurrent apply is guaranteed to meet a live
+        // claim (the mutex is released above: the gate must not hold it).
+        if let Some(gate) = &self.claim_gate {
+            gate.won.notify_one();
+            let _permit = gate.release.acquire().await;
+        }
+        Ok(true)
+    }
+
+    async fn apply_run_state(
+        &self,
+        _id: AiImportJobId,
+    ) -> Result<Option<breakdown_core::ai::ApplyRunState>, DomainError> {
+        let state = self.state.lock().unwrap();
+        Ok(Some(breakdown_core::ai::ApplyRunState {
+            owner: state.apply_run,
+            seq: state.apply_run_seq,
+            progress: state.apply_progress.last().cloned().flatten(),
+        }))
+    }
+
     async fn mark_apply_progress(
         &self,
         _id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
         progress: Option<&breakdown_core::ai::ApplyProgress>,
     ) -> Result<(), DomainError> {
-        self.state
-            .lock()
-            .unwrap()
-            .apply_progress
-            .push(progress.cloned());
+        let mut state = self.state.lock().unwrap();
+        // Run-scoped, exactly like the Postgres adapter: a run that does not own
+        // the slot cannot publish or clear (issue #800).
+        if state.apply_run != Some(run_id) {
+            return Ok(());
+        }
+        if progress.is_none() {
+            // Scripted store failure (issue #800 review): the worker must keep
+            // the guard armed so the clear is retried, not leave the slot
+            // claimed.
+            let mut remaining = self.fail_clear_count.lock().unwrap();
+            if *remaining > 0 {
+                *remaining -= 1;
+                return Err(DomainError::Internal {
+                    reason: "scripted apply-progress clear failure".to_owned(),
+                });
+            }
+        }
+        state.apply_progress.push(progress.cloned());
+        if progress.is_none() {
+            state.apply_run = None;
+        }
         Ok(())
     }
 
@@ -747,6 +842,7 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
         apply_progress: None,
+        applied: false,
     }
 }
 
@@ -846,6 +942,7 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
         apply_progress: None,
+        applied: false,
     }
 }
 
@@ -2455,16 +2552,23 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
         }));
 }
 
-/// Issue #338 AC #3: two applies in flight for the same job yield one scene
-/// per draft and a stable `applied_count`. Both callers reserve-then-create
-/// the same deterministic id; the `ExpectedVersion::Empty` guard rejects the
-/// duplicate append and `recover_version` turns it into the same version, so
-/// both callers observe identical results.
+/// Issues #338 + #800: the apply is **single-flight**. Two concurrent applies
+/// of one job no longer both run — exactly one claims the progress slot and the
+/// other is refused with `409 ai-import.apply-in-flight` (issue #800 #1: without
+/// that gate the two runs interleaved their counters and the first to finish
+/// closed the other's stream).
+///
+/// The winner is PARKED inside its claim (the `ClaimGate`), so the loser is
+/// guaranteed to meet a live claim instead of racing it to completion — the
+/// outcome does not depend on scheduling. The #338 idempotency still holds where
+/// it matters: a retry AFTER the winner ended converges on the same rows instead
+/// of creating a second scene per draft.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
+async fn apply_script_is_single_flight_and_a_later_retry_converges() {
     use tokio::sync::Barrier;
 
-    let queue = Arc::new(FakeQueue::default());
+    let gate = Arc::new(ClaimGate::default());
+    let queue = Arc::new(FakeQueue::with_claim_gate(Arc::clone(&gate)));
     let mappings = Arc::new(FakeMappings::default());
     let commands = Arc::new(FakeSceneCommands::default());
     let preview = ScriptContext {
@@ -2493,7 +2597,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
     ];
     let episode_id = breakdown_core::shared::EpisodeId::new();
     let barrier = Arc::new(Barrier::new(2));
-    let mut handles = Vec::new();
+    let mut tasks = tokio::task::JoinSet::new();
     for _ in 0..2 {
         let worker = script_apply_worker(
             Arc::clone(&commands),
@@ -2503,7 +2607,7 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
         let barrier = Arc::clone(&barrier);
         let preview = preview.clone();
         let decisions = decisions.clone();
-        handles.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             barrier.wait().await;
             worker
                 .apply_script(ApplyScriptRequest {
@@ -2525,52 +2629,47 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
                     known_episodes: Vec::new(),
                 })
                 .await
-        }));
+        });
     }
-    let mut results = Vec::new();
-    for handle in handles {
-        results.push(
-            handle
-                .await
-                .expect("apply task panicked")
-                .expect("apply failed"),
-        );
+
+    // Exactly one apply owns the slot, and it is parked inside the claim, so the
+    // OTHER one is the task that completes first — with the in-flight refusal.
+    gate.won.notified().await;
+    let loser = tasks
+        .join_next()
+        .await
+        .expect("the refused apply completes while the winner is parked")
+        .expect("apply task panicked");
+    match loser {
+        Err(DomainError::Conflict { code, .. }) => assert_eq!(
+            code.code, "ai-import.apply-in-flight",
+            "the loser is told a run is live, not given a generic conflict"
+        ),
+        Ok(_) => panic!("both applies won the single-flight slot"),
+        Err(other) => panic!("expected the in-flight conflict, got {other:?}"),
     }
-    // The idempotent outcome converges — the summary is the one field that
-    // legitimately differs: only the apply that actually dispatched a row may
-    // attribute it (issue #763 review), so the loser reports no entries.
-    let mut left = results[0].clone();
-    let mut right = results[1].clone();
-    left.applied_episodes.clear();
-    right.applied_episodes.clear();
+
+    // Let the winner finish, then read its result.
+    gate.release.add_permits(8);
+    let winner = tasks
+        .join_next()
+        .await
+        .expect("the winner completes once released")
+        .expect("apply task panicked")
+        .expect("the winner apply succeeds");
     assert_eq!(
-        left, right,
-        "both applies must converge on everything they dispatched"
-    );
-    // Which apply wins which row is a race, so the per-result split is not
-    // asserted — the invariant is: every row is dispatched exactly once across
-    // the two applies, so every recorded count is attributed to the request's
-    // episode and sums to the row total.
-    let mut recorded: HashMap<Uuid, u32> = HashMap::new();
-    for result in &results {
-        for entry in &result.applied_episodes {
-            assert_eq!(
-                entry.id, episode_id.0,
-                "only the request's episode may be recorded: {results:?}"
-            );
-            *recorded.entry(entry.id).or_default() += entry.applied_count;
-        }
-    }
-    assert_eq!(
-        recorded.get(&episode_id.0).copied().unwrap_or_default(),
+        winner.applied.len(),
         2,
-        "both rows must be recorded exactly once across the two applies: {results:?}"
+        "the winner dispatched every draft row"
     );
-    assert_eq!(
-        results[0].applied.len(),
-        2,
-        "stable applied_count per draft"
-    );
+    // The slot is free again once the winner ended.
+    let slot = queue
+        .apply_run_state(preview_id)
+        .await
+        .unwrap()
+        .expect("the fake tracks the slot");
+    assert_eq!(slot.owner, None, "the winner released the slot");
+
     let created = commands.created.lock().unwrap().clone();
     let mut unique: Vec<Uuid> = created.clone();
     unique.sort();
@@ -2580,6 +2679,50 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
         unique.len(),
         created.len(),
         "no duplicate scene streams were appended"
+    );
+
+    // #338: a retry after the winner ended converges on the stored rows instead
+    // of appending a second scene.
+    let retry = script_apply_worker(
+        Arc::clone(&commands),
+        Arc::clone(&mappings),
+        Arc::clone(&queue),
+    )
+    .apply_script(ApplyScriptRequest {
+        continuity_selections: Vec::new(),
+        acknowledged_uncertainties: Vec::new(),
+        categories: Vec::new(),
+        actor: UserId::from_sub("ai-test-user"),
+        preview_id,
+        preview: &preview,
+        decisions: &decisions,
+        episode_id,
+        season_id: breakdown_core::shared::SeasonId::new(),
+        project_id: None,
+        block_id: breakdown_core::shared::BlockId::new(),
+        episode_groups: Vec::new(),
+        shooting_days: Vec::new(),
+        telemetry: None,
+        known_episodes: Vec::new(),
+    })
+    .await
+    .expect("the retry runs once the winner released the slot");
+    assert_eq!(
+        retry.applied, winner.applied,
+        "the retry returns the stored id/version"
+    );
+    assert_eq!(
+        retry.created_characters, 0,
+        "a retry must not report a second figure creation"
+    );
+    assert_eq!(
+        commands.created.lock().unwrap().len(),
+        2,
+        "and it must not append a second scene per draft"
+    );
+    assert!(
+        commands.updated.lock().unwrap().is_empty(),
+        "the retry must not re-dispatch the confirmed rows"
     );
     for draft_ref in ["concurrent-a", "concurrent-b"] {
         let mapping = mappings
@@ -2592,6 +2735,42 @@ async fn apply_script_concurrent_applies_create_one_scene_per_draft() {
             "every row must confirm, got {mapping:?}"
         );
     }
+}
+
+/// Issue #800 review: a FAILED clear must not leave the run holding the slot.
+/// The worker keeps the guard armed, so `Drop` retries the clear as the apply
+/// returns — the next apply is not locked out for a whole staleness window.
+#[tokio::test]
+async fn a_failed_clear_is_retried_by_the_guard_so_the_slot_frees() {
+    let fixture = ScriptApplyFixture::new();
+    *fixture.queue.fail_clear_count.lock().unwrap() = 1;
+    let preview = ScriptContext {
+        scenes: vec![row_with_outfit("1. INT. OP", &["BEN"], &[])],
+        ..Default::default()
+    };
+    let decisions = vec![create_decision(&preview.scenes[0].draft_ref)];
+    let result = fixture.apply(&preview, &decisions).await;
+
+    assert!(
+        result.is_ok(),
+        "an advisory clear failure must never fail the apply, got {result:?}"
+    );
+    // `Drop` hands the retry to the runtime; let it run.
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    let slot = fixture
+        .queue
+        .apply_run_state(fixture.preview_id)
+        .await
+        .unwrap()
+        .expect("the fake tracks the slot");
+    assert_eq!(
+        slot.owner, None,
+        "the guard's retry released the slot instead of locking the next \
+         apply out for a staleness window"
+    );
+    assert_eq!(slot.progress, None, "and cleared the payload");
 }
 
 fn tiny_script_pdf() -> Vec<u8> {
@@ -3665,11 +3844,231 @@ async fn script_apply_publishes_apply_progress_and_clears_it_at_the_end() {
         "the run reports its finalizing stage"
     );
 
+    // Issue #800: every frame of one apply names the SAME run, and never the
+    // nil id a pre-#800 payload decodes to — that is what makes the counters a
+    // run's own numbers instead of a job-wide blur.
+    let run_ids: Vec<breakdown_core::ai::ApplyRunId> =
+        log.iter().flatten().map(|frame| frame.run_id).collect();
+    assert!(
+        run_ids.windows(2).all(|pair| pair[0] == pair[1]),
+        "one apply publishes one run identity, got {run_ids:?}"
+    );
+    assert_ne!(
+        run_ids.first().copied(),
+        Some(breakdown_core::ai::ApplyRunId::default()),
+        "a live run never reports the nil run id"
+    );
+
     // And the run ends with an explicit clear — the stream's close signal.
     assert_eq!(
         log.last(),
         Some(&None),
         "the run must be cleared on the way out, got {log:?}"
+    );
+}
+
+/// The payload builder shared by the #800 tests below.
+fn apply_progress_frame(
+    run_id: breakdown_core::ai::ApplyRunId,
+    applied: u32,
+    total: u32,
+) -> breakdown_core::ai::ApplyProgress {
+    let now = chrono::Utc::now();
+    breakdown_core::ai::ApplyProgress {
+        stage: breakdown_core::ai::ApplyStage::Applying,
+        applied,
+        total,
+        started_at: now,
+        updated_at: now,
+        run_id,
+    }
+}
+
+/// Issue #800 #1: a second apply of the same `succeeded` job is refused while a
+/// live run owns the slot — the single-flight gate the counters needed.
+#[tokio::test]
+async fn a_second_apply_claim_is_refused_while_a_run_is_live() {
+    let queue = FakeQueue::default();
+    let job = AiImportJobId::new();
+    let first = breakdown_core::ai::ApplyRunId::new();
+    assert!(
+        queue.claim_apply_run(job, first).await.unwrap(),
+        "the first claim wins a free slot"
+    );
+    let second = breakdown_core::ai::ApplyRunId::new();
+    assert!(
+        !queue.claim_apply_run(job, second).await.unwrap(),
+        "a live run keeps the slot"
+    );
+    // Releasing it (the run ended) makes the slot claimable again.
+    queue.mark_apply_progress(job, first, None).await.unwrap();
+    assert!(
+        queue.claim_apply_run(job, second).await.unwrap(),
+        "a released slot is claimable by the next apply"
+    );
+}
+
+/// Issue #800 #1: a run that no longer owns the slot can neither publish nor
+/// clear — a superseded run cannot end the current run's stream.
+#[tokio::test]
+async fn a_superseded_run_cannot_touch_the_current_runs_progress() {
+    let queue = FakeQueue::default();
+    let job = AiImportJobId::new();
+    let current = breakdown_core::ai::ApplyRunId::new();
+    assert!(queue.claim_apply_run(job, current).await.unwrap());
+    queue
+        .mark_apply_progress(job, current, Some(&apply_progress_frame(current, 3, 9)))
+        .await
+        .unwrap();
+
+    let superseded = breakdown_core::ai::ApplyRunId::new();
+    // A deferred clear from a run that lost the slot (its claim went stale and
+    // was stolen) …
+    queue
+        .mark_apply_progress(job, superseded, None)
+        .await
+        .unwrap();
+    // … and a counter write from it.
+    queue
+        .mark_apply_progress(
+            job,
+            superseded,
+            Some(&apply_progress_frame(superseded, 8, 9)),
+        )
+        .await
+        .unwrap();
+
+    let state = queue
+        .apply_run_state(job)
+        .await
+        .unwrap()
+        .expect("the fake tracks the slot");
+    assert_eq!(
+        state.progress.as_ref().map(|frame| frame.applied),
+        Some(3),
+        "the current run's counters survive a superseded run's writes"
+    );
+    assert_eq!(state.owner, Some(current), "ownership is untouched");
+}
+
+/// Issue #800 #3: the heartbeat cadence must stay well inside the staleness
+/// window, or a live run could still be classified as finished.
+#[test]
+fn apply_heartbeat_fits_inside_the_staleness_window() {
+    let window = breakdown_core::ai::ApplyProgress::STALE_AFTER
+        .to_std()
+        .expect("the staleness window is a positive duration");
+    let cadence = super::workers::apply_heartbeat_interval();
+    assert!(cadence > std::time::Duration::ZERO, "a heartbeat must tick");
+    assert!(
+        cadence * 4 <= window,
+        "four consecutive missed heartbeats must still fit inside the window \
+         (cadence {cadence:?}, window {window:?})"
+    );
+}
+
+/// Issue #800 #3: a row that takes longer than the staleness window must not
+/// make a live run look dead — the heartbeat refreshes the payload's
+/// `updated_at` while the row is in flight.
+///
+/// The clock is PAUSED and advanced by exactly one cadence: the assertion is a
+/// bound on the heartbeat, never a wall-clock gate (AGENTS.md §4).
+#[tokio::test(start_paused = true)]
+async fn the_heartbeat_refreshes_a_live_runs_payload() {
+    let queue = FakeQueue::default();
+    let job = AiImportJobId::new();
+    let run_id = breakdown_core::ai::ApplyRunId::new();
+    assert!(queue.claim_apply_run(job, run_id).await.unwrap());
+
+    // A payload from an hour ago: without a heartbeat the stream would already
+    // treat this run as finished.
+    let mut payload = apply_progress_frame(run_id, 3, 9);
+    payload.updated_at = chrono::Utc::now() - chrono::Duration::hours(1);
+    queue
+        .mark_apply_progress(job, run_id, Some(&payload))
+        .await
+        .unwrap();
+
+    let (progress_tx, progress_rx) = tokio::sync::watch::channel(payload.clone());
+    let heartbeat = super::workers::ApplyRunHeartbeat::spawn(
+        std::sync::Arc::new(queue.clone()),
+        job,
+        run_id,
+        progress_rx,
+    );
+    // Let the task run once so its interval is registered BEFORE virtual time
+    // moves (the paused clock only fires timers that exist).
+    tokio::task::yield_now().await;
+
+    tokio::time::advance(super::workers::apply_heartbeat_interval()).await;
+    tokio::task::yield_now().await;
+
+    let log = queue.apply_progress_log();
+    assert!(
+        log.len() > 1,
+        "the heartbeat wrote after the initial frame, got {} frame(s)",
+        log.len()
+    );
+    let refreshed = log
+        .last()
+        .cloned()
+        .flatten()
+        .expect("the heartbeat publishes the run's payload");
+    assert!(
+        refreshed.updated_at > payload.updated_at,
+        "the heartbeat must refresh `updated_at`"
+    );
+    assert_eq!(
+        refreshed.applied, 3,
+        "the heartbeat repeats the counters the row loop published"
+    );
+    assert_eq!(refreshed.run_id, run_id, "the write stays run-scoped");
+
+    // The counters the row loop publishes reach the heartbeat through the
+    // channel, so a later row's numbers are what it writes.
+    progress_tx.send_replace(apply_progress_frame(run_id, 5, 9));
+    tokio::time::advance(super::workers::apply_heartbeat_interval()).await;
+    tokio::task::yield_now().await;
+    let log = queue.apply_progress_log();
+    assert_eq!(
+        log.last().cloned().flatten().map(|frame| frame.applied),
+        Some(5),
+        "the heartbeat follows the row loop's counters"
+    );
+    drop(heartbeat);
+}
+
+/// Issue #800 #4: a run whose future is dropped (client disconnect) clears its
+/// own payload instead of leaving `applying 3/9` behind for the staleness
+/// window.
+#[tokio::test]
+async fn a_dropped_run_clears_its_own_progress() {
+    let queue = FakeQueue::default();
+    let job = AiImportJobId::new();
+    let run_id = breakdown_core::ai::ApplyRunId::new();
+    assert!(queue.claim_apply_run(job, run_id).await.unwrap());
+    queue
+        .mark_apply_progress(job, run_id, Some(&apply_progress_frame(run_id, 3, 9)))
+        .await
+        .unwrap();
+
+    {
+        let _guard =
+            super::workers::ApplyRunGuard::new(std::sync::Arc::new(queue.clone()), job, run_id);
+        // Dropped at the end of this block, like a handler future that hyper
+        // drops on a disconnect.
+    }
+    // The clear is handed to the runtime; let it run.
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+
+    let state = queue.apply_run_state(job).await.unwrap().expect("slot");
+    assert_eq!(state.progress, None, "the dropped run's payload is cleared");
+    assert_eq!(state.owner, None, "and the slot is released");
+    assert_eq!(
+        state.seq, 1,
+        "the run counter keeps proving the run happened"
     );
 }
 

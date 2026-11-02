@@ -57,8 +57,10 @@ ApplyProgress _run({
   int total = 10,
   ApplyStage stage = ApplyStage.applying,
   DateTime? updatedAt,
+  String? runId = _runOne,
 }) => ApplyProgress(
   (b) => b
+    ..runId = runId
     ..stage = stage
     ..applied = applied
     ..total = total
@@ -72,6 +74,7 @@ AiApplyRunRunning _running({
   int total = 10,
   ApplyStage stage = ApplyStage.applying,
   DateTime? updatedAt,
+  String? runId = _runOne,
 }) => AiApplyRunRunning(
   _run(
     startedAt: startedAt,
@@ -79,8 +82,14 @@ AiApplyRunRunning _running({
     total: total,
     stage: stage,
     updatedAt: updatedAt,
+    runId: runId,
   ),
 );
+
+/// The two run identities the boundary test distinguishes (issue #800: the run
+/// NAMES itself, so two frames of one job are attributable to one run).
+const String _runOne = '00000000-0000-0000-0000-000000000001';
+const String _runTwo = '00000000-0000-0000-0000-000000000002';
 
 void main() {
   test(
@@ -281,12 +290,14 @@ void main() {
 
     // A second apply of the same preview starts fresh: 5 of 10 rows in 10 s is
     // a completely different cadence, and smoothing it against run 1 would keep
-    // showing minutes.
+    // showing minutes. Issue #800: the new run announces itself with its own
+    // `run_id` — that identity, not a `startedAt` comparison, is the boundary.
     states.add(
       _running(
         startedAt: now.subtract(const Duration(seconds: 10)),
         applied: 5,
         updatedAt: now,
+        runId: _runTwo,
       ),
     );
     await tester.pump();
@@ -294,6 +305,76 @@ void main() {
       tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
       'Almost done …',
       reason: 'a new run must not inherit the previous run\'s rate',
+    );
+  });
+
+  testWidgets('a pre-#800 server (no run_id) still resets on a new anchor '
+      '(issue #800 review)', (tester) async {
+    await pump(tester);
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(minutes: 4)),
+        updatedAt: now,
+        runId: null,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'About 6 min left',
+    );
+
+    // No `run_id` on the wire, so the frame's own anchor is the only boundary
+    // there is: a different `startedAt` must reset the smoothing, or the second
+    // run would inherit the first one's rate.
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(seconds: 10)),
+        applied: 5,
+        updatedAt: now,
+        runId: null,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'Almost done …',
+      reason: 'the stale cadence must not survive a new anchor',
+    );
+  });
+
+  testWidgets('two frames of ONE run keep smoothing (the run id, not the '
+      'anchor, is the boundary — issue #800)', (tester) async {
+    await pump(tester);
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(minutes: 4)),
+        updatedAt: now,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'About 6 min left',
+    );
+
+    // Same run, next frame: the counter moved. The smoothing state must
+    // survive — resetting on every frame would make the ETA jump around.
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(minutes: 4)),
+        applied: 5,
+        updatedAt: now,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'About 5 min left',
+      reason:
+          'the run keeps ONE cadence across its own frames: the smoothed '
+          'rate is 1 min/row then 0.8 min/row, so 5 rows left is ~5 min. A '
+          'reset would recompute from `startedAt` alone and print 4 min.',
     );
   });
 

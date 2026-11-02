@@ -136,6 +136,7 @@ fn foreign_pending_job() -> AiImportJob {
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
         apply_progress: None,
+        applied: false,
     }
 }
 

@@ -789,6 +789,17 @@ class AiImportRepository extends BaseRepository {
       final response = res.getRight().toNullable();
       if (response != null) return ApplySucceeded(response);
       final error = res.getLeft().toNullable()!;
+      if (isApplyInFlight(error)) {
+        // Issue #800: another run of this job owns the progress slot, so the
+        // server refused this dispatch with `409 ai-import.apply-in-flight`.
+        // That is not a failure — it is this client's own earlier POST still
+        // running (the ambiguous-timeout retry legitimately lands here) or a
+        // second device. Keep consuming the bounded budget instead of surfacing
+        // the blocking apply-error card; the live run's stream carries the
+        // progress, and once it ends the next attempt goes through.
+        lastError = error;
+        continue;
+      }
       if (!isAmbiguousTimeout(error)) {
         // Definitive failure (403/409/404/validation) — surface it; a
         // re-dispatch would be blind (never allowed, task 1.2).
@@ -834,3 +845,14 @@ bool isAmbiguousTimeout(ProblemError error) => switch (error.code) {
   'transport.receiveTimeout' => true,
   _ => false,
 };
+
+/// True when the server refused an apply because a **live run** already owns
+/// the job's progress slot (issue #800, `409 ai-import.apply-in-flight`).
+///
+/// A wait, not a failure: the apply is single-flight server-side, and the
+/// legitimate way to meet that 409 is the reconciliation retry of an
+/// ambiguous timeout — the first POST is still running. The caller keeps its
+/// budget and follows the live run's stream instead of rendering the blocking
+/// apply-error narrative.
+bool isApplyInFlight(ProblemError error) =>
+    error.code == 'ai-import.apply-in-flight';

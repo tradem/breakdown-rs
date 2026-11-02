@@ -211,6 +211,30 @@ class _JobRow extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
             ),
           Text(job.statusLabel(l10n), key: Key('ai-jobs-row-status-${job.id}')),
+          // Issue #800: a preview that has already been imported says so, so a
+          // re-apply never looks like the first one. The server owns the fact
+          // (`AiImportJob.applied`); the row renders it or nothing.
+          if (job.isAlreadyImported)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.space4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: AppSpacing.space4),
+                  Expanded(
+                    child: Text(
+                      l10n.aiJobsRowAlreadyImported,
+                      key: Key('ai-jobs-row-applied-${job.id}'),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           // Compact stage/episode progress summary (issue #664): from the
           // fetched row's progress — the list screen never opens an SSE
           // stream (zero watches, #547 battery contract).

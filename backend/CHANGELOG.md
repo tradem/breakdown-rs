@@ -28,6 +28,54 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **An AI import's apply run has an identity, a liveness signal and a
+  single-flight gate (issue #800; `core 0.55.0 → 0.56.0`, `infra 0.64.0 → 0.65.0`,
+  `api 0.54.0 → 0.55.0`).** Four CodeRabbit findings on PR #798 were symptoms of
+  one gap: the apply-run progress slot (`ai_import.ai_import_job.apply_progress`)
+  was keyed by job id only and carried no guarantee that a live run stays
+  visible.
+
+  - **Run identity.** `ApplyProgress.run_id` (additive) names the run; a
+    migration adds `apply_run_id` (the owner, released with the payload) and
+    `apply_run_seq` (monotonic, never cleared). Every run-scoped write — progress,
+    heartbeat, clear — is conditional on the owner, so a superseded run can no
+    longer overwrite or clear the current run's counters.
+  - **Single-flight.** A second apply of one `succeeded` job is refused with the
+    registered `409 ai-import.apply-in-flight` under one atomic claim. A claim
+    whose payload is older than `ApplyProgress::STALE_AFTER` is stolen by the next
+    apply inside the same statement, so a crashed run needs no separate reaper.
+    The client treats that 409 as "a run is live, keep waiting" — the
+    ambiguous-timeout reconciliation retry legitimately hits it.
+  - **A run that starts and ends between two stream reads still reports its
+    end.** `classify_apply_run` compares the job's run counter against the delta
+    since the subscriber's baseline, so the documented final `null` frame arrives
+    instead of a silent close the client read as a dropped connection
+    (`ai_import.watch_exhausted`).
+  - **A slow row is no longer a dead process.** The worker heartbeats the payload
+    at a quarter of the staleness window while a row is in flight, so a scene with
+    several character/outfit creates can no longer make the stream declare a live
+    run finished.
+  - **A client disconnect clears its own run.** A run-scoped `Drop` guard releases
+    the payload when the handler future is dropped; the apply itself is never
+    detached.
+  - **Hardening from the review.** A claim **clears** the payload it takes over
+    (a stolen frame would otherwise make the new run's stream close on its first
+    read), an owner that has not published yet is judged by the row's own
+    `updated_at` instead of "no payload means free" (otherwise a second apply
+    could take a live, just-claimed slot), the apply stream reads the run counter
+    **before** it subscribes (a run inside that window would be absorbed into the
+    baseline and lose its end frame), a failed clear keeps the run guard armed so
+    `Drop` retries it, and the port's default `apply_run_state` mirrors `get`
+    instead of answering "no slot".
+  - **The jobs list badges an already-imported preview.** `AiImportJob.applied`
+    (additive, server-derived from the recorded apply telemetry) drives a
+    localized "already imported" badge and an explicit re-apply confirmation — the
+    idempotent recovery path stays, it just never looks like a first apply.
+
+  Tests are deterministic: the staleness window is exercised by moving the
+  *payload* into the past and the heartbeat by a paused clock, never by sleeping
+  (`backend/AGENTS.md` §4). The schedule apply path is untouched: it publishes no
+  progress slot, so it has nothing to single-flight.
 - **The Neuralwatt energy cap is applied per provider request instead of once to
   the job aggregate (issue #794; `core 0.52.0 → 0.53.0`, `infra 0.61.0 → 0.62.0`,
   `api 0.51.0 → 0.52.0`).** `cost_breakdown` and `decision_cost_breakdown`

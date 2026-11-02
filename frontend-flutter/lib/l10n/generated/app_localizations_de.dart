@@ -774,6 +774,9 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiJobsRowAlreadyImported => 'Bereits importiert';
+
+  @override
   String aiJobEpisodesSeenValues(Object episodes) {
     return 'Gefundene Episoden: $episodes';
   }
@@ -1309,6 +1312,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.';
 
   @override
+  String get aiApplyErrorApplyInFlight =>
+      'Für diese Vorschau läuft bereits eine Übernahme. Verfolge deren Fortschritt – ein zweiter Start ist erst danach möglich.';
+
+  @override
   String get aiApplyErrorMissingMapping =>
       'Eine Skriptzeile hat keine Prüfentscheidung – lade die Vorschau neu und übernimm erneut.';
 
@@ -1402,6 +1409,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiApplySubmit => 'Import anwenden';
+
+  @override
+  String get aiApplyReapplySubmit => 'Erneut anwenden';
 
   @override
   String get aiApplyPickEpisode => 'Episode wählen…';
@@ -3899,4 +3909,18 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get outfitVariantCreated => 'Variante erstellt.';
+
+  @override
+  String get aiApplyReapplyTitle => 'Vorschau erneut anwenden?';
+
+  @override
+  String get aiApplyReapplyBody =>
+      'Diese Vorschau wurde bereits importiert. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt. Nutze es, wenn ein früherer Lauf unterbrochen wurde.';
+
+  @override
+  String get aiApplyReapplyConfirm => 'Erneut anwenden';
+
+  @override
+  String get aiApplyReapplyBodyUnknown =>
+      'Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt.';
 }

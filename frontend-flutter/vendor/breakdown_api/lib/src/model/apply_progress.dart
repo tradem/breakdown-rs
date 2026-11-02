@@ -15,16 +15,21 @@ part 'apply_progress.g.dart';
 ///
 /// Properties:
 /// * [applied] - Work units completed by **this** run (rows dispatched).
+/// * [runId] - The run this payload belongs to (issue #800). Additive with `serde(default)`: a pre-#800 payload decodes to the nil id, which never owns a claim.  It is the client's **run boundary**: two frames with different `run_id`s are two runs, so a re-apply (or a reconciled retry) resets the counters and the ETA instead of looking like a jump backwards.
 /// * [stage]
 /// * [startedAt] - When this run started: the anchor an ETA needs (the same role [`AiImportProgress::started_at`] plays for extraction).
 /// * [total] - Work units the run planned (the plan's row count). `0` is an honest state — an empty plan still runs its trailing work — and never a divisor the client may trust blindly.
-/// * [updatedAt] - Last write of this payload. The stream uses it to recognise a run whose process died: an abandoned run must not keep a stream open forever, so a payload older than [`ApplyProgress::STALE_AFTER`] is treated as finished.
+/// * [updatedAt] - Last write of this payload. The stream uses it to recognise a run whose process died: an abandoned run must not keep a stream open forever, so a payload older than [`ApplyProgress::STALE_AFTER`] is treated as finished. The worker **heartbeats** it while a single row is in flight (issue #800), so a slow row can no longer make a live run look dead — staleness now means \"the process is gone\".
 @BuiltValue()
 abstract class ApplyProgress
     implements Built<ApplyProgress, ApplyProgressBuilder> {
   /// Work units completed by **this** run (rows dispatched).
   @BuiltValueField(wireName: r'applied')
   int? get applied;
+
+  /// The run this payload belongs to (issue #800). Additive with `serde(default)`: a pre-#800 payload decodes to the nil id, which never owns a claim.  It is the client's **run boundary**: two frames with different `run_id`s are two runs, so a re-apply (or a reconciled retry) resets the counters and the ETA instead of looking like a jump backwards.
+  @BuiltValueField(wireName: r'run_id')
+  String? get runId;
 
   @BuiltValueField(wireName: r'stage')
   ApplyStage get stage;
@@ -38,7 +43,7 @@ abstract class ApplyProgress
   @BuiltValueField(wireName: r'total')
   int? get total;
 
-  /// Last write of this payload. The stream uses it to recognise a run whose process died: an abandoned run must not keep a stream open forever, so a payload older than [`ApplyProgress::STALE_AFTER`] is treated as finished.
+  /// Last write of this payload. The stream uses it to recognise a run whose process died: an abandoned run must not keep a stream open forever, so a payload older than [`ApplyProgress::STALE_AFTER`] is treated as finished. The worker **heartbeats** it while a single row is in flight (issue #800), so a slow row can no longer make a live run look dead — staleness now means \"the process is gone\".
   @BuiltValueField(wireName: r'updated_at')
   DateTime get updatedAt;
 
@@ -72,6 +77,13 @@ class _$ApplyProgressSerializer implements PrimitiveSerializer<ApplyProgress> {
       yield serializers.serialize(
         object.applied,
         specifiedType: const FullType(int),
+      );
+    }
+    if (object.runId != null) {
+      yield r'run_id';
+      yield serializers.serialize(
+        object.runId,
+        specifiedType: const FullType(String),
       );
     }
     yield r'stage';
@@ -128,6 +140,14 @@ class _$ApplyProgressSerializer implements PrimitiveSerializer<ApplyProgress> {
           ) as int?;
           if (valueDes == null) continue;
           result.applied = valueDes;
+          break;
+        case r'run_id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.runId = valueDes;
           break;
         case r'stage':
           final valueDes = serializers.deserialize(

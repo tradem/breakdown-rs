@@ -95,6 +95,7 @@ AiImportJob _job(
   String? sourceFileName,
   List<AppliedEpisode> appliedEpisodes = const [],
   JobTelemetrySummary? telemetry,
+  bool applied = false,
 }) => AiImportJob(
   (b) => b
     ..id = id
@@ -112,6 +113,7 @@ AiImportJob _job(
     ..progress = progress?.toBuilder()
     ..sourceFileName = sourceFileName
     ..appliedEpisodes.replace(appliedEpisodes)
+    ..applied = applied
     ..telemetry = telemetry?.toBuilder()
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
@@ -576,6 +578,43 @@ void main() {
       );
     });
 
+    test('jobRowViewFromJob carries the server-side `applied` flag '
+        '(issue #800) and never infers it from the episode summary', () {
+      // Unapplied preview: no flag, and no episode summary either.
+      final fresh = jobRowViewFromJob(_job('job-1'));
+      expect(fresh.applied, isFalse);
+      expect(fresh.isAlreadyImported, isFalse);
+
+      // An applied preview that dispatched rows into an episode.
+      final applied = jobRowViewFromJob(
+        _job(
+          'job-2',
+          status: JobStatus.succeeded,
+          applied: true,
+          appliedEpisodes: [_applied(299, 'Erlösung', 57)],
+        ),
+      );
+      expect(applied.applied, isTrue);
+      expect(applied.isAlreadyImported, isTrue);
+    });
+
+    test('an applied SCHEDULE import badges without any episode summary '
+        '(issue #800: the flag, not the summary, answers "imported?")', () {
+      // A schedule apply merges onto existing scenes and therefore reports no
+      // applied episode — the reason `applied_episodes.isNotEmpty` was the
+      // wrong signal for the badge.
+      final view = jobRowViewFromJob(
+        _job('job-3', status: JobStatus.succeeded, applied: true),
+      );
+      expect(view.appliedEpisodes, isEmpty);
+      expect(view.hasAppliedEpisode, isFalse);
+      expect(
+        view.isAlreadyImported,
+        isTrue,
+        reason: 'the server flag is authoritative, the summary is not',
+      );
+    });
+
     test('a cache-only row reports no name and no target (pre-change '
         'columns) — never a fabricated one', () {
       final view = jobRowViewFromCacheRow(_cacheRow('job-c'));
@@ -583,6 +622,22 @@ void main() {
       expect(view.appliedEpisodes, isEmpty);
       expect(view.hasAppliedEpisode, isFalse);
       expect(view.appliedSceneCount, 0);
+      // Issue #800: a row cached before the `applied` column existed reads the
+      // conservative `false` (the badge is a hint, the server decides).
+      expect(view.applied, isFalse);
+      expect(view.isAlreadyImported, isFalse);
+    });
+
+    test('the cached `applied` flag survives a cached-first paint '
+        '(issue #800)', () {
+      final view = jobRowViewFromCacheRow(
+        _cacheRow('job-imported', applied: true),
+      );
+      expect(
+        view.isAlreadyImported,
+        isTrue,
+        reason: 'the badge must not flicker in only after the live read',
+      );
     });
 
     test('showsLiveProgress is gated on the STATUS, not on the presence of a '
@@ -1162,6 +1217,33 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('an already-imported row badges itself (issue #800)', (
+      tester,
+    ) async {
+      await setupContainer(
+        listResult: Right([
+          _job('job-imported', status: JobStatus.succeeded, applied: true),
+          _job('job-fresh', status: JobStatus.succeeded),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-jobs-row-applied-job-imported')),
+            )
+            .data,
+        'Already imported',
+      );
+      expect(
+        find.byKey(const Key('ai-jobs-row-applied-job-fresh')),
+        findsNothing,
+        reason: 'a preview nobody applied must not claim it was imported',
+      );
+      await tester.pump();
+    });
+
     testWidgets('terminal-failure rows are visibly distinct: the '
         'dead_letter icon renders in the error color', (tester) async {
       await setupContainer(
@@ -1658,19 +1740,23 @@ void main() {
   });
 }
 
-AiImportJobCacheRow _cacheRow(String id, {String statusWire = 'pending'}) =>
-    AiImportJobCacheRow(
-      id: id,
-      userId: 'dev-user',
-      status: statusWire,
-      documentKind: 'schedule',
-      sourceFormat: 'csv',
-      dedupKey: 'dedup-$id',
-      documentDigest: 'digest-$id',
-      sourceHandle: 'handle-$id',
-      retries: 0,
-      maxRetries: 3,
-      createdAt: DateTime.utc(2026, 1, 1),
-      updatedAt: DateTime.utc(2026, 1, 1),
-      cachedAt: DateTime.utc(2026, 1, 1),
-    );
+AiImportJobCacheRow _cacheRow(
+  String id, {
+  String statusWire = 'pending',
+  bool applied = false,
+}) => AiImportJobCacheRow(
+  id: id,
+  userId: 'dev-user',
+  applied: applied,
+  status: statusWire,
+  documentKind: 'schedule',
+  sourceFormat: 'csv',
+  dedupKey: 'dedup-$id',
+  documentDigest: 'digest-$id',
+  sourceHandle: 'handle-$id',
+  retries: 0,
+  maxRetries: 3,
+  createdAt: DateTime.utc(2026, 1, 1),
+  updatedAt: DateTime.utc(2026, 1, 1),
+  cachedAt: DateTime.utc(2026, 1, 1),
+);
