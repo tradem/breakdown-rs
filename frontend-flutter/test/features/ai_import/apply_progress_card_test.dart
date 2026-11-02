@@ -321,24 +321,34 @@ void main() {
     },
   );
 
-  testWidgets('the finalizing stage replaces the row counter', (tester) async {
-    await pump(tester);
-    states.add(
-      _running(
-        startedAt: now.subtract(const Duration(minutes: 10)),
-        applied: 10,
-        stage: ApplyStage.finalizing,
-        updatedAt: now,
-      ),
-    );
-    await tester.pump();
-    expect(
-      tester
-          .widget<Text>(find.byKey(const Key('ai-apply-progress-stage')))
-          .data,
-      'All rows applied – finishing up …',
-    );
-  });
+  testWidgets(
+    'the finalizing stage replaces the row counter and drops the ETA',
+    (tester) async {
+      await pump(tester);
+      states.add(
+        _running(
+          startedAt: now.subtract(const Duration(minutes: 10)),
+          applied: 10,
+          stage: ApplyStage.finalizing,
+          updatedAt: now,
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-apply-progress-stage')))
+            .data,
+        'All rows applied – finishing up …',
+      );
+      expect(
+        find.byKey(const Key('ai-apply-progress-eta')),
+        findsNothing,
+        reason:
+            'no row work is left in the finalizing stage, so no estimate may '
+            'claim "almost done" next to a finished row counter',
+      );
+    },
+  );
 
   testWidgets('a silent run drops its estimate ("delayed")', (tester) async {
     await pump(tester);
@@ -371,11 +381,13 @@ void main() {
       expect(find.byKey(const Key('ai-apply-progress')), findsOneWidget);
 
       // The server's final `null` frame arrives while the apply POST is still
-      // out: the card may not claim the run never started.
+      // out: the card may not claim the run never started. The run reached its
+      // plan (10 of 10), so the completion copy is the truthful one.
       states.add(
         AiApplyRunFinished(
           _run(
             startedAt: now.subtract(const Duration(minutes: 4)),
+            applied: 10,
             updatedAt: now,
           ),
         ),
@@ -447,6 +459,82 @@ void main() {
       reason: 'the counters the run reached stay on screen',
     );
     expect(find.byKey(const Key('ai-apply-progress-error')), findsOneWidget);
+  });
+
+  testWidgets('a run that ended before its last row keeps the row counter', (
+    tester,
+  ) async {
+    await pump(tester);
+    // A failed apply also ends with a frame (the worker clears the run), so the
+    // completion copy would be a lie for a partial run.
+    states.add(
+      AiApplyRunFinished(
+        _run(
+          startedAt: now.subtract(const Duration(minutes: 4)),
+          applied: 6,
+          total: 10,
+          updatedAt: now,
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester
+          .widget<Text>(find.byKey(const Key('ai-apply-progress-stage')))
+          .data,
+      'Row 6 of 10 applied',
+      reason: '6 of 10 is not "all rows applied"',
+    );
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(
+            find.byKey(const Key('ai-apply-progress-bar')),
+          )
+          .value,
+      closeTo(0.6, 0.001),
+    );
+  });
+
+  testWidgets('an AUTHZ-GATE denial renders the localized 403', (tester) async {
+    await pump(tester);
+    states.add(
+      const AiApplyRunDenied(
+        ProblemError(code: 'ai_import.forbidden', status: 403),
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester
+          .widget<Text>(find.byKey(const Key('ai-apply-progress-denied')))
+          .data,
+      'You do not have access to this AI import job.',
+    );
+    expect(
+      find.byKey(const Key('ai-apply-progress-pending')),
+      findsNothing,
+      reason: 'a resolved denial is not a pending gate',
+    );
+    expect(
+      find.byKey(const Key('ai-apply-progress-retry')),
+      findsNothing,
+      reason: 'a denial is not a transport failure — membership decides',
+    );
+  });
+
+  testWidgets('a pending gate keeps the waiting line, never the 403 copy', (
+    tester,
+  ) async {
+    await pump(tester);
+    states.add(
+      const AiApplyRunDenied(ProblemError(code: 'membership.pending')),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('ai-apply-progress-pending')), findsOneWidget);
+    expect(
+      find.byKey(const Key('ai-apply-progress-denied')),
+      findsNothing,
+      reason: 'a pending membership disables, it never denies (D3)',
+    );
   });
 
   test('the shared estimator drives both phases identically', () {
@@ -550,6 +638,20 @@ void main() {
     await expectLater(
       find.byType(AiApplyProgressCard),
       matchesGoldenFile('goldens/apply_progress_failed_de.png'),
+    );
+  });
+
+  testWidgets('golden: AUTHZ-GATE denial', (tester) async {
+    await pump(tester, locale: const Locale('de'));
+    states.add(
+      const AiApplyRunDenied(
+        ProblemError(code: 'ai_import.forbidden', status: 403),
+      ),
+    );
+    await tester.pump();
+    await expectLater(
+      find.byType(AiApplyProgressCard),
+      matchesGoldenFile('goldens/apply_progress_denied_de.png'),
     );
   });
 }

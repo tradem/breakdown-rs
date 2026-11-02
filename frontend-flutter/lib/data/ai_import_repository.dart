@@ -31,6 +31,21 @@ const int kMaxApplyAttempts = 3;
 /// without catch-up polling.
 const int kMaxJobWatchAttempts = 30;
 
+/// Bounded budget of **idle** reconnects of the apply-run watch (issue #762).
+///
+/// The server closes an apply stream that saw no run within
+/// `SSE_APPLY_IDLE_TICKS × SSE_APPLY_TICK_SECS` (2 min) — a deliberate bound, so
+/// a client that subscribes a moment before its `POST` lands is not answered
+/// with an endless connection. Such a close is **not** a failure: nothing was
+/// lost, no frame was missed, and the `POST` is still out. Counting it against
+/// [kMaxJobWatchAttempts] would let a slow-to-start apply exhaust the failure
+/// budget after ~an hour of idle windows and paint a stream error onto a run
+/// that is merely early. Idle closes therefore get their own, deliberately
+/// generous bound (30 × 2 min ≈ 1 h of idle windows, with the scheduler's
+/// backoff on top); the watch still ends when the card unmounts, i.e. when the
+/// `POST` returns.
+const int kMaxApplyIdleReconnects = 30;
+
 /// Read-idle watchdog of the SSE connection (issue #664, ADR-038 D5):
 /// strictly above 2× the server's 30 s `: keep-alive` cadence, so a silent
 /// middlebox/NAT drop (half-open socket) is detected and triggers the
@@ -539,6 +554,10 @@ class AiImportRepository extends BaseRepository {
   /// * a frame whose `apply_progress` is `null` is the run's **end**: it
   ///   yields a final `Right(null)` and the loop stops (the server closed the
   ///   stream, nothing is reconnecting);
+  /// * an **idle close** (the server ended a connection that delivered no
+  ///   frame, i.e. no run had started yet) reconnects without consuming the
+  ///   failure budget — see [kMaxApplyIdleReconnects] — because nothing failed
+  ///   and the `POST` is still out;
   /// * `403`/`404` are definitive and stop immediately.
   ///
   /// Nothing is cached: an apply run is transient state, and a stale
@@ -547,12 +566,20 @@ class AiImportRepository extends BaseRepository {
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = kMaxJobWatchAttempts,
+    int maxIdleReconnects = kMaxApplyIdleReconnects,
     Duration receiveTimeout = kSseReceiveTimeout,
     CancelToken? cancelToken,
   }) async* {
     String? lastEventId;
-    for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      if (attempt > 0) await scheduler.tick(attempt - 1);
+    // Two separate budgets: failures (a drop, a transport error, a close that
+    // carried frames but no end signal) exhaust [maxAttempts]; idle closes —
+    // the server bounding a connection that had nothing to report — exhaust
+    // [maxIdleReconnects] only, so a run that is merely slow to start is never
+    // reported as a broken watch (CodeRabbit review of PR #798).
+    var failures = 0;
+    var idle = 0;
+    while (failures < maxAttempts && idle < maxIdleReconnects) {
+      if (failures + idle > 0) await scheduler.tick(failures + idle - 1);
       Response<ResponseBody> response;
       try {
         response = await api.dio.get<ResponseBody>(
@@ -574,9 +601,14 @@ class AiImportRepository extends BaseRepository {
           return;
         }
         yield Left(problemErrorFromDio(e));
+        failures++;
         continue;
       }
       var finished = false;
+      // Did THIS connection deliver any apply frame? A connection that carried
+      // none was an idle window (the server closes those on purpose), which is
+      // not a failure.
+      var sawFrame = false;
       try {
         final parser = SseEventParser();
         final lines = response.data!.stream
@@ -589,6 +621,7 @@ class AiImportRepository extends BaseRepository {
           if (event == null) continue;
           if (event.id != null) lastEventId = event.id;
           if (event.event != 'apply' || event.data.isEmpty) continue;
+          sawFrame = true;
           final decoded = _decodeApplyProgressFrame(event.data);
           final progress = decoded.fold<ApplyProgress?>((_) => null, (p) => p);
           // A malformed body must not look like "no run": yield the error and
@@ -602,15 +635,24 @@ class AiImportRepository extends BaseRepository {
         }
       } on DioException catch (e) {
         yield Left(problemErrorFromDio(e));
+        failures++;
+        continue;
       }
       if (finished) {
         // The run ended (or its payload went stale server-side); the server
         // closed the stream — no reconnect.
         return;
       }
+      if (!sawFrame) {
+        // Idle close: no run had started within the server's idle window. Not
+        // a failure — keep waiting for the run the POST is about to start.
+        idle++;
+        continue;
+      }
       // The stream ended without an end frame (drop / process restart):
       // reconnect within the bounded budget; the next snapshot re-states the
       // run.
+      failures++;
     }
     yield const Left(ProblemError(code: 'ai_import.watch_exhausted'));
   }

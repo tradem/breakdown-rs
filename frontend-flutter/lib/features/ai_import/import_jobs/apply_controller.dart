@@ -16,8 +16,11 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
+import '../../../auth/membership_gate.dart';
+import '../../../auth/membership/membership_providers.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
+import '../../../data/cache/hierarchy_cache_dao.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -80,6 +83,21 @@ class AiApplyRunFailed extends AiApplyRunState {
   final ApplyProgress? last;
 }
 
+/// The client-side AUTHZ-GATE denied the watch, so **no request was issued**
+/// (AGENTS.md §5, D6).
+///
+/// `membership.pending` is not a denial: the membership (or the job's season)
+/// has not resolved yet, so the card keeps the waiting line and the gate
+/// re-evaluates on its own. Any other code is the resolved 403 narrative.
+class AiApplyRunDenied extends AiApplyRunState {
+  const AiApplyRunDenied(this.error);
+
+  final ProblemError error;
+
+  /// True while the gate is merely unresolved (disabled, never denied — D3).
+  bool get isPending => error.code == 'membership.pending';
+}
+
 /// Live progress of the apply run in flight (issue #762).
 ///
 /// Subscribed by the apply screen only while its `POST` is out, so the stream
@@ -94,11 +112,78 @@ class AiApplyRunFailed extends AiApplyRunState {
 /// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
 /// stays [AiApplyRunIdle].
 @riverpod
-Stream<AiApplyRunState> aiApplyRun(Ref ref, String jobId) {
+Stream<AiApplyRunState> aiApplyRun(Ref ref, String jobId) async* {
   final cancelToken = CancelToken();
   ref.onDispose(cancelToken.cancel);
   final repo = ref.watch(aiImportRepositoryProvider);
-  return foldApplyRun(repo.watchApplyProgress(jobId, cancelToken: cancelToken));
+  // // AUTHZ-GATE: the apply-events route is handler-internally gated
+  // (ownership + an active costume-department role in the job's season), so
+  // the client mirror runs BEFORE the stream opens and a denial issues zero
+  // requests (AGENTS.md §5, D6). A pending membership — or a season scope that
+  // has not resolved — DISABLES the watch (the card shows its waiting line)
+  // and never denies; the gate re-evaluates when either resolves, because both
+  // are `watch`ed.
+  final gate = ref.watch(aiApplyStreamGateProvider(jobId).future);
+  final denial = await gate;
+  if (denial != null) {
+    yield AiApplyRunDenied(denial);
+    return;
+  }
+  yield* foldApplyRun(repo.watchApplyProgress(jobId, cancelToken: cancelToken));
+}
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+@riverpod
+Future<String?> aiApplyJobSeasonId(Ref ref, String jobId) async {
+  final info = await ref.watch(aiJobBlockInfoProvider(jobId).future);
+  final blockId = info?.blockId;
+  if (blockId == null || blockId.isEmpty) return null;
+  final cached = await BlockCacheDao(ref.watch(cacheDatabaseProvider))
+      .readById(blockId);
+  if (cached != null) return cached.seasonId;
+  // Cold cache / offline: the single-block read is the only remaining source
+  // for the season. A failed read answers `null` — pending, never a denial.
+  final fetched = await ref.watch(episodeRepositoryProvider).blockById(blockId);
+  return fetched.fold((_) => null, (block) => block.seasonId);
+}
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+@riverpod
+Future<ProblemError?> aiApplyStreamGate(Ref ref, String jobId) async {
+  final seasonId = await ref.watch(aiApplyJobSeasonIdProvider(jobId).future);
+  if (seasonId == null) {
+    return const ProblemError(code: 'membership.pending');
+  }
+  final SeasonMembershipDto? membership;
+  try {
+    final fetched = await ref.watch(membershipFetchProvider(seasonId).future);
+    membership = fetched.getRight().toNullable();
+  } on Object {
+    // A transport error is not a resolved denial: the watch stays disabled
+    // until the membership fetch is retried (D3).
+    return const ProblemError(code: 'membership.pending');
+  }
+  return switch (checkAiImportCapability(membership)) {
+    GateAllow() => null,
+    GateDeny(:final code) => ProblemError(
+      code: code,
+      status: code == 'membership.pending' ? null : 403,
+    ),
+  };
 }
 
 /// Fold the apply stream's `Result<ApplyProgress?>` events into card states.

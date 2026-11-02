@@ -204,7 +204,7 @@ final class AiApplyRunProvider
   }
 }
 
-String _$aiApplyRunHash() => r'55838d493ae0381fb74f97e7185de232802fdc30';
+String _$aiApplyRunHash() => r'1019fd76df943a9d9b3654024457f6d28704bb1a';
 
 /// Live progress of the apply run in flight (issue #762).
 ///
@@ -250,6 +250,239 @@ final class AiApplyRunFamily extends $Family
 
   @override
   String toString() => r'aiApplyRunProvider';
+}
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+
+@ProviderFor(aiApplyJobSeasonId)
+final aiApplyJobSeasonIdProvider = AiApplyJobSeasonIdFamily._();
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+
+final class AiApplyJobSeasonIdProvider
+    extends $FunctionalProvider<AsyncValue<String?>, String?, FutureOr<String?>>
+    with $FutureModifier<String?>, $FutureProvider<String?> {
+  /// The season a job belongs to — the authorization scope of the apply stream.
+  ///
+  /// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+  /// block's `season_id`), never from navigation state: the apply-events handler
+  /// gates on the job's season, so the mirror must read the same scope. `null`
+  /// means the scope could not be resolved (no block on the job, or the block is
+  /// neither cached nor readable) — the gate then stays PENDING, which disables
+  /// the watch instead of denying it.
+  AiApplyJobSeasonIdProvider._({
+    required AiApplyJobSeasonIdFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiApplyJobSeasonIdProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiApplyJobSeasonIdHash();
+
+  @override
+  String toString() {
+    return r'aiApplyJobSeasonIdProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<String?> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<String?> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiApplyJobSeasonId(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiApplyJobSeasonIdProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiApplyJobSeasonIdHash() =>
+    r'805edf1414427216aaa0257d25fa3179f309e5f6';
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+
+final class AiApplyJobSeasonIdFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<String?>, String> {
+  AiApplyJobSeasonIdFamily._()
+    : super(
+        retry: null,
+        name: r'aiApplyJobSeasonIdProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The season a job belongs to — the authorization scope of the apply stream.
+  ///
+  /// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+  /// block's `season_id`), never from navigation state: the apply-events handler
+  /// gates on the job's season, so the mirror must read the same scope. `null`
+  /// means the scope could not be resolved (no block on the job, or the block is
+  /// neither cached nor readable) — the gate then stays PENDING, which disables
+  /// the watch instead of denying it.
+
+  AiApplyJobSeasonIdProvider call(String jobId) =>
+      AiApplyJobSeasonIdProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiApplyJobSeasonIdProvider';
+}
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+
+@ProviderFor(aiApplyStreamGate)
+final aiApplyStreamGateProvider = AiApplyStreamGateFamily._();
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+
+final class AiApplyStreamGateProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ProblemError?>,
+          ProblemError?,
+          FutureOr<ProblemError?>
+        >
+    with $FutureModifier<ProblemError?>, $FutureProvider<ProblemError?> {
+  /// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+  /// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+  /// card localizes (never the server `detail`).
+  ///
+  /// Reads the backend-computed season predicate through
+  /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+  /// uses. A failed or still-pending membership read stays `membership.pending`
+  /// (disabled with the waiting line, never the 403 narrative — D3).
+  AiApplyStreamGateProvider._({
+    required AiApplyStreamGateFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiApplyStreamGateProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiApplyStreamGateHash();
+
+  @override
+  String toString() {
+    return r'aiApplyStreamGateProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<ProblemError?> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<ProblemError?> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiApplyStreamGate(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiApplyStreamGateProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiApplyStreamGateHash() => r'6d306e49940c6ed09affeae99bdc7711a9e9b20f';
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+
+final class AiApplyStreamGateFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<ProblemError?>, String> {
+  AiApplyStreamGateFamily._()
+    : super(
+        retry: null,
+        name: r'aiApplyStreamGateProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+  /// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+  /// card localizes (never the server `detail`).
+  ///
+  /// Reads the backend-computed season predicate through
+  /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+  /// uses. A failed or still-pending membership read stays `membership.pending`
+  /// (disabled with the waiting line, never the 403 narrative — D3).
+
+  AiApplyStreamGateProvider call(String jobId) =>
+      AiApplyStreamGateProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiApplyStreamGateProvider';
 }
 
 /// The apply controller (task 4.2): builds + submits the mappings.

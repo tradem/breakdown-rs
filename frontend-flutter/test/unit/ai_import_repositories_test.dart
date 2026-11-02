@@ -212,6 +212,14 @@ String _sseFrame(AiImportJob job, {String? id}) =>
     'event: job\n${id != null ? 'id: $id\n' : ''}'
     'data: ${jsonEncode(serializers.serializeWith(AiImportJobResponse.serializer, _jobResponse(job)))}\n\n';
 
+/// One SSE wire frame for the pushed `event: apply` payload (issue #762). A
+/// `null` [progress] is the run's END signal.
+String _sseApplyFrame(String jobId, {int? applied, int? total}) =>
+    'event: apply\ndata: ${jsonEncode({
+      'job_id': jobId,
+      'apply_progress': applied == null || total == null ? null : {'stage': 'applying', 'applied': applied, 'total': total, 'started_at': '2026-11-02T10:00:00Z', 'updated_at': '2026-11-02T10:00:31Z'},
+    })}\n\n';
+
 /// Scriptable SSE transport: every open resolves with a `ResponseBody`
 /// whose stream replays one script entry per connection (frames written
 /// verbatim). [closeStream] false leaves the stream open forever — the
@@ -1472,6 +1480,96 @@ void main() {
             maxAttempts: 2,
           );
       expect(outcome, isA<ApplyUnresolved>());
+    });
+
+    test('apply watch: an IDLE close does not consume the failure budget '
+        '(CodeRabbit review)', () async {
+      // The server closes an apply stream that saw no run within its idle
+      // window (2 min). That is not a failure: the POST is still out. With a
+      // failure budget of ONE, an idle close that counted against it would end
+      // the watch before the run's first frame ever arrived.
+      final interceptor = _SseInterceptor([
+        '', // idle close #1 — no run yet
+        '', // idle close #2 — no run yet
+        _sseApplyFrame('j1', applied: 3, total: 10) +
+            _sseApplyFrame('j1'), // the run, then its end frame
+      ]);
+      final events = await AiImportRepository(_api(interceptor), _dao())
+          .watchApplyProgress(
+            'j1',
+            scheduler: _FakeScheduler(),
+            maxAttempts: 1,
+            maxIdleReconnects: 5,
+          )
+          .toList();
+      expect(
+        events.where((e) => e.isLeft()),
+        isEmpty,
+        reason: 'idle closes are not failures — no watch_exhausted',
+      );
+      expect(events, hasLength(2));
+      expect(events.first.getRight().toNullable()!.applied, 3);
+      expect(
+        events.last.getRight().toNullable(),
+        isNull,
+        reason: 'the run ended with the explicit null frame',
+      );
+      expect(
+        interceptor.requests
+            .map((r) => r.uri.path)
+            .toSet(), // every open hits the apply stream
+        {'/v1/ai-import/jobs/j1/apply-events'},
+      );
+      expect(
+        interceptor.index,
+        3,
+        reason: 'two idle reconnects + the connection that carried the run',
+      );
+    });
+
+    test('apply watch: idle reconnects are bounded', () async {
+      // A peer that never reports a run must not be re-dialled forever.
+      final interceptor = _SseInterceptor(['', '', '']);
+      final events = await AiImportRepository(_api(interceptor), _dao())
+          .watchApplyProgress(
+            'j1',
+            scheduler: _FakeScheduler(),
+            maxAttempts: 10,
+            maxIdleReconnects: 2,
+          )
+          .toList();
+      expect(
+        events.single.getLeft().toNullable()!.code,
+        'ai_import.watch_exhausted',
+      );
+      expect(interceptor.index, 2, reason: 'two idle windows, then stop');
+    });
+
+    test('apply watch: a connection that carried frames but no end signal '
+        'still counts as a failure', () async {
+      // Distinguishes the idle window from a real drop: frames without the
+      // end signal mean the run was live and the stream died mid-run.
+      final interceptor = _SseInterceptor([
+        _sseApplyFrame('j1', applied: 1, total: 10),
+      ]);
+      final events = await AiImportRepository(_api(interceptor), _dao())
+          .watchApplyProgress(
+            'j1',
+            scheduler: _FakeScheduler(),
+            maxAttempts: 1,
+            maxIdleReconnects: 5,
+          )
+          .toList();
+      expect(events.first.getRight().toNullable()!.applied, 1);
+      expect(
+        events.last.getLeft().toNullable()!.code,
+        'ai_import.watch_exhausted',
+      );
+      expect(
+        interceptor.index,
+        1,
+        reason: 'the failure budget (1) is spent — no idle-style re-dial',
+      );
     });
 
     test('job watch: pending → running → succeeded stops at the terminal '

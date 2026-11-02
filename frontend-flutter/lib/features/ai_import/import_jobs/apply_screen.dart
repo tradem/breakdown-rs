@@ -1373,26 +1373,46 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
         );
       case AiApplyRunIdle():
       case null:
-        // No run published yet (the POST has not reached the worker, or the
-        // stream has not delivered its snapshot): say so, estimate nothing.
-        return Column(
-          key: const Key('ai-apply-progress-pending'),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const LinearProgressIndicator(
-              key: Key('ai-apply-progress-bar'),
-              minHeight: 6,
-            ),
-            const SizedBox(height: 4),
-            Text(l10n.aiApplyProgressWaiting, style: theme.textTheme.bodySmall),
-          ],
+        return _waiting(l10n: l10n, theme: theme);
+      // The client-side AUTHZ-GATE (D6) answered before any request: a
+      // resolved denial renders the localized 403 narrative and issues no
+      // stream call; an unresolved gate (pending membership / season scope)
+      // keeps the waiting line — disabled, never denied (D3).
+      case AiApplyRunDenied(isPending: true):
+        return _waiting(l10n: l10n, theme: theme);
+      case AiApplyRunDenied():
+        // `checkAiImportCapability` resolves exactly one denial code
+        // (`ai_import.forbidden`), i.e. the same access-neutral 403 narrative
+        // the job watch renders — keyed on the gate, never on `detail`.
+        return Text(
+          key: const Key('ai-apply-progress-denied'),
+          l10n.jobWatchForbidden,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.error,
+          ),
         );
     }
   }
 
-  /// The row-count column: bar, stage copy and (while the run is live) a coarse
-  /// ETA. [finished] renders the run's last known counters as the closing-out
-  /// state — no estimate once the run has ended.
+  /// The pre-start column: an indeterminate bar and the honest "determining
+  /// row progress" line. Nothing is estimated before a run exists.
+  Widget _waiting({required AppLocalizations l10n, required ThemeData theme}) =>
+      Column(
+        key: const Key('ai-apply-progress-pending'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const LinearProgressIndicator(
+            key: Key('ai-apply-progress-bar'),
+            minHeight: 6,
+          ),
+          const SizedBox(height: 4),
+          Text(l10n.aiApplyProgressWaiting, style: theme.textTheme.bodySmall),
+        ],
+      );
+
+  /// The row-count column: bar, stage copy and (while rows are still being
+  /// dispatched) a coarse ETA. [finished] renders the run's last known counters
+  /// as the closing-out state — no estimate once the run has ended.
   Widget _run({
     required ApplyProgress progress,
     required AppLocalizations l10n,
@@ -1405,11 +1425,18 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
     final appliedFraction = (applied != null && total != null && total > 0)
         ? (applied / total).clamp(0.0, 1.0)
         : null;
-    final eta = finished ? null : _estimate(progress, now);
+    // No row work is left once the run ended or reached its `finalizing`
+    // boundary: an estimate there can only claim "almost done" next to a
+    // finished row counter, so it is neither computed nor rendered.
+    final noRowsLeft = finished || progress.stage == ApplyStage.finalizing;
+    final eta = noRowsLeft ? null : _estimate(progress, now);
     final stalled =
         eta != null &&
         aiJobEtaStalled(eta: eta, lastFrameAt: progress.updatedAt, now: now);
-    final closingOut = finished || progress.stage == ApplyStage.finalizing;
+    // The completion copy is only TRUE when the run reached its plan: an apply
+    // that failed partway also ends with a frame (the worker clears the run),
+    // and its row counter must stay visible.
+    final complete = applied != null && total != null && applied >= total;
     return Column(
       key: Key(finished ? 'ai-apply-progress-finished' : 'ai-apply-progress'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1422,12 +1449,12 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
         const SizedBox(height: 4),
         Text(
           key: const Key('ai-apply-progress-stage'),
-          closingOut
+          complete && noRowsLeft
               ? l10n.aiApplyProgressFinalizing
               : l10n.aiApplyProgressRows('${applied ?? 0}', '${total ?? 0}'),
           style: theme.textTheme.bodySmall,
         ),
-        if (!finished) ...[
+        if (!noRowsLeft) ...[
           const SizedBox(height: 2),
           Text(
             key: const Key('ai-apply-progress-eta'),

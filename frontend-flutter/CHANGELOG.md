@@ -64,6 +64,29 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   - **Goldens.** Five `matchesGoldenFile` cases (pending, running, finalizing,
     ended, failed) in the German template locale, next to the existing widget
     and fold tests.
+  - **AUTHZ-GATE before the stream opens** (D6). `aiApplyRunProvider` mirrors
+    the apply-events handler gate: it resolves the job's own season (cached
+    `block_id` → `BlockCacheDao`, a single-block read on a cold cache), reads
+    the backend-computed season predicate through `checkAiImportCapability`,
+    and only then opens the stream. A denial issues **zero** requests and
+    renders the localized 403 narrative; a pending membership (or an
+    unresolved season scope) DISABLES the watch with the waiting line — never a
+    denial-by-absence — and re-evaluates on its own, because the gate is a
+    derived provider. Six Tier-1 tests, including a fake-repository call count
+    of zero on denial.
+  - **Idle closes no longer burn the reconnect budget.** The server closes an
+    apply stream that saw no run within its 2-minute idle window; that is not a
+    failure (the `POST` is still out, nothing was missed), so
+    `watchApplyProgress` counts it against a separate, deliberately generous
+    `kMaxApplyIdleReconnects` instead of `kMaxJobWatchAttempts`. Three Tier-1
+    tests: idle reconnects keep the watch alive, they are still bounded, and a
+    connection that carried frames but no end signal still counts as a real
+    failure.
+  - **Two honesty fixes in the card.** The ETA is neither computed nor rendered
+    once no row work is left (the `finalizing` stage showed "Almost done …"
+    next to an already-finished counter), and the completion copy is only shown
+    when the run actually reached its plan — an apply that failed partway ends
+    with the same end frame, and its row counter must stay visible.
 
 - **The extraction phase shows an honest, coarse ETA** (`0.4.0-beta.29+121 →
   0.4.0-beta.30+122`, backend issue #762). The job-status screen had a
