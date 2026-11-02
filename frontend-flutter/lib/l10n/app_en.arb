@@ -1176,5 +1176,21 @@
   "aiApplyReapplyTitle": "Apply this preview again?",
   "aiApplyReapplyBody": "This preview has already been imported. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed. Use it when an earlier run was interrupted.",
   "aiApplyReapplyConfirm": "Apply again",
-  "aiApplyReapplyBodyUnknown": "Whether this preview was already imported could not be read. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed."
+  "aiApplyReapplyBodyUnknown": "Whether this preview was already imported could not be read. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed.",
+  "aiPostImportReportTitle": "Import applied",
+  "aiPostImportReportDismiss": "Hide report",
+  "aiPostImportReportOthersTitle": "Also applied",
+  "aiPostImportReportOtherEpisode": "{label}: {count, plural, =1{1 row} other{{count} rows}}",
+  "@aiPostImportReportOtherEpisode": {
+    "description": "One additional episode of a multi-episode import (issue #759), with the number of scene rows this apply wrote into it.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "aiApplyNavigationUnresolved": "The import was applied, but the imported episode could not be opened automatically. Open it via Script or the episode list."
 }

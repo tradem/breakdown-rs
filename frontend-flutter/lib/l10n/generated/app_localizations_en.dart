@@ -3874,4 +3874,28 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get aiApplyReapplyBodyUnknown =>
       'Whether this preview was already imported could not be read. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed.';
+
+  @override
+  String get aiPostImportReportTitle => 'Import applied';
+
+  @override
+  String get aiPostImportReportDismiss => 'Hide report';
+
+  @override
+  String get aiPostImportReportOthersTitle => 'Also applied';
+
+  @override
+  String aiPostImportReportOtherEpisode(String label, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count rows',
+      one: '1 row',
+    );
+    return '$label: $_temp0';
+  }
+
+  @override
+  String get aiApplyNavigationUnresolved =>
+      'The import was applied, but the imported episode could not be opened automatically. Open it via Script or the episode list.';
 }

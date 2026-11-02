@@ -24,7 +24,9 @@ production-overview **active-jobs summary row** (shown while any known
 job needs attention) and, from the jobs screen's empty state, the CTA
 into the import entry. Every push carries `RouteSettings(name:
 'ai-import-jobs')`, so the apply outcome's "back to imports"
-`popUntil` contract resolves from any entry. Row selection pushes the job
+`popUntil` contract resolves from any entry (the retained path for a
+successful apply whose destination could NOT be resolved — see
+"Post-apply routing" below). Row selection pushes the job
 status screen (`AiJobStatusScreen`) — the screen that owns the single
 foreground status watch; back returns to the caller. No route parameters.
 AUTHZ-GATE: the jobs list route is ownership-scoped server-side; the
@@ -326,7 +328,37 @@ back to the row that dresses that figure — never by parsing the server's note
 prose. A picked candidate counts as a review edit, so `accept_as_is` stays a
 truthful statement about the review.
 
+## Post-apply routing and refresh (issue #759)
+
+Applying a preview used to end the flow in place: the outcome card rendered on
+the review screen and the only way out was back to the imports list, while the
+imported episode and its scenes stayed invisible until the app was restarted.
+The apply now lands the user on the imported material.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Destination | — (navigation) | On success: sticky episode scope ← the episode the reviewer targeted (`episode_id` of the apply request; the response's biggest contribution when that one is absent), its block scope cascaded from the same seam, active season ← the import's season (only written when it differs), destination ← **Script**, then the import stack is popped. Landing also resets the destination's own nested navigator to its root route | — |
+| Unresolved destination | Body-small error line inside the outcome card | A SCRIPT apply that named episodes but whose target cannot be resolved honestly (the season is not in the read cache, or the episode number is neither on the wire nor in the block's cached rows) keeps the review screen with the FULL outcome and says why it did not move. No half-navigation, no invented number, no network read on the navigation path. A **schedule apply** names no episode at all — it merges onto the project's existing scenes and days — so it keeps the outcome card WITHOUT this line: a claim about an episode that does not exist would be noise | `aiApplyNavigationUnresolved` |
+| Report at the destination | Dismissible card (`primaryContainer`) at the top of the Script view, detail area capped at 45 % of the viewport and scrollable (the card is a non-flex `Column` child, so an unbounded card would starve the script list on a long report) | The review's outcome must survive the navigation: applied counts, skipped day groups, every `unapplied_outfits` row with its reason, and the OTHER episodes of a multi-episode document with their row counts (the episode scope hides those rows, so naming them is the only thing that keeps the user from believing the import stopped at the episode that opened) | `aiPostImportReportTitle`, `aiPostImportReportDismiss`, `aiPostImportReportOthersTitle`, `aiPostImportReportOtherEpisode`, `aiApplyOutcome`, `aiApplyOutcomeScript`, `aiApplyUnappliedOutfit`, `aiApplySkippedDayGroups` |
+| Post-apply refresh | — (cache invalidation) | `episodesListFetch` + `blocksListFetch` (issue #666, retained), `scenesListFetch` for every episode the response names (the whole family for a response that names none), their TTL staleness memos, and the season-script composition. Without it the Script view — mounted for the whole import in the shell's `IndexedStack` — served a pre-import projection until the TTL expired | — |
+
+The progress surface of the run itself is issue #762's staged apply stream
+(`GET /v1/ai-import/jobs/{id}/apply-events`): an indeterminate bar before the
+first frame, then the determinate row counter with its stage line and a coarse
+ETA — no fabricated percentage, no animation-only feedback.
+
 ## Tests
+
+Widget tests (issue #759): a successful apply with a scripted repository
+leaves the preview, selects the Script destination with the imported episode
+in scope, publishes the report (additional episodes named) and re-runs the
+scene + season-script seams (counting overrides); a partially applied response
+keeps its `unapplied_outfits` reachable at the destination and dismisses; a
+report resets the destination's nested navigator to its root; an unresolvable
+destination (no applied episode / uncached season) keeps the review screen
+with the outcome card and the explicit hint, with the scopes untouched. Unit
+test: the target choice (reviewer's episode, biggest contribution, server-order
+ties, schedule apply → none).
 
 Widget tests: a row carrying `DecisionRubric.scoringFailed` renders the failure
 note inside its card and NO stars, a scored row renders stars and no note, and a

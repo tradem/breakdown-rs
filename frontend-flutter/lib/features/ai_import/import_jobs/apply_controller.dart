@@ -26,6 +26,8 @@ import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../blocks/blocks_controller.dart';
 import '../../episodes/episodes_controller.dart';
+import '../../scenes/scenes_controller.dart';
+import '../../scenes/season_script_controller.dart';
 import 'continuity_gap.dart';
 import 'job_status_controller.dart';
 
@@ -1241,7 +1243,31 @@ class AiApplyController extends _$AiApplyController {
         // flow; the refetch rewrites the Drift cache rows for the block.
         ref
           ..invalidate(episodesListFetchProvider)
-          ..invalidate(blocksListFetchProvider);
+          ..invalidate(blocksListFetchProvider)
+          ..invalidate(seasonScriptFetchProvider);
+        // Issue #759: the hierarchy lists alone left the SCENES and the
+        // season-script composition serving a pre-import projection — the
+        // Script view is mounted in the shell's `IndexedStack` for the whole
+        // import, so its composed rows stayed cached until a restart or a
+        // pull-to-refresh (the defect the report names). Every episode THIS
+        // request dispatched rows into is invalidated by id (the response names
+        // them); a response that names none (a schedule apply merges onto the
+        // project's existing scenes, so its targets are unknown) invalidates the
+        // scene family rather than guessing one.
+        final appliedEpisodes = response.appliedEpisodes;
+        if (appliedEpisodes == null || appliedEpisodes.isEmpty) {
+          ref
+            ..invalidate(scenesListFetchProvider)
+            ..invalidate(scenesCacheStaleProvider);
+        } else {
+          for (final episode in appliedEpisodes) {
+            ref
+              ..invalidate(scenesListFetchProvider(episode.id))
+              // Refetch boundary (issue #366 review): recompute the TTL result
+              // so a later loading state never consumes a pre-write memo.
+              ..invalidate(scenesCacheStaleProvider(episode.id));
+          }
+        }
         state = state.copyWith(
           context: context,
           outcome: response,

@@ -6343,6 +6343,36 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt.'**
   String get aiApplyReapplyBodyUnknown;
+
+  /// No description provided for @aiPostImportReportTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Import angewendet'**
+  String get aiPostImportReportTitle;
+
+  /// No description provided for @aiPostImportReportDismiss.
+  ///
+  /// In de, this message translates to:
+  /// **'Bericht ausblenden'**
+  String get aiPostImportReportDismiss;
+
+  /// No description provided for @aiPostImportReportOthersTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Zusätzlich angewendet'**
+  String get aiPostImportReportOthersTitle;
+
+  /// One additional episode of a multi-episode import (issue #759), with the number of scene rows this apply wrote into it.
+  ///
+  /// In de, this message translates to:
+  /// **'{label}: {count, plural, =1{1 Zeile} other{{count} Zeilen}}'**
+  String aiPostImportReportOtherEpisode(String label, int count);
+
+  /// No description provided for @aiApplyNavigationUnresolved.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Import wurde angewendet, aber die importierte Episode ließ sich nicht automatisch öffnen. Öffne sie über Skript oder die Episodenliste.'**
+  String get aiApplyNavigationUnresolved;
 }
 
 class _AppLocalizationsDelegate

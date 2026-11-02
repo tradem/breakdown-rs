@@ -30,6 +30,7 @@ import 'package:frontend_flutter/data/settings/api_base_override_store.dart';
 import 'package:frontend_flutter/features/auth/login_screen.dart';
 import 'package:frontend_flutter/features/auth/sign_out.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/post_import_report.dart';
 import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
 import 'package:frontend_flutter/features/outfits/outfits_state.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
@@ -198,6 +199,38 @@ void main() {
       expect(container.read(aiImportJobsPrevRowsProvider), isEmpty);
       expect(container.read(aiImportJobsView).rows, isEmpty);
     });
+
+    test(
+      'the AI-apply report does not survive sign-out (issue #759): the '
+      'previous identity\'s import is never greeted by the next one',
+      () async {
+        setupContainer();
+        expect(await session(), isNotNull);
+        container
+            .read(aiPostImportReportProvider.notifier)
+            .publish(
+              PostImportReport(
+                outcome: ApplyAiImportResponse(
+                  (b) => b
+                    ..appliedCount = 3
+                    ..createdDays = 1
+                    ..plannedSceneShoots = 2
+                    ..createdCharacters = 0
+                    ..createdPieces = 0
+                    ..createdOutfits = 0
+                    ..createdEpisodes = 0
+                    ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
+                ),
+                episodeId: 'ep-9',
+              ),
+            );
+        expect(container.read(aiPostImportReportProvider), isNotNull);
+
+        await container.read(sessionResetProvider.notifier).signOut();
+
+        expect(container.read(aiPostImportReportProvider), isNull);
+      },
+    );
 
     test(
       'clears the persisted active-block scopes (no cross-identity leak)',
@@ -443,6 +476,47 @@ void main() {
       expect(state.hasError, isTrue);
       expect((state.error! as ProblemError).code, 'cache.clear_failed');
     });
+
+    test(
+      'a failed cache clear still drops the AI-apply report of the old base '
+      '(issue #759, CodeRabbit #802): the early return must not retain it',
+      () async {
+        setupDevAuth();
+        await container.read(authSessionControllerProvider.notifier).signIn();
+        await seedCacheRow();
+        container
+            .read(aiPostImportReportProvider.notifier)
+            .publish(
+              PostImportReport(
+                outcome: ApplyAiImportResponse(
+                  (b) => b
+                    ..appliedCount = 7
+                    ..createdDays = 1
+                    ..plannedSceneShoots = 2
+                    ..createdCharacters = 0
+                    ..createdPieces = 0
+                    ..createdOutfits = 0
+                    ..createdEpisodes = 0
+                    ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
+                ),
+                episodeId: 'ep-9',
+              ),
+            );
+        expect(container.read(aiPostImportReportProvider), isNotNull);
+        repo.clearCacheResult = const Left(
+          ProblemError(code: 'cache.clear_failed'),
+        );
+
+        final result = await container
+            .read(sessionResetProvider.notifier)
+            .switchBackend('https://dev.example:4000');
+
+        // The failure returns before `_invalidateReadScope()`; the report is
+        // dropped right after the base is set, so no exit path can keep it.
+        expect(result.isLeft(), isTrue);
+        expect(container.read(aiPostImportReportProvider), isNull);
+      },
+    );
   });
 }
 

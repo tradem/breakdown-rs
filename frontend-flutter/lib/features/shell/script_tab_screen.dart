@@ -15,6 +15,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/active_episode.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../ai_import/import_jobs/post_import_report.dart';
+import '../ai_import/import_jobs/post_import_report_card.dart';
 import '../scenes/scene_detail_screen.dart';
 import '../scenes/season_script_controller.dart';
 import 'planning_location.dart';
@@ -34,19 +36,53 @@ import 'view_states.dart';
 /// Tapping a row pushes `SceneDetailScreen` with ids taken from the DTOs
 /// the row was built from — the CQRS boundary is unchanged: no second
 /// projection lookup fills them in.
-class ScriptTabScreen extends ConsumerWidget {
+///
+/// Issue #759: the destination of a completed AI-import apply. A successful
+/// apply publishes [aiPostImportReportProvider] and selects this destination
+/// with the imported episode in scope; the view then renders the apply's report
+/// above the rows and resets its own nested navigator to this root route (a
+/// detail pushed before the apply belongs to the previous scope, and the
+/// destination contract of a landing is "start screen, new content").
+class ScriptTabScreen extends ConsumerStatefulWidget {
   const ScriptTabScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ScriptTabScreen> createState() => _ScriptTabScreenState();
+}
+
+class _ScriptTabScreenState extends ConsumerState<ScriptTabScreen> {
+  @override
+  Widget build(BuildContext context) {
+    // The report is the "you landed here because of an apply" signal (issue
+    // #759). Listening (not watching) keeps the navigation side effect out of
+    // the build result: the pop must happen AFTER the frame that publishes it,
+    // and only once per report.
+    ref.listen(aiPostImportReportProvider, (previous, next) {
+      if (next == null || identical(previous, next)) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        // This widget IS the tab's first route: popping to the first route
+        // closes a detail pushed before the apply without touching the shell's
+        // own stack.
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      });
+    });
+
     final season = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
       // Issue #638: no app bar — the shell's sticky view bar carries the
       // title and the search entry.
-      body: season == null
-          ? const SeasonRequiredView(emptyKey: Key('script-no-season'))
-          : _ScriptBody(season: season),
+      body: Column(
+        children: [
+          const AiPostImportReportCard(),
+          Expanded(
+            child: season == null
+                ? const SeasonRequiredView(emptyKey: Key('script-no-season'))
+                : _ScriptBody(season: season),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -32,6 +32,7 @@ import 'continuity_gap.dart';
 import 'import_submit_screen.dart';
 import 'job_eta.dart';
 import 'job_status_controller.dart';
+import 'post_import_report.dart';
 import '../naming_line.dart';
 
 part 'apply_screen.g.dart';
@@ -335,6 +336,65 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
   /// dropped the outcome entirely (autoDispose notifier: no state write, no
   /// cache invalidation). Spinner on the button + disabled while running.
   bool _applying = false;
+
+  /// Set when a SUCCESSFUL apply could not be routed to its imported material
+  /// (issue #759): no applied episode on the response, or a season / episode
+  /// number the read caches do not hold. The outcome card then says so instead
+  /// of leaving the user to wonder why the screen did not change.
+  bool _navigationUnresolved = false;
+
+  /// The reviewer-rejected day groups (issue #706), resolved to their display
+  /// labels from the apply state's own preview rows — reported, never silent.
+  /// Shared by the inline outcome card and the destination report (issue #759).
+  List<String> _skippedDayLabels(AiApplyState state) => [
+    for (final ref in state.outcome?.skippedDayGroups ?? BuiltList<String>())
+      state.shootingDayOfGroup(ref) == null
+          ? ref
+          : draftShootingDayLabel(state.shootingDayOfGroup(ref)!),
+  ];
+
+  /// Leaves the review screen for the imported material (issue #759).
+  ///
+  /// The destination is the Script view under the imported episode's scope; the
+  /// apply's report travels with it ([PostImportReport]) because the inline
+  /// outcome card dies with this route. A target that cannot be resolved
+  /// honestly keeps the user HERE with the full outcome card plus an explicit
+  /// hint — a half-navigation (wrong season, no episode scope) would show the
+  /// imported rows nowhere while pretending to have opened them.
+  Future<void> _openImportedEpisode(ApplyAiImportResponse outcome) async {
+    final state = ref.read(aiApplyControllerProvider(widget.jobId));
+    final target = await resolvePostImportTarget(
+      ref,
+      jobId: widget.jobId,
+      outcome: outcome,
+      requestEpisodeId: state.context?.episodeId,
+    );
+    if (!mounted) return;
+    if (target == null) {
+      // CodeRabbit #802: a SCHEDULE apply dispatches no episode at all (it
+      // merges onto the project's existing scenes and days), so "the imported
+      // episode could not be opened" would be a claim about something that does
+      // not exist. The hint is for the real failure — episodes WERE applied but
+      // the destination is not resolvable from the read caches.
+      final appliedEpisodes = outcome.appliedEpisodes;
+      setState(
+        () => _navigationUnresolved =
+            appliedEpisodes != null && appliedEpisodes.isNotEmpty,
+      );
+      return;
+    }
+    openImportedEpisode(
+      context,
+      ref,
+      target: target,
+      report: PostImportReport(
+        outcome: outcome,
+        episodeId: target.episodeId,
+        others: target.others,
+        skippedDayLabels: _skippedDayLabels(state),
+      ),
+    );
+  }
 
   @override
   void didUpdateWidget(AiApplySection oldWidget) {
@@ -780,26 +840,10 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 ),
               ),
             if (state.outcome != null)
-              Builder(
-                builder: (context) {
-                  // Skipped day groups resolved to their display labels —
-                  // reported, never silent (issue #706). Nullable on the
-                  // generated type (serde default): null reads as empty.
-                  final skippedDayLabels = [
-                    for (final ref
-                        in state.outcome!.skippedDayGroups ??
-                            BuiltList<String>())
-                      state.shootingDayOfGroup(ref) == null
-                          ? ref
-                          : draftShootingDayLabel(
-                              state.shootingDayOfGroup(ref)!,
-                            ),
-                  ];
-                  return _OutcomeCard(
-                    outcome: state.outcome!,
-                    skippedDayLabels: skippedDayLabels,
-                  );
-                },
+              _OutcomeCard(
+                outcome: state.outcome!,
+                skippedDayLabels: _skippedDayLabels(state),
+                navigationUnresolved: _navigationUnresolved,
               )
             else ...[
               // The EU AI Act transparency panel (issue #608): the same
@@ -837,10 +881,17 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                         setState(() => _applying = true);
                         try {
                           final applied = await controller.apply();
-                          // Explicitly consumed: Err renders the
-                          // code-keyed narrative (controller state); Ok
-                          // renders the outcome summary card.
-                          applied.match<void>((_) {}, (_) {});
+                          // The result is consumed explicitly: an `Err` renders
+                          // the code-keyed narrative (controller state), a `Ok`
+                          // opens the imported material and carries the report
+                          // along (issue #759).
+                          final response = applied
+                              .match<ApplyAiImportResponse?>(
+                                (_) => null,
+                                (value) => value,
+                              );
+                          if (response == null) return;
+                          await _openImportedEpisode(response);
                         } finally {
                           if (mounted) setState(() => _applying = false);
                         }
@@ -987,13 +1038,22 @@ String continuityGapSummaryLine(
 /// The 200 outcome summary (`applied_count`, `created_days`,
 /// `planned_scene_shoots`) + deep navigation into the affected episode.
 class _OutcomeCard extends StatelessWidget {
-  const _OutcomeCard({required this.outcome, this.skippedDayLabels = const []});
+  const _OutcomeCard({
+    required this.outcome,
+    this.skippedDayLabels = const [],
+    this.navigationUnresolved = false,
+  });
 
   final ApplyAiImportResponse outcome;
 
   /// The reviewer-rejected day groups (issue #706), already resolved to
   /// their display labels — reported, never silent.
   final List<String> skippedDayLabels;
+
+  /// Issue #759: the successful apply could not be routed to its imported
+  /// material, so the user is still here. Said explicitly — a silent stay would
+  /// read as "nothing happened".
+  final bool navigationUnresolved;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -1008,29 +1068,29 @@ class _OutcomeCard extends StatelessWidget {
         ),
         child: Text(
           // A script apply that produced figures, pieces or outfits reports
-          // them explicitly. The schedule wording stays the fallback, so a
+          // them explicitly; the schedule wording stays the fallback so a
           // schedule apply — and a server that sends none of these fields —
-          // renders exactly as before instead of showing invented counts.
-          outcome.createdCharacters > 0 ||
-                  outcome.createdPieces > 0 ||
-                  outcome.createdOutfits > 0 ||
-                  outcome.unappliedOutfits.isNotEmpty
-              // The generated signature orders the placeholders
-              // alphabetically (applied, characters, outfits, pieces), not in
-              // message order — pass them in that order.
-              ? l10nOf(context).aiApplyOutcomeScript(
-                  '${outcome.appliedCount}',
-                  '${outcome.createdCharacters}',
-                  '${outcome.createdOutfits}',
-                  '${outcome.createdPieces}',
-                )
-              : l10nOf(context).aiApplyOutcome(
-                  '${outcome.appliedCount}',
-                  '${outcome.createdDays}',
-                  '${outcome.plannedSceneShoots}',
-                ),
+          // renders exactly as before instead of showing invented counts. The
+          // line itself is shared with the destination banner (issue #759), so
+          // both tell the same story.
+          aiApplyOutcomeLine(l10nOf(context), outcome),
         ),
       ),
+      // Issue #759: a successful apply that could not be opened automatically
+      // (no applied episode, or a season/episode the read caches do not hold)
+      // says so, right where the outcome is.
+      if (navigationUnresolved)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            key: const Key('ai-apply-navigation-unresolved'),
+            l10nOf(context).aiApplyNavigationUnresolved,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontSize: 12,
+            ),
+          ),
+        ),
       // Day groups the reviewer rejected: their rows applied unscheduled —
       // reported, never silent (issue #706).
       if (skippedDayLabels.isNotEmpty)
@@ -1276,30 +1336,6 @@ Future<List<EpisodeView>> aiEpisodePickerRows(Ref ref, String jobId) async {
     throw err;
   }, (rows) async => rows);
 }
-
-/// Localized copy for an outfit row the apply could not finish, keyed on the
-/// stable wire enum. `_ => commonUnknown` is forward-compat, not dead code: the
-/// generated enum carries no `$default`, so a reason a future backend adds must
-/// not take the whole outcome card down with it.
-String aiUnappliedOutfitReasonCopy(
-  AppLocalizations l10n,
-  UnappliedOutfitReason reason,
-) => switch (reason) {
-  UnappliedOutfitReason.characterNotPlanned =>
-    l10n.aiApplyUnappliedReasonCharacterNotPlanned,
-  UnappliedOutfitReason.characterUnavailable =>
-    l10n.aiApplyUnappliedReasonCharacterUnavailable,
-  UnappliedOutfitReason.pieceRejected =>
-    l10n.aiApplyUnappliedReasonPieceRejected,
-  UnappliedOutfitReason.createRejected =>
-    l10n.aiApplyUnappliedReasonCreateRejected,
-  UnappliedOutfitReason.notesRejected =>
-    l10n.aiApplyUnappliedReasonNotesRejected,
-  UnappliedOutfitReason.bindingRejected =>
-    l10n.aiApplyUnappliedReasonBindingRejected,
-  UnappliedOutfitReason.beatRejected => l10n.aiApplyUnappliedReasonBeatRejected,
-  _ => l10n.commonUnknown,
-};
 
 /// Live progress of the apply run in flight (issue #762).
 ///
