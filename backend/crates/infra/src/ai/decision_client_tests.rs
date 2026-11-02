@@ -125,8 +125,7 @@ async fn non_2xx_response_forwards_the_provider_body() {
     let error = client
         .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
         .await
-        .err()
-        .expect("a 503 response must fail");
+        .expect_err("a 503 response must fail");
     // 503 keeps its retryable class …
     assert!(
         matches!(
@@ -166,8 +165,7 @@ async fn non_2xx_response_detail_is_bounded() {
     let error = client
         .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
         .await
-        .err()
-        .expect("a 400 response must fail");
+        .expect_err("a 400 response must fail");
     let message = error.to_string();
     let detail = message
         .split_once(" \u{2014} ")
