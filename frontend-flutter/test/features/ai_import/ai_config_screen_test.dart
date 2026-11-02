@@ -410,8 +410,10 @@ void main() {
     ThemeMode mode = ThemeMode.light,
     TargetPlatform? platform,
     double height = 2400,
+    double width = 800,
+    double textScale = 1.0,
   }) async {
-    tester.view.physicalSize = Size(800, height);
+    tester.view.physicalSize = Size(width, height);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     // Restore, don't clear: pumpScreen does not own the platform
@@ -433,7 +435,10 @@ void main() {
             // pose is exactly the remove-animations rendering (spec
             // `flutter-easter-eggs`).
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(disableAnimations: true),
+              data: MediaQuery.of(context).copyWith(
+                disableAnimations: true,
+                textScaler: TextScaler.linear(textScale),
+              ),
               child: child!,
             ),
             home: const AiConfigScreen(),
@@ -2441,6 +2446,83 @@ void main() {
       expect(state.selectedDecisionProviderKey, isNull);
       expect(state.selectedDecisionModelId, isNull);
       expect(repo.updateCalls, 0);
+    });
+
+    test('discard resets the form drafts but never the unresolved-create '
+        'state', () async {
+      await setupContainer();
+      // CodeRabbit review (PR #807): `reset()` dropped `unresolved`, so the
+      // bar's Discard deleted the only in-app handle on an unconfirmed create
+      // (its Re-check / Clean-up actions and the credential's settings
+      // identity). The lifecycle state is not a form value and must survive.
+      final drafts = container.read(aiConfigDraftsProvider.notifier);
+      drafts.mutate((d) {
+        d.selectedDecisionProviderKey = 'neuralwatt';
+        d.decisionProviderTouched = true;
+        d.unresolved = AiConfigUnresolved(
+          settingsId: 'settings-1',
+          settingsVersion: 1,
+          vaultKeyId: 'vk-1',
+          providerKey: 'openai',
+          assistantModelId: 'gpt-5.6-luna',
+          imageModelId: null,
+          scriptPrompt: '',
+          schedulePrompt: '',
+          error: const ProblemError(code: 'transport.connectionTimeout'),
+        );
+      });
+      expect(container.read(aiConfigDraftsProvider).unresolved, isNotNull);
+
+      drafts.reset();
+
+      final reset = container.read(aiConfigDraftsProvider);
+      expect(
+        reset.unresolved,
+        isNotNull,
+        reason: 'lifecycle state is preserved',
+      );
+      expect(
+        reset.selectedDecisionProviderKey,
+        isNull,
+        reason: 'form drafts are dropped',
+      );
+      expect(reset.decisionProviderTouched, isFalse);
+    });
+
+    testWidgets('the dirty action bar stays inside a narrow screen at a large '
+        'text scale', (tester) async {
+      // A `Row` gave the two action labels unbounded width, so a long label at
+      // a large text scale ran past the bar and could hide the save action
+      // (CodeRabbit review, PR #807). The bar wraps now, so nothing overflows
+      // and the primary action keeps its full hit rect on screen.
+      await setupContainer(discoveryValue: Right([_config()]));
+      await pumpScreen(tester, width: 320, height: 1200, textScale: 3.0);
+
+      // Dirty the form through the draft store instead of the pickers: the
+      // ListView is lazy, so at 3x text scale the Decision picker is not even
+      // built, and opening its menu would put the test's overflow assertion on
+      // the menu rather than on the bar.
+      container.read(aiConfigDraftsProvider.notifier).mutate((d) {
+        d.selectedDecisionProviderKey = 'neuralwatt';
+        d.decisionProviderTouched = true;
+        d.selectedDecisionModelId = 'clef-flash';
+        d.decisionModelTouched = true;
+      });
+      await tester.pumpAndSettle();
+
+      // No RenderFlex overflow was reported while laying the bar out.
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('ai-config-unsaved-label')), findsOneWidget);
+
+      final save = find.byKey(const Key('ai-config-edit-save'));
+      expect(save, findsOneWidget);
+      final rect = tester.getRect(save);
+      expect(rect.left, greaterThanOrEqualTo(0.0));
+      expect(
+        rect.right,
+        lessThanOrEqualTo(320.0),
+        reason: 'the save action must stay on screen, got $rect',
+      );
     });
 
     testWidgets('back navigation with unsaved changes asks before discarding '

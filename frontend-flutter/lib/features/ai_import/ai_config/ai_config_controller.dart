@@ -198,7 +198,16 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
   /// configuration (the explicit "discard" action of the screen's
   /// unsaved-changes bar). Touched flags are part of the draft, so a reset
   /// also stops a stale draft pick from shadowing the stored value.
-  void reset() => state = AiConfigDraftData();
+  ///
+  /// [AiConfigDraftData.unresolved] is deliberately PRESERVED: it is not a
+  /// form value but the outcome of an ambiguous create — the only in-app
+  /// handle on the credential's settings identity. Clearing it would delete the
+  /// "configuration state unknown" card together with its Re-check / Clean-up
+  /// actions, leaving an orphaned server-held key that the app can no longer
+  /// resolve (CodeRabbit review, PR #807). The two states can coexist: a
+  /// discovery that later finds the config renders the configured form while
+  /// the create stays unconfirmed.
+  void reset() => state = AiConfigDraftData(unresolved: state.unresolved);
 }
 
 final aiConfigDraftsProvider =

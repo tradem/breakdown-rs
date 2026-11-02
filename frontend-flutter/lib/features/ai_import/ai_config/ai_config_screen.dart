@@ -1389,39 +1389,52 @@ class _ConfigActionBar extends StatelessWidget {
             horizontal: AppSpacing.space16,
             vertical: AppSpacing.space8,
           ),
-          child: Row(
+          // A `Row` does not constrain its non-flexible children, so the two
+          // action labels could neither shrink nor wrap: at a large text scale
+          // on a narrow screen they ran past the bar and pushed the primary
+          // action off-screen. A `Wrap` bounds every child by the bar width, so
+          // a long label wraps INSIDE its button and the actions flow onto a
+          // second line instead — the save action stays reachable at any text
+          // scale (CodeRabbit review, PR #807).
+          child: Wrap(
+            // Dirty: indicator left, actions right on one run (and space-free
+            // wrapping when the width is tight). Clean: the single primary
+            // action keeps its trailing position.
+            alignment: dirty ? WrapAlignment.spaceBetween : WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: AppSpacing.space8,
+            runSpacing: AppSpacing.space4,
             children: [
-              Expanded(
-                child: dirty
-                    ? Row(
-                        children: [
-                          Icon(
-                            Icons.edit_note,
-                            key: const Key('ai-config-unsaved-indicator'),
-                            size: 20,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: AppSpacing.space4),
-                          Expanded(
-                            child: Text(
-                              l10n.aiConfigUnsavedChanges,
-                              key: const Key('ai-config-unsaved-label'),
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : const SizedBox.shrink(),
-              ),
+              if (dirty)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.edit_note,
+                      key: const Key('ai-config-unsaved-indicator'),
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: AppSpacing.space4),
+                    // Flexible: the label wraps inside the remaining width
+                    // instead of overflowing the indicator's own row.
+                    Flexible(
+                      child: Text(
+                        l10n.aiConfigUnsavedChanges,
+                        key: const Key('ai-config-unsaved-label'),
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               if (dirty)
                 TextButton(
                   key: const Key('ai-config-discard-changes'),
                   onPressed: busy ? null : onDiscard,
                   child: Text(l10n.aiConfigDiscardChanges),
                 ),
-              const SizedBox(width: AppSpacing.space8),
               FilledButton(
                 key: const Key('ai-config-edit-save'),
                 onPressed: busy || !canSave ? null : onSave,
