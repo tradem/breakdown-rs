@@ -23,6 +23,35 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **An already-imported preview says so, and a second apply asks first**
+  (`0.4.0-beta.31+123 → 0.4.0-beta.32+124`, backend issue #800). The apply-run
+  progress slot was keyed by job id only, so a re-apply of the same preview could
+  not be told apart from a first one — in the list, on the apply screen, or in the
+  progress bar.
+
+  - **Wire.** `ApplyProgress.run_id` names the run and `AiImportJob.applied`
+    (`bool`, additive, `serde(default)`) carries the server-derived "has this
+    preview ever been imported" fact. The second is deliberately not derived from
+    `applied_episodes`: a schedule apply merges onto existing scenes and reports
+    no target episode, so the summary cannot answer the question.
+  - **The run boundary is the run id, not a timestamp.** The apply card keys its
+    ETA smoothing state on `runId`, so a re-apply (or a reconciled re-dispatch)
+    resets the cadence instead of inheriting the previous run's rate — and frames
+    of ONE run keep smoothing even when their stamps differ.
+  - **`409 ai-import.apply-in-flight` is a wait, not a failure.**
+    `applyWithReconciliation` treats that code as "a run is live, keep waiting"
+    and consumes its bounded budget: the ambiguous-timeout retry legitimately hits
+    it while the first `POST` is still running, so surfacing it as the blocking
+    apply-error card would have been wrong. A dedicated code-keyed narrative
+    ("Für diese Vorschau läuft bereits eine Übernahme …") renders only when the
+    budget is spent while another run is still going.
+  - **"Bereits importiert" badge.** The jobs list renders it from `applied`
+    (persisted in a new additive Drift column, schema v18 → v19, so a cached-first
+    paint shows it instead of flickering in after the live read). The apply
+    button switches to "Erneut anwenden" and opens a confirmation naming what the
+    second run does — the idempotent recovery path for an interrupted apply is
+    kept, it just never looks like a first one.
+
 - **The apply shows staged per-row progress and an ETA** (`0.4.0-beta.30+122 →
   0.4.0-beta.31+123`, backend issue #762). Applying a reviewed preview was a
   bare button spinner for however many minutes a 57-row import took: the apply
