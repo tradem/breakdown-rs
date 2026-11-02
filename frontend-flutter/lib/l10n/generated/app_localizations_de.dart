@@ -616,6 +616,25 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiConfigSaveChanges => 'Änderungen speichern';
 
   @override
+  String get aiConfigUnsavedChanges => 'Ungespeicherte Änderungen';
+
+  @override
+  String get aiConfigDiscardChanges => 'Verwerfen';
+
+  @override
+  String get aiConfigUnsavedTitle => 'Änderungen verwerfen?';
+
+  @override
+  String get aiConfigUnsavedBody =>
+      'Deine Änderungen wurden nicht gespeichert. Beim Verlassen bleibt die gespeicherte Konfiguration bestehen.';
+
+  @override
+  String get aiConfigUnsavedKeepEditing => 'Weiter bearbeiten';
+
+  @override
+  String get aiConfigUnsavedDiscard => 'Verwerfen';
+
+  @override
   String get aiConfigRevokeButton => 'Konfiguration widerrufen';
 
   @override

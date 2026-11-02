@@ -137,6 +137,50 @@ class AiConfigScreenState {
 
   bool get isFirstRun => config == null && discoveryError == null;
 
+  /// True when the rendered form differs from the STORED configuration view.
+  ///
+  /// This screen keeps every edit in ephemeral drafts (see
+  /// [AiConfigDraftData]) and persists nothing until the user presses save, so
+  /// an unnoticed navigation away silently discarded the edit — the reported
+  /// "the Decision Model I picked was never saved" class of loss. The flag
+  /// drives the screen's unsaved-changes surface: the sticky action bar's
+  /// indicator and the back-navigation guard that offers "discard" vs "keep
+  /// editing" instead of dropping the draft.
+  ///
+  /// The comparison runs against the SEEDED baseline, not the raw stored
+  /// values: a prefilled (untouched) prompt field must not read as a user
+  /// edit, and the same-key toggle is compared against the value derived from
+  /// the stored binding for the same reason.
+  bool get hasUnsavedChanges {
+    final stored = config;
+    if (stored == null) return false;
+    if (selectedProviderKey != stored.provider.name) return true;
+    if (selectedAssistantModelId != stored.assistantModel) return true;
+    if (selectedImageModelId != stored.imageModel) return true;
+    if (costDisplayPreference !=
+        (stored.costDisplayPreference ?? CostDisplayPreference.token)) {
+      return true;
+    }
+    if (scriptPrompt != _seededPrompt(DocumentKind.script)) return true;
+    if (schedulePrompt != _seededPrompt(DocumentKind.schedule)) return true;
+    if (selectedDecisionProviderKey != stored.decisionProvider?.name) {
+      return true;
+    }
+    if (selectedDecisionModelId != stored.decisionModel) return true;
+    if (useSameDecisionKey != storedDecisionUsesSameKey(stored)) return true;
+    return false;
+  }
+
+  /// The prompt text the form is SEEDED with for [kind] — mirror of the
+  /// controller's `promptSeed`: a non-empty stored prompt wins, otherwise the
+  /// deployment default (or an empty field when the defaults fetch failed).
+  String _seededPrompt(DocumentKind kind) {
+    final stored =
+        config?.prompts[kind == DocumentKind.script ? 'script' : 'schedule'];
+    if (stored != null && stored.isNotEmpty) return stored;
+    return promptDefaultFor(kind) ?? '';
+  }
+
   AiConfigScreenState copyWith({
     AiConfigView? config,
     bool clearConfig = false,
@@ -195,6 +239,18 @@ class AiConfigScreenState {
     promptDefaults: promptDefaults ?? this.promptDefaults,
   );
 }
+
+/// Whether the STORED config's Decision binding is the same-key form: no
+/// decision key at all (nothing split), or the stored decision key IS the
+/// stored extraction key. Until the user flips the toggle, this is the value
+/// the screen derives the "Use same API key as extraction" switch from — and
+/// therefore also the baseline [AiConfigScreenState.hasUnsavedChanges]
+/// compares against (a stored split-billing binding must not read as a dirty
+/// toggle).
+bool storedDecisionUsesSameKey(AiConfigView? config) =>
+    config == null ||
+    config.decisionVaultKeyId == null ||
+    config.decisionVaultKeyId == config.vaultKeyId;
 
 /// The unresolved create outcome: the credential hand-off (Settings
 /// aggregate) exists but the config commit is unconfirmed. The UI offers

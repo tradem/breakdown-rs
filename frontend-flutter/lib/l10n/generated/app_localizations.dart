@@ -1100,6 +1100,42 @@ abstract class AppLocalizations {
   /// **'Änderungen speichern'**
   String get aiConfigSaveChanges;
 
+  /// No description provided for @aiConfigUnsavedChanges.
+  ///
+  /// In de, this message translates to:
+  /// **'Ungespeicherte Änderungen'**
+  String get aiConfigUnsavedChanges;
+
+  /// No description provided for @aiConfigDiscardChanges.
+  ///
+  /// In de, this message translates to:
+  /// **'Verwerfen'**
+  String get aiConfigDiscardChanges;
+
+  /// No description provided for @aiConfigUnsavedTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Änderungen verwerfen?'**
+  String get aiConfigUnsavedTitle;
+
+  /// No description provided for @aiConfigUnsavedBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Deine Änderungen wurden nicht gespeichert. Beim Verlassen bleibt die gespeicherte Konfiguration bestehen.'**
+  String get aiConfigUnsavedBody;
+
+  /// No description provided for @aiConfigUnsavedKeepEditing.
+  ///
+  /// In de, this message translates to:
+  /// **'Weiter bearbeiten'**
+  String get aiConfigUnsavedKeepEditing;
+
+  /// No description provided for @aiConfigUnsavedDiscard.
+  ///
+  /// In de, this message translates to:
+  /// **'Verwerfen'**
+  String get aiConfigUnsavedDiscard;
+
   /// No description provided for @aiConfigRevokeButton.
   ///
   /// In de, this message translates to:

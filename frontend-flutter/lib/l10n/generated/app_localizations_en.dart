@@ -605,6 +605,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiConfigSaveChanges => 'Save changes';
 
   @override
+  String get aiConfigUnsavedChanges => 'Unsaved changes';
+
+  @override
+  String get aiConfigDiscardChanges => 'Discard';
+
+  @override
+  String get aiConfigUnsavedTitle => 'Discard changes?';
+
+  @override
+  String get aiConfigUnsavedBody =>
+      'Your changes were not saved. Leaving now keeps the stored configuration.';
+
+  @override
+  String get aiConfigUnsavedKeepEditing => 'Keep editing';
+
+  @override
+  String get aiConfigUnsavedDiscard => 'Discard';
+
+  @override
   String get aiConfigRevokeButton => 'Revoke configuration';
 
   @override

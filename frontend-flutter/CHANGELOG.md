@@ -23,6 +23,38 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A changed Decision Model can no longer be lost by leaving the AI-config
+  screen** (`0.4.0-beta.33+125 → 0.4.0-beta.34+126`, follow-up to frontend issue
+  #769). The reported symptom — "I configured the Decision Model, the app said
+  it was configured, the backend had nothing" — was **not** a persistence
+  defect: the credential and PATCH chain works (verified against the running
+  environment: a PATCH with the triple appends the event, updates the
+  projection and is served back). The write was never **dispatched**, because
+  the form keeps its edits in ephemeral drafts and the only save affordance sat
+  at the very end of a long, scrolling form. A pick made in the middle of the
+  form was therefore silently dropped on leaving the screen — and #769/#780's
+  read-back verification could not fire, because it only runs on a dispatched
+  PATCH.
+  - **Material 3 persistent primary action.** The configured form's save action
+    moved out of the scrolling content into a sticky action bar below the list,
+    so it is reachable without scrolling — the missing affordance behind the
+    lost edit.
+  - **Unsaved changes are named, not implied.** While the draft differs from the
+    stored view the bar shows "Unsaved changes" plus an explicit **Discard**
+    action that resets the draft to the stored configuration without sending a
+    command. The baseline is the SEEDED form (a prefilled prompt or a
+    stored-derived same-key toggle is not an edit), and clearing a stored
+    Decision Model counts as a change like setting one.
+  - **Back navigation asks before discarding.** `PopScope` + the Material
+    "discard changes?" dialog ("Keep editing" / "Discard"): leaving with a
+    pending draft is now a decision, never a silent loss. Without unsaved
+    changes the screen pops immediately.
+  - **Not covered deliberately:** auto-save on every field change. The save
+    fans out into a credential hand-off and a version-echoed PATCH, so a
+    debounced implicit write would re-bind keys and burn aggregate versions on
+    every keystroke — an explicit, always-visible commit is the honest shape for
+    this form.
+
 - **The apply lands on the imported episode, and the app refreshes itself**
   (`0.4.0-beta.32+124 → 0.4.0-beta.33+125`, frontend issue #759). Applying a
   reviewed preview used to end where it started: the outcome card rendered on the
