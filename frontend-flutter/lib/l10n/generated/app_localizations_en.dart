@@ -1361,6 +1361,25 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiApplyProgressWaiting => 'Applying – determining row progress …';
+
+  @override
+  String aiApplyProgressRows(String applied, String total) {
+    return 'Row $applied of $total applied';
+  }
+
+  @override
+  String get aiApplyProgressFinalizing => 'All rows applied – finishing up …';
+
+  @override
+  String aiApplyProgressStreamError(String code) {
+    return 'Row progress could not be loaded ($code). The apply keeps running on the server.';
+  }
+
+  @override
+  String get aiApplyProgressRetry => 'Retry progress';
+
+  @override
   String get aiApplySubmit => 'Apply import';
 
   @override

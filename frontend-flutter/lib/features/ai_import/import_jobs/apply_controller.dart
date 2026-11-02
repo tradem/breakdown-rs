@@ -7,6 +7,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,8 +16,11 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
+import '../../../auth/membership_gate.dart';
+import '../../../auth/membership/membership_providers.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart';
+import '../../../data/cache/hierarchy_cache_dao.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../domain/reconciliation/reconciliation_scheduler.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -33,6 +37,182 @@ part 'apply_controller.g.dart';
 @riverpod
 Future<Result<AiImportPreviewResponse>> aiPreview(Ref ref, String jobId) =>
     ref.watch(aiImportRepositoryProvider).getPreview(jobId);
+
+/// What the apply-run progress card is looking at (issue #762).
+///
+/// A bare `ApplyProgress?` flattens three different situations into `null` —
+/// nothing started yet, a run that **ended** (the server's final `null` frame
+/// arrives while the `POST` is still out), and a stream that failed — so the
+/// card would have to guess. The fold in [aiApplyRun] happens once, here, and
+/// the card renders a state.
+sealed class AiApplyRunState {
+  const AiApplyRunState();
+}
+
+/// The stream has not reported a run yet (the `POST` has not reached the
+/// worker, or the connecting snapshot is still in flight). Nothing to estimate.
+class AiApplyRunIdle extends AiApplyRunState {
+  const AiApplyRunIdle();
+}
+
+/// A run is in flight and published [progress].
+class AiApplyRunRunning extends AiApplyRunState {
+  const AiApplyRunRunning(this.progress);
+
+  final ApplyProgress progress;
+}
+
+/// The run ENDED: the server sent its final `null` frame after [last] was
+/// reached. The `POST` is still out, so this is the finishing state — never the
+/// pre-start copy, which would claim a started run has not started.
+class AiApplyRunFinished extends AiApplyRunState {
+  const AiApplyRunFinished(this.last);
+
+  final ApplyProgress last;
+}
+
+/// The stream gave up (reconnect budget spent, `403`/`404`, a frame the
+/// serializers reject). [last] is whatever the run had published before the
+/// failure — `null` when the failure came first. Surfaced, never dropped: a
+/// swallowed failure left the card claiming "determining row progress" for the
+/// rest of the `POST`.
+class AiApplyRunFailed extends AiApplyRunState {
+  const AiApplyRunFailed(this.error, {this.last});
+
+  final ProblemError error;
+  final ApplyProgress? last;
+}
+
+/// The client-side AUTHZ-GATE denied the watch, so **no request was issued**
+/// (AGENTS.md §5, D6).
+///
+/// `membership.pending` is not a denial: the membership (or the job's season)
+/// has not resolved yet, so the card keeps the waiting line and the gate
+/// re-evaluates on its own. Any other code is the resolved 403 narrative.
+class AiApplyRunDenied extends AiApplyRunState {
+  const AiApplyRunDenied(this.error);
+
+  final ProblemError error;
+
+  /// True while the gate is merely unresolved (disabled, never denied — D3).
+  bool get isPending => error.code == 'membership.pending';
+}
+
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
+@riverpod
+Stream<AiApplyRunState> aiApplyRun(Ref ref, String jobId) async* {
+  final cancelToken = CancelToken();
+  ref.onDispose(cancelToken.cancel);
+  final repo = ref.watch(aiImportRepositoryProvider);
+  // // AUTHZ-GATE: the apply-events route is handler-internally gated
+  // (ownership + an active costume-department role in the job's season), so
+  // the client mirror runs BEFORE the stream opens and a denial issues zero
+  // requests (AGENTS.md §5, D6). A pending membership — or a season scope that
+  // has not resolved — DISABLES the watch (the card shows its waiting line)
+  // and never denies; the gate re-evaluates when either resolves, because both
+  // are `watch`ed.
+  final gate = ref.watch(aiApplyStreamGateProvider(jobId).future);
+  final denial = await gate;
+  if (denial != null) {
+    yield AiApplyRunDenied(denial);
+    return;
+  }
+  yield* foldApplyRun(repo.watchApplyProgress(jobId, cancelToken: cancelToken));
+}
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+@riverpod
+Future<String?> aiApplyJobSeasonId(Ref ref, String jobId) async {
+  final info = await ref.watch(aiJobBlockInfoProvider(jobId).future);
+  final blockId = info?.blockId;
+  if (blockId == null || blockId.isEmpty) return null;
+  final cached = await BlockCacheDao(ref.watch(cacheDatabaseProvider))
+      .readById(blockId);
+  if (cached != null) return cached.seasonId;
+  // Cold cache / offline: the single-block read is the only remaining source
+  // for the season. A failed read answers `null` — pending, never a denial.
+  final fetched = await ref.watch(episodeRepositoryProvider).blockById(blockId);
+  return fetched.fold((_) => null, (block) => block.seasonId);
+}
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+@riverpod
+Future<ProblemError?> aiApplyStreamGate(Ref ref, String jobId) async {
+  final seasonId = await ref.watch(aiApplyJobSeasonIdProvider(jobId).future);
+  if (seasonId == null) {
+    return const ProblemError(code: 'membership.pending');
+  }
+  final SeasonMembershipDto? membership;
+  try {
+    final fetched = await ref.watch(membershipFetchProvider(seasonId).future);
+    membership = fetched.getRight().toNullable();
+  } on Object {
+    // A transport error is not a resolved denial: the watch stays disabled
+    // until the membership fetch is retried (D3).
+    return const ProblemError(code: 'membership.pending');
+  }
+  return switch (checkAiImportCapability(membership)) {
+    GateAllow() => null,
+    GateDeny(:final code) => ProblemError(
+      code: code,
+      status: code == 'membership.pending' ? null : 403,
+    ),
+  };
+}
+
+/// Fold the apply stream's `Result<ApplyProgress?>` events into card states.
+///
+/// Kept as a pure function (the provider only wires the cancel token) so the
+/// distinction the card depends on — nothing started yet vs. a run that ended
+/// vs. a failed stream — is unit-testable without a repository, a container or
+/// a socket.
+Stream<AiApplyRunState> foldApplyRun(
+  Stream<Result<ApplyProgress?>> events,
+) async* {
+  ApplyProgress? last;
+  await for (final event in events) {
+    yield event.match<AiApplyRunState>(
+      (error) => AiApplyRunFailed(error, last: last),
+      (progress) {
+        if (progress == null) {
+          // The run's end signal — or, before any run, "nothing started yet".
+          final ended = last;
+          return ended == null
+              ? const AiApplyRunIdle()
+              : AiApplyRunFinished(ended);
+        }
+        last = progress;
+        return AiApplyRunRunning(progress);
+      },
+    );
+  }
+}
 
 /// The per-row apply decision (task 4.2). The `draft_ref` is carried
 /// VERBATIM from the preview row the user acted on — never recomputed,
@@ -1038,6 +1218,13 @@ class AiApplyController extends _$AiApplyController {
       jobId,
       request,
       scheduler: ref.read(reconciliationSchedulerProvider),
+      // A retry is a NEW server-side run: the first run's end frame has
+      // already closed the card's subscription, so re-arm it instead of
+      // leaving the retry's progress unwatched. The POST is not cancelled —
+      // only the stream is re-opened (`watchApplyProgress` re-subscribes).
+      onAttempt: (_) {
+        if (ref.mounted) ref.invalidate(aiApplyRunProvider(jobId));
+      },
     );
     switch (outcome) {
       case ApplySucceeded(:final response):

@@ -2428,6 +2428,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 applied_episodes: Vec::new(),
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
+                apply_progress: None,
             },
         );
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -2555,6 +2556,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 applied_episodes: Vec::new(),
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
+                apply_progress: None,
             },
         );
         self.hub.notify(request.id);
@@ -2589,6 +2591,26 @@ impl AiImportQueue for FakeAiImportQueue {
             job.progress = Some(progress.clone());
             job.updated_at = Utc::now();
         }
+        self.hub.notify(id);
+        Ok(())
+    }
+
+    /// Mirror the Postgres adapter's apply-progress write (issue #762): the
+    /// payload is stored only while the job is `succeeded`, and every write
+    /// wakes the stream.
+    async fn mark_apply_progress(
+        &self,
+        id: AiImportJobId,
+        progress: Option<&breakdown_core::ai::ApplyProgress>,
+    ) -> Result<(), DomainError> {
+        let mut jobs = self.jobs.lock().await;
+        if let Some(job) = jobs.get_mut(&id.as_uuid())
+            && job.status == JobStatus::Succeeded
+        {
+            job.apply_progress = progress.cloned();
+            job.updated_at = Utc::now();
+        }
+        drop(jobs);
         self.hub.notify(id);
         Ok(())
     }

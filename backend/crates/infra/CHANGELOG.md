@@ -16,6 +16,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.64.0] - Unreleased
+
+### Added — the apply worker reports its own progress (issue #762)
+
+- Migration `20261103000001`: `ai_import.ai_import_job.apply_progress` (JSONB,
+  nullable). `NULL` means "no apply in flight": every pre-#762 row, a preview
+  nobody applied yet, and a finished run. The progress writes are advisory, so
+  `NULL` is also the state of a running apply whose write has not landed yet —
+  a reader must never treat it as proof that nothing is running.
+- `PgAiImportQueue::mark_apply_progress` writes the payload only while the job
+  is `succeeded` — it never touches the claim, the lease or the status — and
+  every write wakes the job's subscription, so the apply stream pushes frames
+  without polling.
+- `ApplyWorker::apply_script` publishes the run: an anchor and the plan's row
+  count up front, one frame per completed row through a bounded stride (always
+  the last row), a `finalizing` boundary for the trailing work, and an explicit
+  clear on **every** exit path — a failed apply that left "applying 12/57"
+  behind would keep the client's stream open until the staleness window.
+- Progress writes are advisory here: a failed write is logged and swallowed
+  (the rows already dispatched are committed), the opposite trade-off from the
+  owner-fenced worker writes that must abort before the next billable call.
+- Consumes `breakdown_core` 0.55.0.
+- Public API change: **0.63.0 → 0.64.0** (MINOR).
+
 ## [0.63.0] - Unreleased
 
 ### Added — ETA anchor and byte budget on the published progress frames (issue #762)

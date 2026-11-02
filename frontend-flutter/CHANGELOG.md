@@ -23,6 +23,71 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The apply shows staged per-row progress and an ETA** (`0.4.0-beta.30+122 →
+  0.4.0-beta.31+123`, backend issue #762). Applying a reviewed preview was a
+  bare button spinner for however many minutes a 57-row import took: the apply
+  is one synchronous `POST` and the job stream had already closed on its
+  terminal frame, so nothing reported what it was doing.
+
+  - **Wire.** `AiImportJob.apply_progress` (`stage`, `applied`, `total`,
+    `started_at`, `updated_at`; additive, `serde(default)`) plus a dedicated
+    stream `GET /v1/ai-import/jobs/{id}/apply-events`. The job stream cannot
+    carry this: an apply runs against a job that is already `succeeded`, so its
+    stream closes on the first frame.
+  - **Subscription lifetime = run lifetime.** `AiApplyProgressCard` mounts only
+    while the submit is in flight and watches `aiApplyRunProvider`, which
+    subscribes to the apply stream and disposes with the card — no background
+    subscription, no polling (the #547/#664 decision stands). A frame whose
+    `apply_progress` is `null` is the run's end and closes the watcher.
+  - **Progress.** A determinate bar on `applied / total`, the localized
+    "Zeile n von m übernommen" counter (replaced by "Abschluss läuft …" in the
+    `finalizing` stage), and — from the SAME pure estimator as the extraction
+    phase (`estimateEtaFrom`) — a coarse ETA: "Noch ca. 3 min", a range when the
+    cadence is unsteady, nothing before two rows, and "verzögert" when frames
+    stop. A run that has not published anything yet renders the indeterminate
+    line instead of a guessed number.
+  - **Every stream outcome is a state, not a `null`.** `aiApplyRunProvider`
+    folds the frames (`foldApplyRun`) into `idle` / `running` / `finished` /
+    `failed` instead of flattening them into `ApplyProgress?`: the run's final
+    `null` frame keeps the finishing counters on screen (the `POST` is still
+    out, so the pre-start line would claim a started run never started), and a
+    failed watch (reconnect budget spent, 403/404, a frame the serializers
+    reject) renders the code-keyed "Zeilenfortschritt konnte nicht geladen
+    werden (…) — der Import läuft serverseitig weiter" notice with a retry
+    affordance instead of silently claiming "Zeilenfortschritt wird ermittelt
+    …" for the rest of the run.
+  - **A retry re-arms the watch.** `applyWithReconciliation` reports every
+    attempt after the first (`onAttempt`), and the controller invalidates the
+    run provider with it — a reconciled re-dispatch is a NEW server-side run
+    whose frames would otherwise go unwatched (the first run's end frame had
+    already closed the subscription).
+  - **Goldens.** Five `matchesGoldenFile` cases (pending, running, finalizing,
+    ended, failed) in the German template locale, next to the existing widget
+    and fold tests.
+  - **AUTHZ-GATE before the stream opens** (D6). `aiApplyRunProvider` mirrors
+    the apply-events handler gate: it resolves the job's own season (cached
+    `block_id` → `BlockCacheDao`, a single-block read on a cold cache), reads
+    the backend-computed season predicate through `checkAiImportCapability`,
+    and only then opens the stream. A denial issues **zero** requests and
+    renders the localized 403 narrative; a pending membership (or an
+    unresolved season scope) DISABLES the watch with the waiting line — never a
+    denial-by-absence — and re-evaluates on its own, because the gate is a
+    derived provider. Six Tier-1 tests, including a fake-repository call count
+    of zero on denial.
+  - **Idle closes no longer burn the reconnect budget.** The server closes an
+    apply stream that saw no run within its 2-minute idle window; that is not a
+    failure (the `POST` is still out, nothing was missed), so
+    `watchApplyProgress` counts it against a separate, deliberately generous
+    `kMaxApplyIdleReconnects` instead of `kMaxJobWatchAttempts`. Three Tier-1
+    tests: idle reconnects keep the watch alive, they are still bounded, and a
+    connection that carried frames but no end signal still counts as a real
+    failure.
+  - **Two honesty fixes in the card.** The ETA is neither computed nor rendered
+    once no row work is left (the `finalizing` stage showed "Almost done …"
+    next to an already-finished counter), and the completion copy is only shown
+    when the run actually reached its plan — an apply that failed partway ends
+    with the same end frame, and its row counter must stay visible.
+
 - **The extraction phase shows an honest, coarse ETA** (`0.4.0-beta.29+121 →
   0.4.0-beta.30+122`, backend issue #762). The job-status screen had a
   determinate chunk bar but nothing about the remaining time, and the client

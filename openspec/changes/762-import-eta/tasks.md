@@ -69,23 +69,23 @@
 - [x] 5.5 `frontend-flutter/CHANGELOG.md` + pubspec bump
       (`0.4.0-beta.29+121` → `0.4.0-beta.30+122`).
 
-## 6. Apply progress (PR 2 — stacked)
+## 6. Apply progress (PR 2 — stacked) — shipped
 
-- [ ] 6.1 Core: `ApplyProgress` (`applied`, `total`, `stage`, `started_at`) and
+- [x] 6.1 Core: `ApplyProgress` (`applied`, `total`, `stage`, `started_at`) and
       `AiImportJob.apply_progress` (additive, `serde(default)`).
-- [ ] 6.2 Migration: `ai_import.ai_import_job.apply_progress` (`JSONB`) + the
+- [x] 6.2 Migration: `ai_import.ai_import_job.apply_progress` (`JSONB`) + the
       down migration.
-- [ ] 6.3 Queue port: `mark_apply_progress` (not owner-fenced — the job is
+- [x] 6.3 Queue port: `mark_apply_progress` (not owner-fenced — the job is
       already terminal when the apply runs) + `PgAiImportQueue` implementation
       that only writes while the job is `succeeded`.
-- [ ] 6.4 `ApplyWorker::apply_script`: publish staged, throttled progress (plan
+- [x] 6.4 `ApplyWorker::apply_script`: publish staged, throttled progress (plan
       total known up front, one write per N rows plus a final frame) — derived
       from the plan the worker already holds, never from a projection read.
-- [ ] 6.5 API: `GET /ai-import/jobs/{id}/apply-events` SSE (same snapshot-first
+- [x] 6.5 API: `GET /ai-import/jobs/{id}/apply-events` SSE (same snapshot-first
       contract and anti-buffering headers as the job stream, same AUTHZ-GATE).
-- [ ] 6.6 openapi.yaml + Dart client regeneration, contract tests.
-- [ ] 6.7 Flutter: apply screen watches the apply stream while the POST is in
+- [x] 6.6 openapi.yaml + Dart client regeneration, contract tests.
+- [x] 6.7 Flutter: apply screen watches the apply stream while the POST is in
       flight, renders staged per-row progress and the same coarse ETA (or the
       documented indeterminate fallback).
-- [ ] 6.8 Tests: the apply-progress write does not disturb the job lease or the
+- [x] 6.8 Tests: the apply-progress write does not disturb the job lease or the
       terminal-state semantics; the SSE close condition is covered.

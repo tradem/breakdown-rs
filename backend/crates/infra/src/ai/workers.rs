@@ -17,10 +17,10 @@ use std::collections::HashMap;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
-    ApplyGateError, ApplyMapping, ApplyMappingDecision, CategoryVocabularyEntry,
-    CharacterApplyPlan, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry,
-    DocumentKind, DraftScene, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest, LlmClient,
-    MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
+    ApplyGateError, ApplyMapping, ApplyMappingDecision, ApplyProgress, ApplyStage,
+    CategoryVocabularyEntry, CharacterApplyPlan, CostBreakdown, DecisionClient, DecisionOutcome,
+    DecisionTelemetry, DocumentKind, DraftScene, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest,
+    LlmClient, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
     PlannedShootingDay, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
     ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
     UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
@@ -2028,7 +2028,36 @@ where
         }
     }
 
+    /// Apply one reviewed script preview, publishing the run's progress
+    /// (issue #762).
+    ///
+    /// The wrapper exists for exactly one reason: the apply stream must learn
+    /// that the run ended on **every** exit path. The run's payload is cleared
+    /// here, after `run_script_apply` returned either way — a failed apply that
+    /// left "applying 12/57" behind would keep the client's stream open until
+    /// the staleness window expired.
     pub async fn apply_script(
+        &self,
+        request: ApplyScriptRequest<'_>,
+    ) -> Result<ScriptApplyResult, DomainError> {
+        let preview_id = request.preview_id;
+        let result = self.run_script_apply(request).await;
+        // Advisory: clearing the run progress must never turn a successful
+        // apply into a failure, nor replace the real error on the way out.
+        if let Err(error) = self.queue.mark_apply_progress(preview_id, None).await {
+            tracing::warn!(
+                job_id = %preview_id.as_uuid(),
+                %error,
+                "failed to clear the AI import apply progress; the stream will \
+                 close on its staleness window instead"
+            );
+        }
+        result
+    }
+
+    /// The actual script apply (see [`Self::apply_script`] for the public
+    /// entry point).
+    async fn run_script_apply(
         &self,
         request: ApplyScriptRequest<'_>,
     ) -> Result<ScriptApplyResult, DomainError> {
@@ -2140,6 +2169,22 @@ where
         // (CodeRabbit review). Deterministic across retries: the rows are
         // processed in the same plan order.
         let mut fallback_order: u32 = 0;
+        // Issue #762: the apply's own progress. The plan is the total (the
+        // worker holds it already — never a projection read), the anchor is
+        // this run's start, and the throttled writes below keep the dedicated
+        // apply stream fed without a per-row write storm.
+        let mut apply_progress = ApplyProgress {
+            stage: ApplyStage::Applying,
+            applied: 0,
+            total: u32::try_from(plan.scenes.len()).unwrap_or(u32::MAX),
+            started_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        // At most ~20 frames for the row phase, and always the last row: a
+        // 57-row apply is fine per row, a 5000-row one is not.
+        let progress_stride = (apply_progress.total / 20).max(1);
+        self.publish_apply_progress(preview_id, &apply_progress)
+            .await;
 
         for row in &plan.scenes {
             // `(episode, created by THIS apply)` — the flag decides whether the
@@ -2553,11 +2598,50 @@ where
                     result.planned_scene_shoots += 1;
                 }
             }
+            // One completed row (issue #762). Throttled: the stride keeps the
+            // write count bounded for a large preview, the last row and the
+            // finalizing boundary always write.
+            apply_progress.applied = apply_progress.applied.saturating_add(1);
+            let last_row = apply_progress.applied >= apply_progress.total;
+            if last_row || apply_progress.applied.is_multiple_of(progress_stride) {
+                self.publish_apply_progress(preview_id, &apply_progress)
+                    .await;
+            }
         }
+        // Every row is dispatched; the trailing work (episode summary,
+        // telemetry) is still running (issue #762).
+        apply_progress.stage = ApplyStage::Finalizing;
+        apply_progress.updated_at = chrono::Utc::now();
+        self.publish_apply_progress(preview_id, &apply_progress)
+            .await;
         if let Some(telemetry) = telemetry {
             self.queue.record_telemetry(preview_id, telemetry).await?;
         }
         Ok(result)
+    }
+
+    /// Publish one apply-progress frame, treating the write as **advisory**
+    /// (issue #762).
+    ///
+    /// A failed progress write must never abort an apply: the rows already
+    /// dispatched are committed, and losing a visibility frame costs a stale
+    /// bar, not a broken import. Every error is therefore logged and swallowed
+    /// — the opposite trade-off from the owner-fenced worker writes, where a
+    /// lost claim must abort before the next billable call.
+    async fn publish_apply_progress(&self, preview_id: AiImportJobId, progress: &ApplyProgress) {
+        let mut frame = progress.clone();
+        frame.updated_at = chrono::Utc::now();
+        if let Err(error) = self
+            .queue
+            .mark_apply_progress(preview_id, Some(&frame))
+            .await
+        {
+            tracing::warn!(
+                job_id = %preview_id.as_uuid(),
+                %error,
+                "advisory AI import apply progress write failed; continuing the apply"
+            );
+        }
     }
 
     /// Fill in the decisions the reviewer did not send because their rows are

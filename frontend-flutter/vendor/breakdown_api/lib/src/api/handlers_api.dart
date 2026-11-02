@@ -9745,6 +9745,56 @@ class HandlersApi {
     );
   }
 
+  /// Push-based **apply-run** progress stream (issue #762).
+  /// Why a second stream: an apply is a &#x60;POST&#x60; against a job that is already &#x60;succeeded&#x60;, so the job stream has closed by the time the apply starts — the job&#39;s status never changes during the run. This endpoint streams the run&#39;s own state (&#x60;AiImportJob.apply_progress&#x60;) instead, with the same contract as the job stream:  * snapshot-first — the first frame is the current run state, so a   reconnecting client needs no replay buffer; * subsequent frames are pushed through the queue&#39;s wake-up port, and every   frame re-reads the authoritative row (duplicate notifications are   harmless); * anti-buffering headers identical to the job stream.  The stream ends when the run ends: the worker clears &#x60;apply_progress&#x60; on every exit path, and the final frame carries &#x60;null&#x60;. Two defensive rules bound a stream that would otherwise never see that event:  * the stream waits (instead of closing) while no run has started yet — a   client may subscribe a moment before its &#x60;POST&#x60; reaches the handler — and   closes after [&#x60;SSE_APPLY_TICK_SECS&#x60;] worth of ticks with nothing to say; * a run payload older than   [&#x60;ApplyProgress::STALE_AFTER&#x60;](breakdown_core::ai::ApplyProgress) is   treated as finished, so a crashed apply cannot pin a connection open.
+  ///
+  /// Parameters:
+  /// * [id]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> streamAiImportApplyEvents({
+    required String id,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ai-import/jobs/{id}/apply-events'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
+
   /// Push-based job progress stream (issue #664, ADR-038 D1).
   /// Snapshot-first: the first frame on every initial connect AND every &#x60;Last-Event-ID&#x60; reconnect is the full authoritative [&#x60;AiImportJobResponse&#x60;] — no catch-up polling and no server-side replay buffer are needed (the header is accepted per the SSE contract, but a fresh snapshot makes replaying old events unnecessary).  Subsequent frames are pushed via the queue&#39;s storage-agnostic [&#x60;subscribe&#x60;](breakdown_core::ai::AiImportQueue::subscribe) wake-up port; every frame re-reads the authoritative row, so duplicate notifications (local hub + echoed &#x60;pg_notify&#x60;) and receiver lag are harmless.  The stream closes immediately after emitting a frame whose job status is terminal (&#x60;succeeded&#x60;, &#x60;dead_letter&#x60;, &#x60;payload_unavailable&#x60;); retryable &#x60;failed&#x60; keeps it open across the backoff window.
   ///

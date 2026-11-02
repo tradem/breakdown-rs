@@ -1380,6 +1380,27 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiApplyProgressWaiting =>
+      'Import läuft – Zeilenfortschritt wird ermittelt …';
+
+  @override
+  String aiApplyProgressRows(String applied, String total) {
+    return 'Zeile $applied von $total übernommen';
+  }
+
+  @override
+  String get aiApplyProgressFinalizing =>
+      'Alle Zeilen übernommen – Abschluss läuft …';
+
+  @override
+  String aiApplyProgressStreamError(String code) {
+    return 'Zeilenfortschritt konnte nicht geladen werden ($code). Der Import läuft serverseitig weiter.';
+  }
+
+  @override
+  String get aiApplyProgressRetry => 'Fortschritt erneut laden';
+
+  @override
   String get aiApplySubmit => 'Import anwenden';
 
   @override

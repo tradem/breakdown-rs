@@ -108,6 +108,383 @@ final class AiPreviewFamily extends $Family
   String toString() => r'aiPreviewProvider';
 }
 
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
+
+@ProviderFor(aiApplyRun)
+final aiApplyRunProvider = AiApplyRunFamily._();
+
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
+
+final class AiApplyRunProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<AiApplyRunState>,
+          AiApplyRunState,
+          Stream<AiApplyRunState>
+        >
+    with $FutureModifier<AiApplyRunState>, $StreamProvider<AiApplyRunState> {
+  /// Live progress of the apply run in flight (issue #762).
+  ///
+  /// Subscribed by the apply screen only while its `POST` is out, so the stream
+  /// exists exactly as long as the run does — no background subscription, no
+  /// polling. The stream is a second SSE channel because an apply runs against a
+  /// job that is already `succeeded` (its own stream has closed):
+  /// `GET /v1/ai-import/jobs/{id}/apply-events`.
+  ///
+  /// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+  /// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+  /// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+  /// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+  /// stays [AiApplyRunIdle].
+  AiApplyRunProvider._({
+    required AiApplyRunFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiApplyRunProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiApplyRunHash();
+
+  @override
+  String toString() {
+    return r'aiApplyRunProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $StreamProviderElement<AiApplyRunState> $createElement(
+    $ProviderPointer pointer,
+  ) => $StreamProviderElement(pointer);
+
+  @override
+  Stream<AiApplyRunState> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiApplyRun(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiApplyRunProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiApplyRunHash() => r'1019fd76df943a9d9b3654024457f6d28704bb1a';
+
+/// Live progress of the apply run in flight (issue #762).
+///
+/// Subscribed by the apply screen only while its `POST` is out, so the stream
+/// exists exactly as long as the run does — no background subscription, no
+/// polling. The stream is a second SSE channel because an apply runs against a
+/// job that is already `succeeded` (its own stream has closed):
+/// `GET /v1/ai-import/jobs/{id}/apply-events`.
+///
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
+
+final class AiApplyRunFamily extends $Family
+    with $FunctionalFamilyOverride<Stream<AiApplyRunState>, String> {
+  AiApplyRunFamily._()
+    : super(
+        retry: null,
+        name: r'aiApplyRunProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// Live progress of the apply run in flight (issue #762).
+  ///
+  /// Subscribed by the apply screen only while its `POST` is out, so the stream
+  /// exists exactly as long as the run does — no background subscription, no
+  /// polling. The stream is a second SSE channel because an apply runs against a
+  /// job that is already `succeeded` (its own stream has closed):
+  /// `GET /v1/ai-import/jobs/{id}/apply-events`.
+  ///
+  /// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+  /// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+  /// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+  /// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+  /// stays [AiApplyRunIdle].
+
+  AiApplyRunProvider call(String jobId) =>
+      AiApplyRunProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiApplyRunProvider';
+}
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+
+@ProviderFor(aiApplyJobSeasonId)
+final aiApplyJobSeasonIdProvider = AiApplyJobSeasonIdFamily._();
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+
+final class AiApplyJobSeasonIdProvider
+    extends $FunctionalProvider<AsyncValue<String?>, String?, FutureOr<String?>>
+    with $FutureModifier<String?>, $FutureProvider<String?> {
+  /// The season a job belongs to — the authorization scope of the apply stream.
+  ///
+  /// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+  /// block's `season_id`), never from navigation state: the apply-events handler
+  /// gates on the job's season, so the mirror must read the same scope. `null`
+  /// means the scope could not be resolved (no block on the job, or the block is
+  /// neither cached nor readable) — the gate then stays PENDING, which disables
+  /// the watch instead of denying it.
+  AiApplyJobSeasonIdProvider._({
+    required AiApplyJobSeasonIdFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiApplyJobSeasonIdProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiApplyJobSeasonIdHash();
+
+  @override
+  String toString() {
+    return r'aiApplyJobSeasonIdProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<String?> $createElement($ProviderPointer pointer) =>
+      $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<String?> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiApplyJobSeasonId(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiApplyJobSeasonIdProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiApplyJobSeasonIdHash() =>
+    r'805edf1414427216aaa0257d25fa3179f309e5f6';
+
+/// The season a job belongs to — the authorization scope of the apply stream.
+///
+/// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+/// block's `season_id`), never from navigation state: the apply-events handler
+/// gates on the job's season, so the mirror must read the same scope. `null`
+/// means the scope could not be resolved (no block on the job, or the block is
+/// neither cached nor readable) — the gate then stays PENDING, which disables
+/// the watch instead of denying it.
+
+final class AiApplyJobSeasonIdFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<String?>, String> {
+  AiApplyJobSeasonIdFamily._()
+    : super(
+        retry: null,
+        name: r'aiApplyJobSeasonIdProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The season a job belongs to — the authorization scope of the apply stream.
+  ///
+  /// Resolved from the job's OWN scope (the cached job row's `block_id` → the
+  /// block's `season_id`), never from navigation state: the apply-events handler
+  /// gates on the job's season, so the mirror must read the same scope. `null`
+  /// means the scope could not be resolved (no block on the job, or the block is
+  /// neither cached nor readable) — the gate then stays PENDING, which disables
+  /// the watch instead of denying it.
+
+  AiApplyJobSeasonIdProvider call(String jobId) =>
+      AiApplyJobSeasonIdProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiApplyJobSeasonIdProvider';
+}
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+
+@ProviderFor(aiApplyStreamGate)
+final aiApplyStreamGateProvider = AiApplyStreamGateFamily._();
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+
+final class AiApplyStreamGateProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ProblemError?>,
+          ProblemError?,
+          FutureOr<ProblemError?>
+        >
+    with $FutureModifier<ProblemError?>, $FutureProvider<ProblemError?> {
+  /// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+  /// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+  /// card localizes (never the server `detail`).
+  ///
+  /// Reads the backend-computed season predicate through
+  /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+  /// uses. A failed or still-pending membership read stays `membership.pending`
+  /// (disabled with the waiting line, never the 403 narrative — D3).
+  AiApplyStreamGateProvider._({
+    required AiApplyStreamGateFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiApplyStreamGateProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiApplyStreamGateHash();
+
+  @override
+  String toString() {
+    return r'aiApplyStreamGateProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<ProblemError?> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<ProblemError?> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiApplyStreamGate(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiApplyStreamGateProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiApplyStreamGateHash() => r'6d306e49940c6ed09affeae99bdc7711a9e9b20f';
+
+/// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+/// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+/// card localizes (never the server `detail`).
+///
+/// Reads the backend-computed season predicate through
+/// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+/// uses. A failed or still-pending membership read stays `membership.pending`
+/// (disabled with the waiting line, never the 403 narrative — D3).
+
+final class AiApplyStreamGateFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<ProblemError?>, String> {
+  AiApplyStreamGateFamily._()
+    : super(
+        retry: null,
+        name: r'aiApplyStreamGateProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
+  /// (D6): `null` = the watch may open, otherwise the stable problem `code` the
+  /// card localizes (never the server `detail`).
+  ///
+  /// Reads the backend-computed season predicate through
+  /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
+  /// uses. A failed or still-pending membership read stays `membership.pending`
+  /// (disabled with the waiting line, never the 403 narrative — D3).
+
+  AiApplyStreamGateProvider call(String jobId) =>
+      AiApplyStreamGateProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiApplyStreamGateProvider';
+}
+
 /// The apply controller (task 4.2): builds + submits the mappings.
 
 @ProviderFor(AiApplyController)
@@ -161,7 +538,7 @@ final class AiApplyControllerProvider
   }
 }
 
-String _$aiApplyControllerHash() => r'395050799cfb307d09bfeebe384dff1a7719d441';
+String _$aiApplyControllerHash() => r'a46d4c6d41ec02162f4c0f443a7105592fd1c645';
 
 /// The apply controller (task 4.2): builds + submits the mappings.
 

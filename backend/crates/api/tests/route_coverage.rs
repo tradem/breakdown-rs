@@ -90,7 +90,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        110,
+        111,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -372,6 +372,13 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ("/ai-import/jobs", Requirement::Authenticated),
         ("/ai-import/jobs/{id}", Requirement::Authenticated),
         ("/ai-import/jobs/{id}/events", Requirement::Authenticated),
+        // The apply-run stream (issue #762): same Authenticated middleware
+        // level as the job stream, with the per-job ownership + season gate
+        // evaluated inside the handler (AUTHZ-GATE).
+        (
+            "/ai-import/jobs/{id}/apply-events",
+            Requirement::Authenticated,
+        ),
         ("/ai-import/jobs/{id}/preview", Requirement::Authenticated),
         ("/ai-import/jobs/{id}/apply", Requirement::Authenticated),
         ("/ai-import/config", Requirement::Authenticated),

@@ -479,6 +479,127 @@ pub struct AiImportJob {
     /// survives even when no row was ever scored.
     #[serde(default)]
     pub decision_telemetry: Option<DecisionTelemetry>,
+    /// Live progress of an **apply run** for this (already `succeeded`) job
+    /// (issue #762). Additive with `serde(default)`: `None` whenever no apply
+    /// is in flight — for every job created before the field existed, for a
+    /// preview nobody has applied yet, and again once a run has finished (the
+    /// run clears the column, so a stale "applying 3/57" can never outlive its
+    /// run).
+    ///
+    /// Advisory, so `None` alone is **not** proof that nothing is running:
+    /// every progress write (the run's first one included) is best-effort — a
+    /// failed write must never abort an apply — so an active run can be
+    /// invisible here until the next throttled write lands, and for a whole run
+    /// if the store keeps failing. A client therefore renders `None` as "no
+    /// progress published", never as "idle" (issue #762).
+    ///
+    /// Its presence is what keeps the apply stream open: the job itself is
+    /// terminal the whole time, because an apply is a POST against a job that
+    /// already succeeded.
+    #[serde(default)]
+    pub apply_progress: Option<ApplyProgress>,
+}
+
+/// Which part of an apply run is executing (issue #762).
+///
+/// Coarse on purpose: the per-row counter is the progress signal, and these
+/// stages only say whether rows are still being dispatched or the run is
+/// closing out (shooting-day links, the applied-episode summary).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyStage {
+    /// Rows are being dispatched (`SceneApplyPlan` order).
+    #[default]
+    Applying,
+    /// Every row is done; the trailing work (day/scene-shoot links, summary,
+    /// telemetry) is running.
+    Finalizing,
+}
+
+impl ApplyStage {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Applying => "applying",
+            Self::Finalizing => "finalizing",
+        }
+    }
+}
+
+/// Live progress of one apply run (issue #762).
+///
+/// The apply used to be a pure spinner: `POST /ai-import/jobs/{id}/apply`
+/// resolves the plan and awaits `ApplyWorker::apply_script` over every
+/// mapping, so a 57-row preview and a 4-row preview looked identical for
+/// however many minutes they took.
+///
+/// Written by the apply worker from the plan it already holds (never from a
+/// projection read) and cleared when the run ends — including on failure — so
+/// the client's stream closes on a definite event rather than on a timeout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ApplyProgress {
+    pub stage: ApplyStage,
+    /// Work units completed by **this** run (rows dispatched).
+    #[serde(default)]
+    pub applied: u32,
+    /// Work units the run planned (the plan's row count). `0` is an honest
+    /// state — an empty plan still runs its trailing work — and never a
+    /// divisor the client may trust blindly.
+    #[serde(default)]
+    pub total: u32,
+    /// When this run started: the anchor an ETA needs (the same role
+    /// [`AiImportProgress::started_at`] plays for extraction).
+    pub started_at: DateTime<Utc>,
+    /// Last write of this payload. The stream uses it to recognise a run whose
+    /// process died: an abandoned run must not keep a stream open forever, so
+    /// a payload older than [`ApplyProgress::STALE_AFTER`] is treated as
+    /// finished.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl ApplyProgress {
+    /// How long a silent apply run may stay "in progress".
+    ///
+    /// A per-row write happens at a bounded cadence, so a live run refreshes
+    /// this far more often than this window; only a crashed run keeps a stale
+    /// payload. The stream then emits a final `null` frame and closes instead
+    /// of holding the connection forever.
+    pub const STALE_AFTER: chrono::Duration = chrono::Duration::minutes(10);
+
+    /// True when this payload is too old to describe a running apply
+    /// (issue #762). Pure, so the stream's close condition is testable without
+    /// a clock.
+    #[must_use]
+    pub fn is_stale_at(&self, now: DateTime<Utc>) -> bool {
+        now.signed_duration_since(self.updated_at) > Self::STALE_AFTER
+    }
+
+    /// Fraction of the planned work that is done, clamped into `0.0..=1.0`.
+    ///
+    /// `0.0` for a run with no planned rows: an empty plan has no meaningful
+    /// progress, and a client must render an indeterminate affordance rather
+    /// than a bar that starts at 100 %.
+    #[must_use]
+    pub fn fraction(&self) -> f32 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        let done = self.applied.min(self.total);
+        #[allow(clippy::cast_precision_loss)]
+        let value = done as f32 / self.total as f32;
+        value
+    }
+}
+
+/// Wire payload of one apply-progress frame (issue #762).
+///
+/// Deliberately narrower than [`AiImportJob`]: the apply does not change the
+/// job row's status, so a client watching an apply needs the run's own numbers
+/// and nothing else. `apply_progress: None` is the run's **end** signal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ApplyProgressFrame {
+    pub job_id: AiImportJobId,
+    #[serde(default)]
+    pub apply_progress: Option<ApplyProgress>,
 }
 
 /// The production target an AI import writes into, snapshotted at dispatch

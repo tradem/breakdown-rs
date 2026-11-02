@@ -388,6 +388,30 @@
   "aiApplyNoContextSubtitle": "Pick an episode below to enable the apply.",
   "aiApplyAcceptAsIs": "Create all drafts as-is (no edits).",
   "aiApplySelectionSummary": "{updates} update(s), {skips} skip(s) — edit distance {distance}.",
+  "aiApplyProgressWaiting": "Applying – determining row progress …",
+  "aiApplyProgressRows": "Row {applied} of {total} applied",
+  "@aiApplyProgressRows": {
+    "description": "Per-row apply progress (issue #762): rows dispatched by this apply run.",
+    "placeholders": {
+      "applied": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyProgressFinalizing": "All rows applied – finishing up …",
+  "aiApplyProgressStreamError": "Row progress could not be loaded ({code}). The apply keeps running on the server.",
+  "@aiApplyProgressStreamError": {
+    "description": "Apply-run progress stream failure (issue #762): the run's own state could not be watched, the apply itself is unaffected.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyProgressRetry": "Retry progress",
   "aiApplySubmit": "Apply import",
   "aiApplyPickEpisode": "Pick episode…",
   "aiApplyUngroupedHeading": "No episode marker — target: episode {episode}",

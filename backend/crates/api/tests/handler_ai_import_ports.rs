@@ -188,6 +188,7 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         applied_episodes: Vec::new(),
         // No Decision Model outcome recorded by a test fixture (issue #767).
         decision_telemetry: None,
+        apply_progress: None,
     }
 }
 
