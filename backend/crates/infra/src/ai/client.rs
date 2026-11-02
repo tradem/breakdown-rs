@@ -702,12 +702,37 @@ struct UncertaintySchema {
 }
 
 pub fn classify_http_status(status: StatusCode) -> DomainError {
+    classify_http_status_with_detail(status, "")
+}
+
+/// Same classification as [`classify_http_status`], plus the provider's own
+/// error body as a bounded suffix.
+///
+/// A status alone cannot be acted on: `HTTP 404` hid "Route not found" on a
+/// wrong curated Decision endpoint and `HTTP 400` hides *which* property a
+/// provider rejected, so every failure degraded to the same unexplained
+/// `scoring_failed` row (the issue #767 class). The suffix is truncated because
+/// a provider error can echo the request; it carries no credential.
+pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> DomainError {
+    let suffix = {
+        let trimmed = detail.trim();
+        if trimmed.is_empty() {
+            String::new()
+        } else {
+            let bounded: String = trimmed.chars().take(400).collect();
+            format!(" — {bounded}")
+        }
+    };
     if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
-        DomainError::service_unavailable(format!("LLM provider returned HTTP {status}"))
+        DomainError::service_unavailable(format!("LLM provider returned HTTP {status}{suffix}"))
     } else if status.is_client_error() {
-        DomainError::validation(format!("LLM provider rejected request with HTTP {status}"))
+        DomainError::validation(format!(
+            "LLM provider rejected request with HTTP {status}{suffix}"
+        ))
     } else {
-        DomainError::validation(format!("unexpected LLM provider HTTP status {status}"))
+        DomainError::validation(format!(
+            "unexpected LLM provider HTTP status {status}{suffix}"
+        ))
     }
 }
 

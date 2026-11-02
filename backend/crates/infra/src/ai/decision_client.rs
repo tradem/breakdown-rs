@@ -7,7 +7,8 @@
 //! Routes the [`DecisionClient`] port to the curated providers' Decision
 //! endpoints:
 //! - **Neuralwatt**: `POST {base}/systemone` (energy-billed System One API),
-//! - **EURouter**: `POST {base}/decisions` (Decisions API),
+//! - **EURouter**: `POST {base}/systemone` (the same System One surface under
+//!   `/api/v1`; `/api/v1/decisions` does not exist and answers 404),
 //! - **OpenRouter**: `POST https://openrouter.ai/api/alpha/decisions`.
 //!
 //! Transport policy (ADR-024 / issue #170): HTTPS-only, DNS-resolution pin,
@@ -30,7 +31,7 @@ use std::collections::BTreeMap;
 
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
-use crate::ai::client::{classify_http_status, classify_transport_error};
+use crate::ai::client::{classify_http_status_with_detail, classify_transport_error};
 
 #[cfg(test)]
 #[path = "decision_client_tests.rs"]
@@ -43,15 +44,28 @@ pub fn decision_endpoint(provider: LlmProvider) -> Option<&'static str> {
     match provider {
         // Neuralwatt hosts the System One API under its `/v1` base.
         LlmProvider::Neuralwatt => Some("https://api.neuralwatt.com/v1/systemone"),
-        // EURouter exposes the Decisions API next to its OpenAI-compatible
-        // surface (`/api/v1`), selected with `output_modalities=decisions`
-        // on the model listing; the evaluation endpoint is `/api/v1/decisions`.
-        LlmProvider::EURouter => Some("https://api.eurouter.ai/api/v1/decisions"),
+        // EURouter proxies the SAME System One decision surface under its
+        // `/api/v1` base. The earlier `/api/v1/decisions` path does not exist:
+        // it answers `404 {"error":{"code":404,"message":"Route not found"}}`
+        // for every request, which made each scoring call fail and left every
+        // row with `scoring_failed: true` and no stars (job telemetry:
+        // `outcome=scoring_failed`, `failed_rows=59/59`). Verified live:
+        // `POST /api/v1/systemone` answers `401 invalid credentials` without a
+        // key (route exists) while `/api/v1/decisions`, `/v1/decisions`,
+        // `/api/decisions` and the `/decisions/evaluate` variants all answer
+        // 404.
+        LlmProvider::EURouter => Some("https://api.eurouter.ai/api/v1/systemone"),
         // OpenRouter's Decisions API lives on the `/api/alpha` surface.
         LlmProvider::OpenRouter => Some("https://openrouter.ai/api/alpha/decisions"),
         _ => None,
     }
 }
+
+/// Maximum number of bytes read from a NON-2xx response body before the
+/// failure is classified. The detail kept for the error is further truncated to
+/// 400 characters; this constant only bounds the READ, so a large error body
+/// cannot hold the worker's permit for the whole request timeout.
+const MAX_ERROR_DETAIL_BYTES: usize = 1024;
 
 /// One wire answer of the Decision API. All three curated gateways normalize
 /// on the same envelope (mirroring the chat adapters' normalization): a named
@@ -92,7 +106,11 @@ struct DecisionWireUsage {
 pub struct HttpDecisionClient {
     http: reqwest::Client,
     provider: LlmProvider,
-    endpoint: &'static str,
+    /// The resolved Decision endpoint. OWNED (not `&'static str`) purely as a
+    /// test seam: the production values still come from [`decision_endpoint`],
+    /// but a child test can point an `with_http` client at a local mock server
+    /// to exercise the non-2xx path end to end (CodeRabbit review, PR #806).
+    endpoint: String,
     api_key: SecretValue,
     timeout: Duration,
 }
@@ -143,7 +161,7 @@ impl HttpDecisionClient {
         Ok(Self {
             http,
             provider,
-            endpoint,
+            endpoint: endpoint.to_owned(),
             api_key: SecretValue::new(api_key),
             timeout,
         })
@@ -166,7 +184,7 @@ impl HttpDecisionClient {
         Ok(Self {
             http,
             provider,
-            endpoint,
+            endpoint: endpoint.to_owned(),
             api_key: SecretValue::new(api_key),
             timeout,
         })
@@ -216,9 +234,9 @@ impl DecisionClient for HttpDecisionClient {
             "state": req.state,
             "questions": questions,
         });
-        let response = self
+        let mut response = self
             .http
-            .post(self.endpoint)
+            .post(self.endpoint.as_str())
             .timeout(self.timeout)
             .bearer_auth(self.api_key.as_str())
             .json(&body)
@@ -227,7 +245,27 @@ impl DecisionClient for HttpDecisionClient {
             .map_err(classify_transport_error)?;
         let status = response.status();
         if !status.is_success() {
-            return Err(classify_http_status(status));
+            // The provider's body says WHY (a 400 names the offending property,
+            // a 404 names the route). Discarding it made every failure look
+            // alike — a wrong curated URL and a rejected rubric both surfaced
+            // as an unexplained `scoring_failed` row (issue #767).
+            // Bound the READ of that body, not just the characters kept: the
+            // 400-character cap below applies after the body is in memory, so
+            // `Response::text()` would first buffer whatever the provider sends
+            // (a chatty or hostile error could stream for the whole request
+            // timeout while holding the job's concurrency permit). One KiB is
+            // far more than any provider error message needs, and the read stops
+            // there instead of waiting for the body to finish.
+            let mut collected: Vec<u8> = Vec::with_capacity(MAX_ERROR_DETAIL_BYTES);
+            while collected.len() < MAX_ERROR_DETAIL_BYTES {
+                let Some(chunk) = response.chunk().await.map_err(classify_transport_error)? else {
+                    break;
+                };
+                let remaining = MAX_ERROR_DETAIL_BYTES - collected.len();
+                collected.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+            }
+            let detail = String::from_utf8_lossy(&collected);
+            return Err(classify_http_status_with_detail(status, &detail));
         }
         let wire = response
             .json::<DecisionWireResponse>()
