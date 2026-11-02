@@ -106,7 +106,11 @@ struct DecisionWireUsage {
 pub struct HttpDecisionClient {
     http: reqwest::Client,
     provider: LlmProvider,
-    endpoint: &'static str,
+    /// The resolved Decision endpoint. OWNED (not `&'static str`) purely as a
+    /// test seam: the production values still come from [`decision_endpoint`],
+    /// but a child test can point an `with_http` client at a local mock server
+    /// to exercise the non-2xx path end to end (CodeRabbit review, PR #806).
+    endpoint: String,
     api_key: SecretValue,
     timeout: Duration,
 }
@@ -157,7 +161,7 @@ impl HttpDecisionClient {
         Ok(Self {
             http,
             provider,
-            endpoint,
+            endpoint: endpoint.to_owned(),
             api_key: SecretValue::new(api_key),
             timeout,
         })
@@ -180,7 +184,7 @@ impl HttpDecisionClient {
         Ok(Self {
             http,
             provider,
-            endpoint,
+            endpoint: endpoint.to_owned(),
             api_key: SecretValue::new(api_key),
             timeout,
         })
@@ -232,7 +236,7 @@ impl DecisionClient for HttpDecisionClient {
         });
         let mut response = self
             .http
-            .post(self.endpoint)
+            .post(self.endpoint.as_str())
             .timeout(self.timeout)
             .bearer_auth(self.api_key.as_str())
             .json(&body)

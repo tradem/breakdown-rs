@@ -98,6 +98,89 @@ async fn provider_mismatch_fails_closed() {
     assert!(error.is_some(), "provider mismatch must fail closed");
 }
 
+/// The adapter must forward the provider's error body through
+/// `classify_http_status_with_detail`. Without this test a revert to the
+/// detail-less `classify_http_status(status)` keeps every other test green,
+/// because the forwarding happens only on the wire path (CodeRabbit review,
+/// PR #806) — hence the `endpoint` seam on `with_http` clients.
+#[tokio::test]
+async fn non_2xx_response_forwards_the_provider_body() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(503).set_body_string("unknown property: rubric"),
+        )
+        .mount(&server)
+        .await;
+
+    let mut client = HttpDecisionClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "k".into(),
+        Duration::from_secs(5),
+    )
+    .expect("a decision-capable provider builds a client");
+    client.endpoint = server.uri();
+
+    let error = client
+        .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
+        .await
+        .err()
+        .expect("a 503 response must fail");
+    // 503 keeps its retryable class …
+    assert!(
+        matches!(
+            error,
+            breakdown_core::error::DomainError::ServiceUnavailable { .. }
+        ),
+        "503 must stay ServiceUnavailable, got {error:?}"
+    );
+    // … and the provider's own message reaches the caller instead of a bare
+    // "HTTP 503".
+    assert!(
+        error.to_string().contains("unknown property: rubric"),
+        "the provider body must be forwarded, got: {error}"
+    );
+}
+
+/// The forwarded detail is bounded: the read stops at `MAX_ERROR_DETAIL_BYTES`
+/// and the message keeps at most 400 characters of it, so a chatty body cannot
+/// flood the log or the error surface.
+#[tokio::test]
+async fn non_2xx_response_detail_is_bounded() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(wiremock::ResponseTemplate::new(400).set_body_string("x".repeat(8 * 1024)))
+        .mount(&server)
+        .await;
+
+    let mut client = HttpDecisionClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "k".into(),
+        Duration::from_secs(5),
+    )
+    .expect("a decision-capable provider builds a client");
+    client.endpoint = server.uri();
+
+    let error = client
+        .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
+        .await
+        .err()
+        .expect("a 400 response must fail");
+    let message = error.to_string();
+    let detail = message
+        .split_once(" \u{2014} ")
+        .map(|(_, d)| d)
+        .expect("the detail must be appended after the separator");
+    assert_eq!(
+        detail.chars().count(),
+        400,
+        "the detail must be truncated to 400 characters, got {}",
+        detail.chars().count()
+    );
+}
+
 #[test]
 fn parses_answers_and_usage_leniently() {
     // Wire-shape test: the adapter's envelope parser maps the response
