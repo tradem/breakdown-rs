@@ -1268,6 +1268,12 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
   /// The counter pair the current EMA was derived from (the guard that keeps
   /// the estimate from re-running on a ticker rebuild).
   int? _applied;
+
+  /// The run (`ApplyProgress.startedAt`) [_eta] belongs to. A second apply of
+  /// the same preview is a different run: its cadence says nothing about the
+  /// first one's, so the smoothing state is dropped with it.
+  DateTime? _runStartedAt;
+
   AiJobEta? _eta;
 
   @override
@@ -1291,13 +1297,23 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
     final applied = progress.applied;
     final total = progress.total;
     if (applied == null || total == null) return null;
+    if (progress.startedAt != _runStartedAt) {
+      // A different run: never smooth across run boundaries.
+      _eta = null;
+      _runStartedAt = progress.startedAt;
+      _applied = null;
+    }
     if (_applied != applied) {
       _applied = applied;
       _eta = estimateEtaFrom(
         startedAt: progress.startedAt,
         done: applied,
         total: total,
-        now: now,
+        // The run's own write stamp, not the screen clock: `updated_at` is set
+        // by the worker on every apply frame, so the measured interval is apply
+        // time — a client-side `now` would count the time since the last frame
+        // as work and inflate the estimate the longer the screen stays open.
+        now: progress.updatedAt,
         previous: _eta,
       );
     }

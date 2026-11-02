@@ -169,6 +169,62 @@ void main() {
     );
   });
 
+  testWidgets('a NEW apply run does not inherit the previous run cadence', (
+    tester,
+  ) async {
+    await pump(tester);
+    // Run 1: 4 of 10 rows in 4 minutes → 1 min/row → 6 min left.
+    frames.add(
+      _run(startedAt: now.subtract(const Duration(minutes: 4)), updatedAt: now),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'About 6 min left',
+    );
+
+    // A second apply of the same preview starts fresh: 5 of 10 rows in 10 s is
+    // a completely different cadence, and smoothing it against run 1 would keep
+    // showing minutes.
+    frames.add(
+      _run(
+        startedAt: now.subtract(const Duration(seconds: 10)),
+        applied: 5,
+        updatedAt: now,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'Almost done …',
+      reason: 'a new run must not inherit the previous run\'s rate',
+    );
+  });
+
+  testWidgets(
+    'the estimate is anchored to the run frame stamp, not the clock',
+    (tester) async {
+      await pump(tester);
+      // Run time = updated_at − started_at = 2 min. A client-clock anchor would
+      // read 3 min and inflate every figure by 50 % (58 min vs 87 min).
+      frames.add(
+        _run(
+          startedAt: now.subtract(const Duration(minutes: 3)),
+          applied: 2,
+          total: 60,
+          updatedAt: now.subtract(const Duration(minutes: 1)),
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-apply-progress-eta')))
+            .data,
+        'About 58 min left',
+      );
+    },
+  );
+
   testWidgets('the finalizing stage replaces the row counter', (tester) async {
     await pump(tester);
     frames.add(
@@ -192,8 +248,9 @@ void main() {
     await pump(tester);
     frames.add(
       _run(
-        startedAt: now.subtract(const Duration(minutes: 4)),
-        // The last frame is an hour old: the run is not reporting anymore.
+        // 4 of 10 rows in one hour → a 15-min cadence, so the stall window is
+        // 45 min. The newest frame is an hour old: well past it.
+        startedAt: now.subtract(const Duration(hours: 2)),
         updatedAt: now.subtract(const Duration(hours: 1)),
       ),
     );
