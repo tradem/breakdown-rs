@@ -1179,7 +1179,7 @@
   "aiApplyReapplyBodyUnknown": "Whether this preview was already imported could not be read. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed.",
   "aiPostImportReportTitle": "Import applied",
   "aiPostImportReportDismiss": "Hide report",
-  "aiPostImportReportOthersTitle": "Also created",
+  "aiPostImportReportOthersTitle": "Also applied",
   "aiPostImportReportOtherEpisode": "{label}: {count, plural, =1{1 row} other{{count} rows}}",
   "@aiPostImportReportOtherEpisode": {
     "description": "One additional episode of a multi-episode import (issue #759), with the number of scene rows this apply wrote into it.",

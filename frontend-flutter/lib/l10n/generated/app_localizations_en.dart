@@ -3882,7 +3882,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiPostImportReportDismiss => 'Hide report';
 
   @override
-  String get aiPostImportReportOthersTitle => 'Also created';
+  String get aiPostImportReportOthersTitle => 'Also applied';
 
   @override
   String aiPostImportReportOtherEpisode(String label, int count) {

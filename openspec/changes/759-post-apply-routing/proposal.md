@@ -41,10 +41,13 @@ so the card keeps the stage granularity the server actually publishes.
   season when it differs, selects the Script destination and pops the import
   stack. The Script view resets its own nested navigator to its root route, so
   a detail pushed before the apply cannot hide the imported rows.
-- **Honest degradation.** A target that cannot be resolved (no applied episode,
-  or a season / episode number the read caches do not hold) keeps the review
-  screen with the full outcome card and an explicit hint. No invented number,
-  no network read on the navigation path, no half-navigation.
+- **Honest degradation.** A script apply whose target cannot be resolved (the
+  season is not in the read cache, or the episode number is neither on the wire
+  nor in the block's cached rows) keeps the review screen with the full outcome
+  card and an explicit hint. A schedule apply names no episode at all, so it
+  keeps the card WITHOUT that hint. No invented number, no network read on the
+  navigation path (the number fallback is a cache read, not the list fetch),
+  no half-navigation.
 - **Report carried over.** `PostImportReport` (keepAlive provider) holds the
   apply's outcome, its skipped day groups, every `unapplied_outfits` row with
   its reason and the OTHER episodes of a multi-episode document with their row

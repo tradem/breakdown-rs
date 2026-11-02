@@ -6359,7 +6359,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiPostImportReportOthersTitle.
   ///
   /// In de, this message translates to:
-  /// **'Zusätzlich angelegt'**
+  /// **'Zusätzlich angewendet'**
   String get aiPostImportReportOthersTitle;
 
   /// One additional episode of a multi-episode import (issue #759), with the number of scene rows this apply wrote into it.

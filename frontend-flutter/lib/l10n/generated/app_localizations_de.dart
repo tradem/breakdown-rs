@@ -3931,7 +3931,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiPostImportReportDismiss => 'Bericht ausblenden';
 
   @override
-  String get aiPostImportReportOthersTitle => 'Zusätzlich angelegt';
+  String get aiPostImportReportOthersTitle => 'Zusätzlich angewendet';
 
   @override
   String aiPostImportReportOtherEpisode(String label, int count) {

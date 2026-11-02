@@ -39,6 +39,7 @@ import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/season_repository.dart';
@@ -47,6 +48,7 @@ import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/post_import_report.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/preview_screen.dart';
+import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/scenes/season_script_controller.dart';
 import 'package:frontend_flutter/features/shell/script_tab_screen.dart';
@@ -75,10 +77,10 @@ AppliedEpisode _appliedEpisode(
     ..name = name,
 );
 
-UnappliedOutfit _unappliedOutfit() => UnappliedOutfit(
+UnappliedOutfit _unappliedOutfit({int ordinal = 2}) => UnappliedOutfit(
   (b) => b
     ..draftRef = 'draft-1'
-    ..ordinal = 2
+    ..ordinal = ordinal
     ..characterName = 'Karl'
     ..name = 'Mantel'
     ..reason = UnappliedOutfitReason.pieceRejected,
@@ -264,12 +266,17 @@ void main() {
     late int scenesFetches;
     late int scriptFetches;
 
+    /// How often the block's episode LIST seam was read. The navigation path
+    /// must not touch it (CodeRabbit #802): the number fallback is a cache read.
+    late int episodeListFetches;
+
     setUp(() {
       storage = FakeSecureStoragePlatform();
       FlutterSecureStoragePlatform.instance = storage;
       runStates = StreamController<AiApplyRunState>.broadcast();
       scenesFetches = 0;
       scriptFetches = 0;
+      episodeListFetches = 0;
     });
 
     tearDown(() async {
@@ -280,6 +287,8 @@ void main() {
       required List<Result<ApplyAiImportResponse>> applyQueue,
       bool seasonResolvable = true,
       bool seasonCached = true,
+      // Seed the block's cached episode row (the number fallback's source).
+      bool cachedEpisodeRow = false,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -333,6 +342,14 @@ void main() {
             scenesFetches++;
             return const Right(<SceneView>[]);
           }),
+          // A counter, not a fake result: the routing path must never own a
+          // network read (see the cache-fallback test below).
+          episodesListFetchProvider(_blockId, _seasonId).overrideWith((
+            ref,
+          ) async {
+            episodeListFetches++;
+            return const Right(<EpisodeView>[]);
+          }),
           membershipFetchProvider(_seasonId)
               .overrideWith((ref) async => const Left(ProblemError(code: 'x'))),
         ],
@@ -345,6 +362,21 @@ void main() {
         episodeId: _episodeId,
         projectId: 'series-1',
       );
+      if (cachedEpisodeRow) {
+        await EpisodeCacheDao(db).upsert(
+          EpisodeView(
+            (b) => b
+              ..id = _episodeId
+              ..blockId = _blockId
+              ..projectId = 'series-1'
+              ..number = 299
+              ..name = 'Erlösung'
+              ..updatedAt = DateTime.utc(2026, 1, 1)
+              ..version = 1,
+          ),
+          DateTime.utc(2026, 1, 1),
+        );
+      }
       // Keep the scene seam WARM: an invalidation only re-runs a provider the
       // test is actually listening to, so the count would prove nothing on a
       // disposed autoDispose instance.
@@ -634,6 +666,113 @@ void main() {
           container.read(shellControllerProvider).selectedIndex,
           kCastTabIndex,
         );
+      },
+    );
+    testWidgets(
+      'a schedule apply (no applied episodes) keeps the review screen without '
+      'the episode-opening hint (CodeRabbit #802)',
+      (tester) async {
+        await setupContainer(
+          applyQueue: [
+            // A schedule apply merges onto the project's existing scenes and
+            // days, so it names no target episode at all.
+            Right(_outcome(appliedEpisodes: const [])),
+          ],
+        );
+        await pumpWithImportStack(tester);
+
+        await acknowledgeAndApply(tester);
+
+        expect(find.byType(AiPreviewScreen), findsOneWidget);
+        expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
+        // No claim about an episode that does not exist — and no navigation.
+        expect(
+          find.byKey(const Key('ai-apply-navigation-unresolved')),
+          findsNothing,
+        );
+        expect(
+          container.read(shellControllerProvider).selectedIndex,
+          kCastTabIndex,
+        );
+        expect(container.read(aiPostImportReportProvider), isNull);
+      },
+    );
+
+    testWidgets(
+      'a missing episode number is read from the block cache, never from the '
+      'network (CodeRabbit #802)',
+      (tester) async {
+        await setupContainer(
+          // The response carries no number for the target; the block's cached
+          // episode row does.
+          cachedEpisodeRow: true,
+          applyQueue: [
+            Right(
+              _outcome(
+                appliedEpisodes: [_appliedEpisode(_episodeId, count: 30)],
+              ),
+            ),
+          ],
+        );
+        await pumpWithImportStack(tester);
+
+        await acknowledgeAndApply(tester);
+
+        // Routed with the CACHED number/name...
+        final scope = container.read(activeEpisodeProvider);
+        expect(scope, isNotNull);
+        expect(scope!.episodeId, _episodeId);
+        expect(scope.episodeNumber, 299);
+        expect(scope.episodeName, 'Erlösung');
+        expect(
+          container.read(shellControllerProvider).selectedIndex,
+          kScriptTabIndex,
+        );
+        // ...and the episode LIST seam was never read: the navigation path owns
+        // no network request.
+        expect(episodeListFetches, 0);
+      },
+    );
+
+    testWidgets(
+      'the report card bounds its detail area so a long report cannot starve '
+      'the script list (CodeRabbit #802)',
+      (tester) async {
+        await setupContainer(
+          applyQueue: [
+            Right(
+              _outcome(
+                appliedEpisodes: [
+                  _appliedEpisode(
+                    _episodeId,
+                    count: 30,
+                    number: 299,
+                    name: 'Erlösung',
+                  ),
+                ],
+                unappliedOutfits: [
+                  for (var i = 0; i < 12; i++) _unappliedOutfit(ordinal: i),
+                ],
+              ),
+            ),
+          ],
+        );
+        await pumpWithImportStack(tester);
+
+        await acknowledgeAndApply(tester);
+
+        // The detail rows live in a BOUNDED scroll view: without the
+        // `ConstrainedBox` the card would take its content height and push the
+        // script body out of the viewport.
+        final details = find.byKey(const Key('ai-post-import-report-details'));
+        expect(details, findsOneWidget);
+        expect(tester.getSize(details).height, lessThan(500));
+        // The script body still gets real space.
+        expect(
+          tester.getSize(find.byType(ScriptTabScreen)).height,
+          greaterThan(0),
+        );
+        expect(tester.takeException(), isNull);
       },
     );
   });

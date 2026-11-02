@@ -33,7 +33,9 @@
       `publish`/`dismiss`.
 - [x] 3.2 `AiPostImportReportCard` — outcome line, skipped day groups,
       `unapplied_outfits` with reasons, additional episodes with row counts,
-      dismiss action.
+      dismiss action. The detail lines scroll inside a 45 %-viewport cap: the
+      card is a non-flex `Column` child, so an unbounded card would starve the
+      script list on a long report (CodeRabbit #802).
 - [x] 3.3 Shared outcome/unapplied copy helpers (`aiApplyOutcomeLine`,
       `aiUnappliedOutfitReasonCopy`) so the inline card and the banner cannot
       drift.

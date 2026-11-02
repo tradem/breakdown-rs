@@ -12,7 +12,6 @@ import '../../../data/cache/hierarchy_cache_dao.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../data/season_repository.dart';
 import '../../../l10n/generated/app_localizations.dart';
-import '../../episodes/episodes_controller.dart';
 import '../../shell/shell_controller.dart';
 import 'apply_controller.dart';
 import 'job_status_controller.dart';
@@ -212,10 +211,10 @@ String aiUnappliedOutfitReasonCopy(
 /// Reads only seams the client already trusts for navigation context:
 /// the job's cached block (the request scope), the block row's season id, the
 /// seasons read cache (the Script view is season-scoped), and — only when the
-/// wire carried no number — the block's episode list, which is the very read
-/// model the Script view composes from. No invented ids, no fabricated numbers:
-/// every missing piece answers `null`, and the caller keeps the outcome card
-/// plus an honest hint instead of a half-navigation.
+/// wire carried no number — the block's CACHED episode rows. No network read on
+/// the navigation path, no invented ids, no fabricated numbers: every missing
+/// piece answers `null`, and the caller keeps the outcome card plus an honest
+/// hint instead of a half-navigation.
 Future<AiPostImportTarget?> resolvePostImportTarget(
   WidgetRef ref, {
   required String jobId,
@@ -241,13 +240,14 @@ Future<AiPostImportTarget?> resolvePostImportTarget(
   var number = choice.target.number;
   var name = choice.target.name;
   if (number == null) {
-    // Cache-first read through the episode list seam this block already owns;
-    // a failed read leaves the number unknown, which is NOT a reason to invent
-    // one (the target then stays unresolved).
-    final rows = await ref.read(
-      episodesListFetchProvider(blockId, seasonId).future,
-    );
-    for (final row in rows.getRight().toNullable() ?? const <EpisodeView>[]) {
+    // Cache-only fallback (CodeRabbit #802): this is a NAVIGATION path, so it
+    // must never wait for — or depend on — the network. The block's cached
+    // episode rows are the same read model the Script view composes from; a
+    // row the cache does not hold leaves the number unknown, which is NOT a
+    // reason to invent one (the target then stays unresolved).
+    final cached = await EpisodeCacheDao(ref.read(cacheDatabaseProvider))
+        .readByBlock(blockId);
+    for (final row in cached) {
       if (row.id == choice.target.id) {
         number = row.number;
         name ??= row.name;

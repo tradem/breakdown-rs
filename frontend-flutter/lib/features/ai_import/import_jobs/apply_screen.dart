@@ -371,7 +371,16 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     );
     if (!mounted) return;
     if (target == null) {
-      setState(() => _navigationUnresolved = true);
+      // CodeRabbit #802: a SCHEDULE apply dispatches no episode at all (it
+      // merges onto the project's existing scenes and days), so "the imported
+      // episode could not be opened" would be a claim about something that does
+      // not exist. The hint is for the real failure — episodes WERE applied but
+      // the destination is not resolvable from the read caches.
+      final appliedEpisodes = outcome.appliedEpisodes;
+      setState(
+        () => _navigationUnresolved =
+            appliedEpisodes != null && appliedEpisodes.isNotEmpty,
+      );
       return;
     }
     openImportedEpisode(

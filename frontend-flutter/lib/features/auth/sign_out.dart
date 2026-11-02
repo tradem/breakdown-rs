@@ -266,6 +266,13 @@ class SessionReset extends Notifier<void> {
     ref.invalidate(aiImportJobsFetchProvider);
     ref.invalidate(aiImportJobsPrevRowsProvider);
     ref.read(runtimeApiBaseProvider.notifier).set(base);
+    // Issue #759 (CodeRabbit #802): the post-import report is backend-scoped
+    // keepAlive state, and the cache-clear below can return early — a failure
+    // there must not leave the OLD base's report on the Script tab. Dropped
+    // here, right after the base is set, so no exit path can retain it;
+    // [_invalidateReadScope] keeps its own invalidation for the read-scope
+    // contract.
+    ref.invalidate(aiPostImportReportProvider);
     final emptied = await ref.read(seasonRepositoryProvider).clearCache();
     final emptyError = emptied.getLeft().toNullable();
     if (emptyError != null) {
