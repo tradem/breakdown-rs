@@ -34,6 +34,7 @@ import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controller.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_screen.dart';
+import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_state.dart';
 
 import '../../support/fake_secure_storage.dart';
 
@@ -443,6 +444,39 @@ void main() {
     } finally {
       debugDefaultTargetPlatformOverride = previousOverride;
     }
+  }
+
+  /// Pushes the screen as a SECOND route so a system back actually pops it
+  /// (the `home:` route of [pumpScreen] cannot be popped — the Navigator
+  /// refuses to pop its last route, which would make a guard test pass for the
+  /// wrong reason).
+  Future<void> pumpPushedScreen(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: ThemeData.light(),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                key: const Key('open-ai-config'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AiConfigScreen(),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('open-ai-config')));
+    await tester.pumpAndSettle();
   }
 
   /// The scoped credential-role denial scenario shared by the
@@ -2309,6 +2343,153 @@ void main() {
         find.byKey(const Key('ai-decision-provider-disabled')),
         findsWidgets,
       );
+    });
+  });
+
+  group('unsaved changes (draft-vs-stored guard)', () {
+    // The reported defect: a Decision Model picked in the AI-config form was
+    // never persisted because the save affordance sat at the end of the long
+    // scrolling form and leaving the screen silently dropped the draft — the
+    // app looked configured while the aggregate had no such state. The fix is
+    // a persistent primary action plus an explicit discard decision.
+    test('an untouched, seeded form is NOT dirty; a picked Decision Model is', () {
+      final stored = _config(prompts: const {'script': 'stored script'});
+      final seeded = AiConfigScreenState(
+        config: stored,
+        providers: const AsyncValue.data(<AiProviderInfo>[]),
+        models: const AsyncValue.data(<ModelInfo>[]),
+        selectedProviderKey: 'openai',
+        selectedAssistantModelId: 'gpt-5.6-luna',
+        scriptPrompt: 'stored script',
+      );
+      expect(
+        seeded.hasUnsavedChanges,
+        isFalse,
+        reason: 'a re-seeded form is not an edit',
+      );
+
+      final picked = seeded.copyWith(
+        selectedDecisionProviderKey: 'neuralwatt',
+        selectedDecisionModelId: 'clef-flash',
+      );
+      expect(picked.hasUnsavedChanges, isTrue);
+
+      // Clearing the Decision Model is a REAL change too (tri-state null).
+      final cleared = AiConfigScreenState(
+        config: _config(
+          decisionProvider: LlmProvider.neuralwatt,
+          decisionModel: 'clef-flash',
+          decisionVaultKeyId: 'vk-1',
+        ),
+        providers: const AsyncValue.data(<AiProviderInfo>[]),
+        models: const AsyncValue.data(<ModelInfo>[]),
+        selectedProviderKey: 'openai',
+        selectedAssistantModelId: 'gpt-5.6-luna',
+      );
+      expect(
+        cleared.hasUnsavedChanges,
+        isTrue,
+        reason: 'the stored Decision Model is not echoed by the form',
+      );
+    });
+
+    testWidgets('the action bar marks unsaved changes and keeps the save '
+        'reachable', (tester) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      await pumpScreen(tester);
+
+      // Always visible (sticky), and clean before any edit.
+      expect(find.byKey(const Key('ai-config-action-bar')), findsOneWidget);
+      expect(find.byKey(const Key('ai-config-edit-save')), findsOneWidget);
+      expect(find.byKey(const Key('ai-config-unsaved-label')), findsNothing);
+      expect(find.byKey(const Key('ai-config-discard-changes')), findsNothing);
+
+      // A Decision Model edit — the exact case that used to be lost.
+      await tester.tap(find.byKey(const Key('ai-decision-provider-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('neuralwatt').last);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('ai-config-unsaved-label')), findsOneWidget);
+      expect(find.text('Unsaved changes'), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-config-discard-changes')),
+        findsOneWidget,
+      );
+      // Nothing was dispatched yet — the change lives in the draft.
+      expect(repo.updateCalls, 0);
+    });
+
+    testWidgets('discard drops the draft back to the stored configuration '
+        'without dispatching', (tester) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      await pumpScreen(tester);
+
+      await pickDecisionProviderAndModel(tester);
+      expect(find.byKey(const Key('ai-config-unsaved-label')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('ai-config-discard-changes')));
+      await tester.pumpAndSettle();
+
+      // The stored configuration is rendered again: no decision selection,
+      // no unsaved marker, no PATCH.
+      expect(find.byKey(const Key('ai-config-unsaved-label')), findsNothing);
+      final state = container.read(aiConfigControllerProvider);
+      expect(state.selectedDecisionProviderKey, isNull);
+      expect(state.selectedDecisionModelId, isNull);
+      expect(repo.updateCalls, 0);
+    });
+
+    testWidgets('back navigation with unsaved changes asks before discarding '
+        '(keep editing leaves the draft intact)', (tester) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      await pumpPushedScreen(tester);
+      await pickDecisionProviderAndModel(tester);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('ai-config-unsaved-dialog')), findsOneWidget);
+      await tester.tap(
+        find.byKey(const Key('ai-config-unsaved-keep-editing')),
+      );
+      await tester.pumpAndSettle();
+
+      // Still on the screen, draft intact.
+      expect(find.byKey(const Key('ai-config-unsaved-dialog')), findsNothing);
+      expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+      expect(find.byKey(const Key('ai-config-unsaved-label')), findsOneWidget);
+    });
+
+    testWidgets('back navigation with unsaved changes: confirming the discard '
+        'drops the draft and leaves', (tester) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      await pumpPushedScreen(tester);
+      await pickDecisionProviderAndModel(tester);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-unsaved-discard')));
+      await tester.pumpAndSettle();
+
+      // Back on the host route — and nothing was dispatched: the stored
+      // configuration was never half-saved by leaving the screen.
+      expect(find.byKey(const Key('open-ai-config')), findsOneWidget);
+      expect(find.byKey(const Key('ai-config-configured')), findsNothing);
+      expect(repo.updateCalls, 0);
+    });
+
+    testWidgets('back navigation WITHOUT unsaved changes is not intercepted', (
+      tester,
+    ) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      await pumpPushedScreen(tester);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('ai-config-unsaved-dialog')), findsNothing);
+      expect(find.byKey(const Key('open-ai-config')), findsOneWidget);
     });
   });
 

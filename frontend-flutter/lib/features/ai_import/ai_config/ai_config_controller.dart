@@ -193,6 +193,12 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
     fn(next);
     state = next;
   }
+
+  /// Drops every draft so the next build re-seeds the form from the stored
+  /// configuration (the explicit "discard" action of the screen's
+  /// unsaved-changes bar). Touched flags are part of the draft, so a reset
+  /// also stops a stale draft pick from shadowing the stored value.
+  void reset() => state = AiConfigDraftData();
 }
 
 final aiConfigDraftsProvider =
@@ -443,7 +449,7 @@ class AiConfigController extends _$AiConfigController {
       // to the extraction credential.
       useSameDecisionKey: drafts.useSameDecisionKeyTouched
           ? drafts.useSameDecisionKey
-          : _storedDecisionUsesSameKey(config),
+          : storedDecisionUsesSameKey(config),
       decisionModels: decisionModels,
       imageModels: imageModels,
       // Preferred primary cost display (issue #675): an explicit draft pick
@@ -547,6 +553,16 @@ class AiConfigController extends _$AiConfigController {
   }
 
   void dismissCommandError() => state = state.copyWith(clearCommandError: true);
+
+  /// Drops the unsaved drafts and re-seeds the form from the stored view
+  /// (the screen's "discard changes" action and the confirmed-back-navigation
+  /// path). Sends NO command: the stored configuration is left untouched, and
+  /// the controller watches the draft store, so the next build renders the
+  /// stored values again.
+  void discardDrafts() {
+    _draftsNotifier.reset();
+    state = state.copyWith(clearCommandError: true);
+  }
 
   /// Resolves the authenticated session for the session-only gate; a
   /// restore failure is treated as no-session (deny) — the request would
@@ -1437,14 +1453,6 @@ Future<void>? _rememberedFallbackRun;
 /// True when [error] is an ambiguous-timeout transport failure (the
 /// dispatch may or may not have committed server-side). Shared with the
 /// workflow repository's reconciliation (same stable codes).
-/// True when the stored config's Decision binding is the same-key form:
-/// no decision key at all (nothing split), or the stored decision key IS
-/// the stored extraction key (CodeRabbit review — derived same-key seed).
-bool _storedDecisionUsesSameKey(AiConfigView? config) =>
-    config == null ||
-    config.decisionVaultKeyId == null ||
-    config.decisionVaultKeyId == config.vaultKeyId;
-
 bool isAmbiguousTimeoutError(ProblemError error) => switch (error.code) {
   'transport.connectionTimeout' ||
   'transport.sendTimeout' ||

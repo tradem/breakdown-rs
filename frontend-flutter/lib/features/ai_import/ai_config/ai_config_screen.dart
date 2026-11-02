@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/problem_error.dart';
+import '../../../data/ai_import_handoff_store.dart';
 import '../../../design/components/xml_prompt_editor.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
@@ -24,11 +25,20 @@ import 'ai_config_state.dart';
 
 /// The AI-import configuration screen (`flutter-ai-config` task 2.1).
 ///
-/// A `ConsumerWidget`: it renders and dispatches only (AGENTS.md §9) —
-/// all domain branching lives in [AiConfigController] state. The two
-/// text-field forms are `ConsumerStatefulWidget`s on purpose (same carve
-/// out as the Create-Season sheet): ephemeral text-editing state is
-/// widget state, not domain state.
+/// A `ConsumerStatefulWidget` whose STATE is presentation-only: the two masked
+/// key fields' controllers plus the in-flight flag. Every edit is dispatched
+/// through [AiConfigController]; all domain branching lives there (AGENTS.md
+/// §9). The widgets own the controllers because the sticky action bar must be
+/// able to read the typed secrets when it dispatches — they are still never
+/// provider state and never persisted (D6).
+///
+/// Saved-vs-draft discipline (the reported "my Decision Model change was never
+/// stored" defect): the form holds DRAFTS, so a save is only real once the
+/// primary action runs. The screen therefore keeps that action permanently
+/// visible in a bottom action bar (Material 3 persistent primary action for
+/// long forms), marks unsaved changes, offers an explicit discard, and guards
+/// back-navigation with a Material "discard changes?" dialog instead of
+/// silently dropping the draft.
 ///
 /// AUTHZ-GATE exception (D4, documented): no client-side capability
 /// pre-gate exists here — the backend's credential-role policy is not a
@@ -36,13 +46,183 @@ import 'ai_config_state.dart';
 /// "administrator role required" narrative ([aiConfigErrorCopy]); the
 /// call itself is denied server-side. This is the ONLY documented
 /// exception in the client; uploads/apply remain pre-gated (task 5.1).
-class AiConfigScreen extends ConsumerWidget {
+class AiConfigScreen extends ConsumerStatefulWidget {
   const AiConfigScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AiConfigScreen> createState() => _AiConfigScreenState();
+}
+
+class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
+  /// Masked replacement secrets (D6): read at dispatch time only.
+  final _replacementKeyController = TextEditingController();
+  final _decisionKeyController = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _replacementKeyController.dispose();
+    _decisionKeyController.dispose();
+    super.dispose();
+  }
+
+  /// Whether the replacement extraction-key field is rendered: the provider
+  /// was switched and no credential for the new provider is retained.
+  bool _showsReplacementKey(
+    AiConfigScreenState state,
+    AiImportHandoffState? handoff,
+  ) {
+    final config = state.config;
+    final selectedProviderKey = state.selectedProviderKey;
+    if (config == null || selectedProviderKey == null) return false;
+    if (selectedProviderKey == config.provider.name) return false;
+    return handoff?.credentials.containsKey(selectedProviderKey) != true;
+  }
+
+  /// Whether the separate DECISION key field is rendered (issue #723): a
+  /// decision provider is picked, same-key reuse does not apply, no decision
+  /// credential is remembered, and the stored binding is being replaced.
+  bool _showsDecisionKey(
+    AiConfigScreenState state,
+    AiImportHandoffState? handoff,
+  ) {
+    final config = state.config;
+    final decisionKey = state.selectedDecisionProviderKey;
+    if (config == null || decisionKey == null) return false;
+    if (decisionKey == state.selectedProviderKey && state.useSameDecisionKey) {
+      return false;
+    }
+    if (handoff?.decisionCredentialFor(decisionKey) != null) return false;
+    return config.decisionProvider?.name != decisionKey;
+  }
+
+  /// Dispatches the PATCH (edit path). The primary action lives in the sticky
+  /// bar, so it is reachable without scrolling to the end of the form — the
+  /// missing affordance behind the unsaved Decision Model change.
+  Future<void> _save() async {
+    setState(() => _busy = true);
+    try {
+      final controller = ref.read(aiConfigControllerProvider.notifier);
+      final state = ref.read(aiConfigControllerProvider);
+      final handoff = ref.read(aiImportHandoffProvider).value;
+      final edited = await controller.edit(
+        providerKey: state.selectedProviderKey,
+        assistantModelId: state.selectedAssistantModelId,
+        imageModelId: state.selectedImageModelId,
+        costDisplayPreference: state.costDisplayPreference,
+        scriptPrompt: state.scriptPrompt,
+        schedulePrompt: state.schedulePrompt,
+        replacementSecret: _showsReplacementKey(state, handoff)
+            ? _replacementKeyController.text
+            : null,
+        // Decision Model slot (issue #723): always resolved and sent —
+        // including the explicit "disabled" pick, which the tri-state PATCH
+        // clears.
+        decisionProviderKey: state.selectedDecisionProviderKey,
+        decisionModelId: state.selectedDecisionModelId,
+        useSameDecisionKey: state.useSameDecisionKey,
+        decisionReplacementSecret: _showsDecisionKey(state, handoff)
+            ? _decisionKeyController.text
+            : null,
+      );
+      // Explicitly consumed: Err renders the code-keyed banner (controller
+      // state); Ok refreshes the discovery list. A committed save retires the
+      // typed secrets — the hand-off store remembers their references.
+      edited.match<void>((_) {}, (_) {
+        _replacementKeyController.clear();
+        _decisionKeyController.clear();
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Revoke with confirm (the UI owns the confirm dialog); the command carries
+  /// the current version (optimistic lock).
+  Future<void> _revoke() async {
+    final l10n = l10nOf(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('ai-config-revoke-confirm'),
+        title: Text(l10n.aiConfigRevokeTitle),
+        content: Text(l10n.aiConfigRevokeBody),
+        actions: [
+          TextButton(
+            key: const Key('ai-config-revoke-cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.commonCancel),
+          ),
+          TextButton(
+            key: const Key('ai-config-revoke-confirm-yes'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.aiConfigRevokeButton),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final revoked = await ref
+          .read(aiConfigControllerProvider.notifier)
+          .revoke();
+      // Explicitly consumed: the failure surfaces via the code-keyed
+      // banner (controller state); success flips the discovery list.
+      revoked.match<void>((_) {}, (_) {});
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Discards the draft and re-seeds the form from the stored view (no
+  /// command). Also clears the typed secrets, which are part of the draft.
+  void _discardChanges() {
+    ref.read(aiConfigControllerProvider.notifier).discardDrafts();
+    _replacementKeyController.clear();
+    _decisionKeyController.clear();
+  }
+
+  /// The Material "discard changes?" dialog shown when the user leaves the
+  /// screen with unsaved edits. Returns true when the draft may be dropped.
+  Future<bool> _confirmDiscard() async {
+    final l10n = l10nOf(context);
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('ai-config-unsaved-dialog'),
+        title: Text(l10n.aiConfigUnsavedTitle),
+        content: Text(l10n.aiConfigUnsavedBody),
+        actions: [
+          TextButton(
+            key: const Key('ai-config-unsaved-keep-editing'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.aiConfigUnsavedKeepEditing),
+          ),
+          TextButton(
+            key: const Key('ai-config-unsaved-discard'),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.aiConfigUnsavedDiscard),
+          ),
+        ],
+      ),
+    );
+    return discard ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(aiConfigControllerProvider);
     final controller = ref.read(aiConfigControllerProvider.notifier);
+    final handoff = ref.watch(aiImportHandoffProvider).value;
+    final dirty = state.hasUnsavedChanges;
+    final canSave =
+        state.selectedAssistantModelId != null &&
+        (state.selectedDecisionProviderKey == null ||
+            state.selectedDecisionModelId != null);
 
     // Karl Kleiderbügel flow state (issue #516): first-run (no config) is
     // the classic Clippy trigger; command errors console; otherwise
@@ -53,14 +233,41 @@ class AiConfigScreen extends ConsumerWidget {
         ? ClippyFlowState.noConfig
         : ClippyFlowState.idle;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).aiConfigTitle)),
-      body: KarlKleiderbuegelOverlay(
-        flowState: clippyState,
-        child: ListView(
-          key: const Key('ai-config-screen'),
-          padding: const EdgeInsets.all(16),
-          children: [
+    return PopScope(
+      // Leaving with unsaved drafts is the failure mode this screen must not
+      // hide: the form holds DRAFTS, so back-navigation without a save is a
+      // silent discard of (e.g.) the picked Decision Model. Material's answer
+      // for a long form is an explicit "discard changes?" decision, not a
+      // dropped draft (this is what made a saved-looking configuration never
+      // reach the backend).
+      canPop: !dirty,
+      onPopInvokedWithResult: (didPop, Object? result) async {
+        if (didPop) return;
+        final mayLeave = await _confirmDiscard();
+        if (!mayLeave || !context.mounted) return;
+        _discardChanges();
+        Navigator.of(context).pop(result);
+      },
+      child: Scaffold(
+        appBar: AppBar(title: Text(l10nOf(context).aiConfigTitle)),
+        // Material 3 persistent primary action: the save affordance of a long
+        // form stays visible instead of scrolling with the content, and it
+        // states whether there is anything to save.
+        bottomNavigationBar: state.config == null
+            ? null
+            : _ConfigActionBar(
+                dirty: dirty,
+                busy: _busy,
+                canSave: canSave,
+                onSave: _save,
+                onDiscard: _discardChanges,
+              ),
+        body: KarlKleiderbuegelOverlay(
+          flowState: clippyState,
+          child: ListView(
+            key: const Key('ai-config-screen'),
+            padding: const EdgeInsets.all(16),
+            children: [
             // Admin-facing AI-literacy helper (EU AI Act Art. 4, issue
             // #538): persistent ABOVE the forms in BOTH the first-run and
             // configured states — what the configuration controls, whose
@@ -141,8 +348,17 @@ class AiConfigScreen extends ConsumerWidget {
             else if (state.isFirstRun)
               _FirstRunForm(state: state)
             else
-              _ConfiguredForm(state: state),
-          ],
+              _ConfiguredForm(
+                state: state,
+                replacementKeyController: _replacementKeyController,
+                decisionKeyController: _decisionKeyController,
+                showReplacementKey: _showsReplacementKey(state, handoff),
+                showDecisionKey: _showsDecisionKey(state, handoff),
+                busy: _busy,
+                onRevoke: _revoke,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1029,89 +1245,33 @@ class _PromptOverrideRow extends StatelessWidget {
 
 /// The configured state: summary, provider replacement picker, model editing,
 /// prompt edit (version echo carried by the controller), and revoke-with-confirm.
-class _ConfiguredForm extends ConsumerStatefulWidget {
-  const _ConfiguredForm({required this.state});
+///
+/// The primary save action does NOT live here: it sits in the screen's sticky
+/// [_ConfigActionBar] so it is reachable without scrolling (the unsaved Decision
+/// Model change this screen used to lose). This widget therefore only renders
+/// the fields and forwards the typed secrets through the shared controllers.
+class _ConfiguredForm extends StatelessWidget {
+  const _ConfiguredForm({
+    required this.state,
+    required this.replacementKeyController,
+    required this.decisionKeyController,
+    required this.showReplacementKey,
+    required this.showDecisionKey,
+    required this.busy,
+    required this.onRevoke,
+  });
 
   final AiConfigScreenState state;
-
-  @override
-  ConsumerState<_ConfiguredForm> createState() => _ConfiguredFormState();
-}
-
-class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
-  final _replacementKeyController = TextEditingController();
-  final _decisionKeyController = TextEditingController();
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _replacementKeyController.dispose();
-    _decisionKeyController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _revoke() async {
-    final l10n = l10nOf(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        key: const Key('ai-config-revoke-confirm'),
-        title: Text(l10n.aiConfigRevokeTitle),
-        content: Text(l10n.aiConfigRevokeBody),
-        actions: [
-          TextButton(
-            key: const Key('ai-config-revoke-cancel'),
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10n.commonCancel),
-          ),
-          TextButton(
-            key: const Key('ai-config-revoke-confirm-yes'),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.aiConfigRevokeButton),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    setState(() => _busy = true);
-    try {
-      final revoked = await ref
-          .read(aiConfigControllerProvider.notifier)
-          .revoke();
-      // Explicitly consumed: the failure surfaces via the code-keyed
-      // banner (controller state); success flips the discovery list.
-      revoked.match<void>((_) {}, (_) {});
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  final TextEditingController replacementKeyController;
+  final TextEditingController decisionKeyController;
+  final bool showReplacementKey;
+  final bool showDecisionKey;
+  final bool busy;
+  final VoidCallback onRevoke;
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(aiConfigControllerProvider);
-    final handoff = ref.watch(aiImportHandoffProvider);
     final config = state.config!;
-    final selectedProviderKey = state.selectedProviderKey;
-    final providerChanged =
-        selectedProviderKey != null &&
-        selectedProviderKey != config.provider.name;
-    final hasRetainedCredential =
-        selectedProviderKey != null &&
-        handoff.value?.credentials.containsKey(selectedProviderKey) == true;
-    final showReplacementKey = providerChanged && !hasRetainedCredential;
-    // The separate decision API-key field (issue #723) — shown only when a
-    // NEW decision credential is actually needed: a decision provider is
-    // picked, the same-key reuse does not apply (different provider or the
-    // toggle is off), none is remembered, and the stored binding is being
-    // replaced (an unchanged stored binding is resent as-is).
-    final decisionKey = state.selectedDecisionProviderKey;
-    final storedDecisionUnchanged =
-        decisionKey != null && config.decisionProvider?.name == decisionKey;
-    final showDecisionKey =
-        decisionKey != null &&
-        !(decisionKey == selectedProviderKey && state.useSameDecisionKey) &&
-        handoff.value?.decisionCredentialFor(decisionKey) == null &&
-        !storedDecisionUnchanged;
     return Column(
       key: const Key('ai-config-configured'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1136,7 +1296,7 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
           const SizedBox(height: AppSpacing.space12),
           TextField(
             key: const Key('ai-config-replacement-api-key-field'),
-            controller: _replacementKeyController,
+            controller: replacementKeyController,
             obscureText: true,
             autocorrect: false,
             enableSuggestions: false,
@@ -1153,7 +1313,7 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
         const _DecisionSection(),
         const SizedBox(height: AppSpacing.space8),
         _DecisionKeyField(
-          controller: _decisionKeyController,
+          controller: decisionKeyController,
           visible: showDecisionKey,
         ),
         const SizedBox(height: AppSpacing.space8),
@@ -1164,61 +1324,107 @@ class _ConfiguredFormState extends ConsumerState<_ConfiguredForm> {
           scheduleKey: 'ai-edit-schedule-prompt',
         ),
         const SizedBox(height: AppSpacing.space12),
-        FilledButton(
-          key: const Key('ai-config-edit-save'),
-          onPressed:
-              _busy ||
-                  state.selectedAssistantModelId == null ||
-                  (state.selectedDecisionProviderKey != null &&
-                      state.selectedDecisionModelId == null)
-              ? null
-              : () async {
-                  setState(() => _busy = true);
-                  try {
-                    final controller = ref.read(
-                      aiConfigControllerProvider.notifier,
-                    );
-                    final state = ref.read(aiConfigControllerProvider);
-                    final edited = await controller.edit(
-                      providerKey: state.selectedProviderKey,
-                      assistantModelId: state.selectedAssistantModelId,
-                      imageModelId: state.selectedImageModelId,
-                      costDisplayPreference: state.costDisplayPreference,
-                      scriptPrompt: state.scriptPrompt,
-                      schedulePrompt: state.schedulePrompt,
-                      replacementSecret: showReplacementKey
-                          ? _replacementKeyController.text
-                          : null,
-                      // Decision Model slot (issue #723): always resolved
-                      // and sent — including the explicit "disabled" pick,
-                      // which the tri-state PATCH clears.
-                      decisionProviderKey: state.selectedDecisionProviderKey,
-                      decisionModelId: state.selectedDecisionModelId,
-                      useSameDecisionKey: state.useSameDecisionKey,
-                      decisionReplacementSecret: showDecisionKey
-                          ? _decisionKeyController.text
-                          : null,
-                    );
-                    // Explicitly consumed: Err renders the
-                    // changed-elsewhere copy (controller state); Ok
-                    // refreshes the discovery list.
-                    edited.match<void>((_) {}, (_) {});
-                  } finally {
-                    if (mounted) setState(() => _busy = false);
-                  }
-                },
-          child: Text(l10nOf(context).aiConfigSaveChanges),
-        ),
-        const SizedBox(height: 24),
         OutlinedButton(
           key: const Key('ai-config-revoke'),
           style: OutlinedButton.styleFrom(
             foregroundColor: Theme.of(context).colorScheme.error,
           ),
-          onPressed: _busy ? null : _revoke,
+          onPressed: busy ? null : onRevoke,
           child: Text(l10nOf(context).aiConfigRevokeButton),
         ),
       ],
+    );
+  }
+}
+
+// --- Sticky action bar -------------------------------------------------------
+
+/// The configured state's Material 3 persistent primary action.
+///
+/// It exists because the save affordance used to live at the very end of a
+/// long, scrolling form: a Decision Model picked in the middle of that form was
+/// never persisted whenever the user left without scrolling to (and pressing)
+/// the button — the app then looked configured while the aggregate had no such
+/// state. A persistent action bar is Material's pattern for exactly this case:
+/// the primary action stays reachable, and its neighbourhood states whether
+/// there is anything to save ([dirty]) so forgetting the save is visible.
+///
+/// The primary action stays ENABLED while the form is unchanged: the enable
+/// rule mirrors the create form's ("a complete selection may be submitted"),
+/// and disabling it on an unchanged form would make the disabled state the
+/// single signal for two different conditions — an incomplete selection and
+/// "nothing edited" — which is what the explicit [dirty] indicator is for.
+class _ConfigActionBar extends StatelessWidget {
+  const _ConfigActionBar({
+    required this.dirty,
+    required this.busy,
+    required this.canSave,
+    required this.onSave,
+    required this.onDiscard,
+  });
+
+  final bool dirty;
+  final bool busy;
+  final bool canSave;
+  final VoidCallback onSave;
+  final VoidCallback onDiscard;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final theme = Theme.of(context);
+    return Material(
+      key: const Key('ai-config-action-bar'),
+      color: theme.colorScheme.surfaceContainer,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.space16,
+            vertical: AppSpacing.space8,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: dirty
+                    ? Row(
+                        children: [
+                          Icon(
+                            Icons.edit_note,
+                            key: const Key('ai-config-unsaved-indicator'),
+                            size: 20,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: AppSpacing.space4),
+                          Expanded(
+                            child: Text(
+                              l10n.aiConfigUnsavedChanges,
+                              key: const Key('ai-config-unsaved-label'),
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : const SizedBox.shrink(),
+              ),
+              if (dirty)
+                TextButton(
+                  key: const Key('ai-config-discard-changes'),
+                  onPressed: busy ? null : onDiscard,
+                  child: Text(l10n.aiConfigDiscardChanges),
+                ),
+              const SizedBox(width: AppSpacing.space8),
+              FilledButton(
+                key: const Key('ai-config-edit-save'),
+                onPressed: busy || !canSave ? null : onSave,
+                child: Text(l10n.aiConfigSaveChanges),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
