@@ -350,8 +350,9 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
   ///
   /// True runs the apply. The dialog names what the second run does — re-apply
   /// is idempotent per row, so it completes what a crashed run left undone
-  /// instead of importing everything twice.
-  Future<bool> _confirmReapply() async {
+  /// instead of importing everything twice. When the applied state could not be
+  /// read, the body says so instead of claiming an import that may not exist.
+  Future<bool> _confirmReapply({required bool knownApplied}) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -359,7 +360,11 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
         return AlertDialog(
           key: const Key('ai-apply-reapply-dialog'),
           title: Text(l10n.aiApplyReapplyTitle),
-          content: Text(l10n.aiApplyReapplyBody),
+          content: Text(
+            knownApplied
+                ? l10n.aiApplyReapplyBody
+                : l10n.aiApplyReapplyBodyUnknown,
+          ),
           actions: [
             TextButton(
               key: const Key('ai-apply-reapply-cancel'),
@@ -394,8 +399,13 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     // Issue #800: has this preview already been imported? Server-owned fact from
     // the cached row; it decides the button's copy and the confirmation, never
     // whether the apply is allowed — the server stays authoritative.
-    final alreadyImported =
-        ref.watch(aiJobAppliedProvider(jobId)).value ?? false;
+    // `null` is "not known yet" (the cached row is still loading, the read
+    // failed, or no row exists) and it must ASK rather than assume a first
+    // apply: the server accepts a repeat apply, so a silent re-apply is exactly
+    // what this confirmation exists to prevent. Only a KNOWN `false` skips it.
+    final appliedState = ref.watch(aiJobAppliedProvider(jobId)).value;
+    final knownApplied = appliedState == true;
+    final confirmBeforeApply = appliedState != false;
     final cachedJobBlock = ref.watch(aiJobBlockInfoProvider(jobId)).value;
     final jobBlockId = (cachedJobBlock?.blockId.isNotEmpty ?? false)
         ? cachedJobBlock!.blockId
@@ -818,7 +828,10 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                         // reserve-before-create) — but never silently: the
                         // second run asks first, and the button says which one
                         // it is.
-                        if (alreadyImported && !await _confirmReapply()) {
+                        if (confirmBeforeApply &&
+                            !await _confirmReapply(
+                              knownApplied: knownApplied,
+                            )) {
                           return;
                         }
                         setState(() => _applying = true);
@@ -840,7 +853,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Text(
-                        alreadyImported
+                        knownApplied
                             ? l10nOf(context).aiApplyReapplySubmit
                             : l10nOf(context).aiApplySubmit,
                       ),
@@ -1319,15 +1332,17 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
   /// the estimate from re-running on a ticker rebuild).
   int? _applied;
 
-  /// The run (`ApplyProgress.runId`) [_eta] belongs to. A second apply of the
-  /// same preview is a different run: its cadence says nothing about the first
-  /// one's, so the smoothing state is dropped with it.
+  /// The run [_eta] belongs to. A second apply of the same preview is a
+  /// different run: its cadence says nothing about the first one's, so the
+  /// smoothing state is dropped with it.
   ///
-  /// Since issue #800 the run NAMES itself (`run_id`) instead of being inferred
-  /// from `startedAt`: two runs could start on the same clock tick, and a
-  /// re-apply resets the counters — the identity is the honest boundary, not a
-  /// timestamp comparison.
-  String? _runId;
+  /// Since issue #800 the run NAMES itself (`run_id`), which is the honest
+  /// boundary — two runs can start on the same clock tick, and a re-apply resets
+  /// the counters. A server that predates the field sends no `run_id`, so the
+  /// boundary falls back to the frame's `startedAt`: that was the pre-#800 rule
+  /// and it still separates two runs, it just cannot separate two that began in
+  /// the same instant.
+  String? _runBoundary;
 
   AiJobEta? _eta;
 
@@ -1352,10 +1367,12 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
     final applied = progress.applied;
     final total = progress.total;
     if (applied == null || total == null) return null;
-    if (progress.runId != _runId) {
+    final boundary =
+        progress.runId ?? 'started:${progress.startedAt.toIso8601String()}';
+    if (boundary != _runBoundary) {
       // A different run: never smooth across run boundaries.
       _eta = null;
-      _runId = progress.runId;
+      _runBoundary = boundary;
       _applied = null;
     }
     if (_applied != applied) {

@@ -45,6 +45,12 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     apply-error card would have been wrong. A dedicated code-keyed narrative
     ("Für diese Vorschau läuft bereits eine Übernahme …") renders only when the
     budget is spent while another run is still going.
+  - **An unreadable applied state still asks.** The confirmation runs unless the
+    client KNOWS the preview was never applied: a cached row that has not loaded
+    (or a failed read) is not evidence of a first apply, and the dialog body says
+    so instead of claiming an import that may not exist. The run boundary also
+    falls back to the frame's `started_at` when a pre-#800 server sends no
+    `run_id`, so the ETA smoothing still resets between runs.
   - **"Bereits importiert" badge.** The jobs list renders it from `applied`
     (persisted in a new additive Drift column, schema v18 → v19, so a cached-first
     paint shows it instead of flickering in after the live read). The apply

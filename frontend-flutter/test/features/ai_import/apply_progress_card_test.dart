@@ -57,7 +57,7 @@ ApplyProgress _run({
   int total = 10,
   ApplyStage stage = ApplyStage.applying,
   DateTime? updatedAt,
-  String runId = _runOne,
+  String? runId = _runOne,
 }) => ApplyProgress(
   (b) => b
     ..runId = runId
@@ -74,7 +74,7 @@ AiApplyRunRunning _running({
   int total = 10,
   ApplyStage stage = ApplyStage.applying,
   DateTime? updatedAt,
-  String runId = _runOne,
+  String? runId = _runOne,
 }) => AiApplyRunRunning(
   _run(
     startedAt: startedAt,
@@ -305,6 +305,41 @@ void main() {
       tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
       'Almost done …',
       reason: 'a new run must not inherit the previous run\'s rate',
+    );
+  });
+
+  testWidgets('a pre-#800 server (no run_id) still resets on a new anchor '
+      '(issue #800 review)', (tester) async {
+    await pump(tester);
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(minutes: 4)),
+        updatedAt: now,
+        runId: null,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'About 6 min left',
+    );
+
+    // No `run_id` on the wire, so the frame's own anchor is the only boundary
+    // there is: a different `startedAt` must reset the smoothing, or the second
+    // run would inherit the first one's rate.
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(seconds: 10)),
+        applied: 5,
+        updatedAt: now,
+        runId: null,
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ai-apply-progress-eta'))).data,
+      'Almost done …',
+      reason: 'the stale cadence must not survive a new anchor',
     );
   });
 

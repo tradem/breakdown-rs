@@ -598,13 +598,26 @@ pub trait AiImportQueue: Send + Sync {
     /// happened" from the frames it managed to emit is exactly the bug this
     /// read fixes.
     ///
-    /// The default reports an empty slot, so backends and fakes that do not
-    /// track runs keep compiling and simply never see one.
+    /// The default **mirrors [`get`](Self::get)** rather than reporting an
+    /// empty slot: the stream ends when this returns `None`, so a default
+    /// `None` would cut the stream off after its snapshot frame — with no final
+    /// `null` frame — for every adapter that publishes progress and wake-ups but
+    /// does not track a slot. Such an adapter has no counter to offer, so `seq`
+    /// stays `0` and the owner is derived from the payload it published: the
+    /// pre-#800 behaviour (a run that starts and clears between two reads stays
+    /// invisible) without losing the runs it *did* publish.
     async fn apply_run_state(
         &self,
-        _id: AiImportJobId,
+        id: AiImportJobId,
     ) -> Result<Option<ApplyRunState>, DomainError> {
-        Ok(None)
+        Ok(self.get(id).await?.map(|job| {
+            let progress = job.apply_progress;
+            ApplyRunState {
+                owner: progress.as_ref().map(|frame| frame.run_id),
+                seq: 0,
+                progress,
+            }
+        }))
     }
 
     /// Publish (or clear, with `None`) the progress of one **apply run**

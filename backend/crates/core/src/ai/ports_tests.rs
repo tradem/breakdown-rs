@@ -317,3 +317,201 @@ fn the_call_count_saturates_instead_of_wrapping() {
     accumulator.record(LlmCallUsage::default());
     assert_eq!(accumulator.calls, u32::MAX);
 }
+
+// ===========================================================================
+// Issue #800 review — the `apply_run_state` port default
+// ===========================================================================
+
+mod apply_run_state_default {
+    use async_trait::async_trait;
+
+    use super::super::{
+        AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
+        ApplyProgress, ApplyRunId, DocumentKind, Telemetry,
+    };
+    // The view types are re-exported on `ai`, not on the port module.
+    use crate::ai::{AppliedEpisode, ApplyStage, JobStatus, SourceFormat};
+    use crate::error::DomainError;
+    use crate::shared::UserId;
+    use chrono::Utc;
+
+    /// A queue that implements only the REQUIRED methods, so `apply_run_state`,
+    /// `claim_apply_run` and `mark_apply_progress` are the trait's defaults.
+    struct DefaultOnlyQueue {
+        job: Option<AiImportJob>,
+    }
+
+    #[async_trait]
+    impl AiImportQueue for DefaultOnlyQueue {
+        async fn enqueue(
+            &self,
+            _request: AiImportEnqueueRequest,
+        ) -> Result<AiImportEnqueueResult, DomainError> {
+            Err(unsupported())
+        }
+
+        async fn claim_next(&self, _worker_id: &str) -> Result<Option<AiImportJob>, DomainError> {
+            Ok(None)
+        }
+
+        async fn claim_next_kind(
+            &self,
+            _worker_id: &str,
+            _kind: DocumentKind,
+        ) -> Result<Option<AiImportJob>, DomainError> {
+            Ok(None)
+        }
+
+        async fn get(&self, _id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError> {
+            Ok(self.job.clone())
+        }
+
+        async fn mark_running(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+        ) -> Result<(), DomainError> {
+            Err(unsupported())
+        }
+
+        async fn mark_succeeded(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _preview_handle: &str,
+        ) -> Result<(), DomainError> {
+            Err(unsupported())
+        }
+
+        async fn mark_failed(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _error_summary: &str,
+            _error_code: Option<&str>,
+            _retryable: bool,
+        ) -> Result<(), DomainError> {
+            Err(unsupported())
+        }
+
+        async fn record_worker_telemetry(
+            &self,
+            _id: AiImportJobId,
+            _worker_id: &str,
+            _telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            Err(unsupported())
+        }
+
+        async fn record_telemetry(
+            &self,
+            _id: AiImportJobId,
+            _telemetry: Telemetry,
+        ) -> Result<(), DomainError> {
+            Err(unsupported())
+        }
+
+        async fn record_applied_episodes(
+            &self,
+            _id: AiImportJobId,
+            _episodes: &[AppliedEpisode],
+        ) -> Result<(), DomainError> {
+            Err(unsupported())
+        }
+    }
+
+    fn unsupported() -> DomainError {
+        DomainError::Internal {
+            reason: "not tracked by the default-only test queue".to_owned(),
+        }
+    }
+
+    fn progress(run_id: ApplyRunId) -> ApplyProgress {
+        let now = Utc::now();
+        ApplyProgress {
+            stage: ApplyStage::Applying,
+            applied: 3,
+            total: 9,
+            started_at: now,
+            updated_at: now,
+            run_id,
+        }
+    }
+
+    fn job_with(payload: Option<ApplyProgress>) -> AiImportJob {
+        AiImportJob {
+            id: AiImportJobId::new(),
+            user_id: UserId::from_sub("default-only"),
+            document_kind: DocumentKind::Script,
+            source_format: SourceFormat::Pdf,
+            block_id: None,
+            dedup_key: "dedup".to_owned(),
+            document_digest: "digest".to_owned(),
+            source_handle: "source".to_owned(),
+            source_file_name: None,
+            target: None,
+            status: JobStatus::Succeeded,
+            preview_handle: Some("preview".to_owned()),
+            last_error: None,
+            retries: 0,
+            max_retries: 3,
+            next_attempt_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            progress: None,
+            attempts: Vec::new(),
+            telemetry: None,
+            cost: None,
+            applied_episodes: Vec::new(),
+            decision_telemetry: None,
+            apply_progress: payload,
+            applied: false,
+        }
+    }
+
+    /// The default must MIRROR `get`, not answer `None`: the apply stream ends on
+    /// `None`, so a default `None` would cut every such adapter's stream off
+    /// after its snapshot frame — without the documented final `null` frame.
+    #[test]
+    fn the_default_reports_the_payload_it_published() {
+        let run_id = ApplyRunId::new();
+        let payload = progress(run_id);
+        let job = job_with(Some(payload.clone()));
+        let id = job.id;
+        let queue = DefaultOnlyQueue { job: Some(job) };
+        let state = futures::executor::block_on(queue.apply_run_state(id))
+            .expect("the default reads the job")
+            .expect("the job exists");
+        assert_eq!(state.progress, Some(payload), "the payload is mirrored");
+        assert_eq!(
+            state.owner,
+            Some(run_id),
+            "and the owner is derived from the payload"
+        );
+        assert_eq!(state.seq, 0, "an adapter with no counter reports none");
+    }
+
+    /// No job → `None` (the stream closes), exactly like the pre-#800 contract.
+    #[test]
+    fn the_default_reports_no_slot_for_a_missing_job() {
+        let queue = DefaultOnlyQueue { job: None };
+        let state = futures::executor::block_on(queue.apply_run_state(AiImportJobId::new()))
+            .expect("the default reads the job");
+        assert!(state.is_none(), "an unknown job has no slot");
+    }
+
+    /// A job with no payload → an empty slot, so the stream keeps waiting
+    /// instead of ending on a run that never published.
+    #[test]
+    fn the_default_reports_an_empty_slot_without_a_payload() {
+        let job = job_with(None);
+        let id = job.id;
+        let queue = DefaultOnlyQueue { job: Some(job) };
+        let state = futures::executor::block_on(queue.apply_run_state(id))
+            .expect("the default reads the job")
+            .expect("the job exists");
+        assert_eq!(state.owner, None);
+        assert_eq!(state.progress, None);
+        assert_eq!(state.seq, 0);
+    }
+}

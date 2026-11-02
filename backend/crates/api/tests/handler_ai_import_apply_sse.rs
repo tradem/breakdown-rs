@@ -472,6 +472,71 @@ async fn a_claimed_run_without_a_payload_keeps_the_stream_open() {
     );
 }
 
+/// Issue #800 review: the run baseline is read **before** the subscription, and
+/// the snapshot after it. A run that claims and clears inside that window must
+/// still produce the documented final `null` frame — with the baseline read
+/// afterwards, its counter bump would be absorbed and the stream would go
+/// `Idle` and close silently.
+#[tokio::test(start_paused = true)]
+async fn a_run_inside_the_subscribe_window_still_emits_the_end_frame() {
+    let ports = FakePorts::default();
+    let job = succeeded_job(AiImportJobId::new());
+    ports.ai_import_queue.seed(job.clone()).await;
+    // The scripted run fires right after the FIRST `apply_run_state` read — i.e.
+    // between the baseline read and the subscription.
+    let scripted_run = ApplyRunId::new();
+    *ports
+        .ai_import_queue
+        .run_inside_window
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(scripted_run);
+
+    let app = state(ports.clone());
+    let (_status, mut body) = open_stream(app, job.id).await;
+
+    // The baseline was read before the subscription (the fix under test) …
+    let order: Vec<&'static str> = ports
+        .ai_import_queue
+        .call_log
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let first_baseline = order
+        .iter()
+        .position(|call| *call == "apply_run_state")
+        .expect("the stream reads the run slot");
+    let first_subscribe = order
+        .iter()
+        .position(|call| *call == "subscribe")
+        .expect("the stream subscribes");
+    assert!(
+        first_baseline < first_subscribe,
+        "the run counter must be read BEFORE subscribing, got {order:?}"
+    );
+
+    // … and the run that landed in the window is reported, not swallowed.
+    let frame = next_frame(&mut body)
+        .await
+        .expect("the window run's end is reported instead of a silent close");
+    let payload = frame_data(&frame).expect("frame carries JSON data");
+    assert!(
+        payload["apply_progress"].is_null(),
+        "the unseen run's end signal is the documented null frame, got {payload}"
+    );
+    assert!(
+        next_frame(&mut body).await.is_none(),
+        "and the stream ends after it"
+    );
+    let slot = ports
+        .ai_import_queue
+        .apply_run_state(job.id)
+        .await
+        .expect("run slot read")
+        .expect("the fake tracks the slot");
+    assert_eq!(slot.seq, 1, "the scripted run bumped the counter once");
+    assert_eq!(slot.owner, None, "and it is over");
+}
+
 #[tokio::test]
 async fn a_job_that_is_not_succeeded_gets_no_apply_progress_written() {
     // The adapter's status predicate: an apply can only ever run against a

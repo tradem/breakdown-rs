@@ -338,6 +338,50 @@ async fn a_stale_claim_is_stolen_by_the_next_apply() -> Result<()> {
     let state = queue.apply_run_state(id).await?.expect("run slot");
     assert_eq!(state.owner, Some(next), "the stealer owns the slot");
     assert_eq!(state.seq, 2, "and the run counter recorded the new run");
+    assert_eq!(
+        state.progress, None,
+        "the claim clears the previous run's payload: a stolen frame would make \
+         the stream close on its first read instead of following the new run"
+    );
+    Ok(())
+}
+
+/// Issue #800 review: a run that holds the slot but has **not published its
+/// first frame yet** must not be displaced. Its payload is `NULL`, so the steal
+/// predicate judges that owner by the row's own `updated_at` (which the claim
+/// stamps) — never by "no payload means free".
+#[tokio::test]
+async fn a_claim_without_a_published_payload_is_not_stolen() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = succeeded_job(&queue, "user-apply-claim-fresh").await?;
+
+    let live = ApplyRunId::new();
+    assert!(queue.claim_apply_run(id, live).await?);
+    // Deliberately no `mark_apply_progress`: the run has published nothing.
+    assert!(
+        !queue.claim_apply_run(id, ApplyRunId::new()).await?,
+        "a freshly claimed slot is live even without a payload"
+    );
+
+    // Age the claim itself (the row stamp), exactly like a crashed worker would
+    // by doing nothing for a staleness window — no sleeping (AGENTS.md §4).
+    let stale_before =
+        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    sqlx::query("UPDATE ai_import.ai_import_job SET updated_at = $2 WHERE id = $1")
+        .bind(id.as_uuid())
+        .bind(stale_before)
+        .execute(&pool)
+        .await?;
+
+    let next = ApplyRunId::new();
+    assert!(
+        queue.claim_apply_run(id, next).await?,
+        "a claim that never published is stealable once its own stamp is stale"
+    );
+    let state = queue.apply_run_state(id).await?.expect("run slot");
+    assert_eq!(state.owner, Some(next));
+    assert_eq!(state.seq, 2, "the steal bumped the counter");
     Ok(())
 }
 

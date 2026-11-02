@@ -6902,9 +6902,6 @@ pub async fn stream_ai_import_apply_events<P: Ports>(
         .and_then(|value| value.to_str().ok());
 
     let queue = state.ports.ai_import_queue().clone();
-    // Subscribe BEFORE the snapshot read (same race-free order as the job
-    // stream).
-    let wakeups = queue.subscribe(id);
     let job = queue.get(id).await?;
     let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
     // AUTHZ-GATE: the apply stream is privileged exactly like the single-job
@@ -6913,19 +6910,34 @@ pub async fn stream_ai_import_apply_events<P: Ports>(
     // rejected caller gets a problem document instead of a text/event-stream.
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
 
-    // The run slot, not just the payload: the stream needs the run counter to
-    // tell "no run yet" from "a run started and already ended" (issue #800).
+    // The run counter is read BEFORE the subscription, while the SNAPSHOT is
+    // read after it. Both halves are deliberate (issue #800 review):
+    //
+    // * a baseline read after `subscribe` would absorb a run that claims and
+    //   clears inside the subscribe-to-read window: the counter it bumped would
+    //   become the baseline, the stream would classify the slot as `Idle` and
+    //   close without the documented final `null` frame — exactly the defect the
+    //   counter exists to fix, just in a narrower window;
+    // * a snapshot read before `subscribe` would miss a write in the opposite
+    //   direction (the first frame would be stale until the next tick). Reading
+    //   it after the subscription keeps the first frame as fresh as the job
+    //   stream's.
+    let baseline_seq = queue
+        .apply_run_state(id)
+        .await?
+        .map_or(0, |state| state.seq);
+    let wakeups = queue.subscribe(id);
     let run_state = match queue.apply_run_state(id).await? {
         Some(state) => state,
-        // An adapter that does not track the slot at all (in-memory fakes,
-        // future backends) still gets a usable snapshot from the job read.
+        // The job exists but the adapter reports no slot: fall back to the job
+        // read so the snapshot still names the payload it published.
         None => breakdown_core::ai::ApplyRunState {
             owner: None,
             seq: 0,
             progress: job.apply_progress.clone(),
         },
     };
-    let stream = sse_apply_stream(queue, id, run_state, wakeups);
+    let stream = sse_apply_stream(queue, id, run_state, baseline_seq, wakeups);
     let mut response = Sse::new(stream)
         .keep_alive(
             KeepAlive::new()
@@ -6953,9 +6965,10 @@ struct SseApplyStream<Q: AiImportQueue> {
     /// Snapshot waiting to be emitted (initial connect / reconnect).
     pending: Option<breakdown_core::ai::ApplyRunState>,
     last_emitted: Option<ApplyWatermark>,
-    /// The job's run counter as observed when this stream subscribed. A later
+    /// The job's run counter as observed BEFORE this stream subscribed. A later
     /// read that is higher proves a run started — even one that also finished
-    /// before the first frame reached us (issue #800 #2).
+    /// before the first frame reached us (issue #800 #2), including one that
+    /// claimed and cleared inside the subscribe-to-read window.
     baseline_seq: i64,
     /// True once a live run was observed; only then does "no payload" mean
     /// "the run finished" instead of "nothing started yet".
@@ -7031,6 +7044,7 @@ fn sse_apply_stream<Q>(
     queue: Q,
     id: AiImportJobId,
     initial: breakdown_core::ai::ApplyRunState,
+    baseline_seq: i64,
     wakeups: std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>>,
 ) -> impl futures::Stream<Item = Result<Event, std::convert::Infallible>> + Send
 where
@@ -7041,9 +7055,10 @@ where
             queue,
             id,
             wakeups,
-            // The subscribe-time counter: anything above it is a run this
-            // stream must report on, even if its payload is already gone.
-            baseline_seq: initial.seq,
+            // The pre-subscribe counter (see the handler): anything above it is
+            // a run this stream must report on, even if its payload is already
+            // gone.
+            baseline_seq,
             pending: Some(initial),
             last_emitted: None,
             saw_run: false,

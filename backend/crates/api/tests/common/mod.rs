@@ -2357,6 +2357,15 @@ impl AiConfigRepository for FakeAiConfigRepo {
 /// #763) — an alias so the nested collection stays readable at its use sites.
 pub type AppliedEpisodeSink = Arc<Mutex<Vec<(AiImportJobId, Vec<AppliedEpisode>)>>>;
 
+/// Lock a test-only `std::sync::Mutex` without `expect`/`unwrap`: the workspace
+/// denies `clippy::expect_used` in test code too, and a poisoned lock here only
+/// means another test panicked — the bookkeeping it guards is still readable.
+fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[derive(Clone, Default)]
 #[allow(dead_code)]
 pub struct FakeAiImportQueue {
@@ -2375,6 +2384,15 @@ pub struct FakeAiImportQueue {
     /// deliberately not part of the job DTO — the production columns
     /// (`apply_run_id`, `apply_run_seq`) travel on their own read.
     pub apply_runs: Arc<Mutex<HashMap<Uuid, FakeApplyRun>>>,
+    /// The order of the slot/subscription reads this fake served (issue #800
+    /// review): the apply stream must read the run baseline BEFORE it
+    /// subscribes, or a run that claims and clears inside that window is
+    /// absorbed into the baseline and its end frame is never emitted.
+    pub call_log: Arc<std::sync::Mutex<Vec<&'static str>>>,
+    /// A whole apply run to perform right after the NEXT `apply_run_state` read
+    /// (issue #800 review): reproduces a run that claims and clears inside the
+    /// subscribe-to-read window, deterministically.
+    pub run_inside_window: Arc<std::sync::Mutex<Option<breakdown_core::ai::ApplyRunId>>>,
 }
 
 /// The apply-run slot of one fake job (issue #800).
@@ -2646,6 +2664,9 @@ impl AiImportQueue for FakeAiImportQueue {
         &self,
         id: AiImportJobId,
     ) -> Result<Option<breakdown_core::ai::ApplyRunState>, DomainError> {
+        // A `std::sync::Mutex`: the log is also written from the non-async
+        // `subscribe`, and it is never held across an await.
+        locked(&self.call_log).push("apply_run_state");
         let progress = match self.jobs.lock().await.get(&id.as_uuid()) {
             Some(job) => job.apply_progress.clone(),
             None => return Ok(None),
@@ -2657,11 +2678,23 @@ impl AiImportQueue for FakeAiImportQueue {
             .get(&id.as_uuid())
             .copied()
             .unwrap_or_default();
-        Ok(Some(breakdown_core::ai::ApplyRunState {
+        let state = breakdown_core::ai::ApplyRunState {
             owner: slot.owner,
             seq: slot.seq,
             progress,
-        }))
+        };
+        // Scripted window mutation (issue #800 review): one whole run lands
+        // AFTER this read, i.e. before the stream's next read. A baseline taken
+        // after the subscription would swallow it.
+        let scripted = locked(&self.run_inside_window).take();
+        if let Some(run_id) = scripted {
+            assert!(
+                self.claim_apply_run(id, run_id).await?,
+                "the scripted run claims a free slot"
+            );
+            self.mark_apply_progress(id, run_id, None).await?;
+        }
+        Ok(Some(state))
     }
 
     /// Mirror the Postgres adapter's run-scoped apply-progress write
@@ -2708,6 +2741,9 @@ impl AiImportQueue for FakeAiImportQueue {
         &self,
         id: AiImportJobId,
     ) -> std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>> {
+        // Recorded for the ordering assertion (issue #800 review): this cannot
+        // await inside the non-async port method, hence the sync lock.
+        locked(&self.call_log).push("subscribe");
         self.hub.subscribe(id)
     }
 

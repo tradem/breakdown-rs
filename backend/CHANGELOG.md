@@ -58,6 +58,15 @@ tag. Never edit a released entry afterwards.
   - **A client disconnect clears its own run.** A run-scoped `Drop` guard releases
     the payload when the handler future is dropped; the apply itself is never
     detached.
+  - **Hardening from the review.** A claim **clears** the payload it takes over
+    (a stolen frame would otherwise make the new run's stream close on its first
+    read), an owner that has not published yet is judged by the row's own
+    `updated_at` instead of "no payload means free" (otherwise a second apply
+    could take a live, just-claimed slot), the apply stream reads the run counter
+    **before** it subscribes (a run inside that window would be absorbed into the
+    baseline and lose its end frame), a failed clear keeps the run guard armed so
+    `Drop` retries it, and the port's default `apply_run_state` mirrors `get`
+    instead of answering "no slot".
   - **The jobs list badges an already-imported preview.** `AiImportJob.applied`
     (additive, server-derived from the recorded apply telemetry) drives a
     localized "already imported" badge and an explicit re-apply confirmation — the

@@ -3870,4 +3870,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiApplyReapplyConfirm => 'Apply again';
+
+  @override
+  String get aiApplyReapplyBodyUnknown =>
+      'Whether this preview was already imported could not be read. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed.';
 }

@@ -522,6 +522,42 @@ fn feature_flag_parser_is_off_for_unrecognised_values() {
 #[derive(Clone, Default)]
 struct FakeQueue {
     state: Arc<Mutex<FakeQueueState>>,
+    /// Test-only gate that parks the apply that WINS the slot (issue #800
+    /// review): without it a concurrent-apply test depends on the loser
+    /// reaching the claim before the winner finishes, which is a scheduling
+    /// coin flip.
+    claim_gate: Option<Arc<ClaimGate>>,
+    /// How many apply-progress **clears** still have to fail (issue #800
+    /// review): proves the run-scoped guard retries a failed clear instead of
+    /// leaving the slot claimed for a whole staleness window.
+    fail_clear_count: Arc<Mutex<usize>>,
+}
+
+/// Parks the apply that won the single-flight claim until the test releases it.
+struct ClaimGate {
+    /// Signalled once the claim is held (the winner is parked right after it).
+    won: tokio::sync::Notify,
+    /// The test adds permits to let the parked winner continue.
+    release: tokio::sync::Semaphore,
+}
+
+impl Default for ClaimGate {
+    fn default() -> Self {
+        // Zero permits: a winner parks until the test releases it.
+        Self {
+            won: tokio::sync::Notify::new(),
+            release: tokio::sync::Semaphore::new(0),
+        }
+    }
+}
+
+impl FakeQueue {
+    fn with_claim_gate(gate: Arc<ClaimGate>) -> Self {
+        Self {
+            claim_gate: Some(gate),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -594,13 +630,21 @@ impl AiImportQueue for FakeQueue {
         _id: AiImportJobId,
         run_id: breakdown_core::ai::ApplyRunId,
     ) -> Result<bool, DomainError> {
-        let mut state = self.state.lock().unwrap();
-        if state.apply_run.is_some() {
-            // A live run owns the slot: a second apply is refused (issue #800).
-            return Ok(false);
+        {
+            let mut state = self.state.lock().unwrap();
+            if state.apply_run.is_some() {
+                // A live run owns the slot: a second apply is refused (issue #800).
+                return Ok(false);
+            }
+            state.apply_run = Some(run_id);
+            state.apply_run_seq += 1;
         }
-        state.apply_run = Some(run_id);
-        state.apply_run_seq += 1;
+        // Park the winner so a concurrent apply is guaranteed to meet a live
+        // claim (the mutex is released above: the gate must not hold it).
+        if let Some(gate) = &self.claim_gate {
+            gate.won.notify_one();
+            let _permit = gate.release.acquire().await;
+        }
         Ok(true)
     }
 
@@ -627,6 +671,18 @@ impl AiImportQueue for FakeQueue {
         // the slot cannot publish or clear (issue #800).
         if state.apply_run != Some(run_id) {
             return Ok(());
+        }
+        if progress.is_none() {
+            // Scripted store failure (issue #800 review): the worker must keep
+            // the guard armed so the clear is retried, not leave the slot
+            // claimed.
+            let mut remaining = self.fail_clear_count.lock().unwrap();
+            if *remaining > 0 {
+                *remaining -= 1;
+                return Err(DomainError::Internal {
+                    reason: "scripted apply-progress clear failure".to_owned(),
+                });
+            }
         }
         state.apply_progress.push(progress.cloned());
         if progress.is_none() {
@@ -2500,14 +2556,19 @@ async fn apply_retry_is_a_noop_for_confirmed_mappings() {
 /// of one job no longer both run — exactly one claims the progress slot and the
 /// other is refused with `409 ai-import.apply-in-flight` (issue #800 #1: without
 /// that gate the two runs interleaved their counters and the first to finish
-/// closed the other's stream). The #338 idempotency still holds where it
-/// matters: a retry AFTER the winner ended converges on the same rows instead of
-/// creating a second scene per draft.
+/// closed the other's stream).
+///
+/// The winner is PARKED inside its claim (the `ClaimGate`), so the loser is
+/// guaranteed to meet a live claim instead of racing it to completion — the
+/// outcome does not depend on scheduling. The #338 idempotency still holds where
+/// it matters: a retry AFTER the winner ended converges on the same rows instead
+/// of creating a second scene per draft.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn apply_script_is_single_flight_and_a_later_retry_converges() {
     use tokio::sync::Barrier;
 
-    let queue = Arc::new(FakeQueue::default());
+    let gate = Arc::new(ClaimGate::default());
+    let queue = Arc::new(FakeQueue::with_claim_gate(Arc::clone(&gate)));
     let mappings = Arc::new(FakeMappings::default());
     let commands = Arc::new(FakeSceneCommands::default());
     let preview = ScriptContext {
@@ -2536,7 +2597,7 @@ async fn apply_script_is_single_flight_and_a_later_retry_converges() {
     ];
     let episode_id = breakdown_core::shared::EpisodeId::new();
     let barrier = Arc::new(Barrier::new(2));
-    let mut handles = Vec::new();
+    let mut tasks = tokio::task::JoinSet::new();
     for _ in 0..2 {
         let worker = script_apply_worker(
             Arc::clone(&commands),
@@ -2546,7 +2607,7 @@ async fn apply_script_is_single_flight_and_a_later_retry_converges() {
         let barrier = Arc::clone(&barrier);
         let preview = preview.clone();
         let decisions = decisions.clone();
-        handles.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             barrier.wait().await;
             worker
                 .apply_script(ApplyScriptRequest {
@@ -2568,37 +2629,47 @@ async fn apply_script_is_single_flight_and_a_later_retry_converges() {
                     known_episodes: Vec::new(),
                 })
                 .await
-        }));
-    }
-    let mut results = Vec::new();
-    for handle in handles {
-        results.push(handle.await.expect("apply task panicked"));
+        });
     }
 
-    // Issue #800: exactly ONE of the two concurrent applies owns the slot.
-    let winners: Vec<&super::ScriptApplyResult> =
-        results.iter().filter_map(|r| r.as_ref().ok()).collect();
-    assert_eq!(
-        winners.len(),
-        1,
-        "one apply wins the single-flight slot, got {results:?}"
-    );
-    let losers: Vec<&DomainError> = results.iter().filter_map(|r| r.as_ref().err()).collect();
-    assert_eq!(losers.len(), 1, "and exactly one is refused: {results:?}");
-    match losers[0] {
-        DomainError::Conflict { code, .. } => assert_eq!(
+    // Exactly one apply owns the slot, and it is parked inside the claim, so the
+    // OTHER one is the task that completes first — with the in-flight refusal.
+    gate.won.notified().await;
+    let loser = tasks
+        .join_next()
+        .await
+        .expect("the refused apply completes while the winner is parked")
+        .expect("apply task panicked");
+    match loser {
+        Err(DomainError::Conflict { code, .. }) => assert_eq!(
             code.code, "ai-import.apply-in-flight",
             "the loser is told a run is live, not given a generic conflict"
         ),
-        other => panic!("expected the in-flight conflict, got {other:?}"),
+        Ok(_) => panic!("both applies won the single-flight slot"),
+        Err(other) => panic!("expected the in-flight conflict, got {other:?}"),
     }
 
-    let winner = winners[0];
+    // Let the winner finish, then read its result.
+    gate.release.add_permits(8);
+    let winner = tasks
+        .join_next()
+        .await
+        .expect("the winner completes once released")
+        .expect("apply task panicked")
+        .expect("the winner apply succeeds");
     assert_eq!(
         winner.applied.len(),
         2,
         "the winner dispatched every draft row"
     );
+    // The slot is free again once the winner ended.
+    let slot = queue
+        .apply_run_state(preview_id)
+        .await
+        .unwrap()
+        .expect("the fake tracks the slot");
+    assert_eq!(slot.owner, None, "the winner released the slot");
+
     let created = commands.created.lock().unwrap().clone();
     let mut unique: Vec<Uuid> = created.clone();
     unique.sort();
@@ -2610,8 +2681,8 @@ async fn apply_script_is_single_flight_and_a_later_retry_converges() {
         "no duplicate scene streams were appended"
     );
 
-    // #338: the slot is released when the winner ends, and a retry then
-    // converges on the stored rows instead of appending a second scene.
+    // #338: a retry after the winner ended converges on the stored rows instead
+    // of appending a second scene.
     let retry = script_apply_worker(
         Arc::clone(&commands),
         Arc::clone(&mappings),
@@ -2664,6 +2735,42 @@ async fn apply_script_is_single_flight_and_a_later_retry_converges() {
             "every row must confirm, got {mapping:?}"
         );
     }
+}
+
+/// Issue #800 review: a FAILED clear must not leave the run holding the slot.
+/// The worker keeps the guard armed, so `Drop` retries the clear as the apply
+/// returns — the next apply is not locked out for a whole staleness window.
+#[tokio::test]
+async fn a_failed_clear_is_retried_by_the_guard_so_the_slot_frees() {
+    let fixture = ScriptApplyFixture::new();
+    *fixture.queue.fail_clear_count.lock().unwrap() = 1;
+    let preview = ScriptContext {
+        scenes: vec![row_with_outfit("1. INT. OP", &["BEN"], &[])],
+        ..Default::default()
+    };
+    let decisions = vec![create_decision(&preview.scenes[0].draft_ref)];
+    let result = fixture.apply(&preview, &decisions).await;
+
+    assert!(
+        result.is_ok(),
+        "an advisory clear failure must never fail the apply, got {result:?}"
+    );
+    // `Drop` hands the retry to the runtime; let it run.
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    let slot = fixture
+        .queue
+        .apply_run_state(fixture.preview_id)
+        .await
+        .unwrap()
+        .expect("the fake tracks the slot");
+    assert_eq!(
+        slot.owner, None,
+        "the guard's retry released the slot instead of locking the next \
+         apply out for a staleness window"
+    );
+    assert_eq!(slot.progress, None, "and cleared the payload");
 }
 
 fn tiny_script_pdf() -> Vec<u8> {

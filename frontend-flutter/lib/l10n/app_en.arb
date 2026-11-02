@@ -1175,5 +1175,6 @@
   "outfitVariantCreated": "Variant created.",
   "aiApplyReapplyTitle": "Apply this preview again?",
   "aiApplyReapplyBody": "This preview has already been imported. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed. Use it when an earlier run was interrupted.",
-  "aiApplyReapplyConfirm": "Apply again"
+  "aiApplyReapplyConfirm": "Apply again",
+  "aiApplyReapplyBodyUnknown": "Whether this preview was already imported could not be read. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed."
 }

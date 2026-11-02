@@ -3919,4 +3919,8 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiApplyReapplyConfirm => 'Erneut anwenden';
+
+  @override
+  String get aiApplyReapplyBodyUnknown =>
+      'Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt.';
 }

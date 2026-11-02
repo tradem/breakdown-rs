@@ -1320,5 +1320,6 @@
   },
   "aiApplyReapplyTitle": "Vorschau erneut anwenden?",
   "aiApplyReapplyBody": "Diese Vorschau wurde bereits importiert. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt. Nutze es, wenn ein früherer Lauf unterbrochen wurde.",
-  "aiApplyReapplyConfirm": "Erneut anwenden"
+  "aiApplyReapplyConfirm": "Erneut anwenden",
+  "aiApplyReapplyBodyUnknown": "Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt."
 }

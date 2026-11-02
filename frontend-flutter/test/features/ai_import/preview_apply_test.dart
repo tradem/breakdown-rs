@@ -946,6 +946,11 @@ void main() {
       /// `true` reports the job's preview as already imported (issue #800):
       /// the apply button switches to its re-apply copy and asks first.
       bool alreadyImported = false,
+
+      /// Models the third state of the applied read: the cached row is missing
+      /// or the read failed, so the client does not KNOW whether this preview was
+      /// applied (issue #800 review).
+      bool appliedStateUnreadable = false,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -981,9 +986,15 @@ void main() {
           // Issue #800: the server-owned "already imported" fact, read from
           // the cached row in production — overridden here so the apply
           // section's copy/gate is testable without a seeded Drift row.
-          aiJobAppliedProvider.overrideWith(
-            (ref, jobId) async => alreadyImported,
-          ),
+          aiJobAppliedProvider.overrideWith((ref, jobId) async {
+            if (appliedStateUnreadable) {
+              final Future<bool> failed = Future.error(
+                StateError('applied state unreadable'),
+              );
+              return failed;
+            }
+            return alreadyImported;
+          }),
           // The preview + apply screens render the configured naming line
           // (issue #608) — a deterministic override keeps the tests off
           // the real discovery path and the goldens stable.
@@ -1071,6 +1082,39 @@ void main() {
         isEmpty,
         reason: 'a cancelled confirmation must never reach the server',
       );
+    });
+
+    testWidgets('an UNREADABLE applied state still asks before applying '
+        '(issue #800 review)', (tester) async {
+      await setupContainer(appliedStateUnreadable: true);
+      await pumpPreview(tester);
+
+      // The button keeps the first-apply copy — the client does not know this is
+      // a re-apply — but the confirmation still runs: a silent repeat apply is
+      // exactly what must not happen.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-apply-submit')),
+          matching: find.text('Apply import'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('ai-apply-reapply-dialog')),
+        findsOneWidget,
+        reason: 'an unknown state is not a "never applied" state',
+      );
+      // … and its body says the state could not be read instead of claiming an
+      // import that may not exist.
+      expect(find.textContaining('could not be read'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('ai-apply-reapply-cancel')));
+      await tester.pump();
+      expect(repo.applyRequests, isEmpty);
     });
 
     testWidgets('a first apply needs no confirmation (issue #800)', (

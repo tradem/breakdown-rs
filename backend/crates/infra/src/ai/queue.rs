@@ -836,6 +836,17 @@ impl AiImportQueue for PgAiImportQueue {
     /// run whose process died blocks later applies for at most one staleness
     /// window, and the next apply takes the slot over in the same statement.
     ///
+    /// Two details keep that honest (issue #800 review):
+    ///
+    /// * a claim **clears** `apply_progress`: a stolen slot must not leave the
+    ///   previous run's payload behind, or the stream would read the new owner
+    ///   with a stale (or already full) payload and close on the first frame
+    ///   instead of waiting for the new run's;
+    /// * an owner that has **not published yet** (`apply_progress IS NULL`) is
+    ///   judged by the row's own `updated_at` — the claim stamps it — never by
+    ///   "no payload means free". Otherwise a second apply could take the slot
+    ///   from a run that simply had not written its first frame.
+    ///
     /// `false` means a live run owns the slot — the request answers
     /// `409 ai-import.apply-in-flight` instead of interleaving two runs.
     async fn claim_apply_run(
@@ -851,13 +862,18 @@ impl AiImportQueue for PgAiImportQueue {
             r#"
             UPDATE ai_import.ai_import_job
             SET apply_run_id = $2,
+                -- The slot starts empty for the new owner: a stolen payload
+                -- describes a run that is over (issue #800 review).
+                apply_progress = NULL,
                 apply_run_seq = apply_run_seq + 1,
                 updated_at = now()
             WHERE id = $1
               AND status = 'succeeded'
               AND (
                   apply_run_id IS NULL
-                  OR apply_progress IS NULL
+                  -- Claimed but nothing published yet: the claim's own row
+                  -- stamp decides whether that owner is still alive.
+                  OR (apply_progress IS NULL AND updated_at < $3)
                   OR (apply_progress->>'updated_at')::timestamptz < $3
               )
             RETURNING pg_notify('ai_import_job_events', id::text)

@@ -2057,25 +2057,34 @@ where
         // disconnects mid-apply drops it, and the guard clears this run's
         // payload instead of leaving "applying 12/57" behind for the whole
         // staleness window (issue #800 #4).
-        let guard = ApplyRunGuard::new(Arc::clone(&self.queue), preview_id, run_id);
+        let mut guard = ApplyRunGuard::new(Arc::clone(&self.queue), preview_id, run_id);
         let result = self.run_script_apply(request, run_id).await;
         // The run ended, either way. Advisory: clearing the run progress must
         // never turn a successful apply into a failure, nor replace the real
         // error on the way out.
-        if let Err(error) = self
+        match self
             .queue
             .mark_apply_progress(preview_id, run_id, None)
             .await
         {
-            tracing::warn!(
-                job_id = %preview_id.as_uuid(),
-                run_id = %run_id.as_uuid(),
-                %error,
-                "failed to clear the AI import apply progress; the stream will \
-                 close on its staleness window instead"
-            );
+            Ok(()) => guard.disarm(),
+            // A failed clear leaves this run holding the slot, which would
+            // answer `409 ai-import.apply-in-flight` to the next apply until the
+            // staleness window passed (issue #800 review). Keeping the guard
+            // armed is the free retry: `Drop` runs as this function returns and
+            // issues the clear once more. A store that keeps failing falls back
+            // to the stale-claim steal — the documented backstop.
+            Err(error) => {
+                tracing::warn!(
+                    job_id = %preview_id.as_uuid(),
+                    run_id = %run_id.as_uuid(),
+                    %error,
+                    "failed to clear the AI import apply progress; retrying once \
+                     as the run's guard drops, otherwise the stream closes on its \
+                     staleness window"
+                );
+            }
         }
-        guard.disarm();
         result
     }
 
@@ -4122,7 +4131,7 @@ impl<Q: AiImportQueue + 'static> ApplyRunGuard<Q> {
 
     /// The run ended on its normal path and has already cleared its own
     /// progress: nothing left to do if the future is dropped afterwards.
-    fn disarm(mut self) {
+    fn disarm(&mut self) {
         self.armed = false;
     }
 }

@@ -6337,6 +6337,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Erneut anwenden'**
   String get aiApplyReapplyConfirm;
+
+  /// No description provided for @aiApplyReapplyBodyUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Ob diese Vorschau bereits importiert wurde, konnte nicht gelesen werden. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt.'**
+  String get aiApplyReapplyBodyUnknown;
 }
 
 class _AppLocalizationsDelegate
