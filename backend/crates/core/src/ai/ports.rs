@@ -25,7 +25,7 @@ use crate::shared::{AggregateVersion, BlockId, UserId};
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::views::{
     AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget, AppliedEpisode,
-    ApplyProgress, DocumentKind, ModelPricing, SourceFormat, Telemetry,
+    ApplyProgress, ApplyRunId, ApplyRunState, DocumentKind, ModelPricing, SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -558,25 +558,78 @@ pub trait AiImportQueue: Send + Sync {
         Ok(())
     }
 
-    /// Publish (or clear, with `None`) the progress of an **apply run**
-    /// (issue #762).
+    /// Claim (or steal) the **apply-run slot** of one job (issue #800).
     ///
-    /// Not owner-fenced: an apply runs against a job that is already terminal
-    /// (`succeeded`), so there is no worker claim to fence against — the same
-    /// contract as [`record_telemetry`](Self::record_telemetry), the other
-    /// write the API edge performs. Production adapters MUST refuse the write
-    /// while the job is not `succeeded`, so an apply's progress can never
-    /// overwrite a job that moved on.
+    /// The apply path had no single-flight gate, so two accepted applies of one
+    /// `succeeded` job could run at once: their counters overwrote each other
+    /// and the first run to finish cleared the slot, closing the still-running
+    /// run's stream. This is the atomic claim that makes the run unique.
     ///
-    /// `None` clears the payload: the run ended (successfully or not) and the
-    /// dedicated apply stream closes on that signal instead of on a timeout.
-    /// Every write is expected to wake [`subscribe`](Self::subscribe).
+    /// Returns `true` when `run_id` now owns the slot, `false` when a **live**
+    /// run already does (the caller answers `409 ai-import.apply-in-flight`).
+    /// A claim whose payload is older than
+    /// [`ApplyProgress::STALE_AFTER`] belongs to a dead process and is stolen
+    /// inside the same statement — the crash/release path needs no separate
+    /// reaper.
+    ///
+    /// The claim also bumps the job's monotonic run counter
+    /// ([`ApplyRunState::seq`]), which is what lets the apply stream tell "no run
+    /// ever started" from "a run started and already ended".
+    ///
+    /// Production adapters MUST refuse the claim while the job is not
+    /// `succeeded` (same predicate as [`mark_apply_progress`](Self::mark_apply_progress)).
+    ///
+    /// The default answers `true` for backends and test fakes that do not track
+    /// the slot: an adapter with no slot has nothing to single-flight.
+    async fn claim_apply_run(
+        &self,
+        _id: AiImportJobId,
+        _run_id: ApplyRunId,
+    ) -> Result<bool, DomainError> {
+        Ok(true)
+    }
+
+    /// Read the apply-run slot of one job (issue #800): its owning run, the
+    /// monotonic run counter and the owner's last published payload.
+    ///
+    /// `None` when the job does not exist (the stream closes). The apply stream
+    /// needs the counter, not just the payload: a run that starts and clears
+    /// between two re-reads leaves no payload behind, and inferring "a run
+    /// happened" from the frames it managed to emit is exactly the bug this
+    /// read fixes.
+    ///
+    /// The default reports an empty slot, so backends and fakes that do not
+    /// track runs keep compiling and simply never see one.
+    async fn apply_run_state(
+        &self,
+        _id: AiImportJobId,
+    ) -> Result<Option<ApplyRunState>, DomainError> {
+        Ok(None)
+    }
+
+    /// Publish (or clear, with `None`) the progress of one **apply run**
+    /// (issues #762, #800).
+    ///
+    /// Fenced by the run identity, not by a worker lease: an apply runs against
+    /// a job that is already terminal (`succeeded`), so there is no claim to
+    /// fence on — the same contract as
+    /// [`record_telemetry`](Self::record_telemetry), the other write the API
+    /// edge performs. A write from a run that no longer owns the slot is a
+    /// no-op, which is what keeps a superseded (stale-stealing) run from
+    /// ending the current run's stream.
+    ///
+    /// `None` clears the payload **and** releases the slot: the run ended
+    /// (successfully or not) and the dedicated apply stream closes on that
+    /// signal instead of on a timeout. The run counter is never cleared, so the
+    /// ended run stays provable. Every write is expected to wake
+    /// [`subscribe`](Self::subscribe).
     ///
     /// The default is a no-op for backends and test fakes that do not track
     /// apply progress.
     async fn mark_apply_progress(
         &self,
         _id: AiImportJobId,
+        _run_id: ApplyRunId,
         _progress: Option<&ApplyProgress>,
     ) -> Result<(), DomainError> {
         Ok(())

@@ -78,6 +78,18 @@ class AiImportJobCacheRows extends Table {
   /// known" at read, never to a DB fault. `null` until an apply has run.
   TextColumn get appliedEpisodesJson => text().nullable()();
 
+  /// Whether this preview has ever been applied (issue #800) — the server's
+  /// `AiImportJob.applied`, persisted so the "already imported" badge survives
+  /// a cached-first paint.
+  ///
+  /// Deliberately NOT derived from [appliedEpisodesJson]: that summary is empty
+  /// for a schedule import by design, so it cannot answer "was this imported?".
+  /// `false` is honest presence for a row cached before the field existed (an
+  /// unknown-ness flag would make every old row look never-applied AND
+  /// never-unknown, which is worse than the conservative default: the badge is
+  /// an affordance hint, and the server stays authoritative for the apply).
+  BoolColumn get applied => boolean().withDefault(const Constant(false))();
+
   /// The job-level Decision Model scoring outcome (issue #767), serialized as
   /// the generated `DecisionTelemetry` JSON object — `null` for a pre-#767 row
   /// (`decision_telemetry` is `NULL` server-side for those and the outcome

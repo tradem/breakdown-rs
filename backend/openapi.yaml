@@ -346,6 +346,20 @@ components:
         Operational job row. Preview blobs and errors are represented by opaque
         handles/summaries; credentials and document bytes are deliberately absent.
       properties:
+        applied:
+          description: |-
+            Whether this preview has ever been **applied** (issue #800). Additive
+            with `serde(default)`: `false` for a job no apply has run for yet, and
+            for every job created before the field existed.
+
+            Derived server-side from the persisted apply telemetry
+            (`TelemetryApplyState::Applied`), never inferred from
+            [`Self::applied_episodes`] — that summary is empty for a schedule apply
+            by design, so it cannot answer "was this imported?". Its purpose is the
+            honest "already imported" badge and the re-apply confirmation: a second
+            apply stays *possible* (idempotent recovery of an interrupted run), but
+            it must never look like a first one.
+          type: boolean
         applied_episodes:
           description: |-
             The episodes a successful **script** apply landed this job's rows in
@@ -1107,6 +1121,16 @@ components:
           format: int32
           minimum: 0
           type: integer
+        run_id:
+          $ref: '#/components/schemas/ApplyRunId'
+          description: |-
+            The run this payload belongs to (issue #800). Additive with
+            `serde(default)`: a pre-#800 payload decodes to the nil id, which never
+            owns a claim.
+
+            It is the client's **run boundary**: two frames with different
+            `run_id`s are two runs, so a re-apply (or a reconciled retry) resets the
+            counters and the ETA instead of looking like a jump backwards.
         stage:
           $ref: '#/components/schemas/ApplyStage'
         started_at:
@@ -1128,7 +1152,9 @@ components:
             Last write of this payload. The stream uses it to recognise a run whose
             process died: an abandoned run must not keep a stream open forever, so
             a payload older than [`ApplyProgress::STALE_AFTER`] is treated as
-            finished.
+            finished. The worker **heartbeats** it while a single row is in flight
+            (issue #800), so a slow row can no longer make a live run look dead —
+            staleness now means "the process is gone".
           format: date-time
           type: string
       required:
@@ -1136,6 +1162,22 @@ components:
       - started_at
       - updated_at
       type: object
+    ApplyRunId:
+      description: |-
+        Identity of one **apply run** (issue #800).
+
+        The apply-run progress slot was keyed by job id alone, so two accepted
+        applies of one `succeeded` job could overwrite each other's counters, and
+        the first run to finish cleared the slot out from under the other one. The
+        run therefore names itself: the owning id travels on the wire inside
+        [`ApplyProgress`], and every run-scoped write (progress, clear, heartbeat)
+        is conditional on the run that owns the slot.
+
+        A pre-#800 payload decodes to the nil id (`serde(default)`), which never
+        owns a claim — an old payload can be *read* (and rendered) but never
+        *cleared* by a client-side or worker write.
+      format: uuid
+      type: string
     ApplyShootingDayRequest:
       description: |-
         One shooting-day group's reviewer decision on the wire (issue #706).
@@ -5423,6 +5465,12 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: A live apply run already owns this job's progress slot (`ai-import.apply-in-flight`), or the apply gate refused the preview
       tags:
       - handlers
   /v1/ai-import/jobs/{id}/apply-events:
@@ -11044,6 +11092,11 @@ x-code-registry:
   status: 409
   title: AI import apply maps an episode group the preview does not carry
   type: https://docs.breakdown.example/problems/ai-import.apply-missing-episode-group
+- code: ai-import.apply-in-flight
+  extensions: []
+  status: 409
+  title: AI import apply is already running for this job
+  type: https://docs.breakdown.example/problems/ai-import.apply-in-flight
 - code: ai-import.apply-missing-shooting-day-group
   extensions:
   - day_ref

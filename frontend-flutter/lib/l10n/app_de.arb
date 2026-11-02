@@ -206,6 +206,7 @@
   "aiJobsRowEpisodeNumberName": "{number} {name}",
   "aiJobsRowApplied": "{count} angewendet",
   "aiJobsRowScenesRebuilt": "{count} Szene(n) nur aus Dokument-Metadaten",
+  "aiJobsRowAlreadyImported": "Bereits importiert",
   "aiJobEpisodesSeenValues": "Gefundene Episoden: {episodes}",
   "aiJobsLoadError": "Die Auftragsliste konnte nicht geladen werden ({code}).",
   "aiJobsDeleteTooltip": "Import löschen",
@@ -373,6 +374,7 @@
   "aiApplyErrorNetwork": "Netzwerkproblem – das Anwenden wurde möglicherweise nicht abgeschlossen. Prüfe zuerst die betroffene Episode, bevor du es erneut versuchst.",
   "aiApplyErrorGeneric": "Das Anwenden ist fehlgeschlagen ({code}).",
   "aiApplyErrorApplyBlocked": "Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.",
+  "aiApplyErrorApplyInFlight": "Für diese Vorschau läuft bereits eine Übernahme. Verfolge deren Fortschritt – ein zweiter Start ist erst danach möglich.",
   "aiApplyErrorMissingMapping": "Eine Skriptzeile hat keine Prüfentscheidung – lade die Vorschau neu und übernimm erneut.",
   "aiApplyErrorMissingEpisodeGroup": "Ein Episoden-Ziel passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.",
   "aiApplyErrorUnknownContinuityCandidate": "Die Vorschau bietet diese Garderoben-Wahl nicht mehr an – lade die Vorschau neu und übernimm erneut.",
@@ -413,6 +415,7 @@
   },
   "aiApplyProgressRetry": "Fortschritt erneut laden",
   "aiApplySubmit": "Import anwenden",
+  "aiApplyReapplySubmit": "Erneut anwenden",
   "aiApplyPickEpisode": "Episode wählen…",
   "aiApplyUngroupedHeading": "Ohne Episoden-Marker – Ziel: Episode {episode}",
   "aiApplyUngroupedHeadingNoTarget": "Ohne Episoden-Marker – Ziel unten wählen",
@@ -1314,5 +1317,8 @@
         "type": "String"
       }
     }
-  }
+  },
+  "aiApplyReapplyTitle": "Vorschau erneut anwenden?",
+  "aiApplyReapplyBody": "Diese Vorschau wurde bereits importiert. Ein erneutes Anwenden ist sicher: bereits übernommene Zeilen werden nicht doppelt angelegt, offene Zeilen werden nachgeholt. Nutze es, wenn ein früherer Lauf unterbrochen wurde.",
+  "aiApplyReapplyConfirm": "Erneut anwenden"
 }

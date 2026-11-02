@@ -760,6 +760,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiJobsRowAlreadyImported => 'Already imported';
+
+  @override
   String aiJobEpisodesSeenValues(Object episodes) {
     return 'Episodes discovered: $episodes';
   }
@@ -1291,6 +1294,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The preview still carries unresolved review questions — confirm them below to apply.';
 
   @override
+  String get aiApplyErrorApplyInFlight =>
+      'An apply is already running for this preview. Follow its progress — a second one becomes possible once it ends.';
+
+  @override
   String get aiApplyErrorMissingMapping =>
       'A script row has no review decision — refresh the preview and re-apply.';
 
@@ -1381,6 +1388,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiApplySubmit => 'Apply import';
+
+  @override
+  String get aiApplyReapplySubmit => 'Apply again';
 
   @override
   String get aiApplyPickEpisode => 'Pick episode…';
@@ -3850,4 +3860,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get outfitVariantCreated => 'Variant created.';
+
+  @override
+  String get aiApplyReapplyTitle => 'Apply this preview again?';
+
+  @override
+  String get aiApplyReapplyBody =>
+      'This preview has already been imported. Applying again is safe: rows that were already taken over are not created twice, and open rows are completed. Use it when an earlier run was interrupted.';
+
+  @override
+  String get aiApplyReapplyConfirm => 'Apply again';
 }

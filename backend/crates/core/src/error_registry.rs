@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 109;
+const PROBLEM_CODE_COUNT: usize = 110;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1110,6 +1110,24 @@ problem_codes! {
         status: 409,
         title: "AI import apply maps an episode group the preview does not carry",
         extensions: &["episode_ref"],
+    },
+
+    /// 409 — a **live** apply run already owns this job's progress slot
+    /// (issue #800). The apply path has no single-flight gate by nature (it is
+    /// a `POST` against an already-`succeeded` job), so a second accepted
+    /// request — a double tap, a second device, a reconciled client retry while
+    /// the first POST is still running — is refused here instead of silently
+    /// interleaving two runs' counters.
+    ///
+    /// Not a failure narrative: the client treats it as "a run is live, keep
+    /// waiting" and follows that run's stream, and it never renders the
+    /// blocking apply-error branch. A claim whose owner died is stolen by the
+    /// next apply (staleness), so this code can never lock a job permanently.
+    AI_IMPORT_APPLY_IN_FLIGHT {
+        code: "ai-import.apply-in-flight",
+        status: 409,
+        title: "AI import apply is already running for this job",
+        extensions: &[],
     },
 
     /// 409 — the apply request carried no day decision for a shooting-day

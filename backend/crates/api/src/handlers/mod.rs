@@ -6913,7 +6913,19 @@ pub async fn stream_ai_import_apply_events<P: Ports>(
     // rejected caller gets a problem document instead of a text/event-stream.
     authorize_ai_job(&state, &current_user, &job, Action::Read).await?;
 
-    let stream = sse_apply_stream(queue, id, job.apply_progress, wakeups);
+    // The run slot, not just the payload: the stream needs the run counter to
+    // tell "no run yet" from "a run started and already ended" (issue #800).
+    let run_state = match queue.apply_run_state(id).await? {
+        Some(state) => state,
+        // An adapter that does not track the slot at all (in-memory fakes,
+        // future backends) still gets a usable snapshot from the job read.
+        None => breakdown_core::ai::ApplyRunState {
+            owner: None,
+            seq: 0,
+            progress: job.apply_progress.clone(),
+        },
+    };
+    let stream = sse_apply_stream(queue, id, run_state, wakeups);
     let mut response = Sse::new(stream)
         .keep_alive(
             KeepAlive::new()
@@ -6939,8 +6951,12 @@ struct SseApplyStream<Q: AiImportQueue> {
     id: AiImportJobId,
     wakeups: std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>>,
     /// Snapshot waiting to be emitted (initial connect / reconnect).
-    pending: Option<Option<breakdown_core::ai::ApplyProgress>>,
+    pending: Option<breakdown_core::ai::ApplyRunState>,
     last_emitted: Option<ApplyWatermark>,
+    /// The job's run counter as observed when this stream subscribed. A later
+    /// read that is higher proves a run started — even one that also finished
+    /// before the first frame reached us (issue #800 #2).
+    baseline_seq: i64,
     /// True once a live run was observed; only then does "no payload" mean
     /// "the run finished" instead of "nothing started yet".
     saw_run: bool,
@@ -6950,9 +6966,19 @@ struct SseApplyStream<Q: AiImportQueue> {
     done: bool,
 }
 
-/// Watermark of one emitted apply frame: the payload's own `updated_at`, plus
-/// its presence. A re-read that changed neither emits nothing.
-type ApplyWatermark = (bool, Option<chrono::DateTime<chrono::Utc>>);
+/// Watermark of one emitted apply frame: the payload's presence, the run that
+/// published it and its `updated_at`. A re-read that changed none of them emits
+/// nothing.
+///
+/// The run identity belongs in it because a re-apply resets the counters: two
+/// runs can legitimately publish the same `updated_at` (a fast run right after
+/// another), and without the run id the second one's frames would be dropped as
+/// duplicates.
+type ApplyWatermark = (
+    bool,
+    Option<breakdown_core::ai::ApplyRunId>,
+    Option<chrono::DateTime<chrono::Utc>>,
+);
 
 /// What the stream decided about the current row (issue #762).
 ///
@@ -6972,16 +6998,29 @@ pub enum ApplyStreamVerdict {
 /// Classify the current row for the apply stream. Pure apart from `now`, so
 /// the close condition is unit-testable without a stream or a clock.
 pub fn classify_apply_run(
-    progress: Option<breakdown_core::ai::ApplyProgress>,
+    run_state: &breakdown_core::ai::ApplyRunState,
+    baseline_seq: i64,
     saw_run: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> ApplyStreamVerdict {
-    match progress {
+    // Cloned because the verdict owns the payload it emits; the state itself
+    // stays borrowed so the caller keeps its counters.
+    match run_state.progress.clone() {
         Some(progress) if !progress.is_stale_at(now) => ApplyStreamVerdict::Running(progress),
         // A payload we watched go stale is a finished run: the process that
-        // owned it is gone.
+        // owned it is gone. The heartbeat keeps a live run's payload fresh, so
+        // this now means "the process died" rather than "this row is slow".
         Some(_) => ApplyStreamVerdict::Finished,
+        // A run owns the slot but has not published yet (the claim lands
+        // before the worker's first frame). Keep waiting: classifying this as
+        // finished would end the stream for a run that has just started.
+        None if run_state.owner.is_some() => ApplyStreamVerdict::Idle,
         None if saw_run => ApplyStreamVerdict::Finished,
+        // The case that used to hang: a run started AND cleared between two
+        // reads, so this stream never emitted a frame for it. The counter says
+        // it happened, so the documented final `null` frame is owed now
+        // (issue #800 #2).
+        None if run_state.advanced_since(baseline_seq) => ApplyStreamVerdict::Finished,
         None => ApplyStreamVerdict::Idle,
     }
 }
@@ -6991,7 +7030,7 @@ pub fn classify_apply_run(
 fn sse_apply_stream<Q>(
     queue: Q,
     id: AiImportJobId,
-    initial: Option<breakdown_core::ai::ApplyProgress>,
+    initial: breakdown_core::ai::ApplyRunState,
     wakeups: std::pin::Pin<Box<dyn futures::Stream<Item = AiImportJobId> + Send>>,
 ) -> impl futures::Stream<Item = Result<Event, std::convert::Infallible>> + Send
 where
@@ -7002,6 +7041,9 @@ where
             queue,
             id,
             wakeups,
+            // The subscribe-time counter: anything above it is a run this
+            // stream must report on, even if its payload is already gone.
+            baseline_seq: initial.seq,
             pending: Some(initial),
             last_emitted: None,
             saw_run: false,
@@ -7013,9 +7055,9 @@ where
                 if state.done {
                     return None;
                 }
-                let snapshot: Option<breakdown_core::ai::ApplyProgress> =
-                    if let Some(progress) = state.pending.take() {
-                        progress
+                let snapshot: breakdown_core::ai::ApplyRunState =
+                    if let Some(run_state) = state.pending.take() {
+                        run_state
                     } else {
                         // Wake on a state/progress write, but never wait
                         // forever: the tick re-reads so a stale run or an
@@ -7034,8 +7076,8 @@ where
                                 state.idle_ticks = state.idle_ticks.saturating_add(1);
                             }
                         }
-                        match state.queue.get(state.id).await {
-                            Ok(Some(job)) => job.apply_progress,
+                        match state.queue.apply_run_state(state.id).await {
+                            Ok(Some(run_state)) => run_state,
                             // Job deleted while watching (issue #671 route):
                             // nothing left to stream.
                             Ok(None) => return None,
@@ -7051,11 +7093,18 @@ where
                         }
                     };
 
-                let verdict = classify_apply_run(snapshot, state.saw_run, chrono::Utc::now());
+                let verdict = classify_apply_run(
+                    &snapshot,
+                    state.baseline_seq,
+                    state.saw_run,
+                    chrono::Utc::now(),
+                );
                 let watermark: ApplyWatermark = match &verdict {
-                    ApplyStreamVerdict::Running(progress) => (true, Some(progress.updated_at)),
-                    ApplyStreamVerdict::Finished => (false, None),
-                    ApplyStreamVerdict::Idle => (false, None),
+                    ApplyStreamVerdict::Running(progress) => {
+                        (true, Some(progress.run_id), Some(progress.updated_at))
+                    }
+                    ApplyStreamVerdict::Finished => (false, None, None),
+                    ApplyStreamVerdict::Idle => (false, None, None),
                 };
                 if matches!(verdict, ApplyStreamVerdict::Idle) {
                     // Nothing started: do not emit an empty frame forever, and
@@ -7084,7 +7133,7 @@ where
                 let event_id = frame
                     .apply_progress
                     .as_ref()
-                    .map(|p| p.updated_at.timestamp_micros().to_string())
+                    .map(|p| format!("{}-{}", p.run_id.as_uuid(), p.updated_at.timestamp_micros()))
                     .unwrap_or_else(|| state.id.as_uuid().to_string());
                 match serde_json::to_string(&frame) {
                     Ok(data) => {
@@ -7420,7 +7469,13 @@ pub struct ApplyAiImportResponse {
     path = "/ai-import/jobs/{id}/apply",
     params(("id" = Uuid, Path)),
     request_body = ApplyAiImportRequest,
-    responses((status = 200, body = ApplyAiImportResponse), (status = 403, body = ProblemDetails))
+    responses(
+        (status = 200, body = ApplyAiImportResponse),
+        (status = 403, body = ProblemDetails),
+        (status = 409, body = ProblemDetails,
+            description = "A live apply run already owns this job's progress slot \
+                (`ai-import.apply-in-flight`), or the apply gate refused the preview")
+    )
 )]
 pub async fn apply_ai_import<P: Ports>(
     State(state): State<AppState<P>>,

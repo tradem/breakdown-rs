@@ -328,7 +328,7 @@ final class AiApplyJobSeasonIdProvider
 }
 
 String _$aiApplyJobSeasonIdHash() =>
-    r'805edf1414427216aaa0257d25fa3179f309e5f6';
+    r'9ee64fd42ef12ffba10f4cd21d19ce646bb1a965';
 
 /// The season a job belongs to — the authorization scope of the apply stream.
 ///

@@ -17,6 +17,25 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.55.0] - Unreleased
+
+### Fixed — the apply stream reports every run, including the ones it never saw (issue #800)
+
+- `classify_apply_run` now takes the run slot (`owner`, `seq`, `progress`) and the
+  run counter observed at subscribe time. A run that starts and clears between two
+  re-reads leaves no payload behind; the counter delta turns it into the documented
+  final `null` frame instead of a silent close that the client interprets as a
+  dropped connection (`ai_import.watch_exhausted`).
+- A claimed slot without a payload is a run that has **just** started (the claim
+  lands before the worker's first frame) and keeps the stream waiting; a stale
+  payload still means a dead process, but the heartbeat keeps a live run's payload
+  fresh, so "slow row" can no longer look like "dead process".
+- The frame watermark includes the run id, so a fast re-apply's frames are not
+  dropped as duplicates of the previous run's.
+- The apply route documents its `409 ai-import.apply-in-flight`
+  (`openapi.yaml` regenerated), and the code carries localized problem copy (de/en)
+  plus a golden snapshot.
+
 ## [0.54.0] - Unreleased
 
 ### Added — `GET /ai-import/jobs/{id}/apply-events` (issue #762)

@@ -75,6 +75,9 @@ problem-ai-import-unsupported-media-type =
 problem-ai-import-apply-blocked =
     Der Vorschau sind noch ungelöste Prüffragen zugeordnet. Bestätigen Sie diese im Übernehmen-Bildschirm und versuchen Sie es erneut.
 
+problem-ai-import-apply-in-flight =
+    Für diesen Import läuft bereits eine Übernahme. Verfolgen Sie deren Fortschritt; ein zweiter Start ist erst danach möglich.
+
 problem-ai-import-apply-missing-mapping =
     Eine Skriptzeile hat keine Prüfentscheidung. Laden Sie die Vorschau neu und übernehmen Sie erneut.
 

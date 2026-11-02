@@ -254,8 +254,10 @@ void main() {
       // guarded ADD COLUMN); issue #763 adds the two nullable AI import job
       // identity columns (migration v16 → v17, guarded ADD COLUMN); issue
       // #767 adds the nullable AI import `decision_telemetry_json` column
-      // (migration v17 → v18, guarded ADD COLUMN).
-      expect(db.schemaVersion, 18);
+      // (migration v17 → v18, guarded ADD COLUMN); issue #800 adds the
+      // AI import `applied` flag (migration v18 → v19, guarded ADD COLUMN with
+      // a `false` default).
+      expect(db.schemaVersion, 19);
       // Every table round-trips (migration created them).
       await BlockCacheDao(db).applySnapshotForSeason('s', [
         _block('b', seasonId: 's'),

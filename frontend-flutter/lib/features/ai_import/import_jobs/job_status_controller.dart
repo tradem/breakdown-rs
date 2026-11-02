@@ -241,6 +241,33 @@ Future<({String blockId, String projectId})?> aiJobBlockInfo(
   return null;
 }
 
+/// Whether a job's preview has already been **imported** (issue #800), read from
+/// the cached job row.
+///
+/// The server owns the fact (`AiImportJob.applied`, derived from the recorded
+/// apply telemetry) and the Drift cache persists it, so this answers from the
+/// cached row instead of refetching. `false` when the row is unknown/offline: an
+/// unknown job is not an imported one, and the apply itself stays gated by the
+/// server.
+@riverpod
+Future<bool> aiJobApplied(Ref ref, String jobId) async {
+  final repo = ref.read(aiImportRepositoryProvider);
+  String sub;
+  try {
+    final session = await ref.read(authSessionControllerProvider.future);
+    sub = session?.sub ?? '';
+  } on Object {
+    return false;
+  }
+  final rows = await repo.readCached(sub);
+  final err = rows.getLeft().toNullable();
+  if (err != null) return false;
+  for (final row in rows.getRight().toNullable()!) {
+    if (row.id == jobId) return row.applied;
+  }
+  return false;
+}
+
 /// The persisted apply context (episode + series) of a job.
 class AiJobContext {
   const AiJobContext({

@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.apply-in-flight",
+  "detail": "Für diesen Import läuft bereits eine Übernahme. Verfolgen Sie deren Fortschritt; ein zweiter Start ist erst danach möglich.",
+  "status": 409,
+  "title": "AI import apply is already running for this job",
+  "type": "https://docs.breakdown.example/problems/ai-import.apply-in-flight"
+}

@@ -75,6 +75,9 @@ problem-ai-import-unsupported-media-type =
 problem-ai-import-apply-blocked =
     The preview still carries unresolved review questions. Confirm them on the apply screen and retry.
 
+problem-ai-import-apply-in-flight =
+    An apply is already running for this import. Follow its progress; a second one becomes possible once it ends.
+
 problem-ai-import-apply-missing-mapping =
     A script row has no review decision. Refresh the preview and re-apply.
 

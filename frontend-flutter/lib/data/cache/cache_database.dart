@@ -51,7 +51,7 @@ class CacheDatabase extends _$CacheDatabase {
   CacheDatabase.connect(super.executor);
 
   @override
-  int get schemaVersion => 18;
+  int get schemaVersion => 19;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -340,6 +340,25 @@ class CacheDatabase extends _$CacheDatabase {
             aiImportJobCacheRows,
             aiImportJobCacheRows.decisionTelemetryJson,
           );
+        }
+      }
+      if (from < 19) {
+        // Issue #800 (backend): `AiImportJob.applied` says whether a preview has
+        // ever been imported, so the jobs list can badge it and the apply screen
+        // can ask before a second run. A projection DTO shape change ships its
+        // Drift migration in the same change (AGENTS.md §8), so the cache never
+        // silently drops the field on a cached-first paint. Additive with a
+        // `false` default: a row written before the column existed serves
+        // "not applied", which is the conservative reading (the badge is a hint;
+        // the server stays authoritative for the apply itself). Guarded by table
+        // AND column presence, exactly like the v15/v17/v18 branches.
+        if (await _tableExists(m.database, 'ai_import_job_cache_rows') &&
+            !(await _columnExists(
+              m.database,
+              'ai_import_job_cache_rows',
+              'applied',
+            ))) {
+          await m.addColumn(aiImportJobCacheRows, aiImportJobCacheRows.applied);
         }
       }
     },

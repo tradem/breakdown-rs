@@ -2370,6 +2370,18 @@ pub struct FakeAiImportQueue {
     /// In-process job-event fan-out (issue #664): SSE handler tests subscribe
     /// through the port and publish updates via `publish`.
     pub hub: infra::ai::AiJobEventHub,
+    /// Apply-run slot per job (issue #800): the owning run and the monotonic run
+    /// counter the apply stream classifies by. Kept beside `jobs` because it is
+    /// deliberately not part of the job DTO — the production columns
+    /// (`apply_run_id`, `apply_run_seq`) travel on their own read.
+    pub apply_runs: Arc<Mutex<HashMap<Uuid, FakeApplyRun>>>,
+}
+
+/// The apply-run slot of one fake job (issue #800).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FakeApplyRun {
+    pub owner: Option<breakdown_core::ai::ApplyRunId>,
+    pub seq: i64,
 }
 
 #[allow(dead_code)]
@@ -2429,6 +2441,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
                 apply_progress: None,
+                applied: false,
             },
         );
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -2557,6 +2570,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
                 apply_progress: None,
+                applied: false,
             },
         );
         self.hub.notify(request.id);
@@ -2598,19 +2612,93 @@ impl AiImportQueue for FakeAiImportQueue {
     /// Mirror the Postgres adapter's apply-progress write (issue #762): the
     /// payload is stored only while the job is `succeeded`, and every write
     /// wakes the stream.
+    /// Mirror the Postgres adapter's single-flight claim (issue #800): the slot
+    /// is won when it is free, a live owner keeps it, and only a `succeeded` job
+    /// has a slot at all.
+    async fn claim_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+    ) -> Result<bool, DomainError> {
+        let succeeded = self
+            .jobs
+            .lock()
+            .await
+            .get(&id.as_uuid())
+            .is_some_and(|job| job.status == JobStatus::Succeeded);
+        if !succeeded {
+            return Ok(false);
+        }
+        let mut runs = self.apply_runs.lock().await;
+        let slot = runs.entry(id.as_uuid()).or_default();
+        if slot.owner.is_some() {
+            return Ok(false);
+        }
+        slot.owner = Some(run_id);
+        slot.seq += 1;
+        drop(runs);
+        self.hub.notify(id);
+        Ok(true)
+    }
+
+    /// Mirror the adapter's apply-run read (issue #800).
+    async fn apply_run_state(
+        &self,
+        id: AiImportJobId,
+    ) -> Result<Option<breakdown_core::ai::ApplyRunState>, DomainError> {
+        let progress = match self.jobs.lock().await.get(&id.as_uuid()) {
+            Some(job) => job.apply_progress.clone(),
+            None => return Ok(None),
+        };
+        let slot = self
+            .apply_runs
+            .lock()
+            .await
+            .get(&id.as_uuid())
+            .copied()
+            .unwrap_or_default();
+        Ok(Some(breakdown_core::ai::ApplyRunState {
+            owner: slot.owner,
+            seq: slot.seq,
+            progress,
+        }))
+    }
+
+    /// Mirror the Postgres adapter's run-scoped apply-progress write
+    /// (issues #762, #800): the payload lands only while the run owns the slot
+    /// of a `succeeded` job, and every write wakes the stream.
     async fn mark_apply_progress(
         &self,
         id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
         progress: Option<&breakdown_core::ai::ApplyProgress>,
     ) -> Result<(), DomainError> {
+        let mut runs = self.apply_runs.lock().await;
+        if !runs
+            .get(&id.as_uuid())
+            .is_some_and(|slot| slot.owner == Some(run_id))
+        {
+            // Run-scoped fence: a run that does not own the slot is a no-op,
+            // exactly like the conditional `UPDATE` in production.
+            return Ok(());
+        }
         let mut jobs = self.jobs.lock().await;
         if let Some(job) = jobs.get_mut(&id.as_uuid())
             && job.status == JobStatus::Succeeded
         {
             job.apply_progress = progress.cloned();
             job.updated_at = Utc::now();
+            if progress.is_none()
+                && let Some(slot) = runs.get_mut(&id.as_uuid())
+            {
+                // The run ended: it releases the OWNERSHIP but keeps the run
+                // counter — that counter is what proves the run to the stream
+                // after its payload is gone (issue #800 #2).
+                slot.owner = None;
+            }
         }
         drop(jobs);
+        drop(runs);
         self.hub.notify(id);
         Ok(())
     }

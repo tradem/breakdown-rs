@@ -346,6 +346,38 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     }
   }
 
+  /// Ask before a **second** apply of an already-imported preview (issue #800).
+  ///
+  /// True runs the apply. The dialog names what the second run does — re-apply
+  /// is idempotent per row, so it completes what a crashed run left undone
+  /// instead of importing everything twice.
+  Future<bool> _confirmReapply() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final l10n = l10nOf(dialogContext);
+        return AlertDialog(
+          key: const Key('ai-apply-reapply-dialog'),
+          title: Text(l10n.aiApplyReapplyTitle),
+          content: Text(l10n.aiApplyReapplyBody),
+          actions: [
+            TextButton(
+              key: const Key('ai-apply-reapply-cancel'),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(l10n.commonCancel),
+            ),
+            FilledButton(
+              key: const Key('ai-apply-reapply-confirm'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.aiApplyReapplyConfirm),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final jobId = widget.jobId;
@@ -359,6 +391,11 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     // drops `blockId`, so an empty context value would hide the scope-switch
     // recovery on a cross-block 409 and leave the 403-bound assign-existing
     // tap visible. The context value stays as fallback (older cached rows).
+    // Issue #800: has this preview already been imported? Server-owned fact from
+    // the cached row; it decides the button's copy and the confirmation, never
+    // whether the apply is allowed — the server stays authoritative.
+    final alreadyImported =
+        ref.watch(aiJobAppliedProvider(jobId)).value ?? false;
     final cachedJobBlock = ref.watch(aiJobBlockInfoProvider(jobId)).value;
     final jobBlockId = (cachedJobBlock?.blockId.isNotEmpty ?? false)
         ? cachedJobBlock!.blockId
@@ -775,6 +812,15 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 key: const Key('ai-apply-submit'),
                 onPressed: (canApply && !_applying)
                     ? () async {
+                        // Issue #800: a preview that was already imported may be
+                        // applied again — that is the recovery path for a run
+                        // the server interrupted (the apply is idempotent,
+                        // reserve-before-create) — but never silently: the
+                        // second run asks first, and the button says which one
+                        // it is.
+                        if (alreadyImported && !await _confirmReapply()) {
+                          return;
+                        }
                         setState(() => _applying = true);
                         try {
                           final applied = await controller.apply();
@@ -793,7 +839,11 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(l10nOf(context).aiApplySubmit),
+                    : Text(
+                        alreadyImported
+                            ? l10nOf(context).aiApplyReapplySubmit
+                            : l10nOf(context).aiApplySubmit,
+                      ),
               ),
               // The apply used to be a bare spinner for however long a
               // 57-row preview took (issue #762). While the POST is out, the
@@ -1269,10 +1319,15 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
   /// the estimate from re-running on a ticker rebuild).
   int? _applied;
 
-  /// The run (`ApplyProgress.startedAt`) [_eta] belongs to. A second apply of
-  /// the same preview is a different run: its cadence says nothing about the
-  /// first one's, so the smoothing state is dropped with it.
-  DateTime? _runStartedAt;
+  /// The run (`ApplyProgress.runId`) [_eta] belongs to. A second apply of the
+  /// same preview is a different run: its cadence says nothing about the first
+  /// one's, so the smoothing state is dropped with it.
+  ///
+  /// Since issue #800 the run NAMES itself (`run_id`) instead of being inferred
+  /// from `startedAt`: two runs could start on the same clock tick, and a
+  /// re-apply resets the counters — the identity is the honest boundary, not a
+  /// timestamp comparison.
+  String? _runId;
 
   AiJobEta? _eta;
 
@@ -1297,10 +1352,10 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
     final applied = progress.applied;
     final total = progress.total;
     if (applied == null || total == null) return null;
-    if (progress.startedAt != _runStartedAt) {
+    if (progress.runId != _runId) {
       // A different run: never smooth across run boundaries.
       _eta = null;
-      _runStartedAt = progress.startedAt;
+      _runId = progress.runId;
       _applied = null;
     }
     if (_applied != applied) {
