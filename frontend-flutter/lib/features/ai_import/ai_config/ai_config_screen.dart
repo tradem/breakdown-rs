@@ -268,95 +268,101 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
             key: const Key('ai-config-screen'),
             padding: const EdgeInsets.all(16),
             children: [
-            // Admin-facing AI-literacy helper (EU AI Act Art. 4, issue
-            // #538): persistent ABOVE the forms in BOTH the first-run and
-            // configured states — what the configuration controls, whose
-            // data the configured provider processes, and the duty to
-            // configure honestly. Catalog copy only (inline-copy gate).
-            _LiteracyCard(),
-            if (state.unresolved != null)
-              _UnresolvedCard(
-                unresolved: state.unresolved!,
-                onRecheck: controller.recheckUnresolved,
-                onCleanup: controller.cleanupUnresolved,
-              ),
-            if (state.commandError != null)
-              _Banner(
-                key: const Key('ai-config-error-banner'),
-                text: aiConfigErrorCopy(l10nOf(context), state.commandError!),
-                onDismiss: controller.dismissCommandError,
-              ),
-            if (state.discoveryError != null && state.config == null)
-              if (isAiImportDisabled(state.discoveryError!))
-                // Feature disabled on this instance (wire code
-                // `ai-import.disabled`, issue #422): NOT a load failure —
-                // retrying cannot fix a server configuration flag. Dedicated
-                // honest state WITHOUT a retry affordance.
-                Card(
-                  key: const Key('ai-config-disabled'),
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.space12),
-                    child: Text(
-                      aiConfigErrorCopy(l10nOf(context), state.discoveryError!),
+              // Admin-facing AI-literacy helper (EU AI Act Art. 4, issue
+              // #538): persistent ABOVE the forms in BOTH the first-run and
+              // configured states — what the configuration controls, whose
+              // data the configured provider processes, and the duty to
+              // configure honestly. Catalog copy only (inline-copy gate).
+              _LiteracyCard(),
+              if (state.unresolved != null)
+                _UnresolvedCard(
+                  unresolved: state.unresolved!,
+                  onRecheck: controller.recheckUnresolved,
+                  onCleanup: controller.cleanupUnresolved,
+                ),
+              if (state.commandError != null)
+                _Banner(
+                  key: const Key('ai-config-error-banner'),
+                  text: aiConfigErrorCopy(l10nOf(context), state.commandError!),
+                  onDismiss: controller.dismissCommandError,
+                ),
+              if (state.discoveryError != null && state.config == null)
+                if (isAiImportDisabled(state.discoveryError!))
+                  // Feature disabled on this instance (wire code
+                  // `ai-import.disabled`, issue #422): NOT a load failure —
+                  // retrying cannot fix a server configuration flag. Dedicated
+                  // honest state WITHOUT a retry affordance.
+                  Card(
+                    key: const Key('ai-config-disabled'),
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.space12),
+                      child: Text(
+                        aiConfigErrorCopy(
+                          l10nOf(context),
+                          state.discoveryError!,
+                        ),
+                      ),
                     ),
-                  ),
-                )
-              else if (isAiConfigAuthzDenied(state.discoveryError!))
-                // Scoped credential-role denial (issue #470 wire arms —
-                // surfaced centrally via the Settings entry, issue #643):
-                // a 403 is a DENIAL, not a load failure — the "administrator
-                // role required" narrative ([aiConfigErrorCopy]) WITHOUT a
-                // retry affordance (retrying cannot flip a role).
-                Card(
-                  key: const Key('ai-config-discovery-forbidden'),
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.space12),
-                    child: Text(
-                      aiConfigErrorCopy(l10nOf(context), state.discoveryError!),
+                  )
+                else if (isAiConfigAuthzDenied(state.discoveryError!))
+                  // Scoped credential-role denial (issue #470 wire arms —
+                  // surfaced centrally via the Settings entry, issue #643):
+                  // a 403 is a DENIAL, not a load failure — the "administrator
+                  // role required" narrative ([aiConfigErrorCopy]) WITHOUT a
+                  // retry affordance (retrying cannot flip a role).
+                  Card(
+                    key: const Key('ai-config-discovery-forbidden'),
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.space12),
+                      child: Text(
+                        aiConfigErrorCopy(
+                          l10nOf(context),
+                          state.discoveryError!,
+                        ),
+                      ),
                     ),
-                  ),
-                )
+                  )
+                else
+                  // Failed discovery is NOT "no config exists": rendering the
+                  // first-run form here would let the user create a SECOND
+                  // credential. The honest state is a retry affordance.
+                  Card(
+                    key: const Key('ai-config-discovery-error'),
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.space12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l10nOf(context).aiConfigDiscoveryError(
+                              state.discoveryError!.code,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton(
+                            key: const Key('ai-config-discovery-retry'),
+                            onPressed: controller.refresh,
+                            child: Text(l10nOf(context).commonRetry),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+              else if (state.isFirstRun)
+                _FirstRunForm(state: state)
               else
-                // Failed discovery is NOT "no config exists": rendering the
-                // first-run form here would let the user create a SECOND
-                // credential. The honest state is a retry affordance.
-                Card(
-                  key: const Key('ai-config-discovery-error'),
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.space12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10nOf(
-                            context,
-                          ).aiConfigDiscoveryError(state.discoveryError!.code),
-                        ),
-                        const SizedBox(height: 8),
-                        OutlinedButton(
-                          key: const Key('ai-config-discovery-retry'),
-                          onPressed: controller.refresh,
-                          child: Text(l10nOf(context).commonRetry),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-            else if (state.isFirstRun)
-              _FirstRunForm(state: state)
-            else
-              _ConfiguredForm(
-                state: state,
-                replacementKeyController: _replacementKeyController,
-                decisionKeyController: _decisionKeyController,
-                showReplacementKey: _showsReplacementKey(state, handoff),
-                showDecisionKey: _showsDecisionKey(state, handoff),
-                busy: _busy,
-                onRevoke: _revoke,
-              ),
+                _ConfiguredForm(
+                  state: state,
+                  replacementKeyController: _replacementKeyController,
+                  decisionKeyController: _decisionKeyController,
+                  showReplacementKey: _showsReplacementKey(state, handoff),
+                  showDecisionKey: _showsDecisionKey(state, handoff),
+                  busy: _busy,
+                  onRevoke: _revoke,
+                ),
             ],
           ),
         ),

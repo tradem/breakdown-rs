@@ -2352,46 +2352,49 @@ void main() {
     // scrolling form and leaving the screen silently dropped the draft — the
     // app looked configured while the aggregate had no such state. The fix is
     // a persistent primary action plus an explicit discard decision.
-    test('an untouched, seeded form is NOT dirty; a picked Decision Model is', () {
-      final stored = _config(prompts: const {'script': 'stored script'});
-      final seeded = AiConfigScreenState(
-        config: stored,
-        providers: const AsyncValue.data(<AiProviderInfo>[]),
-        models: const AsyncValue.data(<ModelInfo>[]),
-        selectedProviderKey: 'openai',
-        selectedAssistantModelId: 'gpt-5.6-luna',
-        scriptPrompt: 'stored script',
-      );
-      expect(
-        seeded.hasUnsavedChanges,
-        isFalse,
-        reason: 'a re-seeded form is not an edit',
-      );
+    test(
+      'an untouched, seeded form is NOT dirty; a picked Decision Model is',
+      () {
+        final stored = _config(prompts: const {'script': 'stored script'});
+        final seeded = AiConfigScreenState(
+          config: stored,
+          providers: const AsyncValue.data(<AiProviderInfo>[]),
+          models: const AsyncValue.data(<ModelInfo>[]),
+          selectedProviderKey: 'openai',
+          selectedAssistantModelId: 'gpt-5.6-luna',
+          scriptPrompt: 'stored script',
+        );
+        expect(
+          seeded.hasUnsavedChanges,
+          isFalse,
+          reason: 'a re-seeded form is not an edit',
+        );
 
-      final picked = seeded.copyWith(
-        selectedDecisionProviderKey: 'neuralwatt',
-        selectedDecisionModelId: 'clef-flash',
-      );
-      expect(picked.hasUnsavedChanges, isTrue);
+        final picked = seeded.copyWith(
+          selectedDecisionProviderKey: 'neuralwatt',
+          selectedDecisionModelId: 'clef-flash',
+        );
+        expect(picked.hasUnsavedChanges, isTrue);
 
-      // Clearing the Decision Model is a REAL change too (tri-state null).
-      final cleared = AiConfigScreenState(
-        config: _config(
-          decisionProvider: LlmProvider.neuralwatt,
-          decisionModel: 'clef-flash',
-          decisionVaultKeyId: 'vk-1',
-        ),
-        providers: const AsyncValue.data(<AiProviderInfo>[]),
-        models: const AsyncValue.data(<ModelInfo>[]),
-        selectedProviderKey: 'openai',
-        selectedAssistantModelId: 'gpt-5.6-luna',
-      );
-      expect(
-        cleared.hasUnsavedChanges,
-        isTrue,
-        reason: 'the stored Decision Model is not echoed by the form',
-      );
-    });
+        // Clearing the Decision Model is a REAL change too (tri-state null).
+        final cleared = AiConfigScreenState(
+          config: _config(
+            decisionProvider: LlmProvider.neuralwatt,
+            decisionModel: 'clef-flash',
+            decisionVaultKeyId: 'vk-1',
+          ),
+          providers: const AsyncValue.data(<AiProviderInfo>[]),
+          models: const AsyncValue.data(<ModelInfo>[]),
+          selectedProviderKey: 'openai',
+          selectedAssistantModelId: 'gpt-5.6-luna',
+        );
+        expect(
+          cleared.hasUnsavedChanges,
+          isTrue,
+          reason: 'the stored Decision Model is not echoed by the form',
+        );
+      },
+    );
 
     testWidgets('the action bar marks unsaved changes and keeps the save '
         'reachable', (tester) async {
@@ -2450,9 +2453,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('ai-config-unsaved-dialog')), findsOneWidget);
-      await tester.tap(
-        find.byKey(const Key('ai-config-unsaved-keep-editing')),
-      );
+      await tester.tap(find.byKey(const Key('ai-config-unsaved-keep-editing')));
       await tester.pumpAndSettle();
 
       // Still on the screen, draft intact.

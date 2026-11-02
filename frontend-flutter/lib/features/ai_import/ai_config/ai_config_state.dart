@@ -175,9 +175,8 @@ class AiConfigScreenState {
   /// controller's `promptSeed`: a non-empty stored prompt wins, otherwise the
   /// deployment default (or an empty field when the defaults fetch failed).
   String _seededPrompt(DocumentKind kind) {
-    final stored = config?.prompts[kind == DocumentKind.script
-        ? 'script'
-        : 'schedule'];
+    final stored =
+        config?.prompts[kind == DocumentKind.script ? 'script' : 'schedule'];
     if (stored != null && stored.isNotEmpty) return stored;
     return promptDefaultFor(kind) ?? '';
   }
