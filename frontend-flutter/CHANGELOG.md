@@ -46,6 +46,24 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     cadence is unsteady, nothing before two rows, and "verzögert" when frames
     stop. A run that has not published anything yet renders the indeterminate
     line instead of a guessed number.
+  - **Every stream outcome is a state, not a `null`.** `aiApplyRunProvider`
+    folds the frames (`foldApplyRun`) into `idle` / `running` / `finished` /
+    `failed` instead of flattening them into `ApplyProgress?`: the run's final
+    `null` frame keeps the finishing counters on screen (the `POST` is still
+    out, so the pre-start line would claim a started run never started), and a
+    failed watch (reconnect budget spent, 403/404, a frame the serializers
+    reject) renders the code-keyed "Zeilenfortschritt konnte nicht geladen
+    werden (…) — der Import läuft serverseitig weiter" notice with a retry
+    affordance instead of silently claiming "Zeilenfortschritt wird ermittelt
+    …" for the rest of the run.
+  - **A retry re-arms the watch.** `applyWithReconciliation` reports every
+    attempt after the first (`onAttempt`), and the controller invalidates the
+    run provider with it — a reconciled re-dispatch is a NEW server-side run
+    whose frames would otherwise go unwatched (the first run's end frame had
+    already closed the subscription).
+  - **Goldens.** Five `matchesGoldenFile` cases (pending, running, finalizing,
+    ended, failed) in the German template locale, next to the existing widget
+    and fold tests.
 
 - **The extraction phase shows an honest, coarse ETA** (`0.4.0-beta.29+121 →
   0.4.0-beta.30+122`, backend issue #762). The job-status screen had a

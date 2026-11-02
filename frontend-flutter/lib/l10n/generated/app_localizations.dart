@@ -2225,6 +2225,18 @@ abstract class AppLocalizations {
   /// **'Alle Zeilen übernommen – Abschluss läuft …'**
   String get aiApplyProgressFinalizing;
 
+  /// Apply-run progress stream failure (issue #762): the run's own state could not be watched, the apply itself is unaffected.
+  ///
+  /// In de, this message translates to:
+  /// **'Zeilenfortschritt konnte nicht geladen werden ({code}). Der Import läuft serverseitig weiter.'**
+  String aiApplyProgressStreamError(String code);
+
+  /// No description provided for @aiApplyProgressRetry.
+  ///
+  /// In de, this message translates to:
+  /// **'Fortschritt erneut laden'**
+  String get aiApplyProgressRetry;
+
   /// No description provided for @aiApplySubmit.
   ///
   /// In de, this message translates to:

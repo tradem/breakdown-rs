@@ -28,7 +28,10 @@ commits (ADR-020 D5).
   dispatched or the run is closing out.
 - `AiImportJob.apply_progress` (additive with `serde(default)`) carries it on
   the job read; `None` means "no apply in flight", which a client renders as
-  nothing at all.
+  nothing at all. It is **advisory**: every progress write (the run's first one
+  included) is best-effort, so an active run can read as `None` until the next
+  throttled write lands — a client must render `None` as "no progress
+  published", never as proof that nothing is running.
 - `ApplyProgressFrame` (`job_id` + optional progress) is the payload of the
   dedicated apply stream; a `null` progress is the run's **end** signal, so a
   client closes on a definite event instead of a timeout.

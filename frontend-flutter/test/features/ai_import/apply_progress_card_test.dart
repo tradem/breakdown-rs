@@ -2,9 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-// Tier-2 widget tests for the apply-run progress card (issue #762) plus a
-// Tier-1 check that the apply SSE frame decodes through the same
-// `standardSerializers` instance the generated client uses.
+// Tier-1 fold tests for the apply-run states and Tier-2 widget + golden tests
+// for the card that renders them (issue #762) plus a Tier-1 check that the
+// apply SSE frame decodes through the same `standardSerializers` instance the
+// generated client uses.
 //
 // The card is fed by a stream, so every case pushes frames explicitly — no
 // sleeps, no polling, deterministic clock.
@@ -16,7 +17,10 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 
+import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
@@ -62,30 +66,49 @@ ApplyProgress _run({
     ..updatedAt = updatedAt ?? startedAt,
 );
 
+AiApplyRunRunning _running({
+  required DateTime startedAt,
+  int applied = 4,
+  int total = 10,
+  ApplyStage stage = ApplyStage.applying,
+  DateTime? updatedAt,
+}) => AiApplyRunRunning(
+  _run(
+    startedAt: startedAt,
+    applied: applied,
+    total: total,
+    stage: stage,
+    updatedAt: updatedAt,
+  ),
+);
+
 void main() {
   test(
     'the apply SSE frame decodes via standardSerializers',
     _expectFrameDecodes,
   );
 
-  late StreamController<ApplyProgress?> frames;
+  late StreamController<AiApplyRunState> states;
   late DateTime now;
 
   setUp(() {
-    frames = StreamController<ApplyProgress?>.broadcast();
+    states = StreamController<AiApplyRunState>.broadcast();
     now = DateTime.utc(2026, 11, 2, 12);
   });
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    Locale locale = const Locale('en'),
+  }) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           clockProvider.overrideWithValue(Clock(() => now)),
-          aiApplyRunProvider(_jobId).overrideWith((ref) => frames.stream),
+          aiApplyRunProvider(_jobId).overrideWith((ref) => states.stream),
         ],
         child: MaterialApp(
-          locale: const Locale('en'),
-          supportedLocales: const [Locale('en')],
+          locale: locale,
+          supportedLocales: const [Locale('en'), Locale('de')],
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           home: const Scaffold(
             body: SingleChildScrollView(
@@ -97,6 +120,66 @@ void main() {
     );
     await tester.pump();
   }
+
+  // --- Tier 1: the fold that decides what the card renders ----------------
+
+  group('foldApplyRun', () {
+    Future<List<AiApplyRunState>> fold(List<Result<ApplyProgress?>> events) =>
+        foldApplyRun(Stream.fromIterable(events)).toList();
+
+    test('a progress frame is a running state', () async {
+      final progress = _run(startedAt: now, applied: 3);
+      final out = await fold([Right(progress)]);
+      expect(out, hasLength(1));
+      expect(out.single, isA<AiApplyRunRunning>());
+      expect((out.single as AiApplyRunRunning).progress.applied, 3);
+    });
+
+    test(
+      'the end frame after a run KEEPS the run (never "nothing started")',
+      () async {
+        final progress = _run(startedAt: now, applied: 7);
+        final out = await fold([Right(progress), const Right(null)]);
+        expect(out, hasLength(2));
+        expect(out.first, isA<AiApplyRunRunning>());
+        expect(out.last, isA<AiApplyRunFinished>());
+        expect(
+          (out.last as AiApplyRunFinished).last.applied,
+          7,
+          reason: 'the ended run must keep its last counters for the card',
+        );
+      },
+    );
+
+    test('a null frame BEFORE any run stays idle', () async {
+      final out = await fold([const Right(null)]);
+      expect(out.single, isA<AiApplyRunIdle>());
+    });
+
+    test(
+      'a stream failure is surfaced, carrying what the run reached',
+      () async {
+        final progress = _run(startedAt: now, applied: 5);
+        final out = await fold([
+          Right(progress),
+          const Left(ProblemError(code: 'ai_import.watch_exhausted')),
+        ]);
+        expect(out.last, isA<AiApplyRunFailed>());
+        final failed = out.last as AiApplyRunFailed;
+        expect(failed.error.code, 'ai_import.watch_exhausted');
+        expect(failed.last?.applied, 5);
+      },
+    );
+
+    test('a failure before any frame carries no counters', () async {
+      final out = await fold([
+        const Left(ProblemError(code: 'domain.forbidden', status: 403)),
+      ]);
+      expect((out.single as AiApplyRunFailed).last, isNull);
+    });
+  });
+
+  // --- Tier 2: the card ----------------------------------------------------
 
   testWidgets('no run yet renders the indeterminate line and no ETA', (
     tester,
@@ -119,14 +202,24 @@ void main() {
     );
   });
 
+  testWidgets('an idle state renders the indeterminate line', (tester) async {
+    await pump(tester);
+    states.add(const AiApplyRunIdle());
+    await tester.pump();
+    expect(find.byKey(const Key('ai-apply-progress-pending')), findsOneWidget);
+  });
+
   testWidgets('a pushed run renders rows, a determinate bar and a coarse ETA', (
     tester,
   ) async {
     await pump(tester);
     // 4 of 10 rows in 4 minutes → 1 min/row → 6 min left. The latest frame
     // is fresh, otherwise the stall rule correctly withholds the number.
-    frames.add(
-      _run(startedAt: now.subtract(const Duration(minutes: 4)), updatedAt: now),
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(minutes: 4)),
+        updatedAt: now,
+      ),
     );
     await tester.pump();
 
@@ -155,8 +248,8 @@ void main() {
     tester,
   ) async {
     await pump(tester);
-    frames.add(
-      _run(
+    states.add(
+      _running(
         startedAt: now.subtract(const Duration(minutes: 1)),
         applied: 1,
         updatedAt: now,
@@ -174,8 +267,11 @@ void main() {
   ) async {
     await pump(tester);
     // Run 1: 4 of 10 rows in 4 minutes → 1 min/row → 6 min left.
-    frames.add(
-      _run(startedAt: now.subtract(const Duration(minutes: 4)), updatedAt: now),
+    states.add(
+      _running(
+        startedAt: now.subtract(const Duration(minutes: 4)),
+        updatedAt: now,
+      ),
     );
     await tester.pump();
     expect(
@@ -186,8 +282,8 @@ void main() {
     // A second apply of the same preview starts fresh: 5 of 10 rows in 10 s is
     // a completely different cadence, and smoothing it against run 1 would keep
     // showing minutes.
-    frames.add(
-      _run(
+    states.add(
+      _running(
         startedAt: now.subtract(const Duration(seconds: 10)),
         applied: 5,
         updatedAt: now,
@@ -207,8 +303,8 @@ void main() {
       await pump(tester);
       // Run time = updated_at − started_at = 2 min. A client-clock anchor would
       // read 3 min and inflate every figure by 50 % (58 min vs 87 min).
-      frames.add(
-        _run(
+      states.add(
+        _running(
           startedAt: now.subtract(const Duration(minutes: 3)),
           applied: 2,
           total: 60,
@@ -227,8 +323,8 @@ void main() {
 
   testWidgets('the finalizing stage replaces the row counter', (tester) async {
     await pump(tester);
-    frames.add(
-      _run(
+    states.add(
+      _running(
         startedAt: now.subtract(const Duration(minutes: 10)),
         applied: 10,
         stage: ApplyStage.finalizing,
@@ -246,8 +342,8 @@ void main() {
 
   testWidgets('a silent run drops its estimate ("delayed")', (tester) async {
     await pump(tester);
-    frames.add(
-      _run(
+    states.add(
+      _running(
         // 4 of 10 rows in one hour → a 15-min cadence, so the stall window is
         // 45 min. The newest frame is an hour old: well past it.
         startedAt: now.subtract(const Duration(hours: 2)),
@@ -261,20 +357,96 @@ void main() {
     );
   });
 
-  testWidgets('the end-of-run frame falls back to the indeterminate line', (
+  testWidgets(
+    'the end-of-run frame keeps the finishing state, not the waiting line',
+    (tester) async {
+      await pump(tester);
+      states.add(
+        _running(
+          startedAt: now.subtract(const Duration(minutes: 4)),
+          updatedAt: now,
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('ai-apply-progress')), findsOneWidget);
+
+      // The server's final `null` frame arrives while the apply POST is still
+      // out: the card may not claim the run never started.
+      states.add(
+        AiApplyRunFinished(
+          _run(
+            startedAt: now.subtract(const Duration(minutes: 4)),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('ai-apply-progress-pending')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-apply-progress-finished')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-apply-progress-stage')))
+            .data,
+        'All rows applied – finishing up …',
+        reason: 'a started run that ended is closing out, never "not started"',
+      );
+      expect(
+        find.byKey(const Key('ai-apply-progress-eta')),
+        findsNothing,
+        reason: 'nothing is left to estimate once the run ended',
+      );
+    },
+  );
+
+  testWidgets('a failed stream is surfaced with a retry affordance', (
     tester,
   ) async {
     await pump(tester);
-    frames.add(
-      _run(startedAt: now.subtract(const Duration(minutes: 4)), updatedAt: now),
+    states.add(
+      const AiApplyRunFailed(ProblemError(code: 'ai_import.watch_exhausted')),
     );
     await tester.pump();
-    expect(find.byKey(const Key('ai-apply-progress')), findsOneWidget);
+    expect(find.byKey(const Key('ai-apply-progress-error')), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const Key('ai-apply-progress-error')))
+          .data,
+      'Row progress could not be loaded (ai_import.watch_exhausted). '
+      'The apply keeps running on the server.',
+      reason: 'code-keyed copy, never the server detail',
+    );
+    expect(find.byKey(const Key('ai-apply-progress-retry')), findsOneWidget);
+    expect(
+      find.byKey(const Key('ai-apply-progress-pending')),
+      findsNothing,
+      reason: 'a failed watch must not masquerade as "not started yet"',
+    );
+  });
 
-    frames.add(null);
+  testWidgets('a failed stream keeps the last counters visible', (
+    tester,
+  ) async {
+    await pump(tester);
+    states.add(
+      AiApplyRunFailed(
+        const ProblemError(code: 'transport.receiveTimeout'),
+        last: _run(
+          startedAt: now.subtract(const Duration(minutes: 4)),
+          applied: 6,
+          updatedAt: now,
+        ),
+      ),
+    );
     await tester.pump();
-    expect(find.byKey(const Key('ai-apply-progress')), findsNothing);
-    expect(find.byKey(const Key('ai-apply-progress-pending')), findsOneWidget);
+    expect(
+      find.byKey(const Key('ai-apply-progress-finished')),
+      findsOneWidget,
+      reason: 'the counters the run reached stay on screen',
+    );
+    expect(find.byKey(const Key('ai-apply-progress-error')), findsOneWidget);
   });
 
   test('the shared estimator drives both phases identically', () {
@@ -300,5 +472,84 @@ void main() {
     expect(fromApply, isNotNull);
     expect(fromApply!.upper, fromExtraction!.upper);
     expect(fromApply.perUnit, fromExtraction.perUnit);
+  });
+
+  // --- Tier 2: goldens (AGENTS.md §6 — a stateful widget that renders domain
+  // state gets a golden per state; German is the template locale) -----------
+
+  testWidgets('golden: pending state', (tester) async {
+    await pump(tester, locale: const Locale('de'));
+    await expectLater(
+      find.byType(AiApplyProgressCard),
+      matchesGoldenFile('goldens/apply_progress_pending_de.png'),
+    );
+  });
+
+  testWidgets('golden: running state', (tester) async {
+    await pump(tester, locale: const Locale('de'));
+    states.add(
+      AiApplyRunRunning(
+        _run(
+          startedAt: now.subtract(const Duration(minutes: 4)),
+          updatedAt: now,
+        ),
+      ),
+    );
+    await tester.pump();
+    await expectLater(
+      find.byType(AiApplyProgressCard),
+      matchesGoldenFile('goldens/apply_progress_running_de.png'),
+    );
+  });
+
+  testWidgets('golden: finalizing state', (tester) async {
+    await pump(tester, locale: const Locale('de'));
+    states.add(
+      AiApplyRunRunning(
+        _run(
+          startedAt: now.subtract(const Duration(minutes: 10)),
+          applied: 10,
+          stage: ApplyStage.finalizing,
+          updatedAt: now,
+        ),
+      ),
+    );
+    await tester.pump();
+    await expectLater(
+      find.byType(AiApplyProgressCard),
+      matchesGoldenFile('goldens/apply_progress_finalizing_de.png'),
+    );
+  });
+
+  testWidgets('golden: ended run (the end frame while the POST is out)', (
+    tester,
+  ) async {
+    await pump(tester, locale: const Locale('de'));
+    states.add(
+      AiApplyRunFinished(
+        _run(
+          startedAt: now.subtract(const Duration(minutes: 4)),
+          applied: 10,
+          updatedAt: now,
+        ),
+      ),
+    );
+    await tester.pump();
+    await expectLater(
+      find.byType(AiApplyProgressCard),
+      matchesGoldenFile('goldens/apply_progress_finished_de.png'),
+    );
+  });
+
+  testWidgets('golden: failed stream with a retry affordance', (tester) async {
+    await pump(tester, locale: const Locale('de'));
+    states.add(
+      const AiApplyRunFailed(ProblemError(code: 'ai_import.watch_exhausted')),
+    );
+    await tester.pump();
+    await expectLater(
+      find.byType(AiApplyProgressCard),
+      matchesGoldenFile('goldens/apply_progress_failed_de.png'),
+    );
   });
 }

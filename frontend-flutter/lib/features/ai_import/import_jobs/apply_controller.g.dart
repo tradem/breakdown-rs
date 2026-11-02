@@ -116,8 +116,11 @@ final class AiPreviewFamily extends $Family
 /// job that is already `succeeded` (its own stream has closed):
 /// `GET /v1/ai-import/jobs/{id}/apply-events`.
 ///
-/// `null` means "no run in flight" — the initial state and the end signal the
-/// server sends when the run finishes.
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
 
 @ProviderFor(aiApplyRun)
 final aiApplyRunProvider = AiApplyRunFamily._();
@@ -130,17 +133,20 @@ final aiApplyRunProvider = AiApplyRunFamily._();
 /// job that is already `succeeded` (its own stream has closed):
 /// `GET /v1/ai-import/jobs/{id}/apply-events`.
 ///
-/// `null` means "no run in flight" — the initial state and the end signal the
-/// server sends when the run finishes.
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
 
 final class AiApplyRunProvider
     extends
         $FunctionalProvider<
-          AsyncValue<ApplyProgress?>,
-          ApplyProgress?,
-          Stream<ApplyProgress?>
+          AsyncValue<AiApplyRunState>,
+          AiApplyRunState,
+          Stream<AiApplyRunState>
         >
-    with $FutureModifier<ApplyProgress?>, $StreamProvider<ApplyProgress?> {
+    with $FutureModifier<AiApplyRunState>, $StreamProvider<AiApplyRunState> {
   /// Live progress of the apply run in flight (issue #762).
   ///
   /// Subscribed by the apply screen only while its `POST` is out, so the stream
@@ -149,8 +155,11 @@ final class AiApplyRunProvider
   /// job that is already `succeeded` (its own stream has closed):
   /// `GET /v1/ai-import/jobs/{id}/apply-events`.
   ///
-  /// `null` means "no run in flight" — the initial state and the end signal the
-  /// server sends when the run finishes.
+  /// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+  /// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+  /// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+  /// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+  /// stays [AiApplyRunIdle].
   AiApplyRunProvider._({
     required AiApplyRunFamily super.from,
     required String super.argument,
@@ -174,12 +183,12 @@ final class AiApplyRunProvider
 
   @$internal
   @override
-  $StreamProviderElement<ApplyProgress?> $createElement(
+  $StreamProviderElement<AiApplyRunState> $createElement(
     $ProviderPointer pointer,
   ) => $StreamProviderElement(pointer);
 
   @override
-  Stream<ApplyProgress?> create(Ref ref) {
+  Stream<AiApplyRunState> create(Ref ref) {
     final argument = this.argument as String;
     return aiApplyRun(ref, argument);
   }
@@ -195,7 +204,7 @@ final class AiApplyRunProvider
   }
 }
 
-String _$aiApplyRunHash() => r'65d4f5cf96c091812e99ea62d1180d1e12360d15';
+String _$aiApplyRunHash() => r'55838d493ae0381fb74f97e7185de232802fdc30';
 
 /// Live progress of the apply run in flight (issue #762).
 ///
@@ -205,11 +214,14 @@ String _$aiApplyRunHash() => r'65d4f5cf96c091812e99ea62d1180d1e12360d15';
 /// job that is already `succeeded` (its own stream has closed):
 /// `GET /v1/ai-import/jobs/{id}/apply-events`.
 ///
-/// `null` means "no run in flight" — the initial state and the end signal the
-/// server sends when the run finishes.
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
 
 final class AiApplyRunFamily extends $Family
-    with $FunctionalFamilyOverride<Stream<ApplyProgress?>, String> {
+    with $FunctionalFamilyOverride<Stream<AiApplyRunState>, String> {
   AiApplyRunFamily._()
     : super(
         retry: null,
@@ -227,8 +239,11 @@ final class AiApplyRunFamily extends $Family
   /// job that is already `succeeded` (its own stream has closed):
   /// `GET /v1/ai-import/jobs/{id}/apply-events`.
   ///
-  /// `null` means "no run in flight" — the initial state and the end signal the
-  /// server sends when the run finishes.
+  /// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+  /// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+  /// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+  /// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+  /// stays [AiApplyRunIdle].
 
   AiApplyRunProvider call(String jobId) =>
       AiApplyRunProvider._(argument: jobId, from: this);
@@ -290,7 +305,7 @@ final class AiApplyControllerProvider
   }
 }
 
-String _$aiApplyControllerHash() => r'395050799cfb307d09bfeebe384dff1a7719d441';
+String _$aiApplyControllerHash() => r'a46d4c6d41ec02162f4c0f443a7105592fd1c645';
 
 /// The apply controller (task 4.2): builds + submits the mappings.
 

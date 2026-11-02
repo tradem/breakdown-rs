@@ -402,6 +402,16 @@
     }
   },
   "aiApplyProgressFinalizing": "Alle Zeilen übernommen – Abschluss läuft …",
+  "aiApplyProgressStreamError": "Zeilenfortschritt konnte nicht geladen werden ({code}). Der Import läuft serverseitig weiter.",
+  "@aiApplyProgressStreamError": {
+    "description": "Apply-run progress stream failure (issue #762): the run's own state could not be watched, the apply itself is unaffected.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyProgressRetry": "Fortschritt erneut laden",
   "aiApplySubmit": "Import anwenden",
   "aiApplyPickEpisode": "Episode wählen…",
   "aiApplyUngroupedHeading": "Ohne Episoden-Marker – Ziel: Episode {episode}",

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:convert';
 
@@ -724,15 +725,24 @@ class AiImportRepository extends BaseRepository {
   /// unknown surfaces as [ApplyUnresolved]. Non-timeout failures
   /// (403/409/…) surface immediately — never retried, never re-dispatched
   /// blindly.
+  ///
+  /// [onAttempt] fires with the 1-based index of every attempt after the
+  /// first, **before** that attempt is dispatched: a retry is a NEW
+  /// server-side run (the first one's stream has already seen its end
+  /// frame), so a live progress view has to re-open its watch to follow it.
   Future<ApplyReconciliation> applyWithReconciliation(
     String jobId,
     ApplyAiImportRequest request, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = kMaxApplyAttempts,
+    void Function(int attempt)? onAttempt,
   }) async {
     ProblemError? lastError;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      if (attempt > 0) await scheduler.tick(attempt - 1);
+      if (attempt > 0) {
+        await scheduler.tick(attempt - 1);
+        onAttempt?.call(attempt);
+      }
       final res = await apply(jobId, request);
       final response = res.getRight().toNullable();
       if (response != null) return ApplySucceeded(response);

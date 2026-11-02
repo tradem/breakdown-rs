@@ -22,7 +22,9 @@ commits (ADR-020 D5).
 
 - Migration `20261103000001`: `ai_import.ai_import_job.apply_progress` (JSONB,
   nullable). `NULL` means "no apply in flight": every pre-#762 row, a preview
-  nobody applied yet, and a finished run.
+  nobody applied yet, and a finished run. The progress writes are advisory, so
+  `NULL` is also the state of a running apply whose write has not landed yet —
+  a reader must never treat it as proof that nothing is running.
 - `PgAiImportQueue::mark_apply_progress` writes the payload only while the job
   is `succeeded` — it never touches the claim, the lease or the status — and
   every write wakes the job's subscription, so the apply stream pushes frames

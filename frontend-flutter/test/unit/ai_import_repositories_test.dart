@@ -1398,13 +1398,19 @@ void main() {
       final scripted = _ScriptedOutcomes(outcomes);
       final repo = AiImportRepository(_api(scripted), _dao());
       final scheduler = _FakeScheduler();
+      // The retry is a NEW server-side run: the progress view is told about
+      // every attempt after the first so it can re-open its watch (issue #762,
+      // CodeRabbit #798).
+      final attempts = <int>[];
       final outcome = await repo.applyWithReconciliation(
         'j1',
         _applyRequest(),
         scheduler: scheduler,
+        onAttempt: attempts.add,
       );
       expect(outcome, isA<ApplySucceeded>());
       expect(scheduler.ticks, 1);
+      expect(attempts, [1], reason: 'attempt 0 needs no re-arm');
       // Request order: apply (timeout) → GET job → apply (retry).
       expect(
         outcomes[0].requests.single.uri.path,

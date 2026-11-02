@@ -22,7 +22,9 @@ use axum::http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt;
 
 use api::auth::CurrentUser;
-use api::handlers::{ApplyStreamVerdict, classify_apply_run, stream_ai_import_apply_events};
+use api::handlers::{
+    ApplyStreamVerdict, SSE_APPLY_TICK_SECS, classify_apply_run, stream_ai_import_apply_events,
+};
 use api::state::AppState;
 use breakdown_core::ai::{
     AiImportJob, AiImportJobId, AiImportQueue, ApplyProgress, ApplyStage, DocumentKind, JobStatus,
@@ -204,7 +206,7 @@ async fn first_frame_is_the_current_apply_run() {
     assert!(payload["apply_progress"]["started_at"].is_string());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn each_progress_write_is_pushed_without_polling() {
     let ports = FakePorts::default();
     let mut job = succeeded_job(AiImportJobId::new());
@@ -215,8 +217,10 @@ async fn each_progress_write_is_pushed_without_polling() {
     let (_status, mut body) = open_stream(app, job.id).await;
     let _snapshot = next_frame(&mut body).await.expect("snapshot frame");
 
-    // A worker-side write — the same port the apply worker calls.
-    let pushed_at = std::time::Instant::now();
+    // A worker-side write — the same port the apply worker calls. The clock is
+    // PAUSED: virtual time never advances on its own, so the measurement below
+    // is a bound, not a wall-clock gate (AGENTS.md §6: no timing-based tests).
+    let pushed_at = tokio::time::Instant::now();
     ports
         .ai_import_queue
         .mark_apply_progress(job.id, Some(&progress(7, 57)))
@@ -224,10 +228,14 @@ async fn each_progress_write_is_pushed_without_polling() {
         .expect("apply progress write succeeds");
 
     let frame = next_frame(&mut body).await.expect("live apply frame");
+    // The stream re-reads on the `SSE_APPLY_TICK_SECS` tick. A frame delivered
+    // by the wake-up costs no virtual time; a tick-only delivery has to reach
+    // the tick interval, so a bound equal to that interval separates the two
+    // without measuring the runner's speed.
     assert!(
-        pushed_at.elapsed() < std::time::Duration::from_secs(5),
+        pushed_at.elapsed() < std::time::Duration::from_secs(SSE_APPLY_TICK_SECS),
         "the frame must be PUSHED by the wake-up, not re-read on the stream \
-         tick (took {:?})",
+         tick (virtual elapsed {:?})",
         pushed_at.elapsed()
     );
     let payload = frame_data(&frame).expect("live frame carries JSON data");

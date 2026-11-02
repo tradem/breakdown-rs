@@ -1326,44 +1326,92 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
     final run = ref.watch(aiApplyRunProvider(widget.jobId)).value;
     final now = ref.watch(clockProvider).now();
     final theme = Theme.of(context);
-    final etaCopy = AiJobEtaCopy(
-      calculating: l10n.aiJobEtaCalculating,
-      delayed: l10n.aiJobEtaDelayed,
-      imminent: l10n.aiJobEtaImminent,
-      minutes: (count) => l10n.aiJobEtaMinutes(count),
-      hours: (count) => l10n.aiJobEtaHours(count),
-      rangeMinutes: (lower, upper) => l10n.aiJobEtaRangeMinutes(lower, upper),
-      rangeHours: (lower, upper) => l10n.aiJobEtaRangeHours(lower, upper),
-    );
 
-    if (run == null) {
-      // No run published yet (the POST has not reached the worker, or the
-      // stream has not delivered its snapshot): say so, estimate nothing.
-      return Column(
-        key: const Key('ai-apply-progress-pending'),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const LinearProgressIndicator(
-            key: Key('ai-apply-progress-bar'),
-            minHeight: 6,
-          ),
-          const SizedBox(height: 4),
-          Text(l10n.aiApplyProgressWaiting, style: theme.textTheme.bodySmall),
-        ],
-      );
+    switch (run) {
+      case AiApplyRunRunning(:final progress):
+        return _run(progress: progress, l10n: l10n, theme: theme, now: now);
+      // The run's end frame arrived while the POST is still out: keep what the
+      // run reached and say it is closing out — the pre-start waiting line
+      // would claim a started run never started.
+      case AiApplyRunFinished(:final last):
+        return _run(
+          progress: last,
+          l10n: l10n,
+          theme: theme,
+          now: now,
+          finished: true,
+        );
+      // A failed stream is surfaced (with the last counters, if any) instead
+      // of degrading into the waiting line forever: the apply itself keeps
+      // running server-side, so the copy stays factual and retry re-arms it.
+      case AiApplyRunFailed(:final error, :final last):
+        return Column(
+          key: const Key('ai-apply-progress-failed'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (last != null)
+              _run(
+                progress: last,
+                l10n: l10n,
+                theme: theme,
+                now: now,
+                finished: true,
+              ),
+            Text(
+              key: const Key('ai-apply-progress-error'),
+              l10n.aiApplyProgressStreamError(error.code),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+            TextButton(
+              key: const Key('ai-apply-progress-retry'),
+              onPressed: () => ref.invalidate(aiApplyRunProvider(widget.jobId)),
+              child: Text(l10n.aiApplyProgressRetry),
+            ),
+          ],
+        );
+      case AiApplyRunIdle():
+      case null:
+        // No run published yet (the POST has not reached the worker, or the
+        // stream has not delivered its snapshot): say so, estimate nothing.
+        return Column(
+          key: const Key('ai-apply-progress-pending'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const LinearProgressIndicator(
+              key: Key('ai-apply-progress-bar'),
+              minHeight: 6,
+            ),
+            const SizedBox(height: 4),
+            Text(l10n.aiApplyProgressWaiting, style: theme.textTheme.bodySmall),
+          ],
+        );
     }
+  }
 
-    final applied = run.applied;
-    final total = run.total;
+  /// The row-count column: bar, stage copy and (while the run is live) a coarse
+  /// ETA. [finished] renders the run's last known counters as the closing-out
+  /// state — no estimate once the run has ended.
+  Widget _run({
+    required ApplyProgress progress,
+    required AppLocalizations l10n,
+    required ThemeData theme,
+    required DateTime now,
+    bool finished = false,
+  }) {
+    final applied = progress.applied;
+    final total = progress.total;
     final appliedFraction = (applied != null && total != null && total > 0)
         ? (applied / total).clamp(0.0, 1.0)
         : null;
-    final eta = _estimate(run, now);
+    final eta = finished ? null : _estimate(progress, now);
     final stalled =
         eta != null &&
-        aiJobEtaStalled(eta: eta, lastFrameAt: run.updatedAt, now: now);
+        aiJobEtaStalled(eta: eta, lastFrameAt: progress.updatedAt, now: now);
+    final closingOut = finished || progress.stage == ApplyStage.finalizing;
     return Column(
-      key: const Key('ai-apply-progress'),
+      key: Key(finished ? 'ai-apply-progress-finished' : 'ai-apply-progress'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         LinearProgressIndicator(
@@ -1374,17 +1422,33 @@ class _AiApplyProgressCardState extends ConsumerState<AiApplyProgressCard> {
         const SizedBox(height: 4),
         Text(
           key: const Key('ai-apply-progress-stage'),
-          run.stage == ApplyStage.finalizing
+          closingOut
               ? l10n.aiApplyProgressFinalizing
               : l10n.aiApplyProgressRows('${applied ?? 0}', '${total ?? 0}'),
           style: theme.textTheme.bodySmall,
         ),
-        const SizedBox(height: 2),
-        Text(
-          key: const Key('ai-apply-progress-eta'),
-          aiJobEtaText(eta: eta, stalled: stalled, copy: etaCopy),
-          style: theme.textTheme.bodySmall,
-        ),
+        if (!finished) ...[
+          const SizedBox(height: 2),
+          Text(
+            key: const Key('ai-apply-progress-eta'),
+            aiJobEtaText(
+              eta: eta,
+              stalled: stalled,
+              copy: AiJobEtaCopy(
+                calculating: l10n.aiJobEtaCalculating,
+                delayed: l10n.aiJobEtaDelayed,
+                imminent: l10n.aiJobEtaImminent,
+                minutes: (count) => l10n.aiJobEtaMinutes(count),
+                hours: (count) => l10n.aiJobEtaHours(count),
+                rangeMinutes: (lower, upper) =>
+                    l10n.aiJobEtaRangeMinutes(lower, upper),
+                rangeHours: (lower, upper) =>
+                    l10n.aiJobEtaRangeHours(lower, upper),
+              ),
+            ),
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
       ],
     );
   }

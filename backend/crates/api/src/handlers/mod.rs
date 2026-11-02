@@ -6838,7 +6838,12 @@ where
 /// The apply stream additionally *re-reads* on this tick: it must be able to
 /// notice that a run's payload went stale (the process died) or that no run
 /// ever started, without holding a connection open forever.
-const SSE_APPLY_TICK_SECS: u64 = 30;
+///
+/// Public because the stream's tests bound a wake-up frame against it: a
+/// frame delivered by the tick cannot beat the tick interval, so the bound is
+/// the one place a test may name the cadence (AGENTS.md §4 — no wall-clock
+/// gates in tests, and no second literal that could drift from this one).
+pub const SSE_APPLY_TICK_SECS: u64 = 30;
 
 /// How many idle ticks the apply stream waits for a run to start before it
 /// gives up (2 min). A client subscribes a moment before its `POST` lands, so

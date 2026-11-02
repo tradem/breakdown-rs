@@ -35,6 +35,51 @@ part 'apply_controller.g.dart';
 Future<Result<AiImportPreviewResponse>> aiPreview(Ref ref, String jobId) =>
     ref.watch(aiImportRepositoryProvider).getPreview(jobId);
 
+/// What the apply-run progress card is looking at (issue #762).
+///
+/// A bare `ApplyProgress?` flattens three different situations into `null` —
+/// nothing started yet, a run that **ended** (the server's final `null` frame
+/// arrives while the `POST` is still out), and a stream that failed — so the
+/// card would have to guess. The fold in [aiApplyRun] happens once, here, and
+/// the card renders a state.
+sealed class AiApplyRunState {
+  const AiApplyRunState();
+}
+
+/// The stream has not reported a run yet (the `POST` has not reached the
+/// worker, or the connecting snapshot is still in flight). Nothing to estimate.
+class AiApplyRunIdle extends AiApplyRunState {
+  const AiApplyRunIdle();
+}
+
+/// A run is in flight and published [progress].
+class AiApplyRunRunning extends AiApplyRunState {
+  const AiApplyRunRunning(this.progress);
+
+  final ApplyProgress progress;
+}
+
+/// The run ENDED: the server sent its final `null` frame after [last] was
+/// reached. The `POST` is still out, so this is the finishing state — never the
+/// pre-start copy, which would claim a started run has not started.
+class AiApplyRunFinished extends AiApplyRunState {
+  const AiApplyRunFinished(this.last);
+
+  final ApplyProgress last;
+}
+
+/// The stream gave up (reconnect budget spent, `403`/`404`, a frame the
+/// serializers reject). [last] is whatever the run had published before the
+/// failure — `null` when the failure came first. Surfaced, never dropped: a
+/// swallowed failure left the card claiming "determining row progress" for the
+/// rest of the `POST`.
+class AiApplyRunFailed extends AiApplyRunState {
+  const AiApplyRunFailed(this.error, {this.last});
+
+  final ProblemError error;
+  final ApplyProgress? last;
+}
+
 /// Live progress of the apply run in flight (issue #762).
 ///
 /// Subscribed by the apply screen only while its `POST` is out, so the stream
@@ -43,17 +88,45 @@ Future<Result<AiImportPreviewResponse>> aiPreview(Ref ref, String jobId) =>
 /// job that is already `succeeded` (its own stream has closed):
 /// `GET /v1/ai-import/jobs/{id}/apply-events`.
 ///
-/// `null` means "no run in flight" — the initial state and the end signal the
-/// server sends when the run finishes.
+/// Every frame is folded into an [AiApplyRunState]: a progress frame becomes
+/// [AiApplyRunRunning] (remembering it), the run's final `null` becomes
+/// [AiApplyRunFinished] (the remembered run, not "nothing happened"), and a
+/// `Left` becomes [AiApplyRunFailed]. `null` from the stream *before* any run
+/// stays [AiApplyRunIdle].
 @riverpod
-Stream<ApplyProgress?> aiApplyRun(Ref ref, String jobId) {
+Stream<AiApplyRunState> aiApplyRun(Ref ref, String jobId) {
   final cancelToken = CancelToken();
   ref.onDispose(cancelToken.cancel);
   final repo = ref.watch(aiImportRepositoryProvider);
-  return repo
-      .watchApplyProgress(jobId, cancelToken: cancelToken)
-      .where((result) => result.isRight())
-      .map((result) => result.getOrElse((_) => null));
+  return foldApplyRun(repo.watchApplyProgress(jobId, cancelToken: cancelToken));
+}
+
+/// Fold the apply stream's `Result<ApplyProgress?>` events into card states.
+///
+/// Kept as a pure function (the provider only wires the cancel token) so the
+/// distinction the card depends on — nothing started yet vs. a run that ended
+/// vs. a failed stream — is unit-testable without a repository, a container or
+/// a socket.
+Stream<AiApplyRunState> foldApplyRun(
+  Stream<Result<ApplyProgress?>> events,
+) async* {
+  ApplyProgress? last;
+  await for (final event in events) {
+    yield event.match<AiApplyRunState>(
+      (error) => AiApplyRunFailed(error, last: last),
+      (progress) {
+        if (progress == null) {
+          // The run's end signal — or, before any run, "nothing started yet".
+          final ended = last;
+          return ended == null
+              ? const AiApplyRunIdle()
+              : AiApplyRunFinished(ended);
+        }
+        last = progress;
+        return AiApplyRunRunning(progress);
+      },
+    );
+  }
 }
 
 /// The per-row apply decision (task 4.2). The `draft_ref` is carried
@@ -1060,6 +1133,13 @@ class AiApplyController extends _$AiApplyController {
       jobId,
       request,
       scheduler: ref.read(reconciliationSchedulerProvider),
+      // A retry is a NEW server-side run: the first run's end frame has
+      // already closed the card's subscription, so re-arm it instead of
+      // leaving the retry's progress unwatched. The POST is not cancelled —
+      // only the stream is re-opened (`watchApplyProgress` re-subscribes).
+      onAttempt: (_) {
+        if (ref.mounted) ref.invalidate(aiApplyRunProvider(jobId));
+      },
     );
     switch (outcome) {
       case ApplySucceeded(:final response):

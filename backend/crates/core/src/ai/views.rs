@@ -486,6 +486,13 @@ pub struct AiImportJob {
     /// run clears the column, so a stale "applying 3/57" can never outlive its
     /// run).
     ///
+    /// Advisory, so `None` alone is **not** proof that nothing is running:
+    /// every progress write (the run's first one included) is best-effort — a
+    /// failed write must never abort an apply — so an active run can be
+    /// invisible here until the next throttled write lands, and for a whole run
+    /// if the store keeps failing. A client therefore renders `None` as "no
+    /// progress published", never as "idle" (issue #762).
+    ///
     /// Its presence is what keeps the apply stream open: the job itself is
     /// terminal the whole time, because an apply is a POST against a job that
     /// already succeeded.
