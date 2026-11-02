@@ -40,6 +40,10 @@ fn progress(stage: AiImportStage, chunk: u32, episodes: &[&str]) -> AiImportProg
         chunk: Some(chunk),
         chunks_total: Some(12),
         episodes_seen: episodes.iter().map(|label| (*label).to_owned()).collect(),
+        started_at: None,
+        done_bytes: None,
+        total_bytes: None,
+        written_at: None,
     }
 }
 

@@ -7,6 +7,7 @@
 <!-- Co-authored-by: hy4-preview (opencode-go) -->
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Changelog
 
@@ -14,6 +15,33 @@ All notable changes to the `core` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.54.0] - Unreleased
+
+### Added — ETA anchor and byte budget on AI-import progress (issue #762)
+
+- `AiImportProgress.started_at` (`Option<DateTime<Utc>>`, `serde(default)`): the
+  claim timestamp of the **current attempt**, published on every progress frame.
+  The counters had no time anchor, so a client could only run a stopwatch while
+  its own screen stayed open — a reconnecting or restarted client could not
+  reconstruct a rate, and a retry silently inherited nothing at all.
+- `AiImportProgress.done_bytes` / `total_bytes` (`Option<u64>`, `serde(default)`):
+  the source-text bytes already extracted and the document's total budget, both
+  computed from the deterministic chunk scan. One chunk is one scene and scene
+  lengths differ by an order of magnitude, so bytes are a materially better ETA
+  basis than a chunk count. `None` is honest absence (a schedule job is a single
+  extraction unit) — never a fabricated zero.
+- `AiImportProgress.written_at` (`serde(default)`): the server stamp of the
+  frame itself. `written_at - started_at` is extraction time, so a client never
+  counts the time its screen was closed as work; a heartbeat-refreshed
+  `updated_at` cannot serve that role (it also hides a stopped stream).
+- `AiImportProgress::set_byte_budget` / `record_done_bytes`: the pair's
+  invariants live in core rather than in the worker — the numerator saturates
+  and is clamped to the budget, so a client dividing the two can never see a
+  progress value above 1.
+- The ETA itself is advisory visibility data, like `progress` today: it never
+  blocks, never induces a retry, and is never correctness state.
+- Public API change: **0.53.0 → 0.54.0** (MINOR; purely additive).
 
 ## [0.42.0] - Unreleased
 

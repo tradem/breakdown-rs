@@ -1502,6 +1502,48 @@ abstract class AppLocalizations {
   /// **'Unbekannte Phase ({name}).'**
   String aiJobStageUnknown(Object name);
 
+  /// No description provided for @aiJobEtaCalculating.
+  ///
+  /// In de, this message translates to:
+  /// **'Restzeit wird berechnet …'**
+  String get aiJobEtaCalculating;
+
+  /// No description provided for @aiJobEtaDelayed.
+  ///
+  /// In de, this message translates to:
+  /// **'Verzögert – keine verlässliche Schätzung.'**
+  String get aiJobEtaDelayed;
+
+  /// No description provided for @aiJobEtaImminent.
+  ///
+  /// In de, this message translates to:
+  /// **'Gleich fertig …'**
+  String get aiJobEtaImminent;
+
+  /// Coarse remaining-time estimate in minutes for a running AI import (issue #762). Never a seconds-precision countdown.
+  ///
+  /// In de, this message translates to:
+  /// **'Noch ca. {count} min'**
+  String aiJobEtaMinutes(int count);
+
+  /// Coarse remaining-time estimate in whole hours for a running AI import (issue #762).
+  ///
+  /// In de, this message translates to:
+  /// **'Noch ca. {count} h'**
+  String aiJobEtaHours(int count);
+
+  /// Remaining-time estimate as a range when the observed cadence was unsteady (issue #762).
+  ///
+  /// In de, this message translates to:
+  /// **'Noch ca. {lower}–{upper} min'**
+  String aiJobEtaRangeMinutes(int lower, int upper);
+
+  /// Remaining-time range in whole hours (issue #762).
+  ///
+  /// In de, this message translates to:
+  /// **'Noch ca. {lower}–{upper} h'**
+  String aiJobEtaRangeHours(int lower, int upper);
+
   /// No description provided for @aiJobChunkProgress.
   ///
   /// In de, this message translates to:

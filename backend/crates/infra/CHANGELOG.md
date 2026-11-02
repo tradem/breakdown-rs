@@ -16,6 +16,29 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.63.0] - Unreleased
+
+### Added — ETA anchor and byte budget on the published progress frames (issue #762)
+
+- The script worker publishes `started_at` (the claim stamp of the current
+  attempt) and a byte budget on every `mark_progress` frame, and advances
+  `done_bytes` once per completed chunk. The anchor is read from the claimed
+  job's `updated_at`, which `claim_next*` stamps in the same statement that
+  clears the stale counters — so anchor and counters always belong to the same
+  attempt and a retry restarts the estimate instead of inheriting the previous
+  attempt's rate.
+- The byte budget counts exactly the bytes the model is handed
+  (`heading` + `\n` + `text` per chunk), so the published fraction tracks the
+  work that is actually left.
+- Every published frame is stamped with `written_at` in `publish_progress` —
+  the single funnel all worker frames go through — so the stamp always describes
+  the write it travels with and no call site can forget it.
+- The schedule and merge workers publish the anchor only; a schedule job is a
+  single extraction unit and a merge is a single deterministic join, so their
+  byte pair stays `None` rather than inventing a numerator.
+- Consumes `breakdown_core` 0.54.0.
+- Public API change: **0.62.0 → 0.63.0** (MINOR).
+
 ## [0.55.0] - Unreleased
 
 ### Fixed — PDF reports returned HTTP 500 for every non-empty report (issue #764)

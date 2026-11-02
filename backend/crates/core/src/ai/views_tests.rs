@@ -216,6 +216,11 @@ fn ai_import_progress_default_is_extracting_text_without_counts() {
     assert_eq!(progress.chunk, None);
     assert_eq!(progress.chunks_total, None);
     assert!(progress.episodes_seen.is_empty());
+    // Issue #762: no time anchor and no byte budget by default — honest
+    // absence, never a zero that would read as "measured".
+    assert_eq!(progress.started_at, None);
+    assert_eq!(progress.done_bytes, None);
+    assert_eq!(progress.total_bytes, None);
 }
 
 #[test]
@@ -247,6 +252,82 @@ fn record_episode_deduplicates_repeated_markers() {
         progress.record_episode(Some(&episode));
     }
     assert_eq!(progress.episodes_seen, vec!["Ep. 3".to_owned()]);
+}
+
+/// Issue #762: the byte pair is the ETA basis, so its invariants are pinned
+/// here rather than in the worker: a client divides `done_bytes` by
+/// `total_bytes`, and a numerator above the denominator would render a
+/// progress value above 1 or a negative remainder.
+#[test]
+fn record_done_bytes_saturates_and_never_overtakes_the_budget() {
+    let mut progress = AiImportProgress::default();
+    // No budget yet: nothing is recorded — an unbudgeted job stays `None`
+    // instead of pretending `0` was measured.
+    progress.record_done_bytes(10);
+    assert_eq!(progress.done_bytes, None);
+
+    progress.set_byte_budget(100);
+    assert_eq!(progress.total_bytes, Some(100));
+    assert_eq!(progress.done_bytes, Some(0));
+
+    progress.record_done_bytes(40);
+    assert_eq!(progress.done_bytes, Some(40));
+    // Overshoot is clamped, not added: the clamp also covers a worker whose
+    // chunk sizes sum above the budget (e.g. a rebuilt chunk list).
+    progress.record_done_bytes(u64::MAX);
+    assert_eq!(progress.done_bytes, Some(100));
+    // Saturating on an already-clamped counter.
+    progress.record_done_bytes(5);
+    assert_eq!(progress.done_bytes, Some(100));
+}
+
+#[test]
+fn set_byte_budget_resets_a_previous_numerator() {
+    let mut progress = AiImportProgress::default();
+    progress.set_byte_budget(50);
+    progress.record_done_bytes(50);
+    // A new budget is a new attempt: the numerator must not carry over.
+    progress.set_byte_budget(200);
+    assert_eq!(progress.total_bytes, Some(200));
+    assert_eq!(progress.done_bytes, Some(0));
+}
+
+/// Issue #762: the time anchor and the byte pair are additive in BOTH
+/// directions — a frame written before they existed still deserializes (as
+/// `None`, never as a fabricated zero), and a newer frame round-trips.
+#[test]
+fn ai_import_progress_eta_fields_are_additive_on_the_wire() {
+    let legacy: AiImportProgress = serde_json::from_str(
+        r#"{"stage":"extracting","chunk":3,"chunks_total":12,
+            "episodes_seen":["Ep. 3"]}"#,
+    )
+    .expect("a pre-#762 frame deserializes");
+    assert_eq!(legacy.chunk, Some(3));
+    assert_eq!(legacy.started_at, None);
+    assert_eq!(legacy.done_bytes, None);
+    assert_eq!(legacy.total_bytes, None);
+
+    let current = AiImportProgress {
+        stage: AiImportStage::Extracting,
+        chunk: Some(3),
+        chunks_total: Some(12),
+        episodes_seen: Vec::new(),
+        started_at: Some(
+            chrono::DateTime::parse_from_rfc3339("2026-11-02T10:00:00Z")
+                .expect("fixture timestamp")
+                .with_timezone(&chrono::Utc),
+        ),
+        done_bytes: Some(4096),
+        total_bytes: Some(16384),
+        written_at: None,
+    };
+    let json = serde_json::to_value(&current).expect("progress serializes");
+    assert_eq!(json["done_bytes"], 4096);
+    assert_eq!(json["total_bytes"], 16384);
+    assert_eq!(json["started_at"], "2026-11-02T10:00:00Z");
+    let round_trip: AiImportProgress =
+        serde_json::from_value(json).expect("a #762 frame round-trips");
+    assert_eq!(round_trip, current);
 }
 
 #[test]
@@ -340,6 +421,10 @@ fn ai_import_job_progress_is_optional_on_the_wire() {
         chunk: Some(4),
         chunks_total: Some(12),
         episodes_seen: vec!["Ep. 3".to_owned(), "Ep. 4".to_owned()],
+        started_at: None,
+        done_bytes: None,
+        total_bytes: None,
+        written_at: None,
     };
     let json = serde_json::to_value(&with_progress).ok();
     assert_eq!(

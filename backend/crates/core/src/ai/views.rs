@@ -232,6 +232,51 @@ pub struct AiImportProgress {
     /// extracted `DraftEpisode` metadata — never script prose.
     #[serde(default)]
     pub episodes_seen: Vec<String>,
+    /// When the **current attempt** was claimed (issue #762).
+    ///
+    /// The time anchor the counters above lack: without it a client can only
+    /// run a stopwatch while its own screen stays open, and a reconnecting or
+    /// restarted client can never reconstruct a rate from `chunk`/`chunks_total`
+    /// alone. Every frame of one attempt carries the same value, so a client
+    /// can recompute the estimate on every frame without accumulating state.
+    ///
+    /// Additive with `serde(default)`: frames written before the field existed
+    /// deserialize as `None`, and a client then simply shows no estimate —
+    /// never a fabricated one. A retry starts cleanly because the claim clears
+    /// [`Self::chunk`]/[`Self::done_bytes`] and writes a fresh anchor.
+    #[serde(default)]
+    pub started_at: Option<DateTime<Utc>>,
+    /// Source-text bytes already extracted (issue #762), summed over the
+    /// **completed** chunks. `0` is a deliberate published state, mirroring
+    /// [`Self::chunk`].
+    ///
+    /// Chunk cost is heterogeneous by an order of magnitude — one chunk is
+    /// one scene and scene lengths differ wildly — so a byte denominator is a
+    /// materially better ETA basis than a chunk count. Additive with
+    /// `serde(default)`: `None` when the worker has no byte budget for the
+    /// job (a schedule job is a single extraction unit).
+    #[serde(default)]
+    pub done_bytes: Option<u64>,
+    /// Total source-text bytes the document splits into (issue #762), known
+    /// once the deterministic chunk scan finishes. Same `serde(default)`
+    /// contract as [`Self::done_bytes`]; a client prefers the byte pair when
+    /// `total_bytes > 0` and falls back to the chunk counters otherwise.
+    #[serde(default)]
+    pub total_bytes: Option<u64>,
+    /// When **this frame** was written, on the server's clock (issue #762).
+    ///
+    /// The end of the measured interval: `written_at - started_at` is extraction
+    /// time, whereas a client-side "now" also counts every second the screen
+    /// was closed, backgrounded or offline — which inflates the per-unit cost
+    /// and with it the estimate. A heartbeat-driven `updated_at` is no
+    /// substitute (a live worker refreshes it continuously), so the stamp
+    /// travels with the frame it describes.
+    ///
+    /// Additive with `serde(default)`: a frame written before the field existed
+    /// deserializes as `None`, and a client then falls back to its own clock as
+    /// it did before.
+    #[serde(default)]
+    pub written_at: Option<DateTime<Utc>>,
 }
 
 impl AiImportProgress {
@@ -246,6 +291,28 @@ impl AiImportProgress {
         if !self.episodes_seen.contains(&label) {
             self.episodes_seen.push(label);
         }
+    }
+
+    /// Publish the byte budget of the document (issue #762), known once the
+    /// deterministic chunk scan finished. Also zeroes the completed-byte
+    /// counter, so the pair is never published half-set.
+    pub fn set_byte_budget(&mut self, total_bytes: u64) {
+        self.total_bytes = Some(total_bytes);
+        self.done_bytes = Some(0);
+    }
+
+    /// Add one completed chunk's source bytes (issue #762).
+    ///
+    /// Saturating and clamped to [`Self::total_bytes`], so the published
+    /// numerator can never overtake the denominator — a client dividing the
+    /// two must never see a progress value above 1. A no-op when the job has
+    /// no byte budget, which is the honest state for a single-unit job.
+    pub fn record_done_bytes(&mut self, bytes: u64) {
+        let Some(total) = self.total_bytes else {
+            return;
+        };
+        let done = self.done_bytes.unwrap_or(0).saturating_add(bytes);
+        self.done_bytes = Some(done.min(total));
     }
 }
 
