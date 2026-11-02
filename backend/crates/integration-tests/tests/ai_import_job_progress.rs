@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Postgres integration tests for the owner-fenced job progress writes
 //! (issue #664): persistence + decode, `episodes_seen` accumulation,

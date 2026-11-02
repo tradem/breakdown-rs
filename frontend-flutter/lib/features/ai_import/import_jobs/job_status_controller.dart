@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
