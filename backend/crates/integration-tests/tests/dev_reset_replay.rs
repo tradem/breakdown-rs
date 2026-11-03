@@ -72,7 +72,17 @@ async fn append_keep_event(
 }
 
 /// Seeds the keep projections — the export resolves its stream ids from them.
-async fn seed_keep_projections(pool: &PgPool, ai_config_id: Uuid, settings_id: Uuid) -> Result<()> {
+///
+/// All three keep categories are seeded on purpose: `membership` is keyed by its
+/// **block id** and named `membership-<block>` (not `<category>-<id>`), so a
+/// regression in `keep_id_sql` or `stream_id` would otherwise stay invisible
+/// here (issue #810 review).
+async fn seed_keep_projections(
+    pool: &PgPool,
+    ai_config_id: Uuid,
+    settings_id: Uuid,
+    block_id: Uuid,
+) -> Result<()> {
     sqlx::query(
         r#"
         INSERT INTO ai_import.projection_ai_config
@@ -93,6 +103,16 @@ async fn seed_keep_projections(pool: &PgPool, ai_config_id: Uuid, settings_id: U
     .bind(settings_id)
     .execute(pool)
     .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO projection_membership
+            (block_id, user_id, role, state, joined_at, updated_at)
+        VALUES ($1, 'dev-user', 'Kostümbildner', 'active', now(), now())
+        "#,
+    )
+    .bind(block_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -104,20 +124,31 @@ async fn keep_list_export_survives_a_fresh_event_store_and_replays_back() -> Res
 
     let ai_config_id = Uuid::now_v7();
     let settings_id = Uuid::now_v7();
-    seed_keep_projections(&pool, ai_config_id, settings_id).await?;
+    let block_id = Uuid::now_v7();
+    seed_keep_projections(&pool, ai_config_id, settings_id, block_id).await?;
 
     let ai_config_stream =
         events::stream_id(infra::dev_reset::AggregateCategory::AiConfig, ai_config_id);
     let settings_stream =
         events::stream_id(infra::dev_reset::AggregateCategory::Settings, settings_id);
+    let membership_stream =
+        events::stream_id(infra::dev_reset::AggregateCategory::Membership, block_id);
     append_keep_event(&mut store, &ai_config_stream, "AiConfigCreated", 0).await?;
     append_keep_event(&mut store, &ai_config_stream, "AiConfigUpdated", 1).await?;
     append_keep_event(&mut store, &settings_stream, "SettingsBound", 0).await?;
+    append_keep_event(&mut store, &membership_stream, "MemberInvited", 0).await?;
 
     // 1. Export against the store that still holds the configuration.
     let export = events::export_keep_list(&pool, &mut store, DATABASE_TARGET, false).await?;
-    assert_eq!(export.streams.len(), 2, "one stream per keep aggregate");
-    assert_eq!(export.event_count(), 3);
+    assert_eq!(export.streams.len(), 3, "one stream per keep aggregate");
+    assert_eq!(export.event_count(), 4);
+    assert!(
+        export
+            .streams
+            .iter()
+            .any(|stream| stream.stream_id == membership_stream),
+        "the membership stream keeps its block-id naming"
+    );
 
     // 2. The wrapper's `docker volume rm`: a brand-new container = empty store.
     let (_fresh_client, mut fresh, _fresh_sierra) = crate::fixtures::spawn_sierradb().await?;
@@ -126,8 +157,12 @@ async fn keep_list_export_survives_a_fresh_event_store_and_replays_back() -> Res
     let probes = events::current_keep_streams(&pool).await?;
     assert_eq!(
         probes.len(),
-        2,
-        "the projections still name both keep streams"
+        3,
+        "the projections name all three keep streams"
+    );
+    assert!(
+        probes.contains(&membership_stream),
+        "current_keep_streams resolves membership through its block id"
     );
 
     // 3. Replay into the fresh store and re-read every stream.
@@ -163,7 +198,8 @@ async fn an_export_of_an_already_emptied_store_is_refused() -> Result<()> {
     // rows, the event store is empty.
     let ai_config_id = Uuid::now_v7();
     let settings_id = Uuid::now_v7();
-    seed_keep_projections(&pool, ai_config_id, settings_id).await?;
+    let block_id = Uuid::now_v7();
+    seed_keep_projections(&pool, ai_config_id, settings_id, block_id).await?;
 
     let error = events::export_keep_list(&pool, &mut store, DATABASE_TARGET, false)
         .await
@@ -174,7 +210,7 @@ async fn an_export_of_an_already_emptied_store_is_refused() -> Result<()> {
 
     // The explicit override exports, and the plan/dry-run can then show `0`.
     let export = events::export_keep_list(&pool, &mut store, DATABASE_TARGET, true).await?;
-    assert_eq!(export.streams.len(), 2);
+    assert_eq!(export.streams.len(), 3);
     assert_eq!(export.event_count(), 0);
     let counts = export.category_counts();
     assert!(

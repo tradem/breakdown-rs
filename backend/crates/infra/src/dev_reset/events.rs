@@ -162,8 +162,8 @@ pub fn ensure_streams_resolved(
     Ok(())
 }
 
-/// Refuses an export that resolved streams but **no events at all** while the
-/// keep projections hold rows (issue #810).
+/// Refuses an export in which a keep **category** holds projection rows but its
+/// streams carry **no events** (issue #810).
 ///
 /// That combination has exactly one explanation: the keep projections survived
 /// while the event store was already emptied (a previous run failed after the
@@ -171,33 +171,46 @@ pub fn ensure_streams_resolved(
 /// recoverable incident into a permanent loss of the configuration — so the
 /// export fails instead. `--allow-empty-keep-list` is the explicit override for
 /// an operator who really means to start without a configuration.
+///
+/// The check is **per category**, not on the total: on 2026-11-03 `ai_config`
+/// and `settings` rows were both present while their streams were gone, and an
+/// eventless `ai_config` next to a non-empty `settings` would slip through a
+/// total-only check — the wipe deletes its projection, the replay skips its
+/// empty stream, and verification accepts the result.
 pub fn ensure_events_exported(
     export: &KeepListExport,
-    keep_rows: i64,
+    keep_rows: &[(AggregateCategory, i64)],
     allow_empty_keep_list: bool,
 ) -> Result<(), anyhow::Error> {
-    if allow_empty_keep_list || export.event_count() > 0 || keep_rows <= 0 {
+    if allow_empty_keep_list {
         return Ok(());
     }
-    let breakdown = export
-        .category_counts()
-        .iter()
-        .map(|count| {
-            format!(
-                "{}: {} stream(s) / 0 event(s)",
-                count.category.as_str(),
-                count.streams
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
+    let mut eventless = Vec::new();
+    for (category, rows) in keep_rows {
+        if *rows <= 0 {
+            continue;
+        }
+        let events: usize = export
+            .streams
+            .iter()
+            .filter(|stream| stream.category == category.as_str())
+            .map(|stream| stream.events.len())
+            .sum();
+        if events == 0 {
+            eventless.push(format!("{}: {rows} row(s) / 0 events", category.as_str()));
+        }
+    }
+    if eventless.is_empty() {
+        return Ok(());
+    }
     Err(anyhow::anyhow!(
-        "refusing to export the keep list: the keep projections hold {keep_rows} row(s) but the \
-         event store returned 0 events for every keep stream ({breakdown}). The event store is \
-         already empty and the configuration exists in the read model only — exporting it and \
-         replaying it later would silently destroy the configuration. Re-create the configuration, \
-         restore an earlier backups/reset-*/keep-list.json into a fresh store, or pass \
-         --allow-empty-keep-list if the configuration is meant to be gone"
+        "refusing to export the keep list: the event store returned no events for keep \
+         categor(y/ies) that still hold projection rows ({}). The event store is already empty \
+         and the configuration exists in the read model only — exporting it and replaying it later \
+         would silently destroy the configuration. Re-create the configuration, restore an earlier \
+         backups/reset-*/keep-list.json into a fresh store, or pass --allow-empty-keep-list if the \
+         configuration is meant to be gone",
+        eventless.join(", ")
     ))
 }
 
@@ -209,7 +222,7 @@ pub async fn export_keep_list(
     allow_empty_keep_list: bool,
 ) -> Result<KeepListExport, anyhow::Error> {
     let mut streams = Vec::new();
-    let mut keep_rows = 0i64;
+    let mut keep_rows: Vec<(AggregateCategory, i64)> = Vec::new();
     for category in keep_categories() {
         let sql = keep_id_sql(category).ok_or_else(|| {
             anyhow::anyhow!("keep category {} has no id query", category.as_str())
@@ -222,7 +235,7 @@ pub async fn export_keep_list(
             .fetch_one(pool)
             .await?;
         ensure_streams_resolved(category, rows, ids.len())?;
-        keep_rows += rows;
+        keep_rows.push((category, rows));
         for id in ids {
             let stream = stream_id(category, id);
             let events = read_stream(connection, &stream).await?;
@@ -245,9 +258,9 @@ pub async fn export_keep_list(
         database_target: database_target.to_string(),
         streams,
     };
-    // Guard 1 (issue #810): rows in the keep projections but no events in the
+    // Guard 1 (issue #810): rows in a keep projection but no events in the
     // store means the store was already lost — never export that silently.
-    ensure_events_exported(&export, keep_rows, allow_empty_keep_list)?;
+    ensure_events_exported(&export, &keep_rows, allow_empty_keep_list)?;
     Ok(export)
 }
 
@@ -588,20 +601,51 @@ mod tests {
         }]);
         assert_eq!(export.event_count(), 0);
 
-        let error = ensure_events_exported(&export, 1, false).expect_err("must refuse");
+        let ai_config = [(AggregateCategory::AiConfig, 1)];
+        let error = ensure_events_exported(&export, &ai_config, false).expect_err("must refuse");
         let message = error.to_string();
         assert!(message.contains("refusing to export"), "{message}");
         assert!(
-            message.contains("ai_config: 1 stream(s) / 0 event(s)"),
+            message.contains("ai_config: 1 row(s) / 0 events"),
             "{message}"
         );
         assert!(message.contains("--allow-empty-keep-list"), "{message}");
 
         // The explicit override, an empty configuration and a real export pass.
-        assert!(ensure_events_exported(&export, 1, true).is_ok());
-        assert!(ensure_events_exported(&export, 0, false).is_ok());
+        assert!(ensure_events_exported(&export, &ai_config, true).is_ok());
+        assert!(
+            ensure_events_exported(&export, &[(AggregateCategory::AiConfig, 0)], false).is_ok()
+        );
         let real = export_with_streams(vec![single_event_stream(AggregateCategory::Settings)]);
-        assert!(ensure_events_exported(&real, 1, false).is_ok());
+        assert!(ensure_events_exported(&real, &[(AggregateCategory::Settings, 1)], false).is_ok());
+    }
+
+    /// Issue #810 review: the guard must be **per category**. An eventless
+    /// `ai_config` beside a non-empty `settings` passed a total-only check — the
+    /// wipe then deleted the projection and the replay skipped the empty stream.
+    #[test]
+    fn an_eventless_keep_category_is_refused_even_when_another_one_has_events() {
+        let export = export_with_streams(vec![single_event_stream(AggregateCategory::Settings)]);
+        assert_eq!(export.event_count(), 1);
+        let keep = [
+            (AggregateCategory::AiConfig, 1),
+            (AggregateCategory::Settings, 1),
+        ];
+
+        let error = ensure_events_exported(&export, &keep, false).expect_err("must refuse");
+        let message = error.to_string();
+        assert!(
+            message.contains("ai_config: 1 row(s) / 0 events"),
+            "{message}"
+        );
+        assert!(!message.contains("settings:"), "{message}");
+
+        // Both categories carrying events is the healthy case.
+        let healthy = export_with_streams(vec![
+            single_event_stream(AggregateCategory::AiConfig),
+            single_event_stream(AggregateCategory::Settings),
+        ]);
+        assert!(ensure_events_exported(&healthy, &keep, false).is_ok());
     }
 
     /// Regression fixture from the 2026-11-03 incident (10 streams, 0 events):
@@ -613,8 +657,10 @@ mod tests {
             serde_json::from_str(EMPTY_KEEP_LIST_FIXTURE).expect("fixture parses");
         assert_eq!(export.streams.len(), 10);
         assert_eq!(export.event_count(), 0);
-        assert!(ensure_events_exported(&export, 10, false).is_err());
-        assert!(ensure_events_exported(&export, 10, true).is_ok());
+        assert!(
+            ensure_events_exported(&export, &[(AggregateCategory::AiConfig, 1)], false).is_err()
+        );
+        assert!(ensure_events_exported(&export, &[(AggregateCategory::AiConfig, 1)], true).is_ok());
 
         let counts = export.category_counts();
         let ai_config = counts

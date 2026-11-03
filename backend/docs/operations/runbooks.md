@@ -988,14 +988,21 @@ On 2026-11-03 this level destroyed the AI configuration (the Decision Model and
 the credential binding included) and **both runs exited successfully**. Two
 independent defects combined; all four guards that close them are below.
 
-- **An export may not be empty while the projections hold rows.** When the keep
-  projections (`ai_config`, `settings`, `membership`) hold rows but their
+- **An export may not be empty while the projections hold rows.** When a keep
+  category (`ai_config`, `settings`, `membership`) holds projection rows but its
   streams carry **no** events, the export aborts *before* anything is dropped:
   that combination is only explainable by an already-emptied event store, and
-  replaying it would append nothing. The override is explicit —
-  `./scripts/reset-dev-data.sh business --allow-empty-keep-list` — and it also
-  forces the stricter confirmation phrase `business-empty` instead of
-  `business`.
+  replaying it would append nothing. The check runs **per category** — an
+  eventless `ai_config` next to a non-empty `settings` is refused just as well.
+  The override is explicit —
+  `./scripts/reset-dev-data.sh business --allow-empty-keep-list` — and an
+  **interactive** run then asks for the stricter phrase `business-empty`
+  instead of `business` (`--yes` skips every prompt, by design).
+- **An export never overwrites a keep-list that still holds events.** After a
+  failed replay *plus* a failed automatic restore the keep projections are empty
+  too, so a re-run would export `0 events` straight over the only remaining copy
+  of the configuration; the export refuses that and asks the operator to move the
+  file aside (or pass `--allow-empty-keep-list`).
 - **The pre-drop output names the event counts, not just the row counts.**
   `plan --level business` (best effort — it still works with SierraDB stopped),
   the export phase, and the wrapper (which re-reads `<backup>/keep-list.json`
@@ -1011,10 +1018,12 @@ independent defects combined; all four guards that close them are below.
   different export) or short `replay-report.json` fails the run, so a *later*
   post-loss export can no longer pass as the original one.
 - **The wrapper restores the keep-list itself.** From the volume drop until the
-  replay succeeded, any non-zero exit triggers one automatic restore: the volume
-  is recreated, the keep-list is replayed again, and the script still exits
-  non-zero telling the operator the reset did **not** complete. An empty event
-  store is never a state `reset-dev-data.sh business` leaves behind silently.
+  replay succeeded, any non-zero exit — including **SIGTERM/SIGHUP** (`kill`, a CI
+  timeout, a closed terminal; the script turns them into exit 143/129 so the EXIT
+  trap actually sees a failure) — triggers one automatic restore: the volume is
+  recreated, the keep-list is replayed again, and the script still exits non-zero
+  telling the operator the reset did **not** complete. An empty event store is
+  never a state `reset-dev-data.sh business` leaves behind silently.
 
 #### Manual fallback: replay `<backup>/keep-list.json` by hand
 
@@ -1023,6 +1032,7 @@ backup directory), the wrapper prints the exact recovery commands. They are:
 
 ```bash
 cd backend
+set -a; . ./.env.local; set +a    # DATABASE_URL / SIERRADB_URL — the guard refuses without them
 docker compose -f docker-compose.dev.yml stop sierradb
 docker volume rm backend_sierradb_dev_data      # or: docker volume ls | grep sierradb
 docker compose -f docker-compose.dev.yml up -d sierradb

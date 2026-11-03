@@ -28,6 +28,7 @@
 //! projector checkpoints are empty too, so the replayed keep events rebuild
 //! them from the event store, exactly like a fresh boot.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
@@ -130,6 +131,48 @@ fn headline(plan: &ResetPlan) -> String {
     )
 }
 
+/// Reads the keep-list already present in a backup directory, if any.
+///
+/// A file that exists but does not parse is an error, not "absent": the caller
+/// is about to overwrite it (issue #810 review).
+fn read_existing_keep_list(dir: &Path) -> Result<Option<KeepListExport>> {
+    let path = dir.join(KEEP_LIST_FILE);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let export = backup::read_json(dir, KEEP_LIST_FILE)
+        .with_context(|| format!("read the existing {}", path.display()))?;
+    Ok(Some(export))
+}
+
+/// Refuses to overwrite a keep-list that still holds events with an empty one.
+///
+/// The scenario that lost the data on 2026-11-03 had a second act: after a
+/// failed replay *and* a failed restore, the keep projections are empty too, so
+/// a re-run exports `0 events` — straight over the only copy of the
+/// configuration. `--allow-empty-keep-list` is the explicit override.
+fn ensure_existing_keep_list_preserved(
+    existing: Option<&KeepListExport>,
+    export: &KeepListExport,
+    allow_empty_keep_list: bool,
+) -> Result<(), anyhow::Error> {
+    if allow_empty_keep_list {
+        return Ok(());
+    }
+    let Some(existing) = existing else {
+        return Ok(());
+    };
+    if existing.event_count() == 0 || export.event_count() > 0 {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(
+        "refusing to overwrite {KEEP_LIST_FILE}: the existing export holds {} event(s) but this \
+         export holds none — that file is the only copy of the configuration left. Move it aside \
+         (or pass --allow-empty-keep-list if it really is obsolete) before exporting again",
+        existing.event_count()
+    ))
+}
+
 /// Phase 1 — export the keep-list, the pricing rows and the manifest.
 async fn export_phase(
     context: &mut Context,
@@ -165,6 +208,12 @@ async fn export_phase(
                 .to_string(),
         );
     }
+    // Guard 2 (issue #810 review): never overwrite a keep-list that still holds
+    // events with an empty one. After a failed replay **and** a failed restore the
+    // projections are empty too, so a re-run would export 0 events straight over
+    // the only copy of the configuration.
+    let existing = read_existing_keep_list(&options.backup_dir)?;
+    ensure_existing_keep_list_preserved(existing.as_ref(), &export, options.allow_empty_keep_list)?;
     backup::write_json(&options.backup_dir, KEEP_LIST_FILE, &export)
         .context("write keep-list.json")?;
     report.lines.push(format!(
@@ -338,26 +387,42 @@ async fn replay_phase(
     ));
 
     // The replay asserts its own result (issue #810): `replayed 0 event(s)` and
-    // exit 0 was exactly the silent loss this issue is about.
+    // exit 0 was exactly the silent loss this issue is about. Every failure path
+    // below adds the recovery command exactly once (review: a failed re-read used
+    // to leave the phase with `?`, printing no hint at all).
+    let mut needs_recovery = false;
     if appended != expected {
+        needs_recovery = true;
         report.failures.push(format!(
             "replayed {appended} event(s) but the keep-list export expects {expected}: the \
              configuration is NOT restored"
         ));
-        report.failures.push(recovery_hint(options));
     }
     // …and every stream is re-read, so a partial append is caught as well
     // (`verify` keeps the same check as a backstop).
     for stream in &export.streams {
-        let replayed = events::read_stream(&mut context.connection, &stream.stream_id).await?;
-        if replayed.len() != stream.events.len() {
-            report.failures.push(format!(
-                "keep stream {} holds {} event(s) after the replay, expected exactly {}",
-                stream.stream_id,
-                replayed.len(),
-                stream.events.len()
-            ));
+        match events::read_stream(&mut context.connection, &stream.stream_id).await {
+            Ok(replayed) if replayed.len() == stream.events.len() => {}
+            Ok(replayed) => {
+                needs_recovery = true;
+                report.failures.push(format!(
+                    "keep stream {} holds {} event(s) after the replay, expected exactly {}",
+                    stream.stream_id,
+                    replayed.len(),
+                    stream.events.len()
+                ));
+            }
+            Err(error) => {
+                needs_recovery = true;
+                report.failures.push(format!(
+                    "re-read keep stream {} after the replay: {error:#}",
+                    stream.stream_id
+                ));
+            }
         }
+    }
+    if needs_recovery {
+        report.failures.push(recovery_hint(options));
     }
 
     // Persist what the replay did: `verify` (and the next run) must be able to
@@ -437,7 +502,9 @@ async fn verify_phase(
         Err(error) => report.failures.push(format!(
             "no {} in the backup directory ({error}): the replay did not record what it appended, \
              so this export cannot be verified against the restore it produced — re-run --phase \
-             replay",
+             replay against a FRESHLY recreated event store (drop the SierraDB volume first: \
+             `docker volume rm backend_sierradb_dev_data`), because replaying into a store that \
+             already holds the keep streams fails strict versioning",
             options
                 .backup_dir
                 .join(backup::REPLAY_REPORT_FILE)
@@ -606,13 +673,18 @@ pub fn keep_event_summary(plan: &ResetPlan, export: &KeepListExport) -> Vec<Stri
 
 /// The exact recovery command for a replay that did not restore the keep-list.
 fn recovery_hint(options: &ResetOptions) -> String {
+    // Deliberately no `scripts/reset-dev-data.sh business` alternative: a re-run
+    // would re-export on top of the backup directory, and the export refuses that
+    // when the projections are empty (issue #810 review). The command carries
+    // `--env dev` and the env sourcing — without them the binary refuses to run
+    // (the guard needs DATABASE_URL/SIERRADB_URL and the dev acknowledgement).
     format!(
         "recovery: the keep-list is in {} — recreate the empty event store (docker compose -f \
          docker-compose.dev.yml stop sierradb && docker volume rm backend_sierradb_dev_data && \
-         docker compose -f docker-compose.dev.yml up -d sierradb) and re-run `--level business \
-         --phase replay --backup-dir {}` (or scripts/reset-dev-data.sh business --backup-dir {})",
+         docker compose -f docker-compose.dev.yml up -d sierradb), then replay it from backend/: \
+         `(set -a; . ./.env.local; set +a; cargo run --quiet -p api --bin reset-dev-data -- \
+         --level business --phase replay --env dev --yes --backup-dir {})`",
         options.backup_dir.join(KEEP_LIST_FILE).display(),
-        options.backup_dir.display(),
         options.backup_dir.display()
     )
 }
@@ -825,6 +897,52 @@ mod tests {
         );
         assert!(hint.contains("--phase replay"), "{hint}");
         assert!(hint.contains("docker volume rm"), "{hint}");
+        // The printed command must actually run: the binary refuses without the
+        // dev acknowledgement and the guard needs DATABASE_URL/SIERRADB_URL
+        // (issue #810 review).
+        assert!(hint.contains("--env dev"), "{hint}");
+        assert!(hint.contains(".env.local"), "{hint}");
+        // A `business` re-run would export over the backup directory, which the
+        // export now refuses — so the hint must not suggest it.
+        assert!(!hint.contains("reset-dev-data.sh business"), "{hint}");
+    }
+
+    /// Issue #810 review: a re-run must never overwrite a keep-list that still
+    /// holds events with an empty one — after a failed replay + restore that file
+    /// is the only copy of the configuration.
+    #[test]
+    fn an_existing_keep_list_with_events_is_not_overwritten_by_an_empty_one() {
+        let mut with_events = keep_list_without_events();
+        let stream_id = with_events.streams[0].stream_id.clone();
+        with_events.streams[0].events.push(events::ExportedEvent {
+            stream_id,
+            event_name: "AiConfigCreated".to_string(),
+            event_id: uuid::Uuid::now_v7(),
+            stream_version: 0,
+            timestamp_millis: 1_700_000_000_000,
+            payload_hex: "a0".to_string(),
+            metadata_hex: String::new(),
+        });
+        let empty = keep_list_without_events();
+
+        let error = ensure_existing_keep_list_preserved(Some(&with_events), &empty, false)
+            .expect_err("must refuse");
+        let message = error.to_string();
+        assert!(message.contains("refusing to overwrite"), "{message}");
+        assert!(
+            message.contains("only copy of the configuration"),
+            "{message}"
+        );
+        assert!(message.contains("--allow-empty-keep-list"), "{message}");
+
+        // The override, a fresh directory, an empty predecessor and a non-empty
+        // replacement all pass.
+        assert!(ensure_existing_keep_list_preserved(Some(&with_events), &empty, true).is_ok());
+        assert!(ensure_existing_keep_list_preserved(None, &empty, false).is_ok());
+        assert!(ensure_existing_keep_list_preserved(Some(&empty), &empty, false).is_ok());
+        assert!(
+            ensure_existing_keep_list_preserved(Some(&with_events), &with_events, false).is_ok()
+        );
     }
 
     /// Every business category is wiped exactly once, and the keep categories

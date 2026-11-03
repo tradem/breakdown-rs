@@ -92,18 +92,29 @@ restore_keep_list_on_failure() {
     printf 'reset-dev-data: (or `business --skip-volume-reset` for the wipe/replay half).\n' >&2
   else
     printf 'reset-dev-data: AUTOMATIC RESTORE FAILED — the event store may be EMPTY.\n' >&2
-    printf 'reset-dev-data: recovery: drop the volume and replay %s by hand:\n' \
+    printf 'reset-dev-data: recovery: drop the volume and replay %s by hand (from backend/):\n' \
       "${RESTORE_BACKUP_DIR}/keep-list.json" >&2
     printf '  docker compose -f %s stop %s && docker volume rm %s\n' \
       "${COMPOSE_FILE}" "${SIERRADB_SERVICE}" "${RESTORE_VOLUME}" >&2
     printf '  docker compose -f %s up -d %s\n' "${COMPOSE_FILE}" "${SIERRADB_SERVICE}" >&2
-    printf '  reset-dev-data --level business --phase replay --env dev --backup-dir %s --yes\n' \
+    # The env matters: the binary's guard refuses to run without DATABASE_URL /
+    # SIERRADB_URL, which only the sourced dev env provides (issue #810 review).
+    printf '  (set -a; . ./.env.local; set +a; \\\n' >&2
+    printf '   cargo run --quiet -p api --bin reset-dev-data -- \\\n' >&2
+    printf '     --level business --phase replay --env dev --yes --backup-dir %s)\n' \
       "${RESTORE_BACKUP_DIR}" >&2
   fi
   exit "${status}"
 }
 
 trap restore_keep_list_on_failure EXIT
+# A signal must reach the EXIT trap with a **non-zero** status: bash runs the trap
+# with `$? = 0` after SIGTERM/SIGHUP (`kill`, a CI timeout, a closed terminal),
+# which used to make the guard below skip the restore and leave the event store
+# empty (issue #810 review). `exit <128+signo>` turns it into a real failure.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 log() {
   printf '==> %s\n' "$1"
@@ -487,8 +498,8 @@ cmd_business() {
     if [[ "${allow_empty_keep_list}" -eq 1 ]]; then
       # `--allow-empty-keep-list` is a --no-backup-class acknowledgement: the
       # export may carry no events, so the replay restores nothing (issue #810).
-      printf '--allow-empty-keep-list: the export is ALLOWED to carry no events, so the\n'
-      printf 'replay may restore nothing at all. Type the stricter phrase to proceed.\n'
+      printf -- '--allow-empty-keep-list: the export is ALLOWED to carry no events, so the\n'
+      printf -- 'replay may restore nothing at all. Type the stricter phrase to proceed.\n'
       typed_prompt="business-empty"
     fi
     read -r -p "Type \"${typed_prompt}\" to continue: " typed

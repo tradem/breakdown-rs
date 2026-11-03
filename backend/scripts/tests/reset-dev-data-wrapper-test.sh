@@ -159,7 +159,13 @@ JSON
     printf 'fake reset-dev-data: unexpected --phase %s\n' "${phase}" >&2
     exit 1
     ;;
-esac
+ esac
+
+# `FAKE_SLEEP_PHASE` keeps a phase "in flight" so the test can interrupt the
+# wrapper mid-window (SIGTERM/SIGHUP scenario, issue #810 review).
+if [[ "${FAKE_SLEEP_PHASE:-}" == "${phase}" ]]; then
+  sleep "${FAKE_SLEEP_SECONDS:-3}"
+fi
 
 if [[ "${FAKE_FAIL_PHASE:-}" == "${phase}" ]]; then
   printf 'fake reset-dev-data: injected failure at phase %s\n' "${phase}" >&2
@@ -203,15 +209,21 @@ fi
 SIERRADB_PORT="$(cat "${PORT_FILE}")"
 
 # ── run helper ───────────────────────────────────────────────────────────────
-run_business() {
+#
+# `run_wrapper` feeds `stdin_text` (the confirmation phrase, empty when `--yes`
+# is passed) and forwards the remaining arguments to the wrapper.
+run_wrapper() {
   local name="$1"
   local fail_phase="$2"
+  local stdin_text="$3"
+  shift 3
   DOCKER_LOG="${WORK}/${name}.docker.log"
   BIN_LOG="${WORK}/${name}.bin.log"
   : > "${DOCKER_LOG}"
   : > "${BIN_LOG}"
   set +e
   OUTPUT="$(cd "${FAKE_BACKEND}" && \
+    printf '%s' "${stdin_text}" | \
     PATH="${WORK}/bin:${PATH}" \
     RESET_DEV_DATA_BIN="${WORK}/bin/reset-dev-data" \
     DOCKER_LOG="${DOCKER_LOG}" \
@@ -219,9 +231,47 @@ run_business() {
     FAKE_FAIL_PHASE="${fail_phase}" \
     DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/breakdown" \
     SIERRADB_URL="redis://127.0.0.1:${SIERRADB_PORT}/0?protocol=resp3" \
-    bash "${FAKE_BACKEND}/scripts/reset-dev-data.sh" business --yes --no-backup \
-      --backup-dir "${WORK}/${name}-backup" 2>&1)"
+    bash "${FAKE_BACKEND}/scripts/reset-dev-data.sh" business "$@" \
+      --no-backup --backup-dir "${WORK}/${name}-backup" 2>&1)"
   STATUS=$?
+  set -e
+}
+
+run_business() {
+  run_wrapper "$1" "$2" "" --yes
+}
+
+# Sends a signal to the wrapper while the fake `wipe` phase is in flight.
+run_business_signal() {
+  local name="$1"
+  local signal="$2"
+  DOCKER_LOG="${WORK}/${name}.docker.log"
+  BIN_LOG="${WORK}/${name}.bin.log"
+  : > "${DOCKER_LOG}"
+  : > "${BIN_LOG}"
+  local out_file="${WORK}/${name}.out"
+  set +e
+  ( cd "${FAKE_BACKEND}" && \
+    PATH="${WORK}/bin:${PATH}" \
+    RESET_DEV_DATA_BIN="${WORK}/bin/reset-dev-data" \
+    DOCKER_LOG="${DOCKER_LOG}" \
+    BIN_LOG="${BIN_LOG}" \
+    FAKE_SLEEP_PHASE=wipe \
+    FAKE_SLEEP_SECONDS=5 \
+    DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/breakdown" \
+    SIERRADB_URL="redis://127.0.0.1:${SIERRADB_PORT}/0?protocol=resp3" \
+    exec bash "${FAKE_BACKEND}/scripts/reset-dev-data.sh" business --yes --no-backup \
+      --backup-dir "${WORK}/${name}-backup" > "${out_file}" 2>&1 ) &
+  local pid=$!
+  for _ in $(seq 1 200); do
+    [[ -s "${BIN_LOG}" ]] && grep -q -- "--phase wipe" "${BIN_LOG}" && break
+    sleep 0.05
+  done
+  sleep 0.3
+  kill -s "${signal}" "${pid}" 2>/dev/null || true
+  wait "${pid}"
+  STATUS=$?
+  OUTPUT="$(cat "${out_file}" 2>/dev/null || true)"
   set -e
 }
 
@@ -272,6 +322,45 @@ check "the clean run prints the next steps" \
   grep -q "next steps" "${WORK}/success.out"
 check "the clean run does not run the restore" \
   eval '! grep -q "destructive window failed" "${WORK}/success.out"'
+
+# ── scenario 4: a signal during the destructive window ──────────────────────
+# bash runs the EXIT trap with `$? = 0` after SIGTERM/SIGHUP, so without the
+# explicit signal traps the restore is skipped and the store stays empty
+# (issue #810 review).
+for signal in TERM HUP; do
+  name="signal-${signal}"
+  run_business_signal "${name}" "${signal}"
+  printf '%s\n' "${OUTPUT}" > "${WORK}/${name}.out"
+  check "SIG${signal} in the destructive window exits non-zero" test "${STATUS}" -ne 0
+  check "SIG${signal} announces the restore" \
+    grep -q "the destructive window failed" "${WORK}/${name}.out"
+  check "SIG${signal} replays the keep-list from the trap" \
+    eval 'tail -n 1 "${BIN_LOG}" | grep -q -- "--phase replay"'
+  check "SIG${signal} recreates the volume (initial drop + restore)" \
+    test "$(count_in "${DOCKER_LOG}" "volume rm")" -eq 2
+  check "SIG${signal} reports a successful restore" \
+    grep -q "the keep-list was replayed into a fresh event store" "${WORK}/${name}.out"
+done
+
+# ── scenario 5: the `business-empty` confirmation ───────────────────────────
+# Interactive runs (no `--yes`) read the phrase from stdin; `--allow-empty-keep-list`
+# must demand the stricter one. Nothing tested this path before (issue #810 review).
+run_wrapper empty-confirm-accepted "" "business-empty
+" --allow-empty-keep-list
+printf '%s\n' "${OUTPUT}" > "${WORK}/empty-confirm-accepted.out"
+check "the business-empty phrase proceeds" test "${STATUS}" -eq 0
+check "the accepted run forwards --allow-empty-keep-list to the export" \
+  grep -q -- "--phase export.*--allow-empty-keep-list" "${BIN_LOG}"
+
+run_wrapper empty-confirm-rejected "" "business
+" --allow-empty-keep-list
+printf '%s\n' "${OUTPUT}" > "${WORK}/empty-confirm-rejected.out"
+check "the plain business phrase aborts the --allow-empty-keep-list run" \
+  test "${STATUS}" -ne 0
+check "the aborted run says so" \
+  grep -q "aborted" "${WORK}/empty-confirm-rejected.out"
+check "the aborted run never calls the binary" test "$(count_in "${BIN_LOG}" "--phase")" -eq 0
+check "the aborted run drops no volume" test "$(count_in "${DOCKER_LOG}" "volume rm")" -eq 0
 
 if [[ "${FAILURES}" -ne 0 ]]; then
   # Keep the artifacts of a failing run for inspection (the EXIT trap would

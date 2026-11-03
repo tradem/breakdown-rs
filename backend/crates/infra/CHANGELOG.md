@@ -56,6 +56,24 @@ and a daemon-free wrapper test
 (`scripts/tests/reset-dev-data-wrapper-test.sh`) that injects a wipe failure and
 asserts the automatic restore.
 
+Review follow-ups (same issue, all four independently exploitable):
+
+- `ensure_events_exported` is **per category**, not on the total: an eventless
+  `ai_config` beside a non-empty `settings` used to pass, after which the wipe
+  deleted its projection and the replay skipped its empty stream.
+- The export **never overwrites** a `keep-list.json` that still holds events with
+  an empty one (after a failed replay *and* a failed restore the projections are
+  empty too, so a re-run exported `0 events` over the only remaining copy).
+- `recovery_hint` prints a runnable command (`--env dev` plus the `.env.local`
+  sourcing the guard requires) and no longer suggests re-running `business`,
+  which would hit the new overwrite guard.
+- The wrapper turns **SIGTERM/SIGHUP** into exit 143/129: bash runs the EXIT trap
+  with `$? = 0` after a signal, so the restore used to be skipped — the store
+  stayed empty when a CI timeout or a closed terminal killed the run. The
+  per-stream re-read in the replay now also reports a recovery hint instead of
+  leaving the phase with `?`, and the `verify` receipt message names the volume
+  reset the replay needs.
+
 ## [0.66.0] - Unreleased
 
 ### Fixed — the Decision Model adapter speaks the System One contract in both directions (issue #808)

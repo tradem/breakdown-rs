@@ -42,10 +42,15 @@ tag. Never edit a released entry afterwards.
   `<backup>/replay-report.json`, `verify` compares against that receipt, the
   wipe's empty-store assertion no longer skips an empty export, and the wrapper
   restores the keep-list automatically when any step after the volume drop
-  fails. New coverage: unit tests (incl. the 2026-11-03 `10 streams / 0 events`
+  fails (a SIGTERM/SIGHUP in that window counts as a failure). Review follow-ups
+  hardened the same path further: the export guard runs **per keep category**
+  (an eventless `ai_config` beside a non-empty `settings` used to pass), an
+  export never overwrites a `keep-list.json` that still holds events, and the
+  printed recovery command is runnable as-is (`--env dev` + `.env.local`).
+  New coverage: unit tests (incl. the 2026-11-03 `10 streams / 0 events`
   fixture), a Tier-4 export → fresh-store → replay round trip, and a
-  daemon-free wrapper test that injects a wipe failure (CI job
-  `reset-dev-data-wrapper`).
+  daemon-free wrapper test that injects a wipe failure and a SIGTERM during the
+  destructive window (CI job `reset-dev-data-wrapper`).
 
 - **A configured Decision Model has never scored a row: the System One wire
   contract was wrong in both directions (`core 0.56.0 → 0.57.0`,
