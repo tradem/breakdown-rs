@@ -17,6 +17,23 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.55.1] - Unreleased
+
+### Fixed — `reset-dev-data` refuses an empty keep-list, asserts the replay and records it (issue #810)
+
+- New `--allow-empty-keep-list` flag (`ResetOptions::allow_empty_keep_list`):
+  without it a `business` export whose keep projections hold rows but whose
+  streams carry no events aborts **before** the volume drop instead of exporting
+  a keep-list that replays nothing.
+- `--phase replay` now exits non-zero when it appended fewer events than the
+  export expected and prints the recovery command with the backup path; it also
+  writes `<backup>/replay-report.json`, which `--phase verify` compares against
+  the export and the store.
+- `--phase verify` accepts the new replay receipt and `--dry-run` prints the
+  keep-list's per-category **event** counts (best effort when SierraDB is
+  stopped).
+- Consumes `infra 0.67.0`.
+
 ## [0.55.0] - Unreleased
 
 ### Fixed — the apply stream reports every run, including the ones it never saw (issue #800)

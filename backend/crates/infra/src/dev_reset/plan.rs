@@ -395,6 +395,12 @@ fn notes_for(level: ResetLevel) -> Vec<String> {
                 .to_string(),
             "Vault is never touched: the settings → Vault credential bindings stay resolvable"
                 .to_string(),
+            "an export whose keep projections hold rows but whose streams carry no events is \
+             refused before the volume goes (--allow-empty-keep-list overrides it, issue #810)"
+                .to_string(),
+            "the wrapper restores the keep-list automatically when a step after the volume drop \
+             fails, and the replay asserts what it appended (replay-report.json, issue #810)"
+                .to_string(),
         ],
     }
 }
@@ -511,5 +517,9 @@ mod tests {
         assert!(notes.contains("scripts/reset-dev-data.sh"));
         assert!(notes.contains("ai_model_pricing"));
         assert!(notes.contains("Vault"));
+        // Issue #810: the plan names the two guards that make an empty keep-list
+        // impossible to miss.
+        assert!(notes.contains("--allow-empty-keep-list"));
+        assert!(notes.contains("replay-report.json"));
     }
 }

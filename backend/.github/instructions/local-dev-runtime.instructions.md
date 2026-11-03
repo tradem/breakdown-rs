@@ -322,6 +322,17 @@ because SierraDB 0.3.1 has no delete command at all; the keep-list (`ai_config`,
 `settings`, `membership`) is exported before the drop and replayed afterwards,
 and Vault is never touched.
 
+Issue #810 hardened the failure path of that flow: the export **refuses** a
+keep-list whose keep projections hold rows but whose streams carry no events
+(explicit `--allow-empty-keep-list` override; the wrapper then demands the
+confirmation phrase `business-empty`), the plan/export/wrapper print the
+per-category *event* counts before the volume drop, the wrapper restores the
+keep-list automatically when any step after the volume drop fails, and
+`--phase replay` asserts its own result and records it in
+`<backup>/replay-report.json` (compared by `verify`). The failure path is
+tested by `scripts/tests/reset-dev-data-wrapper-test.sh` (CI job
+`reset-dev-data-wrapper`) and `crates/integration-tests/tests/dev_reset_replay.rs`.
+
 After a reset, also clear the client state (Drift DB + secure storage: config
 id, remembered credentials, persisted scope) — the old ids are gone and every
 call answers `404`.

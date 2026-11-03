@@ -28,6 +28,25 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **A `business` dev data reset could silently destroy the preserved
+  configuration (`infra 0.66.0 → 0.67.0`, `api 0.55.0 → 0.55.1`).** On
+  2026-11-03 the level-`business` reset — documented as *preserving* `ai_config`,
+  `settings` and `membership` — destroyed the AI configuration, Decision Model
+  and credential binding included, and **both runs exited 0**. A run that failed
+  right after the SierraDB volume was dropped left an empty event store; the next
+  run exported that store as `10 streams / 0 events` and "replayed" nothing. The
+  failure path is now closed at every step (#810): the export **refuses** rows
+  without events (explicit `--allow-empty-keep-list` override), the plan, the
+  export phase and the wrapper print the keep-list's per-category *event* counts
+  before the volume goes, the replay asserts what it appended and records it in
+  `<backup>/replay-report.json`, `verify` compares against that receipt, the
+  wipe's empty-store assertion no longer skips an empty export, and the wrapper
+  restores the keep-list automatically when any step after the volume drop
+  fails. New coverage: unit tests (incl. the 2026-11-03 `10 streams / 0 events`
+  fixture), a Tier-4 export → fresh-store → replay round trip, and a
+  daemon-free wrapper test that injects a wipe failure (CI job
+  `reset-dev-data-wrapper`).
+
 - **A configured Decision Model has never scored a row: the System One wire
   contract was wrong in both directions (`core 0.56.0 → 0.57.0`,
   `infra 0.65.1 → 0.66.0`).** Two live imports recorded

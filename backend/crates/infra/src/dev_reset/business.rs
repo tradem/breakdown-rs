@@ -147,12 +147,21 @@ async fn export_phase(
         &context.pool,
         &mut context.connection,
         &context.database_target,
+        options.allow_empty_keep_list,
     )
     .await?;
     if export.streams.is_empty() {
         report.lines.push(
             "warning: no keep-list streams found — the AI config, settings and membership \
              projections are empty, so there is no configuration to preserve"
+                .to_string(),
+        );
+    }
+    report.lines.extend(keep_event_summary(plan, &export));
+    if options.allow_empty_keep_list && export.event_count() == 0 {
+        report.lines.push(
+            "--allow-empty-keep-list: this export carries no events, so the replay will restore \
+             nothing — the configuration will be gone after the wipe"
                 .to_string(),
         );
     }
@@ -230,7 +239,13 @@ async fn wipe_phase(
         })?;
     report.backup_path = Some(options.backup_dir.clone());
 
-    require_empty_event_store(context, &export, &mut report).await?;
+    // A store that still holds keep events must abort the wipe — and an export
+    // without events must not switch that assertion off (issue #810).
+    if let Err(error) = require_empty_event_store(context, &export, &mut report).await {
+        report.failures.push(format!("{error:#}"));
+        report.failures.push(recovery_hint(options));
+        return Ok(report);
+    }
 
     // 0. AI payload objects first and strictly: their handles exist only in the
     //    job rows, so a purge that cannot run must stop the wipe before those
@@ -292,12 +307,74 @@ async fn replay_phase(
         .with_context(|| format!("read {}", options.backup_dir.join(KEEP_LIST_FILE).display()))?;
     report.backup_path = Some(options.backup_dir.clone());
 
-    let appended = events::replay_keep_list(&mut context.connection, &export).await?;
+    let expected = export.event_count();
+    // An export without events restores nothing. That is only tolerable when
+    // there is no configuration left in the read model either — if the keep
+    // projections still hold rows, the wipe never ran (or this is a post-loss
+    // export) and the next wipe destroys the configuration (issue #810).
+    if expected == 0 && plan.keep_rows() > 0 {
+        report.failures.push(format!(
+            "the keep-list export {} carries 0 events although the keep projections still hold {} \
+             row(s): replaying nothing leaves the configuration in the read model only, where the \
+             next wipe destroys it",
+            options.backup_dir.join(KEEP_LIST_FILE).display(),
+            plan.keep_rows()
+        ));
+    }
+
+    let appended = match events::replay_keep_list(&mut context.connection, &export).await {
+        Ok(appended) => appended,
+        Err(error) => {
+            report.failures.push(format!("{error:#}"));
+            report.failures.push(recovery_hint(options));
+            return Ok(report);
+        }
+    };
     report.lines.push(format!(
-        "replayed {} event(s) over {} stream(s)",
+        "replayed {} of {} event(s) over {} stream(s)",
         appended,
+        expected,
         export.streams.len()
     ));
+
+    // The replay asserts its own result (issue #810): `replayed 0 event(s)` and
+    // exit 0 was exactly the silent loss this issue is about.
+    if appended != expected {
+        report.failures.push(format!(
+            "replayed {appended} event(s) but the keep-list export expects {expected}: the \
+             configuration is NOT restored"
+        ));
+        report.failures.push(recovery_hint(options));
+    }
+    // …and every stream is re-read, so a partial append is caught as well
+    // (`verify` keeps the same check as a backstop).
+    for stream in &export.streams {
+        let replayed = events::read_stream(&mut context.connection, &stream.stream_id).await?;
+        if replayed.len() != stream.events.len() {
+            report.failures.push(format!(
+                "keep stream {} holds {} event(s) after the replay, expected exactly {}",
+                stream.stream_id,
+                replayed.len(),
+                stream.events.len()
+            ));
+        }
+    }
+
+    // Persist what the replay did: `verify` (and the next run) must be able to
+    // tell this receipt apart from a later export (issue #810).
+    let record = backup::ReplayReport::new(&export, appended);
+    match backup::write_json(&options.backup_dir, backup::REPLAY_REPORT_FILE, &record) {
+        Ok(path) => report.lines.push(format!(
+            "{} → {}",
+            backup::REPLAY_REPORT_FILE,
+            path.display()
+        )),
+        Err(error) => report.failures.push(format!(
+            "write {}/{}: {error}",
+            options.backup_dir.display(),
+            backup::REPLAY_REPORT_FILE
+        )),
+    }
 
     let pricing: Vec<serde_json::Value> =
         backup::read_json(&options.backup_dir, PRICING_FILE).unwrap_or_default();
@@ -348,6 +425,25 @@ async fn verify_phase(
     // Keep-list streams must still carry their events.
     let export: KeepListExport = backup::read_json(&options.backup_dir, KEEP_LIST_FILE)
         .with_context(|| format!("read {}", options.backup_dir.join(KEEP_LIST_FILE).display()))?;
+    // The replay recorded what it appended; compare that receipt against the
+    // export *and* the store (issue #810). Without it, a post-loss export (0
+    // events) would verify cleanly against a store that holds nothing.
+    match backup::read_json::<backup::ReplayReport>(&options.backup_dir, backup::REPLAY_REPORT_FILE)
+    {
+        Ok(record) => {
+            report.lines.push(record.render());
+            report.failures.extend(record.mismatches(&export));
+        }
+        Err(error) => report.failures.push(format!(
+            "no {} in the backup directory ({error}): the replay did not record what it appended, \
+             so this export cannot be verified against the restore it produced — re-run --phase \
+             replay",
+            options
+                .backup_dir
+                .join(backup::REPLAY_REPORT_FILE)
+                .display()
+        )),
+    }
     for stream in &export.streams {
         let replayed = events::read_stream(&mut context.connection, &stream.stream_id).await?;
         // Exact equality, not "<": a stream carrying MORE events than the export
@@ -424,36 +520,101 @@ async fn verify_phase(
 }
 
 /// The wipe must never run against a store that still holds events.
+///
 async fn require_empty_event_store(
     context: &mut Context,
     export: &KeepListExport,
     report: &mut ResetReport,
 ) -> Result<()> {
-    let Some(probe) = export
+    // Probe every stream the export names **and** every keep stream the
+    // projections currently resolve to: an export with no events must not
+    // switch this assertion off (issue #810) — the projections still name the
+    // streams, and a non-empty one means the export is stale or lossy.
+    let mut probes: Vec<String> = export
         .streams
         .iter()
-        .find(|stream| !stream.events.is_empty())
-    else {
+        .map(|stream| stream.stream_id.clone())
+        .collect();
+    for stream in events::current_keep_streams(&context.pool).await? {
+        if !probes.contains(&stream) {
+            probes.push(stream);
+        }
+    }
+    if probes.is_empty() {
         report.lines.push(
-            "no keep stream to probe: skipping the empty-event-store assertion (the export was \
-             empty)"
+            "no keep stream to probe: the keep projections are empty and the export carries no \
+             stream, so the event store holds no configuration to lose"
                 .to_string(),
         );
         return Ok(());
-    };
-    let remaining = events::read_stream(&mut context.connection, &probe.stream_id).await?;
-    if !remaining.is_empty() {
+    }
+    let mut remaining = Vec::new();
+    for probe in &probes {
+        let events = events::read_stream(&mut context.connection, probe).await?;
+        if !events.is_empty() {
+            remaining.push(format!("{probe} has {}", events.len()));
+        }
+    }
+    if remaining.is_empty() {
+        return Ok(());
+    }
+    if export.event_count() == 0 {
         bail!(
-            "refusing to wipe: the event store still holds events (stream {} has {}). SierraDB \
-             cannot delete events — remove the volume first \
-             (`docker compose -f docker-compose.dev.yml stop sierradb && docker volume rm \
-             backend_sierradb_dev_data && docker compose -f docker-compose.dev.yml up -d \
-             sierradb`), or run scripts/reset-dev-data.sh business",
-            probe.stream_id,
-            remaining.len()
+            "refusing to wipe: the keep-list export carries 0 events but the event store still \
+             holds keep events ({}). The export is stale or lossy — re-run --phase export before \
+             wiping",
+            remaining.join(", ")
         );
     }
-    Ok(())
+    bail!(
+        "refusing to wipe: the event store still holds events ({}). SierraDB cannot delete events — \
+         remove the volume first (`docker compose -f docker-compose.dev.yml stop sierradb && docker \
+         volume rm backend_sierradb_dev_data && docker compose -f docker-compose.dev.yml up -d \
+         sierradb`), or run scripts/reset-dev-data.sh business",
+        remaining.join(", ")
+    )
+}
+
+/// Per-category keep-list event counts (issue #810).
+///
+/// The plan can only count rows; an operator deciding whether to drop the volume
+/// also has to see `ai_config: 0 events`, which is exactly the state that lost
+/// the configuration on 2026-11-03.
+pub fn keep_event_summary(plan: &ResetPlan, export: &KeepListExport) -> Vec<String> {
+    let counts = export.category_counts();
+    let mut lines = vec!["KEEP-LIST EVENTS — what the replay puts back".to_string()];
+    for entry in &plan.keep {
+        let category = entry.category;
+        let count = counts.iter().find(|count| count.category == category);
+        lines.push(format!(
+            "  keep {:<12} {:>5} row(s) → {:>3} stream(s), {:>4} event(s)",
+            category.as_str(),
+            entry.rows,
+            count.map(|count| count.streams).unwrap_or(0),
+            count.map(|count| count.events).unwrap_or(0)
+        ));
+    }
+    if export.event_count() == 0 && plan.keep_rows() > 0 {
+        lines.push(
+            "  WARNING: the keep projections hold rows but the event store returned no keep \
+             events — the export refuses unless --allow-empty-keep-list is passed"
+                .to_string(),
+        );
+    }
+    lines
+}
+
+/// The exact recovery command for a replay that did not restore the keep-list.
+fn recovery_hint(options: &ResetOptions) -> String {
+    format!(
+        "recovery: the keep-list is in {} — recreate the empty event store (docker compose -f \
+         docker-compose.dev.yml stop sierradb && docker volume rm backend_sierradb_dev_data && \
+         docker compose -f docker-compose.dev.yml up -d sierradb) and re-run `--level business \
+         --phase replay --backup-dir {}` (or scripts/reset-dev-data.sh business --backup-dir {})",
+        options.backup_dir.join(KEEP_LIST_FILE).display(),
+        options.backup_dir.display(),
+        options.backup_dir.display()
+    )
 }
 
 /// Executes one static statement and records the affected rows.
@@ -580,7 +741,91 @@ pub fn phases() -> [ResetPhase; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dev_reset::plan::BOOKKEEPING_TABLES;
+    use crate::dev_reset::plan::{BOOKKEEPING_TABLES, CategoryCount};
+    use crate::dev_reset::{ResetLevel, ResetPhase};
+
+    fn keep_list_without_events() -> KeepListExport {
+        KeepListExport {
+            format_version: events::EXPORT_FORMAT_VERSION,
+            created_at: Utc::now(),
+            database_target: "localhost/breakdown".to_string(),
+            streams: vec![events::ExportedStream {
+                stream_id: "ai_config-0199a0c0-0000-7000-8000-000000000000".to_string(),
+                category: "ai_config".to_string(),
+                events: Vec::new(),
+            }],
+        }
+    }
+
+    fn plan_with_keep_rows(rows: i64) -> ResetPlan {
+        ResetPlan {
+            level: ResetLevel::Business,
+            phase: ResetPhase::Replay,
+            database_target: "localhost/breakdown".to_string(),
+            event_store_target: "127.0.0.1:9090".to_string(),
+            keep: vec![
+                CategoryCount {
+                    category: AggregateCategory::AiConfig,
+                    rows,
+                },
+                CategoryCount {
+                    category: AggregateCategory::Settings,
+                    rows: 0,
+                },
+                CategoryCount {
+                    category: AggregateCategory::Membership,
+                    rows: 0,
+                },
+            ],
+            reset: Vec::new(),
+            tables: Vec::new(),
+            buckets: Vec::new(),
+            notes: Vec::new(),
+            imports_scope: None,
+        }
+    }
+
+    /// Defect 2 of issue #810: the pre-drop view must expose the event side, not
+    /// just the row count — `ai_config: 1 row` looked healthy while its stream
+    /// was empty.
+    #[test]
+    fn keep_event_summary_exposes_the_event_count_beside_the_row_count() {
+        let lines = keep_event_summary(&plan_with_keep_rows(1), &keep_list_without_events());
+        let rendered = lines.join("\n");
+        assert!(rendered.contains("KEEP-LIST EVENTS"), "{rendered}");
+        assert!(rendered.contains("ai_config"), "{rendered}");
+        assert!(rendered.contains("0 event(s)"), "{rendered}");
+        assert!(rendered.contains("WARNING"), "{rendered}");
+
+        // A configuration that really is empty must not warn.
+        let quiet = keep_event_summary(&plan_with_keep_rows(0), &keep_list_without_events());
+        assert!(!quiet.join("\n").contains("WARNING"), "{quiet:?}");
+    }
+
+    /// The recovery hint must name the backup path and the replay command: the
+    /// operator reads it while the event store is empty (issue #810).
+    #[test]
+    fn the_recovery_hint_names_the_backup_path_and_the_replay() {
+        let options = ResetOptions {
+            level: ResetLevel::Business,
+            phase: ResetPhase::Replay,
+            dry_run: false,
+            assume_yes: true,
+            dev_ack: true,
+            backup: true,
+            skip_payload_purge: false,
+            backup_dir: std::path::PathBuf::from("backups/reset-20261103T045807Z"),
+            confirmation: None,
+            allow_empty_keep_list: false,
+        };
+        let hint = recovery_hint(&options);
+        assert!(
+            hint.contains("backups/reset-20261103T045807Z/keep-list.json"),
+            "{hint}"
+        );
+        assert!(hint.contains("--phase replay"), "{hint}");
+        assert!(hint.contains("docker volume rm"), "{hint}");
+    }
 
     /// Every business category is wiped exactly once, and the keep categories
     /// come last (they are rebuilt from the replayed events).
