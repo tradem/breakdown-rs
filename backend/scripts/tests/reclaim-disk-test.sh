@@ -197,13 +197,37 @@ check "a --with-docker run mentions the pruned containers in the missing-tool me
 
 # ── 6. a relative CARGO_TARGET_DIR resolves against the caller ──────────────
 # The sweep runs in a subshell that `cd`s into `backend/`, so an unresolved
-# relative path would mean two different directories (review finding).
+# relative path would mean two different directories (review finding) — and the
+# *sweep* must receive the normalised value, not the inherited one (review
+# follow-up on the same thread).
 set +e
 relative_out="$(cd "${WORK}" && CARGO_TARGET_DIR="backend/target" \
   PATH="${NOSWEEP_BIN}:${PATH}" bash "${FAKE_BACKEND}/scripts/reclaim-disk.sh" 2>&1)"
 set -e
 check "a relative CARGO_TARGET_DIR is resolved against the caller's directory" \
   grep -q "target/ (${WORK}/backend/target)" <<<"${relative_out}"
+
+# A cargo shim that reports the CARGO_TARGET_DIR the sweep actually received.
+CAPTURE_BIN="${WORK}/bin-capture"
+mkdir -p "${CAPTURE_BIN}"
+cat > "${CAPTURE_BIN}/cargo" <<SHIM
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "sweep" ]]; then
+  case " \$* " in
+    *" --version "*) echo 'cargo-sweep-sweep 0.8.0'; exit 0 ;;
+    *) printf 'CAPTURED CARGO_TARGET_DIR=%s\n' "\${CARGO_TARGET_DIR:-<unset>}"; exit 0 ;;
+  esac
+fi
+exec ${REAL_CARGO:-/bin/false} "\$@"
+SHIM
+chmod +x "${CAPTURE_BIN}/cargo"
+
+set +e
+captured_out="$(cd "${WORK}" && CARGO_TARGET_DIR="backend/target" \
+  PATH="${CAPTURE_BIN}:${PATH}" bash "${FAKE_BACKEND}/scripts/reclaim-disk.sh" 2>&1)"
+set -e
+check "the sweep receives the normalised, absolute CARGO_TARGET_DIR" \
+  grep -q "CAPTURED CARGO_TARGET_DIR=${WORK}/backend/target" <<<"${captured_out}"
 
 if [[ "${FAILURES}" -ne 0 ]]; then
   printf '\n%s check(s) failed\n' "${FAILURES}"

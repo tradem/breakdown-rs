@@ -211,9 +211,13 @@ sweep() {
   local before after sweep_status=0
   before="$(size_of "${TARGET_DIR}")"
   # `cargo sweep` takes Cargo **project** paths and locates their target dir.
-  # Its status is propagated: a failed sweep used to exit 0 because the closing
-  # `printf` became the function's status (review finding).
-  ( cd "${BACKEND_DIR}" && cargo sweep "${sweep_args[@]}" "${BACKEND_DIR}" ) || sweep_status=$?
+  # `CARGO_TARGET_DIR` is passed **normalised**: the subshell `cd`s into
+  # `backend/`, so an inherited *relative* value would resolve against that
+  # directory instead of the caller's and cargo would sweep a nonexistent path
+  # (`[WARN] Failed to clean …` — review follow-up). Its status is propagated: a
+  # failed sweep used to exit 0 because the closing `printf` became the status.
+  ( cd "${BACKEND_DIR}" && CARGO_TARGET_DIR="${TARGET_DIR}" \
+      cargo sweep "${sweep_args[@]}" "${BACKEND_DIR}" ) || sweep_status=$?
   after="$(size_of "${TARGET_DIR}")"
   printf '  target/  %s → %s\n' "${before}" "${after}"
   if [[ "${sweep_status}" -ne 0 ]]; then
