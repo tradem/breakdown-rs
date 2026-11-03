@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
+#
+# post-checkout hook — refresh the local codebase-memory graph when the branch
+# checkout moved HEAD.
+#
+# Companion to post-merge: switching branches (or a pull that moves HEAD in a
+# fresh clone) is the other moment the local index drifts away from the code on
+# disk. Only branch checkouts (flag=1) with a real commit change trigger it —
+# `git checkout -- <path>` file restores (flag=0) do not. Fire-and-forget, and
+# never fails the checkout.
+#
+# Install: scripts/install-git-hooks.sh
+# Opt out: CODEBASE_MEMORY_SKIP_AUTOINDEX=1
+
+set -uo pipefail
+
+prev_head=${1:-}
+new_head=${2:-}
+branch_checkout=${3:-1}
+
+[ "${CODEBASE_MEMORY_SKIP_AUTOINDEX:-0}" = "1" ] && exit 0
+[ "$branch_checkout" = "1" ] || exit 0
+[ "$prev_head" != "$new_head" ] || exit 0
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+SCRIPT="$ROOT/scripts/reindex-graph.sh"
+[ -f "$SCRIPT" ] || exit 0
+
+bash "$SCRIPT" --if-stale --background >/dev/null 2>&1 || true
+exit 0

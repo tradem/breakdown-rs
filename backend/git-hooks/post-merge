@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
+#
+# post-merge hook — refresh the local codebase-memory graph after a pull/merge.
+#
+# The knowledge-graph index lives in the gitignored, machine-local
+# `.codebase-memory/`, is never rebuilt by CI, and is not auto-watched for
+# sessions whose project root is the monorepo root but whose cwd is a sub-area
+# (`frontend-flutter/`, `backend/`). Without a hook it silently rots, and stale
+# graph answers ("no such symbol") teach agents to distrust the graph and fall
+# back to grep. This hook keeps it fresh at zero cost: fire-and-forget, skips
+# when the index is already at HEAD, and never fails the merge.
+#
+# Install: scripts/install-git-hooks.sh
+# Opt out: CODEBASE_MEMORY_SKIP_AUTOINDEX=1
+
+set -uo pipefail
+
+[ "${CODEBASE_MEMORY_SKIP_AUTOINDEX:-0}" = "1" ] && exit 0
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+SCRIPT="$ROOT/scripts/reindex-graph.sh"
+[ -f "$SCRIPT" ] || exit 0
+
+bash "$SCRIPT" --if-stale --background >/dev/null 2>&1 || true
+exit 0
