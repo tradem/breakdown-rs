@@ -1,0 +1,5 @@
+{
+  "type": "score",
+  "instructions": "How accurately do the extracted scene number, location and mood match the heading?",
+  "criteria": ["wrong", "poor", "fair", "good", "exact"]
+}

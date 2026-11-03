@@ -16,6 +16,56 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.66.0] - Unreleased
+
+### Fixed — the Decision Model adapter speaks the System One contract in both directions (issue #808)
+
+Issue #803 fixed the *route*; the **bodies** were wrong in both directions, so a
+correctly configured `eurouter` / `clef-flash` pair still scored nothing
+(`decision_telemetry = {outcome: scoring_failed, failed_rows: 54}` on a 54-scene
+import).
+
+- **Request.** `decide` now emits `instructions` on every question and `criteria`
+  for `score` (the label ladder) and `choice` (`name -> description`); the
+  pre-#808 names `description` / `options` / `levels` are gone. One question is
+  the unit of rejection — the provider answers the whole body with
+  `400 {"error":{"details":[{"path":"questions.q.instructions", …}]}}` — so
+  `question_payload` also refuses an unbuildable question (blank instruction, a
+  one-level ladder, duplicate labels, a duplicated or descriptionless option)
+  *before* the request leaves the process. `core 0.56.0 → 0.57.0` carries the
+  model that makes the ladder expressible.
+- **Response.** `score` is the scalar **mean** and `choice` the winning
+  **label**; the mass rides under `probabilities` (level index → probability / 
+  option name → probability) and `legend` echoes the ladder that was sent. The
+  adapter now maps `probabilities` → the internal distribution and keeps the
+  mean out of the answers. A `legend` that is not the sent ladder, a
+  distribution that does not sum to ~1.0, a mean outside the level axis, an
+  empty map or a winning label outside its own map is a **hard** error: silent
+  mis-scaling is worse than a failed pass. CodeRabbit review hardening adds the
+  contradictions that survived that first cut: a `probabilities` map shorter
+  than its own `legend` (two entries under a five-label legend inflated
+  `expected_score`), a mean that does not match the mass (`Σ level ×
+  probability` — live-verified to ≤ 0.0003 on 2026-11-03, so a mean of 4 over
+  mass on level 0 is now rejected), a `choice` key the question never declared
+  (the resolver would compare zeroes and quietly degrade to a gap), `choice`
+  mass that does not sum to 1.0 (the resolver compares raw values against
+  `CONTINUITY_MIN_CONFIDENCE`), a `choice` label that is not its own
+  highest-probability option, and a `noul` outside `0.0..=1.0`. Each rejection
+  has its own test, and the live smoke test still passes against EURouter with
+  the stricter validation in place.
+- **Tests that could have caught it.** `testdata/decision_wire/` holds the
+  captured provider bodies (the `400 details[]`, the `noul` / `score` /
+  `choice` 200 envelopes, plus a legend-mismatch and an empty-mass case) and
+  request goldens rendered from the *production* rubric; the unit mock is now a
+  **strict** System One (rejects a body without `instructions`/`criteria` with
+  the real 400 shape and builds its answers from the criteria it was sent), and
+  `score_script_chunk` is exercised against it end to end:
+  `scoring_failed == false`, `failed_rows == 0`, every row scored. An
+  `#[ignore]`-gated live smoke test (`DECISION_LIVE_KEY`, see
+  `docs/operations/runbooks.md`) is the only artifact that detects a
+  *provider-side* schema change; the module docs record the probed live shapes
+  with their date (2026-11-03).
+
 ## [0.65.0] - Unreleased
 
 ### Added — apply runs have an identity, a heartbeat and a drop guard (issue #800)

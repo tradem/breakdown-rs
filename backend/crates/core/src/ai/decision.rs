@@ -107,28 +107,80 @@ pub mod question_keys {
     pub const CONTINUITY_REPORT_GAP: &str = "report_conflict_or_gap";
 }
 
+/// The canonical 5-level ordinal ladder of the rubric's `score` questions
+/// (issue #722, corrected by issue #808).
+///
+/// The labels are **rubric content**, not a display detail: a System One
+/// `score` question conditions its distribution on the label ladder it is
+/// sent (`criteria: string[]`), and the answer's `legend` echoes it back. That
+/// is why the ladder lives here as one named constant instead of an inline
+/// literal per question — and why the question carries the ladder instead of a
+/// level *count* (a count cannot tell the model what "4" means).
+pub const SCORE5_LADDER: [&str; 5] = ["wrong", "poor", "fair", "good", "exact"];
+
+/// The minimum number of ordinal levels a `score` question can carry. One
+/// level is not a scale: the answer would have no distribution to report.
+pub const SCORE_MIN_LEVELS: usize = 2;
+
+/// One selectable option of a [`DecisionQuestion::Choice`].
+///
+/// The provider's `choice` question carries `criteria: Record<string, string>`
+/// — the **name** an answer is keyed by, and the **description** the model
+/// conditions on. Both are rubric content (issue #808).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ChoiceOption {
+    /// Stable option key — the answer's `choice` distribution is keyed by it,
+    /// and [`question_keys`] names the rubric's options.
+    pub name: String,
+    /// What the option means, in the model's own reading. Sent to the provider
+    /// as the option's `criteria` value.
+    pub description: String,
+}
+
+impl ChoiceOption {
+    /// Construct one option from its stable key and its description.
+    #[must_use]
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+        }
+    }
+}
+
 /// One typed question a Decision Model answers about the `state`.
 ///
 /// - `Noul`: a calibrated yes/no probability (`noul` = "not null" — the
 ///   model's native binary head).
 /// - `Choice`: a categorical distribution over the listed options.
-/// - `Score`: a discrete ordinal rating over `levels` levels (e.g. 5); the
+/// - `Score`: a discrete ordinal rating over `ladder` levels (e.g. 5); the
 ///   answer is consumed as its expected value normalized to `0.0..=1.0`.
+///
+/// **This is the domain shape, not the provider wire shape.** The System One
+/// surface the curated providers expose wants `instructions` on every question
+/// and `criteria` for `score` (the label ladder) / `choice` (name → description)
+/// — no `description`, no `options`, no `levels` (issue #808). The mapping lives
+/// in `infra::ai::decision_client::question_payload` and is pinned by the
+/// checked-in goldens under `crates/infra/src/ai/testdata/decision_wire/`, so a
+/// rename here cannot silently re-introduce a rejected field on the wire.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DecisionQuestion {
     Noul {
-        /// Reviewer-facing description embedded in the request state.
-        description: String,
+        /// The instruction the model evaluates against the `state`.
+        instructions: String,
     },
     Choice {
-        description: String,
-        options: Vec<String>,
+        instructions: String,
+        /// The option ladder (≥ 1 entry); the answer distributes over it.
+        options: Vec<ChoiceOption>,
     },
     Score {
-        description: String,
-        /// Number of ordinal levels (≥ 2). Issue #722 uses 5-level scores.
-        levels: u8,
+        instructions: String,
+        /// The ordinal label ladder, index 0 = worst level (≥
+        /// [`SCORE_MIN_LEVELS`] entries). Index order **is** the answer's
+        /// distribution order.
+        ladder: Vec<String>,
     },
 }
 
@@ -140,6 +192,26 @@ impl DecisionQuestion {
             Self::Noul { .. } => "noul",
             Self::Choice { .. } => "choice",
             Self::Score { .. } => "score",
+        }
+    }
+
+    /// The question's instruction — the text the model evaluates.
+    #[must_use]
+    pub fn instructions(&self) -> &str {
+        match self {
+            Self::Noul { instructions }
+            | Self::Choice { instructions, .. }
+            | Self::Score { instructions, .. } => instructions,
+        }
+    }
+
+    /// The ordinal label ladder of a `score` question, `None` for the other
+    /// two kinds. The adapter cross-checks the answer's `legend` against it.
+    #[must_use]
+    pub fn score_ladder(&self) -> Option<&[String]> {
+        match self {
+            Self::Score { ladder, .. } => Some(ladder.as_slice()),
+            _ => None,
         }
     }
 }
@@ -220,18 +292,38 @@ pub trait DecisionClient: Send + Sync {
 
 /// Convenience constructor for the rubric's `noul` questions.
 #[must_use]
-pub fn noul(description: impl Into<String>) -> DecisionQuestion {
+pub fn noul(instructions: impl Into<String>) -> DecisionQuestion {
     DecisionQuestion::Noul {
-        description: description.into(),
+        instructions: instructions.into(),
     }
 }
 
-/// Convenience constructor for the rubric's 5-level `score` questions.
+/// Construct a `score` question from an explicit label ladder.
+///
+/// `None` when the ladder carries fewer than [`SCORE_MIN_LEVELS`] entries — a
+/// single level is not a scale, so it cannot be a question at all.
 #[must_use]
-pub fn score5(description: impl Into<String>) -> DecisionQuestion {
+pub fn score(instructions: impl Into<String>, ladder: Vec<String>) -> Option<DecisionQuestion> {
+    if ladder.len() < SCORE_MIN_LEVELS {
+        return None;
+    }
+    Some(DecisionQuestion::Score {
+        instructions: instructions.into(),
+        ladder,
+    })
+}
+
+/// Convenience constructor for the rubric's 5-level `score` questions, seeded
+/// with the canonical [`SCORE5_LADDER`].
+#[must_use]
+pub fn score5(instructions: impl Into<String>) -> DecisionQuestion {
+    let ladder = SCORE5_LADDER
+        .iter()
+        .map(|label| (*label).to_owned())
+        .collect();
     DecisionQuestion::Score {
-        description: description.into(),
-        levels: 5,
+        instructions: instructions.into(),
+        ladder,
     }
 }
 

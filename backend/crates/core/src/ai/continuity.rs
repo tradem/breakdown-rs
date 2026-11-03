@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use super::decision::{DecisionAnswer, DecisionQuestion, question_keys};
+use super::decision::{ChoiceOption, DecisionAnswer, DecisionQuestion, question_keys};
 use super::preview::{
     DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin, DraftScene, ScriptContext,
     character_identity, draft_row_ref, is_meta_summary,
@@ -276,18 +276,34 @@ pub fn continuity_state(
 }
 
 /// The decision question Pass 2 asks for one gap (design D2).
+///
+/// The three options are the rubric's option keys with the description the
+/// model reads (issue #808): the provider's `choice` question carries
+/// `criteria: {name: description}`, and the answer's distribution is keyed by
+/// the same names — which is exactly what [`resolve_continuity_outcome`]
+/// consumes.
 #[must_use]
 pub fn continuity_questions() -> BTreeMap<String, DecisionQuestion> {
     let mut questions = BTreeMap::new();
     questions.insert(
         question_keys::OUTFIT_CONTINUITY.to_owned(),
         DecisionQuestion::Choice {
-            description: "What is the most probable wardrobe state of the character in this scene?"
-                .to_owned(),
+            instructions:
+                "What is the most probable wardrobe state of the character in this scene?"
+                    .to_owned(),
             options: vec![
-                question_keys::CONTINUITY_CONTINUE_PREVIOUS.to_owned(),
-                question_keys::CONTINUITY_INFER_NEW_OUTFIT.to_owned(),
-                question_keys::CONTINUITY_REPORT_GAP.to_owned(),
+                ChoiceOption::new(
+                    question_keys::CONTINUITY_CONTINUE_PREVIOUS,
+                    "The character keeps wearing the outfit of the previous scene.",
+                ),
+                ChoiceOption::new(
+                    question_keys::CONTINUITY_INFER_NEW_OUTFIT,
+                    "The scene context implies a new look for the character.",
+                ),
+                ChoiceOption::new(
+                    question_keys::CONTINUITY_REPORT_GAP,
+                    "Neither is certain: the wardrobe state cannot be inferred from the script.",
+                ),
             ],
         },
     );

@@ -1,0 +1,14 @@
+{
+  "answers": {
+    "characters_complete": {
+      "type": "noul",
+      "noul": 0.461
+    }
+  },
+  "usage": {
+    "input_tokens": 157,
+    "output_tokens": 0,
+    "cost": 0.0000119,
+    "cost_currency": "EUR"
+  }
+}

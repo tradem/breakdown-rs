@@ -1,0 +1,19 @@
+{
+  "answers": {
+    "outfit_continuity": {
+      "type": "choice",
+      "choice": "props",
+      "probabilities": {
+        "costume": 0.2751,
+        "props": 0.7249
+      },
+      "confidence": 0.7249
+    }
+  },
+  "usage": {
+    "input_tokens": 157,
+    "output_tokens": 0,
+    "cost": 0.0000119,
+    "cost_currency": "EUR"
+  }
+}

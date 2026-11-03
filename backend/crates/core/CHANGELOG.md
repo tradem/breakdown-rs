@@ -16,6 +16,38 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.57.0] - Unreleased
+
+### Changed — a Decision Model question carries its rubric, not a level count (issue #808)
+
+The System One surface validates every question as a strict discriminated
+union: each carries **`instructions`**, and `score` / `choice` additionally
+carry **`criteria`** — the label ladder and the option map the model actually
+conditions on. The domain model could express neither (`description` plus
+`levels: u8`, and `options: Vec<String>`), and the provider rejects the *whole*
+body over one malformed question, so every script chunk deterministically
+answered `400 Invalid request` and the Decision Model never produced a score
+against a live provider.
+
+- `DecisionQuestion::Noul { instructions }` (was `description`).
+- `DecisionQuestion::Score { instructions, ladder: Vec<String> }` (was
+  `description` + `levels: u8`). A level *count* cannot tell a model what level
+  `4` means — the ladder is rubric content. `SCORE5_LADDER` names the canonical
+  five levels (`wrong | poor | fair | good | exact`), `score5(instructions)`
+  seeds them, and `score(instructions, ladder)` builds an explicit ladder
+  (`None` below `SCORE_MIN_LEVELS` = 2).
+- `DecisionQuestion::Choice { instructions, options: Vec<ChoiceOption> }` (was
+  `description` + `Vec<String>`). `ChoiceOption { name, description }` keeps the
+  stable answer key together with the text the model reads.
+- `DecisionQuestion::{instructions, score_ladder}` read the new fields off any
+  question kind.
+- `DecisionAnswer` is unchanged — it is the normalization target the adapter maps
+  the provider's `probabilities` / `legend` envelope onto.
+
+`continuity_questions()` carries the three continuity options with their
+descriptions; the answer's `choice` distribution stays keyed by the same option
+names, so `resolve_continuity_outcome` is unchanged.
+
 ## [0.56.0] - Unreleased
 
 ### Added — an apply run names itself and proves it happened (issue #800)

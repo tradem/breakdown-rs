@@ -225,14 +225,30 @@ fn the_question_offers_exactly_three_options() {
         .get(question_keys::OUTFIT_CONTINUITY)
         .expect("continuity question present");
     match question {
-        DecisionQuestion::Choice { options, .. } => {
+        DecisionQuestion::Choice {
+            instructions,
+            options,
+        } => {
+            // The provider reads the option *descriptions* as `criteria`
+            // (issue #808): a bare list of keys would condition nothing.
+            assert!(
+                !instructions.trim().is_empty(),
+                "the question must carry its instruction"
+            );
+            let names: Vec<&str> = options.iter().map(|option| option.name.as_str()).collect();
             assert_eq!(
-                options,
-                &vec![
-                    question_keys::CONTINUITY_CONTINUE_PREVIOUS.to_owned(),
-                    question_keys::CONTINUITY_INFER_NEW_OUTFIT.to_owned(),
-                    question_keys::CONTINUITY_REPORT_GAP.to_owned(),
+                names,
+                vec![
+                    question_keys::CONTINUITY_CONTINUE_PREVIOUS,
+                    question_keys::CONTINUITY_INFER_NEW_OUTFIT,
+                    question_keys::CONTINUITY_REPORT_GAP,
                 ]
+            );
+            assert!(
+                options
+                    .iter()
+                    .all(|option| !option.description.trim().is_empty()),
+                "every option needs the description the model conditions on"
             );
         }
         other => panic!("expected a choice question, got {other:?}"),
