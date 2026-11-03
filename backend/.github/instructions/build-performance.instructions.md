@@ -131,7 +131,8 @@ cd backend
 ./scripts/reclaim-disk.sh --apply      # cargo sweep: delete artifacts older than 30 days
 ./scripts/reclaim-disk.sh --apply -t 7 # ... older than a week (heavy iteration phase)
 ./scripts/reclaim-disk.sh --apply --maxsize 200GB   # hard ceiling instead of an age window
-./scripts/reclaim-disk.sh --with-docker             # + prune stopped containers
+./scripts/reclaim-disk.sh --with-docker             # report + flag oversized containers
+./scripts/reclaim-disk.sh --apply --with-docker     # ... and prune stopped containers
 cargo clean                         # nuclear option: ALL artifacts, a full rebuild follows
 docker container prune
 docker volume prune                 # testcontainers leaves volumes after interrupted runs

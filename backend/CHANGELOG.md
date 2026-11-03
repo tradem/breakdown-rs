@@ -43,7 +43,13 @@ tag. Never edit a released entry afterwards.
   layer above 20 GB is flagged by name. `scripts/tests/reclaim-disk-test.sh`
   guards the two invariants in CI (a new `disk-hygiene` job): nothing is deleted
   without `--apply`, and a missing `cargo-sweep` is reported instead of silently
-  doing nothing. No crate changed, so no version bump.
+  doing nothing. Review follow-ups hardened the helper: a relative
+  `CARGO_TARGET_DIR` is resolved once against the caller's directory (the sweep
+  runs in a `cd`-ed subshell), a failing `docker` query no longer aborts the
+  sweep, writable layers are parsed with fractional/TB units, the
+  `cargo sweep` exit status is propagated (a failed cleanup must not exit 0), and
+  the `--with-docker` recipe lines say they need `--apply` too. No crate changed,
+  so no version bump.
 
 ### Fixed
 
