@@ -5,6 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
@@ -321,6 +322,43 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                           l10nOf(context),
                           state.discoveryError!,
                         ),
+                      ),
+                    ),
+                  )
+                else if (isBackendUnreachable(state.discoveryError!))
+                  // No answer at all (issue #809): the backend is not
+                  // reachable yet — the normal state right after an API
+                  // restart or a dev data reset. Dedicated, localized state
+                  // with a Retry: a failed read is NOT "no configuration
+                  // exists" (and must never read like a permission
+                  // problem). Same wording the Settings entry renders, so
+                  // the entry and the screen cannot disagree.
+                  Card(
+                    key: const Key('ai-config-backend-unreachable'),
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.space12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            key: const Key(
+                              'ai-config-backend-unreachable-title',
+                            ),
+                            l10nOf(context).aiConfigBackendUnreachableTitle,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: AppSpacing.space4),
+                          Text(l10nOf(context).aiConfigBackendUnreachableBody),
+                          const SizedBox(height: AppSpacing.space8),
+                          OutlinedButton(
+                            key: const Key(
+                              'ai-config-backend-unreachable-retry',
+                            ),
+                            onPressed: controller.refresh,
+                            child: Text(l10nOf(context).commonRetry),
+                          ),
+                        ],
                       ),
                     ),
                   )

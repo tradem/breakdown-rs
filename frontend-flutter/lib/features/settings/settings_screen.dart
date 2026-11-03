@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -11,14 +12,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
-import '../../auth/active_block.dart';
-import '../../auth/membership/membership_providers.dart';
 import '../auth/sign_out.dart';
 import '../../data/settings/api_base_validation.dart';
 import '../../data/settings/api_base_override_store.dart';
 import '../../design/components/section_header.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../ai_import/ai_config/ai_config_reachability.dart';
 import '../ai_import/ai_config/ai_config_screen.dart';
 import '../easter_eggs/easter_eggs_screen.dart';
 
@@ -142,7 +142,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const Divider(),
 
           // ── AI (issue #644): a dedicated, always-present section —
-          //    the AI-configuration entry (issue #643, role-gated).
+          //    the AI-configuration entry (issue #643) is ALWAYS rendered
+          //    since issue #809 (its reachability state lives in the
+          //    subtitle, never in its presence).
           //    Issue #672: the AI-import JOBS entry moved to the account
           //    drawer (`profile-ai-imports`) — the jobs list is the
           //    operational surface users check repeatedly, not a setting;
@@ -219,24 +221,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-/// The central AI-configuration entry (issue #643): a tile in the AI
-/// section pushing the existing [AiConfigScreen] — no new screen, no new
-/// controller, no new API surface.
-///
-/// AUTHZ-GATE: the AI-config handlers are handler-internally gated by
-/// `has_active_credential_role` (an active `piece_designer` /
-/// `costume_assistant` in any active membership — backend
-/// `AuthorizationPolicy`). The exact global predicate is not on the
-/// wire, so the client mirrors it through the existing D2/D3 resolution
-/// chain — the sticky active-block scope's season membership and its
-/// backend-computed `hasActiveCostumeRoleInSeason` flag (deliberately
-/// wider: it also covers `wardrobe_supervisor`). The tile is offered
-/// ONLY while that gate resolves to true: no active-block scope, a
-/// pending fetch, a membership error, or a resolved denial render no
-/// tile (a pending fetch hides, never denies — D3). A wider-role
-/// member admitted by the tile then meets the server's localized 403
-/// narrative inside [AiConfigScreen] (its documented D4 exception) —
-/// honest degradation, server authoritative, never a bypass.
 /// The Easter-eggs entry (issue #708): a tile in the general section
 /// pushing the dedicated [EasterEggsScreen] — the per-egg switches
 /// (issue #615) and the gallery (issue #640) moved there unchanged,
@@ -269,30 +253,91 @@ class _EasterEggsEntryTile extends StatelessWidget {
   }
 }
 
+/// The central AI-configuration entry (issues #643 / #809): a tile in the AI
+/// section pushing the existing [AiConfigScreen] — no new screen, no new
+/// controller, no new API surface.
+///
+/// **Always rendered** (issue #809 supersedes #643's hide-based gate):
+/// #643's "a pending fetch hides, never denies" (D3) is right for
+/// *acting on domain data* and wrong for a *settings entry point* — hiding
+/// is indistinguishable from absence, and it fails exactly in the
+/// unknown/stale state (cold start, dev data reset, projector lag) where
+/// the user most needs the entry. So the tile never returns
+/// `SizedBox.shrink()`; the state it knows is rendered in the subtitle:
+///
+/// * probe in flight → "Zugriff wird geprüft…" + spinner;
+/// * backend answered   → the ordinary subtitle + chevron;
+/// * backend unreachable → "Backend noch nicht erreichbar" + Retry.
+///
+/// AUTHZ-GATE: the AI-config handlers are handler-internally gated by
+/// `has_active_credential_role` (an active `piece_designer` /
+/// `costume_assistant` in any active membership — backend
+/// `AuthorizationPolicy`). That predicate is deployment-scoped and is NOT
+/// on the wire, and the season-scoped approximation this tile used before
+/// #809 is a superset (it also covers `wardrobe_supervisor`) *and* ambient
+/// (a stale scope made it read as a denial). The client therefore does not
+/// pretend to mirror it: the entry is not pre-gated, and a denial is
+/// rendered from the server's scoped 403 arms (`ai-config.forbidden` /
+/// `settings.forbidden`) inside [AiConfigScreen] — the documented D4
+/// exception, with no retry affordance. Server authoritative, never a
+/// bypass, never a hidden entry.
+///
+/// Reachability comes from [aiConfigReachabilityProvider] — a ONE-SHOT
+/// probe over the existing `backendHealthProbeProvider` seam (`GET
+/// /v1/health`, public, never throws). No polling: the drawer's health pill
+/// owns the periodic poll. A failed read is never rendered as "no
+/// configuration exists" (that claim belongs to the screen's resolved
+/// state, and only the server may make it).
 class _AiConfigEntryTile extends ConsumerWidget {
   const _AiConfigEntryTile();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // The sticky scope is the only ambient season context the shell
-    // carries; without it the role cannot resolve and the entry hides
-    // (show only when the role resolves — issue #643 decision).
-    final seasonId = ref.watch(activeBlockProvider)?.seasonId;
-    if (seasonId == null) return const SizedBox.shrink();
-    final membership = ref.watch(currentMembershipProvider(seasonId));
-    // `AsyncValue.value` is null while loading/errored — both hide the
-    // tile (D3: a pending fetch disables, never denies).
-    if (membership.value?.hasActiveCostumeRoleInSeason != true) {
-      return const SizedBox.shrink();
-    }
+    final l10n = l10nOf(context);
+    final reachability = ref.watch(aiConfigReachabilityProvider);
+    // Unknown is a STATE, never a denial and never an absence: while the
+    // probe has not answered (or a defensive error left no value) the tile
+    // says so and stays tappable.
+    final checking = reachability.isLoading || !reachability.hasValue;
+    final unreachable =
+        !checking &&
+        reachability.value == AiConfigBackendReachability.unreachable;
+    final subtitle = checking
+        ? l10n.settingsAiConfigChecking
+        : unreachable
+        ? l10n.settingsAiConfigUnreachable
+        : l10n.settingsAiConfigSubtitle;
     return ListTile(
       key: const Key('settings-ai-config'),
       leading: const Icon(Icons.psychology_alt_outlined),
-      title: Text(l10nOf(context).settingsAiConfig),
-      subtitle: Text(l10nOf(context).settingsAiConfigSubtitle),
-      trailing: const Icon(Icons.chevron_right),
+      title: Text(l10n.settingsAiConfig),
+      subtitle: Text(subtitle),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (checking)
+            const SizedBox(
+              key: Key('settings-ai-config-checking'),
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          if (unreachable)
+            IconButton(
+              key: const Key('settings-ai-config-retry'),
+              tooltip: l10n.commonRetry,
+              icon: const Icon(Icons.refresh),
+              // One-shot by design: re-running the probe is explicit user
+              // intent, never an implicit poll.
+              onPressed: () => ref.invalidate(aiConfigReachabilityProvider),
+            ),
+          const Icon(Icons.chevron_right),
+        ],
+      ),
       // Fire-and-forget push (no result consumed), same as the wizard
-      // and import-submit entries. ListTile keeps the ≥ 48×48 dp target.
+      // and import-submit entries — in EVERY state: an unreachable backend
+      // is a state the screen explains, not a reason to withhold the push.
+      // ListTile keeps the ≥ 48×48 dp target.
       onTap: () => unawaited(
         Navigator.of(
           context,

@@ -23,6 +23,46 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The AI configuration is reachable from Settings again — and a state that
+  cannot be resolved no longer disappears** (`0.4.0-beta.34+126 →
+  0.4.0-beta.35+127`, frontend issue #809). The `KI-Konfiguration` entry had
+  gone missing from Settings: it rendered nothing whenever the sticky
+  active-block scope was unset (it starts `null` on every cold start) or the
+  season-scoped membership had not resolved to a costume role. After a dev
+  data reset the persisted season anchor resolved to no row and the persisted
+  block scopes pointed at deleted blocks, so a user with full rights saw *no*
+  way into the configuration — exactly when they needed it. The entry was not
+  gone; it was hidden by "unknown", and a backend that was not reachable yet
+  looked the same as "no permission" and as "this build has no such screen".
+  - **The entry is always rendered (rule inverted).** `#643`'s "a pending
+    fetch hides, never denies" still governs acting on domain data, but it is
+    the wrong shape for an entry point: hiding is indistinguishable from
+    absence. The entry now states what the client knows — "Zugriff wird
+    geprüft…" while the reachability probe is in flight, the ordinary
+    subtitle once the backend answered, "Backend noch nicht erreichbar" plus
+    a Retry when it did not — and it always opens the configuration screen.
+  - **Backend reachability first.** The entry reuses the existing health seam
+    (`GET /v1/health` via `backendHealthProbeProvider`) as a one-shot probe
+    with an explicit Retry — no polling (the drawer pill already polls) and
+    no second probe implementation. A failed read is never rendered as "no
+    configuration exists".
+  - **Denial stays the server's.** The client no longer pre-gates the entry
+    on a season-scoped role approximation (it is both wider than the
+    backend's deployment-scoped credential predicate and ambient, which is
+    why a stale scope read as a denial). A 403 `ai-config.forbidden` /
+    `settings.forbidden` renders the localized administrator narrative inside
+    the screen, without a retry affordance (the documented D4 exception).
+  - **Inside the screen**, a discovery failure that produced no answer at all
+    (`transport.connectionError` / `transport.*Timeout` / `transport.unknown`)
+    now renders a dedicated unreachable card (title, explanatory body, Retry)
+    instead of the generic discovery error — the import-submit gear and the
+    preview's Decision-Model CTA therefore show the same honest state.
+  - **Not covered deliberately:** a precise pre-tap permission check needs a
+    global capability route (`GET /v1/me/capabilities`) that the wire
+    contract does not have, and evicting the dead persisted season anchor is
+    its own change; both are follow-ups. The entry tolerates the stale state
+    by construction.
+
 - **A changed Decision Model can no longer be lost by leaving the AI-config
   screen** (`0.4.0-beta.33+125 → 0.4.0-beta.34+126`, follow-up to frontend issue
   #769). The reported symptom — "I configured the Decision Model, the app said

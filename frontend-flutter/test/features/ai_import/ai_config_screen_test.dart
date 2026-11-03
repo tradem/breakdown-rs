@@ -595,6 +595,50 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('discovery that produced NO answer (transport.connectionError) '
+      'renders the dedicated unreachable state with a Retry — not the '
+      'generic discovery error, never the first-run form (issue #809)', (
+    tester,
+  ) async {
+    await setupContainer(
+      discoveryValue: const Left(
+        ProblemError(code: 'transport.connectionError'),
+      ),
+    );
+    await pumpScreen(tester);
+
+    // A failed read is not "no configuration exists": the first-run form
+    // (whose save would create a SECOND credential) never renders here.
+    expect(
+      find.byKey(const Key('ai-config-backend-unreachable')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('ai-config-first-run')), findsNothing);
+    expect(find.byKey(const Key('ai-config-discovery-error')), findsNothing);
+    // Catalog copy only (AGENTS.md §5) — the same wording the Settings
+    // entry's unreachable subtitle uses, so entry and screen agree.
+    expect(find.text('Backend not reachable yet'), findsOneWidget);
+    expect(
+      find.textContaining('This does not mean that no configuration exists'),
+      findsOneWidget,
+    );
+
+    // The Retry re-runs discovery; once the backend answers, the resolved
+    // state renders.
+    await tester.tap(
+      find.byKey(const Key('ai-config-backend-unreachable-retry')),
+    );
+    await tester.pump();
+    discovery.value = Right([_config()]);
+    await refreshDiscovery(tester);
+
+    expect(find.byKey(const Key('ai-config-configured')), findsOneWidget);
+    expect(
+      find.byKey(const Key('ai-config-backend-unreachable')),
+      findsNothing,
+    );
+  });
+
   testWidgets('AI import disabled on this instance (wire code '
       'ai-import.disabled): dedicated state WITHOUT a retry affordance — '
       'retrying cannot fix a server feature flag (issue #422)', (tester) async {
@@ -2672,6 +2716,37 @@ void main() {
         golden: 'ai_config_configured_dark_macos.png',
         mode: ThemeMode.dark,
         platform: TargetPlatform.macOS,
+      );
+    });
+
+    // Issue #809: the unreachable state inside the screen (the Settings
+    // entry's third state is backed by the same copy). A golden pins the
+    // card, its Retry and the absence of the first-run form.
+    testWidgets('backend-unreachable golden light android', (tester) async {
+      await setupContainer(
+        discoveryValue: const Left(
+          ProblemError(code: 'transport.connectionError'),
+        ),
+      );
+      await pumpGolden(
+        tester,
+        golden: 'ai_config_backend_unreachable_light_android.png',
+        mode: ThemeMode.light,
+        platform: TargetPlatform.android,
+      );
+    });
+
+    testWidgets('backend-unreachable golden dark android', (tester) async {
+      await setupContainer(
+        discoveryValue: const Left(
+          ProblemError(code: 'transport.connectionError'),
+        ),
+      );
+      await pumpGolden(
+        tester,
+        golden: 'ai_config_backend_unreachable_dark_android.png',
+        mode: ThemeMode.dark,
+        platform: TargetPlatform.android,
       );
     });
   });

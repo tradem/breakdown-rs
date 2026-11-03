@@ -3,6 +3,7 @@
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Settings — Screen Spec
 
@@ -25,8 +26,10 @@ post-authentication (Mehr tab lives inside the auth shell); the save /
 reset actions issue requests against the configured backend through the
 existing `SessionReset` coordinator, which owns the auth fence — no
 additional client-side membership gate applies (server-ownership rule).
-The AI-section entries are the general-section elements with entry-specific
-gates — see Interactions.
+The AI-section entries follow the same server-ownership rule: a
+configuration entry point is never hidden by an unresolved scope — it
+renders its state and lets the server answer (issue #809, see
+Interactions).
 
 ## Location & Context
 N/A — settings are not a planning-hierarchy surface; the screen is
@@ -46,8 +49,10 @@ stays hidden (graceful-degradation rule).
     "Schalter und Vorschau für jedes Ei."   the dedicated Easter-eggs screen
     --
     "KI"                                 <- issue #644: AI section header
-    "KI-Konfiguration"                  <- issue #643
+    "KI-Konfiguration" | ›               <- issue #643 / #809: ALWAYS present
     "KI-Anbieter und Modelle für den KI-Import verwalten."
+    "Zugriff wird geprüft…" | "…"        <- state 1: probe in flight (spinner)
+    "Backend noch nicht erreichbar" | "Erneut versuchen" ›  <- state 2: no answer
   }
   --
   {^ "Serveradresse" | "http://10.0.2.2:3000"
@@ -74,7 +79,7 @@ live on the dedicated [Easter-eggs screen](easter-eggs.md) since issue
 | General section | Section header | Groups always-available settings | `settings.general` |
 | Easter-eggs entry tile | List item (push, chevron) | Central entry to the dedicated Easter-eggs screen (issue #708 — the per-egg switches and gallery live there; counter-model of the AI-configuration entry); no membership gate — the preferences are local-only | `settings.easterEggsEntryTitle` + `settings.easterEggsEntrySubtitle` |
 | AI section | Section header | Groups the AI-configuration entry (issue #644) | `settings.ai` |
-| AI-configuration entry | List item (push, chevron) | Central entry to `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role — see Interactions | `settings.aiConfig` + `settings.aiConfigSubtitle` |
+| AI-configuration entry | List item (push, chevron; trailing Retry while the backend is unreachable) | Central entry to `AiConfigScreen` (issue #643) — ALWAYS rendered, never gated on an ambient scope; its subtitle states the reachability state (issue #809) | `settings.aiConfig` + `settings.aiConfigSubtitle` / `settings.aiConfigChecking` / `settings.aiConfigUnreachable` |
 | Development section | Section header | Labels the dev-only area | `settings.dev` |
 | Server address row | List item (read-only) | Active effective API base | `settings.serverAddress` |
 | Flavor row | List item (read-only) | Active build flavor | `settings.flavor` |
@@ -85,18 +90,33 @@ live on the dedicated [Easter-eggs screen](easter-eggs.md) since issue
 
 ## States
 Loading: N/A — the screen reads local state synchronously (the effective
-base), except the AI-configuration entry's membership gate: while that
-membership fetch is in flight the entry renders nothing (a pending fetch
-hides, never denies — D3), converging to visible/hidden once resolved.
-Data: rows as above. The AI-configuration entry renders only while the
-season-scoped membership resolves with an active costume-dept role
-(issue #643 — see Interactions). Easter-eggs state lives entirely on the
-dedicated screen (issue #708). Error: backend-URI save errors render
-inline keyed on `code` via the validation copy; a failed membership
-fetch renders no AI-configuration entry (hidden, with the retry
-affordance living on the gated surface, not the settings list).
-Stale: N/A. Optimistic: N/A (no command dispatches from this screen; the
-developer backend switch is a synchronous local-override flow).
+base). The **only** asynchronous state lives in the AI-configuration
+entry, and it never removes the entry (issue #809):
+
+| Entry state | Subtitle | Trailing | Tap |
+|---|---|---|---|
+| probe in flight | „Zugriff wird geprüft…“ (`settings.aiConfigChecking`) | spinner | pushes the screen |
+| backend answered (healthy/degraded/unhealthy) | „KI-Anbieter und Modelle für den KI-Import verwalten.“ (`settings.aiConfigSubtitle`) | chevron | pushes the screen |
+| backend unreachable (`BackendHealthUnreachable`) | „Backend noch nicht erreichbar“ (`settings.aiConfigUnreachable`) | Retry action (`settings-ai-config-retry`) + chevron | pushes the screen (never blocked) |
+
+A configuration surface hidden by "unknown" is indistinguishable from an
+absent one and disappears exactly in the cold-start / post-reset /
+projector-lag state where it is needed — so no scope state ever hides it
+(issue #809 supersedes #643's hide-based gate for this entry point; the
+D3 "a pending fetch disables, never denies" rule still governs *acting on
+domain data*).
+
+Data: rows as above; the reachable entry renders the plain subtitle.
+Easter-eggs state lives entirely on the dedicated screen (issue #708).
+Error: backend-URI save errors render inline keyed on `code` via the
+validation copy; an unreachable backend renders the entry's unreachable
+subtitle plus Retry (it makes no claim about whether a configuration
+exists). Stale: the entry tolerates a persisted season anchor that resolves
+to no row and persisted block scopes that name deleted blocks — it stays
+visible and opens the screen (eviction of that dead state is issue #810-
+adjacent follow-up work, not a precondition). Optimistic: N/A (no command
+dispatches from this screen; the developer backend switch is a synchronous
+local-override flow).
 
 ## Interactions
 - Easter-eggs entry tile (issue #708): pushes the dedicated
@@ -105,23 +125,30 @@ developer backend switch is a synchronous local-override flow).
   the tile dispatches no command and reads no network resource; the
   per-egg preferences are on-device `shared_preferences`. The touch
   target is a standard `ListTile` (≥ 48×48 dp).
-- AI-configuration entry (issue #643): `// AUTHZ-GATE:` — the tile is
-  offered only while the client-side membership gate resolves via the
-  sticky active-block scope (`activeBlockProvider` →
-  `currentMembershipProvider(scope.seasonId)` →
-  `hasActiveCostumeRoleInSeason`): no scope, a pending/erroring fetch,
-  or a resolved denial render no tile (D3 — hide, never deny). The
-  server stays authoritative: the AI-config handlers are
-  handler-internally gated by `has_active_credential_role`
-  (`costume_designer`/`costume_assistant`, any active membership — not
-  on the wire, no new API surface). The season predicate the client
-  reads is deliberately wider (adds `wardrobe_supervisor`), so a
-  supervisor-only member may open the screen and receive the existing
-  localized 403 narrative (`AiConfigScreen`'s documented D4 exception)
-  — honest degradation, never a bypass. Tap pushes `AiConfigScreen`
-  (`MaterialPageRoute`, fire-and-forget, same as the wizard and
-  import-submit entries). The touch target is a standard `ListTile`
-  (≥ 48×48 dp).
+- AI-configuration entry (issues #643 / #809): `// AUTHZ-GATE:` — the
+  tile renders ALWAYS; the denial decision is the server's. The AI-config
+  handlers are handler-internally gated by `has_active_credential_role`
+  (`costume_designer`/`costume_assistant`, any active membership) — a
+  deployment-scoped predicate that is not on the wire, so the client
+  cannot mirror it exactly and does not pretend to: no client-side
+  pre-gate hides the entry, and a 403 renders the localized
+  administrator narrative inside `AiConfigScreen` (the documented D4
+  exception) with no retry affordance. The season-scoped membership
+  approximation (#643) is deliberately gone: it is both wider (adds
+  `wardrobe_supervisor`) and ambient (a stale or absent scope made it
+  look like a denial in exactly the cold-start / post-reset case).
+  Reachability comes from the one-shot `backendHealthProbeProvider`
+  (`GET /v1/health`, public, never throws) — no polling (the drawer pill
+  polls). Tap pushes `AiConfigScreen` (`MaterialPageRoute`,
+  fire-and-forget, same as the wizard and import-submit entries) in every
+  state. The touch target is a standard `ListTile` (≥ 48×48 dp); the
+  Retry action is an `IconButton` with the localized `common.retry`
+  tooltip.
+- Import-submit gear and preview Decision-Model CTA: unchanged
+  destinations, but a backend that is down now surfaces the localized
+  unreachable card (title + body + Retry) on the configuration screen
+  instead of the generic discovery-error copy — a failed read is not
+  "no configuration exists" (issue #809).
 - ~~AI-imports entry (issue #644)~~ — removed from Settings by issue
   #672: the jobs list is the operational surface users check repeatedly,
   not a setting; the entry moved to the account drawer
@@ -152,13 +179,18 @@ template + English catalog.
   general section in both flavors; Easter-eggs entry tile present and
   pushes the dedicated screen, inline per-egg sections absent (issue
   #708); dev section dev-only; save/reset/progress flows;
-  AI-configuration entry visible on an active costume-dept membership,
-  hidden without an active-block scope / while pending / on a resolved
-  denial, tap pushes `AiConfigScreen` (issue #643); the AI-imports
-  Settings tile is gone (issue #672, moved to the account drawer).
+  AI-configuration entry rendered in EVERY scope state — cold start
+  without an active-block scope, pending/failed membership, resolved
+  denial, post-reset stale persisted season anchor + deleted block scope
+  — and always tappable (issues #643/#809); tap pushes `AiConfigScreen`,
+  incl. the server-authoritative 403 narrative and its absence of a
+  retry; the entry's three reachability states (checking / reachable /
+  unreachable + working Retry); the AI-imports Settings tile is gone
+  (issue #672, moved to the account drawer).
 - Golden: `settings_dev_{light,dark}` + `settings_prod_{light,dark}`
-  (replacing the former dialog goldens) + visible AI-configuration
-  entry `{light,dark}` (issue #643); regenerated with the #708
-  entry-tile layout.
+  (replacing the former dialog goldens) + the AI-configuration entry in
+  its four states, `{light,dark}` × android (issue #809: reachable,
+  denied-unknown/checking, unreachable — so a hidden entry cannot
+  silently return); regenerated with the #708 entry-tile layout.
 - Unit: backend-URI validation copy mapping (the per-egg store
   Ok/Err branches live with the Easter-eggs screen, issue #708).

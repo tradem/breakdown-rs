@@ -4,6 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -338,3 +339,23 @@ bool isAiImportDisabled(ProblemError error) =>
 /// required" narrative ([aiConfigErrorCopy]) WITHOUT a retry affordance.
 bool isAiConfigAuthzDenied(ProblemError error) =>
     error.code == 'ai-config.forbidden' || error.code == 'settings.forbidden';
+
+/// True when [error] says the backend produced NO answer at all (issue #809):
+/// a transport-level failure — connection refused/DNS (`connectionError`), a
+/// connect/send/receive timeout, or an unclassified transport failure
+/// (`unknown`). Those stable codes come from `problemErrorFromDio`.
+///
+/// This is deliberately NOT `transport.*` as a whole: `transport.badResponse`
+/// means the backend DID answer with something unusable, which is a different
+/// fact (the generic discovery-error card is honest for it). The distinction
+/// matters because a failed read must never be rendered as "no configuration
+/// exists", and an unreachable backend must never look like a permission
+/// problem.
+bool isBackendUnreachable(ProblemError error) => switch (error.code) {
+  'transport.connectionError' ||
+  'transport.connectionTimeout' ||
+  'transport.sendTimeout' ||
+  'transport.receiveTimeout' ||
+  'transport.unknown' => true,
+  _ => false,
+};
