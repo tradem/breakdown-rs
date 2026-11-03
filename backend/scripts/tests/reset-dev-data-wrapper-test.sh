@@ -275,13 +275,21 @@ check "the clean run does not run the restore" \
 
 if [[ "${FAILURES}" -ne 0 ]]; then
   # Keep the artifacts of a failing run for inspection (the EXIT trap would
-  # delete them).
+  # delete them) and print the captured wrapper output: a CI log without it
+  # leaves the reader guessing (the 5.2-vs-5.3 `return` regression was only
+  # visible here).
   trap - EXIT
   if [[ -n "${LISTENER_PID}" ]]; then
     kill "${LISTENER_PID}" 2>/dev/null || true
   fi
   printf '\n%s check(s) failed\n' "${FAILURES}"
-  printf 'artifacts kept in %s\n' "${WORK}"
+  for scenario in wipe-failure export-failure success; do
+    if [[ -f "${WORK}/${scenario}.out" ]]; then
+      printf '\n--- %s (wrapper output) ---\n' "${scenario}"
+      cat "${WORK}/${scenario}.out"
+    fi
+  done
+  printf '\nartifacts kept in %s\n' "${WORK}"
   exit 1
 fi
 printf '\nall wrapper checks passed\n'

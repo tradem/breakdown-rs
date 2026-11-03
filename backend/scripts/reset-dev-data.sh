@@ -235,12 +235,18 @@ run_binary() {
   # `RESET_DEV_DATA_BIN` is the testability seam (issue #810): the wrapper test
   # substitutes a fake binary so the destructive ordering and the restore trap
   # are testable without docker or a database.
+  local status=0
   if [[ -n "${RESET_DEV_DATA_BIN:-}" ]]; then
     # shellcheck disable=SC2086 # intentional word splitting of the test seam
-    ( cd "${BACKEND_DIR}" && ${RESET_DEV_DATA_BIN} "$@" )
-    return
+    ( cd "${BACKEND_DIR}" && ${RESET_DEV_DATA_BIN} "$@" ) || status=$?
+  else
+    ( cd "${BACKEND_DIR}" && cargo run --quiet -p api --bin reset-dev-data -- "$@" ) \
+      || status=$?
   fi
-  ( cd "${BACKEND_DIR}" && cargo run --quiet -p api --bin reset-dev-data -- "$@" )
+  # The phase status is returned **explicitly**: a bare `return` does not
+  # reliably propagate it (ubuntu-latest / bash 5.2 made the restore trap take
+  # its failure branch after a successful replay, issue #810 follow-up).
+  return "${status}"
 }
 
 # Prints the keep-list's event counts per category BEFORE the volume goes.
@@ -291,7 +297,7 @@ resolve_backup_dir() {
   done
   if [[ -n "${dir}" ]]; then
     printf '%s' "${dir}"
-    return
+    return 0
   fi
   local latest
   latest="$(ls -1dt "${BACKEND_DIR}"/backups/reset-* 2>/dev/null | head -n 1 || true)"
