@@ -53,6 +53,20 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **`GET /v1/meta/credits` names every documented co-author — and the parity
+  guard now actually sees all of them.** The credits list is a compile-time const
+  (`crates/api/src/meta.rs`) whose parity with the `Co-authored-by:` headers of
+  the three AGENTS.md files is enforced by a test; a new attribution line in an
+  AGENTS.md therefore failed the `Test` job until the const matched. Two defects
+  fixed alongside: the `backend/AGENTS.md` attribution comment was never closed
+  (`-->` missing), which commented out that entire document in rendered Markdown
+  and hid its pair from the parity parser — so the list had been silently
+  incomplete; and the dedupe assertion now keys on `(name, provider)` instead of
+  the bare name, because one model may legitimately be attributed through two
+  providers (`deepseek-v4.1-flash` via `neuralwatt` and `opencode-go`) and that
+  must surface as two entries instead of being collapsed. No crate changed, so no
+  version bump.
+
 - **A `business` dev data reset could silently destroy the preserved
   configuration (`infra 0.66.0 → 0.67.0`, `api 0.55.0 → 0.55.1`).** On
   2026-11-03 the level-`business` reset — documented as *preserving* `ai_config`,
