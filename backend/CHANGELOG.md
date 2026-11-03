@@ -28,6 +28,45 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **A configured Decision Model has never scored a row: the System One wire
+  contract was wrong in both directions (`core 0.56.0 → 0.57.0`,
+  `infra 0.65.1 → 0.66.0`).** Two live imports recorded
+  `decision_telemetry = {provider: eurouter, model: clef-flash, outcome:
+  scoring_failed, failed_rows: 54/49}` while the configuration resolved fine
+  (#803 fixed the route; this is the body).
+
+  - **Request.** We sent `description` / `options` / `levels`; the provider
+    requires `instructions` on every question plus `criteria` — the label
+    ladder for `score`, the name → description map for `choice`. It validates
+    the union strictly and rejects the **whole** body over one bad question, so
+    every script chunk (4× noul + 2× score) answered `400 Invalid request`
+    deterministically. `DecisionQuestion` now carries `instructions` and the
+    rubric it needs (`ladder: Vec<String>`, `options: Vec<ChoiceOption>`);
+    `SCORE5_LADDER` names the canonical five levels.
+  - **Response.** We expected a distribution where the provider returns a
+    scalar `score` mean and the winning `choice` label, with the mass under
+    `probabilities` and a `legend` echo. Fixing the request alone would have
+    moved the failure from an HTTP 400 to a parse error. The adapter maps
+    `probabilities` onto the internal distribution and rejects a contradicting
+    `legend`, a distribution that does not sum to ~1.0, or a winning label
+    outside its own map — a silent mis-scaling is worse than a failed pass.
+  - **Why CI stayed green.** The unit mock encoded our own assumption
+    (`score` as a distribution) and never inspected the request body. It is now
+    a **strict** System One that rejects a body without `instructions` /
+    `criteria` with the real `400 details[]` shape, the captured provider bodies
+    live in `crates/infra/src/ai/testdata/decision_wire/`, request goldens pin
+    the emitted key sets, and `score_script_chunk` runs against the strict mock
+    end to end (`scoring_failed == false`, `failed_rows == 0`, every row
+    scored). An `#[ignore]`-gated live smoke test (`DECISION_LIVE_KEY`,
+    documented in `docs/operations/runbooks.md` §14) is the only artifact that
+    detects a provider-side schema change.
+  - **Verified:** `cargo test -p infra --lib ai::decision` (22 passed, 1 live
+    test ignored), `cargo test -p breakdown_core --lib ai::` (340 passed),
+    `cargo clippy -p breakdown_core -p infra --all-targets` clean,
+    `cargo check --workspace --all-targets` clean. The end-to-end acceptance
+    needs a **new** import: scoring runs during extraction, so applying an
+    existing preview cannot re-score it.
+
 - **The Decision Model's scoring pass reaches EURouter at all (the reported
   "`eurouter`/`clef-flash` failed, no stars"; `infra 0.65.0 → 0.65.1`).** A live
   episode-300 import recorded `decision_telemetry =

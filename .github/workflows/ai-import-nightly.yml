@@ -7,6 +7,13 @@
 # AI_LLM_API_KEY secret). Runs after the nightly fuzz run (03:00 UTC) and
 # before the standard CI daily runs.
 #
+# Since issue #808 it also runs the **Decision Model** live smoke: the System
+# One wire contract was wrong in both directions for months while CI stayed
+# green, because every unit test mocked the provider with our own assumption.
+# That test is `#[ignore]`-gated in the PR gate (it needs the network, a real
+# credential and spends money) and is the only artifact that detects a
+# provider-side schema change — so a nightly red here is the signal we want.
+#
 # Note: this workflow was originally claimed to exist before the feature
 # branch; it did not. It is defined here so the nightly document-ingestion
 # check is actually scheduled.
@@ -103,3 +110,25 @@ jobs:
             echo "AI_LLM_PROVIDER=${AI_LLM_PROVIDER:-eurouter} AI_LLM_MODEL=${AI_LLM_MODEL:-mistral-large-3}"
           fi
           cargo test -p integration-tests --test ai_llm_smoke_test -- --nocapture
+
+      # Issue #808: one question of each kind against the curated System One
+      # endpoint — `200` and a parsed answer per kind, or the provider's own
+      # `details[].path` in the failure. It never prints the credential and
+      # skips itself when the key is absent.
+      - name: Live Decision Model smoke (nightly)
+        env:
+          # A dedicated decision credential wins; the current deployment uses
+          # the same EURouter key for script extraction and scoring, so the
+          # assistant key is the fallback rather than a silent no-op.
+          DECISION_LIVE_KEY: ${{ secrets.DECISION_LIVE_KEY || secrets.AI_LLM_API_KEY }}
+          DECISION_LIVE_PROVIDER: ${{ vars.DECISION_LIVE_PROVIDER }}
+          DECISION_LIVE_MODEL: ${{ vars.DECISION_LIVE_MODEL }}
+        run: |
+          if [ -z "$DECISION_LIVE_KEY" ]; then
+            echo "DECISION_LIVE_KEY not configured — the live System One smoke will skip."
+          else
+            echo "DECISION_LIVE_PROVIDER=${DECISION_LIVE_PROVIDER:-eurouter} DECISION_LIVE_MODEL=${DECISION_LIVE_MODEL:-clef-flash}"
+          fi
+          cargo test -p infra --lib \
+            ai::decision_client::decision_client_tests::live_systemone \
+            -- --ignored --nocapture

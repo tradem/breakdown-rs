@@ -1,0 +1,9 @@
+{
+  "type": "choice",
+  "instructions": "What is the most probable wardrobe state of the character in this scene?",
+  "criteria": {
+    "continue_previous": "The character keeps wearing the outfit of the previous scene.",
+    "infer_new_outfit": "The scene context implies a new look for the character.",
+    "report_conflict_or_gap": "Neither is certain: the wardrobe state cannot be inferred from the script."
+  }
+}

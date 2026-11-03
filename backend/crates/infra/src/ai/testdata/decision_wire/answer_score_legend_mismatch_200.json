@@ -1,0 +1,29 @@
+{
+  "answers": {
+    "scene_metadata_accuracy": {
+      "type": "score",
+      "score": 3.2361,
+      "legend": {
+        "0": "bad",
+        "1": "weak",
+        "2": "ok",
+        "3": "good",
+        "4": "best"
+      },
+      "probabilities": {
+        "0": 0.0149,
+        "1": 0.0812,
+        "2": 0.1,
+        "3": 0.2607,
+        "4": 0.5432
+      },
+      "confidence": 0.5432
+    }
+  },
+  "usage": {
+    "input_tokens": 157,
+    "output_tokens": 0,
+    "cost": 0.0000119,
+    "cost_currency": "EUR"
+  }
+}

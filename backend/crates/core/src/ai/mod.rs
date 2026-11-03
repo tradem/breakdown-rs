@@ -36,10 +36,11 @@ pub use continuity::{
     resolve_continuity_outcome,
 };
 pub use decision::{
-    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion, DecisionRequest,
-    DecisionRubric, compute_scene_score, compute_shooting_day_score, compute_synopsis_score,
-    curated_decision_model_ids, is_curated_decision_model, is_decision_capable, noul,
-    question_keys, scene_grounding_factor, score5,
+    ChoiceOption, DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion,
+    DecisionRequest, DecisionRubric, SCORE_MIN_LEVELS, SCORE5_LADDER, compute_scene_score,
+    compute_shooting_day_score, compute_synopsis_score, curated_decision_model_ids,
+    is_curated_decision_model, is_decision_capable, noul, question_keys, scene_grounding_factor,
+    score, score5,
 };
 pub use error::AiConfigError;
 pub use events::AiConfigEvent;

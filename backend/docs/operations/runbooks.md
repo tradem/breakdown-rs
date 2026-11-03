@@ -1056,3 +1056,79 @@ Clear the **Drift** database (projections cache + AI handoff store) via
 the persisted scope from **secure storage**, keeping the AI-config id. A
 dev-only "clear local cache" action in the app settings is a possible
 follow-up; today the reset procedure includes the manual clear.
+
+## 14. Decision Model live smoke test (issue #808)
+
+A configured Decision Model `(decision_provider, decision_model)` is scored
+through one HTTP call per script chunk against the provider's **System One**
+surface (`POST /v1/systemone` on Neuralwatt, `/api/v1/systemone` on EURouter,
+`/api/alpha/decisions` on OpenRouter). Issue #803 fixed the route; issue #808
+fixed the request and response bodies — both had been wrong, so every scoring
+call answered `400 Invalid request` and the job's `decision_telemetry` read
+`{"outcome":"scoring_failed","failed_rows":N}` while the configuration was
+perfectly resolvable.
+
+The unit suite pins **our** side of the contract (checked-in provider fixtures
+plus request goldens under
+`crates/infra/src/ai/testdata/decision_wire/`). Only the live smoke test detects
+a **provider-side** schema change, which is exactly the class of failure that
+survived a green CI for months.
+
+### Running it
+
+It is `#[ignore]`-gated, needs the network and spends a few hundred input
+tokens (a decision model bills **zero** output tokens), so it never runs in the
+PR gate. It runs in `.github/workflows/ai-import-nightly.yml` (step "Live
+Decision Model smoke", 04:00 UTC, credential from the `DECISION_LIVE_KEY`
+secret with `AI_LLM_API_KEY` as the fallback, provider/model from the
+`DECISION_LIVE_PROVIDER` / `DECISION_LIVE_MODEL` repository variables), and it
+can be run by hand:
+
+```bash
+cd backend
+DECISION_LIVE_KEY=…                       # the provider key (never printed)
+DECISION_LIVE_PROVIDER=eurouter           # or neuralwatt | openrouter (default: eurouter)
+DECISION_LIVE_MODEL=clef-flash            # default: clef-flash
+cargo test -p infra --lib \
+  ai::decision_client::decision_client_tests::live_systemone \
+  -- --ignored --nocapture
+```
+
+Without `DECISION_LIVE_KEY` the test prints a skip line and returns: a CI job
+that wires the variable conditionally can therefore run the command
+unconditionally.
+
+### What it asserts, and what a failure means
+
+It posts one question of each kind (`noul`, `score` with the canonical
+5-level ladder, `choice` with the continuity options) in one body and requires:
+
+- `200` with a parsed envelope — a `400` fails the test **with the provider's
+  own `details[].path`**, which names the offending field;
+- a finite `noul` probability;
+- one `score` probability per ladder level (the mass comes from
+  `probabilities`, not from the scalar mean);
+- a non-empty `choice` distribution.
+
+A failure means the provider's contract moved. Capture the failing body, add it
+to `crates/infra/src/ai/testdata/decision_wire/`, fix the adapter, and note the
+new probe date in the `decision_client` module docs — do **not** relax the
+assertions.
+
+### Cross-provider status
+
+EURouter proxies the System One surface Neuralwatt hosts, and the three bodies
+above were probed against EURouter on 2026-11-03. Neuralwatt and OpenRouter are
+**not** verified against these bodies in this change: if a provider answers with
+a different envelope, the adapter grows **one shape per provider** rather than a
+lowest-common-denominator body. Run the smoke test per provider with the matching
+`DECISION_LIVE_PROVIDER` before relying on that provider's Decision Model.
+
+### Reading a failed import
+
+`ai_import.ai_import_job.decision_telemetry` is the honest signal (issue
+#767): `outcome = scoring_failed` plus `failed_rows` counts the rows the pass
+could not score. The scoring pass is deliberately **non-fatal** — the extraction
+job still succeeds and the preview rows simply carry no stars — so a red
+telemetry field is the only place this shows up. The worker log line to grep is
+`ai-decision: scoring pass failed after the bounded quick retry`.

@@ -48,13 +48,56 @@ fn question_kinds_are_stable() {
     assert_eq!(noul("x").kind(), "noul");
     assert_eq!(
         DecisionQuestion::Choice {
-            description: "x".into(),
-            options: vec!["a".into()]
+            instructions: "x".into(),
+            options: vec![ChoiceOption::new("a", "the first option")]
         }
         .kind(),
         "choice"
     );
     assert_eq!(score5("x").kind(), "score");
+}
+
+/// The `score` ladder is rubric content, not a level count (issue #808): the
+/// provider conditions its distribution on the labels and echoes them back in
+/// `legend`, so the canonical five levels are one named constant.
+#[test]
+fn score5_seeds_the_canonical_ladder() {
+    assert_eq!(
+        SCORE5_LADDER,
+        ["wrong", "poor", "fair", "good", "exact"],
+        "the canonical ladder is part of the rubric"
+    );
+    let question = score5("How accurate is the metadata?");
+    assert_eq!(
+        question.score_ladder(),
+        Some(SCORE5_LADDER.map(str::to_owned).as_slice())
+    );
+    assert_eq!(question.instructions(), "How accurate is the metadata?");
+    // The other kinds carry no ladder.
+    assert_eq!(noul("x").score_ladder(), None);
+}
+
+/// A `score` question below [`SCORE_MIN_LEVELS`] is not a scale and cannot be
+/// constructed — the adapter would reject it anyway, but the domain should not
+/// let it exist.
+#[test]
+fn a_score_question_needs_at_least_two_levels() {
+    assert!(score("x", vec!["only".into()]).is_none());
+    assert!(score("x", Vec::new()).is_none());
+    let question = score("x", vec!["bad".into(), "good".into()]).expect("a two-level ladder");
+    assert_eq!(question.score_ladder().map(<[String]>::len), Some(2));
+}
+
+/// One `choice` option is a stable key plus the description the model reads
+/// (issue #808) — the answer's distribution is keyed by the former.
+#[test]
+fn choice_options_carry_a_key_and_a_description() {
+    let option = ChoiceOption::new("continue_previous", "keep the prior look");
+    assert_eq!(option.name, "continue_previous");
+    assert_eq!(option.description, "keep the prior look");
+    let json = serde_json::to_value(&option).expect("an option serializes");
+    assert_eq!(json["name"], "continue_previous");
+    assert_eq!(json["description"], "keep the prior look");
 }
 
 #[test]

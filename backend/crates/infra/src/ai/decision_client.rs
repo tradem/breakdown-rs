@@ -2,7 +2,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
-//! Decision API adapter (issue #722, design D2).
+//! Decision API adapter (issue #722, design D2; wire contract corrected by
+//! issue #808).
 //!
 //! Routes the [`DecisionClient`] port to the curated providers' Decision
 //! endpoints:
@@ -15,13 +16,78 @@
 //! same-origin redirects and a descriptive `User-Agent` — enforced by
 //! [`build_hosted_client_with_user_agent`], the same builder the chat
 //! adapters use. The request body carries no secrets beyond the bearer key.
+//!
+//! # The System One wire contract (probed live against EURouter, 2026-11-03)
+//!
+//! The route is only half the contract (issue #803 fixed the URL); the bodies
+//! in **both** directions are the other half, and they were wrong (issue #808:
+//! every scoring call answered `400 Invalid request`, so a configured Decision
+//! Model scored nothing).
+//!
+//! **Request** — `POST /api/v1/systemone`, bearer key, one body for the whole
+//! rubric:
+//!
+//! ```json
+//! {"model": "clef-flash",
+//!  "state": { … free-form evaluation payload … },
+//!  "questions": {
+//!    "q": {"type": "noul",   "instructions": "…"},
+//!    "r": {"type": "score",  "instructions": "…",
+//!          "criteria": ["wrong", "poor", "fair", "good", "exact"]},
+//!    "s": {"type": "choice", "instructions": "…",
+//!          "criteria": {"costume": "…", "props": "…"}}}}
+//! ```
+//!
+//! Every question carries **`instructions`** (the text the model evaluates);
+//! `score` and `choice` additionally carry **`criteria`** — the label ladder
+//! (array) and the option map (name → description). The surface is validated as
+//! a strict discriminated union: a question with the former `description`,
+//! `options` or `levels` fields (and without `instructions`) is rejected with
+//! `400 {"error":{"code":400,"message":"Invalid request","details":[{"path":
+//! "questions.q.instructions","message":"Invalid input","code":
+//! "invalid_union"}]}}` — and **one** bad question rejects the whole body, so a
+//! wrong shape fails every chunk deterministically. `noul` accepts an optional
+//! `criteria` record of `true`/`false` keys; nothing else in that record is
+//! accepted, so we send none.
+//!
+//! **Response** — an envelope of per-question answers plus usage:
+//!
+//! ```json
+//! {"answers": {
+//!    "q": {"type": "noul",   "noul": 0.461},
+//!    "r": {"type": "score",  "score": 3.2361,
+//!          "legend": {"0": "wrong", …, "4": "exact"},
+//!          "probabilities": {"0": 0.0149, …, "4": 0.5432},
+//!          "confidence": 0.5432},
+//!    "s": {"type": "choice", "choice": "props",
+//!          "probabilities": {"costume": 0.2751, "props": 0.7249},
+//!          "confidence": 0.7249}},
+//!  "usage": {"input_tokens": 157, "output_tokens": 0, "cost": 0.0000…,
+//!            "cost_currency": "EUR"}}
+//! ```
+//!
+//! `score` is the **scalar mean** over the ladder and `choice` the **winning
+//! label**; the mass rides under `probabilities` (level index → probability for
+//! `score`, option name → probability for `choice`), and `legend` echoes the
+//! ladder that was sent. The internal [`DecisionAnswer`] is the normalized
+//! shape, so this adapter is where the mapping happens — and where a
+//! contradiction (a `legend` that is not the sent ladder, a distribution that
+//! does not sum to 1.0, a winning label outside its own map) is a hard error
+//! rather than a silent mis-scaling.
+//!
+//! The providers are documented as proxying one System One surface, but only
+//! EURouter has been probed live (the credential available on 2026-11-03);
+//! Neuralwatt and OpenRouter are **not** verified against these bodies, which is
+//! why the opt-in live smoke test (`decision_client_tests.rs`, `#[ignore]`,
+//! `DECISION_LIVE_KEY`) is the artifact that detects a provider-side schema
+//! change.
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 use breakdown_core::ai::{
     DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion, DecisionRequest,
-    LlmCallUsage, LlmProvider,
+    LlmCallUsage, LlmProvider, SCORE_MIN_LEVELS,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
@@ -54,6 +120,9 @@ pub fn decision_endpoint(provider: LlmProvider) -> Option<&'static str> {
         // key (route exists) while `/api/v1/decisions`, `/v1/decisions`,
         // `/api/decisions` and the `/decisions/evaluate` variants all answer
         // 404.
+        //
+        // The URL alone is NOT the contract — see the module docs: reachability
+        // was fixed by issue #803, the request/response bodies by issue #808.
         LlmProvider::EURouter => Some("https://api.eurouter.ai/api/v1/systemone"),
         // OpenRouter's Decisions API lives on the `/api/alpha` surface.
         LlmProvider::OpenRouter => Some("https://openrouter.ai/api/alpha/decisions"),
@@ -67,6 +136,17 @@ pub fn decision_endpoint(provider: LlmProvider) -> Option<&'static str> {
 /// cannot hold the worker's permit for the whole request timeout.
 const MAX_ERROR_DETAIL_BYTES: usize = 1024;
 
+/// Tolerance of the `score` distribution sum check. A provider that reports
+/// five 4-decimal probabilities can miss 1.0 by ≤ 0.00025; anything beyond a few
+/// percent is not rounding but a different scale (a logit, a percentage, a
+/// truncated map), and silently re-normalizing it would mis-scale every score
+/// the rubric blends.
+const PROBABILITY_SUM_TOLERANCE: f32 = 0.02;
+
+/// Tolerance of the scalar-mean band check (see
+/// [`score_answers_agree_with_the_distribution`]).
+const MEAN_BAND_TOLERANCE: f32 = 0.01;
+
 /// One wire answer of the Decision API. All three curated gateways normalize
 /// on the same envelope (mirroring the chat adapters' normalization): a named
 /// map of per-question probability payloads plus a usage object.
@@ -78,17 +158,34 @@ struct DecisionWireResponse {
     usage: Option<DecisionWireUsage>,
 }
 
+/// One answer as the System One surface returns it (probe of 2026-11-03, see
+/// the module docs). `noul` is the probability itself; `score` and `choice`
+/// each carry their mass under `probabilities`.
 #[derive(Debug, Deserialize)]
 struct DecisionWireAnswer {
-    /// `noul` calibrated yes/no probability.
+    /// The answer's own type discriminator — cross-checked against the
+    /// question that was asked when the provider sends it.
+    #[serde(rename = "type", default)]
+    kind: Option<String>,
+    /// `noul`: calibrated yes/no probability.
     #[serde(default)]
     noul: Option<f32>,
-    /// `choice` categorical distribution.
+    /// `score`: the scalar mean over the ladder. The scoring formulas need the
+    /// distribution, so the mean is only used to prove the provider scaled its
+    /// ladder the way we did — it never reaches [`DecisionAnswer`].
     #[serde(default)]
-    choice: Option<BTreeMap<String, f32>>,
-    /// `score` ordinal distribution, index 0 = worst level.
+    score: Option<f32>,
+    /// `score`: the ladder the provider actually used, level index → label.
+    /// Must agree with the `criteria` we sent.
     #[serde(default)]
-    score: Option<Vec<f32>>,
+    legend: Option<BTreeMap<String, String>>,
+    /// `score` / `choice`: the probability mass, level index → probability /
+    /// option name → probability.
+    #[serde(default)]
+    probabilities: Option<BTreeMap<String, f32>>,
+    /// `choice`: the single winning option name.
+    #[serde(default)]
+    choice: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -99,6 +196,308 @@ struct DecisionWireUsage {
     /// (Neuralwatt); absent → 0, never a fabricated value.
     #[serde(default)]
     millijoules: u64,
+}
+
+/// Reject `value` unless it is a usable probability.
+fn checked_probability(name: &str, key: &str, value: f32) -> Result<f32, DomainError> {
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return Err(DomainError::validation(format!(
+            "decision answer `{name}`: probability `{key}` is {value}, not a value in 0.0..=1.0"
+        )));
+    }
+    Ok(value)
+}
+
+/// Parse a wire map that is keyed by a numeric index and return its values in
+/// index order, rejecting anything that is not a contiguous `0..n` ladder.
+fn ordered_by_index<T>(
+    name: &str,
+    label: &str,
+    map: &BTreeMap<String, T>,
+) -> Result<Vec<T>, DomainError>
+where
+    T: Clone,
+{
+    if map.is_empty() {
+        return Err(DomainError::validation(format!(
+            "decision answer `{name}`: {label} is empty"
+        )));
+    }
+    let mut ordered: Vec<(usize, T)> = Vec::with_capacity(map.len());
+    for (key, value) in map {
+        let index: usize = key.trim().parse().map_err(|_| {
+            DomainError::validation(format!(
+                "decision answer `{name}`: {label} key `{key}` is not a level index"
+            ))
+        })?;
+        ordered.push((index, value.clone()));
+    }
+    ordered.sort_by_key(|(index, _)| *index);
+    for (position, (index, _)) in ordered.iter().enumerate() {
+        if *index != position {
+            return Err(DomainError::validation(format!(
+                "decision answer `{name}`: {label} indices are not contiguous from 0 \
+                 (found index {index} at position {position})"
+            )));
+        }
+    }
+    Ok(ordered.into_iter().map(|(_, value)| value).collect())
+}
+
+/// Cross-check the scalar `score` mean against the distribution it summarises.
+///
+/// The formulas blend the **mass**, so the mean is never consumed — but a mean
+/// outside the level axis (`0..=levels-1`) means the provider scaled its ladder
+/// differently than the legend says (1-based labels over a 5-level ladder, a
+/// percentage, a logit), and ignoring that would mis-scale every score.
+fn score_answers_agree_with_the_distribution(
+    name: &str,
+    mean: f32,
+    distribution: &[f32],
+) -> Result<(), DomainError> {
+    let top = distribution.len().saturating_sub(1) as f32;
+    if !mean.is_finite() || mean < -MEAN_BAND_TOLERANCE || mean > top + MEAN_BAND_TOLERANCE {
+        return Err(DomainError::validation(format!(
+            "decision answer `{name}`: score mean {mean} lies outside the level axis 0..={top} \
+             of its own {}-level distribution",
+            distribution.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Normalize a `score` answer into the ordinal distribution [`DecisionAnswer`]
+/// carries.
+///
+/// The mass is ordered by **numeric level index** (never by map order), the
+/// provider's `legend` must be the ladder we sent, and the distribution must
+/// sum to ~1.0 — a silent mis-scaling is worse than a failed pass.
+fn score_distribution(
+    name: &str,
+    answer: &DecisionWireAnswer,
+    ladder: &[String],
+) -> Result<Vec<f32>, DomainError> {
+    let probabilities = answer.probabilities.as_ref().ok_or_else(|| {
+        DomainError::validation(format!(
+            "decision answer `{name}`: a `score` answer carries no probabilities map \
+             (the provider's score is the scalar mean; the mass rides under `probabilities`)"
+        ))
+    })?;
+    let mut distribution = ordered_by_index(name, "probabilities", probabilities)?;
+    for (index, probability) in distribution.iter_mut().enumerate() {
+        *probability = checked_probability(name, &index.to_string(), *probability)?;
+    }
+    match answer.legend.as_ref() {
+        Some(legend) => {
+            let labels = ordered_by_index(name, "legend", legend)?;
+            let matches = labels.len() == ladder.len()
+                && labels
+                    .iter()
+                    .zip(ladder)
+                    .all(|(got, want)| got.trim().eq_ignore_ascii_case(want.trim()));
+            if !matches {
+                return Err(DomainError::validation(format!(
+                    "decision answer `{name}`: the provider's legend {labels:?} contradicts the \
+                     ladder that was sent {ladder:?}"
+                )));
+            }
+        }
+        // Without a legend the distribution length is the only evidence that
+        // the provider used the same ladder.
+        None => {
+            if distribution.len() != ladder.len() {
+                return Err(DomainError::validation(format!(
+                    "decision answer `{name}`: {} probabilities for a {}-level ladder and no \
+                     legend to explain the difference",
+                    distribution.len(),
+                    ladder.len()
+                )));
+            }
+        }
+    }
+    let total: f32 = distribution.iter().sum();
+    if (total - 1.0).abs() > PROBABILITY_SUM_TOLERANCE {
+        return Err(DomainError::validation(format!(
+            "decision answer `{name}`: probabilities sum to {total}, not 1.0 \
+             (±{PROBABILITY_SUM_TOLERANCE})"
+        )));
+    }
+    if let Some(mean) = answer.score {
+        score_answers_agree_with_the_distribution(name, mean, &distribution)?;
+    }
+    Ok(distribution)
+}
+
+/// Normalize a `choice` answer into the option distribution [`DecisionAnswer`]
+/// carries.
+///
+/// The map keys are the option names the question's `criteria` declared — which
+/// is exactly the key set `continuity::resolve_continuity_outcome` reads. The
+/// winning `choice` label is a consistency check, not the answer: a label
+/// outside its own `probabilities` map is a hard error.
+fn choice_distribution(
+    name: &str,
+    answer: &DecisionWireAnswer,
+) -> Result<BTreeMap<String, f32>, DomainError> {
+    let probabilities = answer
+        .probabilities
+        .as_ref()
+        .filter(|map| !map.is_empty())
+        .ok_or_else(|| {
+            DomainError::validation(format!(
+                "decision answer `{name}`: a `choice` answer carries no probabilities map \
+                 (the provider's choice is the winning label; the mass rides under \
+                 `probabilities`)"
+            ))
+        })?;
+    let mut distribution = BTreeMap::new();
+    for (option, probability) in probabilities {
+        if option.trim().is_empty() {
+            return Err(DomainError::validation(format!(
+                "decision answer `{name}`: probabilities carry a blank option name"
+            )));
+        }
+        distribution.insert(
+            option.clone(),
+            checked_probability(name, option, *probability)?,
+        );
+    }
+    if let Some(winner) = answer.choice.as_ref()
+        && !distribution.contains_key(winner)
+    {
+        return Err(DomainError::validation(format!(
+            "decision answer `{name}`: the winning label `{winner}` is not a key of its own \
+             probabilities map {:?}",
+            distribution.keys().collect::<Vec<_>>()
+        )));
+    }
+    Ok(distribution)
+}
+
+/// Map the provider's per-question answers onto the normalized
+/// [`DecisionAnswer`] the scoring pass consumes.
+///
+/// Unknown question names are skipped (the scoring formulas treat a missing
+/// answer as the honest `None` degradation). A known question whose answer
+/// contradicts the question it was asked for is an error: a wrong-contract
+/// response must not be silently reinterpreted.
+fn normalize_answers(
+    questions: &BTreeMap<String, DecisionQuestion>,
+    wire_answers: BTreeMap<String, DecisionWireAnswer>,
+) -> Result<BTreeMap<String, DecisionAnswer>, DomainError> {
+    let mut answers = BTreeMap::new();
+    for (name, wire_answer) in wire_answers {
+        let Some(question) = questions.get(&name) else {
+            continue;
+        };
+        if let Some(kind) = wire_answer.kind.as_deref()
+            && !kind.eq_ignore_ascii_case(question.kind())
+        {
+            return Err(DomainError::validation(format!(
+                "decision answer `{name}`: the provider answered a `{kind}` question where a \
+                 `{}` question was asked",
+                question.kind()
+            )));
+        }
+        let answer = match question {
+            DecisionQuestion::Noul { .. } => DecisionAnswer {
+                noul: wire_answer.noul,
+                ..DecisionAnswer::default()
+            },
+            DecisionQuestion::Choice { .. } => DecisionAnswer {
+                choice: Some(choice_distribution(&name, &wire_answer)?),
+                ..DecisionAnswer::default()
+            },
+            DecisionQuestion::Score { ladder, .. } => DecisionAnswer {
+                score: Some(score_distribution(&name, &wire_answer, ladder)?),
+                ..DecisionAnswer::default()
+            },
+        };
+        answers.insert(name, answer);
+    }
+    Ok(answers)
+}
+
+/// Build the provider wire form of one question (see the module docs for the
+/// live request shape).
+///
+/// This is the **only** place a question becomes a provider payload, so the
+/// checked-in goldens under `testdata/decision_wire/` pin the contract that a
+/// wrong field silently broke (issue #808). Both directions of the union are
+/// validated here rather than at the provider: a blank instruction, a ladder of
+/// one level or a duplicated option name would otherwise be answered with an
+/// opaque `400 Invalid request` that names none of our code.
+fn question_payload(question: &DecisionQuestion) -> Result<Value, DomainError> {
+    let instructions = question.instructions().trim();
+    if instructions.is_empty() {
+        return Err(DomainError::validation(format!(
+            "decision question `{}` has no instructions",
+            question.kind()
+        )));
+    }
+    match question {
+        DecisionQuestion::Noul { .. } => Ok(json!({
+            "type": "noul",
+            "instructions": instructions,
+        })),
+        DecisionQuestion::Choice { options, .. } => {
+            if options.is_empty() {
+                return Err(DomainError::validation(
+                    "a `choice` decision question needs at least one option",
+                ));
+            }
+            let mut criteria = BTreeMap::new();
+            for option in options {
+                let name = option.name.trim();
+                let description = option.description.trim();
+                if name.is_empty() || description.is_empty() {
+                    return Err(DomainError::validation(
+                        "a `choice` decision option needs a non-blank name and description",
+                    ));
+                }
+                if criteria.insert(name, description).is_some() {
+                    return Err(DomainError::validation(format!(
+                        "decision option `{name}` is declared twice in one `choice` question"
+                    )));
+                }
+            }
+            Ok(json!({
+                "type": "choice",
+                "instructions": instructions,
+                "criteria": criteria,
+            }))
+        }
+        DecisionQuestion::Score { ladder, .. } => {
+            if ladder.len() < SCORE_MIN_LEVELS {
+                return Err(DomainError::validation(format!(
+                    "a `score` decision question needs at least {SCORE_MIN_LEVELS} levels, got {}",
+                    ladder.len()
+                )));
+            }
+            let mut seen: Vec<String> = Vec::with_capacity(ladder.len());
+            for label in ladder {
+                let label = label.trim();
+                if label.is_empty() {
+                    return Err(DomainError::validation(
+                        "a `score` decision ladder carries a blank level label",
+                    ));
+                }
+                let normalized = label.to_lowercase();
+                if seen.contains(&normalized) {
+                    return Err(DomainError::validation(format!(
+                        "decision ladder label `{label}` is declared twice — the answer's legend \
+                         could not be matched unambiguously"
+                    )));
+                }
+                seen.push(normalized);
+            }
+            Ok(json!({
+                "type": "score",
+                "instructions": instructions,
+                "criteria": ladder,
+            }))
+        }
+    }
 }
 
 /// HTTP adapter implementing [`DecisionClient`] over one provider's Decision
@@ -189,6 +588,12 @@ impl HttpDecisionClient {
             timeout,
         })
     }
+
+    /// The endpoint this client posts to (production: [`decision_endpoint`]).
+    #[must_use]
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
 }
 
 #[async_trait]
@@ -199,36 +604,17 @@ impl DecisionClient for HttpDecisionClient {
                 "decision request provider does not match the configured client provider",
             ));
         }
-        // One single-pass request: the whole rubric rides in one body.
+        // One single-pass request: the whole rubric rides in one body, and the
+        // provider rejects the WHOLE body if one question is malformed — which
+        // is why a question is validated here instead of being smuggled through
+        // as free-form JSON.
         let questions: BTreeMap<&str, Value> = req
             .questions
             .iter()
             .map(|(name, question)| {
-                let payload = match question {
-                    DecisionQuestion::Noul { description } => json!({
-                        "type": "noul",
-                        "description": description,
-                    }),
-                    DecisionQuestion::Choice {
-                        description,
-                        options,
-                    } => json!({
-                        "type": "choice",
-                        "description": description,
-                        "options": options,
-                    }),
-                    DecisionQuestion::Score {
-                        description,
-                        levels,
-                    } => json!({
-                        "type": "score",
-                        "description": description,
-                        "levels": levels,
-                    }),
-                };
-                (name.as_str(), payload)
+                question_payload(question).map(|payload| (name.as_str(), payload))
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
         let body = json!({
             "model": req.model,
             "state": req.state,
@@ -273,23 +659,12 @@ impl DecisionClient for HttpDecisionClient {
             .map_err(|error| {
                 DomainError::validation(format!("invalid decision response: {error}"))
             })?;
-        // Unknown/missing question names are skipped — the scoring formulas
-        // treat a missing answer as the honest `None` degradation.
-        let mut answers = BTreeMap::new();
-        for (name, wire_answer) in wire.answers {
-            if !req.questions.contains_key(&name) {
-                continue;
-            }
-            answers.insert(
-                name,
-                DecisionAnswer {
-                    noul: wire_answer.noul,
-                    choice: wire_answer.choice,
-                    score: wire_answer.score,
-                },
-            );
-        }
-        let usage = wire.usage.unwrap_or_default();
+        let DecisionWireResponse {
+            answers: wire_answers,
+            usage,
+        } = wire;
+        let answers = normalize_answers(&req.questions, wire_answers)?;
+        let usage = usage.unwrap_or_default();
         // A decision model emits zero completion tokens by construction.
         Ok(DecisionCallOutcome {
             answers,

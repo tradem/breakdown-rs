@@ -1,0 +1,13 @@
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid request",
+    "details": [
+      {
+        "path": "questions.q.instructions",
+        "message": "Invalid input",
+        "code": "invalid_union"
+      }
+    ]
+  }
+}
