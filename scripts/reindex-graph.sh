@@ -27,10 +27,14 @@
 #   CODEBASE_MEMORY_SKIP_AUTOINDEX=1  make the hooks a no-op
 #
 # Notes:
-#   * Lock file and log live inside the git directory
+#   * Lock and log live inside the git directory
 #     (`<git-common-dir>/codebase-memory/`) so they can never pollute the
 #     worktree or land in a commit.
-#   * A held lock means another reindex is running; we skip instead of racing.
+#   * The INDEX is per worktree (`.codebase-memory/` in each checkout), so the
+#     lock is per worktree too — otherwise one linked worktree's background
+#     refresh would silently block another's. A busy lock therefore means a
+#     concurrent run for THIS worktree; `--lock-wait` (default 120 s) waits for
+#     it instead of dropping the refresh on the floor.
 
 set -uo pipefail
 
@@ -46,8 +50,12 @@ case "$GIT_COMMON" in
     *) GIT_COMMON="$ROOT/$GIT_COMMON" ;;
 esac
 STATE_DIR="$GIT_COMMON/codebase-memory"
-LOCK="$STATE_DIR/reindex.lock"
+# One lock per worktree: the index the lock protects lives in the worktree.
+# `cksum` is POSIX and always available (a hash tool may not be).
+WORKTREE_KEY=$(printf '%s' "$ROOT" | cksum | tr ' ' '-')
+LOCK="$STATE_DIR/locks/$WORKTREE_KEY.lock"
 LOG="$STATE_DIR/reindex.log"
+LOCK_WAIT=120
 
 MODE="full"
 IF_STALE=0
@@ -58,6 +66,12 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --if-stale) IF_STALE=1 ;;
         --background) BACKGROUND=1 ;;
+        --lock-wait)
+            shift
+            [ $# -gt 0 ] || { echo "reindex-graph.sh: --lock-wait needs a value" >&2; exit 64; }
+            LOCK_WAIT=$1
+            ;;
+        --lock-wait=*) LOCK_WAIT=${1#--lock-wait=} ;;
         --mode)
             shift
             [ $# -gt 0 ] || { echo "reindex-graph.sh: --mode needs a value" >&2; exit 64; }
@@ -66,7 +80,7 @@ while [ $# -gt 0 ]; do
         --mode=*) MODE=${1#--mode=} ;;
         --no-persistence) PERSISTENCE="false" ;;
         -h | --help)
-            sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -86,10 +100,15 @@ case "$MODE" in
         ;;
 esac
 
-if [ ! -e "$LOCK" ] || [ ! -d "$LOCK" ]; then
-    mkdir -p "$STATE_DIR"
-    : > "$LOCK"
-fi
+case "$LOCK_WAIT" in
+    '' | *[!0-9]*)
+        echo "reindex-graph.sh: --lock-wait must be a whole number of seconds" >&2
+        exit 64
+        ;;
+esac
+
+# State dir must exist before the first `>>"$LOG"` and before the lock is opened.
+mkdir -p "$(dirname "$LOCK")" || exit 73
 
 run_index() {
     local -a cmd=("$BIN" cli --quiet index_repository --repo-path "$ROOT" --mode "$MODE" --persistence "$PERSISTENCE")
@@ -134,10 +153,18 @@ if [ "$IF_STALE" -eq 1 ]; then
 fi
 
 exec 9>"$LOCK"
-if ! flock -n 9; then
-    echo "another reindex is already running ($LOCK held) — skipping." >&2
-    echo "[$(date -Is)] reindex-graph: lock busy, skipped" >>"$LOG"
-    exit 0
+# `flock` may be missing (busybox, some macOS setups). Without it a concurrent
+# run cannot be detected, which is better than reporting "another reindex is
+# running" forever and silently never refreshing.
+if command -v flock >/dev/null 2>&1; then
+    if ! flock -w "$LOCK_WAIT" 9; then
+        echo "another reindex for this worktree still holds the lock after ${LOCK_WAIT}s — skipping." >&2
+        echo "[$(date -Is)] reindex-graph: lock busy after ${LOCK_WAIT}s, skipped" >>"$LOG"
+        exit 0
+    fi
+else
+    echo "reindex-graph.sh: 'flock' not found — running without a lock (concurrent runs may race)." >&2
+    echo "[$(date -Is)] reindex-graph: flock missing, running unlocked" >>"$LOG"
 fi
 
 echo "reindexing knowledge graph ($MODE) — this can take a few minutes…"

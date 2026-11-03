@@ -4,15 +4,21 @@
 # Co-authored-by: deepseek-v4.1-flash (opencode-go)
 #
 # check-graph-freshness.sh — report how far the local codebase-memory graph
-# index lags behind HEAD.
+# index lags behind the working tree.
 #
-# Why this exists: `.codebase-memory/` is gitignored and machine-local, so the
+# Two independent staleness signals, because the indexer reads the working tree
+# (not a commit):
+#   1. the commit recorded in artifact.json vs HEAD
+#   2. uncommitted/untracked code files with an mtime newer than `indexed_at`
+#
+# Why this matters: `.codebase-memory/` is gitignored and machine-local, so the
 # knowledge-graph index is NOT covered by CI and cannot be. It silently rots
 # between explicit reindexes (`index_status` reports `watch: watched=false` for
-# sessions launched below the monorepo root). A stale index answers "no such
-# symbol" for code that exists on disk, which is exactly how an agent learns to
-# distrust the graph and fall back to grep. This script makes the staleness
-# visible before it costs a lookup.
+# sessions launched below the monorepo root, and auto-sync only follows the MCP
+# session's own project). A stale index answers "no such symbol" for code that
+# exists on disk, which is exactly how an agent learns to distrust the graph and
+# fall back to grep. This script makes the staleness visible before it costs a
+# lookup.
 #
 # Usage:
 #   scripts/check-graph-freshness.sh              # human-readable report
@@ -42,7 +48,7 @@ for arg in "$@"; do
         --quiet) MODE="quiet" ;;
         --assert) MODE="assert" ;;
         -h | --help)
-            sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -55,7 +61,7 @@ done
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ARTIFACT=${CODEBASE_MEMORY_ARTIFACT:-"$ROOT/.codebase-memory/artifact.json"}
-CODE_EXTS=${GRAPH_FRESHNESS_CODE_EXTS:-"dart rs sql py kt hcl"}
+CODE_EXTS=${GRAPH_FRESHNESS_CODE_EXTS:-"dart rs sql py kt hcl sh"}
 CODE_REGEX="\\.("$(printf '%s' "$CODE_EXTS" | tr ' ' '|')")$"
 
 emit() {
@@ -93,9 +99,73 @@ if [ -z "$HEAD_COMMIT" ]; then
     exit 0
 fi
 
+# Freshness is checked against two things, because the indexer reads the
+# WORKING TREE, not a commit:
+#   1. the commit recorded in artifact.json vs HEAD
+#   2. uncommitted/untracked code files that are newer than the recorded
+#      `indexed_at` timestamp
+# Without (2) a dirty worktree reports FRESH and `reindex-graph.sh --if-stale`
+# skips — so a symbol the author just added stays invisible to the graph.
+
+# Newest mtime (epoch seconds) among the given paths, or empty.
+newest_mtime() {
+    local newest=0
+    local f m
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        [ -f "$f" ] || continue
+        # GNU stat first, BSD/macOS fallback.
+        m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+        [ "${m:-0}" -gt "$newest" ] && newest=$m
+    done
+    printf '%s\n' "$newest"
+}
+
+# Code files touched in the working tree (`git status --porcelain`), one path
+# per line. Renames are reduced to the new path.
+working_tree_code() {
+    git -C "$ROOT" status --porcelain --untracked-files=all 2>/dev/null \
+        | sed -e 's/^...//' -e 's/^.* -> //' -e 's/^"//' -e 's/"$//' \
+        | grep -E "$CODE_REGEX" || true
+}
+
+INDEXED_EPOCH=""
+if [ -n "$INDEXED_AT" ]; then
+    INDEXED_EPOCH=$(date -u -d "$INDEXED_AT" +%s 2>/dev/null || echo "")
+fi
+
+DIRTY_CODE=$(working_tree_code)
+DIRTY_CODE_COUNT=$(printf '%s\n' "$DIRTY_CODE" | grep -c . || true)
+NEWEST_DIRTY=0
+if [ "${DIRTY_CODE_COUNT:-0}" -gt 0 ]; then
+    NEWEST_DIRTY=$(printf '%s\n' "$DIRTY_CODE" | newest_mtime)
+fi
+
+# A dirty code file newer than the index means the graph predates it. When the
+# timestamp cannot be parsed, treat any dirty code file as stale (conservative).
+DIRTY_STALE=0
+if [ "${DIRTY_CODE_COUNT:-0}" -gt 0 ]; then
+    if [ -z "$INDEXED_EPOCH" ] || [ "${NEWEST_DIRTY:-0}" -gt "${INDEXED_EPOCH:-0}" ]; then
+        DIRTY_STALE=1
+    fi
+fi
+
 if [ "$INDEXED_COMMIT" = "$HEAD_COMMIT" ]; then
     emit "graph index: commit ${INDEXED_COMMIT:0:7} ($INDEXED_AT)"
     emit "HEAD:        ${HEAD_COMMIT:0:7}"
+    if [ "$DIRTY_STALE" -eq 1 ]; then
+        emit "worktree:    ${DIRTY_CODE_COUNT} uncommitted code file(s) newer than the index"
+        if [ "$MODE" != "quiet" ]; then
+            printf '%s\n' "$DIRTY_CODE" | sed 's/^/  /' | head -n 8
+            if [ "$DIRTY_CODE_COUNT" -gt 8 ]; then
+                echo "  … and $((DIRTY_CODE_COUNT - 8)) more"
+            fi
+        fi
+        emit "status:      STALE — the index predates an uncommitted change;"
+        emit "             run scripts/reindex-graph.sh (or 'index_repository' from a session)"
+        [ "$MODE" = "report" ] && exit 0
+        exit 1
+    fi
     emit "status:      FRESH"
     exit 0
 fi

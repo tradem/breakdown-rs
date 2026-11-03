@@ -41,10 +41,13 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
 >
 > The index is **machine-local and gitignored**, so CI cannot keep it fresh:
 > run `scripts/check-graph-freshness.sh` when a lookup comes back suspiciously
-> empty, then `scripts/reindex-graph.sh --if-stale`. The `post-merge` /
-> `post-checkout` git hooks in `backend/git-hooks/` already refresh it in the
-> background (`CODEBASE_MEMORY_SKIP_AUTOINDEX=1` opts out). An empty graph
-> result for code you can see on disk means *stale index*, not *broken tool*.
+> empty, then `scripts/reindex-graph.sh --if-stale`. The `post-merge`,
+> `post-checkout` and `post-rewrite` hooks in `backend/git-hooks/` refresh it in
+> the background **once activated per clone** — run
+> `scripts/install-git-hooks.sh` or set `core.hooksPath=backend/git-hooks`;
+> `CODEBASE_MEMORY_SKIP_AUTOINDEX=1` opts out. An empty graph result for code
+> you can see on disk means *stale index*, not *broken tool* — except under
+> `vendor/breakdown_api/`, which the indexer prunes by design.
 
 ---
 

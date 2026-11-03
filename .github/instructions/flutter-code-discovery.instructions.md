@@ -23,7 +23,11 @@ The indexed project is **`breakdown-rs`** (root: the monorepo root, *not*
 `frontend-flutter/`). Measured coverage of the Dart tree:
 
 - ~500 Dart files indexed (≈3.7k methods, ≈1.5k classes, ≈6.5k call edges).
-- `frontend-flutter/vendor/breakdown_api/**` is **not** indexed (gitignored) —
+- `frontend-flutter/vendor/breakdown_api/**` is **not** indexed. It is *tracked*
+  (395 committed files, the OpenAPI drift gate depends on them), but the indexer
+  prunes `vendor` by default — `index_status` lists `frontend-flutter/vendor`
+  under `excluded.dirs`. Read those files directly; no reindex will ever return
+  their symbols.
   the generated OpenAPI client never pollutes a lookup. Good.
 - `**.g.dart` (Drift/Riverpod/freezed/json_serializable output) **is** indexed
   because it is committed — roughly a fifth of the Flutter nodes live there.
@@ -63,19 +67,33 @@ never keep it fresh** and `index_status` may report `watch: watched=false`
 monorepo root).
 
 ```bash
-scripts/check-graph-freshness.sh          # report: fresh / N commits behind
-scripts/reindex-graph.sh --if-stale       # refresh only when HEAD moved
-scripts/reindex-graph.sh --mode moderate  # faster, filtered + semantic
+root=$(git rev-parse --show-toplevel)        # the scripts are monorepo-root assets
+bash "$root/scripts/check-graph-freshness.sh"       # report: fresh / stale / no index
+bash "$root/scripts/reindex-graph.sh" --if-stale    # refresh only when stale
+bash "$root/scripts/reindex-graph.sh" --mode moderate  # faster, filtered + semantic
 ```
 
-Git hooks `post-merge` / `post-checkout` (in `backend/git-hooks/`, active via
-`core.hooksPath`) already fire `reindex-graph.sh --if-stale --background`.
-Opt out with `CODEBASE_MEMORY_SKIP_AUTOINDEX=1`.
+"Stale" covers two cases: the index lags HEAD, **and** the working tree holds
+code files newer than the index (`indexed_at`). The second one matters because
+the indexer reads the working tree, not a commit — a symbol you just added is
+invisible until a reindex even though the commit matches.
+
+Git hooks `post-merge` / `post-checkout` / `post-rewrite` (in
+`backend/git-hooks/`) run `reindex-graph.sh --if-stale --background` only
+**after activation**, once per clone: either run
+`scripts/install-git-hooks.sh` (links them into the git hooks directory) or set
+`core.hooksPath` to `backend/git-hooks`. Without one of those, nothing refreshes
+the index automatically. Opt out with `CODEBASE_MEMORY_SKIP_AUTOINDEX=1`.
+
+`post-rewrite` exists because `post-merge` covers merges only: `git pull
+--rebase`, `git rebase` and `git commit --amend` move HEAD without running it.
 
 Rules of thumb:
 
 - An empty `search_graph` result for code you can see on disk means **stale
   index**, not "the tool is broken". Run the freshness check, then reindex.
+  Exception: `frontend-flutter/vendor/**` is never indexed (see §1) — read those
+  files instead of concluding the index is stale.
 - An `index_status` `status: failed`/`parse_partial` note is a coverage gap, not
   proof of absence. For a negative claim ("nothing calls X", "X does not
   exist"), confirm with `check_index_coverage` (pass every evidence path) and

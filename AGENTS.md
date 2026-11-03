@@ -21,7 +21,10 @@ its files), read its AGENTS.md **before** generating code:
 | `frontend-flutter/` | `frontend-flutter/AGENTS.md` | **not yet reworked** — comprehensive long-form file, authoritative as-is; candidate for the same core/instructions split as the backend |
 
 The Flutter file also documents its own ported pi skills (`.pi/skills/`) and the
-`design.md` ↔ `AGENTS.md` byte-identity contract with the OpenSpec change artifacts.
+area's on-demand rule file (`.github/instructions/flutter-code-discovery.instructions.md`).
+Its former `design.md` ↔ `AGENTS.md` byte-identity contract is retired: the
+`add-flutter-app-foundation` change is archived, so the on-disk `AGENTS.md` is
+the authoritative copy and is edited in place.
 
 ## 2. Cross-cutting rules
 - **License:** AGPL-3.0. SPDX headers and `Co-authored-by:` attribution lines apply
@@ -40,11 +43,13 @@ The Flutter file also documents its own ported pi skills (`.pi/skills/`) and the
   stays correct for string literals, problem codes, ARB keys and config values.
   The index is machine-local (`.codebase-memory/` is gitignored), so freshness is
   a local duty, never a CI gate: `scripts/check-graph-freshness.sh` to report,
-  `scripts/reindex-graph.sh [--if-stale]` to refresh; the `post-merge` /
-  `post-checkout` hooks (installed by `scripts/install-git-hooks.sh`, active via
-  `core.hooksPath=backend/git-hooks`) refresh it in the background. An empty
+  `scripts/reindex-graph.sh [--if-stale]` to refresh; the `post-merge`,
+  `post-checkout` and `post-rewrite` hooks (installed by
+  `scripts/install-git-hooks.sh`, or active via `core.hooksPath=backend/git-hooks`)
+  refresh it in the background. An empty
   graph result for code present on disk means *stale index* — reindex before
-  falling back to text search. Per-area how-to:
+  falling back to text search — except under `frontend-flutter/vendor/`, which
+  the indexer prunes by default. Per-area how-to:
   `.github/instructions/flutter-code-discovery.instructions.md` (frontend) and
   `backend/AGENTS.md` §6 (backend).
 

@@ -64,11 +64,14 @@ fi
 ### Step 2: Check for Drift
 
 **Freshness first** — the knowledge-graph index is machine-local and rots
-between refreshes; a stale index answers "no such symbol" for code that exists:
+between refreshes; a stale index answers "no such symbol" for code that exists.
+The scripts live at the monorepo root, so resolve it first (a session started in
+`frontend-flutter/` has no `scripts/` in its cwd):
 
 ```bash
-scripts/check-graph-freshness.sh          # from the monorepo root
-scripts/reindex-graph.sh --if-stale       # only when HEAD moved
+root=$(git rev-parse --show-toplevel)
+bash "$root/scripts/check-graph-freshness.sh"       # report: fresh / stale
+bash "$root/scripts/reindex-graph.sh" --if-stale    # only when the index lags
 ```
 
 ```bash
