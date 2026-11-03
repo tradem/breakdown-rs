@@ -111,6 +111,7 @@ descriptive goes to the instruction that scopes it** — backend-relative globs 
 | `.github/instructions/workflow-hardening.instructions.md` | `.github/workflows/**`, `.github/dependabot.yml` | SHA-pinning, Dependabot, script-injection hygiene |
 | `.github/instructions/local-dev-root.instructions.md` | root `scripts/**`, root `.env*` | Pointer to the local-dev-runtime documentation for root dev assets |
 | `backend/.github/instructions/build-performance.instructions.md` | `backend/Cargo.toml`, `backend/.cargo/**`, `backend/scripts/cc-linker.sh`, `backend/crates/api/{Cargo.toml,tests/**}` | Dev/test profiles, linker wrapper, integration-test harness layout, artifact/container cleanup recipe (issue #631) |
+| `.github/instructions/flutter-code-discovery.instructions.md` | `frontend-flutter/{lib,test,integration_test,tool}/**/*.dart`, `frontend-flutter/features-spec/**/*.feature` | Graph-first code discovery for the Flutter tree: tool precedence (knowledge graph vs ast-bro vs grep), index freshness (`scripts/check-graph-freshness.sh`, `scripts/reindex-graph.sh`), Dart coverage and its honest limits |
 
 Further references: `docs/security/security-architecture.md` (threat model),
 `docs/errors/` (problem codes, ADR-031), `backend/openapi.yaml` (API contract), ADRs.

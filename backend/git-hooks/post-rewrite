@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
+#
+# post-rewrite hook — refresh the local codebase-memory graph when commits are
+# rewritten ($1 is `amend` or `rebase`).
+#
+# Companion to post-merge and post-checkout: `git pull --rebase`, `git rebase`
+# and `git commit --amend` move HEAD without running either of those, so the
+# graph would stay at the pre-rewrite commit. `--if-stale` keeps it to a no-op
+# when the index already matches, and the refresh is fire-and-forget so it never
+# fails the rewrite.
+#
+# Install: scripts/install-git-hooks.sh
+# Opt out: CODEBASE_MEMORY_SKIP_AUTOINDEX=1
+
+set -uo pipefail
+
+[ "${CODEBASE_MEMORY_SKIP_AUTOINDEX:-0}" = "1" ] && exit 0
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+SCRIPT="$ROOT/scripts/reindex-graph.sh"
+[ -f "$SCRIPT" ] || exit 0
+
+bash "$SCRIPT" --if-stale --background >/dev/null 2>&1 || true
+exit 0
