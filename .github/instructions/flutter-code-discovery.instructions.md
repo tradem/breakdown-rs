@@ -36,6 +36,16 @@ The indexed project is **`breakdown-rs`** (root: the monorepo root, *not*
 
 ## 2. Tool precedence (no ambiguity, this is the rule)
 
+**Decide by the shape of the question, not by speed:** *text search answers
+whether a string OCCURS; code-aware search answers what the code DOES.* A
+definition, a call site, an import and a doc-comment mention are the same
+characters to `rg` — it cannot tell them apart, cannot report edge kinds and
+cannot report completeness. Text search is therefore the CORRECT tool for pure
+text (ARB keys, problem `code`s, config values, prose) and the WRONG one for
+meaning (who defines/uses X, what breaks). When a text search does hit a
+symbol-shaped token, `.pi/extensions/graph-first-nudge.ts` appends the
+code-aware answer to the same result — a soft advisory, never a block.
+
 | Question | Tool |
 |---|---|
 | "How does X work?", "what does this file contain?" | `get_code_snippet` / `get_file_outline`, else `analyze_ast_context` |
@@ -44,6 +54,7 @@ The indexed project is **`breakdown-rs`** (root: the monorepo root, *not*
 | "How does module A relate to B?", "architecture" | `get_architecture`, else `analyze_ast_graph` |
 | Non-trivial multi-hop aggregation | `query_graph` (Cypher) |
 | Projection-DTO ↔ screen wiring, "what did my branch touch" | `detect_changes` |
+| **"Who observes this Riverpod provider?"** (`ref.watch` is not a graph edge) | `scripts/who-watches.sh <provider>` — graph definition **and** the observer call sites in one call |
 | **String literal, error/problem `code`, ARB key, config value, CWG text, YAML** | `grep` / `rg` — the graph indexes symbols, not literals |
 | Generated output, `.g.dart`, `vendor/**` contents | `read`, never a graph claim |
 

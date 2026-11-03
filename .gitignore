@@ -1,3 +1,4 @@
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 # Environment variables
 .env
 .env.local
@@ -85,6 +86,11 @@ mutants.out*/
 
 # Agent/IDE configuration directories
 .pi/**
+# The graph-first discovery extension IS project knowledge, not machine-local
+# config: it teaches the code-vs-text rule at the moment of the decision and
+# must travel with the repo like the ported skills under frontend-flutter/.pi/.
+!.pi/extensions/
+!.pi/extensions/**
 backend/.pi/plugins/ast-bro/**
 
 # arc42 documentation build artifacts
