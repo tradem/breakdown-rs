@@ -140,9 +140,11 @@ graph links a handful of times, not 30+:
   `[[test]]` harnesses in `crates/api/Cargo.toml` (`autotests = false`). Add a
   case file as a `#[path]` module in the matching harness — never as a new
   top-level test target.
-- **Artifact/container hygiene:** after heavy local runs, `cargo sweep -t 30`
-  (or `cargo clean`), `docker container prune`, `docker volume prune`. On btrfs
-  the metadata chunk can exhaust long before data space; a periodic
+- **Artifact/container hygiene:** after heavy local runs,
+  `./scripts/reclaim-disk.sh` (report; `--apply` sweeps artifacts older than
+  30 days with `cargo sweep`), or `cargo clean` for the full reset, plus
+  `docker container prune` and `docker volume prune`. On btrfs the metadata
+  chunk can exhaust long before data space; a periodic
   `btrfs balance start -musage=50` (root) reclaims it.
 
 Full rationale and the cleanup runbook:

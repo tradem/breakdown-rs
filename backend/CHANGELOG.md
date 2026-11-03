@@ -26,6 +26,31 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/reclaim-disk.sh` — a reviewable disk-hygiene step for `target/` and
+  container leftovers (AGENTS.md §8 / issue #631).** `cargo` never garbage-collects
+  stale artifacts: on the reference machine `target/` had grown to **857 GB**
+  (`target/debug/deps` 322 GB, `target/debug/incremental` **534 GB** — one
+  incremental cache per crate/feature/test combination) on a 950 GB disk, and a
+  forgotten container (client killed mid-`cp`, writable layer never released) added
+  a further **601 GB** that `df` attributed to the Rust build. The script wraps
+  `cargo sweep` (local dev tool, `cargo install cargo-sweep --locked --version
+  0.8.0`, not a workspace dependency) and is **report-only by default**:
+  `--apply` sweeps artifacts older than 30 days (`-t N`, or `--maxsize 200GB` for
+  a hard ceiling), `--with-docker` additionally prunes stopped *containers* (never
+  volumes — the dev stack's data lives there), and any container with a writable
+  layer above 20 GB is flagged by name. `scripts/tests/reclaim-disk-test.sh`
+  guards the two invariants in CI (a new `disk-hygiene` job): nothing is deleted
+  without `--apply`, and a missing `cargo-sweep` is reported instead of silently
+  doing nothing. Review follow-ups hardened the helper: a relative
+  `CARGO_TARGET_DIR` is resolved once against the caller's directory (the sweep
+  runs in a `cd`-ed subshell), a failing `docker` query no longer aborts the
+  sweep, writable layers are parsed with fractional/TB units, the
+  `cargo sweep` exit status is propagated (a failed cleanup must not exit 0), and
+  the `--with-docker` recipe lines say they need `--apply` too. No crate changed,
+  so no version bump.
+
 ### Fixed
 
 - **A `business` dev data reset could silently destroy the preserved

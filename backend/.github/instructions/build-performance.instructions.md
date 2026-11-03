@@ -127,15 +127,43 @@ Reclaim (safe — a rebuild follows the profile change anyway):
 
 ```bash
 cd backend
-cargo clean                         # or: cargo sweep -t 30  (install cargo-sweep)
+./scripts/reclaim-disk.sh              # report only: target/, backups/, docker leftovers
+./scripts/reclaim-disk.sh --apply      # cargo sweep: delete artifacts older than 30 days
+./scripts/reclaim-disk.sh --apply -t 7 # ... older than a week (heavy iteration phase)
+./scripts/reclaim-disk.sh --apply --maxsize 200GB   # hard ceiling instead of an age window
+./scripts/reclaim-disk.sh --with-docker             # report + flag oversized containers
+./scripts/reclaim-disk.sh --apply --with-docker     # ... and prune stopped containers
+cargo clean                         # nuclear option: ALL artifacts, a full rebuild follows
 docker container prune
 docker volume prune                 # testcontainers leaves volumes after interrupted runs
 sudo btrfs balance start -musage=50 /   # root; reclaims metadata chunks (add -dusage=50 if data is fragmented too)
 ```
 
-`cargo clean` of a 1.3 TB `target/` removed ~125k files in ~7 min here and took
-`Metadata,DUP` from 93% back to 40%. In CI set `CARGO_INCREMENTAL=0` — CI
+`cargo sweep` is a **local dev tool**, not a workspace dependency:
+
+```bash
+cargo install cargo-sweep --locked --version 0.8.0
+```
+
+`reclaim-disk.sh` **reports by default and only deletes with `--apply`** — the
+same discipline as `reset-dev-data.sh` (`--dry-run` / `--no-backup`). It also
+refuses to prune docker *volumes*, because the dev stack's data lives there
+(`--with-docker` prunes stopped *containers* only).
+
+Observed on the reference machine (2026-11-03): `target/` had grown to **857 GB**
+(`target/debug/deps` 322 GB, `target/debug/incremental` **534 GB** — one
+incremental cache directory per crate/feature/test combination, which cargo never
+collects), on a 950 GB disk. `cargo clean` of a 1.3 TB `target/` removed ~125k
+files in ~7 min here and took `Metadata,DUP` from 93% back to 40%. In CI set
+`CARGO_INCREMENTAL=0` — CI
 runners are ephemeral and do not benefit from incremental state.
+
+**Containers are a second, invisible hog.** A container whose client died (an
+interrupted `docker run`, a timing-out `docker cp`/`cp -a`) keeps running and its
+writable layer stays on disk: a `python:3.12-slim` container that had copied a
+build tree into itself held **601 GB** while `df` blamed the Rust build. `docker
+ps --size` / `docker system df` show it; `reclaim-disk.sh` flags any container
+above `CONTAINER_WARN_GB` (default 20 GB).
 
 ## Measurement note
 
