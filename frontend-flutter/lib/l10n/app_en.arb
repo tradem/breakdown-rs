@@ -999,7 +999,7 @@
   "settingsEasterEggsScreenTitle": "Easter eggs",
   "settingsAiConfig": "AI configuration",
   "settingsAiConfigSubtitle": "Manage the AI provider and models for AI import.",
-  "settingsAiConfigChecking": "Checking access…",
+  "settingsAiConfigChecking": "Checking backend…",
   "settingsAiConfigUnreachable": "Backend not reachable yet",
   "settingsAi": "AI",
   "settingsDev": "Development",

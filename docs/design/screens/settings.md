@@ -51,7 +51,7 @@ stays hidden (graceful-degradation rule).
     "KI"                                 <- issue #644: AI section header
     "KI-Konfiguration" | ›               <- issue #643 / #809: ALWAYS present
     "KI-Anbieter und Modelle für den KI-Import verwalten."
-    "Zugriff wird geprüft…" | "…"        <- state 1: probe in flight (spinner)
+    "Backend wird geprüft…" | "…"        <- state 1: probe in flight (spinner)
     "Backend noch nicht erreichbar" | "Erneut versuchen" ›  <- state 2: no answer
   }
   --
@@ -95,7 +95,7 @@ entry, and it never removes the entry (issue #809):
 
 | Entry state | Subtitle | Trailing | Tap |
 |---|---|---|---|
-| probe in flight | „Zugriff wird geprüft…“ (`settings.aiConfigChecking`) | spinner | pushes the screen |
+| probe in flight | „Backend wird geprüft…“ (`settings.aiConfigChecking`) | spinner | pushes the screen |
 | backend answered (healthy/degraded/unhealthy) | „KI-Anbieter und Modelle für den KI-Import verwalten.“ (`settings.aiConfigSubtitle`) | chevron | pushes the screen |
 | backend unreachable (`BackendHealthUnreachable`) | „Backend noch nicht erreichbar“ (`settings.aiConfigUnreachable`) | Retry action (`settings-ai-config-retry`) + chevron | pushes the screen (never blocked) |
 
@@ -189,8 +189,8 @@ template + English catalog.
   (issue #672, moved to the account drawer).
 - Golden: `settings_dev_{light,dark}` + `settings_prod_{light,dark}`
   (replacing the former dialog goldens) + the AI-configuration entry in
-  its four states, `{light,dark}` × android (issue #809: reachable,
-  denied-unknown/checking, unreachable — so a hidden entry cannot
-  silently return); regenerated with the #708 entry-tile layout.
+  its three reachability states, `{light,dark}` × android (issue #809:
+  checking, reachable, unreachable — so a hidden entry cannot silently
+  return); regenerated with the #708 entry-tile layout.
 - Unit: backend-URI validation copy mapping (the per-egg store
   Ok/Err branches live with the Easter-eggs screen, issue #708).

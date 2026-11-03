@@ -33,6 +33,7 @@ import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controll
 import 'package:frontend_flutter/features/easter_eggs/easter_eggs_screen.dart';
 import 'package:frontend_flutter/features/settings/settings_screen.dart';
 import 'package:frontend_flutter/features/shell/active_season_store.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/src/health/backend_health_providers.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
@@ -151,6 +152,10 @@ void main() {
     // Pre-seeded secure-storage documents (issue #809: the stale persisted
     // block scope a dev data reset leaves behind).
     Map<String, String> secureSeed = const {},
+    // Golden locale (AGENTS.md §9: goldens use the German template). Null
+    // keeps the historical English fallback of `l10nOf`, so the four base
+    // Settings goldens keep their current output (CodeRabbit review).
+    Locale? locale,
   }) async {
     platform = _OverridePlatform();
     platform.store.addAll(secureSeed);
@@ -221,6 +226,11 @@ void main() {
             textScaler: TextScaler.linear(textScaler),
           ),
           child: MaterialApp(
+            locale: locale,
+            localizationsDelegates: locale == null
+                ? null
+                : AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
             theme: AppThemes.light(),
             darkTheme: AppThemes.dark(),
             themeMode: ThemeMode.system,
@@ -499,7 +509,7 @@ void main() {
       final tile = find.byKey(const Key('settings-ai-config'));
       expect(tile, findsOneWidget);
       expect(
-        find.text('Checking access…'),
+        find.text('Checking backend…'),
         findsOneWidget,
         reason: 'the state is rendered, not omitted',
       );
@@ -854,6 +864,7 @@ void main() {
         tester,
         brightness: brightness,
         healthProbe: healthProbe,
+        locale: const Locale('de'),
       );
       expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
       await expectLater(

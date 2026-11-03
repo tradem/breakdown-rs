@@ -3451,7 +3451,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Manage the AI provider and models for AI import.';
 
   @override
-  String get settingsAiConfigChecking => 'Checking access…';
+  String get settingsAiConfigChecking => 'Checking backend…';
 
   @override
   String get settingsAiConfigUnreachable => 'Backend not reachable yet';

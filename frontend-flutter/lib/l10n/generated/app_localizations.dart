@@ -5663,7 +5663,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsAiConfigChecking.
   ///
   /// In de, this message translates to:
-  /// **'Zugriff wird geprüft…'**
+  /// **'Backend wird geprüft…'**
   String get settingsAiConfigChecking;
 
   /// No description provided for @settingsAiConfigUnreachable.

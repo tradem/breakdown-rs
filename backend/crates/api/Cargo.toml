@@ -9,7 +9,7 @@
 
 [package]
 name = "api"
-version = "0.55.1"
+version = "0.55.2"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

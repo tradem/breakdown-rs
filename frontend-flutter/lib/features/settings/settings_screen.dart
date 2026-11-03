@@ -265,7 +265,7 @@ class _EasterEggsEntryTile extends StatelessWidget {
 /// the user most needs the entry. So the tile never returns
 /// `SizedBox.shrink()`; the state it knows is rendered in the subtitle:
 ///
-/// * probe in flight → "Zugriff wird geprüft…" + spinner;
+/// * probe in flight → "Backend wird geprüft…" + spinner;
 /// * backend answered   → the ordinary subtitle + chevron;
 /// * backend unreachable → "Backend noch nicht erreichbar" + Retry.
 ///

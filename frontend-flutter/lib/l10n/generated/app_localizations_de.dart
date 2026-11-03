@@ -3490,7 +3490,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'KI-Anbieter und Modelle für den KI-Import verwalten.';
 
   @override
-  String get settingsAiConfigChecking => 'Zugriff wird geprüft…';
+  String get settingsAiConfigChecking => 'Backend wird geprüft…';
 
   @override
   String get settingsAiConfigUnreachable => 'Backend noch nicht erreichbar';

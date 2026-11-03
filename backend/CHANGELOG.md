@@ -64,8 +64,9 @@ tag. Never edit a released entry afterwards.
   incomplete; and the dedupe assertion now keys on `(name, provider)` instead of
   the bare name, because one model may legitimately be attributed through two
   providers (`deepseek-v4.1-flash` via `neuralwatt` and `opencode-go`) and that
-  must surface as two entries instead of being collapsed. No crate changed, so no
-  version bump.
+  must surface as two entries instead of being collapsed (`api 0.55.1 → 0.55.2`:
+  the response payload gains an entry, so the crate is bumped; `core`/`infra` are
+  untouched and their lockstep is not triggered).
 
 - **A `business` dev data reset could silently destroy the preserved
   configuration (`infra 0.66.0 → 0.67.0`, `api 0.55.0 → 0.55.1`).** On

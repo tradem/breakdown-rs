@@ -999,7 +999,7 @@
   "settingsEasterEggsScreenTitle": "Easter-Eggs",
   "settingsAiConfig": "KI-Konfiguration",
   "settingsAiConfigSubtitle": "KI-Anbieter und Modelle für den KI-Import verwalten.",
-  "settingsAiConfigChecking": "Zugriff wird geprüft…",
+  "settingsAiConfigChecking": "Backend wird geprüft…",
   "settingsAiConfigUnreachable": "Backend noch nicht erreichbar",
   "settingsAi": "KI",
   "settingsDev": "Entwicklung",
