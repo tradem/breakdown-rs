@@ -47,6 +47,11 @@ OPTIONS:
   --dry-run                 Print the complete keep/reset plan, write nothing
   --yes                     Skip the interactive target confirmation
   --no-backup               Do not take a backup (must be typed explicitly)
+  --allow-empty-keep-list   Export a keep-list that carries no events (the
+                            configuration is meant to be gone). Without it an
+                            export whose keep projections hold rows but whose
+                            streams hold no events aborts BEFORE the volume
+                            drop (issue #810)
   --skip-payload-purge      Continue even when the AI payload objects cannot be
                             purged (their handles live only in the job rows, so
                             the objects become unreachable)
@@ -66,6 +71,7 @@ struct ParsedArgs {
     assume_yes: bool,
     backup: bool,
     skip_payload_purge: bool,
+    allow_empty_keep_list: bool,
     backup_dir: Option<PathBuf>,
     dev_ack: bool,
     help: bool,
@@ -80,6 +86,7 @@ impl Default for ParsedArgs {
             assume_yes: false,
             backup: true,
             skip_payload_purge: false,
+            allow_empty_keep_list: false,
             backup_dir: None,
             dev_ack: false,
             help: false,
@@ -115,6 +122,7 @@ fn parse_args() -> Result<ParsedArgs> {
             "--yes" => parsed.assume_yes = true,
             "--no-backup" => parsed.backup = false,
             "--skip-payload-purge" => parsed.skip_payload_purge = true,
+            "--allow-empty-keep-list" => parsed.allow_empty_keep_list = true,
             "--env" => {
                 let value = args.next().context("--env requires a value")?;
                 if value != "dev" {
@@ -200,6 +208,7 @@ async fn main() -> Result<()> {
         skip_payload_purge: parsed.skip_payload_purge,
         backup_dir,
         confirmation: None,
+        allow_empty_keep_list: parsed.allow_empty_keep_list,
     };
 
     // `verify` is read-only, so it never asks for a confirmation; the engine

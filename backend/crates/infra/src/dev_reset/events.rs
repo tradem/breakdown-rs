@@ -72,6 +72,39 @@ impl KeepListExport {
     pub fn event_count(&self) -> usize {
         self.streams.iter().map(|stream| stream.events.len()).sum()
     }
+
+    /// Per-category stream/event counts, in registry order (issue #810).
+    ///
+    /// The plan can only count **rows** (it is PostgreSQL-only by design); this
+    /// is the event-side view an operator needs to see `ai_config: 0 events`
+    /// *before* the volume goes.
+    pub fn category_counts(&self) -> Vec<CategoryEventCount> {
+        let mut counts = Vec::new();
+        for category in keep_categories() {
+            let streams: Vec<&ExportedStream> = self
+                .streams
+                .iter()
+                .filter(|stream| stream.category == category.as_str())
+                .collect();
+            if streams.is_empty() {
+                continue;
+            }
+            counts.push(CategoryEventCount {
+                category,
+                streams: streams.len(),
+                events: streams.iter().map(|stream| stream.events.len()).sum(),
+            });
+        }
+        counts
+    }
+}
+
+/// One keep category's share of an export (issue #810).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CategoryEventCount {
+    pub category: AggregateCategory,
+    pub streams: usize,
+    pub events: usize,
 }
 
 /// Keep categories, in registry order.
@@ -129,13 +162,67 @@ pub fn ensure_streams_resolved(
     Ok(())
 }
 
+/// Refuses an export in which a keep **category** holds projection rows but its
+/// streams carry **no events** (issue #810).
+///
+/// That combination has exactly one explanation: the keep projections survived
+/// while the event store was already emptied (a previous run failed after the
+/// volume drop). Exporting it and replaying it appends nothing, which turns a
+/// recoverable incident into a permanent loss of the configuration — so the
+/// export fails instead. `--allow-empty-keep-list` is the explicit override for
+/// an operator who really means to start without a configuration.
+///
+/// The check is **per category**, not on the total: on 2026-11-03 `ai_config`
+/// and `settings` rows were both present while their streams were gone, and an
+/// eventless `ai_config` next to a non-empty `settings` would slip through a
+/// total-only check — the wipe deletes its projection, the replay skips its
+/// empty stream, and verification accepts the result.
+pub fn ensure_events_exported(
+    export: &KeepListExport,
+    keep_rows: &[(AggregateCategory, i64)],
+    allow_empty_keep_list: bool,
+) -> Result<(), anyhow::Error> {
+    if allow_empty_keep_list {
+        return Ok(());
+    }
+    let mut eventless = Vec::new();
+    for (category, rows) in keep_rows {
+        if *rows <= 0 {
+            continue;
+        }
+        let events: usize = export
+            .streams
+            .iter()
+            .filter(|stream| stream.category == category.as_str())
+            .map(|stream| stream.events.len())
+            .sum();
+        if events == 0 {
+            eventless.push(format!("{}: {rows} row(s) / 0 events", category.as_str()));
+        }
+    }
+    if eventless.is_empty() {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(
+        "refusing to export the keep list: the event store returned no events for keep \
+         categor(y/ies) that still hold projection rows ({}). The event store is already empty \
+         and the configuration exists in the read model only — exporting it and replaying it later \
+         would silently destroy the configuration. Re-create the configuration, restore an earlier \
+         backups/reset-*/keep-list.json into a fresh store, or pass --allow-empty-keep-list if the \
+         configuration is meant to be gone",
+        eventless.join(", ")
+    ))
+}
+
 /// Reads every keep-list stream into an export document.
 pub async fn export_keep_list(
     pool: &PgPool,
     connection: &mut MultiplexedConnection,
     database_target: &str,
+    allow_empty_keep_list: bool,
 ) -> Result<KeepListExport, anyhow::Error> {
     let mut streams = Vec::new();
+    let mut keep_rows: Vec<(AggregateCategory, i64)> = Vec::new();
     for category in keep_categories() {
         let sql = keep_id_sql(category).ok_or_else(|| {
             anyhow::anyhow!("keep category {} has no id query", category.as_str())
@@ -148,6 +235,7 @@ pub async fn export_keep_list(
             .fetch_one(pool)
             .await?;
         ensure_streams_resolved(category, rows, ids.len())?;
+        keep_rows.push((category, rows));
         for id in ids {
             let stream = stream_id(category, id);
             let events = read_stream(connection, &stream).await?;
@@ -164,12 +252,35 @@ pub async fn export_keep_list(
             });
         }
     }
-    Ok(KeepListExport {
+    let export = KeepListExport {
         format_version: EXPORT_FORMAT_VERSION,
         created_at: Utc::now(),
         database_target: database_target.to_string(),
         streams,
-    })
+    };
+    // Guard 1 (issue #810): rows in a keep projection but no events in the
+    // store means the store was already lost — never export that silently.
+    ensure_events_exported(&export, &keep_rows, allow_empty_keep_list)?;
+    Ok(export)
+}
+
+/// The keep stream ids the projections currently resolve to (issue #810).
+///
+/// Used by the wipe as a second probe source: an export with **no** events must
+/// not switch the empty-event-store assertion off — the projections still name
+/// the streams that have to be empty.
+pub async fn current_keep_streams(pool: &PgPool) -> Result<Vec<String>, anyhow::Error> {
+    let mut streams = Vec::new();
+    for category in keep_categories() {
+        let sql = keep_id_sql(category).ok_or_else(|| {
+            anyhow::anyhow!("keep category {} has no id query", category.as_str())
+        })?;
+        let ids: Vec<Uuid> = sqlx::query_scalar(sql).fetch_all(pool).await?;
+        for id in ids {
+            streams.push(stream_id(category, id));
+        }
+    }
+    Ok(streams)
 }
 
 /// Reads one stream verbatim (`ESCAN` in pages, in stream order).
@@ -445,6 +556,142 @@ mod tests {
         assert!(
             ensure_streams_resolved(AggregateCategory::Settings, 0, 0).is_ok(),
             "an empty keep projection is not an error"
+        );
+    }
+
+    /// The historical shape of the 2026-11-03 loss (issue #810): the projections
+    /// still hold the configuration rows, every keep stream carries `"events": []`.
+    const EMPTY_KEEP_LIST_FIXTURE: &str = include_str!("fixtures/keep-list-empty-events.json");
+
+    fn export_with_streams(streams: Vec<ExportedStream>) -> KeepListExport {
+        KeepListExport {
+            format_version: EXPORT_FORMAT_VERSION,
+            created_at: Utc::now(),
+            database_target: "localhost/breakdown".to_string(),
+            streams,
+        }
+    }
+
+    fn single_event_stream(category: AggregateCategory) -> ExportedStream {
+        let id = Uuid::now_v7();
+        ExportedStream {
+            stream_id: stream_id(category, id),
+            category: category.as_str().to_string(),
+            events: vec![ExportedEvent {
+                stream_id: stream_id(category, id),
+                event_name: "KeepEvent".to_string(),
+                event_id: Uuid::now_v7(),
+                stream_version: 0,
+                timestamp_millis: 1_700_000_000_000,
+                payload_hex: String::new(),
+                metadata_hex: String::new(),
+            }],
+        }
+    }
+
+    /// Defect 1 of issue #810: rows in a keep projection with **no** events in the
+    /// store is only explainable by an already-lost event store, so the export
+    /// must refuse instead of writing a keep-list that replays nothing.
+    #[test]
+    fn an_export_without_events_refuses_while_the_projections_hold_rows() {
+        let export = export_with_streams(vec![ExportedStream {
+            stream_id: "ai_config-0199a0c0-0000-7000-8000-000000000000".to_string(),
+            category: "ai_config".to_string(),
+            events: Vec::new(),
+        }]);
+        assert_eq!(export.event_count(), 0);
+
+        let ai_config = [(AggregateCategory::AiConfig, 1)];
+        let error = ensure_events_exported(&export, &ai_config, false).expect_err("must refuse");
+        let message = error.to_string();
+        assert!(message.contains("refusing to export"), "{message}");
+        assert!(
+            message.contains("ai_config: 1 row(s) / 0 events"),
+            "{message}"
+        );
+        assert!(message.contains("--allow-empty-keep-list"), "{message}");
+
+        // The explicit override, an empty configuration and a real export pass.
+        assert!(ensure_events_exported(&export, &ai_config, true).is_ok());
+        assert!(
+            ensure_events_exported(&export, &[(AggregateCategory::AiConfig, 0)], false).is_ok()
+        );
+        let real = export_with_streams(vec![single_event_stream(AggregateCategory::Settings)]);
+        assert!(ensure_events_exported(&real, &[(AggregateCategory::Settings, 1)], false).is_ok());
+    }
+
+    /// Issue #810 review: the guard must be **per category**. An eventless
+    /// `ai_config` beside a non-empty `settings` passed a total-only check — the
+    /// wipe then deleted the projection and the replay skipped the empty stream.
+    #[test]
+    fn an_eventless_keep_category_is_refused_even_when_another_one_has_events() {
+        let export = export_with_streams(vec![single_event_stream(AggregateCategory::Settings)]);
+        assert_eq!(export.event_count(), 1);
+        let keep = [
+            (AggregateCategory::AiConfig, 1),
+            (AggregateCategory::Settings, 1),
+        ];
+
+        let error = ensure_events_exported(&export, &keep, false).expect_err("must refuse");
+        let message = error.to_string();
+        assert!(
+            message.contains("ai_config: 1 row(s) / 0 events"),
+            "{message}"
+        );
+        assert!(!message.contains("settings:"), "{message}");
+
+        // Both categories carrying events is the healthy case.
+        let healthy = export_with_streams(vec![
+            single_event_stream(AggregateCategory::AiConfig),
+            single_event_stream(AggregateCategory::Settings),
+        ]);
+        assert!(ensure_events_exported(&healthy, &keep, false).is_ok());
+    }
+
+    /// Regression fixture from the 2026-11-03 incident (10 streams, 0 events):
+    /// this document must never be exported again, and replaying it restores
+    /// nothing (issue #810).
+    #[test]
+    fn the_historical_empty_export_is_refused() {
+        let export: KeepListExport =
+            serde_json::from_str(EMPTY_KEEP_LIST_FIXTURE).expect("fixture parses");
+        assert_eq!(export.streams.len(), 10);
+        assert_eq!(export.event_count(), 0);
+        assert!(
+            ensure_events_exported(&export, &[(AggregateCategory::AiConfig, 1)], false).is_err()
+        );
+        assert!(ensure_events_exported(&export, &[(AggregateCategory::AiConfig, 1)], true).is_ok());
+
+        let counts = export.category_counts();
+        let ai_config = counts
+            .iter()
+            .find(|count| count.category == AggregateCategory::AiConfig)
+            .expect("ai_config is in the fixture");
+        assert_eq!(ai_config.streams, 1);
+        assert_eq!(ai_config.events, 0);
+        let membership = counts
+            .iter()
+            .find(|count| count.category == AggregateCategory::Membership)
+            .expect("membership is in the fixture");
+        assert_eq!(membership.streams, 8);
+    }
+
+    #[test]
+    fn category_counts_summarize_streams_and_events_in_registry_order() {
+        let export = export_with_streams(vec![
+            single_event_stream(AggregateCategory::Settings),
+            single_event_stream(AggregateCategory::Membership),
+            single_event_stream(AggregateCategory::Membership),
+        ]);
+        let counts = export.category_counts();
+        let rendered: Vec<(&str, usize, usize)> = counts
+            .iter()
+            .map(|count| (count.category.as_str(), count.streams, count.events))
+            .collect();
+        assert_eq!(
+            rendered,
+            vec![("settings", 1, 1), ("membership", 2, 2)],
+            "registry order, one entry per present category"
         );
     }
 

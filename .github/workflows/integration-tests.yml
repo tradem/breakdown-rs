@@ -201,6 +201,7 @@ jobs:
           # --test-threads=1 goes AFTER -- (test runner option).
           cargo test -p integration-tests \
             --test sierradb_round_trip \
+            --test dev_reset_replay \
             --test audit_projector_tests \
             --test audit_cross_cutting_tests \
             --test continuity_photo_round_trip \

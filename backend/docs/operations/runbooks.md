@@ -957,7 +957,7 @@ The script's phases map onto the binary one-to-one:
 | event-store backup | `docker run --rm -v <volume>:/data:ro -v <backup>:/backup alpine:3.20 tar czf /backup/sierradb-data.tgz -C /data .` |
 | empty the event store | `docker compose stop sierradb && docker volume rm <volume> && docker compose up -d sierradb` |
 | wipe read model + buckets | `reset-dev-data --level business --phase wipe --env dev` |
-| replay keep-list | `reset-dev-data --level business --phase replay --env dev` |
+| replay keep-list | `reset-dev-data --level business --phase replay --env dev` (asserts the count and writes `replay-report.json`) |
 | verify | `reset-dev-data --level business --phase verify --env dev` |
 
 `--skip-volume-reset` re-runs the wipe/replay half without dropping the volume
@@ -982,6 +982,73 @@ those rows are the only place the object handles are recorded, so deleting them
 would leave unreachable garbage. The wrapper forwards the flag to the `business`
 wipe phase (where the purge happens) and to the `imports` run.
 
+#### An empty keep-list is refused, and the destructive window restores itself (issue #810)
+
+On 2026-11-03 this level destroyed the AI configuration (the Decision Model and
+the credential binding included) and **both runs exited successfully**. Two
+independent defects combined; all four guards that close them are below.
+
+- **An export may not be empty while the projections hold rows.** When a keep
+  category (`ai_config`, `settings`, `membership`) holds projection rows but its
+  streams carry **no** events, the export aborts *before* anything is dropped:
+  that combination is only explainable by an already-emptied event store, and
+  replaying it would append nothing. The check runs **per category** — an
+  eventless `ai_config` next to a non-empty `settings` is refused just as well.
+  The override is explicit —
+  `./scripts/reset-dev-data.sh business --allow-empty-keep-list` — and an
+  **interactive** run then asks for the stricter phrase `business-empty`
+  instead of `business` (`--yes` skips every prompt, by design).
+- **An export never overwrites a keep-list that still holds events.** After a
+  failed replay *plus* a failed automatic restore the keep projections are empty
+  too, so a re-run would export `0 events` straight over the only remaining copy
+  of the configuration; the export refuses that and asks the operator to move the
+  file aside (or pass `--allow-empty-keep-list`).
+- **The pre-drop output names the event counts, not just the row counts.**
+  `plan --level business` (best effort — it still works with SierraDB stopped),
+  the export phase, and the wrapper (which re-reads `<backup>/keep-list.json`
+  right before the volume goes) print `keep ai_config … 0 event(s)` plus a
+  `WARNING` line when every count is zero.
+- **The replay asserts its own result.** `--phase replay` compares what it
+  appended against the export, re-reads every keep stream, and writes
+  `<backup>/replay-report.json` (per stream `expected`/`appended`, the totals,
+  a timestamp and the consuming export's `created_at`). A mismatch is a
+  `FAILURES` entry, a non-zero exit and a printed recovery command naming the
+  backup path.
+- **`verify` compares against that receipt.** A missing, stale (belonging to a
+  different export) or short `replay-report.json` fails the run, so a *later*
+  post-loss export can no longer pass as the original one.
+- **The wrapper restores the keep-list itself.** From the volume drop until the
+  replay succeeded, any non-zero exit — including **SIGTERM/SIGHUP** (`kill`, a CI
+  timeout, a closed terminal; the script turns them into exit 143/129 so the EXIT
+  trap actually sees a failure) — triggers one automatic restore: the volume is
+  recreated, the keep-list is replayed again, and the script still exits non-zero
+  telling the operator the reset did **not** complete. An empty event store is
+  never a state `reset-dev-data.sh business` leaves behind silently.
+
+#### Manual fallback: replay `<backup>/keep-list.json` by hand
+
+If the automatic restore itself fails (no docker, a stuck volume, a missing
+backup directory), the wrapper prints the exact recovery commands. They are:
+
+```bash
+cd backend
+set -a; . ./.env.local; set +a    # DATABASE_URL / SIERRADB_URL — the guard refuses without them
+docker compose -f docker-compose.dev.yml stop sierradb
+docker volume rm backend_sierradb_dev_data      # or: docker volume ls | grep sierradb
+docker compose -f docker-compose.dev.yml up -d sierradb
+cargo run --quiet -p api --bin reset-dev-data -- \
+  --level business --phase replay --env dev --yes \
+  --backup-dir backups/reset-<timestamp>        # holds keep-list.json
+```
+
+The replay needs a **genuinely fresh** store (strict versioning rejects a stream
+that already has events), so drop the volume again if a partial replay already
+appended something. Starting the API afterwards rebuilds the keep projections
+from the replayed events, and
+`./scripts/reset-dev-data.sh verify --backup-dir backups/reset-<timestamp>`
+asserts the post-conditions — including the comparison against the recorded
+`replay-report.json`.
+
 **What survives:** the `ai_config`, `settings` and `membership` streams (same
 stream ids, same events, replayed verbatim), the `ai_model_pricing` rows
 (exported for the backup but deliberately never deleted — the cost snapshot
@@ -999,9 +1066,10 @@ still needs a real block: create a season + block (or re-run
 uploading. Membership for a *new* block has to be granted again.
 
 `--phase verify` is read-only and never prompts. It **fails** (non-zero exit)
-when a business projection still holds rows, a keep stream is missing events, a
-keep projection was not rebuilt, `ai_model_pricing` is empty, the API is
-unreachable, or the projector health is not green — a reset is only "done" when
+when a business projection still holds rows, a keep stream is missing events, the
+replay receipt (`replay-report.json`) is missing or does not match the export and
+the store, a keep projection was not rebuilt, `ai_model_pricing` is empty, the API
+is unreachable, or the projector health is not green — a reset is only "done" when
 all of that holds. The projector-health endpoint is the deployment-scoped ops
 surface (#409), so a dev user needs `OPS_ADMIN_SUBS=<sub>` (or an `ops_admin`
 membership) to let `verify` assert it.
@@ -1010,6 +1078,8 @@ membership) to let `verify` assert it.
 
 - every business projection count is 0;
 - every keep stream still holds its exported events;
+- `<backup>/replay-report.json` matches the export (same `created_at`, same
+expected/appended counts) and the store;
 - `ai_model_pricing` is non-empty;
 - `GET /v1/ai-import/config/{id}` still returns the provider/model/decision
   triple (the worker resolves the same config);

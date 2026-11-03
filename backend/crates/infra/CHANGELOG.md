@@ -16,6 +16,64 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.67.0] - Unreleased
+
+### Fixed — a `business` reset can no longer silently destroy the preserved configuration (issue #810)
+
+The level-`business` reset is documented as *preserving* `ai_config`, `settings`
+and `membership`. On 2026-11-03 it destroyed the AI configuration (Decision Model
+and credential binding included), and **both runs exited 0**: a run that failed
+right after the SierraDB volume was dropped left an empty event store, and the
+next run exported that store as `10 streams / 0 events` and "replayed" nothing.
+Four guards close the failure path:
+
+- `dev_reset::events::export_keep_list` now takes `allow_empty_keep_list` and
+  **refuses** an export whose keep projections hold rows while every keep stream
+  carries zero events (`ensure_events_exported`); that combination is only
+  explainable by an already-lost store. `--allow-empty-keep-list` is the
+  explicit override, and the wrapper demands the stricter confirmation phrase
+  `business-empty` for it.
+- `KeepListExport::category_counts` / `business::keep_event_summary` expose the
+  **event** counts beside the row counts, so `plan --dry-run` (best effort with
+  the store down), the export phase and the wrapper's pre-drop summary show
+  `0 event(s)` before the volume goes.
+- `replay_phase` asserts its own result: the appended count must equal
+  `export.event_count()`, every keep stream is re-read and compared exactly, and
+  `<backup>/replay-report.json` (`backup::ReplayReport`, per-stream
+  expected/appended, bound to the export's `created_at`) records what happened.
+  A mismatch is a failure entry, a non-zero exit and a printed recovery command.
+- `verify_phase` compares that receipt against the export and the store, so a
+  later post-loss export cannot pass as the original one; and
+  `require_empty_event_store` no longer *skips* when the export is empty — it
+  probes the streams the projections still name and fails on a mismatch.
+
+Tests: unit coverage for the export refusal (with the 10-streams/0-events
+fixture), the replay receipt and the zero-event summary; a Tier-4 round trip
+(`crates/integration-tests/tests/dev_reset_replay.rs`) that exports from a real
+store, replays into a **second** (fresh) SierraDB container and asserts
+byte-verbatim restoration plus the strict-versioning refusal of a second replay;
+and a daemon-free wrapper test
+(`scripts/tests/reset-dev-data-wrapper-test.sh`) that injects a wipe failure and
+asserts the automatic restore.
+
+Review follow-ups (same issue, all four independently exploitable):
+
+- `ensure_events_exported` is **per category**, not on the total: an eventless
+  `ai_config` beside a non-empty `settings` used to pass, after which the wipe
+  deleted its projection and the replay skipped its empty stream.
+- The export **never overwrites** a `keep-list.json` that still holds events with
+  an empty one (after a failed replay *and* a failed restore the projections are
+  empty too, so a re-run exported `0 events` over the only remaining copy).
+- `recovery_hint` prints a runnable command (`--env dev` plus the `.env.local`
+  sourcing the guard requires) and no longer suggests re-running `business`,
+  which would hit the new overwrite guard.
+- The wrapper turns **SIGTERM/SIGHUP** into exit 143/129: bash runs the EXIT trap
+  with `$? = 0` after a signal, so the restore used to be skipped — the store
+  stayed empty when a CI timeout or a closed terminal killed the run. The
+  per-stream re-read in the replay now also reports a recovery hint instead of
+  leaving the phase with `?`, and the `verify` receipt message names the volume
+  reset the replay needs.
+
 ## [0.66.0] - Unreleased
 
 ### Fixed — the Decision Model adapter speaks the System One contract in both directions (issue #808)

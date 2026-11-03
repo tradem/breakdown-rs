@@ -82,6 +82,10 @@ pub struct ResetOptions {
     pub backup_dir: PathBuf,
     /// What the operator typed at the confirmation prompt.
     pub confirmation: Option<String>,
+    /// `--allow-empty-keep-list`: export a keep-list that carries **no** events.
+    /// Only legitimate when the configuration is meant to be gone — without it
+    /// an empty export aborts before the volume drop (issue #810).
+    pub allow_empty_keep_list: bool,
 }
 
 /// The connected resources a reset run works with.
@@ -187,6 +191,11 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
             ..ResetReport::default()
         };
         report.lines.push(plan.render());
+        if plan.level == ResetLevel::Business {
+            report
+                .lines
+                .extend(probe_keep_events(&pool, &plan, &environment).await);
+        }
         report.lines.push(match plan.imports_scope {
             // No total-reset-row count here: `imports` deletes *some* of those
             // rows, so printing the sum would read as a remainder and contradict
@@ -241,6 +250,37 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
 
     tracing::info!("{}", report.audit_line());
     Ok(report)
+}
+
+/// Best-effort keep-event probe for `--dry-run` (issue #810).
+///
+/// The plan itself stays PostgreSQL-only on purpose (`--dry-run` must work with
+/// SierraDB stopped), so the event counts are an add-on: when the store answers,
+/// the operator sees `ai_config: 0 event(s)` **before** anything is dropped;
+/// when it does not, the report says so instead of silently omitting the check.
+async fn probe_keep_events(
+    pool: &PgPool,
+    plan: &ResetPlan,
+    environment: &DevEnvironment,
+) -> Vec<String> {
+    async fn probe(
+        pool: &PgPool,
+        plan: &ResetPlan,
+        environment: &DevEnvironment,
+    ) -> Result<events::KeepListExport> {
+        let client = redis::Client::open(environment.sierradb_url.clone())?;
+        let mut connection = client.get_multiplexed_async_connection().await?;
+        // `allow_empty = true`: a dry run must not fail, it must *show* the zero.
+        events::export_keep_list(pool, &mut connection, &plan.database_target, true).await
+    }
+    match probe(pool, plan, environment).await {
+        Ok(export) => business::keep_event_summary(plan, &export),
+        Err(error) => vec![format!(
+            "keep-list event counts unavailable ({error:#}) — start sierradb (`docker compose -f \
+             docker-compose.dev.yml up -d sierradb`) and re-run the dry run to see them before \
+             the volume drop"
+        )],
+    }
 }
 
 /// `host:port` of the event store, credentials never included.

@@ -3,20 +3,20 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: glm-5.3 (neuralwatt)
 #
-# Dev data reset (issue #770) — wrapper around the `reset-dev-data` maintenance
-# binary. See docs/operations/runbooks.md → "Dev data reset (issue #770)".
+# Dev data reset (issue #770/#810) — wrapper around the `reset-dev-data`
+# maintenance binary. See docs/operations/runbooks.md → "Dev data reset".
 #
 #   ./scripts/reset-dev-data.sh plan [--level imports|business]
 #   ./scripts/reset-dev-data.sh imports [--dry-run] [--yes] [--no-backup]
 #   ./scripts/reset-dev-data.sh business [--yes] [--no-backup] [--skip-volume-reset]
+#   ./scripts/reset-dev-data.sh business --allow-empty-keep-list   ("business-empty")
 #   ./scripts/reset-dev-data.sh verify
 #
 # The binary does the database/event-store work; this script owns the three
-# things a process cannot do for itself:
-#   * stop/start the SierraDB container and drop its data volume (SierraDB 0.3.1
-#     has no delete command at all — the volume is the only way to empty it),
-#   * take the pg_dump and the volume tarball into the backup directory,
-#   * check the API-level post-conditions (health, projector health).
+# things a process cannot do for itself: stop/start the SierraDB container and
+# drop its data volume (SierraDB 0.3.1 has no delete command at all — the
+# volume is the only way to empty it), take the pg_dump and the volume tarball,
+# and check the API-level post-conditions (health, projector health).
 #
 # Never run this against anything but a local dev stack: the binary refuses
 # non-loopback targets, non-development APP_ENV and REQUIRE_IN_TRANSIT_TLS, and
@@ -57,6 +57,64 @@ die() {
   printf 'reset-dev-data: %s\n' "$1" >&2
   exit 1
 }
+
+# ── self-restore of the destructive window (issue #810) ──────────────────────
+#
+# `business` empties the event store by dropping its volume, then replays the
+# keep-list. Any failure between those two steps used to leave an empty store
+# and exit non-zero, which the next run happily exported as "keep-list: 0
+# events" — the 2026-11-03 loss. `RESTORE_ARMED` is set right before the volume
+# drop and cleared once the replay succeeded; while it is set, a non-zero exit
+# recreates the volume and replays the keep-list once before dying.
+RESTORE_ARMED=0
+RESTORE_VOLUME=""
+RESTORE_BACKUP_DIR=""
+
+restore_keep_list_on_failure() {
+  local status=$?
+  if [[ "${RESTORE_ARMED}" -ne 1 || "${status}" -eq 0 ]]; then
+    return 0
+  fi
+  # Disarm first: a failure inside the restore must not restart it.
+  RESTORE_ARMED=0
+
+  printf '\n==> the destructive window failed (exit %s) — restoring the keep-list\n' \
+    "${status}" >&2
+  # The replay needs a genuinely fresh store, so the volume goes again: a
+  # half-replayed store would fail strict versioning for the streams it already
+  # has. Subshell: `reset_event_store` dies on failure, and `die` must not
+  # escape the restore's error handling.
+  if ( reset_event_store "${RESTORE_VOLUME}" ) \
+    && run_binary --level business --phase replay --env dev \
+         --backup-dir "${RESTORE_BACKUP_DIR}" --yes; then
+    printf 'reset-dev-data: the keep-list was replayed into a fresh event store.\n' >&2
+    printf 'reset-dev-data: the reset did NOT complete — fix the cause and re-run the script\n' >&2
+    printf 'reset-dev-data: (or `business --skip-volume-reset` for the wipe/replay half).\n' >&2
+  else
+    printf 'reset-dev-data: AUTOMATIC RESTORE FAILED — the event store may be EMPTY.\n' >&2
+    printf 'reset-dev-data: recovery: drop the volume and replay %s by hand (from backend/):\n' \
+      "${RESTORE_BACKUP_DIR}/keep-list.json" >&2
+    printf '  docker compose -f %s stop %s && docker volume rm %s\n' \
+      "${COMPOSE_FILE}" "${SIERRADB_SERVICE}" "${RESTORE_VOLUME}" >&2
+    printf '  docker compose -f %s up -d %s\n' "${COMPOSE_FILE}" "${SIERRADB_SERVICE}" >&2
+    # The env matters: the binary's guard refuses to run without DATABASE_URL /
+    # SIERRADB_URL, which only the sourced dev env provides (issue #810 review).
+    printf '  (set -a; . ./.env.local; set +a; \\\n' >&2
+    printf '   cargo run --quiet -p api --bin reset-dev-data -- \\\n' >&2
+    printf '     --level business --phase replay --env dev --yes --backup-dir %s)\n' \
+      "${RESTORE_BACKUP_DIR}" >&2
+  fi
+  exit "${status}"
+}
+
+trap restore_keep_list_on_failure EXIT
+# A signal must reach the EXIT trap with a **non-zero** status: bash runs the trap
+# with `$? = 0` after SIGTERM/SIGHUP (`kill`, a CI timeout, a closed terminal),
+# which used to make the guard below skip the restore and leave the event store
+# empty (issue #810 review). `exit <128+signo>` turns it into a real failure.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 log() {
   printf '==> %s\n' "$1"
@@ -185,7 +243,57 @@ require_api_stopped() {
 }
 
 run_binary() {
-  ( cd "${BACKEND_DIR}" && cargo run --quiet -p api --bin reset-dev-data -- "$@" )
+  # `RESET_DEV_DATA_BIN` is the testability seam (issue #810): the wrapper test
+  # substitutes a fake binary so the destructive ordering and the restore trap
+  # are testable without docker or a database.
+  local status=0
+  if [[ -n "${RESET_DEV_DATA_BIN:-}" ]]; then
+    # shellcheck disable=SC2086 # intentional word splitting of the test seam
+    ( cd "${BACKEND_DIR}" && ${RESET_DEV_DATA_BIN} "$@" ) || status=$?
+  else
+    ( cd "${BACKEND_DIR}" && cargo run --quiet -p api --bin reset-dev-data -- "$@" ) \
+      || status=$?
+  fi
+  # The phase status is returned **explicitly**: a bare `return` does not
+  # reliably propagate it (ubuntu-latest / bash 5.2 made the restore trap take
+  # its failure branch after a successful replay, issue #810 follow-up).
+  return "${status}"
+}
+
+# Prints the keep-list's event counts per category BEFORE the volume goes.
+#
+# The plan can only count rows; on 2026-11-03 the row counts looked healthy
+# while every keep stream was empty (issue #810).
+summarize_keep_list() {
+  local keep_list="$1"
+  if [[ ! -f "${keep_list}" ]]; then
+    return 0
+  fi
+  printf '==> keep-list events (what the replay must put back): %s\n' "${keep_list}"
+  # The export is pretty-printed JSON whose stream objects carry `category`
+  # before `events`, so a line scan gives the per-category counts without jq.
+  awk '
+    /"category": *"/ {
+      if (match($0, /"category": *"[^"]+"/)) {
+        category = substr($0, RSTART, RLENGTH)
+        gsub(/"category": *"|"/, "", category)
+        if (!(category in seen)) { seen[category] = 1; order[++count] = category }
+      }
+      next
+    }
+    /"event_name"/ { if (count > 0) events[order[count]]++ }
+    END {
+      total = 0
+      for (i = 1; i <= count; i++) {
+        printf "  keep %-14s %s event(s)\n", order[i], events[order[i]] + 0
+        total += events[order[i]] + 0
+      }
+      if (count == 0) printf "  (no keep-list streams: the configuration projections are empty)\n"
+      printf "  %-19s %s event(s) in total\n", "", total
+      if (total == 0 && count > 0)
+        printf "  WARNING: this export carries NO events — the replay would restore nothing\n"
+    }
+  ' "${keep_list}"
 }
 
 # Extracts --backup-dir from the forwarded arguments (default: newest reset dir).
@@ -200,7 +308,7 @@ resolve_backup_dir() {
   done
   if [[ -n "${dir}" ]]; then
     printf '%s' "${dir}"
-    return
+    return 0
   fi
   local latest
   latest="$(ls -1dt "${BACKEND_DIR}"/backups/reset-* 2>/dev/null | head -n 1 || true)"
@@ -363,6 +471,7 @@ cmd_business() {
   local assume_yes=0
   local backup=1
   local skip_volume_reset=0
+  local allow_empty_keep_list=0
   local payload_purge_args=()
   local passthrough=()
   while [[ $# -gt 0 ]]; do
@@ -371,6 +480,7 @@ cmd_business() {
       --no-backup) backup=0; passthrough+=("$1"); shift ;;
       --skip-volume-reset) skip_volume_reset=1; shift ;;
       --skip-payload-purge) payload_purge_args+=("$1"); shift ;;
+      --allow-empty-keep-list) allow_empty_keep_list=1; passthrough+=("$1"); shift ;;
       --backup-dir) passthrough+=("$1" "${2:?--backup-dir requires a path}"); shift 2 ;;
       *) die "unknown argument for business: $1" ;;
     esac
@@ -384,8 +494,16 @@ cmd_business() {
   if [[ "${assume_yes}" -ne 1 ]]; then
     printf 'This wipes ALL business data of %s and drops the SierraDB volume.\n' "${DATABASE_URL%%\?*}"
     printf 'Configuration (ai_config, settings, membership) is exported and replayed.\n'
-    read -r -p 'Type "business" to continue: ' typed
-    [[ "${typed}" == "business" ]] || die "aborted"
+    local typed_prompt="business"
+    if [[ "${allow_empty_keep_list}" -eq 1 ]]; then
+      # `--allow-empty-keep-list` is a --no-backup-class acknowledgement: the
+      # export may carry no events, so the replay restores nothing (issue #810).
+      printf -- '--allow-empty-keep-list: the export is ALLOWED to carry no events, so the\n'
+      printf -- 'replay may restore nothing at all. Type the stricter phrase to proceed.\n'
+      typed_prompt="business-empty"
+    fi
+    read -r -p "Type \"${typed_prompt}\" to continue: " typed
+    [[ "${typed}" == "${typed_prompt}" ]] || die "aborted"
     passthrough+=("--yes")
   fi
 
@@ -404,9 +522,18 @@ cmd_business() {
     log "--no-backup: skipping pg_dump and the volume tarball"
   fi
 
+  # Pre-drop visibility (issue #810): row counts alone looked healthy while the
+  # keep streams were already empty.
+  summarize_keep_list "${backup_dir}/keep-list.json"
+
   if [[ "${skip_volume_reset}" -eq 1 ]]; then
     log "--skip-volume-reset: keeping the existing event store"
   else
+    # From here on the event store is empty until the replay put the keep-list
+    # back, so any failure must restore it (issue #810).
+    RESTORE_ARMED=1
+    RESTORE_VOLUME="${volume}"
+    RESTORE_BACKUP_DIR="${backup_dir}"
     reset_event_store "${volume}"
   fi
 
@@ -418,6 +545,9 @@ cmd_business() {
 
   log "phase replay (keep-list back into the fresh event store)"
   run_binary --level business --phase replay --env dev --backup-dir "${backup_dir}" --yes
+
+  # The keep-list is back: a later failure must no longer drop the volume.
+  RESTORE_ARMED=0
 
   cat <<EOF
 

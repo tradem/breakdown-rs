@@ -106,6 +106,20 @@ jobs:
           workspaces: "backend"
       - run: cargo check --workspace --all-targets --all-features --exclude breakdown-fuzz-targets
 
+  # Wrapper-level regression test for the level-`business` dev data reset
+  # (issue #810): a failure after the SierraDB volume drop must restore the
+  # keep-list instead of leaving an empty event store. Daemon-free — the test
+  # stubs docker/cargo through PATH shims and `RESET_DEV_DATA_BIN`, so it needs
+  # only bash + python3 (both preinstalled on ubuntu-latest).
+  reset-dev-data-wrapper:
+    name: Dev data reset wrapper (issue #810)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: bash scripts/tests/reset-dev-data-wrapper-test.sh
+
   # ADR-020 D2/D5: the declared MSRV floor (workspace rust-version = 1.99,
   # matching the Dockerfile builder) is verified on every PR with the pinned
   # 1.99.0 toolchain. A future MSRV bump is a MAJOR change per crate (D2).
