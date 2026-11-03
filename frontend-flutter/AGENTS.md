@@ -9,12 +9,12 @@
 
 # Agent Guidelines for the Flutter App (`frontend-flutter/`)
 
-> **This is `design.md` for the `add-flutter-app-foundation` OpenSpec change.
-> During the foundation apply step (Task 1.2 of `tasks.md`) it is copied
-> verbatim to `frontend-flutter/AGENTS.md` and the two are kept
-> byte-identical thereafter.** The OpenSpec artifact is the source of truth;
-> the on-disk `AGENTS.md` is the convenience copy consumed by coding agents
-> working inside `frontend-flutter/`.
+> **This file was `design.md` for the `add-flutter-app-foundation` OpenSpec
+> change and was copied verbatim during the foundation apply step (Task 1.2
+> of `tasks.md`).** That change is archived
+> (`openspec/changes/archive/2026-09-02-add-flutter-app-foundation/`), so the
+> byte-identity contract with `design.md` no longer applies — this on-disk
+> `AGENTS.md` is now the authoritative copy and is edited in place.
 
 You are the primary coding agent for the Flutter client of `breakdown-rs` —
 a collaborative costume scheduling app whose Rust backend is CQRS /
@@ -27,6 +27,24 @@ and documenting the gaps honestly where it does not.
 The backend `AGENTS.md` is the authoritative reference for the server side;
 this document is authoritative for the client side. Where the two disagree on
 a server-owned concern (API shape, error surface, auth), the backend wins.
+
+> **Code discovery (graph-first, mandatory).** Before reading files to answer a
+> structural question — *how does X work, who calls X, what breaks if I change
+> X, where is X* — query the **`codebase-memory` knowledge graph** for project
+> **`breakdown-rs`** (root = the monorepo root, not this folder). Dart **is**
+> indexed (≈500 files, ≈3.7k methods, ≈6.5k call edges; `vendor/breakdown_api/`
+> is excluded, committed `.g.dart` is not). Tool precedence and the honest
+> limits are in `.github/instructions/flutter-code-discovery.instructions.md`
+> (auto-loaded on Dart reads): graph for symbols and call relationships,
+> `grep`/`rg` for string literals, problem codes, ARB keys and config values —
+> never the wrong one of the two.
+>
+> The index is **machine-local and gitignored**, so CI cannot keep it fresh:
+> run `scripts/check-graph-freshness.sh` when a lookup comes back suspiciously
+> empty, then `scripts/reindex-graph.sh --if-stale`. The `post-merge` /
+> `post-checkout` git hooks in `backend/git-hooks/` already refresh it in the
+> background (`CODEBASE_MEMORY_SKIP_AUTOINDEX=1` opts out). An empty graph
+> result for code you can see on disk means *stale index*, not *broken tool*.
 
 ---
 

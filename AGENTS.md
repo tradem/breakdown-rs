@@ -33,16 +33,32 @@ The Flutter file also documents its own ported pi skills (`.pi/skills/`) and the
 - **CI:** all workflows live under `.github/workflows/`; the CI-hardening hard
   rules (SHA-pinning of actions, no `${{ github.event.* }}` interpolation into
   `run:`) apply to every workflow in this monorepo.
+- **Code discovery (graph-first):** structural questions (*how does X work, who
+  calls X, what does a change touch, where is X defined*) are answered from the
+  **`codebase-memory` knowledge graph** for project `breakdown-rs`, seeded at
+  the monorepo root and covering backend Rust **and** frontend Dart. `grep`/`rg`
+  stays correct for string literals, problem codes, ARB keys and config values.
+  The index is machine-local (`.codebase-memory/` is gitignored), so freshness is
+  a local duty, never a CI gate: `scripts/check-graph-freshness.sh` to report,
+  `scripts/reindex-graph.sh [--if-stale]` to refresh; the `post-merge` /
+  `post-checkout` hooks (installed by `scripts/install-git-hooks.sh`, active via
+  `core.hooksPath=backend/git-hooks`) refresh it in the background. An empty
+  graph result for code present on disk means *stale index* — reindex before
+  falling back to text search. Per-area how-to:
+  `.github/instructions/flutter-code-discovery.instructions.md` (frontend) and
+  `backend/AGENTS.md` §6 (backend).
 
 ## 3. On-demand instructions (pi-rules)
 Detailed backend documentation is injected when matching files are read, from two levels of
 glob-scoped rule files: `backend/.github/instructions/` (backend-relative globs, fires for any
 read under `backend/**`) and the monorepo-root `.github/instructions/` (workflows, root
-scripts). pi-rules resolves the project root **per read file** — the first `Cargo.toml` / `.git`
-marker walking up decides which level's instructions fire — so rules load regardless of the
-session's launch directory. `/rules` lists only always-on rules; glob rules appear attached to
-the file reads they match. The register lives in `backend/AGENTS.md` §6. Recommend launching
-pi in `backend/` for backend-heavy sessions (loads `backend/AGENTS.md` natively and avoids
-per-read re-injection of it); frontend instructions may follow later in the same layout.
+scripts, and the Flutter tree — `frontend-flutter/**` has no area-level instructions directory,
+so its reads resolve to the root level). pi-rules resolves the project root **per read file** —
+the first `Cargo.toml` / `.git` marker walking up decides which level's instructions fire — so
+rules load regardless of the session's launch directory. `/rules` lists only always-on rules;
+glob rules appear attached to the file reads they match. The register lives in
+`backend/AGENTS.md` §6. Recommend launching pi in `backend/` for backend-heavy sessions (loads
+`backend/AGENTS.md` natively and avoids per-read re-injection of it); Flutter-specific
+on-demand rules sit at the root level (see the register).
 
 *When in doubt, read the area AGENTS.md and the referenced ADRs before generating code.*

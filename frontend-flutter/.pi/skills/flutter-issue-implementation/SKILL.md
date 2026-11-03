@@ -63,11 +63,22 @@ fi
 
 ### Step 2: Check for Drift
 
-```bash
-# Search for related code (ast-bro resolves Dart too)
-analyze_ast_search --query "[keywords from issue]" --mode summary
+**Freshness first** — the knowledge-graph index is machine-local and rots
+between refreshes; a stale index answers "no such symbol" for code that exists:
 
-# Inspect the affected feature/aggregate folder
+```bash
+scripts/check-graph-freshness.sh          # from the monorepo root
+scripts/reindex-graph.sh --if-stale       # only when HEAD moved
+```
+
+```bash
+# Primary: knowledge graph for project breakdown-rs (Dart IS indexed)
+search_graph --name_pattern ".*[Keyword].*" --file_pattern "frontend-flutter/**"
+get_architecture --path "frontend-flutter/lib/features/[affected]"
+trace_path --function_name "[KnownControllerOrRepository]" --direction inbound
+
+# Second opinion / non-graph search (ast-bro resolves Dart too)
+analyze_ast_search --query "[keywords from issue]" --mode summary
 analyze_ast_context --path "frontend-flutter/lib/features/[affected]"
 ```
 
@@ -77,8 +88,16 @@ analyze_ast_context --path "frontend-flutter/lib/features/[affected]"
 > frontend-flutter/lib/...]. Should I proceed with [approach A] or
 > [approach B]?"
 
-`analyze_ast_search` and the other ast-bro tools operate repo-wide; they
-resolve Dart symbols, so prefer them over raw `grep` for drift checks.
+Tool precedence (same rule as
+`.github/instructions/flutter-code-discovery.instructions.md`, which loads on
+Dart reads): **graph** for symbols, callers and blast radius; ast-bro as a
+second opinion on the same question; **`grep`** only for string literals,
+problem codes, ARB keys and config values — the graph indexes symbols, not
+literals. An empty graph result for code visible on disk means *stale index*,
+not *unsupported language*. Two argument traps: `search_graph` takes a
+**regex** in `name_pattern` but a **glob** in `file_pattern`
+(`frontend-flutter/**`), and committed `.g.dart` files are indexed, so a hit
+ending in `.g.dart` must be traced back to its hand-written source.
 
 ### Step 3: Create Feature Branch
 
