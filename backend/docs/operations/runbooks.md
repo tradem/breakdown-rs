@@ -1086,13 +1086,24 @@ can be run by hand:
 
 ```bash
 cd backend
-DECISION_LIVE_KEY=…                       # the provider key (never printed)
-DECISION_LIVE_PROVIDER=eurouter           # or neuralwatt | openrouter (default: eurouter)
-DECISION_LIVE_MODEL=clef-flash            # default: clef-flash
-cargo test -p infra --lib \
-  ai::decision_client::decision_client_tests::live_systemone \
-  -- --ignored --nocapture
+# The variables must be part of the cargo process's environment — a plain
+# `DECISION_LIVE_KEY=…` on its own line is a shell variable the test never sees,
+# and the test would then print its skip line and pass without calling anything.
+DECISION_LIVE_KEY=… \
+DECISION_LIVE_PROVIDER=eurouter \
+DECISION_LIVE_MODEL=clef-flash \
+  cargo test -p infra --lib \
+    ai::decision_client::decision_client_tests::live_systemone \
+    -- --ignored --nocapture
 ```
+
+`DECISION_LIVE_MODEL` defaults to the selected provider's first **curated** ID
+(`clef-flash` for EURouter/Neuralwatt, `cloudflare/clef-flash` for OpenRouter —
+its decision models are provider-qualified). An unrecognized
+`DECISION_LIVE_PROVIDER` is a hard error, never a silent fallback to EURouter:
+with the EURouter key configured a fallback would pass and read as "that
+provider was verified". The test prints one line per answer kind; a `400` fails
+it with the provider's own `details[].path`.
 
 Without `DECISION_LIVE_KEY` the test prints a skip line and returns: a CI job
 that wires the variable conditionally can therefore run the command

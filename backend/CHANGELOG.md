@@ -50,6 +50,12 @@ tag. Never edit a released entry afterwards.
     `probabilities` onto the internal distribution and rejects a contradicting
     `legend`, a distribution that does not sum to ~1.0, or a winning label
     outside its own map — a silent mis-scaling is worse than a failed pass.
+    A CodeRabbit review round closed the remaining contradictions: a
+    `probabilities` map shorter than its `legend`, a scalar mean that disagrees
+    with its own mass (`Σ level × probability`, live-verified to ≤ 0.0003), a
+    `choice` key the question never declared, `choice` mass that does not sum to
+    1.0, a `choice` label that is not the best option, and a `noul` outside
+    `0.0..=1.0`.
   - **Why CI stayed green.** The unit mock encoded our own assumption
     (`score` as a distribution) and never inspected the request body. It is now
     a **strict** System One that rejects a body without `instructions` /

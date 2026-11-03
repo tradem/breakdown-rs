@@ -41,7 +41,18 @@ import).
   mean out of the answers. A `legend` that is not the sent ladder, a
   distribution that does not sum to ~1.0, a mean outside the level axis, an
   empty map or a winning label outside its own map is a **hard** error: silent
-  mis-scaling is worse than a failed pass.
+  mis-scaling is worse than a failed pass. CodeRabbit review hardening adds the
+  contradictions that survived that first cut: a `probabilities` map shorter
+  than its own `legend` (two entries under a five-label legend inflated
+  `expected_score`), a mean that does not match the mass (`Σ level ×
+  probability` — live-verified to ≤ 0.0003 on 2026-11-03, so a mean of 4 over
+  mass on level 0 is now rejected), a `choice` key the question never declared
+  (the resolver would compare zeroes and quietly degrade to a gap), `choice`
+  mass that does not sum to 1.0 (the resolver compares raw values against
+  `CONTINUITY_MIN_CONFIDENCE`), a `choice` label that is not its own
+  highest-probability option, and a `noul` outside `0.0..=1.0`. Each rejection
+  has its own test, and the live smoke test still passes against EURouter with
+  the stricter validation in place.
 - **Tests that could have caught it.** `testdata/decision_wire/` holds the
   captured provider bodies (the `400 details[]`, the `noul` / `score` /
   `choice` 200 envelopes, plus a legend-mismatch and an empty-mass case) and

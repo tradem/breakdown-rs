@@ -87,8 +87,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use breakdown_core::ai::{
-    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion, DecisionRequest,
-    LlmCallUsage, LlmProvider, SCORE_MIN_LEVELS,
+    ChoiceOption, DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion,
+    DecisionRequest, LlmCallUsage, LlmProvider, SCORE_MIN_LEVELS,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
@@ -144,9 +144,17 @@ const MAX_ERROR_DETAIL_BYTES: usize = 1024;
 /// the rubric blends.
 const PROBABILITY_SUM_TOLERANCE: f32 = 0.02;
 
-/// Tolerance of the scalar-mean band check (see
-/// [`score_answers_agree_with_the_distribution`]).
+/// Tolerance of the scalar-mean check (see
+/// [`score_answers_agree_with_the_distribution`]). The live provider reports a
+/// mean that equals the mass-weighted level index to within the rounding of its
+/// own four-decimal probabilities (≤ 0.0003 over the samples pinned in
+/// `testdata/decision_wire/` and the 2026-11-03 probes), so 0.01 leaves two
+/// orders of magnitude of headroom while still catching a different scale.
 const MEAN_BAND_TOLERANCE: f32 = 0.01;
+
+/// Tolerance of the `choice` winner check: a provider may break a tie in any
+/// direction, so two options within float noise are not a contradiction.
+const PROBABILITY_TIE_TOLERANCE: f32 = 1e-6;
 
 /// One wire answer of the Decision API. All three curated gateways normalize
 /// on the same envelope (mirroring the chat adapters' normalization): a named
@@ -247,10 +255,15 @@ where
 
 /// Cross-check the scalar `score` mean against the distribution it summarises.
 ///
-/// The formulas blend the **mass**, so the mean is never consumed — but a mean
-/// outside the level axis (`0..=levels-1`) means the provider scaled its ladder
-/// differently than the legend says (1-based labels over a 5-level ladder, a
-/// percentage, a logit), and ignoring that would mis-scale every score.
+/// The formulas blend the **mass**, so the mean is never consumed — but it is
+/// the provider's own statement about that mass, and it is the cheap proof that
+/// both sides mean the same ladder. A mean off the level axis (`0..=levels-1`)
+/// is a different scale (1-based labels, a percentage, a logit); a mean that
+/// disagrees with `Σ level × probability` means the mass and the mean describe
+/// different levels, so whichever one the formulas read is mis-scaled.
+///
+/// Verified live (EURouter, 2026-11-03): the mean equals `Σ level × probability`
+/// to within the rounding of the provider's four-decimal probabilities.
 fn score_answers_agree_with_the_distribution(
     name: &str,
     mean: f32,
@@ -262,6 +275,17 @@ fn score_answers_agree_with_the_distribution(
             "decision answer `{name}`: score mean {mean} lies outside the level axis 0..={top} \
              of its own {}-level distribution",
             distribution.len()
+        )));
+    }
+    let weighted: f32 = distribution
+        .iter()
+        .enumerate()
+        .map(|(level, probability)| level as f32 * probability)
+        .sum();
+    if (mean - weighted).abs() > MEAN_BAND_TOLERANCE {
+        return Err(DomainError::validation(format!(
+            "decision answer `{name}`: score mean {mean} does not match the mass-weighted level \
+             index {weighted} of its own distribution {distribution:?}"
         )));
     }
     Ok(())
@@ -302,6 +326,18 @@ fn score_distribution(
                      ladder that was sent {ladder:?}"
                 )));
             }
+            // A matching legend means the provider used our labels; it does not
+            // mean it reported one probability per label. Two entries under a
+            // five-label legend would make `expected_score` divide by one step
+            // instead of four and feed an inflated score into every formula
+            // that consumes `scene_metadata_accuracy`.
+            if distribution.len() != ladder.len() {
+                return Err(DomainError::validation(format!(
+                    "decision answer `{name}`: {} probabilities for a {}-level legend",
+                    distribution.len(),
+                    ladder.len()
+                )));
+            }
         }
         // Without a legend the distribution length is the only evidence that
         // the provider used the same ladder.
@@ -333,12 +369,16 @@ fn score_distribution(
 /// carries.
 ///
 /// The map keys are the option names the question's `criteria` declared — which
-/// is exactly the key set `continuity::resolve_continuity_outcome` reads. The
-/// winning `choice` label is a consistency check, not the answer: a label
-/// outside its own `probabilities` map is a hard error.
+/// is exactly the key set `continuity::resolve_continuity_outcome` reads, so an
+/// answer keyed by anything else would leave the resolver comparing zeroes and
+/// quietly degrading to a gap. Three contradictions are therefore hard errors:
+/// an undeclared key, mass that does not sum to ~1.0 (the resolver compares the
+/// raw values against `CONTINUITY_MIN_CONFIDENCE`) and a winning label that is
+/// not the best option (the resolver reads the mass and ignores the label).
 fn choice_distribution(
     name: &str,
     answer: &DecisionWireAnswer,
+    options: &[ChoiceOption],
 ) -> Result<BTreeMap<String, f32>, DomainError> {
     let probabilities = answer
         .probabilities
@@ -358,19 +398,47 @@ fn choice_distribution(
                 "decision answer `{name}`: probabilities carry a blank option name"
             )));
         }
+        if !options.iter().any(|declared| declared.name == *option) {
+            return Err(DomainError::validation(format!(
+                "decision answer `{name}`: probability key `{option}` is not one of the options \
+                 the question declared {:?}",
+                options
+                    .iter()
+                    .map(|declared| declared.name.as_str())
+                    .collect::<Vec<_>>()
+            )));
+        }
         distribution.insert(
             option.clone(),
             checked_probability(name, option, *probability)?,
         );
     }
-    if let Some(winner) = answer.choice.as_ref()
-        && !distribution.contains_key(winner)
-    {
+    let total: f32 = distribution.values().sum();
+    if (total - 1.0).abs() > PROBABILITY_SUM_TOLERANCE {
         return Err(DomainError::validation(format!(
-            "decision answer `{name}`: the winning label `{winner}` is not a key of its own \
-             probabilities map {:?}",
-            distribution.keys().collect::<Vec<_>>()
+            "decision answer `{name}`: probabilities sum to {total}, not 1.0 \
+             (±{PROBABILITY_SUM_TOLERANCE})"
         )));
+    }
+    if let Some(winner) = answer.choice.as_ref() {
+        let Some(winner_probability) = distribution.get(winner).copied() else {
+            return Err(DomainError::validation(format!(
+                "decision answer `{name}`: the winning label `{winner}` is not a key of its own \
+                 probabilities map {:?}",
+                distribution.keys().collect::<Vec<_>>()
+            )));
+        };
+        // A tie is the provider's to break; strictly more mass on another option
+        // contradicts its own answer.
+        if distribution
+            .values()
+            .any(|probability| *probability > winner_probability + PROBABILITY_TIE_TOLERANCE)
+        {
+            return Err(DomainError::validation(format!(
+                "decision answer `{name}`: the winning label `{winner}` is not the \
+                 highest-probability option of its own probabilities map {distribution:?}"
+            )));
+        }
     }
     Ok(distribution)
 }
@@ -402,11 +470,17 @@ fn normalize_answers(
         }
         let answer = match question {
             DecisionQuestion::Noul { .. } => DecisionAnswer {
-                noul: wire_answer.noul,
+                // The `noul` head is probability mass like any other: the score
+                // formulas clamp their output, but an out-of-range value would
+                // still land in `DecisionRubric.sub_scores`.
+                noul: wire_answer
+                    .noul
+                    .map(|value| checked_probability(&name, "noul", value))
+                    .transpose()?,
                 ..DecisionAnswer::default()
             },
-            DecisionQuestion::Choice { .. } => DecisionAnswer {
-                choice: Some(choice_distribution(&name, &wire_answer)?),
+            DecisionQuestion::Choice { options, .. } => DecisionAnswer {
+                choice: Some(choice_distribution(&name, &wire_answer, options)?),
                 ..DecisionAnswer::default()
             },
             DecisionQuestion::Score { ladder, .. } => DecisionAnswer {

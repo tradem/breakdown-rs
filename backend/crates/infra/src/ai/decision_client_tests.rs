@@ -21,8 +21,9 @@ use super::{
 use crate::ai::decision_scoring::score_script_chunk;
 use crate::ai::workers::DecisionPass;
 use breakdown_core::ai::{
-    DecisionClient, DecisionQuestion, DecisionRequest, DraftScene, DraftShootingDay, LlmProvider,
-    UsageAccumulator, continuity_questions, noul, question_keys, score5,
+    ChoiceOption, DecisionClient, DecisionQuestion, DecisionRequest, DraftScene, DraftShootingDay,
+    LlmProvider, UsageAccumulator, continuity_questions, curated_decision_model_ids, noul,
+    question_keys, score5,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -66,9 +67,23 @@ fn wire(fixture: &str) -> DecisionWireResponse {
 
 /// The question set the fixtures answer (`characters_complete` noul,
 /// `scene_metadata_accuracy` score, `outfit_continuity` choice).
+///
+/// The captured `choice` answer is keyed by the option names the live probe
+/// sent (`costume` / `props`), so the **question** is adapted to the fixture —
+/// never the other way round: a fixture rewritten to our own names would stop
+/// being evidence of the provider's shape.
 fn fixture_questions() -> BTreeMap<String, DecisionQuestion> {
     let mut questions = chunk_questions();
-    questions.extend(continuity_questions());
+    questions.insert(
+        question_keys::OUTFIT_CONTINUITY.to_owned(),
+        DecisionQuestion::Choice {
+            instructions: "Which department does this object belong to?".to_owned(),
+            options: vec![
+                ChoiceOption::new("costume", "Worn by a figure."),
+                ChoiceOption::new("props", "Handled, not worn."),
+            ],
+        },
+    );
     questions
 }
 
@@ -373,6 +388,198 @@ fn a_choice_label_outside_its_own_probabilities_is_rejected() {
     assert!(
         error.to_string().contains("neither_of_these"),
         "the error must name the offending label, got: {error}"
+    );
+}
+
+/// A `choice` answer keyed by names the question never declared is rejected:
+/// `resolve_continuity_outcome` would compare zeroes and quietly degrade to a
+/// gap instead of reporting a contract violation.
+#[test]
+fn a_choice_key_the_question_never_declared_is_rejected() {
+    let mut questions = BTreeMap::new();
+    questions.insert(
+        question_keys::OUTFIT_CONTINUITY.to_owned(),
+        continuity_questions()[question_keys::OUTFIT_CONTINUITY].clone(),
+    );
+    let wrong_keys: DecisionWireResponse = serde_json::from_value(json!({
+        "answers": {
+            question_keys::OUTFIT_CONTINUITY: {
+                "type": "choice",
+                "choice": "costume",
+                "probabilities": {"costume": 0.2751, "props": 0.7249},
+            }
+        }
+    }))
+    .expect("the wire DTO parses");
+    let error = normalize_answers(&questions, wrong_keys.answers)
+        .expect_err("an undeclared option name must be rejected");
+    assert!(
+        error.to_string().contains("costume"),
+        "the error must name the undeclared key, got: {error}"
+    );
+}
+
+/// `choice` mass must sum to ~1.0: the continuity resolver compares the raw
+/// values against `CONTINUITY_MIN_CONFIDENCE`, so unnormalized mass flips its
+/// outcome instead of failing.
+#[test]
+fn choice_mass_that_does_not_sum_to_one_is_rejected() {
+    let mut questions = BTreeMap::new();
+    questions.insert(
+        question_keys::OUTFIT_CONTINUITY.to_owned(),
+        continuity_questions()[question_keys::OUTFIT_CONTINUITY].clone(),
+    );
+    let unnormalized: DecisionWireResponse = serde_json::from_value(json!({
+        "answers": {
+            question_keys::OUTFIT_CONTINUITY: {
+                "type": "choice",
+                "choice": question_keys::CONTINUITY_CONTINUE_PREVIOUS,
+                "probabilities": {
+                    question_keys::CONTINUITY_CONTINUE_PREVIOUS: 0.4,
+                    question_keys::CONTINUITY_INFER_NEW_OUTFIT: 0.05,
+                    question_keys::CONTINUITY_REPORT_GAP: 0.05,
+                },
+            }
+        }
+    }))
+    .expect("the wire DTO parses");
+    let error = normalize_answers(&questions, unnormalized.answers)
+        .expect_err("mass that sums to 0.5 must be rejected");
+    assert!(
+        error.to_string().contains("sum"),
+        "the error must name the sum, got: {error}"
+    );
+}
+
+/// The provider's winning label must be the option its own mass favours — a
+/// contradiction is rejected rather than silently resolved by mass.
+#[test]
+fn a_choice_label_that_is_not_the_best_option_is_rejected() {
+    let mut questions = BTreeMap::new();
+    questions.insert(
+        question_keys::OUTFIT_CONTINUITY.to_owned(),
+        continuity_questions()[question_keys::OUTFIT_CONTINUITY].clone(),
+    );
+    let contradictory: DecisionWireResponse = serde_json::from_value(json!({
+        "answers": {
+            question_keys::OUTFIT_CONTINUITY: {
+                "type": "choice",
+                "choice": question_keys::CONTINUITY_INFER_NEW_OUTFIT,
+                "probabilities": {
+                    question_keys::CONTINUITY_CONTINUE_PREVIOUS: 0.8,
+                    question_keys::CONTINUITY_INFER_NEW_OUTFIT: 0.2,
+                },
+            }
+        }
+    }))
+    .expect("the wire DTO parses");
+    let error = normalize_answers(&questions, contradictory.answers)
+        .expect_err("a winner that is not the best option must be rejected");
+    assert!(
+        error.to_string().contains("highest-probability"),
+        "the error must say the label is not the best option, got: {error}"
+    );
+}
+
+/// A `noul` outside `0.0..=1.0` is not mass: the score formulas clamp their
+/// output, but the raw value would land in `DecisionRubric.sub_scores`.
+#[test]
+fn an_out_of_range_noul_is_rejected() {
+    let mut questions = BTreeMap::new();
+    questions.insert(
+        question_keys::CHARACTERS_COMPLETE.to_owned(),
+        noul(CHARACTERS_COMPLETE_INSTRUCTIONS),
+    );
+    let impossible: DecisionWireResponse = serde_json::from_value(json!({
+        "answers": {
+            question_keys::CHARACTERS_COMPLETE: {"type": "noul", "noul": 2.0}
+        }
+    }))
+    .expect("the wire DTO parses");
+    let error = normalize_answers(&questions, impossible.answers)
+        .expect_err("a noul above 1.0 must be rejected");
+    assert!(
+        error.to_string().contains("noul"),
+        "the error must name the offending field, got: {error}"
+    );
+}
+
+/// A legend that matches the sent ladder does not prove the provider reported
+/// one probability per level: two entries under a five-label legend would make
+/// `expected_score` divide by one step instead of four.
+#[test]
+fn a_distribution_shorter_than_its_own_legend_is_rejected() {
+    let mut questions = BTreeMap::new();
+    questions.insert(
+        question_keys::SCENE_METADATA_ACCURACY.to_owned(),
+        score5(SCENE_METADATA_INSTRUCTIONS),
+    );
+    let truncated: DecisionWireResponse = serde_json::from_value(json!({
+        "answers": {
+            question_keys::SCENE_METADATA_ACCURACY: {
+                "type": "score",
+                "legend": {"0": "wrong", "1": "poor", "2": "fair", "3": "good", "4": "exact"},
+                "probabilities": {"0": 0.25, "1": 0.75},
+            }
+        }
+    }))
+    .expect("the wire DTO parses");
+    let error = normalize_answers(&questions, truncated.answers)
+        .expect_err("a truncated distribution must be rejected");
+    assert!(
+        error.to_string().contains("probabilities"),
+        "the error must name the truncated map, got: {error}"
+    );
+}
+
+/// The provider's scalar mean must describe its own mass. A mean of 4 over a
+/// distribution whose mass sits on level 0 passes a band check (`4` is on the
+/// `0..=4` axis) but contradicts the mass the formulas actually blend — the
+/// live provider's mean equals `Σ level × probability` (verified 2026-11-03).
+#[test]
+fn a_score_mean_that_contradicts_the_distribution_is_rejected() {
+    let mut questions = BTreeMap::new();
+    questions.insert(
+        question_keys::SCENE_METADATA_ACCURACY.to_owned(),
+        score5(SCENE_METADATA_INSTRUCTIONS),
+    );
+    let contradictory: DecisionWireResponse = serde_json::from_value(json!({
+        "answers": {
+            question_keys::SCENE_METADATA_ACCURACY: {
+                "type": "score",
+                "score": 4.0,
+                "legend": {"0": "wrong", "1": "poor", "2": "fair", "3": "good", "4": "exact"},
+                "probabilities": {"0": 0.8, "1": 0.05, "2": 0.05, "3": 0.05, "4": 0.05},
+            }
+        }
+    }))
+    .expect("the wire DTO parses");
+    let error = normalize_answers(&questions, contradictory.answers)
+        .expect_err("a mean that contradicts the mass must be rejected");
+    assert!(
+        error.to_string().contains("mass-weighted"),
+        "the error must name the mass-weighted index, got: {error}"
+    );
+    // …and the live shape (mean == Σ level × probability) stays accepted.
+    let consistent: DecisionWireResponse = serde_json::from_value(json!({
+        "answers": {
+            question_keys::SCENE_METADATA_ACCURACY: {
+                "type": "score",
+                "score": 2.3204,
+                "legend": {"0": "wrong", "1": "poor", "2": "fair", "3": "good", "4": "exact"},
+                "probabilities": {"0": 0.1003, "1": 0.1666, "2": 0.2823, "3": 0.2139, "4": 0.2368},
+            }
+        }
+    }))
+    .expect("the wire DTO parses");
+    let answers = normalize_answers(&questions, consistent.answers)
+        .expect("the live answer shape must normalize");
+    let expected = answers[question_keys::SCENE_METADATA_ACCURACY]
+        .expected_score()
+        .expect("an expected score");
+    assert!(
+        (expected - 2.3204 / 4.0).abs() < 1e-3,
+        "the live distribution normalizes to {expected}"
     );
 }
 
@@ -852,15 +1059,31 @@ async fn live_systemone_answers_every_question_kind() {
             return;
         }
     };
+    // A misspelled provider name must NOT fall back to EURouter: with the
+    // EURouter key configured the test would pass and read as "neuralwatt /
+    // openrouter verified" when neither was contacted.
     let provider = match std::env::var("DECISION_LIVE_PROVIDER").as_deref() {
         Ok("neuralwatt") => LlmProvider::Neuralwatt,
         Ok("openrouter") => LlmProvider::OpenRouter,
-        _ => LlmProvider::EURouter,
+        Ok("") | Ok("eurouter") | Err(_) => LlmProvider::EURouter,
+        Ok(other) => panic!(
+            "DECISION_LIVE_PROVIDER `{other}` is not a curated decision provider — expected \
+             eurouter, neuralwatt or openrouter"
+        ),
     };
+    // The default model is the provider's own first curated ID: `clef-flash` is
+    // curated for EURouter/Neuralwatt but NOT for OpenRouter, whose decision
+    // models are provider-qualified (`cloudflare/clef-flash`).
     let model = std::env::var("DECISION_LIVE_MODEL")
         .ok()
         .filter(|model| !model.trim().is_empty())
-        .unwrap_or_else(|| "clef-flash".to_owned());
+        .unwrap_or_else(|| {
+            curated_decision_model_ids(provider)
+                .first()
+                .copied()
+                .unwrap_or("clef-flash")
+                .to_owned()
+        });
 
     let client = HttpDecisionClient::new(provider, key, Duration::from_secs(60))
         .await

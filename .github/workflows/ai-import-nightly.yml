@@ -116,7 +116,12 @@ jobs:
       # endpoint — `200` and a parsed answer per kind, or the provider's own
       # `details[].path` in the failure. It never prints the credential and
       # skips itself when the key is absent.
+      # Runs even when an earlier smoke step failed: the System One check is
+      # independent of the GDrive/LLM ones, and its whole purpose is to be the
+      # signal that a provider-side schema change is caught. A cancelled run is
+      # still cancelled (`!cancelled()`), so it cannot outlive the job.
       - name: Live Decision Model smoke (nightly)
+        if: ${{ !cancelled() }}
         env:
           # A dedicated decision credential wins; the current deployment uses
           # the same EURouter key for script extraction and scoring, so the
