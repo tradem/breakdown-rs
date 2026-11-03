@@ -120,6 +120,19 @@ jobs:
           persist-credentials: false
       - run: bash scripts/tests/reset-dev-data-wrapper-test.sh
 
+  # Dev-machine disk hygiene (AGENTS.md §8 / issue #631): `scripts/reclaim-disk.sh`
+  # deletes build artifacts, so its "nothing happens without --apply" contract and
+  # its missing-tool reporting are tested here. Daemon-free — no Rust toolchain,
+  # no docker, no database, no network.
+  disk-hygiene:
+    name: Disk hygiene script (dry-run contract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: bash scripts/tests/reclaim-disk-test.sh
+
   # ADR-020 D2/D5: the declared MSRV floor (workspace rust-version = 1.99,
   # matching the Dockerfile builder) is verified on every PR with the pinned
   # 1.99.0 toolchain. A future MSRV bump is a MAJOR change per crate (D2).
