@@ -69,9 +69,14 @@ try:
 except Exception:
     sys.exit(0)
 cwd = os.getcwd()
+def contains(directory, root):
+    # Path-COMPONENT boundary: /work/app must not match an indexed /work/ap.
+    root = root.rstrip("/")
+    return directory == root or directory.startswith(root + "/")
+
 matches = [
     p for p in payload.get("projects", [])
-    if isinstance(p.get("root_path"), str) and cwd.startswith(p["root_path"])
+    if isinstance(p.get("root_path"), str) and contains(cwd, p["root_path"])
 ]
 matches.sort(key=lambda p: len(p["root_path"]), reverse=True)
 print(matches[0]["name"] if matches else "")
@@ -147,13 +152,23 @@ if ! "$BIN" cli --quiet search_graph \
 fi
 
 echo
-echo "== observers (text search: the ref.watch/read/listen call sites) =="
+echo "== observers (ref.watch / ref.listen — these SUBSCRIBE) =="
 # The observer set is exactly these call sites; `ref.watch` is dynamic and thus
-# not a graph edge. Both spellings are matched (family + generated getter).
-rg -n --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
-    "ref\.(watch|read|listen)\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
+# not a graph edge. `-U` so a provider name on the NEXT line still matches
+# (multiline Riverpod calls). Both spellings are matched (family + getter).
+rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
+    "ref\.(watch|listen)\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
     head -40 || true
 
 echo
+echo "== non-subscribing accesses (ref.read — NOT observers) =="
+# `ref.read` touches the provider once and does not rebuild on change, so it is
+# an access site, not an observer. Listed separately on purpose.
+rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
+    "ref\.read\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
+    head -20 || true
+
+echo
 echo "Both answers together are the answer: the graph names the symbol and the"
-echo "edges it models; the call sites above are the real observer set."
+echo "edges it models; the ref.watch/ref.listen call sites above are the observer"
+echo "set, the ref.read lines are one-shot accesses."

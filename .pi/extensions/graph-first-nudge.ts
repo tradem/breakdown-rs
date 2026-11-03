@@ -45,9 +45,13 @@
  *   - An empty result is reported as *possibly stale index* (with the freshness
  *     command), never as "no such symbol".
  *
- * Cost control: one `search_graph` (and at most one `trace_path`) per nudged
- * call, 4 s timeout each, a 12 s cooldown, a 40-nudge session cap, and every
- * failure is silent. No network, read-only CLI calls, no index mutation.
+ * Cost control: one `search_graph` per nudged call, plus — only for a
+ * generated `<family>Provider` alias — TWO candidate lookups issued
+ * CONCURRENTLY (wall time of one), plus at most one `trace_path`. Each call has
+ * a 4 s timeout, so the worst case is ~8 s of added latency; the cooldown,
+ * session cap and counters are RESERVED before the first await, so concurrent
+ * sibling tool calls cannot overshoot them. A failed lookup appends nothing.
+ * No network, read-only CLI calls, no index mutation.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -71,13 +75,13 @@ const TEXT_TARGET_RE =
 
 /** Directories that carry no symbol-level code (or are pruned from the index). */
 const NON_CODE_DIR_RE =
-	/(^|\/)(docs|openspec|vendor|node_modules|build|\.dart_tool|\.pi|\.github|\.codebase-memory)\//;
+	/(^|\/)(docs|openspec|vendor|node_modules|build|\.dart_tool|\.pi|\.github|\.codebase-memory)(\/|$)/;
 
 /** Localization catalogs and generated l10n trees: key lookups are text lookups. */
 const L10N_DIR_RE = /(^|\/)(l10n|i18n|locale|locales)(\/|$)/;
 
 /** Test trees: a text search here is usually a fixture hunt, not an impact question. */
-const TEST_DIR_RE = /(^|\/)(test|tests|integration_test)\//;
+const TEST_DIR_RE = /(^|\/)(test|tests|integration_test)(\/|$)/;
 
 const COOLDOWN_MS = 12_000;
 const SESSION_CAP = 40;
@@ -91,12 +95,20 @@ const CAMEL_RE = /^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+$/;
 const SNAKE_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 const CONST_RE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
 
-/** Flags whose VALUE is not the search pattern. */
-const VALUE_FLAGS = new Set([
-	"-e",
-	"--regexp",
-	"-g",
-	"--glob",
+/**
+ * Glob flags: their value names files, so it is a *target* hint (`-g '*.arb'`
+ * means a catalog search). A NEGATED glob (`-g '!*.arb'`) excludes files from a
+ * code search and must not turn the search into a text search.
+ */
+const GLOB_FLAGS = new Set(["-g", "--glob", "--iglob"]);
+
+/**
+ * Flags whose value is neither the pattern nor a target hint (`-t dart`,
+ * `-C 2`, `-m 5`). Their value is consumed and ignored — note that `-e` /
+ * `--regexp` are deliberately NOT here: for `rg -e PATTERN`, the value IS the
+ * pattern, so it must fall through to the positional handling below.
+ */
+const OTHER_VALUE_FLAGS = new Set([
 	"-t",
 	"--type",
 	"-T",
@@ -107,7 +119,6 @@ const VALUE_FLAGS = new Set([
 	"-B",
 	"-C",
 	"--context",
-	"--iglob",
 	"-f",
 	"--file",
 ]);
@@ -119,6 +130,12 @@ export type NudgeDecision = {
 	classLike: boolean;
 };
 
+/** True when [root] contains [dir] on a path-COMPONENT boundary. */
+function containsPath(dir: string, root: string): boolean {
+	const normalized = root.replace(/\/+$/, "");
+	return dir === normalized || dir.startsWith(`${normalized}/`);
+}
+
 const isSymbol = (token: string): boolean =>
 	token.length >= 6 &&
 	(PASCAL_RE.test(token) ||
@@ -129,13 +146,46 @@ const isSymbol = (token: string): boolean =>
 /**
  * Splits a shell command line into simple command segments.
  *
- * Deliberately naive (no shell parser): the goal is to recognise a plain
- * `rg <pattern> <paths>` invocation, not to execute anything. Anything it
- * misparses simply yields "no nudge", which is the safe direction.
+ * Quote-aware on purpose: a `;` or `|` INSIDE a quoted argument is data, not a
+ * command separator. Without that, `echo '; rg Foo lib'` would be split into a
+ * bogus `rg` segment and the advisory would attach to an `echo`. Anything this
+ * cannot parse yields "no nudge", which is the safe direction.
  */
 export function splitCommands(command: string): string[][] {
-	return command
-		.split(/\|\||&&|[|;\n]/)
+	const segments: string[] = [];
+	let current = "";
+	let quote: string | null = null;
+	let escaped = false;
+	for (const ch of command) {
+		if (escaped) {
+			current += ch;
+			escaped = false;
+			continue;
+		}
+		if (ch === "\\") {
+			current += ch;
+			escaped = true;
+			continue;
+		}
+		if (quote !== null) {
+			current += ch;
+			if (ch === quote) quote = null;
+			continue;
+		}
+		if (ch === '"' || ch === "'") {
+			current += ch;
+			quote = ch;
+			continue;
+		}
+		if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
+			segments.push(current);
+			current = "";
+			continue;
+		}
+		current += ch;
+	}
+	segments.push(current);
+	return segments
 		.map((segment) => segment.trim())
 		.filter((segment) => segment.length > 0)
 		.map((segment) => segment.split(/\s+/));
@@ -158,47 +208,65 @@ export function decide(command: string): NudgeDecision | null {
 		if (!bin || !SEARCH_COMMANDS.has(bin)) continue;
 
 		let pattern: string | null = null;
-		const paths: string[] = [];
+		const unquote = (word: string) => word.replace(/^['"]|['"]$/g, "");
+		// Glob values are TARGET hints; directory operands decide the scope.
+		const globs: string[] = [];
+		const operands: string[] = [];
 		for (let j = i + 1; j < words.length; j++) {
 			const word = words[j]!;
 			if (word === "--") continue;
 			if (word.startsWith("-")) {
-				if (VALUE_FLAGS.has(word)) {
-					// The flag's VALUE still tells us what is being searched (a
-					// `-g '*.arb'` glob is a text target), so it joins the path hints.
-					const value = words[j + 1];
-					if (value !== undefined) paths.push(value);
-					j++;
+				// Inline `--flag=value` must behave like the two-word form.
+				const eq = word.indexOf("=");
+				const name = eq === -1 ? word : word.slice(0, eq);
+				const inline = eq === -1 ? null : word.slice(eq + 1);
+				if (GLOB_FLAGS.has(name)) {
+					const raw = inline ?? words[j + 1];
+					if (inline === null) j++;
+					const value = raw === undefined ? undefined : unquote(raw);
+					// A negated glob EXCLUDES files from a code search; it is not a
+					// text target (otherwise `-g '!*.arb'` would silently mute us).
+					// Test the UNQUOTED value: `'!*.arb'` still starts with a quote.
+					if (value !== undefined && !value.startsWith("!")) {
+						globs.push(value);
+					}
+					continue;
 				}
+				if (name === "-e" || name === "--regexp") {
+					// `rg -e PATTERN` / `rg --regexp=PATTERN`: the value IS the pattern.
+					const raw = inline ?? words[j + 1];
+					if (inline === null) j++;
+					if (raw !== undefined && pattern === null) pattern = unquote(raw);
+					continue;
+				}
+				if (OTHER_VALUE_FLAGS.has(name) && inline === null) j++;
 				continue;
 			}
 			if (pattern === null) {
 				pattern = word;
 				continue;
 			}
-			paths.push(word);
+			operands.push(unquote(word));
 		}
 		if (pattern === null) continue;
 
 		// A quoted phrase, a regex or a path-ish glob is not a symbol lookup.
-		const bare = pattern.replace(/^['"]|['"]$/g, "");
+		const bare = unquote(pattern);
 		if (!isSymbol(bare)) continue;
 
-		// The search targets text files / non-code trees → rg is the right tool.
-		const unquote = (p: string) => p.replace(/^['"]|['"]$/g, "");
-		if (paths.some((p) => TEXT_TARGET_RE.test(unquote(p)))) continue;
-		if (
-			paths.some((p) => {
-				const clean = unquote(p);
-				return (
-					NON_CODE_DIR_RE.test(clean) ||
-					TEST_DIR_RE.test(clean) ||
-					L10N_DIR_RE.test(clean)
-				);
-			})
-		) {
-			continue;
-		}
+		// A targeted TEXT FILE (or glob) means text search is the right tool.
+		const textTarget = [...globs, ...operands].some((p) =>
+			TEXT_TARGET_RE.test(p),
+		);
+		if (textTarget) continue;
+
+		// Directory scope: skip only when EVERY directory operand is a non-code
+		// tree — `rg X lib docs` still searches code, so it is nudged.
+		const isExcludedDir = (p: string) =>
+			NON_CODE_DIR_RE.test(p) || TEST_DIR_RE.test(p) || L10N_DIR_RE.test(p);
+		const dirOperands = operands.filter((p) => !p.includes("*"));
+		if (dirOperands.length > 0 && dirOperands.every(isExcludedDir)) continue;
+
 		return { symbol: bare, classLike: PASCAL_RE.test(bare) };
 	}
 	return null;
@@ -450,9 +518,7 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 		// The index root must CONTAIN the cwd (the index root is the monorepo
 		// root, while sessions commonly start in `frontend-flutter/`).
 		const match = projects
-			.filter(
-				(p) => typeof p.root_path === "string" && cwd.startsWith(p.root_path),
-			)
+			.filter((p) => typeof p.root_path === "string" && containsPath(cwd, p.root_path))
 			.sort((a, b) => (b.root_path?.length ?? 0) - (a.root_path?.length ?? 0))[0];
 		const value = match?.name ?? null;
 		projectCache = { value, at: Date.now() };
@@ -470,9 +536,15 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 			if (!decision) return;
 
 			// Cooldown + session cap: the nudge must stay cheap and welcome.
+			// RESERVED before the first await — sibling `bash` calls from one
+			// assistant message run concurrently, so a check-then-set would let
+			// both pass and overshoot the budget.
 			const now = Date.now();
 			if (now - lastNudgeAt < COOLDOWN_MS) return;
 			if (nudges >= SESSION_CAP) return;
+			lastNudgeAt = now;
+			const verbose = nudges === 0;
+			nudges++;
 
 			const cwd = ctx.cwd;
 			const project = await resolveProject(cwd, ctx.signal);
@@ -484,6 +556,10 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 				{ project, query: decision.symbol, limit: 30, format: "json" },
 				{ cwd, signal: ctx.signal, bin },
 			);
+			// A failed/timed-out lookup appends NOTHING (the header promises silence):
+			// `graphCli` returns null and "no hits" would otherwise be reported as
+			// "no code symbol named …", i.e. a lie about a stale index.
+			if (search === null) return;
 			const collect = (payload: unknown, symbol: string) =>
 				pickHits(payload, symbol).map((row) => ({
 					qn: String(row.qn ?? ""),
@@ -502,36 +578,48 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 			if (hits.length === 0 && decision.symbol.endsWith("Provider")) {
 				const family = decision.symbol.replace(/Provider$/, "");
 				// Class-based providers (`@Riverpod class X`) are declared in
-				// PascalCase while the generated getter is camelCase — try both.
+				// PascalCase while the generated getter is camelCase — try both,
+				// CONCURRENTLY so the wall time stays that of one lookup.
 				const pascal = family.charAt(0).toUpperCase() + family.slice(1);
-				for (const candidate of [family, pascal]) {
-					if (candidate.length < 6 || !isSymbol(candidate)) continue;
-					const retry = await graphCli(
-						pi.exec.bind(pi),
-						"search_graph",
-						{ project, query: candidate, limit: 30, format: "json" },
-						{ cwd, signal: ctx.signal, bin },
-					);
-					const retryHits = collect(retry, candidate);
+				const candidates = [family, pascal].filter(
+					(candidate) => candidate.length >= 6 && isSymbol(candidate),
+				);
+				const results = await Promise.all(
+					candidates.map((candidate) =>
+						graphCli(
+							pi.exec.bind(pi),
+							"search_graph",
+							{ project, query: candidate, limit: 30, format: "json" },
+							{ cwd, signal: ctx.signal, bin },
+						),
+					),
+				);
+				for (let k = 0; k < candidates.length; k++) {
+					const retryHits = collect(results[k], candidates[k]!);
 					if (retryHits.length > 0) {
 						hits = retryHits;
-						matchedAs = candidate;
+						matchedAs = candidates[k];
 						break;
 					}
 				}
 			}
 
-			// Inbound edges only for function-like symbols: a class legitimately
-			// reports 0 (construction is not modelled), and printing "0 callers"
-			// there would teach the wrong lesson.
+			// Shape comes from the RESOLVED name: a camelCase `<family>Provider`
+			// token that matched the hand-written `CurrentMembership` class is
+			// class-like, so it gets the construction note instead of a trace.
+			const resolved = matchedAs ?? decision.symbol;
+			const classLike = PASCAL_RE.test(resolved);
+			// Inbound edges only for a SINGLE function-like definition: with two
+			// same-named definitions, `trace_path` (bare name) would attach one
+			// definition's callers to the other's bullet.
 			let callers: { total: number; callers: Caller[] } | undefined;
-			if (!decision.classLike && hits.length > 0) {
+			if (!classLike && hits.length === 1) {
 				const trace = await graphCli(
 					pi.exec.bind(pi),
 					"trace_path",
 					{
 						project,
-						function_name: matchedAs ?? decision.symbol,
+						function_name: resolved,
 						direction: "inbound",
 						limit: 25,
 						format: "json",
@@ -541,17 +629,14 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 				callers = pickCallers(trace);
 			}
 
-			lastNudgeAt = Date.now();
-			nudges++;
-
 			const block = formatBlock({
 				project,
 				symbol: decision.symbol,
 				hits,
-				classLike: decision.classLike,
+				classLike,
 				callers,
 				matchedAs,
-				verbose: nudges === 0,
+				verbose,
 			});
 
 			const existing = Array.isArray(event.content) ? event.content : [];
@@ -587,6 +672,22 @@ if (invokedDirectly) {
 		['rg -n "has_active_credential_role" backend', "has_active_credential_role"],
 		['rg -n "currentMembership" lib # literal: provider wiring', null],
 		["rg season lib", null],
+		// CodeRabbit review: quote-aware split (a `;` inside quotes is data).
+		["echo '; rg currentMembershipProvider lib'", null],
+		['echo "rg currentMembershipProvider lib"', null],
+		// Inline `--flag=value` (the ARB glob still marks a text target).
+		["rg --glob='*.arb' currentMembershipProvider lib", null],
+		// `-e PATTERN`: the flag value IS the pattern, not a path.
+		["rg -e currentMembershipProvider lib", "currentMembershipProvider"],
+		["rg --regexp=aiConfigErrorCopy lib", "aiConfigErrorCopy"],
+		// A negated glob excludes files; it does not make this a text search.
+		["rg -g '!*.arb' currentMembershipProvider lib", "currentMembershipProvider"],
+		// A bare excluded dir operand: excluded only when EVERY dir is excluded.
+		["rg currentMembershipProvider test", null],
+		["rg currentMembershipProvider docs", null],
+		["rg currentMembershipProvider lib docs", "currentMembershipProvider"],
+		// Non-glob flag values are not path hints (`-C 2`, `-t dart`).
+		["rg -t dart -C 2 currentMembershipProvider lib", "currentMembershipProvider"],
 	];
 	let failed = 0;
 	for (const [command, expected] of cases) {

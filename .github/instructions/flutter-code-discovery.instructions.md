@@ -54,7 +54,7 @@ code-aware answer to the same result — a soft advisory, never a block.
 | "How does module A relate to B?", "architecture" | `get_architecture`, else `analyze_ast_graph` |
 | Non-trivial multi-hop aggregation | `query_graph` (Cypher) |
 | Projection-DTO ↔ screen wiring, "what did my branch touch" | `detect_changes` |
-| **"Who observes this Riverpod provider?"** (`ref.watch` is not a graph edge) | `scripts/who-watches.sh <provider>` — graph definition **and** the observer call sites in one call |
+| **"Who observes this Riverpod provider?"** (`ref.watch` is not a graph edge) | `scripts/who-watches.sh <provider>` — the graph definition plus the subscribing call sites (`ref.watch` / `ref.listen`); `ref.read` sites are listed separately because they do not subscribe |
 | **String literal, error/problem `code`, ARB key, config value, CWG text, YAML** | `grep` / `rg` — the graph indexes symbols, not literals |
 | Generated output, `.g.dart`, `vendor/**` contents | `read`, never a graph claim |
 
