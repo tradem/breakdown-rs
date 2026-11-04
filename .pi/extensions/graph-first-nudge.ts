@@ -80,6 +80,10 @@ const NON_CODE_DIR_RE =
 /** Localization catalogs and generated l10n trees: key lookups are text lookups. */
 const L10N_DIR_RE = /(^|\/)(l10n|i18n|locale|locales)(\/|$)/;
 
+/** Files that carry code (tells an explicit FILE operand from a directory). */
+const CODE_FILE_RE =
+	/\.(dart|rs|ts|tsx|js|jsx|mjs|cjs|py|sql|kt|kts|swift|go|java|rb|php|cs|cc|cpp|c|h|hpp)$/i;
+
 /** Test trees: a text search here is usually a fixture hunt, not an impact question. */
 const TEST_DIR_RE = /(^|\/)(test|tests|integration_test)(\/|$)/;
 
@@ -373,10 +377,21 @@ export function decide(command: string): NudgeDecision | null {
 		const bare = allPatterns[0]!;
 		if (!isSymbol(bare)) continue;
 
-		// A POSITIVE GLOB restricts the file set found under the operands, so a
-		// text glob (`-g '*.arb'`) makes the whole search a text search even
-		// when a code directory is named.
-		if (globs.some((glob) => TEXT_TARGET_RE.test(glob))) continue;
+		// Positive globs are a UNION of include patterns, and an explicit FILE
+		// operand is read regardless of them. So a text glob alone only proves a
+		// text search when it is the ONLY way files can be reached:
+		//   `rg -g '*.arb' X lib`              → text only → silent
+		//   `rg -g '*.arb' -g '*.dart' X lib`  → the union includes code → nudge
+		//   `rg -g '*.arb' X lib/a.dart`       → the file is read directly → nudge
+		const explicitCodeFile = operands.some((operand) =>
+			CODE_FILE_RE.test(operand),
+		);
+		const codeReachableByGlob = globs.some(
+			(glob) => !TEXT_TARGET_RE.test(glob) || CODE_FILE_RE.test(glob),
+		);
+		if (globs.length > 0 && !codeReachableByGlob && !explicitCodeFile) {
+			continue;
+		}
 
 		// Operands (dirs AND explicit files) are searched regardless of globs, so
 		// the advisory is skipped only when EVERY operand is a text file or a
@@ -829,6 +844,18 @@ if (invokedDirectly) {
 		{ cmd: "rg currentMembershipProvider 'release notes.md'", symbol: null },
 		// Inline `--flag=value` and `-e`/`--regexp` spellings.
 		{ cmd: "rg --glob='*.arb' currentMembershipProvider lib", symbol: null },
+		// …but an explicit CODE FILE is read regardless of the glob.
+		{
+			cmd: "rg -g '*.arb' currentMembershipProvider lib/a.dart",
+			symbol: "currentMembershipProvider",
+		},
+		// …and positive globs combine as a UNION: one code glob is enough.
+		{
+			cmd: "rg -g '*.arb' -g '*.dart' currentMembershipProvider lib",
+			symbol: "currentMembershipProvider",
+		},
+		// Two text globs alone stay a text search.
+		{ cmd: "rg -g '*.arb' -g '*.md' currentMembershipProvider lib", symbol: null },
 		{ cmd: "rg -e currentMembershipProvider lib", symbol: "currentMembershipProvider" },
 		{ cmd: "rg --regexp=aiConfigErrorCopy lib", symbol: "aiConfigErrorCopy" },
 		// Two patterns are an alternation, not a single-symbol question.

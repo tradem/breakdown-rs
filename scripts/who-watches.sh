@@ -98,10 +98,17 @@ else
 fi
 
 echo "== graph (codebase-memory · $PROJECT) =="
+# Lookup failures must survive the `$( )` substitution below, otherwise "the
+# lookup did not complete" would be reported as "no definition exists".
+FAILED_LOOKUPS=$(mktemp)
+trap 'rm -f "$FAILED_LOOKUPS"' EXIT
 graph_lines=$(
 for symbol in "$FAMILY" "$PASCAL" "$PROVIDER"; do
     payload=$("$BIN" cli --quiet search_graph \
-        "{\"project\":\"$PROJECT\",\"query\":\"$symbol\",\"limit\":10,\"format\":\"json\"}" 2>/dev/null) || continue
+        "{\"project\":\"$PROJECT\",\"query\":\"$symbol\",\"limit\":40,\"format\":\"json\"}" 2>/dev/null) || {
+        printf '%s\n' "$symbol" >>"$FAILED_LOOKUPS"
+        continue
+    }
     hits=$(printf '%s' "$payload" | python3 -c '
 import json, sys
 try:
@@ -125,8 +132,15 @@ print("\n".join(out[:3]))
     [ -n "$hits" ] && printf '%s\n' "$hits"
 done | sort -u | head -6
 )
+failed=$(sort -u "$FAILED_LOOKUPS" 2>/dev/null | tr '\n' ' ')
 if [ -n "$graph_lines" ]; then
     printf '%s\n' "$graph_lines"
+    [ -n "$failed" ] && echo "  (lookup failed for: ${failed% } — cross-check manually)"
+elif [ -n "$failed" ]; then
+    # A FAILED lookup is not an empty index.
+    echo "  (lookup failed for: ${failed% } — the index may be stale or the CLI"
+    echo "   unavailable; run scripts/check-graph-freshness.sh before concluding"
+    echo "   that no such symbol exists)"
 else
     # An empty section must say WHY: "no definition named X" and "stale index"
     # look identical otherwise, and that ambiguity is what makes the graph feel
@@ -157,22 +171,37 @@ print(", ".join(names[:6]) + (" …" if len(names) > 6 else ""))
 ' 2>/dev/null)
 [ -n "$inbound" ] && echo "  inbound call edges: $inbound"
 
-if ! "$BIN" cli --quiet search_graph \
-    "{\"project\":\"$PROJECT\",\"query\":\"$PASCAL\",\"limit\":1,\"format\":\"json\"}" >/dev/null 2>&1; then
-    echo "  (no graph answer — index may be stale: scripts/check-graph-freshness.sh)"
-fi
-
 echo
+# Drops a WHOLE match whose `ref.watch|listen|read(` occurrence sits inside a
+# comment. `rg -U` emits one `path:line:content` line per match START followed
+# by plain continuation lines, so a per-line prefix filter both misses trailing
+# and `/* */` comments and orphans the continuation lines of a dropped match.
+drop_commented_matches() {
+    awk '
+    function is_commented(text) {
+        if (!match(text, /ref\.(watch|listen|read)\(/)) return 0
+        before = substr(text, 1, RSTART - 1)
+        return (before ~ /\/\// || before ~ /\/\*/)
+    }
+    /^[^:]+:[0-9]+:/ {
+        line = $0
+        sub(/^[^:]+:[0-9]+:/, "", line)
+        drop = is_commented(line)
+    }
+    !drop { print }
+    '
+}
+
 echo "== observers (ref.watch / ref.listen — these SUBSCRIBE) =="
 # The observer set is exactly these call sites; `ref.watch` is dynamic and thus
 # not a graph edge. `-U` so a provider name on the NEXT line still matches
 # (multiline Riverpod calls). Both spellings are matched (family + getter).
-# Comment lines are filtered out: a `///` doc comment that merely MENTIONS the
-# provider is not a subscription, and reporting it as one would be a false
-# positive in a section that says "these SUBSCRIBE".
+# Comment matches are dropped at MATCH level (drop_commented_matches): a `///`
+# doc comment or a trailing `// …` that merely MENTIONS the provider is not a
+# subscription, and the section header says "these SUBSCRIBE".
 rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
     "ref\.(watch|listen)\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
-    grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' |
+    drop_commented_matches |
     head -40 || true
 
 echo
@@ -181,7 +210,7 @@ echo "== non-subscribing accesses (ref.read — NOT observers) =="
 # an access site, not an observer. Listed separately on purpose.
 rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
     "ref\.read\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
-    grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' |
+    drop_commented_matches |
     head -20 || true
 
 echo
