@@ -16,8 +16,10 @@ listing every entry with its own note).
 
 The apply request SHALL carry exactly one `uncertainty_acknowledgement` per
 acknowledged pair, and SHALL never carry the same pair twice. Apply SHALL stay
-disabled until every pair is acknowledged, and SHALL be enabled once the last
-open pair is acknowledged — acknowledging one pair resolves all of its entries.
+disabled until every pair is acknowledged. Acknowledging one pair resolves all
+of its entries. Once every pair is acknowledged, this requirement no longer
+blocks apply; the other apply gates (context, resolved group targets, and the
+review checkbox) still apply.
 
 #### Scenario: Duplicate blockers render one row
 

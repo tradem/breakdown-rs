@@ -7403,9 +7403,15 @@ pub struct ApplyAiImportRequest {
     /// display-only; correcting a wrong value happens post-apply via normal
     /// scene editing). Request-carried because a stored preview is an
     /// immutable payload blob. Every entry must reference a blocking
-    /// uncertainty the preview actually carries; anything else — and any
-    /// duplicate — is a validation error. Old clients omit the field (serde
-    /// default = empty), so previews stored before this change still apply.
+    /// uncertainty the preview actually carries; anything else is a
+    /// validation error. A repeated `(scene_index, field)` pair is a no-op
+    /// (issue #821): the list is set-shaped, the pair is the entire payload,
+    /// and the existence check still runs on every entry, so a duplicate can
+    /// never smuggle in an unknown pair. Refusing duplicates with the
+    /// content-free `422 domain.validation` turned a valid apply into a dead
+    /// end (the client emitted one entry per preview ENTRY). Old clients omit
+    /// the field (serde default = empty), so previews stored before this
+    /// change still apply.
     #[serde(default)]
     pub uncertainty_acknowledgements: Vec<UncertaintyAcknowledgement>,
     /// Reviewer resolutions of the wardrobe gaps Pass 2 surfaced (OpenSpec
