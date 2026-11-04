@@ -151,9 +151,17 @@ const isSymbol = (token: string): boolean =>
  * bogus `rg` segment and the advisory would attach to an `echo`. Anything this
  * cannot parse yields "no nudge", which is the safe direction.
  */
-export function splitCommands(command: string): string[][] {
-	const segments: string[] = [];
+export type CommandSegment = {
+	/** Whitespace-split words of this simple command. */
+	words: string[];
+	/** Separator that PRECEDED it (`null` for the first segment). */
+	after: string | null;
+};
+
+export function splitCommands(command: string): CommandSegment[] {
+	const segments: { text: string; after: string | null }[] = [];
 	let current = "";
+	let pending: string | null = null;
 	let quote: string | null = null;
 	let escaped = false;
 	for (const ch of command) {
@@ -178,17 +186,21 @@ export function splitCommands(command: string): string[][] {
 			continue;
 		}
 		if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
-			segments.push(current);
+			segments.push({ text: current, after: pending });
+			pending = (pending ?? "") + ch;
 			current = "";
 			continue;
 		}
 		current += ch;
 	}
-	segments.push(current);
-	return segments
-		.map((segment) => segment.trim())
-		.filter((segment) => segment.length > 0)
-		.map((segment) => segment.split(/\s+/));
+	segments.push({ text: current, after: pending });
+	const out: CommandSegment[] = [];
+	for (const segment of segments) {
+		const trimmed = segment.text.trim();
+		if (trimmed.length === 0) continue;
+		out.push({ words: trimmed.split(/\s+/), after: segment.after });
+	}
+	return out;
 }
 
 /**
@@ -200,7 +212,22 @@ export function splitCommands(command: string): string[][] {
 export function decide(command: string): NudgeDecision | null {
 	if (command.includes("# literal:")) return null;
 
-	for (const words of splitCommands(command)) {
+	// A `cd`/`pushd` before the search means the SEARCH DIRECTORY differs from
+	// the session directory the graph lookup is scoped to — stay silent rather
+	// than label another tree's symbols.
+	if (
+		splitCommands(command).some((segment) => {
+			const word = segment.words[0]?.replace(/^.*\//, "");
+			return word === "cd" || word === "pushd";
+		})
+	) {
+		return null;
+	}
+
+	for (const { words, after } of splitCommands(command)) {
+		// A segment joined by `||` runs only when the previous one FAILED, so the
+		// search may never have executed (the result would not be its output).
+		if (after !== null && after.includes("||")) continue;
 		// Skip leading env assignments (`FOO=1 rg …`).
 		let i = 0;
 		while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) i++;
@@ -208,6 +235,13 @@ export function decide(command: string): NudgeDecision | null {
 		if (!bin || !SEARCH_COMMANDS.has(bin)) continue;
 
 		let pattern: string | null = null;
+		// Every `-e`/`--regexp` value is an alternative pattern. A search with
+		// more than one pattern is an alternation (a regex intent), not a
+		// single-symbol question, so it is never nudged.
+		const extraPatterns: string[] = [];
+		// Once a `-e`/`--regexp` value supplied a pattern, every later positional
+		// word is an OPERAND (`rg -e Foo lib` searches `lib` for `Foo`).
+		let patternFromFlag = false;
 		const unquote = (word: string) => word.replace(/^['"]|['"]$/g, "");
 		// Glob values are TARGET hints; directory operands decide the scope.
 		const globs: string[] = [];
@@ -233,39 +267,53 @@ export function decide(command: string): NudgeDecision | null {
 					continue;
 				}
 				if (name === "-e" || name === "--regexp") {
-					// `rg -e PATTERN` / `rg --regexp=PATTERN`: the value IS the pattern.
+					// `rg -e PATTERN` / `rg --regexp=PATTERN`: the value IS a pattern.
 					const raw = inline ?? words[j + 1];
 					if (inline === null) j++;
-					if (raw !== undefined && pattern === null) pattern = unquote(raw);
+					if (raw !== undefined) {
+						extraPatterns.push(unquote(raw));
+						patternFromFlag = true;
+					}
 					continue;
 				}
 				if (OTHER_VALUE_FLAGS.has(name) && inline === null) j++;
 				continue;
 			}
-			if (pattern === null) {
+			if (pattern === null && !patternFromFlag) {
 				pattern = word;
 				continue;
 			}
 			operands.push(unquote(word));
 		}
-		if (pattern === null) continue;
 
-		// A quoted phrase, a regex or a path-ish glob is not a symbol lookup.
-		const bare = unquote(pattern);
+		// Exactly ONE pattern across both spellings (`rg Foo`, `rg -e Foo`,
+		// `rg -e a -e b`): an alternation is a regex intent, and a single graph
+		// answer would misrepresent it.
+		const allPatterns = [
+			...(pattern === null ? [] : [unquote(pattern)]),
+			...extraPatterns,
+		];
+		if (allPatterns.length !== 1) continue;
+
+		// A quoted phrase or a regex is not a symbol lookup.
+		const bare = allPatterns[0]!;
 		if (!isSymbol(bare)) continue;
 
-		// A targeted TEXT FILE (or glob) means text search is the right tool.
-		const textTarget = [...globs, ...operands].some((p) =>
-			TEXT_TARGET_RE.test(p),
-		);
-		if (textTarget) continue;
+		// A POSITIVE GLOB restricts the file set found under the operands, so a
+		// text glob (`-g '*.arb'`) makes the whole search a text search even
+		// when a code directory is named.
+		if (globs.some((glob) => TEXT_TARGET_RE.test(glob))) continue;
 
-		// Directory scope: skip only when EVERY directory operand is a non-code
-		// tree — `rg X lib docs` still searches code, so it is nudged.
-		const isExcludedDir = (p: string) =>
-			NON_CODE_DIR_RE.test(p) || TEST_DIR_RE.test(p) || L10N_DIR_RE.test(p);
-		const dirOperands = operands.filter((p) => !p.includes("*"));
-		if (dirOperands.length > 0 && dirOperands.every(isExcludedDir)) continue;
+		// Operands (dirs AND explicit files) are searched regardless of globs, so
+		// the advisory is skipped only when EVERY operand is a text file or a
+		// non-code tree: `rg X lib translations.arb` still searches code under
+		// `lib`, while `rg X lib/l10n` or `rg X test` searches no code at all.
+		const isNonCode = (p: string) =>
+			TEXT_TARGET_RE.test(p) ||
+			NON_CODE_DIR_RE.test(p) ||
+			TEST_DIR_RE.test(p) ||
+			L10N_DIR_RE.test(p);
+		if (operands.length > 0 && operands.every(isNonCode)) continue;
 
 		return { symbol: bare, classLike: PASCAL_RE.test(bare) };
 	}
@@ -438,7 +486,10 @@ export function formatBlock(args: {
 	out.push("");
 	if (matchedAs) {
 		out.push(
-			`(the searched token is generated; matched the hand-written \`${matchedAs}\`)`,
+			`(the searched token is generated; NAME-ONLY match on \`${matchedAs}\` — no`,
+		);
+		out.push(
+			` Riverpod annotation was verified, so confirm it is the provider family)`,
 		);
 	}
 	const shown = matchedAs ?? symbol;
@@ -454,11 +505,11 @@ export function formatBlock(args: {
 		const list = callers.callers
 			.map((c) => (c.owner ? `${c.owner}.${c.name}` : c.name))
 			.join(", ");
-		out.push(
-			`  inbound: ${callers.total}${list ? ` → ${list}` : ""}${
-				callers.total > MAX_CALLERS ? " …" : ""
-			}`,
-		);
+		// The marker compares against the names actually LISTED, not against
+		// MAX_CALLERS: provider-owned rows are dropped from the names, so the
+		// engine total can exceed them without hitting the cap.
+		const omitted = callers.total > callers.callers.length;
+		out.push(`  inbound: ${callers.total}${list ? ` → ${list}` : ""}${omitted ? " …" : ""}`);
 	}
 	if (classLike) {
 		out.push(
@@ -602,6 +653,11 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 						break;
 					}
 				}
+				// A FAILED candidate lookup (null) is not an empty index: staying
+				// silent beats claiming the symbol does not exist.
+				if (hits.length === 0 && results.some((result) => result === null)) {
+					return;
+				}
 			}
 
 			// Shape comes from the RESOLVED name: a camelCase `<family>Provider`
@@ -688,6 +744,16 @@ if (invokedDirectly) {
 		["rg currentMembershipProvider lib docs", "currentMembershipProvider"],
 		// Non-glob flag values are not path hints (`-C 2`, `-t dart`).
 		["rg -t dart -C 2 currentMembershipProvider lib", "currentMembershipProvider"],
+		// Two patterns are an alternation, not a single-symbol question.
+		["rg -e '[0-9]+' -e currentMembershipProvider lib", null],
+		// A text operand no longer silences a mixed search; a text GLOB does.
+		["rg currentMembershipProvider lib translations.arb", "currentMembershipProvider"],
+		["rg -g '*.arb' currentMembershipProvider lib", null],
+		// A `||` segment may never have run; a `cd` changes the search tree.
+		["true || rg currentMembershipProvider lib", null],
+		["cd /tmp && rg currentMembershipProvider lib", null],
+		// A plain `&&` chain still runs the search.
+		["cd . && rg currentMembershipProvider lib", null],
 	];
 	let failed = 0;
 	for (const [command, expected] of cases) {

@@ -98,6 +98,7 @@ else
 fi
 
 echo "== graph (codebase-memory · $PROJECT) =="
+graph_lines=$(
 for symbol in "$FAMILY" "$PASCAL" "$PROVIDER"; do
     payload=$("$BIN" cli --quiet search_graph \
         "{\"project\":\"$PROJECT\",\"query\":\"$symbol\",\"limit\":10,\"format\":\"json\"}" 2>/dev/null) || continue
@@ -123,6 +124,16 @@ print("\n".join(out[:3]))
 ' "$symbol")
     [ -n "$hits" ] && printf '%s\n' "$hits"
 done | sort -u | head -6
+)
+if [ -n "$graph_lines" ]; then
+    printf '%s\n' "$graph_lines"
+else
+    # An empty section must say WHY: "no definition named X" and "stale index"
+    # look identical otherwise, and that ambiguity is what makes the graph feel
+    # broken (see AGENTS.md §2).
+    echo "  (no definition named ${FAMILY} / ${PASCAL} — try the hand-written family"
+    echo "   name, or check freshness: scripts/check-graph-freshness.sh)"
+fi
 
 # Inbound edges the graph DOES model (function-style providers only; a class
 # reports 0 legitimately, and its generated `.create` is not a consumer).
@@ -156,8 +167,12 @@ echo "== observers (ref.watch / ref.listen — these SUBSCRIBE) =="
 # The observer set is exactly these call sites; `ref.watch` is dynamic and thus
 # not a graph edge. `-U` so a provider name on the NEXT line still matches
 # (multiline Riverpod calls). Both spellings are matched (family + getter).
+# Comment lines are filtered out: a `///` doc comment that merely MENTIONS the
+# provider is not a subscription, and reporting it as one would be a false
+# positive in a section that says "these SUBSCRIBE".
 rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
     "ref\.(watch|listen)\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
+    grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' |
     head -40 || true
 
 echo
@@ -166,6 +181,7 @@ echo "== non-subscribing accesses (ref.read — NOT observers) =="
 # an access site, not an observer. Listed separately on purpose.
 rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
     "ref\.read\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
+    grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' |
     head -20 || true
 
 echo
