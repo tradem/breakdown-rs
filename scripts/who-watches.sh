@@ -33,6 +33,130 @@
 
 set -uo pipefail
 
+# Comment-aware filter for `rg --json -U` match records.
+#
+# The old approach parsed `rg -n --no-heading` text: it split the header on the
+# first colon (so a path containing `:` desynchronised the drop state), it
+# carried a drop flag from one match to the next (so a commented match could
+# hide a real call site and vice versa), and it could only inspect the matched
+# line (so a call on a later line of a `/* … */` block passed, while a `//`
+# inside a string literal on the same line dropped a live call).
+#
+# Structured records fix the parsing; reading the FILE fixes the comment
+# question: a small Dart-aware scanner replays the file up to the match offset
+# and tracks `//`, `/* */` (nestable) and single/triple-quoted string literals,
+# so "is this call site commented out" is answered by real state, not by a
+# substring search on one line. Each kept match prints as `path:line:text`
+# (continuation lines of a multiline match are indented), capped at the count
+# given as the first argument.
+COMMENT_FILTER_PY=$(
+    cat <<'PY'
+import json, sys
+
+limit = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+
+def in_comment(src, offset):
+    """True when `offset` sits inside a `//` or `/* */` comment."""
+    i = 0
+    n = min(offset, len(src))
+    state = None  # None | "line" | "block" | the string delimiter
+    depth = 0
+    while i < n:
+        c = src[i:i + 1]
+        if state is None:
+            if c == b"/" and src[i + 1:i + 2] == b"/":
+                state = "line"
+                i += 2
+                continue
+            if c == b"/" and src[i + 1:i + 2] == b"*":
+                state = "block"
+                depth = 1
+                i += 2
+                continue
+            if c in (b"'", b'"'):
+                if src[i:i + 3] == c * 3:
+                    state = c * 3
+                    i += 3
+                    continue
+                state = c
+                i += 1
+                continue
+            i += 1
+            continue
+        if state == "line":
+            if c == b"\n":
+                state = None
+            i += 1
+            continue
+        if state == "block":
+            if c == b"/" and src[i + 1:i + 2] == b"*":
+                depth += 1
+                i += 2
+                continue
+            if c == b"*" and src[i + 1:i + 2] == b"/":
+                depth -= 1
+                i += 2
+                if depth == 0:
+                    state = None
+                continue
+            i += 1
+            continue
+        # Inside a string literal.
+        if c == b"\\" and len(state) == 1:
+            i += 2
+            continue
+        if src[i:i + len(state)] == state:
+            i += len(state)
+            state = None
+            continue
+        i += 1
+    return state in ("line", "block")
+
+cache = {}
+kept = 0
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    try:
+        record = json.loads(raw)
+    except ValueError:
+        continue
+    if record.get("type") != "match":
+        continue
+    data = record.get("data") or {}
+    path = (data.get("path") or {}).get("text") or ""
+    offset = data.get("absolute_offset") or 0
+    # `absolute_offset` is where `lines.text` STARTS; the call site is at the
+    # first submatch inside it. Using the line start alone would test the
+    # comment state at the wrong byte (`// ref.watch(…)` has a 3-byte prefix).
+    submatches = data.get("submatches") or []
+    if submatches:
+        offset += submatches[0].get("start") or 0
+    line_number = data.get("line_number") or 0
+    text = ((data.get("lines") or {}).get("text") or "").rstrip("\n")
+    if not path:
+        continue
+    if path not in cache:
+        try:
+            with open(path, "rb") as handle:
+                cache[path] = handle.read()
+        except OSError:
+            cache[path] = None
+    source = cache[path]
+    if source is not None and in_comment(source, offset):
+        continue
+    first, _, rest = text.partition("\n")
+    print("%s:%s:%s" % (path, line_number, first.strip()))
+    for line in rest.splitlines():
+        if line.strip():
+            print("  " + line.strip())
+    kept += 1
+    if limit and kept >= limit:
+        break
+PY
+)
+
 BIN=${CODEBASE_MEMORY_BIN:-codebase-memory-mcp}
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$(pwd)
 
@@ -172,46 +296,24 @@ print(", ".join(names[:6]) + (" …" if len(names) > 6 else ""))
 [ -n "$inbound" ] && echo "  inbound call edges: $inbound"
 
 echo
-# Drops a WHOLE match whose `ref.watch|listen|read(` occurrence sits inside a
-# comment. `rg -U` emits one `path:line:content` line per match START followed
-# by plain continuation lines, so a per-line prefix filter both misses trailing
-# and `/* */` comments and orphans the continuation lines of a dropped match.
-drop_commented_matches() {
-    awk '
-    function is_commented(text) {
-        if (!match(text, /ref\.(watch|listen|read)\(/)) return 0
-        before = substr(text, 1, RSTART - 1)
-        return (before ~ /\/\// || before ~ /\/\*/)
-    }
-    /^[^:]+:[0-9]+:/ {
-        line = $0
-        sub(/^[^:]+:[0-9]+:/, "", line)
-        drop = is_commented(line)
-    }
-    !drop { print }
-    '
-}
-
 echo "== observers (ref.watch / ref.listen — these SUBSCRIBE) =="
 # The observer set is exactly these call sites; `ref.watch` is dynamic and thus
 # not a graph edge. `-U` so a provider name on the NEXT line still matches
 # (multiline Riverpod calls). Both spellings are matched (family + getter).
-# Comment matches are dropped at MATCH level (drop_commented_matches): a `///`
-# doc comment or a trailing `// …` that merely MENTIONS the provider is not a
-# subscription, and the section header says "these SUBSCRIBE".
-rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
+# Comment matches are dropped by COMMENT_FILTER_PY: a `///` doc comment or a
+# trailing `// …` that merely MENTIONS the provider is not a subscription, and
+# the section header says "these SUBSCRIBE".
+rg --json -U -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
     "ref\.(watch|listen)\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
-    drop_commented_matches |
-    head -40 || true
+    python3 -c "$COMMENT_FILTER_PY" 40 || true
 
 echo
 echo "== non-subscribing accesses (ref.read — NOT observers) =="
 # `ref.read` touches the provider once and does not rebuild on change, so it is
 # an access site, not an observer. Listed separately on purpose.
-rg -n -U --no-heading -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
+rg --json -U -g '!*.g.dart' -g '!vendor/**' -g '!build/**' \
     "ref\.read\(\s*${PROVIDER}\b" "$SEARCH_PATH" 2>/dev/null |
-    drop_commented_matches |
-    head -20 || true
+    python3 -c "$COMMENT_FILTER_PY" 20 || true
 
 echo
 echo "Both answers together are the answer: the graph names the symbol and the"

@@ -47,12 +47,18 @@
  *
  * Cost control: one `search_graph` per nudged call, plus — only for a
  * generated `<family>Provider` alias — TWO candidate lookups issued
- * CONCURRENTLY (wall time of one), plus at most one `trace_path`. Each call has
- * a 4 s timeout, so the worst case is ~8 s of added latency; the cooldown,
- * session cap and counters are RESERVED before the first await, so concurrent
- * sibling tool calls cannot overshoot them. A failed lookup appends nothing.
- * No network, read-only CLI calls, no index mutation.
+ * CONCURRENTLY (wall time of one), plus at most one `trace_path`. Each CLI call
+ * has a 4 s timeout and the stages run SEQUENTIALLY (`list_projects` when the
+ * project cache is cold, `search_graph`, the concurrent retry pair, then
+ * `trace_path`), so the worst reachable path is 4 × 4 s ≈ 16 s of added latency;
+ * ~8 s applies only when the project cache is warm and no retry runs. There is
+ * no overall deadline, so the bound is the sum of the per-call timeouts. The
+ * cooldown, session cap and counters are RESERVED before the first await, so
+ * concurrent sibling tool calls cannot overshoot them. A failed lookup appends
+ * nothing. No network, read-only CLI calls, no index mutation.
  */
+
+import { posix } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -147,6 +153,23 @@ function containsPath(dir: string, root: string): boolean {
 	return dir === normalized || dir.startsWith(`${normalized}/`);
 }
 
+/**
+ * Expands brace alternatives in a glob (`*.{arb,md}` → `*.arb`, `*.md`).
+ * Positive globs combine as a UNION of include patterns, so the text/code
+ * question has to be asked per alternative — an end-anchored test on the raw
+ * `…}` would read a text-only union as code.
+ */
+function expandBraces(glob: string): string[] {
+	const match = /^(.*?)\{([^{}]*)\}(.*)$/.exec(glob);
+	if (!match) return [glob];
+	const head = match[1] ?? "";
+	const body = match[2] ?? "";
+	const tail = match[3] ?? "";
+	return body
+		.split(",")
+		.flatMap((alternative) => expandBraces(`${head}${alternative.trim()}${tail}`));
+}
+
 const isSymbol = (token: string): boolean =>
 	token.length >= 6 &&
 	(PASCAL_RE.test(token) ||
@@ -165,8 +188,10 @@ const isSymbol = (token: string): boolean =>
 export type CommandSegment = {
 	/** Whitespace-split words of this simple command. */
 	words: string[];
-	/** Separator that PRECEDED it (`null` for the first segment). */
+	/** Separator run that IMMEDIATELY preceded it (`null` for the first). */
 	after: string | null;
+	/** Raw segment text, used to spot subshell parentheses. */
+	text: string;
 };
 
 export function splitCommands(command: string): CommandSegment[] {
@@ -200,7 +225,10 @@ export function splitCommands(command: string): CommandSegment[] {
 		}
 		if (ch === "|" || ch === ";" || ch === "\n" || ch === "&") {
 			segments.push({ text: current, after: pending });
-			pending = (pending ?? "") + ch;
+			// Only the separator run SINCE the last real command belongs to the next
+			// segment: in `a | rg X; rg Y` the second search is not piped, and
+			// reading an accumulated `|;` as "piped" would silence it.
+			pending = current.trim() === "" ? (pending ?? "") + ch : ch;
 			current = "";
 			continue;
 		}
@@ -211,7 +239,7 @@ export function splitCommands(command: string): CommandSegment[] {
 	for (const segment of segments) {
 		const words = tokenize(segment.text);
 		if (words.length === 0) continue;
-		out.push({ words, after: segment.after });
+		out.push({ words, after: segment.after, text: segment.text });
 	}
 	return out;
 }
@@ -226,7 +254,22 @@ function tokenize(text: string): string[] {
 	let current = "";
 	let quote: string | null = null;
 	let started = false;
+	let escaped = false;
 	for (const ch of text) {
+		// A backslash escapes the NEXT character (outside single quotes), so
+		// `release\ notes.md` stays ONE operand. Splitting there would hide the
+		// `.md` suffix and read a text-file search as a code search.
+		if (escaped) {
+			current += ch;
+			escaped = false;
+			continue;
+		}
+		if (ch === "\\" && quote !== "'") {
+			current += ch;
+			escaped = true;
+			started = true;
+			continue;
+		}
 		if (quote !== null) {
 			current += ch;
 			if (ch === quote) quote = null;
@@ -275,8 +318,15 @@ export function decide(command: string): NudgeDecision | null {
 	let nonCdBefore = false;
 	for (const segment of segments) {
 		if (isCd(segment.words)) {
-			const target = segment.words.slice(1).map(unquoteWord)[0];
-			if (target !== undefined) cdTarget = target;
+			// Option operands are not the directory (`cd -P frontend-flutter`), and a
+			// `cd` with NO directory operand (`cd`, `cd -P`) goes to `$HOME` / the
+			// previous directory, which is not reconstructable from the command.
+			const target = segment.words
+				.slice(1)
+				.map(unquoteWord)
+				.find((word) => word !== "" && !word.startsWith("-"));
+			if (target === undefined) return null;
+			cdTarget = target;
 			continue;
 		}
 		let k = 0;
@@ -291,7 +341,17 @@ export function decide(command: string): NudgeDecision | null {
 		nonCdBefore = true;
 	}
 
-	for (const { words, after } of segments) {
+	// A `cd` inside a subshell that CLOSED before this search did not move the
+	// directory the search runs in: in `(cd a && rg -F x lib); rg Y lib` the
+	// second search runs in the original directory, so carrying `a` over would
+	// label another tree's symbols.
+	const closedSubshellBefore = (index: number): boolean =>
+		segments
+			.slice(0, index)
+			.some((earlier) => earlier.text.includes(")"));
+
+	for (let index = 0; index < segments.length; index++) {
+		const { words, after } = segments[index]!;
 		// Conditional separators: `A || rg …` runs only when A FAILED and
 		// `A && rg …` only when A SUCCEEDED, so in both cases the search may
 		// never have executed — and the appended block would annotate someone
@@ -300,12 +360,16 @@ export function decide(command: string): NudgeDecision | null {
 		// (the ubiquitous "change directory, then search" shape).
 		const conditional = after !== null && /(\|\||&&)/.test(after);
 		if (conditional) {
-			const isCdChain = cdTarget !== null && !nonCdBefore;
+			// Only an `&&` chain qualifies: in `cd X || rg …` the search runs when the
+			// `cd` FAILED, i.e. in the ORIGINAL directory, so the target is wrong.
+			const isCdChain =
+				cdTarget !== null && !nonCdBefore && !after.includes("||");
 			if (!isCdChain) continue;
 		}
 		// `cd` somewhere else in the chain: the directory the search ran in is not
 		// reconstructable, so stay silent.
 		if (cdTarget !== null && nonCdBefore) continue;
+		if (cdTarget !== null && closedSubshellBefore(index)) continue;
 		// Skip leading env assignments (`FOO=1 rg …`).
 		let i = 0;
 		while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) i++;
@@ -364,6 +428,12 @@ export function decide(command: string): NudgeDecision | null {
 			operands.push(unquote(word));
 		}
 
+		// `cat notes.md | rg Symbol` reads STDIN, not the tree: with no file
+		// operand after a pipe, `rg` searches the piped text and there is no code
+		// search to annotate.
+		const pipedIn = after !== null && after.includes("|") && !after.includes("||");
+		if (pipedIn && operands.length === 0) continue;
+
 		// Exactly ONE pattern across both spellings (`rg Foo`, `rg -e Foo`,
 		// `rg -e a -e b`): an alternation is a regex intent, and a single graph
 		// answer would misrepresent it.
@@ -386,8 +456,12 @@ export function decide(command: string): NudgeDecision | null {
 		const explicitCodeFile = operands.some((operand) =>
 			CODE_FILE_RE.test(operand),
 		);
-		const codeReachableByGlob = globs.some(
-			(glob) => !TEXT_TARGET_RE.test(glob) || CODE_FILE_RE.test(glob),
+		const codeReachableByGlob = globs.some((glob) =>
+			expandBraces(glob).some(
+				(alternative) =>
+					!TEXT_TARGET_RE.test(alternative) ||
+					CODE_FILE_RE.test(alternative),
+			),
 		);
 		if (globs.length > 0 && !codeReachableByGlob && !explicitCodeFile) {
 			continue;
@@ -638,20 +712,41 @@ async function graphCli(
 	}
 }
 
+/**
+ * The directory a search ran in: the `cd` target joined onto the session cwd.
+ *
+ * `..`/`.` MUST be resolved here: `cd ../other && rg …` run from `/work/repo`
+ * joins to `/work/repo/../other`, which `containsPath` would still read as
+ * inside `/work/repo` — and the advisory would annotate the wrong project.
+ */
+export function searchDir(sessionCwd: string, target: string | undefined): string {
+	const joined =
+		target === undefined
+			? sessionCwd
+			: target.startsWith("/")
+				? target
+				: `${sessionCwd.replace(/\/+$/, "")}/${target}`;
+	return posix.normalize(joined);
+}
+
 export default function graphFirstNudge(pi: ExtensionAPI): void {
 	if (process.env.PI_GRAPH_NUDGE === "0") return;
 
 	const bin = process.env.CODEBASE_MEMORY_BIN || DEFAULT_BIN;
 	let lastNudgeAt = 0;
 	let nudges = 0;
-	let projectCache: { value: string | null; at: number } | null = null;
+	// Keyed by directory: a single entry reused across trees would answer a
+	// worktree search with another project's symbols (and a cached `null` from an
+	// unindexed directory would mute the repository for a whole minute).
+	const projectCache = new Map<string, { value: string | null; at: number }>();
 
 	const resolveProject = async (
 		cwd: string,
 		signal?: AbortSignal,
 	): Promise<string | null> => {
-		if (projectCache && Date.now() - projectCache.at < 60_000) {
-			return projectCache.value;
+		const cached = projectCache.get(cwd);
+		if (cached && Date.now() - cached.at < 60_000) {
+			return cached.value;
 		}
 		const payload = (await graphCli(
 			pi.exec.bind(pi),
@@ -666,7 +761,9 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 			.filter((p) => typeof p.root_path === "string" && containsPath(cwd, p.root_path))
 			.sort((a, b) => (b.root_path?.length ?? 0) - (a.root_path?.length ?? 0))[0];
 		const value = match?.name ?? null;
-		projectCache = { value, at: Date.now() };
+		// Bounded so a long session cannot grow it without limit.
+		if (projectCache.size >= 8) projectCache.clear();
+		projectCache.set(cwd, { value, at: Date.now() });
 		return value;
 	};
 
@@ -694,12 +791,7 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 			// The graph lookup must run in the directory the SEARCH ran in: a
 			// `cd x && rg …` changes it, and annotating another tree's symbols
 			// would be worse than staying silent.
-			const cwd =
-				decision.cwd === undefined
-					? ctx.cwd
-					: decision.cwd.startsWith("/")
-					? decision.cwd
-					: `${ctx.cwd.replace(/\/+$/, "")}/${decision.cwd}`;
+			const cwd = searchDir(ctx.cwd, decision.cwd);
 			const project = await resolveProject(cwd, ctx.signal);
 			if (!project) return;
 
@@ -842,6 +934,26 @@ if (invokedDirectly) {
 		{ cmd: "printf '%s' '\\'; rg currentMembershipProvider lib", symbol: "currentMembershipProvider" },
 		// A quoted operand with a space stays ONE operand (text file → silent).
 		{ cmd: "rg currentMembershipProvider 'release notes.md'", symbol: null },
+		// …and so does a BACKSLASH-escaped space.
+		{ cmd: "rg currentMembershipProvider release\\ notes.md", symbol: null },
+		// A brace glob is a UNION of alternatives: text-only stays silent, one code
+		// alternative is enough to nudge.
+		{ cmd: "rg -g '*.{arb,md}' currentMembershipProvider lib", symbol: null },
+		{
+			cmd: "rg -g '*.{arb,dart}' currentMembershipProvider lib",
+			symbol: "currentMembershipProvider",
+		},
+		// Piped input is not a tree search: `rg` with no file operand reads stdin.
+		{ cmd: "cat release-notes.md | rg currentMembershipProvider", symbol: null },
+		{
+			cmd: "cat release-notes.md | rg currentMembershipProvider lib",
+			symbol: "currentMembershipProvider",
+		},
+		// …but a LATER command after a pipe is not piped itself.
+		{
+			cmd: "cat notes.md | rg -F x; rg currentMembershipProvider lib",
+			symbol: "currentMembershipProvider",
+		},
 		// Inline `--flag=value` and `-e`/`--regexp` spellings.
 		{ cmd: "rg --glob='*.arb' currentMembershipProvider lib", symbol: null },
 		// …but an explicit CODE FILE is read regardless of the glob.
@@ -877,6 +989,19 @@ if (invokedDirectly) {
 		{ cmd: "cd /tmp && rg currentMembershipProvider lib", symbol: "currentMembershipProvider", cwd: "/tmp" },
 		{ cmd: "cd frontend-flutter && rg currentMembershipProvider lib", symbol: "currentMembershipProvider", cwd: "frontend-flutter" },
 		{ cmd: "(cd /tmp && rg currentMembershipProvider lib)", symbol: "currentMembershipProvider", cwd: "/tmp" },
+		// `cd` options are not directories (`-P` is not a path).
+		{
+			cmd: "cd -P frontend-flutter && rg currentMembershipProvider lib",
+			symbol: "currentMembershipProvider",
+			cwd: "frontend-flutter",
+		},
+		// A `cd` with NO directory operand goes to $HOME: not reconstructable.
+		{ cmd: "cd -P && rg currentMembershipProvider lib", symbol: null },
+		// A subshell that already CLOSED did not move the search directory…
+		{ cmd: "(cd frontend-flutter); rg currentMembershipProvider lib", symbol: null },
+		{ cmd: "(cd a && rg -F x lib); rg currentMembershipProvider lib", symbol: null },
+		// …and `cd X || rg …` runs the search only when the `cd` FAILED.
+		{ cmd: "cd /tmp || rg currentMembershipProvider lib", symbol: null },
 		// A `cd` after another command makes the search dir unreconstructable.
 		{ cmd: "make && cd /tmp && rg currentMembershipProvider lib", symbol: null },
 	];
@@ -891,6 +1016,29 @@ if (invokedDirectly) {
 		if (!ok) failed++;
 		console.log(
 			`${ok ? "ok  " : "FAIL"} ${testCase.cmd} → ${symbol}${cwd === null ? "" : ` @${cwd}`} (want ${testCase.symbol}${expectedCwd === null ? "" : ` @${expectedCwd}`})`,
+		);
+	}
+
+	// The joined search directory must be NORMALIZED: `cd ../other` from
+	// `/work/repo` is `/work/other`, not `/work/repo/../other` (which
+	// `containsPath` would read as inside `/work/repo`).
+	const dirCases: { sessionCwd: string; target?: string; want: string }[] = [
+		{ sessionCwd: "/work/repo", target: "../other", want: "/work/other" },
+		{ sessionCwd: "/work/repo", target: "./lib", want: "/work/repo/lib" },
+		{
+			sessionCwd: "/work/repo/",
+			target: "frontend-flutter",
+			want: "/work/repo/frontend-flutter",
+		},
+		{ sessionCwd: "/work/repo", target: undefined, want: "/work/repo" },
+		{ sessionCwd: "/work/repo", target: "/tmp", want: "/tmp" },
+	];
+	for (const testCase of dirCases) {
+		const got = searchDir(testCase.sessionCwd, testCase.target);
+		const ok = got === testCase.want;
+		if (!ok) failed++;
+		console.log(
+			`${ok ? "ok  " : "FAIL"} searchDir(${testCase.sessionCwd}, ${testCase.target ?? "—"}) → ${got} (want ${testCase.want})`,
 		);
 	}
 	console.log(failed === 0 ? "self-test passed" : `${failed} failure(s)`);
