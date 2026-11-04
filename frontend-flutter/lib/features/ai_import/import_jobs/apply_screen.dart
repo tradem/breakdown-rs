@@ -450,6 +450,11 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     final state = ref.watch(aiApplyControllerProvider(jobId));
     final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
     final canApply = controller.canApply && _reviewAcknowledged;
+    // Issue #821: the acknowledge panel renders one row per DECISION
+    // (`(scene_index, field)` pair), never one per preview entry — the
+    // backend acknowledges by pair, so duplicate entries are one question
+    // with several notes, not several questions.
+    final uncertaintyGroups = state.blockingUncertaintyGroups;
     // Issue #705 (CodeRabbit review): the cross-block recovery's job-block
     // source of truth is the CACHED JOB ROW, not the apply context — the
     // missing-context episode picker stores the picked episode + project but
@@ -635,23 +640,23 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
             const SizedBox(height: 12),
             // Issue #663: blocking uncertainties are resolved IN the apply
             // card — one acknowledge checkbox each. Apply stays disabled
-            // until every entry is confirmed, so the gate never produces a
-            // surprise 409; the copy says what confirming means.
-            if (state.blockingUncertainties.isNotEmpty) ...[
+            // until every question is confirmed, so the gate never produces a
+            // surprise 409; the copy says what confirming means. Issue #821:
+            // one row per `(scene_index, field)` pair — the extraction may
+            // report several entries for one pair, and they are ONE question
+            // (the preview screen still lists every entry with its note).
+            if (uncertaintyGroups.isNotEmpty) ...[
               Text(
                 key: const Key('ai-apply-uncertainties-title'),
                 l10nOf(context).aiApplyUncertaintiesTitle,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
-              for (var i = 0; i < state.blockingUncertainties.length; i++)
+              for (var i = 0; i < uncertaintyGroups.length; i++)
                 Builder(
                   builder: (context) {
-                    final uncertainty = state.blockingUncertainties[i];
+                    final group = uncertaintyGroups[i];
                     final acknowledged = state.acknowledgedKeys.contains(
-                      AiApplyController.acknowledgementKey(
-                        uncertainty.sceneIndex,
-                        uncertainty.field,
-                      ),
+                      group.key,
                     );
                     return CheckboxListTile(
                       key: Key('ai-apply-uncertainty-ack-$i'),
@@ -660,15 +665,13 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                       controlAffinity: ListTileControlAffinity.leading,
                       value: acknowledged,
                       onChanged: (checked) => controller.acknowledgeUncertainty(
-                        uncertainty.sceneIndex,
-                        uncertainty.field,
+                        group.sceneIndex,
+                        group.field,
                         checked ?? false,
                       ),
                       title: Text(
-                        l10nOf(context).aiPreviewUncertainty(
-                          uncertainty.field,
-                          uncertainty.note,
-                        ),
+                        l10nOf(context)
+                            .aiPreviewUncertainty(group.field, group.note),
                       ),
                       subtitle: Text(
                         l10nOf(context).aiApplyAcknowledgeUncertainty,

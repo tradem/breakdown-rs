@@ -2618,6 +2618,62 @@ void main() {
       expect(acks.first.field, 'location');
     });
 
+    test('repeated (scene_index, field) blockers collapse to one decision and '
+        'ONE wire acknowledgement (issue #821)', () {
+      // The live shape that produced the opaque 422: several blocking entries
+      // for one pair. The backend acknowledges by pair, so the client must
+      // never emit the pair twice.
+      controller().seedRows(
+        const [PreviewRow(draftRef: 'd1', label: 'A')],
+        const AiJobContext(episodeId: 'ep-1', projectId: 'series-1'),
+        uncertainties: [
+          _blockingUncertainty(note: 'Ambiguous stage'),
+          _blockingUncertainty(note: 'Second guess at the stage'),
+          _blockingUncertainty(note: 'Third guess at the stage'),
+          _blockingUncertainty(sceneIndex: 1, field: 'episode', note: 'Ep?'),
+        ],
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      // Four entries, TWO decisions.
+      expect(state.blockingUncertainties, hasLength(4));
+      expect(state.blockingUncertaintyGroups, hasLength(2));
+      expect(state.blockingUncertaintyGroups.first.entries, hasLength(3));
+      expect(
+        state.blockingUncertaintyGroups.first.note,
+        'Ambiguous stage',
+        reason: 'the first entry supplies the panel prose',
+      );
+      expect(state.hasUnacknowledgedBlockers, isTrue);
+      expect(controller().canApply, isFalse);
+      expect(state.buildAcknowledgements(), isEmpty);
+
+      // Acknowledging the pair resolves ALL of its entries at once, but the
+      // second pair still gates the apply.
+      controller().acknowledgeUncertainty(0, 'location', true);
+      expect(
+        container
+            .read(aiApplyControllerProvider('job-1'))
+            .hasUnacknowledgedBlockers,
+        isTrue,
+      );
+      controller().acknowledgeUncertainty(1, 'episode', true);
+      expect(controller().canApply, isTrue);
+
+      final acks = container
+          .read(aiApplyControllerProvider('job-1'))
+          .buildAcknowledgements();
+      final pairs = [
+        for (final ack in acks) '${ack.sceneIndex}\u0000${ack.field}',
+      ];
+      expect(pairs, ['0\u0000location', '1\u0000episode']);
+      expect(
+        pairs.toSet(),
+        hasLength(pairs.length),
+        reason: 'the apply request never carries a pair twice',
+      );
+    });
+
     test('apply-blocked copy branches + extension parsing', () {
       const error = ProblemError(
         code: 'ai-import.apply-blocked',
@@ -3208,6 +3264,50 @@ void main() {
       expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
     });
 
+    testWidgets(
+      'duplicate blockers on one (scene_index, field) pair render ONE '
+      'row, dispatch ONE acknowledgement and reach the worker (issue #821)',
+      (tester) async {
+        await setupContainer(
+          applyQueue: [Right(_outcome())],
+          payload: _scriptPayloadWith(
+            [_draft('draft-1')],
+            uncertainties: [
+              _blockingUncertainty(),
+              _blockingUncertainty(note: 'Second guess at the stage'),
+            ],
+          ),
+        );
+        await pumpPreview(tester);
+
+        // Two blocking ENTRIES, ONE question: the panel renders a single row.
+        expect(
+          find.byKey(const Key('ai-apply-uncertainty-ack-0')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('ai-apply-uncertainty-ack-1')),
+          findsNothing,
+        );
+
+        await tester.tap(find.byKey(const Key('ai-apply-uncertainty-ack-0')));
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('ai-apply-submit')));
+        await tester.pump();
+
+        final acks = repo.applyRequests[0].uncertaintyAcknowledgements!
+            .toList();
+        expect(acks, hasLength(1), reason: 'one acknowledgement per pair');
+        expect(acks.first.sceneIndex, 0);
+        expect(acks.first.field, 'location');
+        // The apply reached the worker (the outcome card) instead of dying on a
+        // duplicate-pair `422 domain.validation` before the first command.
+        expect(find.byKey(const Key('ai-apply-outcome')), findsOneWidget);
+      },
+    );
+
     testWidgets('an apply-blocked refusal renders the blocking items from '
         'the extensions inline (never a bare code)', (tester) async {
       await setupContainer(
@@ -3256,11 +3356,15 @@ void main() {
   });
 }
 
-Uncertainty _blockingUncertainty() => Uncertainty(
+Uncertainty _blockingUncertainty({
+  int sceneIndex = 0,
+  String field = 'location',
+  String note = 'Ambiguous stage',
+}) => Uncertainty(
   (u) => u
-    ..sceneIndex = 0
-    ..field = 'location'
-    ..note = 'Ambiguous stage'
+    ..sceneIndex = sceneIndex
+    ..field = field
+    ..note = note
     ..suggestedValue = 'Keller'
     ..kind = UncertaintyKind.fieldAmbiguity,
 );
