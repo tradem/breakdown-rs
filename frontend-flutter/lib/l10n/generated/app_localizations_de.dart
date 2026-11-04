@@ -657,6 +657,13 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiConfigBackendUnreachableTitle => 'Backend noch nicht erreichbar';
+
+  @override
+  String get aiConfigBackendUnreachableBody =>
+      'Die Konfiguration lässt sich erst laden, wenn der Server antwortet. Das bedeutet nicht, dass keine Konfiguration vorhanden ist.';
+
+  @override
   String get aiUploadTooLarge => 'Das Dokument ist für den KI-Import zu groß.';
 
   @override
@@ -3481,6 +3488,12 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get settingsAiConfigSubtitle =>
       'KI-Anbieter und Modelle für den KI-Import verwalten.';
+
+  @override
+  String get settingsAiConfigChecking => 'Backend wird geprüft…';
+
+  @override
+  String get settingsAiConfigUnreachable => 'Backend noch nicht erreichbar';
 
   @override
   String get settingsAi => 'KI';

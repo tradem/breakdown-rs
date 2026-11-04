@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: glm-5.3 (neuralwatt)
 
 //! Meta surface (issue #656): compile-time workspace crate versions for the
@@ -34,6 +35,7 @@ use utoipa::ToSchema;
 const LLM_COAUTHORS: &[(&str, &str)] = &[
     ("deepseek-v4-flash", "neuralwatt"),
     ("deepseek-v4.1-flash", "neuralwatt"),
+    ("deepseek-v4.1-flash", "opencode-go"),
     ("glm-5.3", "neuralwatt"),
     ("glm-5.3-flash", "neuralwatt"),
     ("gpt-5.6-luna", "opencode-go"),
@@ -216,17 +218,27 @@ mod tests {
             );
         }
 
-        // Each documented co-author is present exactly once; the two humans
-        // carry their roles and a null provider.
-        let count_of = |name: &str| credits.iter().filter(|e| e["name"] == name).count();
+        // Each documented co-author is present exactly once PER (name,
+        // provider) pair — the dedupe key is the pair, not the name alone: a
+        // model may legitimately be attributed through more than one provider
+        // (`deepseek-v4.1-flash` via neuralwatt AND opencode-go), and that must
+        // surface as two entries instead of being silently collapsed. The two
+        // humans carry their roles and a null provider.
+        let count_of_pair = |name: &str, provider: &str| {
+            credits
+                .iter()
+                .filter(|e| e["name"] == name && e["provider"] == provider)
+                .count()
+        };
         assert_eq!(
-            count_of("glm-5.3"),
+            count_of_pair("glm-5.3", "neuralwatt"),
             1,
             "attributed in many files, listed once"
         );
-        assert_eq!(count_of("omen-alpha"), 1);
-        assert_eq!(count_of("deepseek-v4-flash"), 1);
-        assert_eq!(count_of("deepseek-v4.1-flash"), 1);
+        assert_eq!(count_of_pair("omen-alpha", "opencode-go"), 1);
+        assert_eq!(count_of_pair("deepseek-v4-flash", "neuralwatt"), 1);
+        assert_eq!(count_of_pair("deepseek-v4.1-flash", "neuralwatt"), 1);
+        assert_eq!(count_of_pair("deepseek-v4.1-flash", "opencode-go"), 1);
 
         let digiwitcher = credits.iter().find(|e| e["name"] == "digiwitcher").unwrap();
         assert!(digiwitcher["provider"].is_null());

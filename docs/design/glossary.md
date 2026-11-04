@@ -6,6 +6,7 @@
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
@@ -232,8 +233,12 @@ establishing change).
 | `—` *(no icon)* | **Zurücksetzen** | Settings (dev) — reset-to-default action | `settings.reset` |
 | `—` *(no icon)* | **Die Serveradresse wird von deiner Organisation sicherheitsbedingt festgelegt und kann hier nicht geändert werden.** | Settings (prod) — explanatory note for the absent editor (store compliance) | `settings.prodNote` |
 | `—` *(no icon)* | **KI** | Settings — AI section header (every flavor), grouping the AI-configuration entry (#643) and the AI-imports entry (#644) | `settings.ai` |
-| `psychology_alt_outlined` | **KI-Konfiguration** | Settings (AI section) — central AI-configuration entry pushing `AiConfigScreen` (issue #643); visible only while the season-scoped membership resolves to an active costume-dept role | `settings.aiConfig` |
-| `—` *(no icon)* | **KI-Anbieter und Modelle für den KI-Import verwalten.** | Settings (AI section) — AI-configuration entry explanatory line (issue #643) | `settings.aiConfigSubtitle` |
+| `psychology_alt_outlined` | **KI-Konfiguration** | Settings (AI section) — central AI-configuration entry pushing `AiConfigScreen` (issue #643); ALWAYS rendered since issue #809 (never gated on an ambient/stale scope) — the state lives in the subtitle | `settings.aiConfig` |
+| `—` *(no icon)* | **KI-Anbieter und Modelle für den KI-Import verwalten.** | Settings (AI section) — AI-configuration entry explanatory line, rendered once the backend answered the one-shot reachability probe (issue #643) | `settings.aiConfigSubtitle` |
+| `progress_activity` *(spinner)* | **Backend wird geprüft…** | Settings (AI section) — AI-configuration entry state while the one-shot reachability probe is in flight (issue #809; the entry stays tappable) | `settings.aiConfigChecking` |
+| `cloud_off` | **Backend noch nicht erreichbar** | Settings (AI section) — AI-configuration entry unreachable subtitle with a Retry action (issue #809); also the configuration screen's unreachable card title. Never rendered as "keine Konfiguration vorhanden" | `settings.aiConfigUnreachable` / `aiConfig.backendUnreachableTitle` |
+| `—` *(no icon)* | **Die Konfiguration lässt sich erst laden, wenn der Server antwortet. Das bedeutet nicht, dass keine Konfiguration vorhanden ist.** | AI-configuration screen — unreachable card body for a discovery failure that produced no answer (issue #809) | `aiConfig.backendUnreachableBody` |
+| `refresh` | **Erneut versuchen** | Shared retry affordance — AI-configuration entry reachability retry (issue #809), AI-config discovery retry, and other retryable load states | `common.retry` |
 | `list_alt_outlined` | **KI-Import-Aufträge** | Settings (AI section) — persistent entry pushing the AI-import jobs list (route name `ai-import-jobs`, issue #644); NO client-side role gate — the read-only route's fetch seam resolves the session before the call and the tile dispatches no command | `settings.aiImports` + `settings.aiImportsSubtitle` |
 | `—` *(no icon)* | **Status deiner KI-Importe ansehen.** | Settings (AI section) — AI-imports entry explanatory line (issue #644) | `settings.aiImportsSubtitle` |
 | `cloud_off` | **Verbindung gestört** | Stale/optimistic overlay banner when sync hangs | `errors.connectionLost` |

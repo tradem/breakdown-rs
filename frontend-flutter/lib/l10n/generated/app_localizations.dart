@@ -1172,6 +1172,18 @@ abstract class AppLocalizations {
   /// **'Die Konfiguration konnte nicht geladen werden ({code}).'**
   String aiConfigDiscoveryError(Object code);
 
+  /// No description provided for @aiConfigBackendUnreachableTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend noch nicht erreichbar'**
+  String get aiConfigBackendUnreachableTitle;
+
+  /// No description provided for @aiConfigBackendUnreachableBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Konfiguration lässt sich erst laden, wenn der Server antwortet. Das bedeutet nicht, dass keine Konfiguration vorhanden ist.'**
+  String get aiConfigBackendUnreachableBody;
+
   /// No description provided for @aiUploadTooLarge.
   ///
   /// In de, this message translates to:
@@ -5647,6 +5659,18 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'KI-Anbieter und Modelle für den KI-Import verwalten.'**
   String get settingsAiConfigSubtitle;
+
+  /// No description provided for @settingsAiConfigChecking.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend wird geprüft…'**
+  String get settingsAiConfigChecking;
+
+  /// No description provided for @settingsAiConfigUnreachable.
+  ///
+  /// In de, this message translates to:
+  /// **'Backend noch nicht erreichbar'**
+  String get settingsAiConfigUnreachable;
 
   /// No description provided for @settingsAi.
   ///

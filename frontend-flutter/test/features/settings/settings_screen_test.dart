@@ -18,6 +18,7 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/active_block.dart';
+import 'package:frontend_flutter/auth/active_block_store.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
@@ -31,6 +32,9 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controller.dart';
 import 'package:frontend_flutter/features/easter_eggs/easter_eggs_screen.dart';
 import 'package:frontend_flutter/features/settings/settings_screen.dart';
+import 'package:frontend_flutter/features/shell/active_season_store.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/src/health/backend_health_providers.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -140,8 +144,21 @@ void main() {
     // `List<dynamic>` like app_shell_test's harness — Riverpod 3 does
     // not export the `Override` type for user code.
     List<dynamic> extraOverrides = const [],
+    // Reachability probe seam (issue #809): injected so no real health IO
+    // ever runs — a never-completing future pins the "unknown" state and a
+    // throwing/`BackendHealthUnreachable` one the unreachable state, with no
+    // wall-clock gating (AGENTS.md §6).
+    BackendHealthProbe? healthProbe,
+    // Pre-seeded secure-storage documents (issue #809: the stale persisted
+    // block scope a dev data reset leaves behind).
+    Map<String, String> secureSeed = const {},
+    // Golden locale (AGENTS.md §9: goldens use the German template). Null
+    // keeps the historical English fallback of `l10nOf`, so the four base
+    // Settings goldens keep their current output (CodeRabbit review).
+    Locale? locale,
   }) async {
     platform = _OverridePlatform();
+    platform.store.addAll(secureSeed);
     FlutterSecureStoragePlatform.instance = platform;
     // The pushed Easter-eggs screen hydrates its per-egg notifiers from
     // preferences — the in-memory platform keeps that benign (issue #708).
@@ -179,6 +196,13 @@ void main() {
           }
           return r.fetchAndCacheList(() async => holder.value);
         }),
+        // The AI-config entry's one-shot reachability probe (issue #809):
+        // the default reports a reachable backend so the entry renders its
+        // ordinary subtitle; tests inject the other states.
+        backendHealthProbeProvider.overrideWithValue(
+          healthProbe ??
+              () async => const BackendHealthReported(HealthStatus.healthy),
+        ),
         ...extraOverrides,
       ],
     );
@@ -202,6 +226,11 @@ void main() {
             textScaler: TextScaler.linear(textScaler),
           ),
           child: MaterialApp(
+            locale: locale,
+            localizationsDelegates: locale == null
+                ? null
+                : AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
             theme: AppThemes.light(),
             darkTheme: AppThemes.dark(),
             themeMode: ThemeMode.system,
@@ -428,29 +457,78 @@ void main() {
     });
   });
 
-  group('SettingsScreen AI-config entry (issue #643)', () {
+  group('SettingsScreen AI-config entry (issues #643 / #809)', () {
     const seasonId = 'season-1';
 
-    /// Marks the sticky active-block scope — the tile's only ambient
-    /// season context. Dev-auth mode short-circuits the membership
-    /// fetch to the permissive DTO, so no network runs.
+    /// Marks the sticky active-block scope. Kept in the tests that used to
+    /// depend on it: the point of issue #809 is that the entry's PRESENCE
+    /// no longer changes with the scope at all — only its subtitle changes
+    /// with the reachability probe.
     void setActiveScope() => container
         .read(activeBlockProvider.notifier)
         .set(seasonId: seasonId, blockId: 'block-1');
 
-    testWidgets('hidden without an active-block scope', (tester) async {
-      await pumpScreen(tester);
+    /// The pushed screen's discovery seams — immediate, benign first-run
+    /// values; no network ever runs (same pattern as the
+    /// ai_config_screen_test harness).
+    List<dynamic> screenSeams({ProblemError? discoveryError}) => [
+      aiConfigDiscoveryProvider.overrideWith(
+        (ref) async => discoveryError == null
+            ? const Right(<AiConfigView>[])
+            : Left<ProblemError, List<AiConfigView>>(discoveryError),
+      ),
+      aiProvidersProvider.overrideWith(
+        (ref) async => const Right(<AiProviderInfo>[]),
+      ),
+      aiImportDefaultsProvider.overrideWith(
+        (ref) async => Right(
+          AiImportDefaults(
+            (b) => b
+              ..script = ''
+              ..schedule = '',
+          ),
+        ),
+      ),
+      reconciliationSchedulerProvider.overrideWith(
+        (ref) => const _ImmediateReconciliationScheduler(),
+      ),
+    ];
 
-      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+    testWidgets('cold start without any scope: the entry is rendered, '
+        'tappable, and its subtitle says the state is being resolved', (
+      tester,
+    ) async {
+      // Never-completing probe: the "unknown" state is pinned for the whole
+      // test — no wall-clock gating (AGENTS.md §6).
+      final never = Completer<BackendHealthOutcome>();
+      await pumpScreen(tester, healthProbe: () => never.future);
+
+      // Issue #809 C1: the entry is NEVER hidden by an unresolved scope
+      // (this replaces the former 'hidden without an active-block scope'
+      // test, which locked the defect in).
+      final tile = find.byKey(const Key('settings-ai-config'));
+      expect(tile, findsOneWidget);
+      expect(
+        find.text('Checking backend…'),
+        findsOneWidget,
+        reason: 'the state is rendered, not omitted',
+      );
+      expect(
+        find.byKey(const Key('settings-ai-config-checking')),
+        findsOneWidget,
+      );
+      expect(tester.widget<ListTile>(tile).onTap, isNotNull);
     });
 
-    testWidgets('hidden while the membership fetch is pending (D3: hide, '
-        'never deny)', (tester) async {
+    testWidgets('entry stays rendered while the season membership is pending '
+        '(a pending fetch no longer hides a configuration entry)', (
+      tester,
+    ) async {
       await pumpScreen(
         tester,
         extraOverrides: [
-          // Never-completing fetch: the gate stays unresolved for the
-          // whole test — no wall-clock gating (AGENTS.md §6).
+          // Never-completing fetch: the membership stays unresolved for the
+          // whole test.
           membershipFetchProvider(seasonId).overrideWith(
             (ref) => Completer<Result<SeasonMembershipDto>>().future,
           ),
@@ -459,10 +537,28 @@ void main() {
       setActiveScope();
       await pumpFrames(tester);
 
-      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+      // The gate input really is unresolved here (the provider is
+      // autoDispose, so a bare `read` would start-and-drop it): subscribe,
+      // then assert.
+      final subscription = container.listen(
+        currentMembershipProvider(seasonId),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+      await pumpFrames(tester);
+      expect(
+        container.read(currentMembershipProvider(seasonId)).hasValue,
+        isFalse,
+        reason: 'the membership gate really is unresolved here',
+      );
+      expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
+      expect(
+        find.text('Manage the AI provider and models for AI import.'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('hidden on a resolved denial', (tester) async {
+    testWidgets('entry stays rendered on a resolved denial', (tester) async {
       await pumpScreen(
         tester,
         extraOverrides: [
@@ -473,10 +569,26 @@ void main() {
       setActiveScope();
       await pumpFrames(tester);
 
-      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+      // The gate input really is a resolved denial (autoDispose provider:
+      // subscribe so it survives the resolution).
+      final subscription = container.listen(
+        currentMembershipProvider(seasonId),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+      await pumpFrames(tester);
+      expect(
+        container
+            .read(currentMembershipProvider(seasonId))
+            .value
+            ?.hasActiveCostumeRoleInSeason,
+        isFalse,
+      );
+      expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
     });
 
-    testWidgets('hidden after a membership fetch failure', (tester) async {
+    testWidgets('entry stays rendered after a failed membership fetch (a '
+        'failed read is not a denial)', (tester) async {
       await pumpScreen(
         tester,
         extraOverrides: [
@@ -489,21 +601,24 @@ void main() {
       setActiveScope();
       await pumpFrames(tester);
 
-      expect(find.byKey(const Key('settings-ai-config')), findsNothing);
+      expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
     });
 
-    testWidgets('visible on an active piece-dept membership, ≥ 48×48 dp', (
-      tester,
-    ) async {
+    testWidgets('reachable backend: the ordinary subtitle, ≥ 48×48 dp, one '
+        'merged tappable semantics node', (tester) async {
       await pumpScreen(tester);
       setActiveScope();
       await pumpFrames(tester);
 
       final tile = find.byKey(const Key('settings-ai-config'));
       expect(tile, findsOneWidget);
-      // Localized general-section copy (glossary keys settings.aiConfig*);
-      // l10nOf falls back to the English catalog in bare test trees.
+      // Localized copy (glossary keys settings.aiConfig*); l10nOf falls back
+      // to the English catalog in bare test trees.
       expect(find.text('AI configuration'), findsOneWidget);
+      expect(
+        find.text('Manage the AI provider and models for AI import.'),
+        findsOneWidget,
+      );
       // Screen-reader semantics (CodeRabbit review): the tile is one
       // merged, enabled, tappable node whose label carries the visible
       // title — a future change that makes it unusable with a screen
@@ -523,35 +638,53 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(48));
     });
 
+    testWidgets('unreachable backend: localized unreachable subtitle + a '
+        'working Retry, and no "no configuration" claim (issue #809 C2)', (
+      tester,
+    ) async {
+      var calls = 0;
+      Future<BackendHealthOutcome> probe() async {
+        calls++;
+        // First probe: no answer at all. Every later probe: the backend
+        // answers (the retry path).
+        return calls == 1
+            ? const BackendHealthUnreachable()
+            : const BackendHealthReported(HealthStatus.healthy);
+      }
+
+      await pumpScreen(tester, healthProbe: probe);
+
+      const unreachableCopy = 'Backend not reachable yet';
+      expect(find.text(unreachableCopy), findsOneWidget);
+      expect(
+        find.text('Manage the AI provider and models for AI import.'),
+        findsNothing,
+        reason: 'a failed read is not a configuration claim',
+      );
+      expect(find.byKey(const Key('settings-ai-config-retry')), findsOneWidget);
+      // …and the entry still opens the screen (never blocked by "unknown").
+      expect(
+        tester
+            .widget<ListTile>(find.byKey(const Key('settings-ai-config')))
+            .onTap,
+        isNotNull,
+      );
+
+      await tester.tap(find.byKey(const Key('settings-ai-config-retry')));
+      await pumpFrames(tester);
+
+      expect(calls, 2, reason: 'the Retry re-runs exactly one probe');
+      expect(find.text(unreachableCopy), findsNothing);
+      expect(
+        find.text('Manage the AI provider and models for AI import.'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('tap pushes the existing AiConfigScreen (no new screen)', (
       tester,
     ) async {
-      await pumpScreen(
-        tester,
-        extraOverrides: [
-          // The pushed screen's discovery seams — immediate, benign
-          // first-run values; no network ever runs (same pattern as the
-          // ai_config_screen_test harness).
-          aiConfigDiscoveryProvider.overrideWith(
-            (ref) async => const Right(<AiConfigView>[]),
-          ),
-          aiProvidersProvider.overrideWith(
-            (ref) async => const Right(<AiProviderInfo>[]),
-          ),
-          aiImportDefaultsProvider.overrideWith(
-            (ref) async => Right(
-              AiImportDefaults(
-                (b) => b
-                  ..script = ''
-                  ..schedule = '',
-              ),
-            ),
-          ),
-          reconciliationSchedulerProvider.overrideWith(
-            (ref) => const _ImmediateReconciliationScheduler(),
-          ),
-        ],
-      );
+      await pumpScreen(tester, extraOverrides: screenSeams());
       setActiveScope();
       await pumpFrames(tester);
 
@@ -565,6 +698,99 @@ void main() {
         find.byKey(const Key('settings-screen'), skipOffstage: false),
         findsOneWidget,
       );
+    });
+
+    testWidgets('resolved denial: the entry is present and the screen renders '
+        'the server\'s administrator narrative WITHOUT a retry (D4)', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        extraOverrides: [
+          membershipFetchProvider(seasonId)
+              .overrideWith((ref) async => Right(_membership(hasRole: false))),
+          ...screenSeams(
+            discoveryError: const ProblemError(
+              code: 'ai-config.forbidden',
+              status: 403,
+            ),
+          ),
+        ],
+      );
+      setActiveScope();
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('settings-ai-config')));
+      await pumpFrames(tester, n: 12);
+
+      expect(
+        find.byKey(const Key('ai-config-discovery-forbidden')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-config-discovery-retry')),
+        findsNothing,
+        reason: 'a 403 is a denial, not a retryable load error',
+      );
+      expect(
+        find.byKey(const Key('ai-config-backend-unreachable')),
+        findsNothing,
+        reason: 'a denial is not an unreachable backend',
+      );
+    });
+
+    testWidgets('post-reset stale state: a persisted season anchor that '
+        'resolves to no row and a deleted block scope leave the entry '
+        'rendered and reachable (issue #809)', (tester) async {
+      await pumpScreen(
+        tester,
+        extraOverrides: screenSeams(),
+        // The `business` dev reset leaves the per-season block scope behind
+        // (a deleted block) — issued #809's second defect input.
+        secureSeed: {
+          ActiveBlockStore.key:
+              '{"season-deleted": {"blockId": "block-deleted", '
+              '"number": 1}}',
+        },
+      );
+
+      // …and the persisted season anchor names a season the projection no
+      // longer serves (driven through the REAL resolution providers, not by
+      // poking activeBlockProvider).
+      final session = await container.read(
+        authSessionControllerProvider.future,
+      );
+      final write = await container
+          .read(shellStateDaoProvider)
+          .upsert(
+            key: activeSeasonKeyFor(session?.sub),
+            value: 'season-deleted',
+            cachedAt: DateTime.utc(2026, 11, 3),
+          );
+      expect(write.isRight(), isTrue);
+      container.invalidate(activeSeasonPersistedProvider);
+      await pumpFrames(tester);
+
+      // The dead state is real (both documents name data that is gone)…
+      expect(
+        await container.read(activeSeasonResolutionProvider.future),
+        isNull,
+        reason: 'a persisted id that matches no season row resolves to null',
+      );
+      expect(
+        (await container.read(activeBlockPersistedProvider.future)).keys,
+        contains('season-deleted'),
+      );
+      // …and it no longer disables the entry.
+      final tile = find.byKey(const Key('settings-ai-config'));
+      expect(tile, findsOneWidget);
+      expect(tester.widget<ListTile>(tile).onTap, isNotNull);
+
+      await tester.tap(tile);
+      await pumpFrames(tester, n: 12);
+      expect(find.byKey(const Key('ai-config-screen')), findsOneWidget);
     });
   });
 
@@ -622,34 +848,81 @@ void main() {
       );
     });
 
-    // Issue #643: the AI-config entry in its VISIBLE state (the four
-    // base goldens above never set an active-block scope, so the gated
-    // entry is absent there and those goldens stay valid).
-    testWidgets('ai-config entry visible, light', (tester) async {
-      await pumpScreen(tester, brightness: Brightness.light);
-      container
-          .read(activeBlockProvider.notifier)
-          .set(seasonId: 'season-1', blockId: 'block-1');
-      await pumpFrames(tester);
-
+    // Issue #643 / #809: the AI-config entry in its states. Issue #809
+    // replaced the "visible vs hidden" pair (the entry is always rendered
+    // now) with one golden per REACHABILITY state, {light,dark} × android —
+    // so a change that lets the entry disappear (or drops a state's copy)
+    // cannot pass silently. The entry is captured alone: the state is the
+    // subject, and a tile-scoped capture keeps the diff readable.
+    Future<void> pumpEntryGolden(
+      WidgetTester tester, {
+      required String golden,
+      required Brightness brightness,
+      BackendHealthProbe? healthProbe,
+    }) async {
+      await pumpScreen(
+        tester,
+        brightness: brightness,
+        healthProbe: healthProbe,
+        locale: const Locale('de'),
+      );
       expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
       await expectLater(
-        find.byKey(const Key('settings-screen')),
-        matchesGoldenFile('goldens/settings_ai_config_light.png'),
+        find.byKey(const Key('settings-ai-config')),
+        matchesGoldenFile('goldens/$golden'),
+      );
+    }
+
+    testWidgets('ai-config entry reachable, light', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_reachable_light.png',
+        brightness: Brightness.light,
       );
     });
 
-    testWidgets('ai-config entry visible, dark', (tester) async {
-      await pumpScreen(tester, brightness: Brightness.dark);
-      container
-          .read(activeBlockProvider.notifier)
-          .set(seasonId: 'season-1', blockId: 'block-1');
-      await pumpFrames(tester);
+    testWidgets('ai-config entry reachable, dark', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_reachable_dark.png',
+        brightness: Brightness.dark,
+      );
+    });
 
-      expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
-      await expectLater(
-        find.byKey(const Key('settings-screen')),
-        matchesGoldenFile('goldens/settings_ai_config_dark.png'),
+    testWidgets('ai-config entry checking, light', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_checking_light.png',
+        brightness: Brightness.light,
+        // Never-completing probe: pins the "unknown" state (no wall clock).
+        healthProbe: () => Completer<BackendHealthOutcome>().future,
+      );
+    });
+
+    testWidgets('ai-config entry checking, dark', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_checking_dark.png',
+        brightness: Brightness.dark,
+        healthProbe: () => Completer<BackendHealthOutcome>().future,
+      );
+    });
+
+    testWidgets('ai-config entry unreachable, light', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_unreachable_light.png',
+        brightness: Brightness.light,
+        healthProbe: () async => const BackendHealthUnreachable(),
+      );
+    });
+
+    testWidgets('ai-config entry unreachable, dark', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_unreachable_dark.png',
+        brightness: Brightness.dark,
+        healthProbe: () async => const BackendHealthUnreachable(),
       );
     });
   });

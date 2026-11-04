@@ -4,7 +4,7 @@
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
-<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go)
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Agent Guidelines for breakdown-rs
 

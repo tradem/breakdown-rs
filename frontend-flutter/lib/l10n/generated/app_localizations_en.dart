@@ -645,6 +645,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiConfigBackendUnreachableTitle => 'Backend not reachable yet';
+
+  @override
+  String get aiConfigBackendUnreachableBody =>
+      'The configuration can only load once the server answers. This does not mean that no configuration exists.';
+
+  @override
   String get aiUploadTooLarge => 'The document is too large for AI import.';
 
   @override
@@ -3442,6 +3449,12 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsAiConfigSubtitle =>
       'Manage the AI provider and models for AI import.';
+
+  @override
+  String get settingsAiConfigChecking => 'Checking backend…';
+
+  @override
+  String get settingsAiConfigUnreachable => 'Backend not reachable yet';
 
   @override
   String get settingsAi => 'AI';

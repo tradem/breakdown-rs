@@ -5,6 +5,7 @@
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 
 # Agent Guidelines for the Flutter App (`frontend-flutter/`)
@@ -114,6 +115,23 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
   server-owned. The client models async state with Riverpod's `AsyncValue`
   (`loading` / `data` / `error`); projector-lag windows are explicit
   `AsyncValue` transitions, not hidden. See §4.
+- **A configuration entry point renders its state; it is never hidden
+  (issue #809, hard rule):** "a pending fetch hides, never denies" (D3)
+  governs *acting on domain data* — it must NOT be applied to an *entry
+  point* into a configuration surface. Hiding an entry is indistinguishable
+  from the surface not existing, and it fails exactly in the state where
+  the entry is needed (cold start with no active-block scope, a dev data
+  reset whose persisted season anchor resolves to no row, projector lag).
+  So a configuration entry (today: the Settings → KI entry) is ALWAYS
+  rendered; it states what the client knows (reachability via the one-shot
+  `backendHealthProbeProvider` seam — reachable / checking / backend not
+  reachable + Retry), and the SERVER decides the permission (a 403
+  `ai-config.forbidden` / `settings.forbidden` renders the localized
+  administrator narrative inside the screen, the documented D4 exception).
+  A pending, erroring, stale or absent *scope* never removes such an
+  entry, and no client-side role approximation pre-gates it. Contrast the
+  *action* gates in §5 (photo upload/delete and other handler-internal
+  authz paths still pre-gate via `currentMembershipProvider`).
 
 ## 2. Workspace Structure
 
@@ -260,6 +278,10 @@ These mirror the backend hard rules, translated to Dart/Flutter.
   `currentMembershipProvider` check is rejected at review — `grep AUTHZ-GATE`
   verification applies. Client-side denial shows a localized 403 narrative
   and never issues the request.
+  **Scope of this rule:** it applies to *actions* on domain data. A
+  *configuration entry point* is never hidden by an unresolved scope — see
+  §1 ("A configuration entry point renders its state") for the inverted
+  rule and the AI-configuration entry's server-authoritative D4 exception.
 - **OIDC token storage & cert pinning:** OIDC tokens live in
   `flutter_secure_storage` (never plaintext preferences). The HTTP client
   pins TLS roots matching the backend's pinned-CA stance (ADR-024),
