@@ -1267,7 +1267,7 @@ fn a_document_global_category_conflict_surfaces_as_a_blocking_uncertainty() {
         uncertainty.scene_index, 0,
         "attached to the first appearance"
     );
-    assert_eq!(uncertainty.field, "category");
+    assert_eq!(uncertainty.field, UNCERTAINTY_FIELD_CHARACTERS);
     assert_eq!(uncertainty.kind, UncertaintyKind::FieldAmbiguity);
     assert_eq!(
         uncertainty.suggested_value.as_deref(),
@@ -1351,7 +1351,7 @@ fn a_conflict_uncertainty_blocks_the_apply_until_acknowledged() {
     );
     let acknowledged = [UncertaintyAcknowledgement {
         scene_index: 0,
-        field: "category".to_owned(),
+        field: UNCERTAINTY_FIELD_CHARACTERS.to_owned(),
     }];
     assert!(
         ensure_script_applyable(&preview, &acknowledged).is_ok(),
@@ -1749,6 +1749,46 @@ Aktion.
     let episode = chunks[0].episode.clone().expect("marker before heading");
     assert_eq!(episode.number, Some(3));
     assert_eq!(episode.title.as_deref(), Some("Der Unfall"));
+}
+
+#[test]
+fn episode_marker_ignores_the_suffix_after_the_episode_number() {
+    // Issue #826: real page headers glue further fields onto the marker —
+    // `Ep.: 292/15` next to `Ep.: 292/16`, and `Block: 098/Ep.: 294`. Only the
+    // leading number is the episode; everything after the `/` is a scene/page
+    // index INSIDE it. The parser always read it this way (the preview does not
+    // invent a second episode), and this test pins that so a future prompt rule
+    // cannot drift from the deterministic scan it mirrors.
+    let document = "\
+Block: 098/Ep.: 292/15
+
+1   A/T - BAUERNHOF
+    LEYLA
+
+Block: 098/Ep.: 292/16
+
+2   I/T - KUECHE
+    LEYLA
+";
+    let chunks = SceneChunk::extract_scenes(document);
+    assert_eq!(chunks.len(), 2);
+    for chunk in &chunks {
+        let episode = chunk
+            .episode
+            .as_ref()
+            .expect("every page header carries one");
+        assert_eq!(
+            episode.number,
+            Some(292),
+            "the `/15`, `/16` suffix is not part of the episode"
+        );
+        assert_eq!(episode.title, None);
+        assert_eq!(episode.group_key().as_deref(), Some("ep:292"));
+    }
+    assert_eq!(
+        chunks[0].episode, chunks[1].episode,
+        "a dissenting suffix must not read as a second episode"
+    );
 }
 
 #[test]

@@ -22,9 +22,9 @@ use breakdown_core::ai::{
     DraftCharacter, DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan,
     EpisodeTarget, JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
     OutfitDecision, PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule,
-    ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState, UnappliedOutfitReason,
-    UncertaintyKind, character_identity, character_mapping_ref, mapping_kind,
-    merge_schedule_to_scenes, question_keys,
+    ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState,
+    UNCERTAINTY_FIELD_CHARACTERS, UnappliedOutfitReason, UncertaintyKind, character_identity,
+    character_mapping_ref, mapping_kind, merge_schedule_to_scenes, question_keys,
 };
 use breakdown_core::character::category::CharacterCategory;
 use breakdown_core::error::DomainError;
@@ -1373,7 +1373,7 @@ async fn script_worker_surfaces_document_global_category_conflicts() {
     let conflicts: Vec<_> = preview
         .uncertainties
         .iter()
-        .filter(|uncertainty| uncertainty.field == "category")
+        .filter(|uncertainty| uncertainty.field == UNCERTAINTY_FIELD_CHARACTERS)
         .collect();
     assert_eq!(conflicts.len(), 1, "one conflict per identity");
     assert_eq!(conflicts[0].kind, UncertaintyKind::FieldAmbiguity);

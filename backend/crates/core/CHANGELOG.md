@@ -16,6 +16,25 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.57.1] - Unreleased
+
+### Fixed — one canonical uncertainty field name for cast classification (issue #826)
+
+- `category_conflict_uncertainties` now reports `field: "characters"` instead of
+  `"category"`. The review panel renders the model's `field` string verbatim and
+  the #663 acknowledgement keys on `(scene_index, field)`, so the previous split
+  — `category`, `characters.category`, `character_category`, `role_type` for ONE
+  concept — made a single doubt look like several and fed issue #821's
+  duplicate-pair aggregation.
+- New `pub const UNCERTAINTY_FIELD_CHARACTERS = "characters"`: the single source
+  for that name, emitted by the document-global conflict scan and required by the
+  script prompt. `infra::ai::catalog_misc_tests` asserts prompt and server agree,
+  so the two can no longer drift apart silently.
+- Previews stored before this change keep their `"category"` string (a stored
+  preview is an immutable payload blob); only newly extracted previews carry the
+  new name. The apply gate is unaffected — both strings block identically.
+- No public API removal: **0.57.0 → 0.57.1** (PATCH).
+
 ## [0.57.0] - Unreleased
 
 ### Changed — a Decision Model question carries its rubric, not a level count (issue #808)

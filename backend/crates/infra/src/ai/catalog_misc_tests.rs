@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
@@ -189,6 +190,167 @@ fn script_prompt_leaves_summary_empty_for_an_outline_style_block() {
         outline_rule.contains("summary") && outline_rule.contains("null"),
         "the outline rule must leave `summary` null instead of describing the block: \
          {outline_rule}"
+    );
+}
+
+// ===========================================================================
+// Embedded script prompt: marker and uncertainty-field rules (issue #826)
+// ===========================================================================
+
+/// The embedded `[script]` prompt text, lowercased.
+///
+/// Reads `EMBEDDED_PROMPT_FILE` and not `default_prompt()` for the same reason
+/// the outline-style test below does: the served default is overridable per
+/// deployment (`AI_IMPORT_DEFAULT_PROMPTS_PATH`), and a stored prompt with
+/// different wording must not fail a regression guard about the file this PR
+/// edits.
+fn embedded_script_prompt() -> String {
+    let embedded: toml::Value = toml::from_str(super::prompts::EMBEDDED_PROMPT_FILE)
+        .expect("embedded prompts parse as TOML");
+    embedded
+        .get("script")
+        .and_then(|entry| entry.get("text"))
+        .and_then(toml::Value::as_str)
+        .expect("the embedded prompt file must carry a [script] text")
+        .to_lowercase()
+}
+
+/// The body of one `<element>…</element>` block of the script prompt,
+/// lowercased.
+///
+/// Scoping an assertion to its element is what makes it mean something: terms
+/// like `extra` or `uncertainty` occur in several rules, so a whole-prompt
+/// `contains` would stay green after the rule under test was moved out of the
+/// element that owns it.
+fn script_prompt_element(prompt: &str, element: &str) -> String {
+    let open = format!("<{element}>");
+    let close = format!("</{element}>");
+    prompt
+        .split_once(&open)
+        .and_then(|(_, rest)| rest.split_once(&close))
+        .map(|(body, _)| body.to_owned())
+        .unwrap_or_else(|| panic!("the script prompt must keep a {open} element: {prompt}"))
+}
+
+/// Issue #826 (rule 1): `(OT)` is "Off-Text" — a figure without dialogue, i.e.
+/// a background performer — so it is an `extra` signal like `Statist`/
+/// `Komparse`, not an ambiguity the reviewer has to tick. The live job this
+/// issue comes from answered `"OP-PERSONAL is marked as (OT) … may indicate
+/// extra or guest role"`, i.e. the model invented an uncertainty because the
+/// prompt never named the marker.
+#[test]
+fn script_prompt_classifies_ot_markers_as_extras_without_an_uncertainty() {
+    let prompt = embedded_script_prompt();
+    let characters = script_prompt_element(&prompt, "characters");
+
+    assert!(
+        characters.contains("off-text"),
+        "the characters rule must name the `OT` reading (`Off-Text`), got: {characters}"
+    );
+    assert!(
+        characters.contains("(ot)") && characters.contains("extra"),
+        "`(OT)` must be listed as an `extra` signal: {characters}"
+    );
+    assert!(
+        characters.contains("off-ton"),
+        "the prompt must state which reading this pipeline uses against the \
+         off-screen-voice homonym `Off-Ton`: {characters}"
+    );
+    assert!(
+        characters.contains("a plain `(ot)` marker is a stated signal")
+            && characters.contains("record no uncertainty for it"),
+        "a plain `(OT)` must be classified without an uncertainty: {characters}"
+    );
+    assert!(
+        characters.contains("\"darsteller\"") && characters.contains("conflict"),
+        "the grounded-only discipline must survive: a figure the document ALSO \
+         lists under `Darsteller` stays a genuine conflict: {characters}"
+    );
+}
+
+/// Issue #826 (rule 2): an episode designation is a fixed number — everything
+/// after the `/` in `Ep.: <n>/<suffix>` is a scene/page index inside episode
+/// `<n>`. Real page headers glue the fields together
+/// (`Block: 098/Ep.: 294`), and the deterministic `episode_marker` scan already
+/// reads only the leading digits; the prompt now says so, so the model stops
+/// treating `/15` vs `/16` as two candidate episodes.
+#[test]
+fn script_prompt_ignores_the_suffix_after_the_episode_number() {
+    let prompt = embedded_script_prompt();
+    let episode = script_prompt_element(&prompt, "episode");
+
+    assert!(
+        episode.contains("ep.: 292/15") && episode.contains("ep.: 292/16"),
+        "the episode rule must show the suffix form it resolves: {episode}"
+    );
+    assert!(
+        episode.contains("episode 292"),
+        "both suffix variants must be named as episode 292: {episode}"
+    );
+    assert!(
+        episode.contains("block: 098/ep.: 294"),
+        "the glued page-header shape (`Block: 098/Ep.: 294`) must be covered: {episode}"
+    );
+    assert!(
+        episode.contains("leading number"),
+        "the rule must say to read the leading number only: {episode}"
+    );
+    assert!(
+        episode.contains("never a reason for an uncertainty"),
+        "a dissenting suffix must not become an uncertainty: {episode}"
+    );
+}
+
+/// Issue #826 (rule 3): one canonical `field` name per uncertainty concept.
+///
+/// The preview renders the model's `field` string verbatim and the #663
+/// acknowledgement keys on `(scene_index, field)`, so `category`,
+/// `characters.category`, `character_category` and `role_type` for one concept
+/// made a single doubt look like four (28 blocking entries on 8 pairs in the
+/// reported job). `characters` is the canonical name for the cast concept, and
+/// it is the SAME string the server's own #695 conflict scan emits — otherwise
+/// a model doubt and a detected conflict for one figure would still be two keys.
+#[test]
+fn script_prompt_names_one_canonical_uncertainty_field_per_concept() {
+    let prompt = embedded_script_prompt();
+    let uncertainties = script_prompt_element(&prompt, "uncertainties");
+
+    for field in [
+        "\"characters\"",
+        "\"episode\"",
+        "\"location\"",
+        "\"mood\"",
+        "\"outfits\"",
+    ] {
+        assert!(
+            uncertainties.contains(field),
+            "the canonical field vocabulary must name {field}: {uncertainties}"
+        );
+    }
+    assert!(
+        uncertainties.contains("nested path") && uncertainties.contains("\"characters.category\""),
+        "nested paths must be forbidden by name: {uncertainties}"
+    );
+    assert!(
+        uncertainties.contains("(scene_index, field)"),
+        "the rule must state WHY the name matters (the acknowledgement key): \
+         {uncertainties}"
+    );
+
+    let characters = script_prompt_element(&prompt, "characters");
+    assert!(
+        characters.contains("field \"characters\""),
+        "the cast-classification uncertainty must use the canonical name: {characters}"
+    );
+    assert!(
+        !characters.contains("field \"category\""),
+        "the old synonym must be gone, not merely supplemented: {characters}"
+    );
+
+    // The prompt and the server must agree on the ONE string (issue #826).
+    assert_eq!(
+        breakdown_core::ai::UNCERTAINTY_FIELD_CHARACTERS,
+        "characters"
     );
 }
 
