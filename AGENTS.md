@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Breakdown-RS — Monorepo Agent Guidelines
 
@@ -36,11 +37,25 @@ the authoritative copy and is edited in place.
 - **CI:** all workflows live under `.github/workflows/`; the CI-hardening hard
   rules (SHA-pinning of actions, no `${{ github.event.* }}` interpolation into
   `run:`) apply to every workflow in this monorepo.
-- **Code discovery (graph-first):** structural questions (*how does X work, who
-  calls X, what does a change touch, where is X defined*) are answered from the
-  **`codebase-memory` knowledge graph** for project `breakdown-rs`, seeded at
-  the monorepo root and covering backend Rust **and** frontend Dart. `grep`/`rg`
-  stays correct for string literals, problem codes, ARB keys and config values.
+- **Code discovery — code-aware first, text only for text:** the deciding
+  question is **not** "which tool is convenient" but "what am I asking?".
+  **Text search answers whether a string OCCURS. A code-aware search answers
+  what the code DOES** (who defines it, who calls it, what breaks). `rg`
+  cannot see the difference between a definition, a call site, an import and a
+  doc-comment mention, cannot report edge kinds, and cannot report
+  completeness — so for every *meaning* question (where is X defined, who uses
+  X, what does a change touch, how does X work) use the **`codebase-memory`
+  knowledge graph** for project `breakdown-rs` (seeded at the monorepo root,
+  covering backend Rust **and** frontend Dart) or ast-bro. `rg`/`grep` stays the
+  CORRECT tool — not the lazy fallback — for pure text: ARB keys, problem
+  `code`s, config/YAML values, Markdown/prose, version strings, and every path
+  under `docs/`, `openspec/`, `lib/l10n/` and the test trees.
+  The decision is supported, not just stated: `.pi/extensions/graph-first-nudge.ts` appends the
+  code-aware result to a symbol-shaped text search (soft advisory, never a
+  block; `PI_GRAPH_NUDGE=0` or a `# literal:` marker opts out), and
+  `scripts/who-watches.sh <provider>` answers the one question the graph is
+  structurally blind to (Riverpod `ref.watch` wiring) by combining both tools
+  in one call.
   The index is machine-local (`.codebase-memory/` is gitignored), so freshness is
   a local duty, never a CI gate: `scripts/check-graph-freshness.sh` to report,
   `scripts/reindex-graph.sh [--if-stale]` to refresh; the `post-merge`,
@@ -49,7 +64,8 @@ the authoritative copy and is edited in place.
   refresh it in the background. An empty
   graph result for code present on disk means *stale index* — reindex before
   falling back to text search — except under `frontend-flutter/vendor/`, which
-  the indexer prunes by default. Per-area how-to:
+  the indexer prunes by default. Per-area how-to (incl. the question→tool
+  table and the graph's honest limits):
   `.github/instructions/flutter-code-discovery.instructions.md` (frontend) and
   `backend/AGENTS.md` §6 (backend).
 
