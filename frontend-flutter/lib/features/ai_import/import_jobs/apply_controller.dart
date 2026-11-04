@@ -452,6 +452,58 @@ class PreviewRow {
 /// value" from an explicit `null` on the nullable fields.
 const Object _unset = Object();
 
+/// One reviewer decision in the acknowledge panel (issue #821): every blocking
+/// `field_ambiguity` the extraction reported for one `(scene_index, field)`
+/// pair.
+///
+/// A preview may carry several entries for the SAME pair — the extraction
+/// asked several questions about one field of one scene (live case: 28
+/// blocking entries over 8 distinct pairs) — but the backend matches an
+/// acknowledgement by that pair alone (`ensure_script_applyable` filters the
+/// preview's uncertainties with an `any` over the pair). There is therefore
+/// exactly ONE decision behind them. Collapsing the entries into a group is
+/// what keeps the panel at one row per question and the wire at one
+/// acknowledgement per pair; sending the entries one by one is what made the
+/// apply fail with an opaque `422 domain.validation`.
+class BlockingUncertaintyGroup {
+  BlockingUncertaintyGroup({
+    required this.sceneIndex,
+    required this.field,
+    required this.key,
+    required List<Uncertainty> entries,
+  }) : entries = List.unmodifiable(entries);
+
+  /// The `scene_index` every entry of this group reports.
+  final int sceneIndex;
+
+  /// The ambiguous field every entry of this group reports.
+  final String field;
+
+  /// The stable acknowledgement key
+  /// ([AiApplyController.acknowledgementKey]) — the one value the reviewer's
+  /// decision is stored under.
+  final String key;
+
+  /// The group's preview entries, in preview order. The first one supplies
+  /// the panel's prose; the preview screen still lists every entry with its
+  /// own note.
+  final List<Uncertainty> entries;
+
+  /// The representative note: the first entry's. The notes that differ
+  /// between duplicate entries are reviewer prose about the SAME question, not
+  /// a second decision.
+  String get note => entries.first.note;
+
+  /// This group with [uncertainty] appended — still one decision.
+  BlockingUncertaintyGroup withEntry(Uncertainty uncertainty) =>
+      BlockingUncertaintyGroup(
+        sceneIndex: sceneIndex,
+        field: field,
+        key: key,
+        entries: [...entries, uncertainty],
+      );
+}
+
 /// The apply selection state (task 4.2): rows, the persisted episode
 /// context, and the mapping-request builder inputs.
 ///
@@ -508,8 +560,12 @@ class AiApplyState {
 
   /// The preview's blocking (`field_ambiguity`) uncertainties (issue #663).
   /// Advisory (`dropped_row`) entries are filtered out at seed time — they
-  /// never gate. Apply stays disabled until every entry is acknowledged;
+  /// never gate. Apply stays disabled until every DECISION is acknowledged;
   /// the server's gate answers `ai-import.apply-blocked` otherwise.
+  ///
+  /// The list is the preview's verbatim entries (one per reported entry, not
+  /// one per decision) — [blockingUncertaintyGroups] is the collapsed view
+  /// every gate, panel row and wire acknowledgement is derived from.
   final List<Uncertainty> blockingUncertainties;
 
   /// The acknowledged blocking uncertainties, keyed by
@@ -594,16 +650,42 @@ class AiApplyState {
     continuitySelections: continuitySelections ?? this.continuitySelections,
   );
 
-  /// True while at least one blocking uncertainty is unacknowledged — the
-  /// client-side mirror of the backend apply gate, so the button explains
-  /// itself instead of producing a guaranteed 409.
-  bool get hasUnacknowledgedBlockers => blockingUncertainties.any(
-    (uncertainty) => !acknowledgedKeys.contains(
-      AiApplyController.acknowledgementKey(
+  /// The blocking uncertainties collapsed to ONE decision each (issue #821):
+  /// one group per `(scene_index, field)` pair, in first-appearance (preview)
+  /// order.
+  ///
+  /// This is the single source of truth for "how many questions does the
+  /// reviewer still have to confirm" — the gate, the acknowledge panel and
+  /// the wire acknowledgements all read it, so the per-entry/per-key
+  /// divergence that produced a duplicate acknowledgement (and a guaranteed
+  /// `422 domain.validation`) cannot reappear.
+  List<BlockingUncertaintyGroup> get blockingUncertaintyGroups {
+    final groups = <String, BlockingUncertaintyGroup>{};
+    for (final uncertainty in blockingUncertainties) {
+      final key = AiApplyController.acknowledgementKey(
         uncertainty.sceneIndex,
         uncertainty.field,
-      ),
-    ),
+      );
+      final existing = groups[key];
+      groups[key] = existing == null
+          ? BlockingUncertaintyGroup(
+              sceneIndex: uncertainty.sceneIndex,
+              field: uncertainty.field,
+              key: key,
+              entries: [uncertainty],
+            )
+          : existing.withEntry(uncertainty);
+    }
+    // A `Map` literal keeps insertion order, so the values stay in preview
+    // order (stable, testable).
+    return List.unmodifiable(groups.values);
+  }
+
+  /// True while at least one blocking DECISION is unacknowledged — the
+  /// client-side mirror of the backend apply gate, so the button explains
+  /// itself instead of producing a guaranteed 409.
+  bool get hasUnacknowledgedBlockers => blockingUncertaintyGroups.any(
+    (group) => !acknowledgedKeys.contains(group.key),
   );
 
   /// Every group target RESOLVES to an existing episode (found via the
@@ -614,21 +696,22 @@ class AiApplyState {
   bool get hasResolvedGroupTargets =>
       groupRefs.every((ref) => targetFor(ref) is ExistingEpisodeGroupTarget);
 
-  /// The wire acknowledgements: one entry per acknowledged key, in the
-  /// preview's own order (stable, testable).
+  /// The wire acknowledgements: ONE entry per acknowledged `(scene_index,
+  /// field)` pair, in the preview's own order (stable, testable).
+  ///
+  /// Built from the collapsed [blockingUncertaintyGroups], never from the
+  /// entries: the pair is the unit the backend acknowledges, so a preview
+  /// carrying several entries for one pair must still send exactly one entry
+  /// (issue #821 — repeating it answered a content-free `422
+  /// domain.validation` and the apply never reached the worker).
   BuiltList<UncertaintyAcknowledgement> buildAcknowledgements() =>
       BuiltList<UncertaintyAcknowledgement>([
-        for (final uncertainty in blockingUncertainties)
-          if (acknowledgedKeys.contains(
-            AiApplyController.acknowledgementKey(
-              uncertainty.sceneIndex,
-              uncertainty.field,
-            ),
-          ))
+        for (final group in blockingUncertaintyGroups)
+          if (acknowledgedKeys.contains(group.key))
             UncertaintyAcknowledgement(
               (b) => b
-                ..sceneIndex = uncertainty.sceneIndex
-                ..field = uncertainty.field,
+                ..sceneIndex = group.sceneIndex
+                ..field = group.field,
             ),
       ]);
 
@@ -1188,6 +1271,9 @@ class AiApplyController extends _$AiApplyController {
     final episodeGroups = state.buildEpisodeGroups();
     final shootingDays = state.buildShootingDays();
     final continuitySelections = state.buildContinuitySelections();
+    // Built once: the emptiness check and the wire value are the same list
+    // (issue #821 review — the builder used to run twice per dispatch).
+    final acknowledgements = state.buildAcknowledgements();
     final request = ApplyAiImportRequest(
       (b) => b
         ..episodeId = context.episodeId
@@ -1206,9 +1292,9 @@ class AiApplyController extends _$AiApplyController {
         ..shootingDays = shootingDays.isEmpty ? null : shootingDays.toBuilder()
         // Issue #663: the reviewer's acknowledgements travel with the other
         // reviewer decisions; empty stays absent on the wire.
-        ..uncertaintyAcknowledgements = state.buildAcknowledgements().isEmpty
+        ..uncertaintyAcknowledgements = acknowledgements.isEmpty
             ? null
-            : state.buildAcknowledgements().toBuilder()
+            : acknowledgements.toBuilder()
         // Issue #745: the reviewer's wardrobe-gap picks travel with the other
         // review decisions; a preview without resolved gaps stays byte-identical
         // to the pre-#745 client (the backend treats empty as absent).

@@ -3473,10 +3473,15 @@ async fn apply_rejects_an_acknowledgement_for_an_uncertainty_the_preview_does_no
 }
 
 #[tokio::test]
-async fn apply_rejects_a_duplicate_acknowledgement() {
+async fn apply_accepts_a_duplicate_acknowledgement() {
+    // Issue #821: an acknowledgement is idempotent by nature — the payload is
+    // the `(scene_index, field)` pair the gate matches on, so a repeat carries
+    // no new information. Refusing it with the content-free
+    // `422 domain.validation` made an otherwise valid apply a dead end.
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    let mappings = ports.ai_import_mapping.clone();
     seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_blocking_uncertainty_job(&ports, Some(block_id)).await;
 
@@ -3484,7 +3489,7 @@ async fn apply_rejects_a_duplicate_acknowledgement() {
         scene_index: 0,
         field: "location".to_owned(),
     };
-    let problem = apply_ai_import::<FakePorts>(
+    let (status, _) = apply_ai_import::<FakePorts>(
         State(state(ports)),
         user(),
         Path(job_id),
@@ -3501,11 +3506,16 @@ async fn apply_rejects_a_duplicate_acknowledgement() {
         }),
     )
     .await
-    .expect_err("a duplicate acknowledgement would over-acknowledge")
-    .into_problem();
-
-    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
-    assert_eq!(problem.code, "domain.validation");
+    .expect("a repeated acknowledgement is a no-op, not a client bug");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !mappings
+            .list_by_preview(job_id)
+            .await
+            .expect("mapping read should succeed")
+            .is_empty(),
+        "the apply must reach the worker"
+    );
 }
 
 // ---------------------------------------------------------------------------
