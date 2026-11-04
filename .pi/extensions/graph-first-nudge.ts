@@ -128,7 +128,14 @@ export type NudgeDecision = {
 	symbol: string;
 	/** True for PascalCase — construction sites are not graph edges. */
 	classLike: boolean;
+	/** `cd`/`pushd` target the search runs in, when the command changed dir. */
+	cwd?: string;
 };
+
+/** Strips one layer of surrounding quotes from one word. */
+function unquoteWord(word: string): string {
+	return word.replace(/^['"]|['"]$/g, "");
+}
 
 /** True when [root] contains [dir] on a path-COMPONENT boundary. */
 function containsPath(dir: string, root: string): boolean {
@@ -170,7 +177,9 @@ export function splitCommands(command: string): CommandSegment[] {
 			escaped = false;
 			continue;
 		}
-		if (ch === "\\") {
+		// A backslash is LITERAL inside single quotes (POSIX): `'\'` closes the
+		// quote, it does not escape it, so `'\'; rg Foo lib` still splits.
+		if (ch === "\\" && quote !== "'") {
 			current += ch;
 			escaped = true;
 			continue;
@@ -196,11 +205,48 @@ export function splitCommands(command: string): CommandSegment[] {
 	segments.push({ text: current, after: pending });
 	const out: CommandSegment[] = [];
 	for (const segment of segments) {
-		const trimmed = segment.text.trim();
-		if (trimmed.length === 0) continue;
-		out.push({ words: trimmed.split(/\s+/), after: segment.after });
+		const words = tokenize(segment.text);
+		if (words.length === 0) continue;
+		out.push({ words, after: segment.after });
 	}
 	return out;
+}
+
+/**
+ * Splits one command segment into words QUOTE-AWARE: whitespace separates words
+ * only outside quotes, so `'release notes.md'` stays ONE operand. Quotes are
+ * kept in the token; `unquote` strips them where it matters.
+ */
+function tokenize(text: string): string[] {
+	const words: string[] = [];
+	let current = "";
+	let quote: string | null = null;
+	let started = false;
+	for (const ch of text) {
+		if (quote !== null) {
+			current += ch;
+			if (ch === quote) quote = null;
+			continue;
+		}
+		if (ch === '"' || ch === "'") {
+			current += ch;
+			quote = ch;
+			started = true;
+			continue;
+		}
+		if (ch === " " || ch === "\t" || ch === "\r") {
+			if (started) {
+				words.push(current);
+				current = "";
+				started = false;
+			}
+			continue;
+		}
+		current += ch;
+		started = true;
+	}
+	if (started) words.push(current);
+	return words;
 }
 
 /**
@@ -212,22 +258,50 @@ export function splitCommands(command: string): CommandSegment[] {
 export function decide(command: string): NudgeDecision | null {
 	if (command.includes("# literal:")) return null;
 
-	// A `cd`/`pushd` before the search means the SEARCH DIRECTORY differs from
-	// the session directory the graph lookup is scoped to — stay silent rather
-	// than label another tree's symbols.
-	if (
-		splitCommands(command).some((segment) => {
-			const word = segment.words[0]?.replace(/^.*\//, "");
-			return word === "cd" || word === "pushd";
-		})
-	) {
-		return null;
+	const segments = splitCommands(command);
+	// A leading `cd`/`pushd` moves the SEARCH directory, so the graph lookup must
+	// follow it (otherwise another tree's symbols get labelled). Subshell forms
+	// (`(cd …`, `{ cd …`, `$(cd …`) are recognised by stripping the opener.
+	const unopened = (word: string) => word.replace(/^[({$]+/, "");
+	const isCd = (words: string[]) => {
+		const first = words.map(unopened).find((word) => word !== "") ?? "";
+		return /^(cd|pushd)$/.test(first.replace(/^.*\//, ""));
+	};
+	let cdTarget: string | null = null;
+	let nonCdBefore = false;
+	for (const segment of segments) {
+		if (isCd(segment.words)) {
+			const target = segment.words.slice(1).map(unquoteWord)[0];
+			if (target !== undefined) cdTarget = target;
+			continue;
+		}
+		let k = 0;
+		while (
+			k < segment.words.length &&
+			/^[A-Za-z_][A-Za-z0-9_]*=/.test(segment.words[k]!)
+		) {
+			k++;
+		}
+		const bin = segment.words[k]?.replace(/^.*\//, "");
+		if (bin && SEARCH_COMMANDS.has(bin)) break;
+		nonCdBefore = true;
 	}
 
-	for (const { words, after } of splitCommands(command)) {
-		// A segment joined by `||` runs only when the previous one FAILED, so the
-		// search may never have executed (the result would not be its output).
-		if (after !== null && after.includes("||")) continue;
+	for (const { words, after } of segments) {
+		// Conditional separators: `A || rg …` runs only when A FAILED and
+		// `A && rg …` only when A SUCCEEDED, so in both cases the search may
+		// never have executed — and the appended block would annotate someone
+		// else's output. Allowed: an unconditional separator (`;`, newline, `|`)
+		// and an `&&` chain whose only preceding commands were `cd`/`pushd`
+		// (the ubiquitous "change directory, then search" shape).
+		const conditional = after !== null && /(\|\||&&)/.test(after);
+		if (conditional) {
+			const isCdChain = cdTarget !== null && !nonCdBefore;
+			if (!isCdChain) continue;
+		}
+		// `cd` somewhere else in the chain: the directory the search ran in is not
+		// reconstructable, so stay silent.
+		if (cdTarget !== null && nonCdBefore) continue;
 		// Skip leading env assignments (`FOO=1 rg …`).
 		let i = 0;
 		while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) i++;
@@ -315,7 +389,11 @@ export function decide(command: string): NudgeDecision | null {
 			L10N_DIR_RE.test(p);
 		if (operands.length > 0 && operands.every(isNonCode)) continue;
 
-		return { symbol: bare, classLike: PASCAL_RE.test(bare) };
+		return {
+			symbol: bare,
+			classLike: PASCAL_RE.test(bare),
+			...(cdTarget === null ? {} : { cwd: cdTarget }),
+		};
 	}
 	return null;
 }
@@ -486,11 +564,12 @@ export function formatBlock(args: {
 	out.push("");
 	if (matchedAs) {
 		out.push(
-			`(the searched token is generated; NAME-ONLY match on \`${matchedAs}\` — no`,
+			`(NAME-ONLY match on \`${matchedAs}\`; no code hit for \`${symbol}\` and no`,
 		);
 		out.push(
-			` Riverpod annotation was verified, so confirm it is the provider family)`,
+			` Riverpod annotation was verified — confirm whether \`${symbol}\` is a`,
 		);
+		out.push(` generated provider or simply not indexed)`);
 	}
 	const shown = matchedAs ?? symbol;
 	for (const hit of hits.slice(0, MAX_HITS)) {
@@ -597,7 +676,15 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 			const verbose = nudges === 0;
 			nudges++;
 
-			const cwd = ctx.cwd;
+			// The graph lookup must run in the directory the SEARCH ran in: a
+			// `cd x && rg …` changes it, and annotating another tree's symbols
+			// would be worse than staying silent.
+			const cwd =
+				decision.cwd === undefined
+					? ctx.cwd
+					: decision.cwd.startsWith("/")
+					? decision.cwd
+					: `${ctx.cwd.replace(/\/+$/, "")}/${decision.cwd}`;
 			const project = await resolveProject(cwd, ctx.signal);
 			if (!project) return;
 
@@ -718,49 +805,66 @@ const invokedDirectly =
 	decodeURIComponent(new URL(import.meta.url).pathname) === process.argv[1];
 
 if (invokedDirectly) {
-	const cases: [string, string | null][] = [
-		['rg -n "currentMembershipProvider" lib', "currentMembershipProvider"],
-		['rg -n "AiConfigScreen" lib test', "AiConfigScreen"],
-		['rg -n "transport\\." lib', null],
-		['rg -n "settingsAiConfig" lib/l10n', null],
-		["rg -g '*.arb' settingsAiConfig lib", null],
-		['rg -n "pending fetch" AGENTS.md', null],
-		['rg -n "has_active_credential_role" backend', "has_active_credential_role"],
-		['rg -n "currentMembership" lib # literal: provider wiring', null],
-		["rg season lib", null],
-		// CodeRabbit review: quote-aware split (a `;` inside quotes is data).
-		["echo '; rg currentMembershipProvider lib'", null],
-		['echo "rg currentMembershipProvider lib"', null],
-		// Inline `--flag=value` (the ARB glob still marks a text target).
-		["rg --glob='*.arb' currentMembershipProvider lib", null],
-		// `-e PATTERN`: the flag value IS the pattern, not a path.
-		["rg -e currentMembershipProvider lib", "currentMembershipProvider"],
-		["rg --regexp=aiConfigErrorCopy lib", "aiConfigErrorCopy"],
-		// A negated glob excludes files; it does not make this a text search.
-		["rg -g '!*.arb' currentMembershipProvider lib", "currentMembershipProvider"],
-		// A bare excluded dir operand: excluded only when EVERY dir is excluded.
-		["rg currentMembershipProvider test", null],
-		["rg currentMembershipProvider docs", null],
-		["rg currentMembershipProvider lib docs", "currentMembershipProvider"],
-		// Non-glob flag values are not path hints (`-C 2`, `-t dart`).
-		["rg -t dart -C 2 currentMembershipProvider lib", "currentMembershipProvider"],
+	type Case = { cmd: string; symbol: string | null; cwd?: string };
+	const cases: Case[] = [
+		{ cmd: 'rg -n "currentMembershipProvider" lib', symbol: "currentMembershipProvider" },
+		{ cmd: 'rg -n "AiConfigScreen" lib test', symbol: "AiConfigScreen" },
+		{
+			cmd: 'rg -n "has_active_credential_role" backend',
+			symbol: "has_active_credential_role",
+		},
+		// Text search is the RIGHT tool here → no advisory.
+		{ cmd: 'rg -n "transport\\." lib', symbol: null },
+		{ cmd: 'rg -n "settingsAiConfig" lib/l10n', symbol: null },
+		{ cmd: "rg -g '*.arb' settingsAiConfig lib", symbol: null },
+		{ cmd: 'rg -n "pending fetch" AGENTS.md', symbol: null },
+		{ cmd: "rg season lib", symbol: null },
+		{ cmd: 'rg -n "currentMembership" lib # literal: provider wiring', symbol: null },
+		// Quote-aware splitting: separators inside quotes are data.
+		{ cmd: "echo '; rg currentMembershipProvider lib'", symbol: null },
+		{ cmd: 'echo "rg currentMembershipProvider lib"', symbol: null },
+		// A literal backslash inside single quotes does not escape the closer.
+		{ cmd: "printf '%s' '\\'; rg currentMembershipProvider lib", symbol: "currentMembershipProvider" },
+		// A quoted operand with a space stays ONE operand (text file → silent).
+		{ cmd: "rg currentMembershipProvider 'release notes.md'", symbol: null },
+		// Inline `--flag=value` and `-e`/`--regexp` spellings.
+		{ cmd: "rg --glob='*.arb' currentMembershipProvider lib", symbol: null },
+		{ cmd: "rg -e currentMembershipProvider lib", symbol: "currentMembershipProvider" },
+		{ cmd: "rg --regexp=aiConfigErrorCopy lib", symbol: "aiConfigErrorCopy" },
 		// Two patterns are an alternation, not a single-symbol question.
-		["rg -e '[0-9]+' -e currentMembershipProvider lib", null],
-		// A text operand no longer silences a mixed search; a text GLOB does.
-		["rg currentMembershipProvider lib translations.arb", "currentMembershipProvider"],
-		["rg -g '*.arb' currentMembershipProvider lib", null],
-		// A `||` segment may never have run; a `cd` changes the search tree.
-		["true || rg currentMembershipProvider lib", null],
-		["cd /tmp && rg currentMembershipProvider lib", null],
-		// A plain `&&` chain still runs the search.
-		["cd . && rg currentMembershipProvider lib", null],
+		{ cmd: "rg -e '[0-9]+' -e currentMembershipProvider lib", symbol: null },
+		// A negated glob excludes files; it does not make this a text search.
+		{ cmd: "rg -g '!*.arb' currentMembershipProvider lib", symbol: "currentMembershipProvider" },
+		// Mixed targets: a text operand next to code still searches code.
+		{ cmd: "rg currentMembershipProvider lib translations.arb", symbol: "currentMembershipProvider" },
+		{ cmd: "rg currentMembershipProvider test", symbol: null },
+		{ cmd: "rg currentMembershipProvider docs", symbol: null },
+		{ cmd: "rg currentMembershipProvider lib docs", symbol: "currentMembershipProvider" },
+		// Non-glob flag values are not path hints (`-C 2`, `-t dart`).
+		{ cmd: "rg -t dart -C 2 currentMembershipProvider lib", symbol: "currentMembershipProvider" },
+		// Conditional separators: the search may never have run.
+		{ cmd: "true || rg currentMembershipProvider lib", symbol: null },
+		{ cmd: "false && rg currentMembershipProvider lib", symbol: null },
+		// …except the ubiquitous "change directory, then search": the target is
+		// carried so the graph lookup follows it.
+		{ cmd: "cd /tmp && rg currentMembershipProvider lib", symbol: "currentMembershipProvider", cwd: "/tmp" },
+		{ cmd: "cd frontend-flutter && rg currentMembershipProvider lib", symbol: "currentMembershipProvider", cwd: "frontend-flutter" },
+		{ cmd: "(cd /tmp && rg currentMembershipProvider lib)", symbol: "currentMembershipProvider", cwd: "/tmp" },
+		// A `cd` after another command makes the search dir unreconstructable.
+		{ cmd: "make && cd /tmp && rg currentMembershipProvider lib", symbol: null },
 	];
+
 	let failed = 0;
-	for (const [command, expected] of cases) {
-		const got = decide(command)?.symbol ?? null;
-		const ok = got === expected;
+	for (const testCase of cases) {
+		const decision = decide(testCase.cmd);
+		const symbol = decision?.symbol ?? null;
+		const cwd = decision?.cwd ?? null;
+		const expectedCwd = testCase.cwd ?? null;
+		const ok = symbol === testCase.symbol && cwd === expectedCwd;
 		if (!ok) failed++;
-		console.log(`${ok ? "ok  " : "FAIL"} ${command} → ${got} (want ${expected})`);
+		console.log(
+			`${ok ? "ok  " : "FAIL"} ${testCase.cmd} → ${symbol}${cwd === null ? "" : ` @${cwd}`} (want ${testCase.symbol}${expectedCwd === null ? "" : ` @${expectedCwd}`})`,
+		);
 	}
 	console.log(failed === 0 ? "self-test passed" : `${failed} failure(s)`);
 	process.exit(failed === 0 ? 0 : 1);
