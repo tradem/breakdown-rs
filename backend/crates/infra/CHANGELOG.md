@@ -16,6 +16,40 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.67.1] - Unreleased
+
+### Fixed — the default script prompt resolves `(OT)` and the `Ep.: <n>/<suffix>` marker (issue #826)
+
+- `config/default_ai_prompts.toml`, `<characters>`: `OT` / `(OT)` / `(O.T.)` /
+  `Off-Text` are named as inline background notes ⇒ `extra` with **no**
+  uncertainty — a plain `(OT)` is a stated signal, not an ambiguity. The prompt
+  also states which reading this pipeline uses (Off-TEXT = a figure without
+  dialogue, i.e. a Komparse; never the off-screen voice "Off-Ton"), and keeps the
+  grounded-only discipline: a figure the document ALSO lists under
+  "Darsteller"/"Hauptrollen" stays a genuine conflict.
+- `<episode>`: `Ep.: <n>/<suffix>` names episode `<n>`; everything after the `/`
+  is a scene/page/block index INSIDE it and is discarded — exactly what the
+  deterministic `episode_marker` scan in `crates/core/src/ai/preview.rs` already
+  does. `Ep.: 292/15` and `Ep.: 292/16` are one episode, and the glued page-header
+  shape `Block: 098/Ep.: 294` is covered. A dissenting suffix is no longer read as
+  a second candidate episode and needs no uncertainty.
+- New `<uncertainties>` element: the canonical `field` vocabulary (`characters`,
+  `episode`, `location`, `mood`, `scene_number`, `script_day`, `summary`,
+  `outfits`), an explicit ban on nested paths and synonyms (`characters.category`,
+  `character_category`, `category`, `role_type`), and at most one uncertainty per
+  `(scene_index, field)`.
+- Regression tests `script_prompt_classifies_ot_markers_as_extras_without_an_uncertainty`,
+  `script_prompt_ignores_the_suffix_after_the_episode_number` and
+  `script_prompt_names_one_canonical_uncertainty_field_per_concept`
+  (`ai::catalog_misc_tests`) pin the wording per prompt element. They read
+  `EMBEDDED_PROMPT_FILE`, so a deployment override cannot fail them, and the
+  existing outline-style test still passes.
+- Deployment note: this file is the fallback, not a lock. A deployment with a
+  stored configuration prompt keeps serving that stored text and must update or
+  clear it once (`POST/PATCH /v1/ai-import/config`, or the app's per-prompt
+  reset) to pick the revised wording up.
+- No public API change: **0.67.0 → 0.67.1** (PATCH).
+
 ## [0.67.0] - Unreleased
 
 ### Fixed — a `business` reset can no longer silently destroy the preserved configuration (issue #810)

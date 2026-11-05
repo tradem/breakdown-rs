@@ -17,6 +17,22 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.55.3] - Unreleased
+
+### Changed — re-pin to core 0.57.1 / infra 0.67.1 and pin the issue #826 preview contract
+
+- Re-pins `breakdown_core` (0.57.1) and `infra` (0.67.1): the canonical
+  `characters` uncertainty field and the revised default script prompt.
+- New fixture-level case
+  `a_recorded_ot_cast_list_and_episode_suffix_preview_carries_no_blocking_uncertainty`
+  (`tests/ai_import_fixture_test.rs`, `test-support` builds only): the recorded
+  preview of an `(OT)` cast list with `Ep.: 292/15` / `Ep.: 292/16` page headers
+  survives the stored-preview pipeline with zero blocking uncertainties, no
+  server-side category conflict, an apply gate that passes without a tick, and
+  exactly one episode group (`ep:292`).
+- No wire change: the preview schema is untouched (the uncertainty `field` is a
+  free-form string on the wire), so no client change is needed.
+
 ## [0.55.1] - Unreleased
 
 ### Fixed — `reset-dev-data` refuses an empty keep-list, asserts the replay and records it (issue #810)

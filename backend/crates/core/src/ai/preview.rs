@@ -1666,6 +1666,15 @@ pub fn ensure_merge_applyable(preview: &MergedPreview) -> Result<(), ApplyGateEr
     Ok(())
 }
 
+/// The canonical `Uncertainty::field` value for the cast-classification
+/// concept (issue #826). One string for the whole concept: the script prompt
+/// requires the model to use it, and the #695 conflict scan below emits it, so
+/// the review panel never shows `category`, `characters.category`,
+/// `character_category` and `role_type` as if they were four different
+/// questions. The acknowledgement keys on `(scene_index, field)`, so this is
+/// also what keeps one doubt from being acknowledged twice.
+pub const UNCERTAINTY_FIELD_CHARACTERS: &str = "characters";
+
 /// Per-identity category signals collected across one preview (issue #695).
 struct CategorySignals {
     /// Scene index where the identity first appeared — the `scene_index` the
@@ -1687,9 +1696,10 @@ struct CategorySignals {
 /// only visible by comparing rows, and the apply plan's reconciliation rule
 /// (first non-default wins) would silently hide it. This pure scan collects
 /// the per-identity signals across the **whole** document and emits one
-/// `Uncertainty` (kind `field_ambiguity`, field `category`) per conflicting
-/// identity, so the reviewer decides before the apply — with the one-tap
-/// acknowledgement of issue #663 as the resolution path.
+/// `Uncertainty` (kind `field_ambiguity`, field
+/// [`UNCERTAINTY_FIELD_CHARACTERS`]) per conflicting identity, so the reviewer
+/// decides before the apply — with the one-tap acknowledgement of issue #663 as
+/// the resolution path.
 ///
 /// `suggested_value` mirrors what the apply plan would pick (the first
 /// non-default signal); it is display-only, exactly like every other
@@ -1732,7 +1742,12 @@ pub fn category_conflict_uncertainties(preview: &ScriptContext) -> Vec<Uncertain
             };
             Some(Uncertainty {
                 scene_index: signal.first_scene,
-                field: "category".to_owned(),
+                // The canonical field name for the cast-classification concept
+                // (issue #826) — the SAME string the script prompt requires the
+                // model to use, so a conflict this scan surfaces and a doubt the
+                // model raised for the same figure land under one key in the
+                // review panel and in the `(scene_index, field)` acknowledgement.
+                field: UNCERTAINTY_FIELD_CHARACTERS.to_owned(),
                 note: format!(
                     "{identity}: conflicting category signals across rows: {first} vs {second}"
                 ),

@@ -32,8 +32,10 @@ use api::state::AppState;
 use api::versioning::DeprecationRegistry;
 
 use breakdown_core::ai::{
-    AiImportJob, AiImportJobId, AiImportQueue, DocumentKind, JobStatus, ScriptContext, SourceFormat,
+    AiImportJob, AiImportJobId, AiImportQueue, DocumentKind, JobStatus, ScriptContext,
+    SourceFormat, category_conflict_uncertainties, ensure_script_applyable, episode_group_refs,
 };
+use breakdown_core::character::CharacterCategory;
 use infra::ai::AiPreviewStore as _;
 
 // `Ports` is imported for method resolution on `AppState::ports`.
@@ -251,4 +253,131 @@ async fn seeds_beside_pending_work_without_claiming_it_or_leaking_a_job() {
     );
     let fixture = jobs.get(&job_id).expect("the fixture job must be stored");
     assert_eq!(fixture.status, JobStatus::Succeeded);
+}
+
+/// The recorded preview the issue #826 prompt revision is supposed to produce
+/// for the two marker shapes that used to become blocking `field_ambiguity`
+/// entries (the live job: 28 entries on 8 `(scene_index, field)` pairs).
+///
+/// An `(OT)` cast list is `extra` on every row, and the page headers read
+/// `Ep.: 292/15` / `Ep.: 292/16` — ONE episode 292, the suffix a page index
+/// inside it. The prompt now states both rules (pinned by the embedded-wording
+/// tests in `infra::ai::catalog_misc_tests`); this case pins their **contract**:
+/// the shape a model following those rules emits survives the stored-preview
+/// pipeline with zero blocking uncertainties, so the #663 gate needs no tick and
+/// the #821 acknowledgement has nothing to aggregate.
+///
+/// A recorded preview, not a live model call: CI has no LLM, and the issue
+/// explicitly accepts a fixture in place of one.
+fn recorded_ot_and_episode_suffix_preview() -> String {
+    r#"{
+        "title": "Klinik am See",
+        "scenes": [
+            {
+                "draft_ref": "1   A/T - BAUERNHOF",
+                "scene_number": 1,
+                "location": "BAUERNHOF",
+                "mood": "A/T",
+                "characters": [
+                    {"name": "LEYLA", "category": "main_cast"},
+                    {"name": "OP-PERSONAL", "category": "extra"},
+                    {"name": "BESUCHER", "category": "extra"}
+                ],
+                "outfits": [],
+                "episode": {"number": 292, "title": null}
+            },
+            {
+                "draft_ref": "2   I/T - KUECHE",
+                "scene_number": 2,
+                "location": "KUECHE",
+                "mood": "I/T",
+                "characters": [
+                    {"name": "LEYLA", "category": "main_cast"},
+                    {"name": "OP-PERSONAL", "category": "extra"},
+                    {"name": "BESUCHER", "category": "extra"}
+                ],
+                "outfits": [],
+                "episode": {"number": 292, "title": null}
+            }
+        ],
+        "uncertainties": []
+    }"#
+    .to_owned()
+}
+
+#[tokio::test]
+async fn a_recorded_ot_cast_list_and_episode_suffix_preview_carries_no_blocking_uncertainty() {
+    let state = AppState::new(FakePorts::default());
+    let app = test_app(state.clone());
+
+    let (status, body) = post_fixture(&app, &recorded_ot_and_episode_suffix_preview()).await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+
+    let job_id = AiImportJobId::from_uuid(
+        serde_json::from_str::<serde_json::Value>(&body)
+            .unwrap()
+            .get("job_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap()
+            .parse::<Uuid>()
+            .unwrap(),
+    );
+    let job = state
+        .ports
+        .ai_import_queue()
+        .get(job_id)
+        .await
+        .unwrap()
+        .expect("the fixture must leave a readable job row");
+    let handle = job.preview_handle.expect("succeeded job carries a handle");
+    let stored = state
+        .ports
+        .ai_preview_store()
+        .get(&handle)
+        .await
+        .unwrap()
+        .expect("the preview blob must be stored under the job's handle");
+    let preview: ScriptContext = serde_json::from_slice(&stored).unwrap();
+
+    assert_eq!(preview.scenes.len(), 2);
+    for scene in &preview.scenes {
+        // `(OT)` is a stated classification signal: `extra`, no uncertainty.
+        let ot_figures: Vec<_> = scene
+            .characters
+            .iter()
+            .filter(|character| character.name != "LEYLA")
+            .collect();
+        assert_eq!(ot_figures.len(), 2, "both OT figures are listed");
+        for figure in ot_figures {
+            assert_eq!(
+                figure.category,
+                CharacterCategory::Extra,
+                "an (OT) figure is a background performer, not an ambiguity"
+            );
+        }
+    }
+
+    // Zero blocking entries: nothing for the #663 gate to tick, and the #695
+    // server-side conflict scan adds none either (the classification agrees
+    // across rows).
+    assert!(
+        preview.uncertainties.is_empty(),
+        "the recorded preview carries no uncertainty: {}",
+        preview.uncertainties.len()
+    );
+    assert!(
+        category_conflict_uncertainties(&preview).is_empty(),
+        "agreeing `extra` classifications are not a conflict"
+    );
+    assert!(
+        ensure_script_applyable(&preview, &[]).is_ok(),
+        "the apply gate must pass without an acknowledgement"
+    );
+
+    // `Ep.: 292/15` and `Ep.: 292/16` are one episode, not two candidates.
+    assert_eq!(
+        episode_group_refs(&preview),
+        vec!["ep:292".to_owned()],
+        "the page-header suffix is a page index, not a second episode"
+    );
 }
