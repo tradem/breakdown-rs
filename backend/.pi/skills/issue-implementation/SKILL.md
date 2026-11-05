@@ -75,7 +75,7 @@ intention. Fill this in during Step 2 and carry it verbatim into the proposal
 ````markdown
 ### Discovery evidence (issue #NNN)
 - Index: project `breakdown-rs`; `scripts/check-graph-freshness.sh` → fresh (or stale → reindexed)
-- Graph (meaning): `search_graph ".*X.*"` → `path:Symbol (Label)`; `trace_path X inbound` → N edges (a, b)
+- Graph (meaning): `search_code("X")` → `path:Symbol (Label)`, in/out; `trace_path X inbound` → N edges (a, b)
 - Text (occurrence): `rg -n "<key>"` for <problem code / config value / prose> — text by nature, not a symbol
 - Coverage: `check_index_coverage(paths=[…])` → clean, or gaps: `path:ranges` verified by <read/rg of those ranges>
 - Not the graph (and why): <macro-generated dispatch → `rg` plus a source read; trait-object dispatch → `analyze_ast_impact`>
@@ -90,6 +90,26 @@ Rules that make the block a gate rather than another paragraph:
   the `Coverage` line; without it the claim is provisional, not done.
 - A missing block is a review blocker, exactly like a missing `AUTHZ-GATE`
   comment — the reviewer checks for the block, not for good intentions.
+
+**One call, not four (validated codemode recipe).** `search_code` already returns
+definition + line + `in`/`out` counts for a symbol OR a literal key, and the
+coverage verdict rides in the same script (measured 0.6 s wall time for both
+calls on this repo). Reach for this before chaining `search_graph` → `trace_path`
+→ `rg` by hand:
+
+````js
+// @options: {"max_output_tokens": 3000}
+const symbol = "<SymbolOrKey>";
+const paths = ["<file-or-dir>"];
+const [hits, cov] = await Promise.allSettled([
+  tools.search_code({ project: "breakdown-rs", pattern: symbol, mode: "compact", limit: 5 }),
+  tools.check_index_coverage({ project: "breakdown-rs", paths }),
+]);
+return text(`${hits.value}\n${cov.value}`);
+````
+
+Caller **names** are the one thing `search_code` does not give (it reports
+counts); add `trace_path … inbound` when the names matter.
 
 **Ask user if drift detected:**
 

@@ -879,11 +879,23 @@ export function formatReadBlock(args: {
 			out.push(`    (+${total - rows.length} more: get_file_outline)`);
 		}
 	}
+	// One call beats two: `search_code` answers "where is this / how connected"
+	// with qn + line + in/out counts (the graph part of a discovery question);
+	// `trace_path` adds caller NAMES, coverage adds the honest caveat. Verified
+	// against `codebase-memory-mcp cli search_code` on this repo — 43 ms, and it
+	// covers symbols AND literal keys, so one entry point replaces the probing.
+	const example = rows.at(0)?.name;
 	out.push(
-		`  then get_code_snippet(<qn>) for the 2–3 you need; \`trace_path\` inbound for`,
+		example
+			? `  one call beats two: search_code("${example}") → qn + line + in/out`
+			: `  one call for "where is this / who uses it": search_code("<symbol>")`
+				+ ` → qn + line + in/out`,
 	);
 	out.push(
-		`  "who calls X"; \`check_index_coverage\` before claiming "no other consumer".`,
+		`  then get_code_snippet(<qn>) for a body; \`trace_path\` inbound adds caller NAMES;`,
+	);
+	out.push(
+		`  \`check_index_coverage\` before claiming "no other consumer".`,
 	);
 	out.push(
 		`(one per cold file per session; PI_GRAPH_NUDGE=0 opts out)`,

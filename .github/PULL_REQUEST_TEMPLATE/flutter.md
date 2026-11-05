@@ -7,6 +7,19 @@
 
 <!-- Describe the Flutter app change. -->
 
+## Discovery evidence
+
+<!-- Graph-first code discovery (monorepo AGENTS.md §2, flutter-code-discovery instructions).
+     Fill this in when the PR touches Dart code — a missing or rg-only-for-symbols block is a
+     review blocker, exactly like a missing AUTHZ-GATE comment. Docs/dependency-only PRs write
+     "none (no-code)" plus one line of why instead of the bullets. -->
+
+- Index: project `breakdown-rs`; `scripts/check-graph-freshness.sh` → fresh (or stale → reindexed)
+- Graph (meaning): `search_code("…")` → `path:Symbol (Label)`, in/out; `trace_path … inbound` → N edges
+- Text (occurrence): `rg -n "…"` for <ARB key / widget key / problem code / prose>
+- Coverage: `check_index_coverage(paths=[…])` → clean, or gaps: `path:ranges` verified by <read/rg of those ranges>
+- Not the graph (and why): <Riverpod `ref.watch` → `scripts/who-watches.sh`; class construction → `analyze_ast_impact`>
+
 ## Flutter Dependency PRs (Dependabot `pub` / `gradle`)
 
 If this PR bumps `frontend-flutter/pubspec.yaml` (Dependabot `pub`) or the
