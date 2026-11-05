@@ -16,9 +16,13 @@ pair in a second line or caption.
 
 The configured pair SHALL render as a second, subordinate line ONLY when it
 differs from the used pair by provider or by model; when the two agree the card
-renders no second line. The comparison SHALL be made over the rendered pair
-labels, so a wire value carrying only one half of the pair never produces a
-partially-empty difference claim.
+renders no second line. The comparison SHALL be field-wise over the KNOWN
+telemetry halves: a missing or blank model/provider is unknown, so a snapshot
+carrying only one half never produces a difference claim about the other, and
+every known half is compared with its configured counterpart.
+
+Both header lines SHALL be bounded to one row and ellipsized, so a long curated
+model id can neither wrap the header nor push the review rows off screen.
 
 The telemetry snapshot SHALL be read through the job snapshot route
 (`getJobAndCache`), never through the SSE watch and never through a second
@@ -92,7 +96,10 @@ is picked, for both the script and the schedule flow, and SHALL disable again
 once a successful submit clears the pending document. The in-dispatch
 missing-document guard SHALL remain as a backstop that is not reachable from the
 UI. The file row's "no file picked" line SHALL provide the visible explanation
-of the disabled state.
+of the disabled state, and the row SHALL derive its displayed filename from the
+pending document, so clearing the document (a kind switch, or a successful
+submit) returns the row to that line instead of naming a file the dispatch no
+longer carries.
 
 #### Scenario: No file picked
 

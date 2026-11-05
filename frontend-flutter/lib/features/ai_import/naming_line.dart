@@ -132,26 +132,34 @@ class AiNamingComparison {
 ///
 /// "Used" and "configured" are two different facts: the extraction may have run
 /// with a configuration the caller has since changed (or revoked), and an old
-/// job may carry no telemetry at all. The comparison is therefore made over the
-/// rendered pair labels — the same strings the reader sees — so a provider-only
-/// or model-only wire value can never produce a half-empty "differs" claim.
+/// job may carry no telemetry at all. The comparison is therefore FIELD-WISE and
+/// treats a blank telemetry half as UNKNOWN (code review): a snapshot carrying
+/// only the provider never claims the configured *model* differs — the used
+/// model simply was not recorded — and a snapshot carrying only the model never
+/// claims the provider differs. A half-empty "differs" claim is exactly the
+/// invented comparison this card must not make.
 AiNamingComparison aiNamingComparison(
   AiConfigView? configured,
   JobTelemetrySummary? telemetry,
 ) {
-  final usedPair = aiNamingPairLabel(
-    model: telemetry?.model,
-    provider: telemetry?.provider?.name,
-  );
+  final usedModel = telemetry?.model?.trim() ?? '';
+  final usedProvider = telemetry?.provider?.name.trim() ?? '';
+  final usedPair = aiNamingPairLabel(model: usedModel, provider: usedProvider);
   if (usedPair == null) return const AiNamingComparison();
   if (configured == null) return AiNamingComparison(usedPair: usedPair);
-  final configuredPair = aiNamingPairLabel(
-    model: configured.assistantModel,
-    provider: configured.provider.name,
-  );
+  final configuredModel = configured.assistantModel.trim();
+  final configuredProvider = configured.provider.name.trim();
+  final differs =
+      (usedModel.isNotEmpty && usedModel != configuredModel) ||
+      (usedProvider.isNotEmpty && usedProvider != configuredProvider);
   return AiNamingComparison(
     usedPair: usedPair,
-    configuredDiffersPair: configuredPair == usedPair ? null : configuredPair,
+    configuredDiffersPair: differs
+        ? aiNamingPairLabel(
+            model: configuredModel,
+            provider: configuredProvider,
+          )
+        : null,
   );
 }
 
@@ -257,6 +265,11 @@ class AiNamingCard extends ConsumerWidget {
                             key: const Key(
                               'ai-preview-naming-configured-differs',
                             ),
+                            // Bounded like the used line (code review): a long
+                            // configured model id must not wrap the header and
+                            // push the review rows down.
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                             ),

@@ -264,6 +264,41 @@ void main() {
       );
     });
 
+    test('a PROVIDER-only telemetry never claims the configured MODEL differs '
+        '(the used model is simply unknown)', () {
+      final comparison = aiNamingComparison(
+        _namingConfig(provider: LlmProvider.eurouter, model: 'glm-5.3'),
+        _jobTelemetry(provider: LlmProvider.eurouter, model: null),
+      );
+      expect(comparison.usedPair, 'eurouter');
+      expect(
+        comparison.configuredDiffersPair,
+        isNull,
+        reason: 'the known half (provider) agrees — no comparison is invented',
+      );
+    });
+
+    test(
+      'a MODEL-only telemetry never claims the configured PROVIDER differs',
+      () {
+        final comparison = aiNamingComparison(
+          _namingConfig(provider: LlmProvider.openai, model: 'mistral-large-3'),
+          _jobTelemetry(provider: null, model: 'mistral-large-3'),
+        );
+        expect(comparison.usedPair, 'mistral-large-3');
+        expect(comparison.configuredDiffersPair, isNull);
+      },
+    );
+
+    test('a provider-only telemetry DOES report a differing provider', () {
+      final comparison = aiNamingComparison(
+        _namingConfig(provider: LlmProvider.openai, model: 'glm-5.3'),
+        _jobTelemetry(provider: LlmProvider.eurouter, model: null),
+      );
+      expect(comparison.usedPair, 'eurouter');
+      expect(comparison.configuredDiffersPair, 'glm-5.3 (openai)');
+    });
+
     test('no telemetry (an old job) claims no used pair and NO comparison — '
         'even with a configuration', () {
       final comparison = aiNamingComparison(_namingConfig(), null);
@@ -412,6 +447,28 @@ void main() {
       expect(used.maxLines, 1);
       expect(used.overflow, TextOverflow.ellipsis);
       // No RenderFlex overflow was reported while laying the card out.
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a long CONFIGURED model id also stays on ONE ellipsized line '
+        '(the differs line is bounded like the used line)', (tester) async {
+      const longModel =
+          'anthropic/claude-sonnet-4.6-extended-thinking-preview-2026-01-31';
+      await pumpCard(
+        tester,
+        _cardContainer(
+          naming: () => Future.value(_namingConfig(model: longModel)),
+          telemetry: _jobTelemetry(),
+        ),
+        width: 280,
+      );
+
+      final differs = tester.widget<Text>(
+        find.byKey(const Key('ai-preview-naming-configured-differs')),
+      );
+      expect(differs.data, contains(longModel));
+      expect(differs.maxLines, 1);
+      expect(differs.overflow, TextOverflow.ellipsis);
       expect(tester.takeException(), isNull);
     });
 

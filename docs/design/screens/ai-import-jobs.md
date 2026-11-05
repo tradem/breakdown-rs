@@ -318,10 +318,13 @@ renders as identity chips.
 | Configured pair (secondary) | Text in the header card (`bodySmall`, `onSurfaceVariant`) | `Derzeit konfiguriertes, abweichendes Modell: {pair}` rendered ONLY when the configured pair differs from the used one by provider or model. Equal configurations render NO second line — the pair is named once | `aiPreviewNamingConfiguredDiffers` |
 | Unconfigured account with a used pair | The primary line alone | A deleted/changed configuration does not undo the import that already happened: the job's used pair still renders, and no comparison is claimed | `aiPreviewNamingUsed` |
 
-The comparison is made over the two RENDERED pair labels, so a
-provider-only/model-only wire value can never produce a half-empty "differs"
-claim. Both facts are pure, Tier-1 testable (`aiNamingPairLabel`,
-`aiNamingComparison`).
+The comparison is field-wise over the KNOWN telemetry halves: a wire value
+carrying only the provider never claims the configured model differs (the used
+model is simply unknown), and vice versa. A half-empty "differs" claim is
+exactly the invented comparison this card must not make. Both facts are pure,
+Tier-1 testable (`aiNamingPairLabel`, `aiNamingComparison`). Both header lines
+are bounded to ONE ellipsized row, so a long curated model id never wraps the
+header and pushes the review rows down.
 
 ## Preview — the episode picker lives with the missing-context notice (issue #831)
 

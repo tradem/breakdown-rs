@@ -45,10 +45,10 @@ same feature folder, the same ARB files and the same widget-test families.
     differs from the used one by provider or model;
   - the caption that repeated the configured pair is gone: each pair is named at
     most once.
-  The comparison is made over the two RENDERED pair labels
-  (`aiNamingPairLabel` / `aiNamingComparison`, pure and Tier-1 testable), so a
-  provider-only/model-only wire value can never produce a half-empty "differs"
-  claim.
+  The comparison is FIELD-WISE and treats a blank telemetry half as unknown
+  (`aiNamingPairLabel` / `aiNamingComparison`, pure and Tier-1 testable): a
+  snapshot carrying only the provider never claims the configured model differs,
+  so no half-empty "differs" claim is invented.
 - **Client — honest degradation preserved.** A job without telemetry (an old
   job) or an unreadable snapshot names no used model and claims no comparison:
   the card names the configured pair ONCE in the explicit "currently

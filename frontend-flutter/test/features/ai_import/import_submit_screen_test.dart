@@ -649,6 +649,34 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('the file row drops the picked name when the pending document is '
+      'cleared — a kind switch or a finished submit (issue #831 review)', (
+    tester,
+  ) async {
+    await setupContainer();
+    await pumpScreen(tester);
+
+    Text pickedName() =>
+        tester.widget<Text>(find.byKey(const Key('ai-import-picked-name')));
+
+    expect(pickedName().data, 'No file picked');
+
+    container
+        .read(pendingDocumentProvider.notifier)
+        .set(AiImportDocument.csv('day,scene\n1,12', fileName: 'plan.csv'));
+    await tester.pump();
+    expect(pickedName().data, 'plan.csv');
+
+    // A successful submit clears the provider (and a kind switch clears it too).
+    // The row derives its name from that state, so it returns to its localized
+    // "no file picked" line instead of naming a file the dispatch no longer
+    // carries.
+    container.read(pendingDocumentProvider.notifier).set(null);
+    await tester.pump();
+    expect(pickedName().data, 'No file picked');
+    await tester.pump();
+  });
+
   testWidgets('a picked schedule CSV keeps the upload wire path: UTF-8 body '
       '+ csv source, then a 202 pushes the job-status screen', (tester) async {
     await setupContainer(jobResult: Right(_job('job-1', JobStatus.pending)));
