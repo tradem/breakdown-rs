@@ -102,6 +102,31 @@ not *unsupported language*. Two argument traps: `search_graph` takes a
 (`frontend-flutter/**`), and committed `.g.dart` files are indexed, so a hit
 ending in `.g.dart` must be traced back to its hand-written source.
 
+**Produce the Discovery-evidence block (mandatory artefact).** A graph-first
+claim is only reviewable if it is written down — prose rules lose to `grep`
+under time pressure, so the workflow demands the evidence instead of the
+intention. Fill this in during Step 2 and carry it verbatim into the proposal
+(Step 4) and the PR body (Step 9):
+
+````markdown
+### Discovery evidence (issue #NNN)
+- Index: project `breakdown-rs`; `scripts/check-graph-freshness.sh` → fresh (or stale → reindexed)
+- Graph (meaning): `search_graph ".*X.*"` → `path:Symbol (Label)`; `trace_path X inbound` → N edges (a, b)
+- Text (occurrence): `rg -n "<key>"` for <ARB key / widget key / problem code / prose> — text by nature, not a symbol
+- Coverage: `check_index_coverage(paths=[…])` → clean, or gaps: `path:ranges` verified by <read/rg of those ranges>
+- Not the graph (and why): <Riverpod `ref.watch` → `scripts/who-watches.sh`; class construction → `analyze_ast_impact`>
+````
+
+Rules that make the block a gate rather than another paragraph:
+
+- A **symbol question** (where is X defined, who calls X, what does a change
+  touch) answered only with `rg` is sent back: `rg` cannot report kinds, edge
+  types or completeness.
+- A **negative claim** ("nothing else consumes X", "no other call site") needs
+  the `Coverage` line; without it the claim is provisional, not done.
+- A missing block is a review blocker, exactly like a missing `AUTHZ-GATE`
+  comment — the reviewer checks for the block, not for good intentions.
+
 ### Step 3: Create Feature Branch
 
 ```bash
@@ -296,10 +321,11 @@ gh pr create --title "{type}: {description} (issue #{number})" --body "[PR descr
 The PR body MUST include:
 
 1. A **Summary** and **Changes** section (what / why).
-2. The **affected-packages / generated-artifacts table** from Step 6, verbatim.
-3. A **Validation** section (`dart format`, `flutter analyze`, `flutter test`,
+2. The **Discovery evidence** block from Step 2, verbatim.
+3. The **affected-packages / generated-artifacts table** from Step 6, verbatim.
+4. A **Validation** section (`dart format`, `flutter analyze`, `flutter test`,
    and — if codegen ran — `build_runner` / OpenAPI drift check results).
-4. Acceptance criteria checkboxes from the issue.
+5. Acceptance criteria checkboxes from the issue.
 
 Example PR body sections:
 
@@ -342,7 +368,7 @@ even when nothing changed:
 
 | Schritt | Ergebnis |
 |---|---|
-| Drift-Check | ... |
+| Drift-Check / Discovery evidence | Block vorhanden; Coverage clean (oder Lücken benannt + verifiziert) |
 | Tests | `flutter test`: N passed |
 | Lints | `flutter analyze`: clean |
 | Format | `dart format --set-exit-if-changed .`: clean |

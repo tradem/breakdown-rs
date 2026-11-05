@@ -32,6 +32,24 @@
  *   - test trees (a search inside tests is usually a fixture hunt)
  *   - phrase or regex patterns (they are not symbol lookups)
  *
+ * ## The second half: cold whole-file reads (P1)
+ *
+ * Text search was never the biggest drift. A 24 KB `read` of a 550-line screen
+ * costs far more context than any `rg`, and it happens exactly when the agent
+ * skipped the outline — yet no advisory covered it. So the same handler also
+ * watches `read`: a COLD whole-file read (or a >= 400-line span) of a sizeable
+ * code file inside an indexed project gets the file's symbol outline appended,
+ * plus the calls that make the next question cheaper (`get_code_snippet`,
+ * `trace_path`, `check_index_coverage`).
+ *
+ * "Cold" is stateful and per file: the moment any code-aware tool reported on
+ * that path (`get_file_outline`, `get_code_snippet`, `search_graph`,
+ * `analyze_ast_map`, ...), the read is not cold and nothing is appended. Small
+ * files (< 6 KB), targeted reads (`offset`/`limit` under 400 lines), prose,
+ * test trees, generated sources (`.g.dart`, `.freezed.dart`,
+ * `app_localizations*`) and anything outside the project root are never
+ * annotated — a whole read of those IS the right move.
+ *
  * Escape hatches: `PI_GRAPH_NUDGE=0` disables it for a session, a
  * `# literal:` marker in the command disables it for that one call.
  *
@@ -56,8 +74,15 @@
  * cooldown, session cap and counters are RESERVED before the first await, so
  * concurrent sibling tool calls cannot overshoot them. A failed lookup appends
  * nothing. No network, read-only CLI calls, no index mutation.
+ *
+ * The read advisory has its own budget (one nudge per 45 s, 12 per session, one
+ * `get_file_outline` per nudge, never on a path already annotated): a read of a
+ * large file is itself expensive, so a 12-row outline beside it is cheap — and
+ * when the outline lookup fails the block still carries the advice (never a
+ * fabricated outline).
  */
 
+import { statSync } from "node:fs";
 import { posix } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -98,6 +123,41 @@ const SESSION_CAP = 40;
 const CLI_TIMEOUT_MS = 4_000;
 const MAX_HITS = 3;
 const MAX_CALLERS = 3;
+
+/** Read-advisory budget: a cold whole-file read is expensive on its own. */
+const READ_COOLDOWN_MS = 45_000;
+const READ_SESSION_CAP = 12;
+/** Below this a whole-file read is cheaper than an outline + snippet round trip. */
+const READ_SIZE_THRESHOLD_BYTES = 6 * 1024;
+/** A read asking for at least this many lines is a file discovery, not a lookup. */
+const READ_SPAN_THRESHOLD_LINES = 400;
+const MAX_OUTLINE_ROWS = 12;
+
+/**
+ * Tools whose result already told the model what is in a file. A read after one
+ * of these is not "cold" — annotating it would be noise.
+ */
+const DISCOVERY_TOOLS = new Set([
+	"get_file_outline",
+	"get_code_snippet",
+	"search_graph",
+	"search_code",
+	"get_architecture",
+	"trace_path",
+	"query_graph",
+	"analyze_ast_map",
+	"analyze_ast_context",
+	"analyze_ast_search",
+	"analyze_ast_impact",
+	"lsp_document_symbols",
+]);
+
+/**
+ * Generated sources: a whole read is the normal move there (the file IS the
+ * artifact, and its hand-written source is what carries meaning).
+ */
+const GENERATED_FILE_RE =
+	/(\.(g|freezed|gr|chopper|mocks|config)\.dart$|app_localizations\w*\.dart$|\.g\.rs$)/;
 
 /** Symbol shapes that make a text search a *meaning* question. */
 const PASCAL_RE = /^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+$/;
@@ -688,6 +748,184 @@ export function formatBlock(args: {
 	return out.join("\n");
 }
 
+/** Absolute, normalized form of a tool's `path` argument. */
+export function absPath(path: string, cwd: string): string {
+	return posix.normalize(
+		path.startsWith("/")
+			? path
+			: `${cwd.replace(/\/+$/, "")}/${path}`,
+	);
+}
+
+/**
+ * The path-only half of the read filter: is this a code file whose whole-read is
+ * a *discovery* question at all? Pure and project-root-independent, so the
+ * handler can drop prose/tests/generated reads BEFORE spending a `list_projects`
+ * round trip on them.
+ */
+export function isReadCandidatePath(relish: string): boolean {
+	if (!CODE_FILE_RE.test(relish)) return false;
+	if (NON_CODE_DIR_RE.test(relish) || L10N_DIR_RE.test(relish)) return false;
+	if (TEST_DIR_RE.test(relish) || GENERATED_FILE_RE.test(relish)) return false;
+	return true;
+}
+
+/** What a cold whole-file read looks like once it passed every filter. */
+export type ReadDecision = {
+	/** Normalized absolute path — the per-session dedupe key. */
+	abs: string;
+	/** Repository-relative path — what the graph tools want. */
+	relPath: string;
+	/** File size in bytes (for the advisory text). */
+	bytes: number;
+};
+
+/**
+ * Decides whether a `read` call is a COLD file discovery that deserves the
+ * outline advisory. Pure (the caller stats the file), so the self-test covers
+ * it without a filesystem.
+ *
+ * Not a nudge (a whole read there is the right move): prose and config, test
+ * trees, generated sources, anything outside the project root, small files, and
+ * targeted reads (`offset`/`limit` well below [READ_SPAN_THRESHOLD_LINES]).
+ */
+export function decideRead(args: {
+	path?: string;
+	offset?: number | null;
+	limit?: number | null;
+	cwd: string;
+	projectRoot: string;
+	sizeBytes: number;
+}): ReadDecision | null {
+	if (!args.path) return null;
+	const abs = absPath(args.path, args.cwd);
+	const rel = posix.relative(posix.normalize(args.projectRoot), abs);
+	// Outside the indexed project: nothing the graph could answer.
+	if (rel.length === 0 || rel.startsWith("..") || rel.startsWith("/")) {
+		return null;
+	}
+	if (!isReadCandidatePath(rel)) return null;
+	if (args.sizeBytes < READ_SIZE_THRESHOLD_BYTES) return null;
+
+	const offset = args.offset ?? null;
+	const limit = args.limit ?? null;
+	const wholeFile = offset === null && limit === null;
+	const wideSpan = limit !== null && limit >= READ_SPAN_THRESHOLD_LINES;
+	if (!wholeFile && !wideSpan) return null;
+
+	return { abs: abs, relPath: rel, bytes: args.sizeBytes };
+}
+
+/**
+ * The appended block for a cold whole-file read. Compact, and honest when the
+ * outline lookup failed: the advice stands on its own, the rows are never
+ * guessed.
+ */
+export function formatReadBlock(args: {
+	project: string;
+	relPath: string;
+	bytes: number;
+	rows: { name: string; label: string; lines: string }[];
+	total: number;
+	outlineFailed: boolean;
+	/** The full framing once per session, then the short form. */
+	verbose?: boolean;
+}): string {
+	const { project, relPath, bytes, rows, total, outlineFailed, verbose } =
+		args;
+	const kb = `${Math.round(bytes / 1024)} KB`;
+	const out: string[] = [];
+	out.push("");
+	out.push(
+		`── code-aware (codebase-memory · ${project}) ─────────────────────────`,
+	);
+	if (verbose) {
+		out.push(
+			`A whole-file read costs the file's full length; "what is in this file`,
+		);
+		out.push(
+			`and what does it touch" is one outline plus two snippets — smaller the`,
+		);
+		out.push(
+			`longer the file. Nothing here blocks the read; it just points at that path.`,
+		);
+	}
+	out.push("");
+	out.push(`• cold whole-file read: ${relPath} (${kb})`);
+	if (outlineFailed) {
+		out.push(
+			`  outline unavailable right now — check freshness before trusting an empty`,
+		);
+		out.push(
+			`  answer: \`scripts/check-graph-freshness.sh\`, then \`scripts/reindex-graph.sh --if-stale\`.`,
+		);
+	} else if (rows.length === 0) {
+		out.push(
+			`  the index has no declarations for this path — it may be new or excluded`,
+		);
+		out.push(
+			`  (\`check_index_coverage\` answers that; \`vendor/\` is never indexed).`,
+		);
+	} else {
+		out.push(
+			`  next time: get_file_outline("${relPath}") → ${total} declaration${total === 1 ? "" : "s"}`,
+		);
+		for (const row of rows) {
+			out.push(
+				`    ${row.name.padEnd(22)} ${row.label.padEnd(9)} ${row.lines}`,
+			);
+		}
+		if (total > rows.length) {
+			out.push(`    (+${total - rows.length} more: get_file_outline)`);
+		}
+	}
+	out.push(
+		`  then get_code_snippet(<qn>) for the 2–3 you need; \`trace_path\` inbound for`,
+	);
+	out.push(
+		`  "who calls X"; \`check_index_coverage\` before claiming "no other consumer".`,
+	);
+	out.push(
+		`(one per cold file per session; PI_GRAPH_NUDGE=0 opts out)`,
+	);
+	return out.join("\n");
+}
+
+/**
+ * Maps the `get_file_outline` envelope (`{cols, rows, total}`) into the rows the
+ * read block prints. Tolerant on purpose: a shape change must degrade to fewer
+ * rows, never to a thrown advisory.
+ */
+export function readOutlineRows(payload: unknown): {
+	rows: { name: string; label: string; lines: string }[];
+	total: number;
+} {
+	const p = payload as
+		| { cols?: unknown; rows?: unknown; total?: unknown }
+		| null
+		| undefined;
+	const cols = Array.isArray(p?.cols) ? (p!.cols as unknown[]) : [];
+	const raw = Array.isArray(p?.rows) ? (p!.rows as unknown[][]) : [];
+	const idx = (name: string) => cols.findIndex((c) => c === name);
+	const iName = idx("name");
+	const iLabel = idx("label");
+	const iLines = idx("lines");
+	const rows = raw
+		.map((row) => {
+			const cell = (i: number) =>
+				i >= 0 && typeof row?.[i] === "string" ? (row[i] as string) : "";
+			return {
+				name: cell(iName),
+				label: cell(iLabel),
+				lines: cell(iLines),
+			};
+		})
+		.filter((row) => row.name.length > 0);
+	const total =
+		typeof p?.total === "number" ? (p.total as number) : rows.length;
+	return { rows, total };
+}
+
 /** Run one read-only codebase-memory tool through its CLI. Never throws. */
 async function graphCli(
 	exec: (
@@ -738,12 +976,13 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 	// Keyed by directory: a single entry reused across trees would answer a
 	// worktree search with another project's symbols (and a cached `null` from an
 	// unindexed directory would mute the repository for a whole minute).
-	const projectCache = new Map<string, { value: string | null; at: number }>();
+	type ProjectRef = { name: string; root: string };
+	const projectCache = new Map<string, { value: ProjectRef | null; at: number }>();
 
-	const resolveProject = async (
+	const resolveProjectRef = async (
 		cwd: string,
 		signal?: AbortSignal,
-	): Promise<string | null> => {
+	): Promise<ProjectRef | null> => {
 		const cached = projectCache.get(cwd);
 		if (cached && Date.now() - cached.at < 60_000) {
 			return cached.value;
@@ -760,12 +999,21 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 		const match = projects
 			.filter((p) => typeof p.root_path === "string" && containsPath(cwd, p.root_path))
 			.sort((a, b) => (b.root_path?.length ?? 0) - (a.root_path?.length ?? 0))[0];
-		const value = match?.name ?? null;
+		const value: ProjectRef | null =
+			typeof match?.name === "string" && typeof match.root_path === "string"
+				? { name: match.name, root: match.root_path }
+				: null;
 		// Bounded so a long session cannot grow it without limit.
 		if (projectCache.size >= 8) projectCache.clear();
 		projectCache.set(cwd, { value, at: Date.now() });
 		return value;
 	};
+
+	const resolveProject = async (
+		cwd: string,
+		signal?: AbortSignal,
+	): Promise<string | null> =>
+		(await resolveProjectRef(cwd, signal))?.name ?? null;
 
 	pi.on("tool_result", async (event, ctx) => {
 		try {
@@ -886,6 +1134,135 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 				classLike,
 				callers,
 				matchedAs,
+				verbose,
+			});
+
+			const existing = Array.isArray(event.content) ? event.content : [];
+			return {
+				content: [...existing, { type: "text" as const, text: block }],
+			};
+		} catch {
+			// An advisory must never break a tool result.
+			return;
+		}
+	});
+
+	// -----------------------------------------------------------------------
+	// Read advisory (P1): a COLD whole-file read of a sizeable code file.
+	//
+	// Text search was never the expensive drift; a 24 KB `read` of a 550-line
+	// screen is, and it happens exactly when the outline was skipped. "Cold" is
+	// per file: the moment a code-aware tool reported on that path, later reads
+	// of it are not annotated.
+	//
+	// Discovery tools report REPOSITORY-relative paths (that is what the graph
+	// tools take), while `read` passes paths relative to the session cwd — which
+	// is commonly a SUBDIRECTORY (`frontend-flutter/`). So the raw arguments are
+	// kept and resolved against BOTH roots when a read asks whether it is cold;
+	// resolving against the cwd alone would silently answer "cold" for every
+	// `get_file_outline` call in an area session.
+	// -----------------------------------------------------------------------
+	const outlineSeenRaw = new Set<string>();
+	const readNudged = new Set<string>();
+	let lastReadNudgeAt = 0;
+	let readNudges = 0;
+
+	const wasInspected = (
+		readAbs: string,
+		cwd: string,
+		projectRoot: string,
+	): boolean => {
+		for (const raw of outlineSeenRaw) {
+			if (absPath(raw, cwd) === readAbs) return true;
+			if (absPath(raw, projectRoot) === readAbs) return true;
+		}
+		return false;
+	};
+
+	pi.on("tool_result", async (event, ctx) => {
+		try {
+			// Bookkeeping comes first: a discovery tool's result marks its file
+			// as "already inspected", for the rest of the session.
+			if (DISCOVERY_TOOLS.has(event.toolName)) {
+				const input = event.input as Record<string, unknown> | undefined;
+				for (const key of ["file_path", "path"]) {
+					const value = input?.[key];
+					if (typeof value === "string" && value.length > 1) {
+						outlineSeenRaw.add(value);
+					}
+				}
+				return;
+			}
+			if (event.toolName !== "read") return;
+
+			const input = event.input as
+				| { path?: string; offset?: number | null; limit?: number | null }
+				| undefined;
+			if (!input?.path) return;
+
+			const abs = absPath(input.path, ctx.cwd);
+			if (readNudged.has(abs)) return;
+
+			// Cheapest first: prose, test trees and generated sources are the
+			// RIGHT whole-read, and deciding that must not cost a CLI call.
+			if (!isReadCandidatePath(posix.relative(ctx.cwd, abs))) return;
+
+			// Stat BEFORE deciding: size is the "is this a file discovery"
+			// signal. A missing file is an error the read tool already reports.
+			let sizeBytes: number;
+			try {
+				sizeBytes = statSync(abs).size;
+			} catch {
+				return;
+			}
+
+			const project = await resolveProjectRef(ctx.cwd, ctx.signal);
+			if (!project) return;
+			// A file whose outline/snippets a discovery tool already reported on
+			// is not cold — annotating that read would be pure noise.
+			if (wasInspected(abs, ctx.cwd, project.root)) return;
+
+			const decision = decideRead({
+				path: input.path,
+				offset: input.offset ?? null,
+				limit: input.limit ?? null,
+				cwd: ctx.cwd,
+				projectRoot: project.root,
+				sizeBytes,
+			});
+			if (!decision) return;
+
+			// Budget RESERVED before the await (sibling calls run concurrently).
+			const now = Date.now();
+			if (now - lastReadNudgeAt < READ_COOLDOWN_MS) return;
+			if (readNudges >= READ_SESSION_CAP) return;
+			lastReadNudgeAt = now;
+			const verbose = readNudges === 0;
+			readNudges++;
+			readNudged.add(abs);
+
+			// The graph runs in the SESSION cwd (the project root is only used to
+			// relativize the path — `get_file_outline` wants repo-relative paths).
+			const outline = await graphCli(
+				pi.exec.bind(pi),
+				"get_file_outline",
+				{
+					project: project.name,
+					file_path: decision.relPath,
+					limit: MAX_OUTLINE_ROWS,
+					format: "json",
+				},
+				{ cwd: ctx.cwd, signal: ctx.signal, bin },
+			);
+
+			const parsed = readOutlineRows(outline);
+			const block = formatReadBlock({
+				project: project.name,
+				relPath: decision.relPath,
+				bytes: decision.bytes,
+				rows: parsed.rows,
+				total: parsed.total,
+				outlineFailed: outline === null,
 				verbose,
 			});
 
@@ -1041,6 +1418,159 @@ if (invokedDirectly) {
 			`${ok ? "ok  " : "FAIL"} searchDir(${testCase.sessionCwd}, ${testCase.target ?? "—"}) → ${got} (want ${testCase.want})`,
 		);
 	}
+
+	// The read advisory (P1): which reads are COLD file discoveries, and which
+	// ones are the right move (prose, tests, generated, small, targeted, outside
+	// the project).
+	const ROOT = "/work/repo";
+	const CWD = "/work/repo/frontend-flutter";
+	const BIG = 24 * 1024;
+	type ReadCase = {
+		label: string;
+		path?: string;
+		offset?: number | null;
+		limit?: number | null;
+		cwd: string;
+		projectRoot: string;
+		sizeBytes: number;
+		want: string | null;
+	};
+	const readCases: ReadCase[] = [
+		{
+			label: "cold whole read of a big screen (relative)",
+			path: "lib/features/shell/app_shell.dart",
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: "frontend-flutter/lib/features/shell/app_shell.dart",
+		},
+		{
+			label: "cold whole read of a big screen (absolute)",
+			path: `${CWD}/lib/features/shell/app_shell.dart`,
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: "frontend-flutter/lib/features/shell/app_shell.dart",
+		},
+		{
+			label: "wide span read (limit 600) of a big file",
+			path: "lib/features/shell/app_shell.dart",
+			limit: 600,
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: "frontend-flutter/lib/features/shell/app_shell.dart",
+		},
+		{
+			label: "targeted read (offset) is a lookup, not a discovery",
+			path: "lib/features/shell/app_shell.dart",
+			offset: 340,
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: null,
+		},
+		{
+			label: "narrow span (limit 40) is a lookup",
+			path: "lib/features/shell/app_shell.dart",
+			limit: 40,
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: null,
+		},
+		{
+			label: "small file below the threshold",
+			path: "lib/features/shell/window_size_class.dart",
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: 900,
+			want: null,
+		},
+		{
+			label: "prose is not code",
+			path: "../docs/design/screens/script-view.md",
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: null,
+		},
+		{
+			label: "ARB catalog is text",
+			path: "lib/l10n/app_de.arb",
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: null,
+		},
+		{
+			label: "test tree is a fixture hunt",
+			path: "test/features/shell/app_shell_test.dart",
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: null,
+		},
+		{
+			label: "generated source IS the artifact",
+			path: "lib/features/shell/shell_controller.g.dart",
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: null,
+		},
+		{
+			label: "outside the indexed project",
+			path: "/tmp/scratch/notes.dart",
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: null,
+		},
+	];
+	for (const testCase of readCases) {
+		const got = decideRead(testCase);
+		const rel = got?.relPath ?? null;
+		const ok = rel === testCase.want;
+		if (!ok) failed++;
+		console.log(
+			`${ok ? "ok  " : "FAIL"} decideRead(${testCase.label}) → ${rel} (want ${testCase.want})`,
+		);
+	}
+
+	// The appended block must degrade honestly: an outline envelope the CLI did
+	// not answer (null) is reported, never rendered as "no declarations".
+	const failedBlock = formatReadBlock({
+		project: "breakdown-rs",
+		relPath: "frontend-flutter/lib/a.dart",
+		bytes: BIG,
+		rows: [],
+		total: 0,
+		outlineFailed: true,
+	});
+	const failedOk =
+		failedBlock.includes("outline unavailable") &&
+		!failedBlock.includes("no declarations");
+	if (!failedOk) failed++;
+	console.log(`${failedOk ? "ok  " : "FAIL"} formatReadBlock(failed lookup)`);
+
+	// …and a real envelope renders its rows with line ranges.
+	const rows = readOutlineRows({
+		cols: ["name", "label", "lines", "qn"],
+		rows: [
+			["AppShell", "Class", "95-108", "x.AppShell"],
+			["AppShellState", "Class", "110-412", "x.AppShellState"],
+		],
+		total: 7,
+	});
+	const rowsOk =
+		rows.rows.length === 2 &&
+		rows.total === 7 &&
+		rows.rows[0]?.name === "AppShell" &&
+		rows.rows[1]?.lines === "110-412";
+	if (!rowsOk) failed++;
+	console.log(`${rowsOk ? "ok  " : "FAIL"} readOutlineRows(cols → rows)`);
+
 	console.log(failed === 0 ? "self-test passed" : `${failed} failure(s)`);
 	process.exit(failed === 0 ? 0 : 1);
 }

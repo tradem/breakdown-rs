@@ -51,11 +51,17 @@ the authoritative copy and is edited in place.
   `code`s, config/YAML values, Markdown/prose, version strings, and every path
   under `docs/`, `openspec/`, `lib/l10n/` and the test trees.
   The decision is supported, not just stated: `.pi/extensions/graph-first-nudge.ts` appends the
-  code-aware result to a symbol-shaped text search (soft advisory, never a
-  block; `PI_GRAPH_NUDGE=0` or a `# literal:` marker opts out), and
+  code-aware result to a symbol-shaped text search AND attaches the symbol
+  outline to a cold whole-file `read` of a sizeable code file (soft advisory,
+  never a block; `PI_GRAPH_NUDGE=0` or a `# literal:` marker opts out), and
   `scripts/who-watches.sh <provider>` answers the one question the graph is
   structurally blind to (Riverpod `ref.watch` wiring) by combining both tools
-  in one call.
+  in one call. The extension lives in the monorepo's project-local
+  `.pi/extensions/`, which pi only loads for sessions started at THAT directory
+  — run `scripts/install-pi-extensions.sh` once per clone to link it into
+  `~/.pi/agent/extensions/`, so area sessions (`frontend-flutter/`, `backend/`)
+  get it too; the extension resolves the indexed project from the session cwd
+  and stays silent where no project matches.
   The index is machine-local (`.codebase-memory/` is gitignored), so freshness is
   a local duty, never a CI gate: `scripts/check-graph-freshness.sh` to report,
   `scripts/reindex-graph.sh [--if-stale]` to refresh; the `post-merge`,
