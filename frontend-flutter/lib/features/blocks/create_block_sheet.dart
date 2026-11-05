@@ -3,13 +3,16 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/cache/seasons_cache_providers.dart' show clockProvider;
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
+import '../../l10n/locale_formatters.dart';
 import 'blocks_controller.dart';
 
 /// Opens the Create Block form: a centered dialog on macOS (side-sheet
@@ -48,9 +51,38 @@ Future<void> showCreateBlockSheet(
   );
 }
 
-/// The Create Block form (ephemeral text-field state only — the submit
+/// Whether an optionally-set span is a legal range. The backend stores both
+/// bounds unchecked (`block::aggregate`), so the form is the only guard
+/// against an inverted span (issues #832/#833).
+bool blockDateOrderValid(DateTime? start, DateTime? end) =>
+    start == null || end == null || !end.isBefore(start);
+
+/// The wire value for a picked day: `Date(y, m, d)` (no time component, so a
+/// DST or timezone boundary can never shift the calendar day the user
+/// tapped).
+Date? blockWireDate(DateTime? picked) =>
+    picked == null ? null : Date(picked.year, picked.month, picked.day);
+
+/// The pickers' selectable range, derived from the wire contract instead of a
+/// product guess (issue #833 review): the OpenAPI `Date` shape is an ISO-8601
+/// `yyyy-mm-dd` string, so a four-digit year (0001–9999) is the widest
+/// calendar range the client can carry without an expanded-year prefix.
+///
+/// The free-text form this change replaced accepted any parsable year and the
+/// backend (`chrono::NaiveDate`) validates nothing, so the pickers must not
+/// narrow the range to a planning horizon nobody specified.
+final DateTime blockPickerFirstDay = DateTime(1, 1, 1);
+final DateTime blockPickerLastDay = DateTime(9999, 12, 31);
+
+/// The Create Block form: ephemeral picker state only — the submit
 /// dispatches through [BlocksController]; ids are pre-filled from the
-/// `SeasonView` navigation context, never from a second lookup).
+/// `SeasonView` navigation context, never from a second lookup.
+///
+/// Both dates are entered through Material day pickers (issue #833): the
+/// free-text `YYYY-MM-DD` fields and their hand-written parser are gone, so
+/// the user picks a day instead of encoding one. Both bounds stay optional
+/// (each picked day can be cleared again) and the display is read-only
+/// rendered text, never an editable field.
 class _CreateBlockForm extends ConsumerStatefulWidget {
   const _CreateBlockForm({required this.season});
 
@@ -63,50 +95,57 @@ class _CreateBlockForm extends ConsumerStatefulWidget {
 class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
   final _formKey = GlobalKey<FormState>();
   final _numberController = TextEditingController();
-  final _startController = TextEditingController();
-  final _endController = TextEditingController();
+  DateTime? _start;
+  DateTime? _end;
   bool _busy = false;
 
   @override
   void dispose() {
     _numberController.dispose();
-    _startController.dispose();
-    _endController.dispose();
     super.dispose();
   }
 
-  Date? _parseDate(String text) {
-    final parts = text.trim().split('-');
-    if (parts.length != 3) return null;
-    final y = int.tryParse(parts[0]);
-    final m = int.tryParse(parts[1]);
-    final d = int.tryParse(parts[2]);
-    if (y == null || m == null || d == null) return null;
-    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
-    // Reject non-existent calendar dates (e.g. 2026-02-31): DateTime
-    // normalizes overflow, so round-trip and compare components.
-    final probe = DateTime.utc(y, m, d);
-    if (probe.year != y || probe.month != m || probe.day != d) return null;
-    return Date(y, m, d);
+  /// The pickers' initial day. Read through the injectable [clockProvider]
+  /// (foundation deterministic-tests rule): a test can pin it instead of
+  /// racing the wall clock across a midnight boundary.
+  DateTime get _today {
+    final now = ref.read(clockProvider).now();
+    return DateTime(now.year, now.month, now.day);
   }
 
-  String? _dateValidator(String? v, AppLocalizations l10n) {
-    if (v == null || v.trim().isEmpty) return null; // optional
-    return _parseDate(v) == null ? l10n.blocksDateFormatError : null;
+  Future<void> _pick(
+    DateTime? current,
+    void Function(DateTime) onPicked, {
+    DateTime? fallback,
+  }) async {
+    final initial = current ?? fallback ?? _today;
+    // Material date utilities localize the picker (no hand-rolled date math
+    // for the locale — design.md §5).
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: blockPickerFirstDay,
+      lastDate: blockPickerLastDay,
+    );
+    // The form may have been disposed while the picker was open — never
+    // setState on a disposed State.
+    if (!mounted || picked == null) return;
+    setState(() => onPicked(DateTime(picked.year, picked.month, picked.day)));
   }
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    // The inverted-range state is already visible as a field message; the
+    // submit never dispatches a span the backend would store unchecked.
+    if (!blockDateOrderValid(_start, _end)) return;
     setState(() => _busy = true);
-    final startText = _startController.text.trim();
-    final endText = _endController.text.trim();
     final result = await ref
         .read(blocksControllerProvider(widget.season.id).notifier)
         .create(
           season: widget.season,
           number: int.parse(_numberController.text.trim()),
-          startDate: startText.isEmpty ? null : _parseDate(startText),
-          endDate: endText.isEmpty ? null : _parseDate(endText),
+          startDate: blockWireDate(_start),
+          endDate: blockWireDate(_end),
         );
     // Explicitly consumed: Ok renders as the optimistic overlay row, Err
     // renders in the screen's code-keyed banner — no local reaction needed.
@@ -115,9 +154,79 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
     Navigator.of(context).pop();
   }
 
+  /// One optional day: a visible label, the read-only rendered value (never
+  /// an input), the picker button, and a clear affordance once a day is set.
+  Widget _dayRow({
+    required AppLocalizations l10n,
+    required String label,
+    required Key textKey,
+    required Key pickKey,
+    required Key clearKey,
+    required DateTime? value,
+    required String pickSemantics,
+    required String clearSemantics,
+    required VoidCallback onPick,
+    required VoidCallback onClear,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                value == null
+                    ? l10n.blocksNoDate
+                    : formatMediumDate(context, value),
+                key: textKey,
+              ),
+            ),
+            // Both rows render the same visible "Pick date" label, so the
+            // accessibility name must carry the bound: a screen-reader user
+            // moving between the two controls would otherwise hear an
+            // identical name twice (issue #833 review). The semantics node
+            // owns the action (`excludeSemantics` + explicit `onTap`), so the
+            // control stays activatable, never a label-only node.
+            Semantics(
+              container: true,
+              button: true,
+              enabled: !_busy,
+              excludeSemantics: true,
+              label: pickSemantics,
+              onTap: _busy ? null : onPick,
+              child: TextButton(
+                key: pickKey,
+                onPressed: _busy ? null : onPick,
+                child: Text(l10n.blocksPickDate),
+              ),
+            ),
+            if (value != null)
+              Semantics(
+                container: true,
+                button: true,
+                enabled: !_busy,
+                excludeSemantics: true,
+                label: clearSemantics,
+                onTap: _busy ? null : onClear,
+                child: IconButton(
+                  key: clearKey,
+                  onPressed: _busy ? null : onClear,
+                  tooltip: l10n.blocksClearDate,
+                  icon: const Icon(Icons.clear),
+                ),
+              ),
+          ],
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
+    final orderValid = blockDateOrderValid(_start, _end);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -142,20 +251,44 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
                     : null,
               ),
               const SizedBox(height: 8),
-              TextFormField(
-                key: const Key('create-block-start'),
-                controller: _startController,
-                decoration: InputDecoration(labelText: l10n.blocksStartDate),
-                validator: (v) => _dateValidator(v, l10n),
+              _dayRow(
+                l10n: l10n,
+                label: l10n.blocksStartDate,
+                textKey: const Key('create-block-start-text'),
+                pickKey: const Key('create-block-start-pick'),
+                clearKey: const Key('create-block-start-clear'),
+                value: _start,
+                pickSemantics: l10n.blocksPickStartDate,
+                clearSemantics: l10n.blocksClearStartDate,
+                onPick: () => _pick(_start, (d) => _start = d),
+                onClear: () => setState(() => _start = null),
               ),
+              _dayRow(
+                l10n: l10n,
+                label: l10n.blocksEndDate,
+                textKey: const Key('create-block-end-text'),
+                pickKey: const Key('create-block-end-pick'),
+                clearKey: const Key('create-block-end-clear'),
+                value: _end,
+                pickSemantics: l10n.blocksPickEndDate,
+                clearSemantics: l10n.blocksClearEndDate,
+                // The end picker opens on the start day when one is set: the
+                // common case is a span that begins and ends nearby.
+                onPick: () => _pick(_end, (d) => _end = d, fallback: _start),
+                onClear: () => setState(() => _end = null),
+              ),
+              if (!orderValid)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    l10n.blocksDateOrderError,
+                    key: const Key('create-block-date-order-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 8),
-              TextFormField(
-                key: const Key('create-block-end'),
-                controller: _endController,
-                decoration: InputDecoration(labelText: l10n.blocksEndDate),
-                validator: (v) => _dateValidator(v, l10n),
-              ),
-              const SizedBox(height: 16),
               FilledButton(
                 key: const Key('create-block-submit'),
                 onPressed: _busy ? null : _submit,

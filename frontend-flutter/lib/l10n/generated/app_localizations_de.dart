@@ -2432,13 +2432,34 @@ class AppLocalizationsDe extends AppLocalizations {
   String get blocksNumberRequired => 'Es ist eine ganze Zahl erforderlich';
 
   @override
-  String get blocksStartDate => 'Startdatum (YYYY-MM-DD, optional)';
+  String get blocksStartDate => 'Startdatum (optional)';
 
   @override
-  String get blocksEndDate => 'Enddatum (YYYY-MM-DD, optional)';
+  String get blocksEndDate => 'Enddatum (optional)';
 
   @override
-  String get blocksDateFormatError => 'Verwende YYYY-MM-DD';
+  String get blocksPickDate => 'Datum wählen';
+
+  @override
+  String get blocksPickStartDate => 'Startdatum wählen';
+
+  @override
+  String get blocksPickEndDate => 'Enddatum wählen';
+
+  @override
+  String get blocksNoDate => 'Kein Datum';
+
+  @override
+  String get blocksClearDate => 'Datum löschen';
+
+  @override
+  String get blocksClearStartDate => 'Startdatum löschen';
+
+  @override
+  String get blocksClearEndDate => 'Enddatum löschen';
+
+  @override
+  String get blocksDateOrderError => 'Das Enddatum liegt vor dem Startdatum.';
 
   @override
   String get blocksCreateButton => 'Erstellen';

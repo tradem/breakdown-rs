@@ -22,6 +22,7 @@ import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
@@ -29,6 +30,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/blocks/blocks_screen.dart';
+import 'package:frontend_flutter/features/blocks/create_block_sheet.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_controller.dart';
 import 'package:frontend_flutter/features/costume_categories/costume_categories_screen.dart';
 import 'package:frontend_flutter/features/shell/cast_tab_screen.dart';
@@ -40,6 +42,11 @@ import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 
 const _networkDown = ProblemError(code: 'transport.connectionError');
 const _gone = ProblemError(code: 'season.not-found', status: 404);
+
+/// The container's pinned clock: the create form's pickers open on this day,
+/// so every assertion stays deterministic instead of reading the wall clock
+/// (deterministic-tests rule, issue #833 review).
+final DateTime _pinnedNow = DateTime(2026, 6, 15);
 
 BlockView _block(
   String id, {
@@ -91,9 +98,14 @@ class _FakeBlockRepository extends BlockRepository {
   Result<IdVersionResponse>? nextCreate;
   int creates = 0;
 
+  /// The last dispatched command payload (issue #833: the picked days must
+  /// reach the wire shape unchanged).
+  CreateBlockRequest? lastRequest;
+
   @override
   Future<Result<IdVersionResponse>> create(CreateBlockRequest request) {
     creates++;
+    lastRequest = request;
     final scripted = nextCreate;
     if (scripted != null) return Future.value(scripted);
     return Future.value(
@@ -119,9 +131,9 @@ Future<void> _pumpFrames(WidgetTester tester, {int n = 6}) async {
 void main() {
   setUpAll(() async {
     // The app bootstraps `intl` date symbols during composition
-    // (lib/app.dart). Tests asserting locale-formatted dates do the same, so
-    // they exercise the production formatter instead of its
-    // `MaterialLocalizations` fallback (issue #832).
+    // (lib/app.dart). Tests asserting locale-formatted dates and rendering
+    // picked days do the same, so they exercise the production formatter
+    // instead of its `MaterialLocalizations` fallback (issues #832/#833).
     await initializeDateFormatting('en');
   });
 
@@ -149,6 +161,10 @@ void main() {
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
         blockRepositoryProvider.overrideWithValue(repo),
+        // Pinned clock (deterministic-tests rule): the create form's date
+        // pickers open on "today", so the dispatched day must not depend on
+        // when the suite runs (issue #833 review).
+        clockProvider.overrideWith((ref) => Clock.fixed(_pinnedNow)),
         reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         blocksListFetchProvider('season-1').overrideWith((ref) async {
           final dao = BlockCacheDao(ref.watch(cacheDatabaseProvider));
@@ -261,26 +277,6 @@ void main() {
       expect(find.byKey(const Key('overlay-n1')), findsNothing);
     });
 
-    testWidgets('non-existent calendar date is rejected by validation', (
-      tester,
-    ) async {
-      await setupContainer();
-      await pumpScreen(tester);
-
-      await tester.tap(find.byKey(const Key('block-add-fab')));
-      await _pumpFrames(tester, n: 60);
-      await tester.enterText(find.byKey(const Key('create-block-number')), '2');
-      await tester.enterText(
-        find.byKey(const Key('create-block-start')),
-        '2026-02-31',
-      );
-      await tester.tap(find.byKey(const Key('create-block-submit')));
-      await _pumpFrames(tester);
-
-      expect(find.text('Use YYYY-MM-DD'), findsOneWidget);
-      expect(repo.creates, 0);
-    });
-
     testWidgets('404: narrative with back affordance, no stale rows', (
       tester,
     ) async {
@@ -290,6 +286,239 @@ void main() {
       expect(find.byKey(const Key('blocks-not-found')), findsOneWidget);
       expect(find.textContaining('season.not-found'), findsOneWidget);
       expect(find.byKey(const Key('blocks-not-found-back')), findsOneWidget);
+    });
+  });
+
+  group('create-block form date pickers (issue #833)', () {
+    /// Opens the create form and settles its entrance animation with bounded
+    /// frames (the sheet/dialog route, never the overlay spinner).
+    Future<void> openForm(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('block-add-fab')));
+      await _pumpFrames(tester, n: 60);
+    }
+
+    /// Accepts the day the picker opens on (its initial date) — no calendar
+    /// navigation, so the test does not hunt for a specific day cell.
+    Future<void> acceptInitialDay(WidgetTester tester, Key pickKey) async {
+      await tester.tap(find.byKey(pickKey));
+      // The date-picker dialog is a static surface (no indeterminate
+      // progress indicator), so settling here is safe and deterministic.
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.text('OK'),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the days are picker controls, never typed format strings', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+      await openForm(tester);
+
+      // The free-text `YYYY-MM-DD` fields are gone; both days start empty
+      // and the empty state is not an error.
+      expect(find.byKey(const Key('create-block-start')), findsNothing);
+      expect(find.byKey(const Key('create-block-end')), findsNothing);
+      expect(find.byKey(const Key('create-block-start-pick')), findsOneWidget);
+      expect(find.byKey(const Key('create-block-end-pick')), findsOneWidget);
+      expect(find.text('Pick date'), findsNWidgets(2));
+      expect(find.text('No date'), findsNWidgets(2));
+      // No clear affordance until a day is set.
+      expect(find.byKey(const Key('create-block-start-clear')), findsNothing);
+      expect(find.byKey(const Key('create-block-end-clear')), findsNothing);
+    });
+
+    testWidgets('picked days dispatch as Date(y, m, d)', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester);
+      await openForm(tester);
+      await tester.enterText(find.byKey(const Key('create-block-number')), '4');
+
+      await acceptInitialDay(tester, const Key('create-block-start-pick'));
+      await acceptInitialDay(tester, const Key('create-block-end-pick'));
+      await tester.tap(find.byKey(const Key('create-block-submit')));
+      await _pumpFrames(tester);
+
+      // The pickers open on the container's pinned clock day, and the wire
+      // value carries no time component.
+      final request = repo.lastRequest;
+      expect(request, isNotNull);
+      expect(request!.number, 4);
+      expect(request.projectId, 'series-1');
+      expect(request.seasonId, 'season-1');
+      expect(request.startDate, Date(2026, 6, 15));
+      expect(request.endDate, Date(2026, 6, 15));
+      expect(repo.creates, 1);
+    });
+
+    testWidgets('a picked day can be cleared again', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester);
+      await openForm(tester);
+
+      await acceptInitialDay(tester, const Key('create-block-start-pick'));
+      // The picked day renders as text (locale-formatted), the other stays
+      // empty — the value is read-only, never an input field.
+      expect(find.text('No date'), findsOneWidget);
+      expect(find.byKey(const Key('create-block-start-clear')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('create-block-start-clear')));
+      await _pumpFrames(tester);
+
+      expect(find.text('No date'), findsNWidgets(2));
+      expect(find.byKey(const Key('create-block-start-clear')), findsNothing);
+    });
+
+    testWidgets('each pick and clear control names its bound for screen '
+        'readers', (tester) async {
+      // Disposed inside the body: the framework verifies semantics handles
+      // before any `addTearDown` callback runs.
+      final semantics = tester.ensureSemantics();
+      try {
+        await setupContainer();
+        await pumpScreen(tester);
+        await openForm(tester);
+
+        // Both rows render the same visible label, so the accessible name is
+        // the only thing telling the two controls apart (issue #833 review).
+        expect(find.text('Pick date'), findsNWidgets(2));
+        expect(find.bySemanticsLabel('Pick start date'), findsOneWidget);
+        expect(find.bySemanticsLabel('Pick end date'), findsOneWidget);
+        expect(find.bySemanticsLabel('Clear start date'), findsNothing);
+
+        await acceptInitialDay(tester, const Key('create-block-start-pick'));
+        await acceptInitialDay(tester, const Key('create-block-end-pick'));
+
+        expect(find.bySemanticsLabel('Clear start date'), findsOneWidget);
+        expect(find.bySemanticsLabel('Clear end date'), findsOneWidget);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
+    testWidgets('a day outside the old 2000–2100 window stays selectable', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpScreen(tester);
+      await openForm(tester);
+      await tester.enterText(find.byKey(const Key('create-block-number')), '7');
+
+      await tester.tap(find.byKey(const Key('create-block-start-pick')));
+      await tester.pumpAndSettle();
+      // Input mode: the pickers' bounds follow the wire contract (ISO-8601
+      // four-digit years), not an unspecified planning horizon (issue #833
+      // review).
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byIcon(Icons.edit_outlined),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byType(TextField),
+        ),
+        '01/15/1995',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.text('OK'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Jan 15, 1995'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('create-block-submit')));
+      await _pumpFrames(tester);
+
+      expect(repo.lastRequest!.startDate, Date(1995, 1, 15));
+      expect(repo.lastRequest!.endDate, isNull);
+    });
+
+    testWidgets('end before start is refused with a field message, no '
+        'dispatch', (tester) async {
+      await setupContainer();
+      await pumpScreen(tester);
+      await openForm(tester);
+      await tester.enterText(find.byKey(const Key('create-block-number')), '2');
+
+      // End = today, then start = day 3 of the following month: an inverted
+      // span built through the pickers only (a calendar cell is the only way
+      // to move the selection, and day 3 always exists).
+      await acceptInitialDay(tester, const Key('create-block-end-pick'));
+      await tester.tap(find.byKey(const Key('create-block-start-pick')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byIcon(Icons.chevron_right),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.text('3'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.text('OK'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('create-block-date-order-error')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('The end date is before the start date.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('create-block-submit')));
+      await _pumpFrames(tester);
+
+      expect(repo.creates, 0);
+      expect(repo.lastRequest, isNull);
+      expect(
+        find.byKey(const Key('create-block-date-order-error')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the pure range guard matches the backend model', (
+      tester,
+    ) async {
+      // Both bounds optional: no guard case, a legal span, equal bounds.
+      expect(blockDateOrderValid(null, null), isTrue);
+      expect(blockDateOrderValid(DateTime(2026, 11, 4), null), isTrue);
+      expect(blockDateOrderValid(null, DateTime(2026, 11, 4)), isTrue);
+      expect(
+        blockDateOrderValid(DateTime(2026, 11, 4), DateTime(2026, 11, 4)),
+        isTrue,
+      );
+      expect(
+        blockDateOrderValid(DateTime(2026, 11, 5), DateTime(2026, 11, 4)),
+        isFalse,
+      );
+      // The wire value drops the time component (never a timezone shift).
+      expect(blockWireDate(null), isNull);
+      expect(blockWireDate(DateTime(2026, 11, 4, 23, 59)), Date(2026, 11, 4));
     });
   });
 
@@ -587,6 +816,87 @@ void main() {
       await pumpGolden(
         tester,
         golden: 'blocks_screen_dark_macos.png',
+        mode: ThemeMode.dark,
+        platform: TargetPlatform.macOS,
+      );
+    });
+  });
+
+  group('create-block form goldens (issue #833)', () {
+    /// Renders the OPEN create-block form through the same platform split the
+    /// production entry uses (`showCreateBlockSheet`): bottom sheet on
+    /// Android, centered dialog on macOS.
+    Future<void> pumpFormGolden(
+      WidgetTester tester, {
+      required String golden,
+      required ThemeMode mode,
+      required TargetPlatform platform,
+    }) async {
+      try {
+        debugDefaultTargetPlatformOverride = platform;
+        tester.view.physicalSize = const Size(800, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: ThemeData.light(),
+              darkTheme: ThemeData.dark(),
+              themeMode: mode,
+              home: BlocksScreen(season: _season()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('block-add-fab')));
+        // Bounded frames for the sheet/dialog route entrance only, so the
+        // capture never lands mid-animation.
+        await _pumpFrames(tester, n: 60);
+        await expectLater(
+          find.byType(MaterialApp),
+          matchesGoldenFile('goldens/$golden'),
+        );
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+
+    testWidgets('golden sheet light android', (tester) async {
+      await setupContainer();
+      await pumpFormGolden(
+        tester,
+        golden: 'blocks_create_sheet_light_android.png',
+        mode: ThemeMode.light,
+        platform: TargetPlatform.android,
+      );
+    });
+
+    testWidgets('golden sheet dark android', (tester) async {
+      await setupContainer();
+      await pumpFormGolden(
+        tester,
+        golden: 'blocks_create_sheet_dark_android.png',
+        mode: ThemeMode.dark,
+        platform: TargetPlatform.android,
+      );
+    });
+
+    testWidgets('golden dialog light macos', (tester) async {
+      await setupContainer();
+      await pumpFormGolden(
+        tester,
+        golden: 'blocks_create_dialog_light_macos.png',
+        mode: ThemeMode.light,
+        platform: TargetPlatform.macOS,
+      );
+    });
+
+    testWidgets('golden dialog dark macos', (tester) async {
+      await setupContainer();
+      await pumpFormGolden(
+        tester,
+        golden: 'blocks_create_dialog_dark_macos.png',
         mode: ThemeMode.dark,
         platform: TargetPlatform.macOS,
       );
