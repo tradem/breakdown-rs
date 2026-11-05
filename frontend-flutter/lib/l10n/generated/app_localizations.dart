@@ -3965,20 +3965,38 @@ abstract class AppLocalizations {
   /// No description provided for @blocksStartDate.
   ///
   /// In de, this message translates to:
-  /// **'Startdatum (YYYY-MM-DD, optional)'**
+  /// **'Startdatum (optional)'**
   String get blocksStartDate;
 
   /// No description provided for @blocksEndDate.
   ///
   /// In de, this message translates to:
-  /// **'Enddatum (YYYY-MM-DD, optional)'**
+  /// **'Enddatum (optional)'**
   String get blocksEndDate;
 
-  /// No description provided for @blocksDateFormatError.
+  /// No description provided for @blocksPickDate.
   ///
   /// In de, this message translates to:
-  /// **'Verwende YYYY-MM-DD'**
-  String get blocksDateFormatError;
+  /// **'Datum wählen'**
+  String get blocksPickDate;
+
+  /// No description provided for @blocksNoDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Kein Datum'**
+  String get blocksNoDate;
+
+  /// No description provided for @blocksClearDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Datum löschen'**
+  String get blocksClearDate;
+
+  /// No description provided for @blocksDateOrderError.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Enddatum liegt vor dem Startdatum.'**
+  String get blocksDateOrderError;
 
   /// No description provided for @blocksCreateButton.
   ///
