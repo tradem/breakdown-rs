@@ -1388,6 +1388,24 @@ abstract class AppLocalizations {
   /// **'Gefundene Episoden: {episodes}'**
   String aiJobEpisodesSeenValues(Object episodes);
 
+  /// No description provided for @aiJobBlockSeenLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Block laut Skript:'**
+  String get aiJobBlockSeenLabel;
+
+  /// No description provided for @aiJobsRowBlockValues.
+  ///
+  /// In de, this message translates to:
+  /// **'Block {block} · Episoden: {episodes}'**
+  String aiJobsRowBlockValues(Object block, Object episodes);
+
+  /// No description provided for @aiJobsRowBlockOnly.
+  ///
+  /// In de, this message translates to:
+  /// **'Block laut Skript: Block {block}'**
+  String aiJobsRowBlockOnly(Object block);
+
   /// No description provided for @aiJobsLoadError.
   ///
   /// In de, this message translates to:
@@ -1633,6 +1651,30 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Skript-Vorschau'**
   String get aiPreviewScriptTitle;
+
+  /// No description provided for @aiPreviewBlockScope.
+  ///
+  /// In de, this message translates to:
+  /// **'Skript: Block {script} · Importziel: Block {target}'**
+  String aiPreviewBlockScope(Object script, Object target);
+
+  /// No description provided for @aiPreviewBlockScopeScriptOnly.
+  ///
+  /// In de, this message translates to:
+  /// **'Skript: Block {script} · Importziel nicht aufgezeichnet'**
+  String aiPreviewBlockScopeScriptOnly(Object script);
+
+  /// No description provided for @aiPreviewBlockScopeTargetOnly.
+  ///
+  /// In de, this message translates to:
+  /// **'Zielblock – aus dem Importziel übernommen: Block {target}'**
+  String aiPreviewBlockScopeTargetOnly(Object target);
+
+  /// No description provided for @aiPreviewBlockScopeMismatch.
+  ///
+  /// In de, this message translates to:
+  /// **'Achtung: Das Skript nennt Block {script}, importiert wird nach Block {target}. Die Zeilen landen im Zielblock – prüfe das Ziel, bevor du anwendest.'**
+  String aiPreviewBlockScopeMismatch(Object script, Object target);
 
   /// No description provided for @aiPreviewScriptSubtitle.
   ///

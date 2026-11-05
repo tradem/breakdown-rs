@@ -805,6 +805,19 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiJobBlockSeenLabel => 'Block laut Skript:';
+
+  @override
+  String aiJobsRowBlockValues(Object block, Object episodes) {
+    return 'Block $block · Episoden: $episodes';
+  }
+
+  @override
+  String aiJobsRowBlockOnly(Object block) {
+    return 'Block laut Skript: Block $block';
+  }
+
+  @override
   String aiJobsLoadError(Object code) {
     return 'Die Auftragsliste konnte nicht geladen werden ($code).';
   }
@@ -962,6 +975,26 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiPreviewScriptTitle => 'Skript-Vorschau';
+
+  @override
+  String aiPreviewBlockScope(Object script, Object target) {
+    return 'Skript: Block $script · Importziel: Block $target';
+  }
+
+  @override
+  String aiPreviewBlockScopeScriptOnly(Object script) {
+    return 'Skript: Block $script · Importziel nicht aufgezeichnet';
+  }
+
+  @override
+  String aiPreviewBlockScopeTargetOnly(Object target) {
+    return 'Zielblock – aus dem Importziel übernommen: Block $target';
+  }
+
+  @override
+  String aiPreviewBlockScopeMismatch(Object script, Object target) {
+    return 'Achtung: Das Skript nennt Block $script, importiert wird nach Block $target. Die Zeilen landen im Zielblock – prüfe das Ziel, bevor du anwendest.';
+  }
 
   @override
   String aiPreviewScriptSubtitle(Object count) {

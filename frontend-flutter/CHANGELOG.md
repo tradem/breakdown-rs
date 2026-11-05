@@ -23,6 +23,41 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The import shows the block the SCRIPT states, next to the block it imports
+  into** (`0.4.0-beta.37+129 → 0.4.0-beta.38+130`, frontend issue #827, PR 2/2).
+  The import knew and showed the episode it extracted but never the block, so
+  the reviewer could not tell whether the script belongs to the block the import
+  will write into — and an import into the wrong block surfaced only at apply
+  time (the cross-block guard answers `403`) or never. The backend now publishes
+  the block the document states (`AiImportProgress.blockNumber`, and the same
+  value on the stored preview's `ScriptContext.blockNumber`); this change makes
+  it visible without ever changing the target:
+  - **Job status card.** A block chip renders above the episode chips with the
+    same visual weight (`ai-job-block-chip`), for the same reason the episodes
+    are there: the run's own metadata, named instead of implied. A script that
+    states no block renders no chip — never an invented number.
+  - **Jobs list row.** The one-line discovery value now carries the block before
+    the episodes ("Block 2 · Episoden: Ep. 299"); a job without a published
+    block keeps the plain episode line it had before.
+  - **Preview screen.** A scope line names both values ("Skript: Block 2 ·
+    Importziel: Block 1"). The script value comes from the payload
+    (`ScriptContext.blockNumber`, persisted with the preview), so it survives the
+    progress being cleared on success; the target is the job's own
+    `target.blockNumber`. When the script states no block, the line renders the
+    TARGET as the associated block with explicit wording ("Zielblock – aus dem
+    Importziel übernommen") instead of a blank. When the two disagree, a
+    non-blocking warning banner says so — the strongest early hint of a wrong
+    target, with the apply's own guard left authoritative.
+  - `ScriptBlockScope` (`script_block_scope.dart`) is the single place that
+    decides how the two facts combine: the script's number wins as the
+    association, the target is never omitted for lack of a script value, and two
+    unknowns are never a contradiction. Its provider reuses the one-snapshot job
+    read (`getJobAndCache`, no SSE watch), keeping the single foreground SSE
+    consumer intact.
+  - Honest limit: a MERGED payload (script + schedule) carries no script context
+    and its `progress` is cleared once the job succeeds, so that surface falls
+    back to the target-only wording.
+
 - **The import preview names the model the job actually used, and two affordances
   stop promising what they cannot do** (`0.4.0-beta.36+128 →
   0.4.0-beta.37+129`, frontend issue #831). Three defects in one feature folder,

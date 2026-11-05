@@ -228,7 +228,9 @@ AiPreviewPayload _reconciledScriptPayload({
         ),
 );
 
-AiPreviewPayload _scriptPayload() => AiPreviewPayload(
+/// The script payload. [blockNumber] is the block the DOCUMENT states (issue
+/// #827) — `null` keeps the pre-#827 shape (the header named no block).
+AiPreviewPayload _scriptPayload({int? blockNumber}) => AiPreviewPayload(
   (b) => b
     ..oneOf =
         OneOf.fromValue3<
@@ -243,6 +245,7 @@ AiPreviewPayload _scriptPayload() => AiPreviewPayload(
                 ScriptContext(
                   (b) => b
                     ..title = 'Pilot'
+                    ..blockNumber = blockNumber
                     ..scenes.replace([_draft('draft-1'), _draft('draft-2')])
                     ..uncertainties.replace([
                       Uncertainty(
@@ -360,6 +363,10 @@ AiImportJob _succeededJob(
   String id, {
   DecisionTelemetry? decisionTelemetry,
   JobTelemetrySummary? telemetry,
+
+  /// The import TARGET's block number (issue #771) — `null` keeps a job that
+  /// recorded no target at all.
+  int? targetBlockNumber,
 }) => AiImportJob((b) {
   b
     ..id = id
@@ -381,6 +388,16 @@ AiImportJob _succeededJob(
   // preview header names as USED. Absent for a pre-#609 job, which then names
   // no used pair at all.
   if (telemetry != null) b.telemetry.replace(telemetry);
+  if (targetBlockNumber != null) {
+    b.target.replace(
+      AiImportTarget(
+        (t) => t
+          ..seasonId = 'season-1'
+          ..seasonNumber = 1
+          ..blockNumber = targetBlockNumber,
+      ),
+    );
+  }
 });
 
 /// The `JobTelemetrySummary` identity pair (issue #831) — the SAME pair the job
@@ -979,6 +996,14 @@ void main() {
       /// preview header names as USED. `null` keeps the pre-#831 shape — a job
       /// that recorded none, so the header names only the CONFIGURED pair.
       JobTelemetrySummary? telemetry,
+
+      /// The import target's block number (issue #827). `null` keeps a job
+      /// without a recorded target.
+      int? targetBlockNumber,
+
+      /// The block the SCRIPT states (issue #827), carried on the default
+      /// script payload. `null` keeps the pre-#827 payload shape.
+      int? scriptBlockNumber,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -990,10 +1015,19 @@ void main() {
       // (the job recorded no outcome) instead of its read-failure state, which
       // has its own tests in decision_outcome_test.dart. The SAME answer feeds
       // the naming card's used-pair read (issue #831).
-      repo.jobResult = Right(_succeededJob('job-1', telemetry: telemetry));
+      repo.jobResult = Right(
+        _succeededJob(
+          'job-1',
+          telemetry: telemetry,
+          targetBlockNumber: targetBlockNumber,
+        ),
+      );
       if (applyQueue != null) repo.applyQueue.addAll(applyQueue);
       preview = ValueNotifier(
-        previewValue ?? Right(_previewResponse(_scriptPayload())),
+        previewValue ??
+            Right(
+              _previewResponse(_scriptPayload(blockNumber: scriptBlockNumber)),
+            ),
       );
       scenes = ValueNotifier(scenesValue ?? Right([_scene('sc-9')]));
       container = ProviderContainer(
@@ -1158,6 +1192,72 @@ void main() {
           matching: find.text('Apply import'),
         ),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('the preview names the block the SCRIPT states next to the '
+        'import target (issue #827)', (tester) async {
+      await setupContainer(targetBlockNumber: 2, scriptBlockNumber: 2);
+      await pumpPreview(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-block-scope')))
+            .data,
+        'Script: Block 2 · Import target: Block 2',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-block-scope-mismatch')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a script/target block mismatch is flagged non-blocking '
+        '(issue #827)', (tester) async {
+      await setupContainer(
+        targetBlockNumber: 1,
+        scriptBlockNumber: 2,
+        applyQueue: [Right(_outcome())],
+      );
+      await pumpPreview(tester);
+
+      expect(
+        find.byKey(const Key('ai-preview-block-scope-mismatch')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('block 2'), findsWidgets);
+      expect(find.textContaining('block 1'), findsWidgets);
+      // Non-blocking: the apply stays reachable (the server's cross-block guard
+      // remains authoritative).
+      expect(find.byKey(const Key('ai-apply-submit')), findsOneWidget);
+    });
+
+    testWidgets('a script that states no block renders the target as the '
+        'ASSOCIATED block with explicit wording (issue #827)', (tester) async {
+      await setupContainer(targetBlockNumber: 3);
+      await pumpPreview(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-block-scope')))
+            .data,
+        'Target block — taken from the import target: Block 3',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-block-scope-mismatch')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a job without any block value renders no scope line — never '
+        'a blank field (issue #827)', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+
+      expect(find.byKey(const Key('ai-preview-block-scope')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-preview-block-scope-mismatch')),
+        findsNothing,
       );
     });
 

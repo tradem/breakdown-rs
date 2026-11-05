@@ -215,6 +215,20 @@
   "aiJobsRowScenesRebuilt": "{count} Szene(n) nur aus Dokument-Metadaten",
   "aiJobsRowAlreadyImported": "Bereits importiert",
   "aiJobEpisodesSeenValues": "Gefundene Episoden: {episodes}",
+  "aiJobBlockSeenLabel": "Block laut Skript:",
+  "aiJobsRowBlockValues": "Block {block} · Episoden: {episodes}",
+  "@aiJobsRowBlockValues": {
+    "placeholders": {
+      "block": {},
+      "episodes": {}
+    }
+  },
+  "aiJobsRowBlockOnly": "Block laut Skript: Block {block}",
+  "@aiJobsRowBlockOnly": {
+    "placeholders": {
+      "block": {}
+    }
+  },
   "aiJobsLoadError": "Die Auftragsliste konnte nicht geladen werden ({code}).",
   "aiJobsDeleteTooltip": "Import löschen",
   "aiJobsDeleteConfirmTitle": "Import löschen?",
@@ -294,6 +308,32 @@
   "aiPreviewMissing": "Für diesen Auftrag ist noch keine Vorschau verfügbar.",
   "aiPreviewLoadError": "Die Vorschau konnte nicht geladen werden ({code}).",
   "aiPreviewScriptTitle": "Skript-Vorschau",
+  "aiPreviewBlockScope": "Skript: Block {script} · Importziel: Block {target}",
+  "@aiPreviewBlockScope": {
+    "placeholders": {
+      "script": {},
+      "target": {}
+    }
+  },
+  "aiPreviewBlockScopeScriptOnly": "Skript: Block {script} · Importziel nicht aufgezeichnet",
+  "@aiPreviewBlockScopeScriptOnly": {
+    "placeholders": {
+      "script": {}
+    }
+  },
+  "aiPreviewBlockScopeTargetOnly": "Zielblock – aus dem Importziel übernommen: Block {target}",
+  "@aiPreviewBlockScopeTargetOnly": {
+    "placeholders": {
+      "target": {}
+    }
+  },
+  "aiPreviewBlockScopeMismatch": "Achtung: Das Skript nennt Block {script}, importiert wird nach Block {target}. Die Zeilen landen im Zielblock – prüfe das Ziel, bevor du anwendest.",
+  "@aiPreviewBlockScopeMismatch": {
+    "placeholders": {
+      "script": {},
+      "target": {}
+    }
+  },
   "aiPreviewScriptSubtitle": "{count} Skript-Szene(n)",
   "aiPreviewScriptReconciliation": "{detected} erkannt · {extracted} extrahiert",
   "aiPreviewScriptSynthesized": "{count} aus Dokument-Metadaten ergänzt",

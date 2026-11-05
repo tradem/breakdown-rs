@@ -44,15 +44,32 @@ nothing).
 
 ## 3. Flutter: show the script's block next to the episode (PR 2)
 
-- [ ] 3.1 `import_jobs/job_status_screen.dart`: a block chip beside the episode
+- [x] 3.1 `import_jobs/job_status_screen.dart`: a block chip above the episode
       chips, same visual weight; hidden when the field is absent.
-- [ ] 3.2 `import_jobs/jobs_screen.dart`: the one-line "Episoden erkannt" value
-      gains the block (only when known).
-- [ ] 3.3 `import_jobs/preview_screen.dart`: a scope line "Skript: Block {n} ·
-      Importziel: Block {m}" from `progress.blockNumber` + `job.target`.
-- [ ] 3.4 Association, not omission: with no script block, render the target as
-      the associated block with explicit wording.
-- [ ] 3.5 Mismatch surfacing: a non-blocking warning banner when the two differ.
-- [ ] 3.6 de/en ARB keys + regenerated localizations.
-- [ ] 3.7 Widget tests for all three surfaces (present, absent, mismatch).
-- [ ] 3.8 `pubspec.yaml` version bump + `CHANGELOG.md` entry.
+- [x] 3.2 `import_jobs/jobs_screen.dart`: the one-line discovery value carries
+      the block before the episodes (only when known); `aiJobsRowDetectedValues`
+      is the pure formatter.
+- [x] 3.3 `import_jobs/preview_screen.dart`: a scope line "Skript: Block {n} ·
+      Importziel: Block {m}" from the payload's `ScriptContext.block_number`
+      (persisted) + `job.target`.
+- [x] 3.4 Association, not omission: with no script block, the line renders the
+      target as the associated block with explicit wording.
+- [x] 3.5 Mismatch surfacing: a non-blocking warning banner when the two differ.
+- [x] 3.6 de/en ARB keys + regenerated localizations.
+- [x] 3.7 Tests: `test/unit/script_block_scope_test.dart` (Tier 1 combination
+      rules + formatter) and widget tests for all three surfaces (present,
+      absent, mismatch, non-blocking).
+- [x] 3.8 `pubspec.yaml` version bump (`0.4.0-beta.38+130`) + `CHANGELOG.md`
+      entry.
+- [x] 3.9 `ScriptBlockScope` + `aiJobBlockScopeProvider` (`script_block_scope.dart`):
+      the single place that combines the two facts, reading the job snapshot via
+      `getJobAndCache` (no second SSE watch).
+
+## Honest limits (documented, not worked around)
+
+- A MERGED payload (`MergedPreview`) carries no script context, and `progress` is
+  cleared once a job succeeds — that surface therefore falls back to the
+  target-only wording. Producing the block there needs a `block_number` on
+  `MergedPreview` (a backend change, deliberately not folded into this PR).
+- The jobs-row block renders only while the job publishes live progress
+  (`showsLiveProgress`); a finished row has no progress left to read it from.

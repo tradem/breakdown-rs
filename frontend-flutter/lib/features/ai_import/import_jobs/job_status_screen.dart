@@ -254,6 +254,11 @@ class _JobCard extends ConsumerWidget {
       final chunksTotal = progress?.chunksTotal;
       final chunk = progress?.chunk;
       final episodes = progress?.episodesSeen;
+      // Issue #827: the block the SCRIPT states, published from the first
+      // progress frame. `null` means the document names none — the card then
+      // renders nothing here and the preview screen shows the import target as
+      // the associated block instead of an invented number.
+      final blockNumber = progress?.blockNumber;
       // Determinate progress ONLY when the backend carries a positive
       // total — never a fabricated percentage (spec: indeterminate
       // affordance otherwise).
@@ -308,6 +313,33 @@ class _JobCard extends ConsumerWidget {
               // its wait is not extraction time. The widget renders nothing
               // (and occupies no space) when it has nothing to say.
               if (job.status == JobStatus.running) _JobExtractionEta(job: job),
+              // Issue #827: the block the script states, with the same visual
+              // weight as the episode chips below it.
+              if (blockNumber != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  key: const Key('ai-job-block-label'),
+                  l10nOf(context).aiJobBlockSeenLabel,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  key: const Key('ai-job-block-chips'),
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    Chip(
+                      key: const Key('ai-job-block-chip'),
+                      label: Text(
+                        l10nOf(context).blockTileLabel('$blockNumber'),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ],
+                ),
+              ],
               if (episodes != null && episodes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(

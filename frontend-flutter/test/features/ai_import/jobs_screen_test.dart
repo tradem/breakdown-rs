@@ -163,11 +163,13 @@ AppliedEpisode _applied(int? number, String? name, int count) => AppliedEpisode(
 AiImportProgress _progress({
   AiImportStage stage = AiImportStage.extracting,
   List<String> episodes = const [],
+  int? blockNumber,
 }) => AiImportProgress(
   (b) => b
     ..stage = stage
     ..chunk = 2
     ..chunksTotal = 5
+    ..blockNumber = blockNumber
     ..episodesSeen.replace(episodes),
 );
 
@@ -1080,6 +1082,50 @@ void main() {
             .widget<Text>(find.byKey(const Key('ai-jobs-row-episodes-job-r')))
             .data,
         'Episodes discovered: Ep. 299, Ep. 300',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a running row names the script block on its discovery line '
+        '(issue #827)', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-b',
+            status: JobStatus.running,
+            progress: _progress(blockNumber: 2, episodes: const ['Ep. 299']),
+          ),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-jobs-row-episodes-job-b')))
+            .data,
+        'Block 2 · Episodes: Ep. 299',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a row without a published block keeps the plain episode line '
+        '(issue #827)', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-nb',
+            status: JobStatus.running,
+            progress: _progress(episodes: const ['Ep. 299']),
+          ),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-jobs-row-episodes-job-nb')))
+            .data,
+        'Episodes discovered: Ep. 299',
       );
       await tester.pump();
     });
