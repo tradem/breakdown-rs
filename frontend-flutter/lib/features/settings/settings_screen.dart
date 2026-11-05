@@ -21,6 +21,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../ai_import/ai_config/ai_config_reachability.dart';
 import '../ai_import/ai_config/ai_config_screen.dart';
 import '../easter_eggs/easter_eggs_screen.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Full-screen settings (issue #516, capability `flutter-settings-screen`):
 /// replaces the former `SettingsDialog` — pushed from the profile menu's
@@ -126,9 +127,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return Scaffold(
       key: const Key('settings-screen'),
-      appBar: AppBar(
+      appBar: BreakdownAppBar(
         key: const Key('settings-appbar'),
-        title: Text(l10n.settingsTitle),
+        title: l10n.settingsTitle,
       ),
       body: ListView(
         key: const Key('settings-list'),

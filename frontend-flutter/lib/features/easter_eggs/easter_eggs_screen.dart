@@ -14,6 +14,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../ai_import/clippy/clippy_trigger.dart';
 import '../ai_import/clippy/karl_kleiderbuegel_figure.dart';
 import 'dejavu_cat.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Dedicated Easter-eggs management screen (issue #708, analogous to the
 /// AI-configuration screen, issue #643): pushed from the settings entry
@@ -36,9 +37,9 @@ class EasterEggsScreen extends ConsumerWidget {
     final l10n = l10nOf(context);
     return Scaffold(
       key: const Key('easter-eggs-screen'),
-      appBar: AppBar(
+      appBar: BreakdownAppBar(
         key: const Key('easter-eggs-appbar'),
-        title: Text(l10n.settingsEasterEggsScreenTitle),
+        title: l10n.settingsEasterEggsScreenTitle,
       ),
       body: ListView(
         key: const Key('easter-eggs-list'),

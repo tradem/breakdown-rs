@@ -14,6 +14,7 @@ import '../../l10n/app_localizations_provider.dart';
 import 'ai_disclosure_screen.dart';
 import 'app_info_controller.dart';
 import 'credits_screen.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Source repository linked from the About screen (spec
 /// `flutter-app-dialogs`: AGPL-3.0 license + source link).
@@ -88,9 +89,9 @@ class AppInfoScreen extends ConsumerWidget {
     final l10n = l10nOf(context);
     return Scaffold(
       key: const Key('app-info-screen'),
-      appBar: AppBar(
+      appBar: BreakdownAppBar(
         key: const Key('app-info-appbar'),
-        title: Text(l10n.infoTitle),
+        title: l10n.infoTitle,
       ),
       body: ListView(
         key: const Key('app-info-list'),

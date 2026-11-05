@@ -34,6 +34,7 @@ import 'setup/setup_wizard_screen.dart';
 import 'widgets/season_card.dart';
 import 'widgets/seasons_empty_state.dart';
 import 'widgets/seasons_skeleton.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Localized client-side copy for a create-command failure, keyed on the
 /// stable problem `code` (AGENTS.md §5 — never branch on / show the server's
@@ -91,8 +92,8 @@ class SeasonsScreen extends ConsumerWidget {
     final canCreate = _canCreateSeason(ref);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.seasonsTitle),
+      appBar: BreakdownAppBar(
+        title: l10n.seasonsTitle,
         // Manual/advanced create: the demoted alternative to the guided
         // wizard (issue #511). Fires the same command the sheet always
         // did; the series is derived, not typed.

@@ -175,21 +175,34 @@ class AppShellState extends ConsumerState<AppShell> {
           await SystemNavigator.pop();
         }
       },
-      child: IndexedStack(
-        key: const Key('shell-tab-stack'),
-        index: state.selectedIndex,
-        children: [
-          for (var i = 0; i < AppShell._tabRoots.length; i++)
-            Navigator(
-              key: tabNavigatorKeys[i],
-              restorationScopeId: 'shell-tab-$i',
-              observers: [tabLocationObservers[i]],
-              onGenerateRoute: (settings) => MaterialPageRoute<void>(
-                settings: settings,
-                builder: (_) => AppShell._tabRoots[i],
+      // Issue #824: the shell's top bar above this subtree ALREADY consumed the
+      // status-bar inset (`ShellTopBar` wraps itself in `SafeArea`). Because
+      // the tab content is its SIBLING, not its child, `padding.top` was still
+      // intact here and every pushed screen's `AppBar` (`primary: true`)
+      // applied it a SECOND time as blank space above the toolbar (~24–40 dp
+      // on device, invisible in goldens — they render zero view padding).
+      // Removing the top padding once, at this seam, is the single-count rule:
+      // the shell owns the status-bar area, the headers below it own only
+      // their toolbar.
+      child: MediaQuery.removePadding(
+        context: context,
+        removeTop: true,
+        child: IndexedStack(
+          key: const Key('shell-tab-stack'),
+          index: state.selectedIndex,
+          children: [
+            for (var i = 0; i < AppShell._tabRoots.length; i++)
+              Navigator(
+                key: tabNavigatorKeys[i],
+                restorationScopeId: 'shell-tab-$i',
+                observers: [tabLocationObservers[i]],
+                onGenerateRoute: (settings) => MaterialPageRoute<void>(
+                  settings: settings,
+                  builder: (_) => AppShell._tabRoots[i],
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
 

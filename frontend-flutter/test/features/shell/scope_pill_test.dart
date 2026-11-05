@@ -133,7 +133,7 @@ void main() {
     expect(find.byKey(const Key('active-scope-chip')), findsOneWidget);
     expect(find.byKey(const Key('active-episode-chip')), findsNothing);
     expect(find.text('Block wählen'), findsOneWidget);
-    expect(find.text('Season: Shell Season'), findsOneWidget);
+    expect(find.text('1 · Shell Season'), findsOneWidget);
 
     // Block scope set: the episode pill appears, neutral and actionable.
     setBlock(container);
@@ -205,6 +205,47 @@ void main() {
     expect(seenEpisodeBlock, 'b-1');
   });
 
+  // Issue #825: the season pill mirrors the episode pill's "number always
+  // precedes the name" rule (issue #709). The three arms are pinned
+  // explicitly because the retired `title ?? default` composition got each
+  // of them wrong in a different way (number lost / term doubled / a bare
+  // "Season: " for an empty title).
+  group('season pill label (issue #825)', () {
+    Future<void> pumpWithSeason(WidgetTester tester, SeasonView s) async {
+      final container = makeContainer();
+      await pumpPills(tester, container);
+      container.read(shellControllerProvider.notifier).setActiveSeason(s);
+      await settle(tester);
+    }
+
+    testWidgets('a named season renders "<number> · <name>"', (tester) async {
+      await pumpWithSeason(
+        tester,
+        season('season-1', number: 1, title: 'Dreharbeiten 2026'),
+      );
+      expect(find.text('1 · Dreharbeiten 2026'), findsOneWidget);
+    });
+
+    testWidgets('a null title renders the number-only form', (tester) async {
+      await pumpWithSeason(tester, season('season-1', number: 1));
+      expect(find.text('Season 1'), findsOneWidget);
+    });
+
+    testWidgets('an EMPTY title renders the number-only form', (tester) async {
+      // The live dev season is exactly this: `title = ''` off the wire, which
+      // defeated the `??` fallback and rendered a bare "Season: ".
+      await pumpWithSeason(tester, season('season-1', number: 1, title: ''));
+      expect(find.text('Season 1'), findsOneWidget);
+    });
+
+    testWidgets('a whitespace-only title renders the number-only form', (
+      tester,
+    ) async {
+      await pumpWithSeason(tester, season('season-1', number: 1, title: '  '));
+      expect(find.text('Season 1'), findsOneWidget);
+    });
+  });
+
   testWidgets('pills keep a 48dp touch target', (tester) async {
     final container = makeContainer();
     await pumpPills(tester, container);
@@ -235,11 +276,6 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       final container = makeContainer();
-      setSeason(container);
-      if (allSelected) {
-        setBlock(container);
-        setEpisode(container);
-      }
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -272,6 +308,17 @@ void main() {
           ),
         ),
       );
+      await settle(tester);
+      // Issue #825: the scope must be set AFTER the first pump — the
+      // controller re-derives its restored state on first read, so a
+      // pre-pump `setActiveSeason` was silently dropped and these goldens
+      // captured the NEUTRAL pill under a "selected" name. Setting it here
+      // makes the capture actually pin the label shape.
+      setSeason(container);
+      if (allSelected) {
+        setBlock(container);
+        setEpisode(container);
+      }
       await settle(tester);
       // Let the chip tooltips' timers drain before the golden capture
       // (fake-async advance, no wall clock).

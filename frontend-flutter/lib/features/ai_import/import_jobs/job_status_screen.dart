@@ -23,6 +23,7 @@ import 'job_cost_card.dart';
 import 'job_eta.dart';
 import 'job_status_controller.dart';
 import 'preview_screen.dart';
+import '../../../design/components/breakdown_app_bar.dart';
 
 /// The job-status screen (`flutter-ai-import-workflow` task 3.2).
 ///
@@ -69,7 +70,7 @@ class AiJobStatusScreen extends ConsumerWidget {
     };
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).aiJobTitle)),
+      appBar: BreakdownAppBar(title: l10nOf(context).aiJobTitle),
       body: KarlKleiderbuegelOverlay(
         flowState: clippyState,
         child: ListView(

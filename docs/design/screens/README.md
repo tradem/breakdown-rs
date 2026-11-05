@@ -155,10 +155,28 @@ does not duplicate it.
 @endsalt
 ```
 
+### Header rule (every pushed screen, issue #824)
+
+Every pushed screen's header is the shared `BreakdownAppBar` — back arrow,
+title, optional actions. A screen spec therefore never states a header height
+and never adds a top inset:
+
+- **Height** comes from the theme (`HeaderMetrics.toolbarHeight`): one title
+  line (28 dp) plus two 8 dp breathing steps, floored at the 48 dp Material
+  interactive-dimension minimum the back button needs — 48 dp today, NOT a
+  per-screen `toolbarHeight` literal.
+- **Title** is ONE line with a trailing ellipsis. A whole sentence (e.g. a
+  scene summary) belongs in the body; the header states identity only.
+- **Status bar** is counted exactly ONCE: the shell's top bar owns that inset,
+  and the tab content below it is inset-removed at the shell seam. A pushed
+  header starts directly where the shell bar ends.
+- **Back affordance** keeps a ≥ 48 dp touch target and pops one route.
+
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| App bar title | Top app bar | Screen identity | `quickcheck.title` |
+| App bar title | Top app bar (`BreakdownAppBar`) | Screen identity — ONE line, ellipsized (see the header rule above) | `quickcheck.title` |
+| Back affordance | Leading icon button | Returns to the pushing screen; ≥ 48 dp touch target | `commonBack` |
 | Character row | List item | Opens costume detail | `nav.characters` |
 | Stale banner | Banner | Connection lost indicator | `errors.connectionLost` |
 

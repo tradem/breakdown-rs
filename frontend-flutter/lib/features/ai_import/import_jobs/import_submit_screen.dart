@@ -29,6 +29,7 @@ export '../../../data/ai_import_repository.dart' show AiUploadAck;
 export 'import_state.dart' show AiImportDocument, AiImportKind;
 import 'import_submit_controller.dart';
 import 'job_status_screen.dart';
+import '../../../design/components/breakdown_app_bar.dart';
 
 /// The AI-import submission screen (`flutter-ai-import-workflow` task
 /// 3.1): kind picker (schedule CSV/PDF, script PDF), file-only document
@@ -60,8 +61,8 @@ class AiImportSubmitScreen extends ConsumerWidget {
     final target = aiImportResolvedScope(resolution);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10nOf(context).aiImportTitle),
+      appBar: BreakdownAppBar(
+        title: l10nOf(context).aiImportTitle,
         actions: [
           IconButton(
             key: const Key('ai-import-open-config'),
