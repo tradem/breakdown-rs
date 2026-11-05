@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../seasons/season_display_label.dart';
 import '../seasons/seasons_screen.dart';
 import 'planning_location.dart';
 import 'production_overview_screen.dart';
@@ -33,6 +34,11 @@ import 'shell_controller.dart';
 ///   season scope picker;
 /// - **active season** → the season's label in the level highlight color.
 ///
+/// Issue #825: the label always leads with the season NUMBER — „1 · Name"
+/// for a named season, „Season 1" for an unnamed (null **or** blank) one,
+/// exactly mirroring the episode pill's rule (issue #709). The `Season: `
+/// wrapper is retired so the two pills read alike.
+///
 /// // AUTHZ-GATE: the chip is display + navigation only — it dispatches no
 // command and performs no network call (the picker's season read is the
 // seasons projection the seasons overview already reads), so it needs no
@@ -54,8 +60,10 @@ class SeasonScopeChip extends ConsumerWidget {
       key: const Key('season-scope-chip'),
       label: season == null
           ? l10n.scopeChipSeasonUnset
-          : l10n.scopeChipSeason(
-              season.title ?? l10n.seasonsDefaultTitle(season.number),
+          : seasonDisplayLabel(
+              l10n,
+              number: season.number,
+              title: season.title,
             ),
       selected: season != null,
       selectedColor: scheme.primaryContainer,
@@ -158,7 +166,11 @@ class SeasonScopePickerScreen extends ConsumerWidget {
                         : Theme.of(context).colorScheme.outline,
                   ),
                   title: Text(
-                    season.title ?? l10n.seasonsDefaultTitle(season.number),
+                    seasonDisplayLabel(
+                      l10n,
+                      number: season.number,
+                      title: season.title,
+                    ),
                   ),
                   onTap: () => _pickSeason(context, ref, season),
                 ),

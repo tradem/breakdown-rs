@@ -80,7 +80,7 @@ Compact (window < 600dp) — bottom navigation bar:
 ```plantuml
 @startsalt
 {
-  { [ {account_circle} ] | "Season: {n}" | "Block: {n}" | "Episode {n}" }
+  { [ {account_circle} ] | "{n} · {name}" | "Block: {n}" | "Episode {n}" }
   { "Cast" | "Season > Block > Episode" | [ {search} ] }
   --
   { "View-Inhalt" }
@@ -97,7 +97,7 @@ Medium (600–839dp) — navigation rail beside the content:
 {
   {^ [face Cast]
      [menu_book Script]
-     [calendar_month Schedule/Dispo] | { { [ {account_circle} ] | "Season: {n}" | "Block: {n}" | "Episode {n}" }
+     [calendar_month Schedule/Dispo] | { { [ {account_circle} ] | "{n} · {name}" | "Block: {n}" | "Episode {n}" }
         { "Cast" | "Season > Block > Episode" | [ {search} ] }
         ---
         "View-Inhalt" } }
@@ -112,7 +112,7 @@ Expanded (≥ 840dp) — permanent navigation drawer:
 {
   {^ "Cast" (face)
      "Script" (menu_book)
-     "Schedule/Dispo" (calendar_month) | { { [ {account_circle} ] | "Season: {n}" | "Block: {n}" | "Episode {n}" }
+     "Schedule/Dispo" (calendar_month) | { { [ {account_circle} ] | "{n} · {name}" | "Block: {n}" | "Episode {n}" }
         { "Cast" | "Season > Block > Episode" | [ {search} ] }
         ---
         "View-Inhalt" } }
@@ -131,7 +131,7 @@ longer chain wraps as described in the Row 2 bullet.
 |---|---|---|---|
 | Shell top bar | Sticky two-row surface | Status-bar inset in every morphology; pinned above the view content | — |
 | Profile action | Icon button with tooltip + labeled sheet entries | Identity, Über die App, Einstellungen, Abmelden (never the costume categories). Left-most element of row 1 | `profileTooltip` |
-| Season scope pill | Assist pill (fully rounded) | The active season; a neutral "Season wählen" pill when unset — always present, because it is the only affordance that can set a season. Selected fill: primary container | `scopeChipSeason` / `scopeChipSeasonUnset` |
+| Season scope pill | Assist pill (fully rounded) | The active season; a neutral "Season wählen" pill when unset — always present, because it is the only affordance that can set a season. Selected fill: primary container. The label ALWAYS leads with the season number (issue #825): `<number> · <name>` for a named season, the number-only form for a season with no name (`null` or blank) — the same "number precedes the name" rule as the episode pill | `seasonsDefaultTitle` / `seasonNumberName` / `scopeChipSeasonUnset` |
 | Block scope pill | Assist pill (fully rounded) | The sticky block filter; neutral "Block wählen" once a season is active but no block is set. Selected fill: secondary container. Keeps the unknown-block and foreign-season narratives | `scopeChipBlock` / `scopeChipUnknownBlock` / `scopeChipForeignSeason` / `scopeChipBlockUnset` |
 | Episode scope pill | Assist pill (fully rounded) | The sticky active-episode target the quick-create entries act on; neutral "Episode wählen" once a block is scoped but no episode is set. Selected fill: tertiary container | `episodeChipTooltip` / `episodeChipUnset` |
 | Pill visibility | Prerequisite rule | Season always; block once a season is active (or a block scope is set); episode once a block is scoped (or an episode scope is set). A level is never offered before its prerequisite exists | — |
