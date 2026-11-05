@@ -205,7 +205,6 @@
   "aiJobRetryBudget": "Retry {retries} of {maxRetries}",
   "aiJobsTitle": "AI import jobs",
   "aiJobsEmpty": "No AI import started yet.",
-  "aiJobsEmptyCta": "Start an AI import",
   "aiJobsActiveBadge": "Active jobs: {count}",
   "aiJobsRowSubtitle": "{kind} · {date}",
   "aiJobsRowKindEpisode": "{kind} · {episode}",

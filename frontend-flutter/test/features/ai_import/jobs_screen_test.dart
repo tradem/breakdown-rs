@@ -1353,18 +1353,79 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('empty state: honest "no import yet" copy + CTA that '
-        'pushes the import entry', (tester) async {
+    testWidgets('empty state: honest "no import yet" copy and NO CTA — the '
+        'plus action owns the create path (issue #823)', (tester) async {
       await setupContainer(listResult: Right(<AiImportJob>[]));
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('ai-jobs-empty')), findsOneWidget);
       expect(find.textContaining('No AI import started yet'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('ai-jobs-empty-cta')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+      // The former `ai-jobs-empty-cta` is gone: a second path to the same flow
+      // on the same screen, and it vanished exactly when the list stopped
+      // being empty. The FAB is available in every list state.
+      expect(find.byKey(const Key('ai-jobs-empty-cta')), findsNothing);
+    });
+
+    testWidgets('the Import action carries the button role and the visible '
+        'entry label (issue #823)', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await setupContainer(listResult: Right([_job('job-1')]));
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-jobs-plus-fab')), findsOneWidget);
+      // Named after what it does — NOT the shell's generic „Erstellen": the
+      // sheet offers exactly one thing, so the label states it.
+      expect(find.text('Import'), findsOneWidget);
+      expect(
+        find.semantics.byPredicate(
+          (n) => n.label == 'Import' && n.flagsCollection.isButton,
+        ),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('the Import action opens a ONE-entry sheet that pushes the '
+        'submit flow on the root navigator (issue #823)', (tester) async {
+      await setupContainer(listResult: Right([_job('job-1')]));
+      await pumpScreen(tester);
+
+      await tester.tap(find.byKey(const Key('ai-jobs-plus-fab')));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.byKey(const Key('shell-quick-create-sheet')), findsOneWidget);
+      expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
+      // EXACTLY one entry: the shell's other rows do not belong to this
+      // surface (they need the shell's season/episode scope, or are not an
+      // import at all).
+      expect(find.byKey(const Key('quick-create-scene')), findsNothing);
+      expect(find.byKey(const Key('quick-create-shooting-day')), findsNothing);
+      expect(find.byKey(const Key('quick-create-wizard')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('quick-create-ai-import')));
+      for (var i = 0; i < 15; i++) {
+        await tester.pump(const Duration(milliseconds: 30));
+      }
+      // The sheet popped and the flow PUSHED on the root navigator, so it
+      // covers whatever hosted the jobs screen (the shell's tabs included).
+      expect(find.byKey(const Key('shell-quick-create-sheet')), findsNothing);
       expect(find.byType(AiImportSubmitScreen), findsOneWidget);
-      await tester.pump();
+    });
+
+    testWidgets('a signed-out session renders no Import action (AUTHZ-GATE '
+        'mirror, issue #823)', (tester) async {
+      await setupContainer(listResult: Right([_job('job-1')]));
+      await pumpScreen(tester);
+      expect(find.byKey(const Key('ai-jobs-plus-fab')), findsOneWidget);
+
+      await container!.read(authSessionControllerProvider.notifier).signOut();
+      // Bounded, computed pumps past the FAB's exit transition (the Scaffold
+      // keeps the outgoing FAB widget mounted for its removal animation).
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 30));
+      }
+      expect(find.byKey(const Key('ai-jobs-plus-fab')), findsNothing);
     });
 
     testWidgets('error state with no rows: copy keyed on the problem code '
