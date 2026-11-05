@@ -21,8 +21,9 @@ Reached from the main **Settings** screen's AI section — the
 persistent "KI-Import-Aufträge" tile (issue #644): always reachable,
 even when zero jobs need attention. Two further paths: the
 production-overview **active-jobs summary row** (shown while any known
-job needs attention) and, from the jobs screen's empty state, the CTA
-into the import entry. Every push carries `RouteSettings(name:
+job needs attention) and, since issue #823, the screen's own **plus
+action** (`ai-jobs-plus-fab`), which starts a new import from any list
+state. Every push carries `RouteSettings(name:
 'ai-import-jobs')`, so the apply outcome's "back to imports"
 `popUntil` contract resolves from any entry (the retained path for a
 successful apply whose destination could NOT be resolved — see
@@ -34,7 +35,9 @@ client resolves the authenticated session before the fetch (no session →
 no request) and denials surface through code-keyed copy
 (`jobWatchForbidden` / `aiJobsLoadError`), never backend `detail`. The
 sibling production-overview import entry keeps its block-scope gate —
-this screen does not weaken it (it dispatches no block-scoped write).
+this screen does not weaken it (it dispatches no block-scoped write); the
+plus action only OPENS a sheet, and the submit controller behind it keeps
+its own gates.
 
 ## Layout
 
@@ -56,6 +59,24 @@ this screen does not weaken it (it dispatches no block-scoped write).
   {^ "✔" "Erlösung Skript.pdf"
      "Skript · 299 Erlösung · 57 angewendet"
      "Import-Vorschau bereit."       [›]}
+  --
+  ( + Import ) — extended FAB, bottom-trailing (issue #823)
+}
+@endsalt
+```
+
+Empty state (same FAB — it is the screen's single create path, which is why
+the former CTA is gone):
+
+```plantuml
+@startsalt
+{
+  "KI-Import-Aufträge"
+  ==
+  "🕘"
+  "Noch kein KI-Import gestartet."
+  --
+  ( + Import ) — extended FAB, bottom-trailing (issue #823)
 }
 @endsalt
 ```
@@ -70,6 +91,7 @@ screen, on every window size.
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
 | Screen title | Top app bar (`BreakdownAppBar`) | Screen identity (plural) — one line, ellipsized (issue #824: 48 dp header, no extra top inset) | `aiJobsTitle` |
+| Plus action (Import) | Extended FAB (`PlusActionFab`, bottom-trailing, key `ai-jobs-plus-fab`) | Issue #823: starts a new import from THIS screen in every list state. Named after what it does (`navAiImport` — „Import"), not the shell's generic „Erstellen", because its sheet carries exactly one entry. Opens the shared quick-create sheet with that single „Import" row, which pushes `AiImportSubmitScreen` on the ROOT navigator (the flow covers the shell). Explicit BUTTON role, visible label, auth-gated (no action for a pending/erroring/signed-out session); the list reserves an 80 dp band plus the bottom system inset (`viewPadding.bottom`, the FAB's own safe margin) so the FAB never covers the last row on a device with a gesture/navigation bar | `navAiImport` + `quickCreateAiImportSubtitle` |
 | Job row | List item | Pushes the job status screen (the single-watch owner) | row key |
 | Row title | Text | The uploaded document's own file name, at most two lines then ellipsized (issue #763); a job without a name keeps „Drehplan · 1. Jan. 2026" | server `source_file_name`, else `aiJobsRowSubtitle` |
 | Row identity line | Text | The imported target once an apply ran: `Skript · 299 Erlösung · 57 angewendet`, `(+n)` for further episodes (issue #763); a named but unapplied row shows `kind · date` here instead, an unnamed one shows nothing (the title already carries it) | `aiJobsRowKindEpisode` / `aiJobsRowEpisodeMore` / `aiJobsRowEpisodeNumber` / `aiJobsRowEpisodeNumberName` / `aiJobsRowApplied` / `aiJobsRowSubtitle` |
@@ -82,7 +104,7 @@ screen, on every window size.
 | Last-error indicator | Icon | Presence indicator on rows carrying a server error detail; the raw text renders only on the status screen, as secondary detail | status glyph |
 | Stale banner | Banner | Failed refetch serving retained cached rows | `seasonsStaleBanner` |
 | Error state | Card + button | Copy keyed on the problem `code`; retry re-runs the list route | `aiJobsLoadError` / `aiJobCheckAgain` |
-| Empty state | Icon + text + button | Honest "no import yet" + CTA into the import entry | `aiJobsEmpty` / `aiJobsEmptyCta` |
+| Empty state | Icon + text (no button) | Honest "no import yet" narrative. Issue #823 dropped the former `ai-jobs-empty-cta`: the plus action is available in every list state, so a CTA that vanished with the first row was a second path to the same flow | `aiJobsEmpty` |
 | Settings AI-imports entry | List item (push, chevron) | Persistent entry from the Settings AI section (issue #644) | `settings.aiImports` + `settings.aiImportsSubtitle` |
 | Production-overview summary row | List item | Visible while any known job needs attention (any non-`succeeded` status) | `planningActiveJobRow` / `aiJobsActiveBadge` |
 
@@ -90,18 +112,22 @@ screen, on every window size.
 
 Loading: skeleton rows (visible only before the very first cache seed —
 the cached-first paint makes cold starts render rows immediately). Data:
-newest-first rows. Empty: honest "no import yet" with the import CTA.
-Error: full error state when no rows are retained; a banner above the
-retained rows otherwise — both keyed on the stable problem `code`, never
-`detail`. Stale: the shared cache-staleness banner when a failed refetch
-left only cached rows. There is NO optimistic layer: this boundary
-dispatches no commands.
+newest-first rows. Empty: honest "no import yet" narrative — no CTA, the
+plus action is the create path in every state. Error: full error state when
+no rows are retained; a banner above the retained rows otherwise — both
+keyed on the stable problem `code`, never `detail`. Stale: the shared
+cache-staleness banner when a failed refetch left only cached rows. There
+is NO optimistic layer: this boundary dispatches no commands.
 
 ## Interactions
 
 Row tap pushes the job status screen, which arms the single foreground
 watch (D5) and owns the re-arm (`aiJobCheckAgain`) and preview
 (`aiJobReviewPreview`) affordances; leaving it disposes the watch. The
+plus action opens the one-entry quick-create sheet and issues no request
+itself (issue #823): the sheet pops and the „Import" entry pushes the
+submit flow on the root navigator, where the submit controller's own
+AUTHZ gate and block-scope gate apply. The
 list itself arms NO watch and dispatches nothing — pull-to-refresh
 re-runs exactly the list route, which is the status authority for rows;
 there is no per-row polling and no fabricated progress indicator (the
@@ -383,6 +409,13 @@ first frame, then the determinate row counter with its stage line and a coarse
 ETA — no fabricated percentage, no animation-only feedback.
 
 ## Tests
+
+Widget tests (issue #823): the screen's plus action renders for a resolved
+session (button role, visible „Import" label), opens a sheet with exactly
+one runnable entry and pushes `AiImportSubmitScreen` on the root navigator;
+the empty state renders its narrative WITHOUT a CTA; a signed-out session
+renders no plus action. Goldens: {light,dark}×{android,macos} for the list
+and the cost rows (the FAB is part of both baselines).
 
 Widget tests (issue #759): a successful apply with a scripted repository
 leaves the preview, selects the Script destination with the imported episode

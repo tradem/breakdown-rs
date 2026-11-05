@@ -17,12 +17,15 @@ import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../../../l10n/locale_formatters.dart';
 import '../../../data/ai_import_providers.dart';
-import 'import_submit_screen.dart' show AiImportSubmitScreen;
+import '../../../design/components/breakdown_app_bar.dart';
+import '../../../design/components/plus_action_fab.dart';
+import '../../../auth/auth_providers.dart';
+import '../../shell/quick_create_sheet.dart'
+    show aiImportJobsQuickCreateActions, showQuickCreateSheet;
 import 'job_cost_card.dart' show aiJobCostMetricIcon;
 import 'job_status_screen.dart';
 import 'import_state.dart' show aiJobStageCopy;
 import 'jobs_controller.dart';
-import '../../../design/components/breakdown_app_bar.dart';
 
 /// The AI-import **jobs screen** (issue #547): the "what did I import"
 /// surface over the previously-unused `GET /v1/ai-import/jobs` wiring.
@@ -41,6 +44,13 @@ import '../../../design/components/breakdown_app_bar.dart';
 /// The sibling AI-import entry in the production overview keeps its
 /// block-scope gate (`import_submit_controller.dart`); this entry does
 /// not weaken it — the list itself issues no block-scoped write.
+///
+/// Issue #823: the screen is the SECOND home of the plus action (the Script
+/// destination is the first). Its sheet carries exactly ONE entry —
+/// „Import" — because the import is the only thing this surface creates, and
+/// the FAB is labelled with that entry (`navAiImport`) instead of the shell's
+/// generic „Erstellen". The empty state carries no CTA: the FAB is the
+/// screen's single create path in every list state.
 class AiImportJobsScreen extends ConsumerWidget {
   const AiImportJobsScreen({super.key});
 
@@ -52,6 +62,17 @@ class AiImportJobsScreen extends ConsumerWidget {
         ref.watch(aiImportJobsViewControllerProvider).isLoading &&
         state.rows.isEmpty;
 
+    // AUTHZ-GATE (issue #823, client-side mirror of the backend's
+    // handler-internal authorization — Decision D6): opening the quick-create
+    // sheet is `Requirement::Authenticated`-gated UI, because every flow it
+    // deep-links (the AI-import submit included) is auth-gated server-side.
+    // A pending, erroring or signed-out session renders NO Import action (the
+    // same rule the shell's plus action and the seasons FAB follow); the
+    // pushed submit controller re-gates before any network call, and the
+    // sheet itself issues no request.
+    final session = ref.watch(authSessionControllerProvider);
+    final canImport = session is AsyncData && session.value != null;
+
     // Karl Kleiderbügel flow state (issue #516): derived ONLY from this
     // screen's own watched state — never from a second projection call.
     final clippyState = state.error != null && state.rows.isEmpty
@@ -62,22 +83,64 @@ class AiImportJobsScreen extends ConsumerWidget {
         ? ClippyFlowState.queued
         : ClippyFlowState.idle;
 
+    // The FAB's own clearance band keeps the list's last row out from under
+    // it (the same 80 dp the shell reserves for its compact FAB, issue
+    // #623): the jobs screen floats the action over a full-width list in
+    // every window class, so the band is applied unconditionally — but only
+    // while the action itself renders (auth-gate symmetry).
+    //
+    // The system's bottom inset is ADDED to the constant (CodeRabbit review
+    // on #848): this Scaffold has no bottom bar, so its body runs to the
+    // PHYSICAL bottom, while the floating FAB keeps `kFloatingActionButtonMargin`
+    // PLUS `viewPadding.bottom` above it (the `FabFloatOffsetY` safe margin).
+    // Without the inset the band ends 8 dp above the FAB's top edge only on a
+    // gesture-bar-free device; on a device with a >8 dp bottom inset the last
+    // row (and its trailing delete action) stayed under the FAB. The shell's
+    // docked FAB needs no such addend: its `bottomNavigationBar` already
+    // consumes the inset, so the compact band is measured from the bar's top.
+    final bottomClearance = canImport
+        ? kPlusActionFabBottomClearance +
+              MediaQuery.viewPaddingOf(context).bottom
+        : 0.0;
+
     return Scaffold(
       appBar: BreakdownAppBar(title: l10n.aiJobsTitle),
+      // The screen's plus action (issue #823): own key, own label — its
+      // sheet has one entry, so it is named after what it does.
+      floatingActionButton: canImport
+          ? PlusActionFab(
+              fabKey: const Key('ai-jobs-plus-fab'),
+              label: l10n.navAiImport,
+              onPressed: () => unawaited(
+                showQuickCreateSheet(
+                  context,
+                  actions: aiImportJobsQuickCreateActions(l10n),
+                ),
+              ),
+            )
+          : null,
       body: KarlKleiderbuegelOverlay(
         flowState: clippyState,
-        child: RefreshIndicator(
-          onRefresh: () =>
-              ref.read(aiImportJobsViewControllerProvider.notifier).refresh(),
-          child: Builder(
-            builder: (context) {
-              if (loading) return const _JobsSkeleton();
-              if (state.error != null && state.rows.isEmpty) {
-                return _JobsError(state: state);
-              }
-              if (state.rows.isEmpty) return const _JobsEmpty();
-              return _JobsList(state: state);
-            },
+        // Issue #823: reserve the plus action's band below the content in
+        // EVERY list state (empty, loading, data, error), so the floating
+        // FAB never covers a row — the same clearance the shell's docked
+        // FAB reserves (issue #623). The overlay's Karl bubble sits
+        // bottom-LEADING and stays clear of the action.
+        child: Padding(
+          padding: EdgeInsets.only(bottom: bottomClearance),
+          child: RefreshIndicator(
+            onRefresh: () =>
+                ref.read(aiImportJobsViewControllerProvider.notifier).refresh(),
+            child: Builder(
+              builder: (context) {
+                if (loading) return const _JobsSkeleton();
+                if (state.error != null && state.rows.isEmpty) {
+                  return _JobsError(state: state);
+                }
+                if (state.rows.isEmpty) return const _JobsEmpty();
+                return _JobsList(state: state);
+              },
+            ),
           ),
         ),
       ),
@@ -415,8 +478,10 @@ IconData jobStatusIcon(JobStatus? status) => switch (status) {
   _ => Icons.help_outline,
 };
 
-/// Honest empty state: "no import yet" — with the CTA to the import
-/// entry (the submit screen), never a fabricated list.
+/// Honest empty state: "no import yet" — plain narrative. The screen's
+/// plus action (issue #823) is the single path into the import entry in
+/// EVERY list state, so the former empty-state CTA was a second path to the
+/// same flow and is gone.
 class _JobsEmpty extends StatelessWidget {
   const _JobsEmpty();
 
@@ -439,23 +504,6 @@ class _JobsEmpty extends StatelessWidget {
             l10n.aiJobsEmpty,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyLarge,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.space16),
-        Center(
-          child: FilledButton(
-            key: const Key('ai-jobs-empty-cta'),
-            onPressed: () {
-              // Fire-and-forget navigation (no result consumed).
-              unawaited(
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AiImportSubmitScreen(),
-                  ),
-                ),
-              );
-            },
-            child: Text(l10n.aiJobsEmptyCta),
           ),
         ),
       ],

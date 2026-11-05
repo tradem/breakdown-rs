@@ -743,9 +743,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiJobsEmpty => 'No AI import started yet.';
 
   @override
-  String get aiJobsEmptyCta => 'Start an AI import';
-
-  @override
   String aiJobsActiveBadge(Object count) {
     return 'Active jobs: $count';
   }

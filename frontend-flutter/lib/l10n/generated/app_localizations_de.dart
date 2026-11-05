@@ -757,9 +757,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiJobsEmpty => 'Noch kein KI-Import gestartet.';
 
   @override
-  String get aiJobsEmptyCta => 'KI-Import starten';
-
-  @override
   String aiJobsActiveBadge(Object count) {
     return 'Aktive Aufträge: $count';
   }

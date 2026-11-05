@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
+import '../../design/components/plus_action_fab.dart';
 import '../../design/material_icons.dart';
 import '../../auth/active_episode.dart';
 import '../../auth/active_episode_store.dart';
@@ -55,10 +56,10 @@ String tabSemanticLabel(
 const int kDestinationCount = 3;
 
 /// Bottom clearance the compact morphology reserves for the shell's
-/// extended plus FAB (CodeRabbit review #623): the FAB's 56 height + its
-/// 16 docked margin above the bar + 8 breathing room, so the tab lists'
-/// last row never renders beneath the persistent FAB.
-const double kShellFabBottomClearance = 80;
+/// extended plus FAB (CodeRabbit review #623, now issue #823): the value
+/// lives with the affordance itself
+/// ([kPlusActionFabBottomClearance]), because the AI-import jobs screen
+/// needs the same band below its list.
 
 /// The adaptive three-destination navigation shell (issue #610, spec
 /// `flutter-navigation-shell`, design D1–D3).
@@ -209,10 +210,12 @@ class AppShellState extends ConsumerState<AppShell> {
     // Issue #548: the hierarchy context surface lives in the SHELL (not in
     // each screen's app bar) — one surface, all three morphologies, the
     // ~60 per-feature goldens pump their screens directly and stay
-    // untouched. [bottomClearance] reserves space under the shell's
-    // persistent plus FAB so the LAST list row never renders beneath it
+    // untouched. [bottomClearance] reserves space under the destination's
+    // plus action so the LAST list row never renders beneath it
     // (CodeRabbit review #623 — compact-only: the medium/expanded FAB
-    // floats over the content area's bottom-right where no tab list ends).
+    // floats over the content area's bottom-right where no tab list ends —
+    // and, since issue #823, only on the destination that actually renders
+    // the action).
     Widget contentWithLocation({double bottomClearance = 0}) => Column(
       children: [
         // Issue #638: the shell owns the sticky two-row top bar (row 1:
@@ -229,65 +232,76 @@ class AppShellState extends ConsumerState<AppShell> {
         // inside the tabs; it animates in/out with connectivity changes.
         const OfflinePill(),
         Expanded(child: content),
-        if (bottomClearance > 0) SizedBox(height: bottomClearance),
+        if (bottomClearance > 0)
+          // Keyed so tests can assert the band's PRESENCE per destination
+          // (issue #823): a bare height predicate would also match the M3
+          // NavigationBar's own 80 dp SizedBox.
+          SizedBox(
+            key: const Key('shell-plus-fab-clearance'),
+            height: bottomClearance,
+          ),
       ],
     );
 
     // AUTHZ-GATE (issue #612, client-side mirror, Decision D6): the
     // quick-create sheet is `Requirement::Authenticated`-gated UI — the
     // backend create/import handlers are auth-gated server-side, so the
-    // shell plus action renders only for a RESOLVED authenticated session
+    // plus action renders only for a RESOLVED authenticated session
     // (a pending/erroring session shows nothing, same rule as the seasons
     // FAB). The pushed flows gate further inside their controllers BEFORE
     // any network call; the sheet itself issues no request, so the
     // `grep AUTHZ-GATE` contract travels with this comment.
+    //
+    // Issue #823: the plus action is NO LONGER a shell-level affordance.
+    // It renders on the SCRIPT destination only — the one destination whose
+    // create entries (context-scoped Szene/Drehtag, plus Import and the
+    // setup wizard) make sense there. Cast (roster/pieces) and Schedule
+    // (day board) carry their own per-screen FABs for what they actually
+    // create, and a generic „Erstellen" there advertised flows that did not
+    // apply to them. The scope is the DESTINATION, not the route: a pushed
+    // scene detail inside the Script tab keeps the destination's plus
+    // action.
     final session = ref.watch(authSessionControllerProvider);
     final canCreate = session is AsyncData && session.value != null;
-    // Explicit accessible BUTTON role (CodeRabbit review #623):
-    // FloatingActionButton.extended builds on RawMaterialButton/InkWell,
-    // which expose the tap action but NOT the semantics button flag —
-    // screen readers announce the affordance without the "Schaltfläche"
-    // role. One wrapping Semantics fixes that at the affordance's root.
-    final plusFab = canCreate
-        ? Semantics(
-            button: true,
-            child: FloatingActionButton.extended(
-              key: const Key('shell-plus-fab'),
-              onPressed: () {
-                final activeSeasonId = ref
-                    .read(shellControllerProvider)
-                    .activeSeason
-                    ?.id;
-                final scope = ref.read(activeEpisodeProvider);
-                unawaited(
-                  showQuickCreateSheet(
-                    context,
-                    actions: shellQuickCreateActions(
-                      l10n,
-                      // Never offer scene/day for a scope whose season differs
-                      // from the active season (foreign-scope guard).
-                      episode: scope != null && scope.seasonId == activeSeasonId
-                          ? scope
-                          : null,
-                    ),
+    final showsPlusAction = canCreate && state.selectedIndex == kScriptTabIndex;
+    // Explicit accessible BUTTON role: see [PlusActionFab] — the shared
+    // component (issue #823) states the semantics rationale once, for both
+    // surfaces that render the plus action.
+    final plusFab = showsPlusAction
+        ? PlusActionFab(
+            fabKey: const Key('shell-plus-fab'),
+            label: l10n.shellPlusFabLabel,
+            onPressed: () {
+              final activeSeasonId = ref
+                  .read(shellControllerProvider)
+                  .activeSeason
+                  ?.id;
+              final scope = ref.read(activeEpisodeProvider);
+              unawaited(
+                showQuickCreateSheet(
+                  context,
+                  actions: shellQuickCreateActions(
+                    l10n,
+                    // Never offer scene/day for a scope whose season differs
+                    // from the active season (foreign-scope guard).
+                    episode: scope != null && scope.seasonId == activeSeasonId
+                        ? scope
+                        : null,
                   ),
-                );
-              },
-              // One Spotify-style plus action across ALL three morphologies
-              // (issue #612, settled decision): the FAB is an ACTION, not a
-              // destination — the destination contract (kDestinationCount,
-              // `shell-destination-*` keys) stays untouched.
-              icon: const Icon(Icons.add),
-              label: Text(l10n.shellPlusFabLabel),
-            ),
+                ),
+              );
+            },
           )
         : null;
 
-    // The shell carries its own Scaffold so the FAB is a shell-level
-    // affordance: in the compact morphology it sits on `bottomNavigationBar`
-    // and DOCKS above the bar (Material's FAB slot); in medium/expanded it
-    // floats at the content's bottom-right (no tab root carries its own FAB
-    // since #610, so there is no overlap).
+    // The shell carries its own Scaffold so the plus action is a
+    // destination-scoped affordance (issue #823 — it used to be shell-level
+    // on all three destinations): in the compact morphology it sits on
+    // `bottomNavigationBar` and DOCKS above the bar (Material's FAB slot); in
+    // medium/expanded it floats at the content's bottom-right (no tab root
+    // carries its own FAB since #610, so there is no overlap). The FAB is
+    // `null` on Cast and Schedule, which removes the affordance there without
+    // touching the destination contract.
     // Issue #653: the shell hosts the user ACCOUNT DRAWER (M3
     // NavigationDrawer, Spotify-style side overlay — never a bottom
     // sheet) on every morphology's Scaffold. It sits on the ROOT
@@ -304,9 +318,11 @@ class AppShellState extends ConsumerState<AppShell> {
         body: contentWithLocation(
           // CodeRabbit review #623: the extended FAB sits docked above the
           // bar (its 56 height + the 16 docked margin); without clearance
-          // the final list row renders BENEATH it. Gated: without a FAB
-          // there is nothing to avoid (auth-gate symmetry).
-          bottomClearance: canCreate ? kShellFabBottomClearance : 0,
+          // the final list row renders BENEATH it. Issue #823: the band is
+          // gated on the SAME predicate as the FAB — a destination without a
+          // plus action must not keep an 80 px dead strip at the bottom of
+          // every list.
+          bottomClearance: showsPlusAction ? kPlusActionFabBottomClearance : 0,
         ),
         bottomNavigationBar: ShellDestinations.navigationBar(
           selectedIndex: state.selectedIndex,

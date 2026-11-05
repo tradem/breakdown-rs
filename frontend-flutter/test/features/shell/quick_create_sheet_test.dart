@@ -250,4 +250,49 @@ void main() {
       expect(find.byKey(const Key('quick-create-wizard')), findsOneWidget);
     });
   });
+
+  // Issue #823: the AI-import jobs screen is the plus action's SECOND home.
+  // Its sheet carries exactly ONE entry — the import — built by the SAME
+  // helper as the shell's Import row, so the two lists can never drift in
+  // key, icon, copy or target; only their lengths differ.
+  group('AI-import jobs screen actions (issue #823)', () {
+    test('the jobs surface offers the import entry and nothing else', () {
+      final actions = aiImportJobsQuickCreateActions(AppLocalizationsDe());
+      expect(actions, hasLength(1));
+      expect(actions.single.key, const Key('quick-create-ai-import'));
+      expect(actions.single.routeBuilder(), isA<AiImportSubmitScreen>());
+      expect(actions.single.title, isNotEmpty);
+      expect(actions.single.subtitle, isNotEmpty);
+    });
+
+    test('the jobs entry IS the shell import entry (one helper, no drift)', () {
+      final shellImport = shellQuickCreateActions(AppLocalizationsDe())
+          .firstWhere((a) => a.key == const Key('quick-create-ai-import'));
+      final jobsImport = aiImportJobsQuickCreateActions(AppLocalizationsDe())
+          .single;
+      expect(jobsImport.key, shellImport.key);
+      expect(jobsImport.title, shellImport.title);
+      expect(jobsImport.subtitle, shellImport.subtitle);
+      expect(jobsImport.icon, shellImport.icon);
+      expect(jobsImport.routeBuilder(), isA<AiImportSubmitScreen>());
+      expect(shellImport.routeBuilder(), isA<AiImportSubmitScreen>());
+    });
+
+    testWidgets('the one-entry sheet renders only the Import row', (
+      tester,
+    ) async {
+      await pumpHarness(
+        tester,
+        actions: aiImportJobsQuickCreateActions(AppLocalizationsDe()),
+      );
+      await tester.tap(find.byKey(const Key('harness-open-sheet')));
+      await pumpFrames(tester);
+
+      expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
+      expect(find.byKey(const Key('quick-create-scene')), findsNothing);
+      expect(find.byKey(const Key('quick-create-shooting-day')), findsNothing);
+      expect(find.byKey(const Key('quick-create-wizard')), findsNothing);
+      expect(find.text('Import'), findsOneWidget);
+    });
+  });
 }

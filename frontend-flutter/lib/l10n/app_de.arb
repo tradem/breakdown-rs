@@ -205,7 +205,6 @@
   "aiJobRetryBudget": "Versuch {retries} von {maxRetries}",
   "aiJobsTitle": "KI-Import-Aufträge",
   "aiJobsEmpty": "Noch kein KI-Import gestartet.",
-  "aiJobsEmptyCta": "KI-Import starten",
   "aiJobsActiveBadge": "Aktive Aufträge: {count}",
   "aiJobsRowSubtitle": "{kind} · {date}",
   "aiJobsRowKindEpisode": "{kind} · {episode}",

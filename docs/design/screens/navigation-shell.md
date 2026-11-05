@@ -124,7 +124,9 @@ Static structure only: which destination is selected, the pill
 selected/unselected colors, the prerequisite visibility of the block and
 episode pills, and back behavior are covered in Interactions and Tests —
 never in the wireframes. The wireframes draw a chain that fits one line; a
-longer chain wraps as described in the Row 2 bullet.
+longer chain wraps as described in the Row 2 bullet. The plus action is
+likewise not drawn: these frames are destination-agnostic, and the action
+renders on the Script destination only (issue #823).
 
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
@@ -134,6 +136,7 @@ longer chain wraps as described in the Row 2 bullet.
 | Season scope pill | Assist pill (fully rounded) | The active season; a neutral "Season wählen" pill when unset — always present, because it is the only affordance that can set a season. Selected fill: primary container. The label ALWAYS leads with the season number (issue #825): `<number> · <name>` for a named season, the number-only form for a season with no name (`null` or blank) — the same "number precedes the name" rule as the episode pill | `seasonsDefaultTitle` / `seasonNumberName` / `scopeChipSeasonUnset` |
 | Block scope pill | Assist pill (fully rounded) | The sticky block filter; neutral "Block wählen" once a season is active but no block is set. Selected fill: secondary container. Keeps the unknown-block and foreign-season narratives | `scopeChipBlock` / `scopeChipUnknownBlock` / `scopeChipForeignSeason` / `scopeChipBlockUnset` |
 | Episode scope pill | Assist pill (fully rounded) | The sticky active-episode target the quick-create entries act on; neutral "Episode wählen" once a block is scoped but no episode is set. Selected fill: tertiary container | `episodeChipTooltip` / `episodeChipUnset` |
+| Plus action (Script destination only) | Extended FAB (`PlusActionFab`) | Issue #823 scopes the former shell-wide create affordance to the one destination whose entries make sense there: the extended FAB renders on **Script only** (all three morphologies — docked above the bottom bar in compact, floating at the content's bottom-right in medium/expanded) and stays available on routes pushed inside that destination. Cast and Schedule render **no** plus action and reserve **no** bottom clearance (the 80 dp band is gated on the same predicate as the FAB). Explicit accessible BUTTON role, visible label (never icon-only); it opens the quick-create sheet with the unchanged entry set (context-scoped „Szene"/„Drehtag" only for an active episode of the active season, plus „Import" and „Season-Setup"). Auth-gated: a pending/erroring/signed-out session renders no plus action | `shellPlusFabLabel` |
 | Pill visibility | Prerequisite rule | Season always; block once a season is active (or a block scope is set); episode once a block is scoped (or an episode scope is set). A level is never offered before its prerequisite exists | — |
 | View title | Text (row 2, leading) | The active destination's visible title | `navCast` / `navScript` / `navSchedule` |
 | Location strip | Row 2, beside the title | The pushed hierarchy chain, one merged semantics node that always announces the full path; wraps onto a second line instead of dropping its outermost levels; hidden at destination roots | `locationStrip` |
@@ -170,7 +173,11 @@ episode from the previous block — the pills never show a pair that does not
 belong together.
 Tapping the profile action opens the profile sheet; tapping the search
 affordance opens the OmniSearch surface inside the active destination's
-navigator. System back: pops within the active destination first; at a
+navigator. The plus action exists on the Script destination only (issue
+#823): there it opens the quick-create sheet, whose entries push their
+full-screen flows on the root navigator; Cast and Schedule have no plus
+action, and the compact bottom clearance is reserved only where the FAB
+renders. System back: pops within the active destination first; at a
 destination root it does not switch destinations (no multi-hop pops); at
 the root of the initial (Cast) destination it requests app exit per
 platform convention. Sign-out from the profile menu resets the selected
@@ -195,7 +202,9 @@ German UI copy per glossary.
 ## Tests
 Widget tests: three morphologies via window-size overrides (360 / 700 /
 1000dp), label visibility, semantics ("Cast, Tab 1 von 3"), touch-target
-size; the status-bar inset (top bar never overlaps the simulated status
+size; the plus action's destination scope (present on Script in every
+morphology, absent on Cast and Schedule, no residual bottom clearance); the
+status-bar inset (top bar never overlaps the simulated status
 bar); the prerequisite visibility arms of the three scope pills and their
 per-level highlight color; the title + breadcrumb + search row. Destination
 state preservation and the back contract (no hop, exit at the Cast root).

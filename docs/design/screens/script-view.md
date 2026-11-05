@@ -25,6 +25,16 @@ empty state. AUTHZ-GATE: the view dispatches no command; the pushed detail
 screen keeps its own membership checks for the scene's character/costume
 writes.
 
+**The destination's create entry (issue #823).** The plus action (extended
+FAB, label „Erstellen") belongs to THIS destination: it is the only place in
+the shell that renders it, and it is the view's only direct path to „Szene
+anlegen"/„Drehtag anlegen" — the rows themselves only push the detail screen.
+It opens the quick-create sheet with the unchanged entry set; its two
+context-sensitive entries appear only for an active episode scope of the
+active season (the foreign-scope guard), and the sheet pushes the
+full-screen create pages on the root navigator. Cast and Schedule carry no
+such action, so this view owns the shell-level create affordance.
+
 **Post-import landing (issue #759).** The view is also the destination of a
 completed AI-import apply: after `POST /v1/ai-import/jobs/{id}/apply`
 succeeds, the app selects this destination with the sticky episode scope
@@ -72,6 +82,7 @@ degradation rules live in Interactions and States.
 | View title | Shell view bar (`navScript`); pushed screens under it use the shared 48 dp `BreakdownAppBar` with a one-line ellipsized title | The destination's own title | `navScript` |
 | Profile action | Icon button with tooltip | Identity, Über die App, Einstellungen, Abmelden | `profileTooltip` |
 | Scene row | List item with leading number avatar | Projected scene number as the visible label, scene summary as the title, its episode as the subtitle | `scriptSceneNumber` / `scriptSceneNumberUnknown` / `scriptEpisodeLabel` |
+| Plus action | Extended FAB (`PlusActionFab`, bottom-trailing) | The destination's create entry (issue #823): opens the quick-create sheet („Neue Szene", „Neuer Drehtag" for the active episode of the active season, plus „Import" and „Season-Setup"). Visible in all three morphologies and on routes pushed inside this destination; explicit BUTTON role, visible label; auth-gated. Compact reserves the 80 dp band so the docked FAB never covers the last row | `shellPlusFabLabel` + the entry keys |
 | Partial-load notice | List item | Names how many blocks / episodes could not be read (one notice per failed level) | `scriptPartialBlocks` / `scriptPartialLoad` |
 | Post-import report | Card (`primaryContainer`) with a close action; the detail lines scroll inside a cap of 45 % of the viewport height | The last apply's outcome, its skipped day groups, every row that did not become a look (with the reason) and the additional episodes of a multi-episode import, each with its row count. The card is a non-flex child of the view's `Column`, so the cap is what keeps a long report from pushing the scene list out of the viewport; the title row and its close action stay visible above the scroll area | `aiPostImportReportTitle` / `aiPostImportReportDismiss` / `aiPostImportReportOthersTitle` / `aiPostImportReportOtherEpisode` / `aiApplyOutcome` / `aiApplyOutcomeScript` / `aiApplyUnappliedOutfit` / `aiApplySkippedDayGroups` |
 | Empty state | Centered narrative | „Noch keine Szenen in dieser Season." | `scriptNoScenes` |
@@ -92,7 +103,9 @@ The list is a READ composition: blocks of the season → their episodes →
 their scenes, ordered by the projected scene number (unnumbered scenes sort
 last and say so). Pull-to-refresh re-runs the composition. Tapping a row
 pushes the scene detail. Selecting another season (scope picker) recomposes
-the view for that season. No command is dispatched from this view.
+the view for that season. No command is dispatched from this view; the plus
+action opens the quick-create sheet, and only the flows behind its entries
+dispatch commands.
 
 A completed AI-import apply publishes the report and switches the sticky
 scope to the imported episode; the view composes for that episode and shows
@@ -112,5 +125,7 @@ via keys; goldens use the German template locale.
 Unit (Tier 1): merge order, unnumbered-last, deterministic tie-break, and
 the provider's Ok/Err/partial branches. Widget (Tier 2): season-empty state,
 numbered rows, empty state, partial notice, error state, and the post-import
-report card (rendered, names the additional episodes, dismissible).
+report card (rendered, names the additional episodes, dismissible). The plus
+action's destination scope is covered in the shell's test suite (it is a
+shell affordance rendered for this destination).
 Goldens: the view root in {light, dark}.

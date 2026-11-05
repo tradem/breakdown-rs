@@ -1295,21 +1295,29 @@ void main() {
     });
   });
 
-  group('5.4 shell quick-create action (issue #612)', () {
+  group('5.4 shell quick-create action (issue #612, scoped by #823)', () {
+    /// Switches to a destination (the affordance is destination-scoped, so
+    /// every assertion below starts with an explicit selection).
+    Future<void> selectDestination(WidgetTester tester, int index) async {
+      await tester.tap(find.byKey(Key('shell-destination-$index')));
+      await pumpFrames(tester, n: 8);
+    }
+
     testWidgets('plus FAB carries the button role and the localized label', (
       tester,
     ) async {
       final semantics = tester.ensureSemantics();
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
+      await selectDestination(tester, kScriptTabIndex);
 
       // CodeRabbit review #623: assistive technology must announce the
       // FAB as an ACTION affordance with its localized VISIBLE label —
       // ONE merged semantics node carrying BOTH (German template suite;
       // the icon never carries the meaning alone, glossary rule). The
-      // shell wraps the FAB in `Semantics(button: true)` because
-      // FAB.extended's InkWell exposes the tap action but not the button
-      // flag.
+      // shared `PlusActionFab` (issue #823) wraps the FAB in
+      // `Semantics(button: true)` because FAB.extended's InkWell exposes the
+      // tap action but not the button flag.
       // Node-based assertion (same pattern as the destination-traversal
       // test; `getSemantics(byKey)` resolves the FAB's inner InkWell
       // container node, which carries neither label nor role).
@@ -1323,43 +1331,86 @@ void main() {
       // disposal BEFORE tearDown callbacks run).
       semantics.dispose();
     });
-    testWidgets('plus FAB exists on all three morphologies at the root', (
+
+    testWidgets('plus FAB exists on all three morphologies — Script only', (
       tester,
     ) async {
       await setupContainer();
+      // The ProviderContainer (and with it the selected destination) survives
+      // the re-pump, so every morphology pins the selection explicitly.
       for (final widthDp in [360.0, 700.0, 1000.0]) {
         await pumpShell(tester, widthDp: widthDp);
+        await selectDestination(tester, kCastTabIndex);
+        await pumpFrames(tester, n: 20, stepMs: 30);
+        // Issue #823: the default destination is Cast, which no longer
+        // carries the action...
+        expect(find.byKey(const Key('shell-plus-fab')), findsNothing);
+        await selectDestination(tester, kScriptTabIndex);
+        // ...and the Script destination carries it in every morphology.
         expect(find.byKey(const Key('shell-plus-fab')), findsOneWidget);
       }
     });
 
-    testWidgets('plus FAB opens the quick-create sheet from tab 1, 2, 3', (
+    testWidgets('Cast and Schedule render no plus action at all', (
       tester,
     ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
 
-      for (var tab = 0; tab < kDestinationCount; tab++) {
-        await tester.tap(find.byKey(Key('shell-destination-$tab')));
-        await pumpFrames(tester, n: 8);
-        await tester.tap(find.byKey(const Key('shell-plus-fab')));
-        await pumpFrames(tester, n: 8);
-        // The sheet lists BOTH v1 entries with VISIBLE labels.
-        expect(
-          find.byKey(const Key('shell-quick-create-sheet')),
-          findsOneWidget,
-        );
-        expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
-        expect(find.byKey(const Key('quick-create-wizard')), findsOneWidget);
-        // Dismiss for the next tab (swipe down).
-        await tester.drag(
-          find.byKey(const Key('shell-quick-create-sheet')),
-          const Offset(0, 400),
-        );
-        await pumpFrames(tester, n: 12);
-        // No stacked flow was pushed by the dismissal.
-        expect(find.byType(AiImportSubmitScreen), findsNothing);
+      for (final index in [kCastTabIndex, kScheduleTabIndex]) {
+        await selectDestination(tester, index);
+        // The Scaffold keeps the OUTGOING FAB in the tree for its removal
+        // animation — bounded, computed pumps (deterministic-tests rule).
+        await pumpFrames(tester, n: 20, stepMs: 30);
+        expect(find.byKey(const Key('shell-plus-fab')), findsNothing);
       }
+    });
+
+    testWidgets('the quick-create sheet opens from the Script destination', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+      await selectDestination(tester, kScriptTabIndex);
+
+      await tester.tap(find.byKey(const Key('shell-plus-fab')));
+      await pumpFrames(tester, n: 8);
+      // The entry set is UNCHANGED (issue #823 scopes WHERE the action
+      // renders, never WHAT it offers): both context-free v1 entries with
+      // VISIBLE labels.
+      expect(find.byKey(const Key('shell-quick-create-sheet')), findsOneWidget);
+      expect(find.byKey(const Key('quick-create-ai-import')), findsOneWidget);
+      expect(find.byKey(const Key('quick-create-wizard')), findsOneWidget);
+      // Dismiss (swipe down).
+      await tester.drag(
+        find.byKey(const Key('shell-quick-create-sheet')),
+        const Offset(0, 400),
+      );
+      await pumpFrames(tester, n: 12);
+      // No stacked flow was pushed by the dismissal.
+      expect(find.byType(AiImportSubmitScreen), findsNothing);
+    });
+
+    testWidgets('compact clearance is reserved only where the FAB renders', (
+      tester,
+    ) async {
+      // Keyed, not a height predicate: the M3 NavigationBar itself renders a
+      // `SizedBox(height: 80)`, so a bare 80 dp lookup would match the bar in
+      // every morphology.
+      final deadBand = find.byKey(const Key('shell-plus-fab-clearance'));
+
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      // The 80 dp band exists so a docked FAB cannot cover the last list
+      // row; without a FAB it must go (issue #823 — no dead band on Cast or
+      // Schedule).
+      expect(deadBand, findsNothing);
+      await selectDestination(tester, kScriptTabIndex);
+      expect(deadBand, findsOneWidget);
+      await selectDestination(tester, kCastTabIndex);
+      await pumpFrames(tester, n: 20, stepMs: 30);
+      expect(deadBand, findsNothing);
     });
 
     testWidgets('AI-import entry routes to the existing submit flow', (
@@ -1367,6 +1418,7 @@ void main() {
     ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
+      await selectDestination(tester, kScriptTabIndex);
 
       await tester.tap(find.byKey(const Key('shell-plus-fab')));
       await pumpFrames(tester, n: 8);
@@ -1384,6 +1436,7 @@ void main() {
     ) async {
       await setupContainer();
       await pumpShell(tester, widthDp: 360);
+      await selectDestination(tester, kScriptTabIndex);
       expect(find.byKey(const Key('shell-plus-fab')), findsOneWidget);
 
       // AUTHZ-GATE mirror: sign-out drops the authenticated-Affordance
@@ -1537,6 +1590,8 @@ void main() {
           );
       await pumpFrames(tester, n: 12);
 
+      // The plus action lives on the Script destination since issue #823.
+      await selectDestination(tester, kScriptTabIndex);
       await tester.tap(find.byKey(const Key('shell-plus-fab')));
       await pumpFrames(tester, n: 8);
 

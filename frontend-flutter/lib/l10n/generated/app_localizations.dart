@@ -1328,12 +1328,6 @@ abstract class AppLocalizations {
   /// **'Noch kein KI-Import gestartet.'**
   String get aiJobsEmpty;
 
-  /// No description provided for @aiJobsEmptyCta.
-  ///
-  /// In de, this message translates to:
-  /// **'KI-Import starten'**
-  String get aiJobsEmptyCta;
-
   /// No description provided for @aiJobsActiveBadge.
   ///
   /// In de, this message translates to:
