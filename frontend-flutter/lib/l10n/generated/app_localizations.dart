@@ -5174,11 +5174,17 @@ abstract class AppLocalizations {
   /// **'Derzeit konfiguriert: Anbieter {provider}, Modell {model}.'**
   String aiNamingLine(Object model, Object provider);
 
-  /// No description provided for @aiPreviewNamingProvider.
+  /// No description provided for @aiPreviewNamingUsed.
   ///
   /// In de, this message translates to:
-  /// **'Anbieter: {provider}'**
-  String aiPreviewNamingProvider(Object provider);
+  /// **'Verwendetes Modell: {pair}'**
+  String aiPreviewNamingUsed(Object pair);
+
+  /// No description provided for @aiPreviewNamingConfiguredDiffers.
+  ///
+  /// In de, this message translates to:
+  /// **'Derzeit konfiguriertes, abweichendes Modell: {pair}'**
+  String aiPreviewNamingConfiguredDiffers(Object pair);
 
   /// No description provided for @aiPreviewDecisionModelWarningTitle.
   ///

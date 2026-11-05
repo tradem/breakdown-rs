@@ -294,14 +294,46 @@ configuration state.
 
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| Provider/model header | Card (`surfaceContainerHighest`) as the FIRST child of the preview list, above the payload banner | Model as the primary line (`titleSmall`, ONE line, ellipsized — a curated id never pushes the rows off screen), provider as the secondary line (`labelLarge`), and the unchanged EU AI Act Art. 50 sentence as the caption, so promoting the facts does not weaken the disclosure. Shared with the submit/apply surfaces through ONE resolution (`aiNamingSentence`), so the wording cannot drift. The leading `memory_outlined` glyph reinforces only — the visible text carries the meaning | `aiNamingLine`, `aiPreviewNamingProvider` |
-| Honest degradation | The same card, one line | Unconfigured account OR failed discovery → the existing "no AI configuration" copy and NO model/provider line (a name is never invented); pending discovery → the loading note. A reload keeps the last resolved naming (`skipLoadingOnReload`) | `aiDisclosureNamingBodyUnconfigured`, `aiDisclosureNamingBodyLoading` |
+| Provider/model header | Card (`surfaceContainerHighest`) as the FIRST child of the preview list, above the payload banner | Model as the primary line (`titleSmall`, ONE line, ellipsized — a curated id never pushes the rows off screen), provider as the secondary line (`labelLarge`), and the unchanged EU AI Act Art. 50 sentence as the caption, so promoting the facts does not weaken the disclosure. Shared with the submit/apply surfaces through ONE resolution (`aiNamingSentence`), so the wording cannot drift. The leading `memory_outlined` glyph reinforces only — the visible text carries the meaning. **Since issue #831 this card names the pair the JOB ran with** — see the next section | `aiNamingLine`, `aiPreviewNamingUsed`, `aiPreviewNamingConfiguredDiffers` |
+| Honest degradation | The same card, one line | No job telemetry (an old job) or an unreadable job snapshot → the card cannot name a used pair, so it names the **configured** pair ONCE in the explicit "currently configured" wording and invents no comparison. Unconfigured account OR failed discovery (and no used pair) → the existing "no AI configuration" copy; pending discovery → the loading note. A reload keeps the last resolved naming (`skipLoadingOnReload`) | `aiNamingLine`, `aiDisclosureNamingBodyUnconfigured`, `aiDisclosureNamingBodyLoading` |
 | No Decision Model configured | Non-blocking card (`tertiaryContainer`) under the outcome line, directly above the payload/apply section | Renders ONLY for a RESOLVED configuration whose `decisionProvider`/`decisionModel` are unset. States the two factual consequences — Pass-2 wardrobe continuity suggestions and the scene/synopsis ratings are skipped — and that the import still runs. The action opens the AI configuration screen; the apply is never blocked. A pending discovery, an unconfigured account and a FAILED read render nothing (a failed read is not the fact "unset"). One instance only: the apply section sits in the same scroll view directly below, so a second card at the dispatch point would duplicate UI, not information | `aiPreviewDecisionModelWarningTitle`, `aiPreviewDecisionModelWarningBody`, `aiPreviewDecisionModelWarningAction` |
 
 The Decision Model state comes from `configuredAiNamingProvider` — the caller's
 newest non-revoked configuration, i.e. the same configuration the import
 handler resolves — so no extra endpoint, no extra call (one cached discovery
 per container), and no warning about somebody else's config.
+
+## Preview — the USED provider/model pair, not the configured one (issue #831)
+
+The reported defect: the header named the currently configured `AiConfigView`
+as its primary line, its provider beneath it, and then repeated the same pair
+in the caption — the configured model twice and the model that actually
+produced the rows never. The identity was on the wire all along, content-free:
+`AiImportJob.telemetry` (`provider` / `model`), the same pair the job cost card
+renders as identity chips.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Used pair (primary) | Text in the header card (`titleSmall`, ONE line, ellipsized) | `Verwendetes Modell: {pair}` where the pair joins the wire values as `model (provider)` (only the half the wire carries; never an invented name). Sourced from the job's telemetry snapshot (`aiJobTelemetryProvider` → `getJobAndCache`, NOT the SSE watch, never the configuration) | `aiPreviewNamingUsed` |
+| Configured pair (secondary) | Text in the header card (`bodySmall`, `onSurfaceVariant`) | `Derzeit konfiguriertes, abweichendes Modell: {pair}` rendered ONLY when the configured pair differs from the used one by provider or model. Equal configurations render NO second line — the pair is named once | `aiPreviewNamingConfiguredDiffers` |
+| Unconfigured account with a used pair | The primary line alone | A deleted/changed configuration does not undo the import that already happened: the job's used pair still renders, and no comparison is claimed | `aiPreviewNamingUsed` |
+
+The comparison is made over the two RENDERED pair labels, so a
+provider-only/model-only wire value can never produce a half-empty "differs"
+claim. Both facts are pure, Tier-1 testable (`aiNamingPairLabel`,
+`aiNamingComparison`).
+
+## Preview — the episode picker lives with the missing-context notice (issue #831)
+
+`Episode wählen…` (`aiApplyPickEpisode`) used to render UNCONDITIONALLY below
+`Import anwenden`, so it read as a stray control on the normal path — the apply
+context is normally resolved by `aiJobContextProvider` plus the in-preview
+episode creation long before the review. The affordance now renders ONLY in the
+missing-context branch, next to the notice that explains it
+(`ai-apply-context-missing`), so the `state.context == null` recovery is never
+orphaned and nothing sits under the submit button once the context is resolved.
+The test key (`ai-apply-pick-episode`) moved with the affordance.
+
 
 ## Preview & Apply — outfit provenance and wardrobe gaps (issue #745)
 
@@ -365,16 +397,21 @@ note inside its card and NO stars, a scored row renders stars and no note, and a
 row without a rubric renders neither (issue #767); the preview header and the
 job cost card name the recorded outcome and stay silent for a job without one;
 unit tests cover every outcome class in de + en including the `scoring_failed`
-plural. Widget tests (issue #760): the preview header renders the model as the
-primary line, the provider as the secondary line and the Art. 50 sentence as the
-caption (inside a `Card`, not a `bodySmall` line), a long model id stays on one
-line and ellipsizes without an overflow, the "no Decision Model" card renders
-exactly for a configured-but-empty Decision Model slot and leaves the apply
-reachable after the review acknowledgement, and both the unconfigured account
-and a failed discovery fall back to the "no AI configuration" copy with no
-warning (never a claim the app did not read). The AI-naming trajectories for
-the preview goldens configure a Decision Model, so the warning stays out of
-them. Widget tests: the degraded-extraction row line renders for `scenes_synthesized > 0`
+plural. Widget tests (issue #760): the preview header is a `Card` above the
+payload rather than a `bodySmall` line, a long model id stays on one line and
+ellipsizes without an overflow, the "no Decision Model" card renders exactly
+for a configured-but-empty Decision Model slot and leaves the apply reachable
+after the review acknowledgement, and both the unconfigured account and a
+failed discovery fall back to the "no AI configuration" copy with no warning
+(never a claim the app did not read). Widget tests (issue #831): the header
+names the USED pair from the job telemetry with the configured pair beneath it
+ONLY when the two differ; an equal configuration renders one line; a job
+without telemetry (and a failed telemetry read) names no used pair and claims
+no comparison; a used pair survives an unconfigured account; the apply card
+renders `ai-apply-pick-episode` only while the context is missing; and the
+submit affordance stays disabled until a document is picked (see
+`ai-import-submit.md`). The AI-naming trajectories for the preview goldens
+configure a Decision Model, so the warning stays out of them. Widget tests: the degraded-extraction row line renders for `scenes_synthesized > 0`
 and stays absent for a clean run (issue #758); the script preview subtitle
 states detected vs extracted and names the rebuilt rows, and keeps the row
 count alone for a pre-#758 payload; rows render kind + date + status text + icon; tap pushes the

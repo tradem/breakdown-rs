@@ -3116,8 +3116,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String aiPreviewNamingProvider(Object provider) {
-    return 'Provider: $provider';
+  String aiPreviewNamingUsed(Object pair) {
+    return 'Model used: $pair';
+  }
+
+  @override
+  String aiPreviewNamingConfiguredDiffers(Object pair) {
+    return 'Currently configured, differing model: $pair';
   }
 
   @override

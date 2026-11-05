@@ -76,7 +76,7 @@ form never splits into panes.
 | Target picker | List items in the target card | Shown when the target season has **several** blocks: exactly one row per block, tapping adopts it as the sticky scope (the header then follows the line) | `aiImportTargetPickBlock` + `blockTileLabel` |
 | Target blocked state | Body text | No block in the season → "create a block first"; no season context → "select a season first". Both disable the submit action | `aiImportTargetNoBlocks` / `aiImportTargetNoSeason` |
 | Target retry | Text button | The block-list fetch failed: retry re-runs the season's block fetch, error copy keyed on the problem `code` | `blocksFetchError` + `commonRetry` |
-| Submit action | Filled button | Dispatches the upload; **disabled** while no target is resolved (loading, pending pick, no block, fetch failure) | `aiImportSubmit` |
+| Submit action | Filled button | Dispatches the upload; **disabled** while no target is resolved (loading, pending pick, no block, fetch failure) **or no document is picked** (issue #831: the picked file lives in `pendingDocumentProvider`, so the affordance states that fact instead of letting a tap discover it — a successful submit clears the provider and disables the button again). The missing-document guard inside the dispatch stays as a backstop | `aiImportSubmit` |
 | Upload progress | Linear progress indicator | Indeterminate only — the wire carries no percentage | — |
 
 ## States
@@ -85,7 +85,10 @@ Loading: the target card states `Importziel wird ermittelt …` and the submit
 action is disabled. Data: the target line (or the picker, when the season has
 several blocks) plus the hint. Empty (no block): the "create a block first"
 line, submit disabled. Empty (no season): the "select a season first" line,
-submit disabled. Error: the block-list fetch failure renders its code-keyed copy
+submit disabled. No file picked: the file row states `Keine Datei gewählt` and
+the submit action is disabled — for BOTH kinds (script PDF and schedule
+CSV/PDF), because one button and one predicate serve both flows (issue #831).
+Error: the block-list fetch failure renders its code-keyed copy
 with a retry affordance, submit disabled. Optimistic: none — the screen
 dispatches one command (the upload) and hands the projection reconciliation to
 the job status screen.
@@ -135,7 +138,9 @@ target line renders season + block above the submit action; a wizard entry with
 exactly one block adopts it and the dispatch declares that season; several
 blocks render the picker, keep the submit disabled, and a pick publishes the
 line and adopts the scope; a season without blocks and a screen without a season
-context both block the upload with actionable copy. Controller tests
+context both block the upload with actionable copy; and the submit affordance
+stays disabled until a document is picked, re-disables after the picked file is
+cleared, and gates the same way on both kinds (issue #831). Controller tests
 (`test/features/ai_import/import_jobs_test.dart`): a target season the ambient
 block does not belong to is refused with `ai_import.scope_mismatch` and zero
 repository calls; a matching season dispatches and declares it. Repository

@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -427,6 +428,11 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
   bool _busy = false;
 
   Future<void> _submit() async {
+    // Backstop (issue #831): the button below is disabled until a document
+    // exists, so this arm is not reachable from the UI — it stays because a
+    // dispatch must never be able to leave without bytes (a programmatic
+    // caller, or a future affordance, gets the explicit code-keyed snackbar
+    // instead of an upload of nothing).
     final document = ref.read(pendingDocumentProvider);
     if (document == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -490,19 +496,32 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      if (_busy)
-        // Honest progress: the backend exposes no percentage, so the
-        // indicator is indeterminate (never a fabricated determinate bar).
-        const LinearProgressIndicator(key: Key('ai-import-progress')),
-      const SizedBox(height: 12),
-      FilledButton(
-        key: const Key('ai-import-submit'),
-        onPressed: _busy || widget.target == null ? null : _submit,
-        child: Text(l10nOf(context).aiImportSubmit),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    // Issue #831: a dispatch needs a document, and the picked one lives in
+    // `pendingDocumentProvider` (both kinds write it; a kind switch clears it,
+    // and a successful submit clears it again). Reading it here makes the
+    // affordance state the same fact instead of letting a tap discover it: the
+    // button is disabled until a file exists, and disabled again right after
+    // the dispatch cleared the provider. The pick row already renders the
+    // localized "no file picked" line, so the disabled state has a visible
+    // explanation.
+    final hasDocument = ref.watch(pendingDocumentProvider) != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_busy)
+          // Honest progress: the backend exposes no percentage, so the
+          // indicator is indeterminate (never a fabricated determinate bar).
+          const LinearProgressIndicator(key: Key('ai-import-progress')),
+        const SizedBox(height: 12),
+        FilledButton(
+          key: const Key('ai-import-submit'),
+          onPressed: _busy || widget.target == null || !hasDocument
+              ? null
+              : _submit,
+          child: Text(l10nOf(context).aiImportSubmit),
+        ),
+      ],
+    );
+  }
 }
