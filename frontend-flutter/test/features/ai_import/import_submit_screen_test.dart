@@ -4,10 +4,13 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-2 widget tests for the AI-import submission screen
 // (`flutter-ai-import-workflow` tasks 3.1 + 3.4): the kind picker, the
-// paste field, the missing-document guard, the 202 → job-status
+// paste field, the document precondition of the submit affordance (issue
+// #831: disabled until a file is picked, and the in-dispatch guard kept as a
+// backstop), the 202 → job-status
 // navigation and the 200-duplicate navigation with the callout. The
 // file-picker path is exercised on-device (integration smoke) — the
 // paste path is fully covered here.
@@ -467,6 +470,19 @@ void main() {
             .data,
         'Season 2 · Block 8',
       );
+      // Issue #831: a resolved target is not the whole predicate — the
+      // affordance also needs a picked document.
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+            .onPressed,
+        isNull,
+        reason: 'no document yet → still no dispatch',
+      );
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pump();
       expect(
         tester
             .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
@@ -584,16 +600,80 @@ void main() {
     });
   });
 
-  testWidgets('submit without a document surfaces the guard snackbar — '
-      'zero upload calls', (tester) async {
+  testWidgets('the submit affordance stays disabled until a document is '
+      'picked — zero upload calls, and the pick row explains why (issue '
+      '#831)', (tester) async {
     await setupContainer();
     await pumpScreen(tester);
-    await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('ai-import-submit')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('ai-import-document-missing')), findsOneWidget);
+
+    // The picked file lives in `pendingDocumentProvider`; nothing was picked
+    // yet, so a dispatch must be impossible (it used to be ONE tap away, and
+    // the tap only produced an error snackbar).
+    expect(container.read(pendingDocumentProvider), isNull);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+          .onPressed,
+      isNull,
+      reason: 'no document → no dispatch',
+    );
+    // The disabled state is explained: the pick row states that no file is
+    // chosen.
+    expect(find.text('No file picked'), findsOneWidget);
     expect(repo.uploadCalls, 0);
+
+    // Picking a document enables the dispatch …
+    container
+        .read(pendingDocumentProvider.notifier)
+        .set(AiImportDocument.csv('day,scene\n1,12'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+          .onPressed,
+      isNotNull,
+    );
+
+    // … and the schedule flow gates the same way (one button, one predicate
+    // for both kinds).
+    container.read(pendingDocumentProvider.notifier).set(null);
+    await tester.tap(find.text('Schedule'));
+    await tester.pumpAndSettle();
+    expect(find.text('Schedules: pick a CSV or PDF file.'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+          .onPressed,
+      isNull,
+    );
+    await tester.pump();
+  });
+
+  testWidgets('the file row drops the picked name when the pending document is '
+      'cleared — a kind switch or a finished submit (issue #831 review)', (
+    tester,
+  ) async {
+    await setupContainer();
+    await pumpScreen(tester);
+
+    Text pickedName() =>
+        tester.widget<Text>(find.byKey(const Key('ai-import-picked-name')));
+
+    expect(pickedName().data, 'No file picked');
+
+    container
+        .read(pendingDocumentProvider.notifier)
+        .set(AiImportDocument.csv('day,scene\n1,12', fileName: 'plan.csv'));
+    await tester.pump();
+    expect(pickedName().data, 'plan.csv');
+
+    // A successful submit clears the provider (and a kind switch clears it too).
+    // The row derives its name from that state, so it returns to its localized
+    // "no file picked" line instead of naming a file the dispatch no longer
+    // carries.
+    container.read(pendingDocumentProvider.notifier).set(null);
+    await tester.pump();
+    expect(pickedName().data, 'No file picked');
     await tester.pump();
   });
 

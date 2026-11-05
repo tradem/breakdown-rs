@@ -23,6 +23,40 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The import preview names the model the job actually used, and two affordances
+  stop promising what they cannot do** (`0.4.0-beta.36+128 →
+  0.4.0-beta.37+129`, frontend issue #831). Three defects in one feature folder,
+  all of them cases where the UI stated something the client could not know:
+  - **Preview header (`AiNamingCard`).** It rendered the *currently configured*
+    `AiConfigView` as its primary line, the provider beneath it, and then the
+    same pair again as the `aiNamingLine` caption — the configured model twice,
+    the model that produced the rows never, although it is on the wire
+    (`AiImportJob.telemetry`). The card now names the **used** pair
+    (`aiPreviewNamingUsed`, one ellipsized line from the job snapshot read —
+    `getJobAndCache`, never the SSE watch) and adds the configured pair only
+    when it differs by provider or model
+    (`aiPreviewNamingConfiguredDiffers`); equal configurations render one line.
+    A job without telemetry (or an unreadable snapshot) names no used model and
+    claims no comparison — it names the configured pair once, in the explicit
+    "derzeit konfiguriert" wording; an unconfigured account or failed discovery
+    keeps the existing "keine KI-Konfiguration" copy. The comparison is made
+    over the rendered pair labels, so a half-recorded pair can never produce a
+    half-empty difference claim. `aiPreviewNamingProvider` is retired with the
+    caption it belonged to.
+  - **Episode picker in the apply card.** "Episode wählen…" rendered
+    unconditionally below "Import anwenden", so it read as a stray control on
+    the normal path (the context is normally resolved before the review). It
+    now renders only while the apply context is missing, beside the notice that
+    explains it — the `state.context == null` recovery stays reachable and
+    nothing sits under the submit button once the context resolves.
+  - **Submit action.** "Zum Import senden" was enabled before a file was picked
+    in both flows; a tap then produced an error snackbar. The affordance now
+    watches `pendingDocumentProvider` and stays disabled
+    (`onPressed: null`) until a document exists — and disables again once a
+    successful submit clears it. The in-dispatch missing-document guard stays as
+    a backstop, and the pick row's "Keine Datei gewählt" line explains the
+    disabled state.
+
 - **The AI configuration is reachable from Settings again — and a state that
   cannot be resolved no longer disappears** (`0.4.0-beta.34+126 →
   0.4.0-beta.35+127`, frontend issue #809). The `KI-Konfiguration` entry had

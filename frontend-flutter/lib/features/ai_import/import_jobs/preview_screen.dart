@@ -53,13 +53,16 @@ class AiPreviewScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         children: [
           // Provider/model HEADER CARD (EU AI Act Art. 50, issues #608/#760):
-          // the preview names the configured import machinery above the
-          // AI-extracted rows at header weight — a `bodySmall` line between
-          // the app bar and the scene cards disappeared in a long preview
-          // (honest degradation when unconfigured / still loading).
-          const AiNamingCard(key: Key('ai-preview-naming')),
+          // the preview names the import machinery above the AI-extracted rows
+          // at header weight — a `bodySmall` line between the app bar and the
+          // scene cards disappeared in a long preview. Since issue #831 the
+          // card names the pair the JOB ran with (its telemetry) and only adds
+          // the configured pair when that one differs; honest degradation when
+          // the job recorded no telemetry, the account is unconfigured or the
+          // discovery is still pending.
+          AiNamingCard(jobId: jobId, key: const Key('ai-preview-naming')),
           // The EFFECTIVE Decision Model and what its scoring pass did
-          // (issue #767): the header card above names the extraction model,
+          // (issue #767): the header card above names the EXTRACTION model,
           // which is a different model from the one that produced the stars
           // — and the one the reporter configured. Silent when the job
           // recorded no outcome (pre-#767 rows).

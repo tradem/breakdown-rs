@@ -3,6 +3,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -127,66 +128,65 @@ class AiImportSubmitScreen extends ConsumerWidget {
 /// File picker row: `file_picker` at point of use only (FOSS; the picked
 /// bytes are read immediately into the pending document — nothing is
 /// persisted client-side beyond the in-flight upload).
-class _FilePickRow extends ConsumerStatefulWidget {
+///
+/// The displayed name is DERIVED from the pending document (code review), never
+/// remembered locally: the document already carries the file's own name
+/// (`AiImportDocument.fileName`, issue #763), so once the provider is cleared —
+/// a kind switch, or a successful submit (issue #831) — the name goes with it
+/// and the row falls back to its localized "no file picked" state instead of
+/// naming a file the dispatch no longer carries.
+class _FilePickRow extends ConsumerWidget {
   const _FilePickRow({super.key, required this.kind});
 
   final AiImportKind kind;
 
-  @override
-  ConsumerState<_FilePickRow> createState() => _FilePickRowState();
-}
-
-class _FilePickRowState extends ConsumerState<_FilePickRow> {
-  String? _pickedName;
-
-  Future<void> _pick() async {
+  Future<void> _pick(BuildContext context, WidgetRef ref) async {
     // file_picker 12.x: the single-file picker is static; the bytes are
     // read explicitly at point of use (nothing is persisted client-side
     // beyond the in-flight upload).
     final file = await FilePicker.pickFile(
       type: FileType.custom,
-      allowedExtensions: widget.kind == AiImportKind.schedule
+      allowedExtensions: kind == AiImportKind.schedule
           ? const ['csv', 'pdf']
           : const ['pdf'],
     );
     if (file == null) return;
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) return;
-    setState(() => _pickedName = file.name);
     ref
         .read(pendingDocumentProvider.notifier)
         .set(
-          documentFromBytes(
-            widget.kind,
-            bytes,
-            file.extension,
-            fileName: file.name,
-          ),
+          documentFromBytes(kind, bytes, file.extension, fileName: file.name),
         );
   }
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      OutlinedButton(
-        key: const Key('ai-import-pick-file'),
-        onPressed: _pick,
-        child: Text(
-          widget.kind == AiImportKind.schedule
-              ? l10nOf(context).aiImportPickCsvPdf
-              : l10nOf(context).aiImportPickPdf,
+  Widget build(BuildContext context, WidgetRef ref) {
+    // A pending body without a name (a pasted body — no UI path today) renders
+    // the same neutral line rather than inventing a file name.
+    final pickedName = ref.watch(pendingDocumentProvider)?.fileName;
+    return Row(
+      children: [
+        OutlinedButton(
+          key: const Key('ai-import-pick-file'),
+          onPressed: () => _pick(context, ref),
+          child: Text(
+            kind == AiImportKind.schedule
+                ? l10nOf(context).aiImportPickCsvPdf
+                : l10nOf(context).aiImportPickPdf,
+          ),
         ),
-      ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: Text(
-          _pickedName ?? l10nOf(context).aiImportNoFile,
-          key: const Key('ai-import-picked-name'),
-          overflow: TextOverflow.ellipsis,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            pickedName ?? l10nOf(context).aiImportNoFile,
+            key: const Key('ai-import-picked-name'),
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 /// The pick decision, extracted as a pure function (unit-testable):
@@ -427,6 +427,11 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
   bool _busy = false;
 
   Future<void> _submit() async {
+    // Backstop (issue #831): the button below is disabled until a document
+    // exists, so this arm is not reachable from the UI — it stays because a
+    // dispatch must never be able to leave without bytes (a programmatic
+    // caller, or a future affordance, gets the explicit code-keyed snackbar
+    // instead of an upload of nothing).
     final document = ref.read(pendingDocumentProvider);
     if (document == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -490,19 +495,32 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      if (_busy)
-        // Honest progress: the backend exposes no percentage, so the
-        // indicator is indeterminate (never a fabricated determinate bar).
-        const LinearProgressIndicator(key: Key('ai-import-progress')),
-      const SizedBox(height: 12),
-      FilledButton(
-        key: const Key('ai-import-submit'),
-        onPressed: _busy || widget.target == null ? null : _submit,
-        child: Text(l10nOf(context).aiImportSubmit),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    // Issue #831: a dispatch needs a document, and the picked one lives in
+    // `pendingDocumentProvider` (both kinds write it; a kind switch clears it,
+    // and a successful submit clears it again). Reading it here makes the
+    // affordance state the same fact instead of letting a tap discover it: the
+    // button is disabled until a file exists, and disabled again right after
+    // the dispatch cleared the provider. The pick row already renders the
+    // localized "no file picked" line, so the disabled state has a visible
+    // explanation.
+    final hasDocument = ref.watch(pendingDocumentProvider) != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_busy)
+          // Honest progress: the backend exposes no percentage, so the
+          // indicator is indeterminate (never a fabricated determinate bar).
+          const LinearProgressIndicator(key: Key('ai-import-progress')),
+        const SizedBox(height: 12),
+        FilledButton(
+          key: const Key('ai-import-submit'),
+          onPressed: _busy || widget.target == null || !hasDocument
+              ? null
+              : _submit,
+          child: Text(l10nOf(context).aiImportSubmit),
+        ),
+      ],
+    );
+  }
 }

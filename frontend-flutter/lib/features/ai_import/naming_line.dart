@@ -13,6 +13,7 @@ import '../../data/ai_import_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'ai_config/ai_config_screen.dart';
+import 'import_jobs/job_telemetry.dart';
 
 /// The configured provider/model surfaces (EU AI Act Art. 50 transparency,
 /// issues #608/#517/#760): ONE shared resolution, three renderings.
@@ -20,9 +21,12 @@ import 'ai_config/ai_config_screen.dart';
 /// [aiNamingSentence] is the single source of the transparency WORDING — the
 /// wire naming of the caller's NON-secret `AiConfigView`, the disclosure's
 /// honest degradation copy, or the loading note. Both [AiNamingLine] (the
-/// compact line of the submit disclosure and the apply section) and
-/// [AiNamingCard] (the prominent preview header) render exactly that sentence,
-/// so the two surfaces can never drift apart.
+/// compact line of the submit disclosure and the apply section) and the
+/// CONFIGURED fallback of [AiNamingCard] (the prominent preview header) render
+/// exactly that sentence, so the two surfaces can never drift apart.
+///
+/// [AiNamingCard] additionally names the pair the JOB actually ran with, from
+/// the job's content-free telemetry (issue #831) — see [aiNamingComparison].
 ///
 /// [AiDecisionModelWarning] is the sibling disclosure for the Decision Model
 /// SLOT: the same `configuredAiNamingProvider` read, a different fact — the
@@ -65,6 +69,10 @@ String aiNamingSentence(
 /// ONE `bodySmall` text rendering [aiNamingSentence] — copy in every state,
 /// never a spinner trap and never an invented name.
 ///
+/// This line names the CONFIGURED pair (that is what the submit and apply
+/// surfaces can know before a job exists). The preview's header card names the
+/// USED pair instead — see [AiNamingCard].
+///
 /// Shared by the import-submit disclosure card and the apply section, where a
 /// quiet footnote is the right weight (the reviewer is acting on the content,
 /// not on the configuration). The preview's header uses [AiNamingCard] instead.
@@ -81,32 +89,132 @@ class AiNamingLine extends ConsumerWidget {
   }
 }
 
-/// The PROMINENT provider/model header card of the preview screen (issue #760).
+/// The display join of ONE wire `(model, provider)` pair — `model (provider)`.
 ///
-/// The reported defect: provider and model were rendered as one tiny
-/// `bodySmall` line wedged between the app bar and the scene cards, so they
-/// disappeared in a long preview — the machinery that produced the rows was
-/// effectively invisible. This card gives the same facts the weight the rest of
-/// the preview has, while keeping the disclosure substance:
+/// A pure formatting of wire values, never a guess: a pair carrying only one
+/// half names that half, and a pair carrying neither is `null`, so the caller
+/// renders no pair at all instead of an empty parenthesis. The same shape the
+/// Decision-Model line uses ([aiDecisionPairLabel]), so the two headers of the
+/// preview read alike.
+String? aiNamingPairLabel({String? model, String? provider}) {
+  final namedModel = model?.trim() ?? '';
+  final namedProvider = provider?.trim() ?? '';
+  if (namedModel.isEmpty && namedProvider.isEmpty) return null;
+  if (namedModel.isEmpty) return namedProvider;
+  if (namedProvider.isEmpty) return namedModel;
+  return '$namedModel ($namedProvider)';
+}
+
+/// One job's provider/model identity, as the preview header renders it
+/// (issue #831): what the job USED, plus the configured pair when — and only
+/// when — it differs.
+class AiNamingComparison {
+  const AiNamingComparison({this.usedPair, this.configuredDiffersPair});
+
+  /// The pair the job ACTUALLY ran with, from its content-free
+  /// `AiImportJob.telemetry`. `null` when the wire records none (an old job),
+  /// or when the snapshot could not be read — either way the app does not know
+  /// which model produced the rows and claims nothing.
+  final String? usedPair;
+
+  /// The currently configured pair, present ONLY when it differs from
+  /// [usedPair]. `null` when they agree (no redundant second line), when there
+  /// is no configuration to compare, and above all when [usedPair] is unknown
+  /// — no comparison is ever invented.
+  final String? configuredDiffersPair;
+
+  /// Whether the card can name the model that produced the rows.
+  bool get hasUsed => usedPair != null;
+}
+
+/// Resolves an [AiNamingComparison] from the job's telemetry plus the caller's
+/// configuration (pure, Tier-1 testable).
 ///
-/// - **model** as the primary line (`titleSmall`, ONE line, ellipsized — a
-///   curated model id can be long, and wrapping the header would push the rows
-///   off screen; the full id stays in the caption below and in the semantics);
-/// - **provider** as the secondary line (`labelLarge`);
-/// - the unchanged EU AI Act sentence ([aiNamingSentence] →
-///   `aiNamingLine`) as the caption, so the transparency statement is not
-///   weakened by the visual promotion.
+/// "Used" and "configured" are two different facts: the extraction may have run
+/// with a configuration the caller has since changed (or revoked), and an old
+/// job may carry no telemetry at all. The comparison is therefore FIELD-WISE and
+/// treats a blank telemetry half as UNKNOWN (code review): a snapshot carrying
+/// only the provider never claims the configured *model* differs — the used
+/// model simply was not recorded — and a snapshot carrying only the model never
+/// claims the provider differs. A half-empty "differs" claim is exactly the
+/// invented comparison this card must not make.
+AiNamingComparison aiNamingComparison(
+  AiConfigView? configured,
+  JobTelemetrySummary? telemetry,
+) {
+  final usedModel = telemetry?.model?.trim() ?? '';
+  final usedProvider = telemetry?.provider?.name.trim() ?? '';
+  final usedPair = aiNamingPairLabel(model: usedModel, provider: usedProvider);
+  if (usedPair == null) return const AiNamingComparison();
+  if (configured == null) return AiNamingComparison(usedPair: usedPair);
+  final configuredModel = configured.assistantModel.trim();
+  final configuredProvider = configured.provider.name.trim();
+  final differs =
+      (usedModel.isNotEmpty && usedModel != configuredModel) ||
+      (usedProvider.isNotEmpty && usedProvider != configuredProvider);
+  return AiNamingComparison(
+    usedPair: usedPair,
+    configuredDiffersPair: differs
+        ? aiNamingPairLabel(
+            model: configuredModel,
+            provider: configuredProvider,
+          )
+        : null,
+  );
+}
+
+/// The PROMINENT provider/model header card of the preview screen (issues #760
+/// and #831).
 ///
-/// The honest degradation states are preserved unchanged: an unconfigured
-/// account or a failed discovery renders the "unconfigured" copy (never a
-/// guessed name), and a pending discovery renders the loading note. In those
-/// states the card renders ONE line — there is no model/provider to promote.
+/// Issue #760 promoted provider and model from one tiny `bodySmall` line to a
+/// header card, because the machinery that produced the rows had become
+/// invisible in a long preview. Issue #831 fixed what that promotion NAMED: the
+/// card rendered the currently configured `AiConfigView` as the primary line,
+/// its provider beneath it, and then repeated the same pair in the caption —
+/// the configured model twice, the model that actually produced the rows never.
+///
+/// The card now renders, in this order:
+///
+/// - **what the job USED** — `aiPreviewNamingUsed`, one `titleSmall` line,
+///   ellipsized (a curated model id can be long, and wrapping the header would
+///   push the rows off screen), sourced from the job's telemetry, never from the
+///   configuration;
+/// - **the configured pair, only when it differs by provider or model** —
+///   `aiPreviewNamingConfiguredDiffers`, so a changed configuration is visible
+///   without claiming the import ran with it.
+///
+/// Equal configurations render no second line, and the caption that repeated the
+/// configured pair is gone: the pair is named once.
+///
+/// ## Honest degradation
+///
+/// - **no telemetry** (an old job) or an unreadable job snapshot: the card cannot
+///   name the used pair, so it names the configured pair ONCE
+///   ([aiNamingSentence] → `aiNamingLine`, whose wording is explicitly "currently
+///   configured") and invents no comparison;
+/// - **unconfigured account or failed discovery**: the unchanged
+///   `aiDisclosureNamingBodyUnconfigured` copy (never a guessed name);
+/// - **pending discovery**: the unchanged `aiDisclosureNamingBodyLoading` note.
+///
+/// The used-pair line survives an unconfigured account: a job that ran with a
+/// model still names it, because deleting a configuration later does not undo
+/// the import that already happened.
 class AiNamingCard extends ConsumerWidget {
-  const AiNamingCard({super.key});
+  const AiNamingCard({required this.jobId, super.key});
+
+  /// The job whose ACTUAL provider/model this header names (issue #831). The
+  /// preview holds only the job id, so the card reads the job's content-free
+  /// telemetry snapshot itself ([aiJobTelemetryProvider]) — one cheap read, no
+  /// SSE watch.
+  final String jobId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final naming = ref.watch(configuredAiNamingProvider);
+    // `value` keeps the last resolved telemetry across a reload: a refresh never
+    // blanks the header, and an unreadable snapshot degrades to "no used pair"
+    // instead of an invented one (the copy then claims no comparison).
+    final telemetry = ref.watch(aiJobTelemetryProvider(jobId)).value;
     final l10n = l10nOf(context);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -116,6 +224,7 @@ class AiNamingCard extends ConsumerWidget {
     // the same arm as [aiNamingSentence]'s error clause, so the header can
     // never name a provider/model the app could not read.
     final configured = naming.hasError ? null : naming.value;
+    final comparison = aiNamingComparison(configured, telemetry);
 
     return Card(
       color: scheme.surfaceContainerHighest,
@@ -130,51 +239,50 @@ class AiNamingCard extends ConsumerWidget {
               size: 20,
               // Reinforcement only: the visible text carries the meaning
               // (glossary rule). Muted while there is nothing to name.
-              color: configured == null
-                  ? scheme.onSurfaceVariant
-                  : scheme.primary,
+              color: comparison.hasUsed
+                  ? scheme.primary
+                  : scheme.onSurfaceVariant,
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: configured == null
-                  ? Text(
+              child: comparison.hasUsed
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.aiPreviewNamingUsed(comparison.usedPair!),
+                          key: const Key('ai-preview-naming-used'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        if (comparison.configuredDiffersPair != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.aiPreviewNamingConfiguredDiffers(
+                              comparison.configuredDiffersPair!,
+                            ),
+                            key: const Key(
+                              'ai-preview-naming-configured-differs',
+                            ),
+                            // Bounded like the used line (code review): a long
+                            // configured model id must not wrap the header and
+                            // push the review rows down.
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ],
+                    )
+                  : Text(
                       aiNamingSentence(l10n, naming),
                       key: const Key('ai-preview-naming-disclosure'),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          configured.assistantModel,
-                          key: const Key('ai-preview-naming-model'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          l10n.aiPreviewNamingProvider(
-                            configured.provider.name,
-                          ),
-                          key: const Key('ai-preview-naming-provider'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          aiNamingSentence(l10n, naming),
-                          key: const Key('ai-preview-naming-disclosure'),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
                     ),
             ),
           ],

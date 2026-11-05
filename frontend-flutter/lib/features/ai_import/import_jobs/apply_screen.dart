@@ -478,6 +478,16 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
         ? state.context!.blockId
         : null;
 
+    // The explicit episode pick over the season's episodes from the read DTOs
+    // — ids never guessed.
+    Future<void> pickEpisode() async {
+      final picked = await showEpisodePicker(context, ref, jobId);
+      if (picked == null) return;
+      controller.setContext(
+        AiJobContext(episodeId: picked.id, projectId: picked.projectId),
+      );
+    }
+
     return Card(
       key: const Key('ai-apply-section'),
       child: Padding(
@@ -526,11 +536,29 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                       row.episode == null ||
                       draftEpisodeGroupRef(row.episode!) == null,
                 ))
-              // No episode markers in the document (single-episode flow):
-              // the explicit pick is required. WITH groups the episodes are
-              // created/assigned automatically above ("Ziel ändern") — the
-              // picker tile would be noise (user report, 2026-10-19).
-              const _EpisodePickerRequired(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // No episode markers in the document (single-episode flow):
+                  // the explicit pick is required. WITH groups the episodes are
+                  // created/assigned automatically above ("Ziel ändern") — the
+                  // picker tile would be noise (user report, 2026-10-19).
+                  const _EpisodePickerRequired(),
+                  // Issue #831: the picker affordance renders ONLY while the
+                  // context is missing. It used to sit unconditionally BELOW
+                  // the submit button, where it read as a stray control on the
+                  // normal (resolved-context) path; now it lives with the
+                  // notice that explains it, so the `state.context == null`
+                  // recovery is never orphaned and nothing extra sits under
+                  // "Import anwenden". Same test key, moved with the
+                  // affordance.
+                  TextButton(
+                    key: const Key('ai-apply-pick-episode'),
+                    onPressed: pickEpisode,
+                    child: Text(l10nOf(context).aiApplyPickEpisode),
+                  ),
+                ],
+              ),
             const SizedBox(height: 8),
             // Issue #706: per-day-group decisions — accepted (default)
             // creates the day and schedules the group's scene rows; a
@@ -921,25 +949,6 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 const SizedBox(height: 12),
                 AiApplyProgressCard(jobId: jobId),
               ],
-              const SizedBox(height: 8),
-              // The explicit episode re-pick (also the missing-context
-              // path): the picker runs over the season's episodes from
-              // the read DTOs — ids never guessed.
-              TextButton(
-                key: const Key('ai-apply-pick-episode'),
-                onPressed: () async {
-                  final picked = await showEpisodePicker(context, ref, jobId);
-                  if (picked != null) {
-                    controller.setContext(
-                      AiJobContext(
-                        episodeId: picked.id,
-                        projectId: picked.projectId,
-                      ),
-                    );
-                  }
-                },
-                child: Text(l10nOf(context).aiApplyPickEpisode),
-              ),
             ],
           ],
         ),

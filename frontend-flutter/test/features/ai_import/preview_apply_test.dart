@@ -359,6 +359,7 @@ class FakeAiImportRepository extends AiImportRepository {
 AiImportJob _succeededJob(
   String id, {
   DecisionTelemetry? decisionTelemetry,
+  JobTelemetrySummary? telemetry,
 }) => AiImportJob((b) {
   b
     ..id = id
@@ -376,7 +377,29 @@ AiImportJob _succeededJob(
   // The job-level Decision Model outcome (issue #767) is absent unless a test
   // records one — an old job carries no outcome and renders no line.
   if (decisionTelemetry != null) b.decisionTelemetry.replace(decisionTelemetry);
+  // The content-free operational telemetry (issue #831): the provider/model the
+  // preview header names as USED. Absent for a pre-#609 job, which then names
+  // no used pair at all.
+  if (telemetry != null) b.telemetry.replace(telemetry);
 });
+
+/// The `JobTelemetrySummary` identity pair (issue #831) — the SAME pair the job
+/// status screen renders as chips, and the one the preview header names as
+/// USED.
+JobTelemetrySummary _jobTelemetry({
+  LlmProvider provider = LlmProvider.eurouter,
+  String model = 'mistral-large-3',
+}) => JobTelemetrySummary(
+  (b) => b
+    ..cachedTokensIn = 0
+    ..chunkCount = 1
+    ..energyMillijoules = 0
+    ..latencyTotalMs = 0
+    ..tokensIn = 0
+    ..tokensOut = 0
+    ..model = model
+    ..provider = provider,
+);
 
 ApplyAiImportResponse _outcome({
   int appliedCount = 2,
@@ -951,6 +974,11 @@ void main() {
       /// or the read failed, so the client does not KNOW whether this preview was
       /// applied (issue #800 review).
       bool appliedStateUnreadable = false,
+
+      /// The job's content-free telemetry (issue #831): the provider/model the
+      /// preview header names as USED. `null` keeps the pre-#831 shape — a job
+      /// that recorded none, so the header names only the CONFIGURED pair.
+      JobTelemetrySummary? telemetry,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -960,8 +988,9 @@ void main() {
       // #767). A reachable preview means the job EXISTS, so the fixture answers
       // `getJobAndCache` — that keeps these tests on the line's silent state
       // (the job recorded no outcome) instead of its read-failure state, which
-      // has its own tests in decision_outcome_test.dart.
-      repo.jobResult = Right(_succeededJob('job-1'));
+      // has its own tests in decision_outcome_test.dart. The SAME answer feeds
+      // the naming card's used-pair read (issue #831).
+      repo.jobResult = Right(_succeededJob('job-1', telemetry: telemetry));
       if (applyQueue != null) repo.applyQueue.addAll(applyQueue);
       preview = ValueNotifier(
         previewValue ?? Right(_previewResponse(_scriptPayload())),
@@ -1145,10 +1174,29 @@ void main() {
       expect(find.textContaining('Uncertainty (location)'), findsOneWidget);
       // The apply section: the missing-context notice + disabled button.
       expect(find.byKey(const Key('ai-apply-context-missing')), findsOneWidget);
+      // Issue #831: the picker affordance lives WITH the notice it resolves —
+      // it is the recovery path for `state.context == null`.
+      expect(find.byKey(const Key('ai-apply-pick-episode')), findsOneWidget);
       final apply = tester.widget<FilledButton>(
         find.byKey(const Key('ai-apply-submit')),
       );
       expect(apply.onPressed, isNull);
+      await tester.pump();
+    });
+
+    testWidgets('a RESOLVED apply context renders NO episode-picker affordance '
+        'under the submit button (issue #831)', (tester) async {
+      await setupContainer();
+      await pumpPreview(tester);
+
+      // The context is resolved (the fixture persisted it), so the notice and
+      // its picker are both absent — the stray control the issue reported was
+      // this button rendering unconditionally.
+      expect(find.byKey(const Key('ai-apply-context')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-context-missing')), findsNothing);
+      expect(find.byKey(const Key('ai-apply-pick-episode')), findsNothing);
+      // … and nothing sits between the submit button and the card's end.
+      expect(find.byKey(const Key('ai-apply-submit')), findsOneWidget);
       await tester.pump();
     });
 
@@ -1385,25 +1433,21 @@ void main() {
       await setupContainer();
       await pumpPreview(tester);
 
-      // The preview's header card: configured wire naming (issue #760
-      // promoted it from a `bodySmall` line to a header card).
+      // The preview's header card. The fixture job recorded NO telemetry, so
+      // the card names the CONFIGURED pair once — explicitly labelled as
+      // configured, and claiming no used model (issue #831).
       expect(
         tester
-            .widget<Text>(find.byKey(const Key('ai-preview-naming-model')))
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-disclosure')))
             .data,
-        'assistant-model-1',
+        'Currently configured: provider openai, model assistant-model-1.',
       );
+      expect(find.byKey(const Key('ai-preview-naming-used')), findsNothing);
+      // The pair is named ONCE — no second configured line (issue #831).
       expect(
-        tester
-            .widget<Text>(find.byKey(const Key('ai-preview-naming-provider')))
-            .data,
-        contains('openai'),
+        find.byKey(const Key('ai-preview-naming-configured-differs')),
+        findsNothing,
       );
-      final previewNaming = tester
-          .widget<Text>(find.byKey(const Key('ai-preview-naming-disclosure')))
-          .data;
-      expect(previewNaming, contains('openai'));
-      expect(previewNaming, contains('assistant-model-1'));
 
       // The apply section's labelling line + collapsed Act panel.
       expect(find.byKey(const Key('ai-apply-naming')), findsOneWidget);
@@ -1441,10 +1485,14 @@ void main() {
             .data,
         degraded,
       );
-      // No invented name in the promoted header either (issue #760): the
-      // model/provider lines only exist for a RESOLVED configuration.
-      expect(find.byKey(const Key('ai-preview-naming-model')), findsNothing);
-      expect(find.byKey(const Key('ai-preview-naming-provider')), findsNothing);
+      // No invented name in the header either: the used pair needs job
+      // telemetry (there is none) and the configured pair needs a
+      // configuration (there is none) — so only the degradation copy renders.
+      expect(find.byKey(const Key('ai-preview-naming-used')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-preview-naming-configured-differs')),
+        findsNothing,
+      );
       expect(
         tester
             .widget<Text>(
@@ -1458,9 +1506,10 @@ void main() {
       );
     });
 
-    testWidgets('the preview header promotes provider/model to a header card '
-        'and stays silent about the Decision Model when one is configured '
-        '(issue #760)', (tester) async {
+    testWidgets('the preview header is a header card and stays silent about '
+        'the Decision Model when one is configured (issue #760)', (
+      tester,
+    ) async {
       await setupContainer();
       await pumpPreview(tester);
 
@@ -1473,20 +1522,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      // Model primary, provider secondary — both readable at a glance.
-      expect(
-        tester
-            .widget<Text>(find.byKey(const Key('ai-preview-naming-model')))
-            .data,
-        'assistant-model-1',
-      );
-      expect(
-        tester
-            .widget<Text>(find.byKey(const Key('ai-preview-naming-provider')))
-            .data,
-        'Provider: openai',
-      );
-      // The EU AI Act statement survives the promotion.
+      // No telemetry on this job → the card names the configured pair once, in
+      // the explicit "currently configured" wording (issue #831 retired the
+      // model/provider/caption triple that named the same pair twice).
       expect(
         tester
             .widget<Text>(find.byKey(const Key('ai-preview-naming-disclosure')))
@@ -1496,6 +1534,37 @@ void main() {
       // A configured Decision Model means NO warning.
       expect(
         find.byKey(const Key('ai-preview-decision-model-warning-title')),
+        findsNothing,
+      );
+      await tester.pump();
+    });
+
+    testWidgets('the preview header names the USED pair from the job telemetry '
+        'and the configured pair only when it differs (issue #831)', (
+      tester,
+    ) async {
+      await setupContainer(telemetry: _jobTelemetry());
+      await pumpPreview(tester);
+
+      // Primary line = what actually produced the rows.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-naming-used')))
+            .data,
+        'Model used: mistral-large-3 (eurouter)',
+      );
+      // Secondary line = the configured pair, because it differs.
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-preview-naming-configured-differs')),
+            )
+            .data,
+        'Currently configured, differing model: assistant-model-1 (openai)',
+      );
+      // Nothing repeats the configured pair as a caption.
+      expect(
+        find.byKey(const Key('ai-preview-naming-disclosure')),
         findsNothing,
       );
       await tester.pump();
