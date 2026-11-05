@@ -126,23 +126,22 @@ yanked = "deny"
 # available at the pinned typst version. Revisit on typst upgrade (or on a
 # `serde_yaml` replacement in the dev-only test).
 #
-# Yanked `zip 8.6.0`: the sole 8.6.x release on crates.io, hard-required by
-# `utoipa-swagger-ui 10.0.1` (latest release, exact `zip = "^8.6"` spec) —
-# so there is no resolvable non-yanked path at the pinned utoipa-swagger-ui
-# version, and zip 9.x is semver-incompatible with that requirement. The
-# crate is a build-time asset packager for the embedded Swagger UI, not a
-# runtime attack surface. Ignore is version-scoped to 8.6.0 so a future
-# yanked successor still fails. Revisit on the next utoipa-swagger-ui
-# release that permits zip 9.x.
+# RUSTSEC-2026-0440 (`astral-tokio-tar` unmaintained): Astral ended
+# maintenance of the crate on 2026-11-03 and every published version is
+# deprecated. It is a NON-optional dependency of `testcontainers` (the newest
+# release, 0.28.0, still requires `astral-tokio-tar ^0.6.1`), and
+# `testcontainers-modules` 0.15.0 (latest) pins `testcontainers ^0.27`, so
+# 0.28.0 is not even reachable here without a conflicting duplicate. Reached
+# only from the `integration-tests` crate (dev-dependency, testcontainers'
+# container image-extraction path); no tar code ships in any production
+# binary. `tar-codec`, the recommended replacement, is an upstream
+# testcontainers migration we cannot perform locally. Revisit when
+# testcontainers migrates (bump testcontainers-modules in lockstep).
 #
-# RUSTSEC-2026-0367 / -0368 / -0369 (zip extraction SUID/symlink escapes):
-# same transitive path — `zip 8.6.0` is a BUILD-dependency of
-# `utoipa-swagger-ui 10.0.1` (which pins `zip = "^8.6"`; zip 9.x, the first
-# fixed line, is semver-incompatible). The zip-extract APIs run only at
-# build time against the upstream-published swagger-ui distribution — never
-# against user-controlled archives — and no zip code ships in the runtime
-# binary. Version-scoped ignores below; revisit on the next
-# utoipa-swagger-ui release that permits zip 9.x.
+# The former `zip 8.6.0` ignores (yanked backstop plus RUSTSEC-2026-0367 /
+# -0368 / -0369) were dropped once `utoipa-swagger-ui 10.0.2` moved the build
+# dependency to `zip 9.1.3` — they no longer matched anything and only
+# emitted `advisory-not-detected` warnings.
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2026-0194",
@@ -154,9 +153,6 @@ ignore = [
     "RUSTSEC-2026-0192", # ttf-parser via typst/usvg
     "RUSTSEC-2026-0206", # rustybuzz via typst/krilla
     "RUSTSEC-2024-0449", # unsafe-libyaml via serde_yaml (typst/hayagriva + dev-only openapi test)
-    { crate = "zip", version = "8.6.0", reason = "yanked upstream; sole 8.6.x, hard-required by utoipa-swagger-ui 10.0.1 — unblock when a release permits zip 9.x" },
-    "RUSTSEC-2026-0367", # zip SUID/SGID preservation — build-dep via utoipa-swagger-ui, build-time only
-    "RUSTSEC-2026-0368", # zip symlink escape — build-dep via utoipa-swagger-ui, build-time only
-    "RUSTSEC-2026-0369", # zip permission-through-symlink — build-dep via utoipa-swagger-ui, build-time only
+    "RUSTSEC-2026-0440", # astral-tokio-tar — unmaintained upstream, non-optional via (dev) testcontainers
     "RUSTSEC-2026-0387", # crypto-bigint timing variability — verification-only via jsonwebtoken, no compatible upgrade path (see comment above)
 ]
