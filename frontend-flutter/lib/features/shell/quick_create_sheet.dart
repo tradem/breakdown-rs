@@ -46,6 +46,27 @@ class QuickCreateAction {
   final Widget Function() routeBuilder;
 }
 
+/// The AI-import submit affordance (issue #612) in ONE place: the shell's
+/// four-entry sheet and the AI-import jobs screen's one-entry sheet (#823)
+/// both build their Import row from this helper, so the two lists can never
+/// drift apart in key, icon, copy or target.
+QuickCreateAction aiImportQuickCreateAction(AppLocalizations l10n) =>
+    QuickCreateAction(
+      key: const Key('quick-create-ai-import'),
+      icon: Icons.smart_toy_outlined,
+      title: l10n.navAiImport,
+      subtitle: l10n.quickCreateAiImportSubtitle,
+      routeBuilder: AiImportSubmitScreen.new,
+    );
+
+/// The AI-import jobs screen's plus-action list (issue #823): exactly ONE
+/// entry — that screen is the import surface, so it offers the import and
+/// nothing else. A sheet with a single entry is a menu with one item; the
+/// reporter considered and accepted that (an affordance whose label promises
+/// a choice it does not have would be worse).
+List<QuickCreateAction> aiImportJobsQuickCreateActions(AppLocalizations l10n) =>
+    [aiImportQuickCreateAction(l10n)];
+
 /// The quick-create affordance list (issue #612, extended by #624): the
 /// context-free entries are always present, and when an [episode] scope is
 /// active the two context-sensitive entries are prepended for that episode.
@@ -71,13 +92,7 @@ List<QuickCreateAction> shellQuickCreateActions(
       routeBuilder: () => CreateShootingDayScreen(episodeId: episode.episodeId),
     ),
   ],
-  QuickCreateAction(
-    key: const Key('quick-create-ai-import'),
-    icon: Icons.smart_toy_outlined,
-    title: l10n.navAiImport,
-    subtitle: l10n.quickCreateAiImportSubtitle,
-    routeBuilder: AiImportSubmitScreen.new,
-  ),
+  aiImportQuickCreateAction(l10n),
   QuickCreateAction(
     key: const Key('quick-create-wizard'),
     icon: Icons.rocket_launch_outlined,
@@ -87,9 +102,14 @@ List<QuickCreateAction> shellQuickCreateActions(
   ),
 ];
 
-/// Opens the quick-create sheet (issue #612): the plus FAB's single
+/// Opens the quick-create sheet (issue #612): the plus action's single
 /// surface. A modal bottom sheet on every morphology — it is a menu of
 /// choices, not a form (the forms live behind the chosen entry).
+///
+/// Two surfaces hand it a list (issue #823): the Script destination passes
+/// [shellQuickCreateActions] (the full set), the AI-import jobs screen passes
+/// [aiImportJobsQuickCreateActions] (its single „Import" entry). The sheet
+/// itself stays a renderer — it never decides which entries a surface gets.
 Future<void> showQuickCreateSheet(
   BuildContext context, {
   required List<QuickCreateAction> actions,
