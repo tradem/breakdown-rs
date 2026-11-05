@@ -2408,6 +2408,21 @@ class AppLocalizationsDe extends AppLocalizations {
       'Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.';
 
   @override
+  String blocksSpanRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String blocksSpanFrom(String date) {
+    return 'ab $date';
+  }
+
+  @override
+  String blocksSpanTo(String date) {
+    return 'bis $date';
+  }
+
+  @override
   String get blocksCreateTitle => 'Block erstellen';
 
   @override
@@ -2814,11 +2829,6 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String scopeChipSeason(Object season) {
-    return 'Season: $season';
-  }
-
-  @override
   String get scopeChipSeasonTooltip => 'Aktive Season wählen';
 
   @override
@@ -2941,6 +2951,11 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String seasonsDefaultTitle(Object number) {
     return 'Season $number';
+  }
+
+  @override
+  String seasonNumberName(Object name, Object number) {
+    return '$number · $name';
   }
 
   @override

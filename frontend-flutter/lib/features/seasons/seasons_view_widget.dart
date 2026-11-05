@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'widgets/season_card.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Localized, client-side copy keyed on the stable problem `code` (AGENTS.md
 /// §5). Network failures disable writes with an "online required" message
@@ -34,7 +35,7 @@ class SeasonsViewWidget extends ConsumerWidget {
     final view = ref.watch(seasonsView);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).seasonsTitle)),
+      appBar: BreakdownAppBar(title: l10nOf(context).seasonsTitle),
       // 4.2: write actions are disabled while offline (last fetch failed).
       floatingActionButton: FloatingActionButton(
         key: const Key('season-add-fab'),

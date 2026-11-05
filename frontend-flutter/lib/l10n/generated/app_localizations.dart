@@ -3926,6 +3926,24 @@ abstract class AppLocalizations {
   /// **'Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.'**
   String get blocksTileSyncingStale;
 
+  /// Block time span when both bounds are known (issue #832). Declared placeholders keep the BOUND order in the generated getter, so a caller cannot swap them by alphabet.
+  ///
+  /// In de, this message translates to:
+  /// **'{start} – {end}'**
+  String blocksSpanRange(String start, String end);
+
+  /// Single-ended block time span with only a start date (issue #832).
+  ///
+  /// In de, this message translates to:
+  /// **'ab {date}'**
+  String blocksSpanFrom(String date);
+
+  /// Single-ended block time span with only an end date (issue #832).
+  ///
+  /// In de, this message translates to:
+  /// **'bis {date}'**
+  String blocksSpanTo(String date);
+
   /// No description provided for @blocksCreateTitle.
   ///
   /// In de, this message translates to:
@@ -4634,12 +4652,6 @@ abstract class AppLocalizations {
   /// **'Filter: {block}'**
   String scopeChipBlock(Object block);
 
-  /// No description provided for @scopeChipSeason.
-  ///
-  /// In de, this message translates to:
-  /// **'Season: {season}'**
-  String scopeChipSeason(Object season);
-
   /// No description provided for @scopeChipSeasonTooltip.
   ///
   /// In de, this message translates to:
@@ -4861,6 +4873,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Season {number}'**
   String seasonsDefaultTitle(Object number);
+
+  /// No description provided for @seasonNumberName.
+  ///
+  /// In de, this message translates to:
+  /// **'{number} · {name}'**
+  String seasonNumberName(Object name, Object number);
 
   /// No description provided for @seasonsSyncing.
   ///

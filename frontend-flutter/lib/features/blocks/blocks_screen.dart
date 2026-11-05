@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -26,6 +27,7 @@ import 'blocks_controller.dart';
 import 'blocks_state.dart';
 import 'create_block_sheet.dart';
 import 'widgets/blocks_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The season-level aggregated Soll-Ist entry (issue #571): pushes the
 /// season-scope aggregate screen with the acted-on [SeasonView] as nav
@@ -120,10 +122,8 @@ class BlocksScreen extends ConsumerWidget {
     // reports an unbounded constraint.
     return LayoutBuilder(
       builder: (context, constraints) => Scaffold(
-        appBar: AppBar(
-          title: Text(
-            season.title ?? l10n.blockSeasonNumber('${season.number}'),
-          ),
+        appBar: BreakdownAppBar(
+          title: season.title ?? l10n.blockSeasonNumber('${season.number}'),
           actions: [
             // Season-level aggregated Soll-Ist entry (issue #571): labelled
             // per the visible-label norm; pushes the season-scope aggregate
@@ -271,6 +271,12 @@ class BlocksScreen extends ConsumerWidget {
 /// Season-membership capabilities chip (design.md §5, D6): display-only in
 /// Phase 1 — the v1 capability vector contains only Phase-2 capabilities,
 /// so the chip renders role state honestly without gating anything.
+///
+/// It renders the caller's **role statement** only: the DTO's `capabilities`
+/// are protocol identifiers (`upload_continuity_photos`, …), so joining them
+/// into the label leaked wire names to the user (issue #832). A role that is
+/// active but carries no capabilities reads exactly like one that carries
+/// some — the chip gates nothing, so the vector adds no actionable detail.
 class _MembershipChip extends ConsumerWidget {
   const _MembershipChip({required this.seasonId});
 
@@ -300,9 +306,9 @@ class _MembershipChip extends ConsumerWidget {
                   key: const Key('membership-chip'),
                   avatar: const Icon(Icons.check, size: 16),
                   label: Text(
-                    dto.capabilities.isEmpty
-                        ? l10nOf(context).blocksRoleCostume
-                        : dto.capabilities.join(', '),
+                    l10nOf(context).blocksRoleCostume,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 )
               : Chip(

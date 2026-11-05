@@ -60,7 +60,7 @@ reachable only via tooltip — all three are addressed by
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| App bar | Top app bar | Screen identity | `seasons.title` |
+| App bar | Top app bar (`BreakdownAppBar`) | Screen identity — one line, ellipsized (`seasons.title`, 48 dp header, no extra top inset) | `seasons.title` |
 | Season tile | Card (list item) | Opens season detail / drill-down | `seasons.tile` |
 | Tile trailing icon | Icon button | Enters costume domain | `nav.costumes` |
 | Create FAB | FAB | Creates a season (command `POST /seasons`) | `seasons.create` |

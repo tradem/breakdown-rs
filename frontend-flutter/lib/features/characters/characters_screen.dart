@@ -18,6 +18,7 @@ import 'characters_controller.dart';
 import 'characters_state.dart';
 import 'role_extract_screen.dart';
 import 'widgets/characters_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `CharactersScreen` — the season's characters (season-scoped list with
 /// category chips, create, detail with contact + measurements editors).
@@ -75,7 +76,7 @@ class CharactersScreen extends ConsumerWidget {
     final notFound = state.notFound;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).navCharacters)),
+      appBar: BreakdownAppBar(title: l10nOf(context).navCharacters),
       body: Column(
         children: [
           if (state.commandError case final error?)

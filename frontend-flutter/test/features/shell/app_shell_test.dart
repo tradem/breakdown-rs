@@ -42,6 +42,8 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/design/components/breakdown_app_bar.dart';
+import 'package:frontend_flutter/design/header_metrics.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 import 'package:frontend_flutter/features/shell/planning_location.dart';
@@ -102,6 +104,18 @@ class BlocksScreenFixture extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       const Scaffold(body: Text('drilldown fixture'));
+}
+
+/// A pushed screen with the shared header — the subject of the issue #824
+/// geometry assertions (no projection data, no network).
+class HeaderProbeScreen extends StatelessWidget {
+  const HeaderProbeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: BreakdownAppBar(title: 'Probe-Kopfzeile'),
+    body: const SizedBox.expand(),
+  );
 }
 
 void main() {
@@ -833,6 +847,81 @@ void main() {
       );
     });
 
+    // Issue #824: the shell bar consumed the status-bar inset; the tab
+    // content is its SIBLING, so a pushed screen's `AppBar` used to apply
+    // `padding.top` a SECOND time as blank space above its toolbar (~24–40 dp
+    // on device — invisible in every golden, which renders zero view
+    // padding). The seam-level `MediaQuery.removePadding` is what these
+    // assertions pin.
+    testWidgets('a pushed header counts the status bar exactly once', (
+      tester,
+    ) async {
+      const statusBar = 28.0;
+      await setupContainer();
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(top: statusBar);
+      tester.view.viewPadding = const FakeViewPadding(top: statusBar);
+      addTearDown(tester.view.reset);
+      tester.view.physicalSize = const Size(360, 800);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(home: AppShell()),
+        ),
+      );
+      await pumpFrames(tester);
+
+      final shell = tester.state<AppShellState>(find.byType(AppShell));
+      shell.tabNavigatorKeys[0].currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const HeaderProbeScreen()),
+      );
+      await pumpFrames(tester, n: 20, stepMs: 25);
+
+      final header = find.descendant(
+        of: find.byType(HeaderProbeScreen),
+        matching: find.byType(AppBar),
+      );
+      expect(header, findsOneWidget);
+      final bar = tester.getRect(header);
+      final shellBarBottom = tester
+          .getBottomLeft(find.byKey(const Key('shell-context-bar')))
+          .dy;
+
+      // The pushed header starts exactly where the shell bar ends: no
+      // second status-bar gap between the two chrome bands.
+      expect(bar.top, shellBarBottom);
+      // … so its height is the toolbar alone, not the toolbar plus a
+      // re-applied inset.
+      expect(bar.height, HeaderMetrics.toolbarHeight);
+      expect(bar.top, greaterThanOrEqualTo(statusBar));
+    });
+
+    testWidgets('a pushed header keeps a 48dp back target and pops', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      final shell = tester.state<AppShellState>(find.byType(AppShell));
+      shell.tabNavigatorKeys[0].currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const HeaderProbeScreen()),
+      );
+      await pumpFrames(tester, n: 20, stepMs: 25);
+
+      final back = find.descendant(
+        of: find.byType(HeaderProbeScreen),
+        matching: find.byType(BackButton),
+      );
+      expect(back, findsOneWidget);
+      final size = tester.getSize(back);
+      expect(size.height, greaterThanOrEqualTo(48));
+      expect(size.width, greaterThanOrEqualTo(48));
+
+      await tester.tap(back);
+      await pumpFrames(tester, n: 40, stepMs: 25);
+      expect(find.byType(HeaderProbeScreen), findsNothing);
+    });
+
     testWidgets('row 2 carries the view title and the search affordance', (
       tester,
     ) async {
@@ -1160,6 +1249,48 @@ void main() {
         golden: 'app_shell_expanded_dark.png',
         widthDp: 1000,
         mode: ThemeMode.dark,
+      );
+    });
+
+    // Issue #824: the ONE golden that renders a status bar. Every other
+    // golden runs with zero view padding, which is exactly why the doubled
+    // inset was invisible; this one draws the shell bar plus a pushed header
+    // and pins the single-count rule visually as well as geometrically (see
+    // "a pushed header counts the status bar exactly once").
+    testWidgets('a pushed header under a status bar', (tester) async {
+      const statusBar = 28.0;
+      await setupContainer();
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(top: statusBar);
+      tester.view.viewPadding = const FakeViewPadding(top: statusBar);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppThemes.light(),
+            locale: const Locale('de'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: AppShell(),
+          ),
+        ),
+      );
+      await pumpFrames(tester, n: 12);
+
+      tester
+          .state<AppShellState>(find.byType(AppShell))
+          .tabNavigatorKeys[0]
+          .currentState!
+          .push(
+            MaterialPageRoute<void>(builder: (_) => const HeaderProbeScreen()),
+          );
+      await pumpFrames(tester, n: 20, stepMs: 25);
+
+      await expectLater(
+        find.byType(AppShell),
+        matchesGoldenFile('goldens/app_shell_pushed_header_status_bar.png'),
       );
     });
   });

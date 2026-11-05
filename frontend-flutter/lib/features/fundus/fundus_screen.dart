@@ -13,6 +13,7 @@ import '../shell/view_states.dart';
 import 'fundus_controller.dart';
 import 'fundus_destinations.dart';
 import 'fundus_model.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The piece **fundus** surface (issue #625, OpenSpec change
 /// `flutter-fundus-search`).
@@ -64,7 +65,7 @@ class _FundusScreenState extends ConsumerState<FundusScreen> {
     final season = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.fundusTitle)),
+      appBar: BreakdownAppBar(title: l10n.fundusTitle),
       body: season == null
           ? ViewEmptyState(
               emptyKey: const Key('fundus-no-season'),

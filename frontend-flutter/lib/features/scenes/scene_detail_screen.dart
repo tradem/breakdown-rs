@@ -35,6 +35,7 @@ import 'pick_outfit_sheet.dart';
 import 'scene_beats.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `SceneDetailScreen` — collapsible sections layout (design §4).
 ///
@@ -86,15 +87,13 @@ class SceneDetailScreen extends ConsumerWidget {
     final scene = _resolveScene(scenesState);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          scene == null
-              ? l10nOf(context).sceneDetailTitleFallback
-              : (scene.summary?.isNotEmpty == true
-                    ? scene.summary!
-                    : l10nOf(context)
-                          .sceneTileLabel('${scene.sceneNumber ?? ''}')),
-        ),
+      appBar: BreakdownAppBar(
+        title: scene == null
+            ? l10nOf(context).sceneDetailTitleFallback
+            : (scene.summary?.isNotEmpty == true
+                  ? scene.summary!
+                  : l10nOf(context)
+                        .sceneTileLabel('${scene.sceneNumber ?? ''}')),
       ),
       body: switch ((scene, scenesState.projected)) {
         // Resolved scene with its collapsible sections.

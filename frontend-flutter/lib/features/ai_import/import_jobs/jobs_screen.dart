@@ -22,6 +22,7 @@ import 'job_cost_card.dart' show aiJobCostMetricIcon;
 import 'job_status_screen.dart';
 import 'import_state.dart' show aiJobStageCopy;
 import 'jobs_controller.dart';
+import '../../../design/components/breakdown_app_bar.dart';
 
 /// The AI-import **jobs screen** (issue #547): the "what did I import"
 /// surface over the previously-unused `GET /v1/ai-import/jobs` wiring.
@@ -62,7 +63,7 @@ class AiImportJobsScreen extends ConsumerWidget {
         : ClippyFlowState.idle;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.aiJobsTitle)),
+      appBar: BreakdownAppBar(title: l10n.aiJobsTitle),
       body: KarlKleiderbuegelOverlay(
         flowState: clippyState,
         child: RefreshIndicator(
