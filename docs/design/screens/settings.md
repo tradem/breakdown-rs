@@ -75,7 +75,7 @@ live on the dedicated [Easter-eggs screen](easter-eggs.md) since issue
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| App bar title | Top app bar | Screen identity | `settings.title` |
+| App bar title | Top app bar (`BreakdownAppBar`) | Screen identity — one line, ellipsized (`settings.title`, 48 dp header, no extra top inset) | `settings.title` |
 | General section | Section header | Groups always-available settings | `settings.general` |
 | Easter-eggs entry tile | List item (push, chevron) | Central entry to the dedicated Easter-eggs screen (issue #708 — the per-egg switches and gallery live there; counter-model of the AI-configuration entry); no membership gate — the preferences are local-only | `settings.easterEggsEntryTitle` + `settings.easterEggsEntrySubtitle` |
 | AI section | Section header | Groups the AI-configuration entry (issue #644) | `settings.ai` |

@@ -28,6 +28,7 @@ import '../photos/widgets/photo_gallery.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import 'pieces_controller.dart';
 import 'pieces_state.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 part 'piece_detail_screen.g.dart';
 
@@ -70,7 +71,7 @@ class PieceDetailScreen extends ConsumerWidget {
     });
     final controller = ref.read(piecesControllerProvider(season.id).notifier);
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).pieceDetailTitle)),
+      appBar: BreakdownAppBar(title: l10nOf(context).pieceDetailTitle),
       body: RefreshIndicator(
         onRefresh: controller.refresh,
         child: ListView(

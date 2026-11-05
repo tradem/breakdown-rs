@@ -69,7 +69,7 @@ screen, on every window size.
 
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| Screen title | Top app bar | Screen identity (plural) | `aiJobsTitle` |
+| Screen title | Top app bar (`BreakdownAppBar`) | Screen identity (plural) — one line, ellipsized (issue #824: 48 dp header, no extra top inset) | `aiJobsTitle` |
 | Job row | List item | Pushes the job status screen (the single-watch owner) | row key |
 | Row title | Text | The uploaded document's own file name, at most two lines then ellipsized (issue #763); a job without a name keeps „Drehplan · 1. Jan. 2026" | server `source_file_name`, else `aiJobsRowSubtitle` |
 | Row identity line | Text | The imported target once an apply ran: `Skript · 299 Erlösung · 57 angewendet`, `(+n)` for further episodes (issue #763); a named but unapplied row shows `kind · date` here instead, an unnamed one shows nothing (the title already carries it) | `aiJobsRowKindEpisode` / `aiJobsRowEpisodeMore` / `aiJobsRowEpisodeNumber` / `aiJobsRowEpisodeNumberName` / `aiJobsRowApplied` / `aiJobsRowSubtitle` |

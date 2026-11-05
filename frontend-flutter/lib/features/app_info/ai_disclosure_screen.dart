@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/ai_import_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'app_info_screen.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The dedicated About-AI disclosure screen (spec `flutter-app-dialogs`
 /// "Info Dialog Contents → About-AI screen", user decision of issue #538).
@@ -31,7 +32,7 @@ class AiDisclosureScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final naming = ref.watch(configuredAiNamingProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).aiDisclosureTitle)),
+      appBar: BreakdownAppBar(title: l10nOf(context).aiDisclosureTitle),
       body: ListView(
         key: const Key('ai-disclosure-screen'),
         padding: const EdgeInsets.all(16),

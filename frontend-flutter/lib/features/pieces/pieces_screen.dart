@@ -23,6 +23,7 @@ import 'pieces_controller.dart';
 import 'pieces_state.dart';
 import '../photos/widgets/photo_gallery.dart';
 import 'widgets/pieces_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `PiecesScreen` — the season's pieces and the inline piece editor.
 ///
@@ -98,7 +99,7 @@ class _PiecesScreenState extends ConsumerState<PiecesScreen> {
     final photoBytesLru = ref.watch(photoBytesLruProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).navWardrobe)),
+      appBar: BreakdownAppBar(title: l10nOf(context).navWardrobe),
       body: Column(
         children: [
           if (state.commandError case final failure?)

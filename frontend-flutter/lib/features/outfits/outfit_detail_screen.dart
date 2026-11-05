@@ -26,6 +26,7 @@ import '../pieces/pieces_controller.dart';
 import 'outfit_list_section.dart';
 import 'outfits_controller.dart';
 import 'outfits_state.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 part 'outfit_detail_screen.g.dart';
 
@@ -115,8 +116,8 @@ class _OutfitDetailScreenState extends ConsumerState<OutfitDetailScreen> {
     };
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(outfit?.name ?? l10n.outfitDetailTitle),
+      appBar: BreakdownAppBar(
+        title: outfit?.name ?? l10n.outfitDetailTitle,
         actions: [
           if (outfit != null && canManage)
             IconButton(

@@ -17,6 +17,7 @@ import 'planning_location.dart';
 import 'production_overview_screen.dart';
 import 'scope_pill.dart';
 import 'shell_controller.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The season scope chip (issue #610, redesigned as a pill in #638): the
 /// season half of the shell's "what filters your requests" surface, sibling
@@ -99,7 +100,7 @@ class SeasonScopePickerScreen extends ConsumerWidget {
     final activeSeason = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.scopeChipSeasonPickTitle)),
+      appBar: BreakdownAppBar(title: l10n.scopeChipSeasonPickTitle),
       body: RefreshIndicator(
         onRefresh: () => _refresh(ref),
         child: ListView(

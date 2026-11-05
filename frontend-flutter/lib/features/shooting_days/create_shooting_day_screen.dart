@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations_provider.dart';
 import 'create_shooting_day_sheet.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Full-screen Create Shooting Day page (issue #624): the quick-create
 /// sheet's "Neuer Drehtag" entry pushes this for the active episode.
@@ -22,7 +23,7 @@ class CreateShootingDayScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).shootingDayCreateTitle)),
+      appBar: BreakdownAppBar(title: l10nOf(context).shootingDayCreateTitle),
       body: CreateShootingDayForm(episodeId: episodeId),
     );
   }

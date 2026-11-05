@@ -22,6 +22,7 @@ import 'widgets/wizard_completion_view.dart';
 import 'widgets/wizard_dispatch_view.dart';
 import 'widgets/wizard_review_step.dart';
 import 'widgets/wizard_season_step.dart';
+import '../../../design/components/breakdown_app_bar.dart';
 
 part 'setup_wizard_screen.g.dart';
 
@@ -107,8 +108,8 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
         unawaited(_confirmDiscard(context, controller));
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(l10nOf(context).wizardTitle),
+        appBar: BreakdownAppBar(
+          title: l10nOf(context).wizardTitle,
           automaticallyImplyLeading: false,
           leading: state.isEditing
               ? IconButton(

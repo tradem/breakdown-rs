@@ -17,6 +17,7 @@ import '../../auth/active_block_store.dart';
 import '../../core/problem_error.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'blocks_controller.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 part 'active_block_gate.g.dart';
 
@@ -206,7 +207,7 @@ class BlockScopeLoadingScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
+    appBar: BreakdownAppBar(title: title),
     body: const Center(
       child: CircularProgressIndicator(key: Key('block-scope-loading')),
     ),
@@ -231,7 +232,7 @@ class BlockScopeErrorScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: BreakdownAppBar(title: title),
       body: Center(
         child: Column(
           key: const Key('block-scope-error'),
@@ -260,7 +261,7 @@ class NoBlocksHintScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
+    appBar: BreakdownAppBar(title: title),
     body: Center(
       child: Text(
         l10nOf(context).blocksNoBlocksCreateFirst,
@@ -294,7 +295,7 @@ class BlockScopePickerScaffold extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-    appBar: AppBar(title: Text(title)),
+    appBar: BreakdownAppBar(title: title),
     // Issue #666 (sibling audit): pull-to-refresh, same as the episode and
     // season chips — the cache-first seam's TTL window is recoverable from
     // the picker itself.
