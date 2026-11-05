@@ -23,8 +23,11 @@ commits (ADR-020 D5).
 - The script worker publishes `AiImportProgress::block_number` from the
   deterministic `Block:` page-header scan on its FIRST frame (no extra LLM
   tokens) and falls back to the model's answer only when the scan found no
-  marker — the two-source discipline the episode metadata follows. The value
-  also lands in the stored preview (`ScriptContext::block_number`).
+  marker — the two-source discipline the episode metadata follows. The scan's
+  value also SEEDS `ScriptContext::block_number` before the chunk loop, so the
+  stored preview carries the block the document states even when the model
+  repeats none (CodeRabbit review of PR #850: the seed used to live only on the
+  progress frames).
 - `ScriptContextSchema` — the provider-facing strict mirror — declares
   `block_number`. Without it the prompt rule would be unreachable under
   `strict` Structured Outputs: the model cannot emit a property the schema does

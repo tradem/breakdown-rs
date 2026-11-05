@@ -24,11 +24,17 @@ commits (ADR-020 D5).
   headers at zero LLM cost: `Block: 2`, `Block 2`, and the glued
   `Block: 098/Ep.: 294` (→ `98`, the leading digits only — everything after the
   `/` belongs to the next field). The scan is SHAPE-driven, not casing-driven
-  (page headers also arrive as `BLOCK: 2`): 1-3 digits, a non-alphanumeric digit
-  boundary, and a field boundary behind them. Prose (`Block 2 wurde am Montag
-  gedreht.`, `Der Block 2 war besser.`) and a scene heading
-  (`1. I/T - Block 2 - WOHNUNG`) therefore never parse. The FIRST occurrence
-  wins, so a page header repeated on every page is one fact, not a flip-flop.
+  (page headers also arrive as `BLOCK: 2`): 1-3 digits, a NON-alphanumeric
+  digit boundary (`Block 2a`/`Block 2A` are scene or set labels, not a block
+  number), and behind them either a `/`/`|`/`·` separator, the end of the line,
+  or a KNOWN header field label (`Ep`, `Episode`, `Folge`, `Tag`, `Drehtag`,
+  `Spieltag`, `Seite`, `Page`). Prose (`Block 2 wurde am Montag gedreht.`,
+  `Wir drehen Block 2 Anfang Mai.`), a scene heading
+  (`1. I/T - Block 2 - WOHNUNG`) and a set label (`Block 2A - WOHNUNG`) therefore
+  never parse — a capitalized German noun is not a header field. The FIRST
+  occurrence wins, so a page header repeated on every page is one fact, not a
+  flip-flop. (Both boundary rules were tightened after the CodeRabbit review of
+  PR #850.)
 - `AiImportProgress::block_number: Option<i32>` — the block the SCRIPT states,
   additive with `serde(default)` so frames written before the field existed
   still deserialize (as `None`, never a fabricated number). Deliberately a

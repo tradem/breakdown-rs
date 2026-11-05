@@ -1937,10 +1937,10 @@ fn block_marker_is_case_insensitive() {
 #[test]
 fn block_marker_ignores_prose_and_scene_headings() {
     // `Block` is a German noun, so casing alone guards nothing — the field
-    // SHAPE does. Prose continues with a lowercase word or a sentence
-    // punctuation mark, and a scene heading separates its labels with a
-    // hyphen; a page-header field ends at the line, a separator or the next
-    // (uppercase) field.
+    // SHAPE does. Prose continues with a lowercase word, a sentence
+    // punctuation mark or a capitalized word that is no header field, and a
+    // scene heading separates its labels with a hyphen; a page-header field
+    // ends at the line, a separator or a KNOWN header field.
     for prose in [
         "Block 2 wurde am Montag gedreht.",
         "Der Block 2 war besser als der dritte.",
@@ -1948,9 +1948,32 @@ fn block_marker_ignores_prose_and_scene_headings() {
         "Datenblock 2",
         "Block: 1000",
         "Block 2a war eine Szene",
+        // CodeRabbit review: an uppercase letter glued to the digits is a
+        // label, not a field boundary (`2A` is a set/scene reference).
+        "Block 2A war eine Szene",
+        "1. I/T - Block 2A - WOHNUNG",
+        // … and a capitalized German word behind the number is prose, even
+        // when it starts with a letter sequence that resembles nothing in the
+        // header vocabulary.
+        "Wir drehen Block 2 Anfang Mai.",
+        "Block 2 Dreharbeiten beginnen.",
         "1. I/T - Block 2 - WOHNUNG",
     ] {
         assert_eq!(block_marker(prose), None, "`{prose}` is prose, not a field");
+    }
+}
+
+#[test]
+fn block_marker_accepts_a_known_header_field_behind_the_number() {
+    // A page header states several fields on one line; the block field ends
+    // where the NEXT FIELD starts. Only the known vocabulary counts (an
+    // arbitrary capitalized word is prose — see the rejection test).
+    for header in [
+        "Block: 2   Ep.: 3 (Der Unfall)",
+        "Block: 2   Tag 1",
+        "Block 2   Seite 12",
+    ] {
+        assert_eq!(block_marker(header), Some(2), "`{header}` is a header");
     }
 }
 

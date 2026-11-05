@@ -483,14 +483,16 @@ fn title_in_parentheses_bounded(
 ///
 /// - 1-3 digits only, so a page or scene number glued to a stray `Block`
 ///   cannot parse as a huge block (`Block: 1000` is no marker);
-/// - the character right after the digits must not be alphanumeric
-///   (`Block 2a` is a scene reference, not a block);
-/// - the next non-space character must be a field boundary: end of line, a
-///   `/`/`|`/`·` separator, or an UPPERCASE letter starting the next header
-///   field (`Block: 2   Ep.: 3 (Der Unfall)`). A lowercase letter, a hyphen
-///   or a sentence punctuation mark means prose or a scene heading —
-///   `Block 2 wurde am Montag gedreht.`, `Der Block 2 war besser.` and
-///   `1. I/T - Block 2 - WOHNUNG` are no markers.
+/// - the character directly after the digits must not be alphanumeric at all,
+///   in either case: `Block 2a` and `Block 2A` are scene or set labels, not a
+///   block number followed by something else (CodeRabbit review);
+/// - the next word must be a KNOWN header field label (see
+///   [`BLOCK_HEADER_FIELD_LABELS`]) or a `/`/`|`/`·` separator must follow, so
+///   `Block: 2   Ep.: 3 (Der Unfall)` reads and `Block: 2   Tag 1` does too.
+///   A capitalized German word is NOT a field label, so
+///   `Wir drehen Block 2 Anfang Mai.` and `Block 2 wurde am Montag gedreht.`
+///   stay prose, as does a scene heading (`1. I/T - Block 2 - WOHNUNG`, whose
+///   label is followed by a hyphen).
 fn block_marker(line: &str) -> Option<i32> {
     const KEYWORD: &str = "Block";
     let normalized = normalize_for_heading_detection(line);
@@ -527,18 +529,57 @@ fn block_number_at(chars: &[char], from: usize) -> Option<i32> {
     if digits.is_empty() || digits.len() > 3 {
         return None;
     }
+    // A letter GLUED to the digits is a label, not a separator: `Block 2a` and
+    // `Block 2A` are a scene/set reference (CodeRabbit review — an adjacent
+    // uppercase letter used to count as a field boundary).
+    if chars.get(i).is_some_and(|next| next.is_alphanumeric()) {
+        return None;
+    }
     let mut after = i;
     while after < chars.len() && chars[after] == ' ' {
         after += 1;
     }
     let field_ends_here = match chars.get(after) {
+        // End of line: the field is the whole line.
         None => true,
-        Some(next) => matches!(next, '/' | '|' | '\u{00B7}') || next.is_ascii_uppercase(),
+        // A separator between two header fields (`Block: 098/Ep.: 294`).
+        Some('/' | '|' | '\u{00B7}') => true,
+        // The next field must NAME itself: an arbitrary capitalized word is
+        // prose, not a header field (`Block 2 Anfang Mai.`).
+        Some(_) => starts_with_header_field_label(&chars[after..]),
     };
     if !field_ends_here {
         return None;
     }
     digits.parse::<i32>().ok()
+}
+
+/// The header fields that may FOLLOW a block number on the same page-header
+/// line. An explicit list, not a "looks like a label" heuristic: page headers
+/// are a small, observed vocabulary, while German prose capitalizes every noun
+/// and would satisfy any shape rule (`Block 2 Anfang Mai.`).
+///
+/// Matched as a whole word, ASCII-case-insensitively (`Ep`, `ep`, `EP`).
+const BLOCK_HEADER_FIELD_LABELS: [&str; 8] = [
+    "Ep", "Episode", "Folge", "Tag", "Drehtag", "Spieltag", "Seite", "Page",
+];
+
+/// Whether `chars` starts with one of [`BLOCK_HEADER_FIELD_LABELS`] as a whole
+/// word.
+fn starts_with_header_field_label(chars: &[char]) -> bool {
+    BLOCK_HEADER_FIELD_LABELS.iter().any(|label| {
+        let mut label_chars = label.chars();
+        chars
+            .iter()
+            .zip(label_chars.by_ref())
+            .all(|(actual, expected)| actual.eq_ignore_ascii_case(&expected))
+            && label_chars.next().is_none()
+            // A whole word: the label must not continue into a longer word
+            // (`Episode` must not be read out of `Episodenliste`).
+            && chars
+                .get(label.chars().count())
+                .is_none_or(|next| !next.is_alphanumeric())
+    })
 }
 
 /// The production block number this document states in its page headers

@@ -514,7 +514,15 @@ where
             return Err(error);
         }
 
-        let mut context = ScriptContext::default();
+        // Issue #827: the DETERMINISTIC scan's block seeds the stored preview
+        // here, not in the per-chunk merge below — otherwise a preview whose
+        // header the scan read but the model did not repeat would be stored
+        // without the block the document states (CodeRabbit review). The
+        // model only ever fills a gap (`is_none` guard in the chunk loop).
+        let mut context = ScriptContext {
+            block_number: script_block,
+            ..ScriptContext::default()
+        };
         // Issue #675: real token/energy usage accumulated across all chunks.
         // Issue #768: this accumulator is the **extraction** component only —
         // the Decision-Model calls (chunk scoring + Pass-2 continuity) feed
@@ -639,17 +647,19 @@ where
                         context.title = partial.title;
                     }
                     // Block fallback (issue #827): the deterministic scan is
-                    // authoritative; the model's `block_number` only fills a
-                    // gap the scan could not read (a header in a foreign
-                    // shape). It travels into the stored preview as well, so
-                    // the payload keeps what the script said.
-                    if let Some(block) = partial.block_number {
-                        if context.block_number.is_none() {
-                            context.block_number = Some(block);
-                        }
-                        if progress.block_number.is_none() {
-                            progress.block_number = Some(block);
-                        }
+                    // authoritative — it already seeded `context.block_number`
+                    // above — so the model's value only fills a gap the scan
+                    // could not read (a header in a foreign shape). Both the
+                    // preview and the progress stay honest about that.
+                    if let Some(block) = partial.block_number
+                        && context.block_number.is_none()
+                    {
+                        context.block_number = Some(block);
+                    }
+                    if let Some(block) = partial.block_number
+                        && progress.block_number.is_none()
+                    {
+                        progress.block_number = Some(block);
                     }
                     for (index_in_chunk, mut scene) in partial.scenes.into_iter().enumerate() {
                         scene_ordinal += 1;

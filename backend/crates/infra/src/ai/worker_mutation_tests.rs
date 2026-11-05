@@ -277,6 +277,30 @@ impl AiPreviewStore for MockPreviewStore {
     }
 }
 
+/// Preview store that KEEPS the last stored payload (issue #827 review): the
+/// progress frames say what the run knew live, this says what the preview
+/// actually carries — the two must agree about the script's block.
+#[derive(Default)]
+struct CapturingPreviewStore {
+    stored: Mutex<Option<Vec<u8>>>,
+}
+
+#[async_trait::async_trait]
+impl AiPreviewStore for CapturingPreviewStore {
+    async fn put(&self, _: AiImportJobId, payload: Vec<u8>) -> Result<String, DomainError> {
+        *self.stored.lock().await = Some(payload);
+        Ok("preview-handle".into())
+    }
+
+    async fn get(&self, _: &str) -> Result<Option<Vec<u8>>, DomainError> {
+        Ok(None)
+    }
+
+    async fn delete(&self, _: &str) -> Result<(), DomainError> {
+        Ok(())
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -644,6 +668,57 @@ More.";
             "every frame names the block the page header states"
         );
     }
+}
+
+/// Issue #827 (CodeRabbit review): the preview STORES the block the
+/// deterministic scan read, not only what the model repeated. The seed used to
+/// live only on the progress frames, so a model that said nothing about the
+/// block left `ScriptContext.block_number` empty even though the document
+/// states it.
+#[tokio::test]
+async fn script_preview_stores_the_block_the_document_states() {
+    let queue = Arc::new(MockQueue::new());
+    queue.enqueue_job(DocumentKind::Script).await;
+    // Kept concrete so the test can read what was stored; the worker takes the
+    // trait object (coerced at the field assignment).
+    let previews = Arc::new(CapturingPreviewStore::default());
+    let worker = ScriptImportWorker {
+        queue: Arc::clone(&queue),
+        // The model reports NO block (only the episode) — the scan must carry
+        // the stored value on its own.
+        client: Arc::new(EpisodeMockClient),
+        previews: Arc::clone(&previews) as Arc<dyn AiPreviewStore>,
+        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        provider: LlmProvider::OpenAI,
+        model: "gpt-4o".into(),
+        prompt: "test".into(),
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = claim_script_job(&queue).await;
+
+    let script = "\
+Block: 2   Ep.: 3 (Titel)
+INT. ROOM - DAY
+Hello.";
+
+    let result = worker.process_text(&job, "worker-progress", script).await;
+    assert!(result.is_ok(), "script run should succeed: {result:?}");
+
+    let raw = previews
+        .stored
+        .lock()
+        .await
+        .clone()
+        .expect("the run stores a preview");
+    let context: ScriptContext =
+        serde_json::from_slice(&raw).expect("the stored payload is a ScriptContext");
+    assert_eq!(
+        context.block_number,
+        Some(2),
+        "the scan's block travels into the stored preview"
+    );
 }
 
 /// Issue #827: the model's `block_number` is the FALLBACK for a document whose
