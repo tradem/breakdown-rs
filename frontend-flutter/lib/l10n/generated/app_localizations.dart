@@ -3980,6 +3980,18 @@ abstract class AppLocalizations {
   /// **'Datum wählen'**
   String get blocksPickDate;
 
+  /// No description provided for @blocksPickStartDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Startdatum wählen'**
+  String get blocksPickStartDate;
+
+  /// No description provided for @blocksPickEndDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Enddatum wählen'**
+  String get blocksPickEndDate;
+
   /// No description provided for @blocksNoDate.
   ///
   /// In de, this message translates to:
@@ -3991,6 +4003,18 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Datum löschen'**
   String get blocksClearDate;
+
+  /// No description provided for @blocksClearStartDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Startdatum löschen'**
+  String get blocksClearStartDate;
+
+  /// No description provided for @blocksClearEndDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Enddatum löschen'**
+  String get blocksClearEndDate;
 
   /// No description provided for @blocksDateOrderError.
   ///

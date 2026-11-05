@@ -2410,10 +2410,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get blocksPickDate => 'Pick date';
 
   @override
+  String get blocksPickStartDate => 'Pick start date';
+
+  @override
+  String get blocksPickEndDate => 'Pick end date';
+
+  @override
   String get blocksNoDate => 'No date';
 
   @override
   String get blocksClearDate => 'Clear date';
+
+  @override
+  String get blocksClearStartDate => 'Clear start date';
+
+  @override
+  String get blocksClearEndDate => 'Clear end date';
 
   @override
   String get blocksDateOrderError => 'The end date is before the start date.';

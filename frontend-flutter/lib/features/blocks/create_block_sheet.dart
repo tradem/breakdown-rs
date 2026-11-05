@@ -9,6 +9,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/cache/seasons_cache_providers.dart' show clockProvider;
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/locale_formatters.dart';
@@ -62,6 +63,17 @@ bool blockDateOrderValid(DateTime? start, DateTime? end) =>
 Date? blockWireDate(DateTime? picked) =>
     picked == null ? null : Date(picked.year, picked.month, picked.day);
 
+/// The pickers' selectable range, derived from the wire contract instead of a
+/// product guess (issue #833 review): the OpenAPI `Date` shape is an ISO-8601
+/// `yyyy-mm-dd` string, so a four-digit year (0001–9999) is the widest
+/// calendar range the client can carry without an expanded-year prefix.
+///
+/// The free-text form this change replaced accepted any parsable year and the
+/// backend (`chrono::NaiveDate`) validates nothing, so the pickers must not
+/// narrow the range to a planning horizon nobody specified.
+final DateTime blockPickerFirstDay = DateTime(1, 1, 1);
+final DateTime blockPickerLastDay = DateTime(9999, 12, 31);
+
 /// The Create Block form: ephemeral picker state only — the submit
 /// dispatches through [BlocksController]; ids are pre-filled from the
 /// `SeasonView` navigation context, never from a second lookup.
@@ -93,8 +105,11 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
     super.dispose();
   }
 
+  /// The pickers' initial day. Read through the injectable [clockProvider]
+  /// (foundation deterministic-tests rule): a test can pin it instead of
+  /// racing the wall clock across a midnight boundary.
   DateTime get _today {
-    final now = DateTime.now();
+    final now = ref.read(clockProvider).now();
     return DateTime(now.year, now.month, now.day);
   }
 
@@ -109,8 +124,8 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      firstDate: blockPickerFirstDay,
+      lastDate: blockPickerLastDay,
     );
     // The form may have been disposed while the picker was open — never
     // setState on a disposed State.
@@ -148,6 +163,8 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
     required Key pickKey,
     required Key clearKey,
     required DateTime? value,
+    required String pickSemantics,
+    required String clearSemantics,
     required VoidCallback onPick,
     required VoidCallback onClear,
   }) => Padding(
@@ -166,17 +183,39 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
                 key: textKey,
               ),
             ),
-            TextButton(
-              key: pickKey,
-              onPressed: _busy ? null : onPick,
-              child: Text(l10n.blocksPickDate),
+            // Both rows render the same visible "Pick date" label, so the
+            // accessibility name must carry the bound: a screen-reader user
+            // moving between the two controls would otherwise hear an
+            // identical name twice (issue #833 review). The semantics node
+            // owns the action (`excludeSemantics` + explicit `onTap`), so the
+            // control stays activatable, never a label-only node.
+            Semantics(
+              container: true,
+              button: true,
+              enabled: !_busy,
+              excludeSemantics: true,
+              label: pickSemantics,
+              onTap: _busy ? null : onPick,
+              child: TextButton(
+                key: pickKey,
+                onPressed: _busy ? null : onPick,
+                child: Text(l10n.blocksPickDate),
+              ),
             ),
             if (value != null)
-              IconButton(
-                key: clearKey,
-                onPressed: _busy ? null : onClear,
-                tooltip: l10n.blocksClearDate,
-                icon: const Icon(Icons.clear),
+              Semantics(
+                container: true,
+                button: true,
+                enabled: !_busy,
+                excludeSemantics: true,
+                label: clearSemantics,
+                onTap: _busy ? null : onClear,
+                child: IconButton(
+                  key: clearKey,
+                  onPressed: _busy ? null : onClear,
+                  tooltip: l10n.blocksClearDate,
+                  icon: const Icon(Icons.clear),
+                ),
               ),
           ],
         ),
@@ -219,6 +258,8 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
                 pickKey: const Key('create-block-start-pick'),
                 clearKey: const Key('create-block-start-clear'),
                 value: _start,
+                pickSemantics: l10n.blocksPickStartDate,
+                clearSemantics: l10n.blocksClearStartDate,
                 onPick: () => _pick(_start, (d) => _start = d),
                 onClear: () => setState(() => _start = null),
               ),
@@ -229,6 +270,8 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
                 pickKey: const Key('create-block-end-pick'),
                 clearKey: const Key('create-block-end-clear'),
                 value: _end,
+                pickSemantics: l10n.blocksPickEndDate,
+                clearSemantics: l10n.blocksClearEndDate,
                 // The end picker opens on the start day when one is set: the
                 // common case is a span that begins and ends nearby.
                 onPick: () => _pick(_end, (d) => _end = d, fallback: _start),
