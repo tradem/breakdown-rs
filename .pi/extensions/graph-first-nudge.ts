@@ -42,16 +42,22 @@
  * plus the calls that make the next question cheaper (`get_code_snippet`,
  * `trace_path`, `check_index_coverage`).
  *
- * "Cold" is stateful and per file: the moment any code-aware tool reported on
- * that path (`get_file_outline`, `get_code_snippet`, `search_graph`,
- * `analyze_ast_map`, ...), the read is not cold and nothing is appended. Small
- * files (< 6 KB), targeted reads (`offset`/`limit` under 400 lines), prose,
- * test trees, generated sources (`.g.dart`, `.freezed.dart`,
- * `app_localizations*`) and anything outside the project root are never
- * annotated — a whole read of those IS the right move.
+ * "Cold" is stateful and per file: once a code-aware tool SUCCESSFULLY reported
+ * on that path (`get_file_outline`, `search_graph`, `analyze_ast_map`, ...), the
+ * read is not cold and nothing is appended — a FAILED lookup marks nothing,
+ * because the model learned nothing from it. Small files (< 6 KB), targeted
+ * reads (`offset`/`limit` under 400 lines), prose, test trees, generated
+ * sources (`.g.dart`, `.freezed.dart`, `app_localizations*`) and anything
+ * outside the project root are never annotated — a whole read of those IS the
+ * right move.
  *
- * Escape hatches: `PI_GRAPH_NUDGE=0` disables it for a session, a
- * `# literal:` marker in the command disables it for that one call.
+ * The declaration ROWS are printed only when the read itself was truncated: a
+ * whole read under the read tool's 2000-line/50 KB cap already delivered those
+ * declarations, so only the "use the outline next time" advice is added.
+ *
+ * Escape hatches: `PI_GRAPH_NUDGE=0` disables both halves for a session; a
+ * `# literal:` marker disables the SEARCH half for that one call (a `read` has
+ * no command, so a marker cannot suppress the read half).
  *
  * Honest limits, surfaced in the appended block rather than hidden:
  *   - Dart class CONSTRUCTION sites are not modelled as call edges (a class
@@ -135,11 +141,12 @@ const MAX_OUTLINE_ROWS = 12;
 
 /**
  * Tools whose result already told the model what is in a file. A read after one
- * of these is not "cold" — annotating it would be noise.
+ * of these is not "cold" — annotating it would be noise. Only tools that name a
+ * PATH belong here: `get_code_snippet` takes a `qualified_name` and reports no
+ * path at all, so listing it would mark nothing.
  */
 const DISCOVERY_TOOLS = new Set([
 	"get_file_outline",
-	"get_code_snippet",
 	"search_graph",
 	"search_code",
 	"get_architecture",
@@ -809,7 +816,8 @@ export function decideRead(args: {
 
 	const offset = args.offset ?? null;
 	const limit = args.limit ?? null;
-	const wholeFile = offset === null && limit === null;
+	// `offset: 0` means "from the top", which is still a whole-file read.
+	const wholeFile = (offset === null || offset === 0) && limit === null;
 	const wideSpan = limit !== null && limit >= READ_SPAN_THRESHOLD_LINES;
 	if (!wholeFile && !wideSpan) return null;
 
@@ -828,11 +836,21 @@ export function formatReadBlock(args: {
 	rows: { name: string; label: string; lines: string }[];
 	total: number;
 	outlineFailed: boolean;
+	/** The read was truncated, so its declaration rows are NEW information. */
+	truncated: boolean;
 	/** The full framing once per session, then the short form. */
 	verbose?: boolean;
 }): string {
-	const { project, relPath, bytes, rows, total, outlineFailed, verbose } =
-		args;
+	const {
+		project,
+		relPath,
+		bytes,
+		rows,
+		total,
+		outlineFailed,
+		truncated,
+		verbose,
+	} = args;
 	const kb = `${Math.round(bytes / 1024)} KB`;
 	const out: string[] = [];
 	out.push("");
@@ -870,13 +888,17 @@ export function formatReadBlock(args: {
 		out.push(
 			`  next time: get_file_outline("${relPath}") → ${total} declaration${total === 1 ? "" : "s"}`,
 		);
-		for (const row of rows) {
-			out.push(
-				`    ${row.name.padEnd(22)} ${row.label.padEnd(9)} ${row.lines}`,
-			);
-		}
-		if (total > rows.length) {
-			out.push(`    (+${total - rows.length} more: get_file_outline)`);
+		// A whole read under the tool's cap already contained these
+		// declarations; repeating them would be context for nothing.
+		if (truncated) {
+			for (const row of rows) {
+				out.push(
+					`    ${row.name.padEnd(22)} ${row.label.padEnd(9)} ${row.lines}`,
+				);
+			}
+			if (total > rows.length) {
+				out.push(`    (+${total - rows.length} more: get_file_outline)`);
+			}
 		}
 	}
 	// One call beats two: `search_code` answers "where is this / how connected"
@@ -1169,43 +1191,35 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 	//
 	// Discovery tools report REPOSITORY-relative paths (that is what the graph
 	// tools take), while `read` passes paths relative to the session cwd — which
-	// is commonly a SUBDIRECTORY (`frontend-flutter/`). So the raw arguments are
-	// kept and resolved against BOTH roots when a read asks whether it is cold;
-	// resolving against the cwd alone would silently answer "cold" for every
-	// `get_file_outline` call in an area session.
+	// is commonly a SUBDIRECTORY (`frontend-flutter/`). Every reported path is
+	// therefore kept NORMALIZED and matched against all three shapes a read can
+	// produce (cwd-relative, project-relative, absolute): one set hit each, never
+	// a scan over every earlier tool call.
 	// -----------------------------------------------------------------------
-	const outlineSeenRaw = new Set<string>();
+	const inspectedPaths = new Set<string>();
 	const readNudged = new Set<string>();
 	let lastReadNudgeAt = 0;
 	let readNudges = 0;
 
-	const wasInspected = (
-		readAbs: string,
-		cwd: string,
-		projectRoot: string,
-	): boolean => {
-		for (const raw of outlineSeenRaw) {
-			if (absPath(raw, cwd) === readAbs) return true;
-			if (absPath(raw, projectRoot) === readAbs) return true;
-		}
-		return false;
-	};
-
 	pi.on("tool_result", async (event, ctx) => {
 		try {
 			// Bookkeeping comes first: a discovery tool's result marks its file
-			// as "already inspected", for the rest of the session.
+			// as "already inspected", for the rest of the session. A FAILED call
+			// marks nothing — it did not tell the model what is in that file.
 			if (DISCOVERY_TOOLS.has(event.toolName)) {
+				if (event.isError) return;
 				const input = event.input as Record<string, unknown> | undefined;
 				for (const key of ["file_path", "path"]) {
 					const value = input?.[key];
 					if (typeof value === "string" && value.length > 1) {
-						outlineSeenRaw.add(value);
+						inspectedPaths.add(posix.normalize(value));
 					}
 				}
 				return;
 			}
 			if (event.toolName !== "read") return;
+			// A failed read produced an error, not file contents: nothing to advise.
+			if (event.isError) return;
 
 			const input = event.input as
 				| { path?: string; offset?: number | null; limit?: number | null }
@@ -1217,7 +1231,8 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 
 			// Cheapest first: prose, test trees and generated sources are the
 			// RIGHT whole-read, and deciding that must not cost a CLI call.
-			if (!isReadCandidatePath(posix.relative(ctx.cwd, abs))) return;
+			const cwdRel = posix.relative(ctx.cwd, abs);
+			if (!isReadCandidatePath(cwdRel)) return;
 
 			// Stat BEFORE deciding: size is the "is this a file discovery"
 			// signal. A missing file is an error the read tool already reports.
@@ -1230,9 +1245,6 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 
 			const project = await resolveProjectRef(ctx.cwd, ctx.signal);
 			if (!project) return;
-			// A file whose outline/snippets a discovery tool already reported on
-			// is not cold — annotating that read would be pure noise.
-			if (wasInspected(abs, ctx.cwd, project.root)) return;
 
 			const decision = decideRead({
 				path: input.path,
@@ -1243,6 +1255,17 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 				sizeBytes,
 			});
 			if (!decision) return;
+
+			// A file whose outline a discovery tool already reported on is not
+			// cold — annotating that read would be pure noise. The path may be
+			// spelled relative to the cwd, to the project root, or absolute.
+			if (
+				inspectedPaths.has(cwdRel) ||
+				inspectedPaths.has(decision.relPath) ||
+				inspectedPaths.has(abs)
+			) {
+				return;
+			}
 
 			// Budget RESERVED before the await (sibling calls run concurrently).
 			const now = Date.now();
@@ -1275,6 +1298,11 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 				rows: parsed.rows,
 				total: parsed.total,
 				outlineFailed: outline === null,
+				// Only a truncated read left declarations unread.
+				truncated: Boolean(
+					(event.details as { truncation?: unknown } | undefined)
+						?.truncation,
+				),
 				verbose,
 			});
 
@@ -1474,6 +1502,15 @@ if (invokedDirectly) {
 			want: "frontend-flutter/lib/features/shell/app_shell.dart",
 		},
 		{
+			label: "offset: 0 from the top is still a whole-file read",
+			path: "lib/features/shell/app_shell.dart",
+			offset: 0,
+			cwd: CWD,
+			projectRoot: ROOT,
+			sizeBytes: BIG,
+			want: "frontend-flutter/lib/features/shell/app_shell.dart",
+		},
+		{
 			label: "targeted read (offset) is a lookup, not a discovery",
 			path: "lib/features/shell/app_shell.dart",
 			offset: 340,
@@ -1559,6 +1596,7 @@ if (invokedDirectly) {
 		rows: [],
 		total: 0,
 		outlineFailed: true,
+		truncated: false,
 	});
 	const failedOk =
 		failedBlock.includes("outline unavailable") &&
@@ -1582,6 +1620,36 @@ if (invokedDirectly) {
 		rows.rows[1]?.lines === "110-412";
 	if (!rowsOk) failed++;
 	console.log(`${rowsOk ? "ok  " : "FAIL"} readOutlineRows(cols → rows)`);
+
+	// Rows are only new information when the read was TRUNCATED: a whole read
+	// under the tool's cap already carried every declaration it lists.
+	const fullReadBlock = formatReadBlock({
+		project: "breakdown-rs",
+		relPath: "frontend-flutter/lib/a.dart",
+		bytes: BIG,
+		rows: rows.rows,
+		total: rows.total,
+		outlineFailed: false,
+		truncated: false,
+	});
+	const truncatedBlock = formatReadBlock({
+		project: "breakdown-rs",
+		relPath: "frontend-flutter/lib/a.dart",
+		bytes: BIG,
+		rows: rows.rows,
+		total: rows.total,
+		outlineFailed: false,
+		truncated: true,
+	});
+	const truncationOk =
+		!fullReadBlock.includes("AppShellState") &&
+		fullReadBlock.includes("next time: get_file_outline") &&
+		truncatedBlock.includes("AppShellState") &&
+		truncatedBlock.includes("+5 more");
+	if (!truncationOk) failed++;
+	console.log(
+		`${truncationOk ? "ok  " : "FAIL"} formatReadBlock(rows only when truncated)`,
+	);
 
 	console.log(failed === 0 ? "self-test passed" : `${failed} failure(s)`);
 	process.exit(failed === 0 ? 0 : 1);

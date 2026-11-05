@@ -53,7 +53,8 @@ the authoritative copy and is edited in place.
   The decision is supported, not just stated: `.pi/extensions/graph-first-nudge.ts` appends the
   code-aware result to a symbol-shaped text search AND attaches the symbol
   outline to a cold whole-file `read` of a sizeable code file (soft advisory,
-  never a block; `PI_GRAPH_NUDGE=0` or a `# literal:` marker opts out), and
+  never a block; `PI_GRAPH_NUDGE=0` opts out of both halves, and a `# literal:`
+  marker opts out of the search half for one call), and
   `scripts/who-watches.sh <provider>` answers the one question the graph is
   structurally blind to (Riverpod `ref.watch` wiring) by combining both tools
   in one call. The extension lives in the monorepo's project-local

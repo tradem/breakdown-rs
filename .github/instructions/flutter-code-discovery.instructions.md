@@ -142,7 +142,11 @@ Rules of thumb:
   needs the global link from `scripts/install-pi-extensions.sh`; a session that
   shows no `── code-aware (codebase-memory · …)` block after a symbol-shaped
   `rg` or a cold whole-file read has not loaded it — check `/extensions`
-  (and `/reload` after linking) before concluding the tool is broken.
+  (and `/reload` after linking) before concluding the tool is broken. Silence is
+  not proof on its own: the extension also stays quiet for 12 s after a nudge
+  (45 s for reads), after 40 nudges per session (12 for reads), with
+  `PI_GRAPH_NUDGE=0`, with a `# literal:` marker, and where no indexed project
+  contains the session cwd — so confirm with `/extensions` first.
 - Test files are indexed but marked; exclude them in a trace unless the test is
   the thing you are changing.
 - Markdown/prose (AGENTS.md, OpenSpec artifacts, screen specs) is only reachable

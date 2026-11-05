@@ -12,7 +12,9 @@
 <!-- Graph-first code discovery (monorepo AGENTS.md §2, flutter-code-discovery instructions).
      Fill this in when the PR touches Dart code — a missing or rg-only-for-symbols block is a
      review blocker, exactly like a missing AUTHZ-GATE comment. Docs/dependency-only PRs write
-     "none (no-code)" plus one line of why instead of the bullets. -->
+     "none (no-code)" plus one line of why instead of the bullets.
+     This bullet list is the CANONICAL copy: the issue-implementation skills (backend and
+     frontend) point here instead of pasting it, so there is one place to change it. -->
 
 - Index: project `breakdown-rs`; `scripts/check-graph-freshness.sh` → fresh (or stale → reindexed)
 - Graph (meaning): `search_code("…")` → `path:Symbol (Label)`, in/out; `trace_path … inbound` → N edges

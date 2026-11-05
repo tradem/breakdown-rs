@@ -106,16 +106,14 @@ ending in `.g.dart` must be traced back to its hand-written source.
 claim is only reviewable if it is written down — prose rules lose to `grep`
 under time pressure, so the workflow demands the evidence instead of the
 intention. Fill this in during Step 2 and carry it verbatim into the proposal
-(Step 4) and the PR body (Step 9):
+(Step 4) and the PR body (Step 9).
 
-````markdown
-### Discovery evidence (issue #NNN)
-- Index: project `breakdown-rs`; `scripts/check-graph-freshness.sh` → fresh (or stale → reindexed)
-- Graph (meaning): `search_code("X")` → `path:Symbol (Label)`, in/out; `trace_path X inbound` → N edges (a, b)
-- Text (occurrence): `rg -n "<key>"` for <ARB key / widget key / problem code / prose> — text by nature, not a symbol
-- Coverage: `check_index_coverage(paths=[…])` → clean, or gaps: `path:ranges` verified by <read/rg of those ranges>
-- Not the graph (and why): <Riverpod `ref.watch` → `scripts/who-watches.sh`; class construction → `analyze_ast_impact`>
-````
+The canonical bullet list lives in `.github/PULL_REQUEST_TEMPLATE/flutter.md`,
+section "Discovery evidence" — one owner, so template and skill cannot drift
+apart. Translated to this area: "Text (occurrence)" names ARB keys, widget keys,
+problem `code`s and prose, and "Not the graph (and why)" names e.g. Riverpod
+`ref.watch` wiring → `scripts/who-watches.sh`, class construction →
+`analyze_ast_impact`.
 
 Rules that make the block a gate rather than another paragraph:
 

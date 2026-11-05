@@ -30,6 +30,8 @@
 #   * Only `*.ts`/`*.js` files DIRECTLY inside `.pi/extensions/` are linked;
 #     vendored subdirectories are left alone (they are not single-file
 #     extensions).
+#   * A command that fails prints `FAILED` and the script exits non-zero: a
+#     broken install never reads as a successful one.
 
 set -uo pipefail
 
@@ -45,7 +47,7 @@ for arg in "$@"; do
         --dry-run) DRY_RUN=1 ;;
         --uninstall) UNINSTALL=1 ;;
         -h | --help)
-            sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,/^[^#]/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -60,12 +62,19 @@ if [ ! -d "$SRC" ]; then
     exit 1
 fi
 
+# Run a command, or print it in dry-run mode. Non-zero means it FAILED, so the
+# progress lines below can never claim a link that was not created.
 run() {
     if [ "$DRY_RUN" = "1" ]; then
         printf 'would: %s\n' "$*"
-    else
-        "$@"
+        return 0
     fi
+    "$@"
+}
+
+# Progress line. Suppressed in dry-run: the `would:` lines already say it.
+report() {
+    [ "$DRY_RUN" = "1" ] || printf '%s\n' "$*"
 }
 
 echo "repo:  $SRC"
@@ -73,42 +82,73 @@ echo "agent: $DST"
 [ "$DRY_RUN" = "1" ] && echo "(dry run — nothing is changed)"
 
 changed=0
+failed=0
 for ext in "$SRC"/*.ts "$SRC"/*.js; do
     [ -e "$ext" ] || continue
     name=$(basename "$ext")
     target="$DST/$name"
 
+    # `readlink` WITHOUT -f: BSD readlink (macOS) has no -f, and the link always
+    # stores the absolute "$ext", so the plain answer is directly comparable.
+    # With -f both sides would expand to "" on macOS, making every comparison
+    # trivially equal — a foreign or dangling link would read as "ok".
     if [ "$UNINSTALL" = "1" ]; then
-        if [ -L "$target" ] && [ "$(readlink -f "$target")" = "$(readlink -f "$ext")" ]; then
-            run rm -f "$target"
-            echo "removed  $name"
-            changed=$((changed + 1))
+        if [ -L "$target" ] && [ "$(readlink "$target")" = "$ext" ]; then
+            if run rm -f "$target"; then
+                report "removed  $name"
+                changed=$((changed + 1))
+            else
+                echo "FAILED   $name (cannot remove $target)" >&2
+                failed=$((failed + 1))
+            fi
         elif [ -e "$target" ] || [ -L "$target" ]; then
             echo "kept     $name (not our symlink)"
         fi
         continue
     fi
 
-    if [ -L "$target" ] && [ "$(readlink -f "$target")" = "$(readlink -f "$ext")" ]; then
+    if [ -L "$target" ] && [ "$(readlink "$target")" = "$ext" ]; then
         echo "ok       $name"
         continue
     fi
     if [ -L "$target" ]; then
-        run rm -f "$target"
+        if ! run rm -f "$target"; then
+            echo "FAILED   $name (cannot replace $target)" >&2
+            failed=$((failed + 1))
+            continue
+        fi
     elif [ -e "$target" ]; then
         backup="$target.bak.$(date +%Y%m%d%H%M%S)"
-        run mv "$target" "$backup"
-        echo "moved    $name → $(basename "$backup")"
+        if ! run mv "$target" "$backup"; then
+            echo "FAILED   $name (cannot move $target aside)" >&2
+            failed=$((failed + 1))
+            continue
+        fi
+        report "moved    $name → $(basename "$backup")"
     fi
-    run mkdir -p "$DST"
-    run ln -s "$ext" "$target"
-    echo "linked   $name → $ext"
+    if ! run mkdir -p "$DST"; then
+        echo "FAILED   $name (cannot create $DST)" >&2
+        failed=$((failed + 1))
+        continue
+    fi
+    if ! run ln -s "$ext" "$target"; then
+        echo "FAILED   $name (cannot link into $DST)" >&2
+        failed=$((failed + 1))
+        continue
+    fi
+    report "linked   $name → $ext"
     changed=$((changed + 1))
 done
 
+if [ "$failed" != "0" ]; then
+    echo "failed: $failed error(s) — see the FAILED lines above." >&2
+    exit 1
+fi
 if [ "$changed" = "0" ]; then
     echo "nothing to do."
+elif [ "$DRY_RUN" = "1" ]; then
+    echo "dry run: $changed change(s) would be made."
 else
     echo "done ($changed change(s))."
-    [ "$DRY_RUN" = "1" ] || echo "Reload a RUNNING pi session with /reload; new sessions pick it up automatically."
+    echo "Reload a RUNNING pi session with /reload; new sessions pick it up automatically."
 fi
