@@ -80,6 +80,22 @@
 - [x] 6.5 `flutter gen-l10n` re-run; de/en ARB parity holds.
 - [x] 6.6 `flutter test` — full suite green.
 
+## 7. Review follow-ups (CodeRabbit on PR #848)
+
+- [x] 7.1 `PlusActionFab` passes its `fabKey` as the FAB's `heroTag`: every
+      FAB defaults to ONE shared `_DefaultHeroTag`, and the Script FAB plus a
+      jobs screen pushed into that tab are mounted in the same root-route
+      subtree, so a root-navigator push (the sheet's `Import` entry) collected
+      two heroes with the same tag. Regression test:
+      `test/design/components/plus_action_fab_test.dart` (distinct tags + the
+      nested-navigator push raises no duplicate-tag assertion).
+- [x] 7.2 The jobs screen's clearance band adds
+      `MediaQuery.viewPaddingOf(context).bottom`: its `Scaffold` has no bottom
+      bar, so the body runs to the physical bottom while the floating FAB keeps
+      `viewPadding.bottom + 16` above it — the fixed 80 dp band overlapped the
+      last row once the inset exceeded 8 dp. Regression test: the list/FAB
+      rect assertion with a 34 dp bottom inset.
+
 ## Follow-ups (not this change)
 
 - [ ] Decide whether a pushed detail screen inside the Script destination should

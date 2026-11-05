@@ -88,7 +88,20 @@ class AiImportJobsScreen extends ConsumerWidget {
     // #623): the jobs screen floats the action over a full-width list in
     // every window class, so the band is applied unconditionally — but only
     // while the action itself renders (auth-gate symmetry).
-    final bottomClearance = canImport ? kPlusActionFabBottomClearance : 0.0;
+    //
+    // The system's bottom inset is ADDED to the constant (CodeRabbit review
+    // on #848): this Scaffold has no bottom bar, so its body runs to the
+    // PHYSICAL bottom, while the floating FAB keeps `kFloatingActionButtonMargin`
+    // PLUS `viewPadding.bottom` above it (the `FabFloatOffsetY` safe margin).
+    // Without the inset the band ends 8 dp above the FAB's top edge only on a
+    // gesture-bar-free device; on a device with a >8 dp bottom inset the last
+    // row (and its trailing delete action) stayed under the FAB. The shell's
+    // docked FAB needs no such addend: its `bottomNavigationBar` already
+    // consumes the inset, so the compact band is measured from the bar's top.
+    final bottomClearance = canImport
+        ? kPlusActionFabBottomClearance +
+              MediaQuery.viewPaddingOf(context).bottom
+        : 0.0;
 
     return Scaffold(
       appBar: BreakdownAppBar(title: l10n.aiJobsTitle),

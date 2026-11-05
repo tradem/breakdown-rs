@@ -8,6 +8,13 @@ import 'package:flutter/material.dart';
 /// never renders beneath it: the extended FAB's 56 height + its 16 margin
 /// above the surface edge + 8 breathing room (issue #623, generalized by
 /// #823 to every surface that carries the action).
+///
+/// Measured from the BODY's bottom edge. A surface whose `Scaffold` has no
+/// bottom bar (the AI-import jobs screen) lets its body run to the PHYSICAL
+/// bottom while the floating FAB keeps `viewPadding.bottom` above it, so such
+/// a call site must add `MediaQuery.viewPaddingOf(context).bottom` to this
+/// constant (CodeRabbit review on #848 — otherwise the band ends behind the
+/// FAB on any device whose bottom system inset exceeds 8 dp).
 const double kPlusActionFabBottomClearance = 80;
 
 /// The quick-create **plus action** (issues #612 and #823).
@@ -25,7 +32,16 @@ const double kPlusActionFabBottomClearance = 80;
 ///   it;
 /// * a caller-supplied [fabKey] on the [FloatingActionButton] itself, so
 ///   "one FAB" assertions stay unambiguous per surface
-///   (`shell-plus-fab` / `ai-jobs-plus-fab`);
+///   (`shell-plus-fab` / `ai-jobs-plus-fab`). The same key is the FAB's
+///   [FloatingActionButton.heroTag]: every FAB defaults to ONE shared
+///   `_DefaultHeroTag`, and the two surfaces can be mounted inside the same
+///   root route subtree at the same time (Script destination + a jobs screen
+///   pushed into that tab, then a sheet that pushes on the ROOT navigator).
+///   A root-navigator page transition collects heroes from that subtree —
+///   including a nested navigator's current `PageRoute` — so two default tags
+///   would raise "There are multiple heroes that share the same tag" in debug
+///   and test builds. Distinct tags also mean the FABs never hero-fly, which
+///   is what an action that exists per surface should do;
 /// * the caller owns WHEN it renders — in particular the client-side
 ///   AUTHZ-GATE mirror (Decision D6): the quick-create sheet is
 ///   `Requirement::Authenticated`-gated UI, so a pending/erroring/signed-out
@@ -61,6 +77,7 @@ class PlusActionFab extends StatelessWidget {
     button: true,
     child: FloatingActionButton.extended(
       key: fabKey,
+      heroTag: fabKey,
       onPressed: onPressed,
       icon: const Icon(Icons.add),
       label: Text(label),

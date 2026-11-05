@@ -1413,6 +1413,27 @@ void main() {
       expect(find.byType(AiImportSubmitScreen), findsOneWidget);
     });
 
+    testWidgets('the clearance band includes the bottom system inset, so the '
+        'floating FAB never covers the last row (CodeRabbit review on #848)', (
+      tester,
+    ) async {
+      await setupContainer(listResult: Right([_job('job-1')]));
+      // A device with a bottom gesture/navigation inset: the floating FAB
+      // keeps `viewPadding.bottom + 16` above the PHYSICAL bottom (the
+      // `FabFloatOffsetY` safe margin), while this Scaffold — it has no bottom
+      // bar — lets its body run to that same physical bottom. A fixed 80 dp
+      // band therefore ends up BEHIND the FAB once the inset exceeds 8 dp.
+      tester.view.padding = const FakeViewPadding(bottom: 34);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+      await pumpScreen(tester);
+
+      final listRect = tester.getRect(find.byKey(const Key('ai-jobs-list')));
+      final fabRect = tester.getRect(find.byKey(const Key('ai-jobs-plus-fab')));
+      // The list's bottom edge ends above the FAB's top edge — no overlap of
+      // the last row (and its trailing delete action) with the affordance.
+      expect(listRect.bottom, lessThanOrEqualTo(fabRect.top));
+    });
+
     testWidgets('a signed-out session renders no Import action (AUTHZ-GATE '
         'mirror, issue #823)', (tester) async {
       await setupContainer(listResult: Right([_job('job-1')]));
