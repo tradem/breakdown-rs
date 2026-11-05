@@ -75,6 +75,14 @@ echo "  spec : ${SPEC}"
 echo "  out  : ${OUT}"
 echo "  gen  : openapi-generator-cli (JAR ${GENERATOR_VERSION} from openapitools.json)"
 
+# The generated package's own version (`vendor/breakdown_api/pubspec.yaml`).
+# It is declared HERE, not hand-edited in the generated tree, because this
+# script wipes the output directory first: a bump inside `vendor/` would be
+# regenerated away and fail the CI drift check. Bump it (MINOR for additive
+# wire fields, MAJOR for a breaking contract) in the same commit that changes
+# `openapi.yaml`, so two client builds stay tellable apart.
+CLIENT_VERSION="1.1.0"
+
 # Clean the previous output so removed operations/models disappear from the tree.
 rm -rf "${OUT}"
 
@@ -87,7 +95,7 @@ npx --yes @openapitools/openapi-generator-cli generate \
   -g dart-dio \
   -o "${OUT}" \
   --skip-validate-spec \
-  --additional-properties=pubName=breakdown_api,hideGenerationTimestamp=true \
+  --additional-properties=pubName=breakdown_api,pubVersion=${CLIENT_VERSION},hideGenerationTimestamp=true \
   --reserved-words-mappings update=decisionUpdate
 
 # Inject the `do not edit` banner into every generated Dart file (idempotent).

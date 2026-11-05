@@ -70,6 +70,17 @@
 # like four (the server's own #695 conflict scan uses the same name, see
 # `category_conflict_uncertainties`).
 #
+# Issue #827 adds the `<block>` element: the page header states the production
+# block (`Block: 2`, `Block 2`, the glued `Block: 098/Ep.: 294`), and the import
+# never read it — a job could import a block-2 script into block 1 without
+# anyone noticing before the apply's cross-block guard refused it. The
+# deterministic `block_marker` scan in `crates/core/src/ai/preview.rs` is the
+# primary source (zero tokens); this rule is the fallback for a header whose
+# shape the scan does not recognize, so the model has somewhere to put a block
+# marker it did read instead of inventing an uncertainty. `block_number` is
+# nullable, exactly like the episode number: honest absence, never a number
+# inferred from scene numbering or the episode.
+#
 # Deployment note: this file is the fallback, not a lock. A deployment that has
 # stored a configuration prompt (editable in the app, overridable through
 # `AI_IMPORT_DEFAULT_PROMPTS_PATH`) keeps serving that stored text, so an edit
@@ -100,6 +111,9 @@ When the block states no clothing, answer with an empty `outfits` list: that is 
 <props>Record named, story-relevant objects (Requisiten) in the `summary` as well, in the same verbatim way — e.g. "Requisiten: Stethoskop, Blutbeutel". Ignore set dressing that carries no story function.</props>
 
 <episode>If the block itself names an episode of the series — for example a line like "EPISODE 3 - Der Unfall", "Folge 12", or an episode title card inside this block — record it in `episode` as {"number": the episode number when the text states one, "title": the episode title when the text states one}. Both fields are optional; leave a field null when the text does not state it. If the block does not itself mark an episode, leave `episode` null: never infer an episode from scene numbering or running order. An episode designation is a FIXED number, and page headers glue further fields onto it: everything after a `/` in `Ep.: <n>/<suffix>` is a scene, page or block index INSIDE episode `<n>` and is not part of the episode — read the leading number only, exactly like the server's own page-header scan. "Ep.: 292/15" and "Ep.: 292/16" are both episode 292, and "Block: 098/Ep.: 294" is episode 294. A suffix that dissents (`/15` on one page, `/16` on the next) is never evidence of a second episode and never a reason for an uncertainty.</episode>
+
+
+<block>If the block itself states the production block number — a page header such as `Block: 2`, `Block 2`, or the glued `Block: 098/Ep.: 294` — record it in `block_number` as a number. Page headers repeat the marker on every page; that is the same value, not a conflict, and record no uncertainty for it. Read the LEADING digits only: everything after a `/` belongs to the next field, so `Block: 098/Ep.: 294` is block 98 and `Block: 2/3` is block 2 — the same rule the episode number follows, and the same rule the server's own page-header scan applies. Leave `block_number` null when the block states no block number: never infer one from the episode number, the scene numbering or the running order, and never report an uncertainty for a missing block marker (the reviewer sees the import target's block as the association). A place or set name is not a block number: `1. I/T - BLOCK 2 - WOHNUNG` names a location inside the scene heading, so it is no marker.</block>
 
 <location>Take `location` from the heading (the place), not from the body. `scene_number` only if the heading actually carries one. `script_day` for a fictional day such as "Tag 1" or "1. Spieltag".</location>
 

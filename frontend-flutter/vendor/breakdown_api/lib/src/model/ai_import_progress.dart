@@ -15,6 +15,7 @@ part 'ai_import_progress.g.dart';
 /// Live progress of a running AI import job (issue #664).  Additive and optional on [`AiImportJob`]: `None` for jobs that have not reached a `mark_progress` call yet (fresh `pending` claims, retried attempts before their first stage boundary — the claim SQL resets it).
 ///
 /// Properties:
+/// * [blockNumber] - The production block number the script's page headers state, or the model's answer when the deterministic `Block:` scan found no marker (issue #827). `None` means \"the script does not state one\" — never a fabricated number, and never the job's import TARGET ([`AiImportTarget::block_number`]), which is a separate fact: only because the two travel side by side can a client show \"script says 2 · importing into 1\" and flag a mismatch before the apply's cross-block guard fires.  Additive with `serde(default)`: frames written before the field existed deserialize as `None`, and a client then renders the import target as the associated block instead of an empty field.
 /// * [chunk] - Chunk counter of the extraction progress. `0` is a deliberate published state — \"chunking finished, the first chunk has not yet completed\" (the frame emitted right after the deterministic scan) — so the schema floor is 0, not 1. For every later frame this is the 1-based index of the last **completed** chunk (`1..=chunks_total`).
 /// * [chunksTotal] - Total chunks in the document (known once chunking finishes).
 /// * [doneBytes] - Source-text bytes already extracted (issue #762), summed over the **completed** chunks. `0` is a deliberate published state, mirroring [`Self::chunk`].  Chunk cost is heterogeneous by an order of magnitude — one chunk is one scene and scene lengths differ wildly — so a byte denominator is a materially better ETA basis than a chunk count. Additive with `serde(default)`: `None` when the worker has no byte budget for the job (a schedule job is a single extraction unit).
@@ -26,6 +27,10 @@ part 'ai_import_progress.g.dart';
 @BuiltValue()
 abstract class AiImportProgress
     implements Built<AiImportProgress, AiImportProgressBuilder> {
+  /// The production block number the script's page headers state, or the model's answer when the deterministic `Block:` scan found no marker (issue #827). `None` means \"the script does not state one\" — never a fabricated number, and never the job's import TARGET ([`AiImportTarget::block_number`]), which is a separate fact: only because the two travel side by side can a client show \"script says 2 · importing into 1\" and flag a mismatch before the apply's cross-block guard fires.  Additive with `serde(default)`: frames written before the field existed deserialize as `None`, and a client then renders the import target as the associated block instead of an empty field.
+  @BuiltValueField(wireName: r'block_number')
+  int? get blockNumber;
+
   /// Chunk counter of the extraction progress. `0` is a deliberate published state — \"chunking finished, the first chunk has not yet completed\" (the frame emitted right after the deterministic scan) — so the schema floor is 0, not 1. For every later frame this is the 1-based index of the last **completed** chunk (`1..=chunks_total`).
   @BuiltValueField(wireName: r'chunk')
   int? get chunk;
@@ -84,6 +89,13 @@ class _$AiImportProgressSerializer
     AiImportProgress object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.blockNumber != null) {
+      yield r'block_number';
+      yield serializers.serialize(
+        object.blockNumber,
+        specifiedType: const FullType.nullable(int),
+      );
+    }
     if (object.chunk != null) {
       yield r'chunk';
       yield serializers.serialize(
@@ -163,6 +175,14 @@ class _$AiImportProgressSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'block_number':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.blockNumber = valueDes;
+          break;
         case r'chunk':
           final valueDes = serializers.deserialize(
             value,

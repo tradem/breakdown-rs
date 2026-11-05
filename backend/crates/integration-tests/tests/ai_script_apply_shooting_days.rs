@@ -62,6 +62,7 @@ fn preview() -> ScriptContext {
         score: None,
     };
     ScriptContext {
+        block_number: None,
         title: Some("Drehtag fixture".to_owned()),
         scenes: vec![
             DraftScene {

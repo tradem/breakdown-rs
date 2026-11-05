@@ -16,6 +16,37 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.58.0] - Unreleased
+
+### Added — the script's own block number, next to the episodes (issue #827)
+
+- `extract_block_number(document)` reads the production block out of the page
+  headers at zero LLM cost: `Block: 2`, `Block 2`, and the glued
+  `Block: 098/Ep.: 294` (→ `98`, the leading digits only — everything after the
+  `/` belongs to the next field). The scan is SHAPE-driven, not casing-driven
+  (page headers also arrive as `BLOCK: 2`): 1-3 digits, a NON-alphanumeric
+  digit boundary (`Block 2a`/`Block 2A` are scene or set labels, not a block
+  number), and behind them either a `/`/`|`/`·` separator, the end of the line,
+  or a KNOWN header field label (`Ep`, `Episode`, `Folge`, `Tag`, `Drehtag`,
+  `Spieltag`, `Seite`, `Page`). Prose (`Block 2 wurde am Montag gedreht.`,
+  `Wir drehen Block 2 Anfang Mai.`), a scene heading
+  (`1. I/T - Block 2 - WOHNUNG`) and a set label (`Block 2A - WOHNUNG`) therefore
+  never parse — a capitalized German noun is not a header field. The FIRST
+  occurrence wins, so a page header repeated on every page is one fact, not a
+  flip-flop. (Both boundary rules were tightened after the CodeRabbit review of
+  PR #850.)
+- `AiImportProgress::block_number: Option<i32>` — the block the SCRIPT states,
+  additive with `serde(default)` so frames written before the field existed
+  still deserialize (as `None`, never a fabricated number). Deliberately a
+  separate field from `AiImportTarget::block_number` (the import TARGET): the
+  two are different facts, and only because both travel can a client show
+  "Skript: Block 2 · Importziel: Block 1" and flag the mismatch before the
+  apply's cross-block guard refuses the run.
+- `ScriptContext::block_number: Option<i32>` — the same fact on the stored
+  preview, filled from the scan or, when the scan finds no marker, from the
+  model's answer.
+- No existing public API removed: **0.57.1 → 0.58.0** (MINOR).
+
 ## [0.57.1] - Unreleased
 
 ### Fixed — one canonical uncertainty field name for cast classification (issue #826)

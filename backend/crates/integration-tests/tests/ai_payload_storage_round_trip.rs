@@ -439,6 +439,7 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
     // `AiImportQueue::mark_succeeded`; reproduce both so the job is in the
     // exact `Succeeded` state the apply handler requires.
     let context = ScriptContext {
+        block_number: None,
         title: Some("Lifecycle fixture script".to_owned()),
         scenes: vec![DraftScene {
             scene_score: None,

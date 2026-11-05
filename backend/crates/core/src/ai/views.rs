@@ -271,6 +271,20 @@ pub struct AiImportProgress {
     /// extracted `DraftEpisode` metadata — never script prose.
     #[serde(default)]
     pub episodes_seen: Vec<String>,
+    /// The production block number the script's page headers state, or the
+    /// model's answer when the deterministic `Block:` scan found no marker
+    /// (issue #827). `None` means "the script does not state one" — never a
+    /// fabricated number, and never the job's import TARGET
+    /// ([`AiImportTarget::block_number`]), which is a separate fact: only
+    /// because the two travel side by side can a client show "script says 2 ·
+    /// importing into 1" and flag a mismatch before the apply's cross-block
+    /// guard fires.
+    ///
+    /// Additive with `serde(default)`: frames written before the field
+    /// existed deserialize as `None`, and a client then renders the import
+    /// target as the associated block instead of an empty field.
+    #[serde(default)]
+    pub block_number: Option<i32>,
     /// When the **current attempt** was claimed (issue #762).
     ///
     /// The time anchor the counters above lack: without it a client can only

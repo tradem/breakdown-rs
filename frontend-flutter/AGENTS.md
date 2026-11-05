@@ -462,12 +462,19 @@ CI runs:
   The raw generator invocation it wraps (for reference only — prefer the
   script):
 
+  The package's own version (`vendor/breakdown_api/pubspec.yaml`) is passed as
+  the `pubVersion` generator property from a `CLIENT_VERSION` constant in the
+  script — bump it (MINOR for additive wire fields, MAJOR for a breaking
+  contract) in the commit that changes `backend/openapi.yaml`. Hand-editing the
+  version inside `vendor/` cannot survive: the script wipes the directory first,
+  so the CI drift check would regenerate the old number back.
+
   ```bash
   npx @openapitools/openapi-generator-cli generate \
     -i ../backend/openapi.yaml \
     -g dart-dio -o vendor/breakdown_api \
     --skip-validate-spec \
-    --additional-properties=pubName=breakdown_api,hideGenerationTimestamp=true \
+    --additional-properties=pubName=breakdown_api,pubVersion=<CLIENT_VERSION>,hideGenerationTimestamp=true \
     --reserved-words-mappings update=decisionUpdate
   ```
   `--reserved-words-mappings update=decisionUpdate` is required: utoipa emits a

@@ -301,6 +301,39 @@ fn script_prompt_ignores_the_suffix_after_the_episode_number() {
     );
 }
 
+/// Issue #827: the page header states the production BLOCK, and the import now
+/// publishes it next to the episode. The deterministic `Block:` scan is the
+/// primary source (zero tokens); this rule is the fallback for a header shape
+/// the scan does not recognize, so a model that did read a marker has a field
+/// to put it in (`ScriptContextSchema.block_number`) instead of inventing an
+/// uncertainty about it.
+#[test]
+fn script_prompt_reads_the_block_the_page_header_states() {
+    let prompt = embedded_script_prompt();
+    let block = script_prompt_element(&prompt, "block");
+
+    assert!(
+        block.contains("`block: 2`") && block.contains("`block 2`"),
+        "the block rule must name both observed header shapes: {block}"
+    );
+    assert!(
+        block.contains("`block: 098/ep.: 294`"),
+        "the glued page-header shape must be covered: {block}"
+    );
+    assert!(
+        block.contains("leading digits"),
+        "the rule must say to read the leading digits only: {block}"
+    );
+    assert!(
+        block.contains("block_number") && block.contains("null"),
+        "the rule must name the field and its null answer: {block}"
+    );
+    assert!(
+        block.contains("never report an uncertainty"),
+        "a missing block marker must not become an uncertainty: {block}"
+    );
+}
+
 /// Issue #826 (rule 3): one canonical `field` name per uncertainty concept.
 ///
 /// The preview renders the model's `field` string verbatim and the #663

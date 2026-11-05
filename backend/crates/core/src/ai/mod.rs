@@ -63,10 +63,10 @@ pub use preview::{
     ShootingScheduleRow, UNCERTAINTY_FIELD_CHARACTERS, UnappliedOutfit, UnappliedOutfitReason,
     Uncertainty, UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
     character_identity, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    ensure_script_applyable, episode_group_refs, extract_scenes, is_meta_summary, merge_from_input,
-    merge_schedule_to_scenes, parse_mood_from_heading, parse_schedule_scene_ref, parse_script_day,
-    plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs,
-    stable_draft_ref, verify_draft_outfits,
+    ensure_script_applyable, episode_group_refs, extract_block_number, extract_scenes,
+    is_meta_summary, merge_from_input, merge_schedule_to_scenes, parse_mood_from_heading,
+    parse_schedule_scene_ref, parse_script_day, plan_scene_apply, sanitize_meta_summary,
+    scene_beat_lanes, shooting_day_group_refs, stable_draft_ref, verify_draft_outfits,
 };
 pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{

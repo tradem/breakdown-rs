@@ -465,6 +465,136 @@ fn title_in_parentheses_bounded(
     Some(title.to_owned())
 }
 
+/// Read a production block number out of a page-header field (issue #827).
+///
+/// Observed shapes: `Block: 2`, `Block 2` and the glued page header
+/// `Block: 098/Ep.: 294` — the digits directly after the field name ARE the
+/// block number, and everything after them (`/Ep.: 294`) is a different
+/// field, never part of the number. Detection runs on the same normalized
+/// copy as the scene-heading detector (invisible Word→PDF look-alikes folded
+/// to ASCII).
+///
+/// The token is matched ASCII-case-insensitively, like [`day_marker`]'s day
+/// words and unlike [`episode_marker`]'s `Ep`, because page headers also
+/// arrive in capitals (`BLOCK: 2   EP.: 3`). Case alone therefore guards
+/// nothing — `Block` is a German noun and capitalizes in prose too — so the
+/// FIELD SHAPE carries the decision. A page-header field ends where the next
+/// field or the line ends; prose and scene headings continue differently:
+///
+/// - 1-3 digits only, so a page or scene number glued to a stray `Block`
+///   cannot parse as a huge block (`Block: 1000` is no marker);
+/// - the character directly after the digits must not be alphanumeric at all,
+///   in either case: `Block 2a` and `Block 2A` are scene or set labels, not a
+///   block number followed by something else (CodeRabbit review);
+/// - the next word must be a KNOWN header field label (see
+///   [`BLOCK_HEADER_FIELD_LABELS`]) or a `/`/`|`/`·` separator must follow, so
+///   `Block: 2   Ep.: 3 (Der Unfall)` reads and `Block: 2   Tag 1` does too.
+///   A capitalized German word is NOT a field label, so
+///   `Wir drehen Block 2 Anfang Mai.` and `Block 2 wurde am Montag gedreht.`
+///   stay prose, as does a scene heading (`1. I/T - Block 2 - WOHNUNG`, whose
+///   label is followed by a hyphen).
+fn block_marker(line: &str) -> Option<i32> {
+    const KEYWORD: &str = "Block";
+    let normalized = normalize_for_heading_detection(line);
+    let chars: Vec<char> = normalized.chars().collect();
+    let keyword_len = KEYWORD.chars().count();
+    let mut start = 0usize;
+    while let Some(found) = find_keyword(&chars, start, KEYWORD) {
+        start = found + 1;
+        // Whole-token check on the left edge: `Datenblock 2` is a different
+        // word, not this field.
+        if found > 0 && chars[found - 1].is_alphanumeric() {
+            continue;
+        }
+        if let Some(block) = block_number_at(&chars, found + keyword_len) {
+            return Some(block);
+        }
+    }
+    None
+}
+
+/// Read the 1-3 digits of a block field from `chars[from..]` — the characters
+/// after one `Block` token — and require a field boundary behind them.
+/// `None` means this occurrence is prose; the caller continues with the next.
+fn block_number_at(chars: &[char], from: usize) -> Option<i32> {
+    let mut i = from;
+    while i < chars.len() && matches!(chars[i], '.' | ':' | ' ') {
+        i += 1;
+    }
+    let digit_start = i;
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        i += 1;
+    }
+    let digits: String = chars[digit_start..i].iter().collect();
+    if digits.is_empty() || digits.len() > 3 {
+        return None;
+    }
+    // A letter GLUED to the digits is a label, not a separator: `Block 2a` and
+    // `Block 2A` are a scene/set reference (CodeRabbit review — an adjacent
+    // uppercase letter used to count as a field boundary).
+    if chars.get(i).is_some_and(|next| next.is_alphanumeric()) {
+        return None;
+    }
+    let mut after = i;
+    while after < chars.len() && chars[after] == ' ' {
+        after += 1;
+    }
+    let field_ends_here = match chars.get(after) {
+        // End of line: the field is the whole line.
+        None => true,
+        // A separator between two header fields (`Block: 098/Ep.: 294`).
+        Some('/' | '|' | '\u{00B7}') => true,
+        // The next field must NAME itself: an arbitrary capitalized word is
+        // prose, not a header field (`Block 2 Anfang Mai.`).
+        Some(_) => starts_with_header_field_label(&chars[after..]),
+    };
+    if !field_ends_here {
+        return None;
+    }
+    digits.parse::<i32>().ok()
+}
+
+/// The header fields that may FOLLOW a block number on the same page-header
+/// line. An explicit list, not a "looks like a label" heuristic: page headers
+/// are a small, observed vocabulary, while German prose capitalizes every noun
+/// and would satisfy any shape rule (`Block 2 Anfang Mai.`).
+///
+/// Matched as a whole word, ASCII-case-insensitively (`Ep`, `ep`, `EP`).
+const BLOCK_HEADER_FIELD_LABELS: [&str; 8] = [
+    "Ep", "Episode", "Folge", "Tag", "Drehtag", "Spieltag", "Seite", "Page",
+];
+
+/// Whether `chars` starts with one of [`BLOCK_HEADER_FIELD_LABELS`] as a whole
+/// word.
+fn starts_with_header_field_label(chars: &[char]) -> bool {
+    BLOCK_HEADER_FIELD_LABELS.iter().any(|label| {
+        let mut label_chars = label.chars();
+        chars
+            .iter()
+            .zip(label_chars.by_ref())
+            .all(|(actual, expected)| actual.eq_ignore_ascii_case(&expected))
+            && label_chars.next().is_none()
+            // A whole word: the label must not continue into a longer word
+            // (`Episode` must not be read out of `Episodenliste`).
+            && chars
+                .get(label.chars().count())
+                .is_none_or(|next| !next.is_alphanumeric())
+    })
+}
+
+/// The production block number this document states in its page headers
+/// (issue #827), or `None` when it states none.
+///
+/// Page headers repeat the marker on every page, so the FIRST occurrence wins
+/// and later ones are ignored — a document that names two different blocks
+/// publishes the one it opens with, never a per-line flip-flop. `None` is
+/// honest absence: the caller then publishes nothing and a client renders the
+/// import target as the associated block instead of an empty field.
+#[must_use]
+pub fn extract_block_number(document: &str) -> Option<i32> {
+    document.lines().find_map(|line| block_marker(line.trim()))
+}
+
 /// The distinct episode group references of a preview, in first-seen order.
 ///
 /// The apply endpoint validates the request's per-group targets against this
@@ -522,6 +652,18 @@ pub fn shooting_day_group_refs(preview: &ScriptContext) -> Vec<String> {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ScriptContext {
     pub title: Option<String>,
+    /// The production block number the document states in its page headers
+    /// (issue #827) — the deterministic [`extract_block_number`] scan's
+    /// answer, or the model's `block_number` when the scan found no marker.
+    ///
+    /// Deliberately separate from the job's import TARGET
+    /// ([`crate::ai::AiImportTarget::block_number`]): the two are different
+    /// facts, and keeping them apart is what lets a reviewer compare them.
+    /// Additive with `serde(default)`, so previews stored before this field
+    /// existed still load (as `None` — honest absence, never a fabricated
+    /// number).
+    #[serde(default)]
+    pub block_number: Option<i32>,
     pub scenes: Vec<DraftScene>,
     pub uncertainties: Vec<Uncertainty>,
     /// Scene headings the deterministic scan detected — the chunk count after

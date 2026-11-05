@@ -25,9 +25,9 @@ use breakdown_core::ai::{
     ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
     UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
     UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
-    draft_row_ref, ensure_merge_applyable, extract_scenes, mapping_kind, merge_schedule_to_scenes,
-    parse_script_day, plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
-    verify_draft_outfits,
+    draft_row_ref, ensure_merge_applyable, extract_block_number, extract_scenes, mapping_kind,
+    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
+    scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -491,6 +491,13 @@ where
         let started = Instant::now();
         let heartbeat = self.start_heartbeat(job.id, worker_id);
         let chunks = extract_scenes(text);
+        // The block the DOCUMENT states (issue #827), from the deterministic
+        // `Block:` page-header scan — zero extra LLM tokens. Deliberately
+        // separate from the job's import TARGET (`job.target`): "the script
+        // says block 2" and "this import writes into block 1" are two facts,
+        // and only keeping them apart lets a reviewer compare them before the
+        // apply's cross-block guard would refuse the run.
+        let script_block = extract_block_number(text);
         let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
             DomainError::validation(format!(
                 "script chunk count exceeds telemetry range: {error}"
@@ -507,7 +514,15 @@ where
             return Err(error);
         }
 
-        let mut context = ScriptContext::default();
+        // Issue #827: the DETERMINISTIC scan's block seeds the stored preview
+        // here, not in the per-chunk merge below — otherwise a preview whose
+        // header the scan read but the model did not repeat would be stored
+        // without the block the document states (CodeRabbit review). The
+        // model only ever fills a gap (`is_none` guard in the chunk loop).
+        let mut context = ScriptContext {
+            block_number: script_block,
+            ..ScriptContext::default()
+        };
         // Issue #675: real token/energy usage accumulated across all chunks.
         // Issue #768: this accumulator is the **extraction** component only —
         // the Decision-Model calls (chunk scoring + Pass-2 continuity) feed
@@ -561,6 +576,11 @@ where
             chunk: Some(0),
             chunks_total: Some(chunk_count),
             episodes_seen: Vec::new(),
+            // Issue #827: the block the script states, published from the very
+            // first frame (the document is already fully scanned). `None` is
+            // honest absence — the client then renders the import target as
+            // the associated block instead of an empty field.
+            block_number: script_block,
             // ETA anchor (issue #762). `claim_next*` stamps `updated_at = now()`
             // in the same statement that flips the job to `running` and clears
             // `progress`, so this anchor and the counters next to it always
@@ -625,6 +645,21 @@ where
                     extraction_usage.record(call_usage);
                     if context.title.is_none() {
                         context.title = partial.title;
+                    }
+                    // Block fallback (issue #827): the deterministic scan is
+                    // authoritative — it already seeded `context.block_number`
+                    // above — so the model's value only fills a gap the scan
+                    // could not read (a header in a foreign shape). Both the
+                    // preview and the progress stay honest about that.
+                    if let Some(block) = partial.block_number
+                        && context.block_number.is_none()
+                    {
+                        context.block_number = Some(block);
+                    }
+                    if let Some(block) = partial.block_number
+                        && progress.block_number.is_none()
+                    {
+                        progress.block_number = Some(block);
                     }
                     for (index_in_chunk, mut scene) in partial.scenes.into_iter().enumerate() {
                         scene_ordinal += 1;
@@ -1303,6 +1338,7 @@ where
         // boundary and one at the storing boundary — a schedule job is a
         // single LLM/Native-CSV unit, so there is no per-chunk cadence.
         let mut progress = AiImportProgress {
+            block_number: None,
             stage: if native_csv {
                 AiImportStage::Extracting
             } else {

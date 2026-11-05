@@ -28,6 +28,24 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **The AI import reads and publishes the script's own BLOCK (issue #827).** The
+  import knew and showed the episode it extracted but never the block, so an
+  import into the wrong block was only discovered at apply time (or never) —
+  although the document states its block in the page header (`Block: 2`,
+  `Block 2`, the glued `Block: 098/Ep.: 294`). A deterministic header scan (zero
+  extra LLM tokens) publishes `AiImportProgress.block_number` from the very
+  first progress frame and falls back to the model's answer only when the scan
+  finds no marker (a header in a foreign shape, for which the default script
+  prompt gains a `<block>` rule); the value also lands on the stored preview
+  (`ScriptContext.block_number`). It is a SEPARATE field from
+  `job.target.block_number`: "the script says block 2" and "this import writes
+  into block 1" are two facts, and only because both travel does the client get
+  to surface the mismatch before the apply's cross-block guard would refuse the
+  run. Both fields are additive on the wire (nullable, `serde(default)`), so
+  stored frames and previews written before this change still load. Crates:
+  `core` 0.57.1 → 0.58.0, `infra` 0.67.1 → 0.68.0, `api` 0.55.3 → 0.56.0; the
+  generated Dart client is regenerated and bumped (`breakdown_api` 1.0.0 →
+  1.1.0).
 - **`scripts/reclaim-disk.sh` — a reviewable disk-hygiene step for `target/` and
   container leftovers (AGENTS.md §8 / issue #631).** `cargo` never garbage-collects
   stale artifacts: on the reference machine `target/` had grown to **857 GB**
