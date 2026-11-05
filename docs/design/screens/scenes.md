@@ -33,7 +33,7 @@ tests/goldens push without the argument — the strip stays hidden.
 ```plantuml
 @startsalt
 {
-  {‹ Back} | "Szene 7 — Nachtdreh" | T
+  {‹ Back} | "Szene 7 — Nachtdreh" (ONE line, ellipsized) | T
   --
   {^ "Looks (2)" [▾]}
   {

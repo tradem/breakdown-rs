@@ -23,6 +23,7 @@ import '../cost_format.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
+import '../../../design/components/breakdown_app_bar.dart';
 
 /// The AI-import configuration screen (`flutter-ai-config` task 2.1).
 ///
@@ -250,7 +251,7 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
         Navigator.of(context).pop(result);
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(l10nOf(context).aiConfigTitle)),
+        appBar: BreakdownAppBar(title: l10nOf(context).aiConfigTitle),
         // Material 3 persistent primary action: the save affordance of a long
         // form stays visible instead of scrolling with the content, and it
         // states whether there is anything to save.

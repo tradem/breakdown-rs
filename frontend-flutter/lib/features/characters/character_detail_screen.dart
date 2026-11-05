@@ -17,6 +17,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../outfits/outfit_list_section.dart';
 import 'characters_controller.dart';
 import 'characters_state.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `CharacterDetailScreen` — contact + measurements editors.
 ///
@@ -52,10 +53,8 @@ class CharacterDetailScreen extends ConsumerWidget {
     final character = _resolve(state);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          character?.name ?? l10nOf(context).characterDetailTitleFallback,
-        ),
+      appBar: BreakdownAppBar(
+        title: character?.name ?? l10nOf(context).characterDetailTitleFallback,
       ),
       body: switch ((character, state.projected)) {
         // Resolved row: editors render (prefilled from the read DTO).

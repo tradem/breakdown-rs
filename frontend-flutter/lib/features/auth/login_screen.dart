@@ -13,6 +13,7 @@ import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'login_errors.dart';
 import 'widgets/login_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Ephemeral sign-in failure from the last `signIn()` dispatch. Kept in a
 /// provider (not widget state) so [LoginScreen] stays a `ConsumerWidget`;
@@ -86,7 +87,7 @@ class LoginScreen extends ConsumerWidget {
     final l10n = l10nOf(context);
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.appTitleBreakdown)),
+      appBar: BreakdownAppBar(title: l10n.appTitleBreakdown),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.space24),

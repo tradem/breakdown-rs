@@ -25,6 +25,7 @@ import 'create_episode_sheet.dart';
 import 'episodes_controller.dart';
 import 'episodes_state.dart';
 import 'widgets/episodes_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Localized client-side copy for a create-episode failure, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
@@ -83,7 +84,7 @@ class EpisodesScreen extends ConsumerWidget {
     final episodeLocation = ownLocation is BlockLocation ? ownLocation : null;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.blockTileLabel('${block.number}'))),
+      appBar: BreakdownAppBar(title: l10n.blockTileLabel('${block.number}')),
       body: Column(
         children: [
           if (state.commandError case final error?)

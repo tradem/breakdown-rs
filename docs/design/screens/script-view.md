@@ -69,7 +69,7 @@ degradation rules live in Interactions and States.
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| View title | Top app bar | The destination's own title | `navScript` |
+| View title | Shell view bar (`navScript`); pushed screens under it use the shared 48 dp `BreakdownAppBar` with a one-line ellipsized title | The destination's own title | `navScript` |
 | Profile action | Icon button with tooltip | Identity, Über die App, Einstellungen, Abmelden | `profileTooltip` |
 | Scene row | List item with leading number avatar | Projected scene number as the visible label, scene summary as the title, its episode as the subtitle | `scriptSceneNumber` / `scriptSceneNumberUnknown` / `scriptEpisodeLabel` |
 | Partial-load notice | List item | Names how many blocks / episodes could not be read (one notice per failed level) | `scriptPartialBlocks` / `scriptPartialLoad` |

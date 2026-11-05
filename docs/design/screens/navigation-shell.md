@@ -129,7 +129,7 @@ longer chain wraps as described in the Row 2 bullet.
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
-| Shell top bar | Sticky two-row surface | Status-bar inset in every morphology; pinned above the view content | — |
+| Shell top bar | Sticky two-row surface | Status-bar inset in every morphology, counted exactly ONCE: the bar insets itself and the tab content below it is inset-removed at the shell seam, so a pushed screen's `BreakdownAppBar` starts where this bar ends instead of adding the status-bar height a second time (issue #824). Pinned above the view content | — |
 | Profile action | Icon button with tooltip + labeled sheet entries | Identity, Über die App, Einstellungen, Abmelden (never the costume categories). Left-most element of row 1 | `profileTooltip` |
 | Season scope pill | Assist pill (fully rounded) | The active season; a neutral "Season wählen" pill when unset — always present, because it is the only affordance that can set a season. Selected fill: primary container. The label ALWAYS leads with the season number (issue #825): `<number> · <name>` for a named season, the number-only form for a season with no name (`null` or blank) — the same "number precedes the name" rule as the episode pill | `seasonsDefaultTitle` / `seasonNumberName` / `scopeChipSeasonUnset` |
 | Block scope pill | Assist pill (fully rounded) | The sticky block filter; neutral "Block wählen" once a season is active but no block is set. Selected fill: secondary container. Keeps the unknown-block and foreign-season narratives | `scopeChipBlock` / `scopeChipUnknownBlock` / `scopeChipForeignSeason` / `scopeChipBlockUnset` |

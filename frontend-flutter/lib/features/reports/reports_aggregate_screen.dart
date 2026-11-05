@@ -14,6 +14,7 @@ import 'reports_screen.dart' show ReportPreviewScreen;
 import 'reports_aggregate_controller.dart';
 import 'reports_aggregate_state.dart';
 import 'reports_state.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `ReportsAggregateScreen` — the season- or episode-scoped aggregated
 /// Soll-Ist report (issue #571, Flutter half).
@@ -45,8 +46,8 @@ class ReportsAggregateScreen extends ConsumerWidget {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10nOf(context).reportsAggregateTitle(scope.label)),
+      appBar: BreakdownAppBar(
+        title: l10nOf(context).reportsAggregateTitle(scope.label),
       ),
       body: Column(
         children: [

@@ -18,6 +18,7 @@ import 'reports_aggregate_screen.dart';
 import 'reports_aggregate_state.dart';
 import 'widgets/reports_aggregate_entry.dart';
 import 'widgets/reports_index_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `ReportsIndexScreen` — the episode's report index (a navigation
 /// surface, not a second report).
@@ -102,7 +103,7 @@ class ReportsIndexScreen extends ConsumerWidget {
     // the unbounded action slot.
     return LayoutBuilder(
       builder: (context, constraints) => Scaffold(
-        appBar: AppBar(
+        appBar: BreakdownAppBar.custom(
           title: ReportsIndexTitle(episodeLabel: episodeLabel),
           // Episode-level aggregated Soll-Ist entry (issue #571): labelled
           // per the visible-label norm; pushes the episode-scope aggregate
