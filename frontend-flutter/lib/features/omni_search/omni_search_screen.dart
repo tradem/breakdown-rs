@@ -16,6 +16,7 @@ import 'omni_search_controller.dart';
 import 'omni_search_destinations.dart';
 import 'omni_search_model.dart';
 import 'omni_search_refresher.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The OmniSearch surface (issue #616, OpenSpec change `add-omni-search` —
 /// tasks §3.1–3.4).
@@ -91,7 +92,7 @@ class _OmniSearchScreenState extends ConsumerState<OmniSearchScreen> {
     final season = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.omniSearchTitle)),
+      appBar: BreakdownAppBar(title: l10n.omniSearchTitle),
       body: season == null
           ? ListView(
               key: const Key('omni-search-no-season'),

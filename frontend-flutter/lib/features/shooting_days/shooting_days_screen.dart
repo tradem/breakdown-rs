@@ -21,6 +21,7 @@ import 'order_keys.dart';
 import 'shooting_days_controller.dart';
 import 'shooting_days_state.dart';
 import 'widgets/shooting_days_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `ShootingDaysScreen` — the episode's shooting days in server
 /// `order_key ASC` (the client never re-sorts).
@@ -78,8 +79,8 @@ class ShootingDaysScreen extends ConsumerWidget {
     // scaffold's width, hence the LayoutBuilder (never a platform check).
     return LayoutBuilder(
       builder: (context, constraints) => Scaffold(
-        appBar: AppBar(
-          title: Text(l10n.navShootingDays),
+        appBar: BreakdownAppBar(
+          title: l10n.navShootingDays,
           actions: [
             _ReportsIndexAppBarAction(
               // Collapse to the labelled overflow item only when the app

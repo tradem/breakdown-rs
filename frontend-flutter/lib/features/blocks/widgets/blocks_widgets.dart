@@ -3,11 +3,41 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/generated/app_localizations.dart';
+import '../../../l10n/locale_formatters.dart';
 import '../blocks_state.dart';
+
+/// The tile's time-span line, or `null` when the block carries no dates at
+/// all (issue #832: an unset span renders no line at all instead of a row of
+/// placeholder dashes — see issue #423 for the nullable-date origin).
+///
+/// Both dates are optional on the wire (`Date` in `start_date`/`end_date`),
+/// so a one-sided span renders a single honest phrase rather than a range
+/// with a placeholder, and every rendered date is locale-formatted instead
+/// of the raw ISO `yyyy-MM-dd` wire value.
+String? blockTimeSpanLabel(
+  BuildContext context,
+  AppLocalizations l10n,
+  BlockView block,
+) {
+  final start = block.startDate;
+  final end = block.endDate;
+  return switch ((start, end)) {
+    (null, null) => null,
+    (final s?, final e?) => l10n.blocksSpanRange(
+      formatWireDate(context, s),
+      formatWireDate(context, e),
+    ),
+    (final s?, null) => l10n.blocksSpanFrom(formatWireDate(context, s)),
+    (null, final e?) => l10n.blocksSpanTo(formatWireDate(context, e)),
+  };
+}
 
 /// Pure presentation trees for `BlocksScreen` (seasons reference pattern):
 /// plain data + callbacks in, widgets out — no Riverpod imports, theme
@@ -28,9 +58,13 @@ class BlockTile extends StatelessWidget {
           key: Key('block-${block.id}'),
           minTileHeight: 48,
           title: Text(l10n.blockTileLabel('${block.number}')),
-          // Nullable since issue #423 (unset dates arrive as JSON null):
-          // render a placeholder dash instead of the literal 'null'.
-          subtitle: Text('${block.startDate ?? '–'} – ${block.endDate ?? '–'}'),
+          // Nullable since issue #423 (unset dates arrive as JSON null);
+          // issue #832: a block without any date renders no span line at
+          // all, a one-sided span a single phrase.
+          subtitle: switch (blockTimeSpanLabel(context, l10n, block)) {
+            final span? => Text(span, key: Key('block-span-${block.id}')),
+            null => null,
+          },
           trailing: const Icon(Icons.chevron_right),
           onTap: onTap,
         ),

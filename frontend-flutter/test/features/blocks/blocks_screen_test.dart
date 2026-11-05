@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -10,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
@@ -39,14 +41,19 @@ import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 const _networkDown = ProblemError(code: 'transport.connectionError');
 const _gone = ProblemError(code: 'season.not-found', status: 404);
 
-BlockView _block(String id, {int number = 1}) => BlockView(
+BlockView _block(
+  String id, {
+  int number = 1,
+  String? startDate = '2026-01-01',
+  String? endDate = '2026-01-31',
+}) => BlockView(
   (b) => b
     ..id = id
     ..number = number
     ..seasonId = 'season-1'
     ..projectId = 'series-1'
-    ..startDate = '2026-01-01'
-    ..endDate = '2026-01-31'
+    ..startDate = startDate
+    ..endDate = endDate
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -110,6 +117,14 @@ Future<void> _pumpFrames(WidgetTester tester, {int n = 6}) async {
 }
 
 void main() {
+  setUpAll(() async {
+    // The app bootstraps `intl` date symbols during composition
+    // (lib/app.dart). Tests asserting locale-formatted dates do the same, so
+    // they exercise the production formatter instead of its
+    // `MaterialLocalizations` fallback (issue #832).
+    await initializeDateFormatting('en');
+  });
+
   late CacheDatabase db;
   late _FakeBlockRepository repo;
   late ValueNotifier<Result<List<BlockView>>> holder;
@@ -279,12 +294,29 @@ void main() {
   });
 
   group('membership chip (6.3, D6 display-only)', () {
-    testWidgets('renders capabilities when the role is active', (tester) async {
+    testWidgets('renders the localized role statement, never the capability '
+        'wire names', (tester) async {
       await setupContainer(initialRows: [_block('b1')]);
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('membership-chip')), findsOneWidget);
-      expect(find.text('upload_continuity_photos'), findsOneWidget);
+      expect(find.text('Costume role'), findsOneWidget);
+      // Issue #832: `capabilities` are protocol identifiers
+      // (`upload_continuity_photos`, …) and must never reach the user.
+      expect(find.textContaining('upload_continuity_photos'), findsNothing);
+    });
+
+    testWidgets('renders the same role statement when the vector is empty', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [_block('b1')],
+        membershipCapabilities: const <String>[],
+      );
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('membership-chip')), findsOneWidget);
+      expect(find.text('Costume role'), findsOneWidget);
     });
 
     testWidgets('renders the explicit no-role chip otherwise', (tester) async {
@@ -435,6 +467,52 @@ void main() {
         );
       },
     );
+  });
+
+  group('block tile time span (issue #832)', () {
+    testWidgets('no dates: no subtitle line at all (no dash row)', (
+      tester,
+    ) async {
+      await setupContainer(
+        initialRows: [_block('b1', startDate: null, endDate: null)],
+      );
+      await pumpScreen(tester);
+
+      final tile = tester.widget<ListTile>(find.byKey(const Key('block-b1')));
+      expect(tile.subtitle, isNull);
+      expect(find.byKey(const Key('block-span-b1')), findsNothing);
+      expect(find.textContaining('–'), findsNothing);
+    });
+
+    testWidgets('start only: one honest single-ended phrase', (tester) async {
+      await setupContainer(
+        initialRows: [_block('b1', startDate: '2026-11-04', endDate: null)],
+      );
+      await pumpScreen(tester);
+
+      expect(find.text('From Nov 4, 2026'), findsOneWidget);
+      expect(find.textContaining('2026-11-04'), findsNothing);
+    });
+
+    testWidgets('end only: one honest single-ended phrase', (tester) async {
+      await setupContainer(
+        initialRows: [_block('b1', startDate: null, endDate: '2026-12-18')],
+      );
+      await pumpScreen(tester);
+
+      expect(find.text('Until Dec 18, 2026'), findsOneWidget);
+      expect(find.textContaining('2026-12-18'), findsNothing);
+    });
+
+    testWidgets('both set: locale-formatted range, never raw ISO', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_block('b1')]);
+      await pumpScreen(tester);
+
+      expect(find.text('Jan 1, 2026 – Jan 31, 2026'), findsOneWidget);
+      expect(find.textContaining('2026-01-01'), findsNothing);
+    });
   });
 
   group('BlocksScreen goldens (6.2, data state)', () {

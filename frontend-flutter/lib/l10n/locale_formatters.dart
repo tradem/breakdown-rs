@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -21,6 +22,21 @@ String formatMediumDate(BuildContext context, DateTime date) {
   } catch (_) {
     return MaterialLocalizations.of(context).formatMediumDate(date);
   }
+}
+
+/// Formats a wire date (`yyyy-MM-dd`, the OpenAPI `Date` shape the read
+/// DTOs carry as a string) for display in the active locale — the date is
+/// data, never a protocol value the user should read verbatim (issue #832).
+///
+/// An unparsable value falls back to the raw string: a data defect stays
+/// visible instead of being silently replaced by a placeholder.
+String formatWireDate(BuildContext context, String raw) {
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return raw;
+  return formatMediumDate(
+    context,
+    DateTime(parsed.year, parsed.month, parsed.day),
+  );
 }
 
 String formatDecimal(BuildContext context, num value) {

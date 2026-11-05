@@ -464,6 +464,9 @@ void main() {
         find.byKey(const Key('season-scope-season-season-1')),
         findsOneWidget,
       );
+      // Issue #825: the row and the pill that opened it agree on the label
+      // shape (number first, name behind the separator).
+      expect(find.text('1 · Season One'), findsOneWidget);
     });
 
     testWidgets('picking a season sets the active season (acted-on DTO) and '
@@ -520,7 +523,8 @@ void main() {
           .setActiveSeason(seasonDto());
       await pumpFrames(tester, n: 10);
       expect(find.byKey(const Key('season-scope-chip')), findsOneWidget);
-      expect(find.text('Season: Season One'), findsOneWidget);
+      // Issue #825: the number always leads, the name follows behind `·`.
+      expect(find.text('1 · Season One'), findsOneWidget);
     });
 
     testWidgets('a tap opens the picker (injected action)', (tester) async {

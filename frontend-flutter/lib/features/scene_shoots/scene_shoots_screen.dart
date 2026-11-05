@@ -20,6 +20,7 @@ import '../shooting_days/shooting_days_controller.dart';
 import 'scene_shoots_controller.dart';
 import 'scene_shoots_state.dart';
 import 'widgets/continuity_strip.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Minimum app-bar width (logical px) at which the reports entry can be a
 /// labelled action without starving the title (issue #549).
@@ -194,7 +195,7 @@ class SceneShootsScreen extends ConsumerWidget {
     // overflow item needs the scaffold's width, hence the LayoutBuilder.
     return LayoutBuilder(
       builder: (context, constraints) => Scaffold(
-        appBar: AppBar(
+        appBar: BreakdownAppBar.custom(
           // Provenance badge on the acted-on day (issue #538, EU AI Act
           // Art. 50): evolves with the live projection (dayNow) so an
           // in-session recomposition keeps the AI framing from the wire
@@ -207,12 +208,17 @@ class SceneShootsScreen extends ConsumerWidget {
                 Flexible(
                   child: Text(
                     dayNow.label ?? l10nOf(context).sceneShootDayFallback,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-            _ => Text(dayNow.label ?? l10nOf(context).sceneShootDayFallback),
+            _ => Text(
+              dayNow.label ?? l10nOf(context).sceneShootDayFallback,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           },
           actions: [
             _ReportsAppBarAction(

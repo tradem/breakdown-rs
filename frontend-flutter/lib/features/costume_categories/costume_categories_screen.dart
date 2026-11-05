@@ -16,6 +16,7 @@ import '../../l10n/generated/app_localizations.dart';
 import 'costume_categories_controller.dart';
 import 'costume_categories_state.dart';
 import 'widgets/costume_categories_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Localized client-side copy for category command failures, keyed on the
 /// stable problem `code` (never the server's localized `detail`).
@@ -64,8 +65,8 @@ class CostumeCategoriesScreen extends ConsumerWidget {
     final l10n = l10nOf(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.costumeCategoriesTitle),
+      appBar: BreakdownAppBar(
+        title: l10n.costumeCategoriesTitle,
         actions: [
           Row(
             mainAxisSize: MainAxisSize.min,

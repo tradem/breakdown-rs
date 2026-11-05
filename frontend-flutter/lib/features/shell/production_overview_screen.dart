@@ -17,6 +17,7 @@ import '../ai_import/import_jobs/jobs_screen.dart';
 import '../blocks/blocks_controller.dart';
 import '../blocks/blocks_screen.dart';
 import 'planning_location.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The production overview (issue #610) — what the former `Planen`
 /// destination carried, re-homed as a PUSHED screen reachable from the
@@ -43,7 +44,7 @@ class ProductionOverviewScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.productionTitle)),
+      appBar: BreakdownAppBar(title: l10n.productionTitle),
       body: RefreshIndicator(
         onRefresh: () => _refresh(ref),
         child: ListView(

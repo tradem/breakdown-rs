@@ -18,6 +18,7 @@ import 'scene_detail_screen.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
 import 'widgets/scenes_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `ScenesScreen` — the episode's scenes with read-only detail data
 /// (`GET /v1/scenes?episode_id=…`).
@@ -63,8 +64,8 @@ class ScenesScreen extends ConsumerWidget {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(episode.name ?? l10n.episodeTileLabel('${episode.number}')),
+      appBar: BreakdownAppBar(
+        title: episode.name ?? l10n.episodeTileLabel('${episode.number}'),
       ),
       body: Column(
         children: [

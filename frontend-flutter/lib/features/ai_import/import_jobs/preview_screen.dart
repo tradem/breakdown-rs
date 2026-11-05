@@ -25,6 +25,7 @@ import 'continuity_gap.dart';
 import 'decision_outcome.dart';
 import 'job_status_controller.dart';
 import '../naming_line.dart';
+import '../../../design/components/breakdown_app_bar.dart';
 
 /// The preview screen (`flutter-ai-import-workflow` task 4.1): typed
 /// `AiImportPreviewResponse` / `AiPreviewPayload` rendering
@@ -47,7 +48,7 @@ class AiPreviewScreen extends ConsumerWidget {
     final preview = ref.watch(aiPreviewProvider(jobId));
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10nOf(context).aiPreviewTitle)),
+      appBar: BreakdownAppBar(title: l10nOf(context).aiPreviewTitle),
       body: ListView(
         key: const Key('ai-preview-screen'),
         padding: const EdgeInsets.all(16),

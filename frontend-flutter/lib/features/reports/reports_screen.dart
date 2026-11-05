@@ -15,6 +15,7 @@ import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'reports_controller.dart';
 import 'reports_state.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// `ReportsScreen` — the day-context reporting surface (Phase 4).
 ///
@@ -57,11 +58,9 @@ class ReportsScreen extends ConsumerWidget {
     final controller = ref.read(reportsControllerProvider(scope).notifier);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          l10nOf(context)
-              .reportsTitle(day.label ?? l10nOf(context).sceneShootDayFallback),
-        ),
+      appBar: BreakdownAppBar(
+        title: l10nOf(context)
+            .reportsTitle(day.label ?? l10nOf(context).sceneShootDayFallback),
       ),
       body: Column(
         children: [
@@ -412,7 +411,7 @@ class ReportPreviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(title)),
+    appBar: BreakdownAppBar(title: title),
     body: PdfViewer.file(
       filePath,
       key: const Key('report-pdf-viewer'),
