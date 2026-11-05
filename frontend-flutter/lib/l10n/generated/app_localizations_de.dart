@@ -2408,6 +2408,21 @@ class AppLocalizationsDe extends AppLocalizations {
       'Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.';
 
   @override
+  String blocksSpanRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String blocksSpanFrom(String date) {
+    return 'ab $date';
+  }
+
+  @override
+  String blocksSpanTo(String date) {
+    return 'bis $date';
+  }
+
+  @override
   String get blocksCreateTitle => 'Block erstellen';
 
   @override
