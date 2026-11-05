@@ -321,6 +321,12 @@
       "script": {}
     }
   },
+  "aiPreviewBlockScopeUnknownTarget": "Skript: Block {script} · Importziel unbekannt",
+  "@aiPreviewBlockScopeUnknownTarget": {
+    "placeholders": {
+      "script": {}
+    }
+  },
   "aiPreviewBlockScopeTargetOnly": "Zielblock – aus dem Importziel übernommen: Block {target}",
   "@aiPreviewBlockScopeTargetOnly": {
     "placeholders": {

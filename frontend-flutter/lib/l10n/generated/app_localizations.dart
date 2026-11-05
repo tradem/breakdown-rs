@@ -1664,6 +1664,12 @@ abstract class AppLocalizations {
   /// **'Skript: Block {script} · Importziel nicht aufgezeichnet'**
   String aiPreviewBlockScopeScriptOnly(Object script);
 
+  /// No description provided for @aiPreviewBlockScopeUnknownTarget.
+  ///
+  /// In de, this message translates to:
+  /// **'Skript: Block {script} · Importziel unbekannt'**
+  String aiPreviewBlockScopeUnknownTarget(Object script);
+
   /// No description provided for @aiPreviewBlockScopeTargetOnly.
   ///
   /// In de, this message translates to:

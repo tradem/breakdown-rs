@@ -17,6 +17,8 @@
 // AND remembered-job entry (incl. the missing-context → picker-required
 // path), 409/403 branches, and goldens.
 
+import 'dart:async';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
@@ -45,6 +47,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/preview_screen.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/script_block_scope.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 
 // --- Fixtures ---------------------------------------------------------------
@@ -1004,6 +1007,14 @@ void main() {
       /// The block the SCRIPT states (issue #827), carried on the default
       /// script payload. `null` keeps the pre-#827 payload shape.
       int? scriptBlockNumber,
+
+      /// `true` makes the job read FAIL (issue #827 review): the block scope
+      /// then cannot know the target, which must not render as "not recorded".
+      bool jobReadFails = false,
+
+      /// Parks the block-scope read in flight, so the loading arm can be
+      /// asserted (nothing rendered — no claim while the answer is missing).
+      bool blockScopePending = false,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -1015,13 +1026,15 @@ void main() {
       // (the job recorded no outcome) instead of its read-failure state, which
       // has its own tests in decision_outcome_test.dart. The SAME answer feeds
       // the naming card's used-pair read (issue #831).
-      repo.jobResult = Right(
-        _succeededJob(
-          'job-1',
-          telemetry: telemetry,
-          targetBlockNumber: targetBlockNumber,
-        ),
-      );
+      repo.jobResult = jobReadFails
+          ? Left(const ProblemError(code: 'ai-import.read-failed'))
+          : Right(
+              _succeededJob(
+                'job-1',
+                telemetry: telemetry,
+                targetBlockNumber: targetBlockNumber,
+              ),
+            );
       if (applyQueue != null) repo.applyQueue.addAll(applyQueue);
       preview = ValueNotifier(
         previewValue ??
@@ -1061,6 +1074,11 @@ void main() {
           // The preview + apply screens render the configured naming line
           // (issue #608) — a deterministic override keeps the tests off
           // the real discovery path and the goldens stable.
+          // Issue #827 review: the scope read's in-flight arm.
+          if (blockScopePending)
+            aiJobBlockScopeProvider.overrideWith(
+              (ref, jobId) => Completer<ScriptBlockScope?>().future,
+            ),
           configuredAiNamingProvider.overrideWith((ref) {
             if (namingDiscoveryFails) {
               final Future<AiConfigView?> failed = Future.error(
@@ -1243,6 +1261,40 @@ void main() {
             .data,
         'Target block — taken from the import target: Block 3',
       );
+      expect(
+        find.byKey(const Key('ai-preview-block-scope-mismatch')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an unreadable job read names the script block and calls the '
+        'target UNKNOWN — never "not recorded" (issue #827 review)', (
+      tester,
+    ) async {
+      await setupContainer(jobReadFails: true, scriptBlockNumber: 2);
+      await pumpPreview(tester);
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-block-scope')))
+            .data,
+        'Script: Block 2 · import target unknown',
+      );
+      // No mismatch claim: an unread target is not a conflicting one.
+      expect(
+        find.byKey(const Key('ai-preview-block-scope-mismatch')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('while the job read is in flight the scope line renders '
+        'nothing — it never guesses the target away (issue #827 review)', (
+      tester,
+    ) async {
+      await setupContainer(blockScopePending: true, scriptBlockNumber: 2);
+      await pumpPreview(tester);
+
+      expect(find.byKey(const Key('ai-preview-block-scope')), findsNothing);
       expect(
         find.byKey(const Key('ai-preview-block-scope-mismatch')),
         findsNothing,

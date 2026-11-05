@@ -987,6 +987,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String aiPreviewBlockScopeUnknownTarget(Object script) {
+    return 'Skript: Block $script · Importziel unbekannt';
+  }
+
+  @override
   String aiPreviewBlockScopeTargetOnly(Object target) {
     return 'Zielblock – aus dem Importziel übernommen: Block $target';
   }

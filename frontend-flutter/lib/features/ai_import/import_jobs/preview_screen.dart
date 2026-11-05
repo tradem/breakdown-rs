@@ -1359,6 +1359,11 @@ class _ContinuityGapCard extends ConsumerWidget {
 /// with the preview) over the live progress — `mark_succeeded` clears the
 /// progress, and the preview is reached exactly then. A merged/schedule payload
 /// carries no script context, so there only the target is known.
+///
+/// The job read is a third axis (CodeRabbit review): `loading` renders nothing
+/// (the line appears with the value), a `error` names only the script's block
+/// and calls the target UNKNOWN, and `data` with a null target is the one case
+/// that may say "not recorded".
 class _PreviewBlockScope extends ConsumerWidget {
   const _PreviewBlockScope({required this.jobId, required this.payloadBlock});
 
@@ -1367,12 +1372,30 @@ class _PreviewBlockScope extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // A failed read is the quiet "not known" arm: the scope line then says
-    // only what the payload states, never an invented target.
-    final loaded = ref.watch(aiJobBlockScopeProvider(jobId)).value;
+    final read = ref.watch(aiJobBlockScopeProvider(jobId));
+    final loaded = read.value;
+    if (loaded == null) {
+      // Three states, three honest renderings (CodeRabbit review): a job read
+      // that has not ANSWERED yet is not a job that recorded no target. While
+      // it is in flight the line renders nothing (it appears with the value),
+      // and a FAILED read names the script's block with the target explicitly
+      // UNKNOWN — never the "import target not recorded" wording, which is the
+      // `data`-with-null-target case below.
+      if (read.isLoading || payloadBlock == null) {
+        return const SizedBox.shrink();
+      }
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          l10nOf(context).aiPreviewBlockScopeUnknownTarget('$payloadBlock'),
+          key: const Key('ai-preview-block-scope'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      );
+    }
     final scope = ScriptBlockScope(
-      scriptBlockNumber: payloadBlock ?? loaded?.scriptBlockNumber,
-      targetBlockNumber: loaded?.targetBlockNumber,
+      scriptBlockNumber: payloadBlock ?? loaded.scriptBlockNumber,
+      targetBlockNumber: loaded.targetBlockNumber,
     );
     final associated = scope.associatedBlockNumber;
     if (associated == null) return const SizedBox.shrink();

@@ -299,6 +299,7 @@
   "aiPreviewScriptTitle": "Script preview",
   "aiPreviewBlockScope": "Script: Block {script} · Import target: Block {target}",
   "aiPreviewBlockScopeScriptOnly": "Script: Block {script} · import target not recorded",
+  "aiPreviewBlockScopeUnknownTarget": "Script: Block {script} · import target unknown",
   "aiPreviewBlockScopeTargetOnly": "Target block — taken from the import target: Block {target}",
   "aiPreviewBlockScopeMismatch": "Warning: the script states block {script} but the import writes into block {target}. The rows land in the target block — check the target before applying.",
   "aiPreviewScriptSubtitle": "{count} draft scene(s)",
