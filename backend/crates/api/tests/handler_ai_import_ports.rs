@@ -993,6 +993,7 @@ async fn get_ai_import_preview_reads_through_the_preview_store_port() {
     // one the production store would mint for this job. A full
     // `ScriptContext` — the typed shape script jobs persist.
     let preview = ScriptContext {
+        block_number: None,
         title: Some("test script".to_owned()),
         scenes: vec![DraftScene {
             draft_ref: "scene-0".to_owned(),
@@ -1044,6 +1045,7 @@ async fn seed_applyable_script_job(
     scene_count: usize,
 ) -> AiImportJobId {
     let preview = ScriptContext {
+        block_number: None,
         title: Some("test script".to_owned()),
         scenes: (0..scene_count)
             .map(|i| DraftScene {
@@ -1158,6 +1160,7 @@ async fn seed_multi_episode_script_job(
     block_id: Option<BlockId>,
 ) -> AiImportJobId {
     let preview = ScriptContext {
+        block_number: None,
         title: Some("multi-episode script".to_owned()),
         scenes: vec![
             DraftScene {
@@ -2998,6 +3001,7 @@ async fn seed_episode_grouped_script_job(
     scene_count: usize,
 ) -> AiImportJobId {
     let preview = ScriptContext {
+        block_number: None,
         title: Some("grouped script".to_owned()),
         scenes: (0..scene_count)
             .map(|i| DraftScene {
@@ -3292,6 +3296,7 @@ async fn seed_blocking_uncertainty_job(
     block_id: Option<BlockId>,
 ) -> AiImportJobId {
     let preview = ScriptContext {
+        block_number: None,
         title: Some("blocked script".to_owned()),
         scenes: (0..2)
             .map(|i| DraftScene {

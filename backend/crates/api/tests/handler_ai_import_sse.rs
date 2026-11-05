@@ -61,6 +61,7 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         last_error: None,
         retries: 0,
         progress: Some(AiImportProgress {
+            block_number: None,
             stage: AiImportStage::Extracting,
             chunk: Some(4),
             chunks_total: Some(12),
@@ -202,6 +203,7 @@ async fn live_progress_and_status_frames_are_pushed_and_terminal_closes() {
     // the new frame without any polling.
     let mut updated = job.clone();
     updated.progress = Some(AiImportProgress {
+        block_number: None,
         stage: AiImportStage::Extracting,
         chunk: Some(5),
         chunks_total: Some(12),

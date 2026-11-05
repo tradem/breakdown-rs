@@ -738,6 +738,7 @@ impl LlmClient for FakeLlmClient {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 title: Some("fixture".to_owned()),
                 scenes: vec![DraftScene {
                     draft_ref: "fixture-scene".to_owned(),
@@ -766,6 +767,7 @@ impl LlmClient for FakeLlmClientWithoutSceneNumber {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 title: Some("fixture".to_owned()),
                 scenes: vec![DraftScene {
                     draft_ref: "fixture-scene".to_owned(),
@@ -795,6 +797,7 @@ impl LlmClient for FakeLlmClientWithEpisodeTitle {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 title: Some("fixture".to_owned()),
                 scenes: vec![DraftScene {
                     draft_ref: "fixture-scene".to_owned(),
@@ -1315,6 +1318,7 @@ impl LlmClient for FakeLlmClientWithConflictingCategories {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 title: Some("fixture".to_owned()),
                 scenes: vec![
                     DraftScene {
@@ -2572,6 +2576,7 @@ async fn apply_script_is_single_flight_and_a_later_retry_converges() {
     let mappings = Arc::new(FakeMappings::default());
     let commands = Arc::new(FakeSceneCommands::default());
     let preview = ScriptContext {
+        block_number: None,
         title: Some("fixture".to_owned()),
         scenes: vec![
             DraftScene {
@@ -4101,6 +4106,7 @@ async fn a_failed_script_apply_still_clears_its_progress() {
 async fn script_apply_carries_the_extracted_category_into_the_character() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".to_owned(),
             characters: vec![breakdown_core::ai::DraftCharacter {
@@ -4892,6 +4898,7 @@ impl LlmClient for OutfitClient {
     ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 title: Some("fixture".to_owned()),
                 scenes: vec![DraftScene {
                     draft_ref: String::new(),
@@ -5248,6 +5255,7 @@ fn create_group(ref_name: &str, number: i32) -> EpisodeGroupPlan {
 async fn script_apply_scene_lands_in_the_created_episode() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![row_with_episode(
             "1. INT. OP",
             DraftEpisode {
@@ -5309,6 +5317,7 @@ async fn script_apply_scene_lands_in_the_created_episode() {
 async fn script_apply_two_rows_of_one_group_create_one_episode() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![
             row_with_episode(
                 "1. INT. OP",
@@ -5346,6 +5355,7 @@ async fn script_apply_two_rows_of_one_group_create_one_episode() {
 async fn script_apply_retry_does_not_recreate_the_episode() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![row_with_episode(
             "1. INT. OP",
             DraftEpisode {
@@ -5389,6 +5399,7 @@ async fn script_apply_retry_does_not_recreate_the_episode() {
 async fn script_apply_changed_create_target_is_not_relabelled() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![row_with_episode(
             "1. INT. OP",
             DraftEpisode {
@@ -5605,6 +5616,7 @@ fn accept_day(day_ref: &str) -> ShootingDayPlan {
 async fn script_apply_creates_the_accepted_day_and_schedules_the_row() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![row_with_day(
             "1. INT. OP",
             DraftShootingDay {
@@ -5642,6 +5654,7 @@ async fn script_apply_creates_the_accepted_day_and_schedules_the_row() {
 async fn script_apply_shares_one_day_across_rows_of_the_same_group() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![
             row_with_day(
                 "1. INT. OP",
@@ -5682,6 +5695,7 @@ async fn script_apply_shares_one_day_across_rows_of_the_same_group() {
 async fn script_apply_leaves_a_rejected_day_group_unscheduled() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![row_with_day(
             "1. INT. OP",
             DraftShootingDay {
@@ -5716,6 +5730,7 @@ async fn script_apply_leaves_a_rejected_day_group_unscheduled() {
 async fn script_apply_day_group_without_a_decision_is_a_registered_conflict() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![row_with_day(
             "1. INT. OP",
             DraftShootingDay {
@@ -5750,6 +5765,7 @@ async fn script_apply_day_group_without_a_decision_is_a_registered_conflict() {
 async fn script_apply_day_is_idempotent_on_re_apply() {
     let fixture = ScriptApplyFixture::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![row_with_day(
             "1. INT. OP",
             DraftShootingDay {
@@ -5871,6 +5887,7 @@ impl LlmClient for TwoChunkScoringLlmClient {
         };
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 title: Some("fixture".to_owned()),
                 scenes: vec![scene],
                 uncertainties: Vec::new(),
@@ -7144,6 +7161,7 @@ impl LlmClient for TwoChunkUsageClient {
         };
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 title: Some("fixture".to_owned()),
                 scenes: vec![DraftScene {
                     draft_ref: format!("chunk-{}", call + 1),

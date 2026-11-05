@@ -103,6 +103,7 @@ fn scene(draft_ref: &str, location: &str, characters: &[&str]) -> DraftScene {
 
 fn preview(scenes: Vec<DraftScene>) -> ScriptContext {
     ScriptContext {
+        block_number: None,
         title: None,
         scenes,
         uncertainties: Vec::new(),

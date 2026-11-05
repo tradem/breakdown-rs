@@ -37,6 +37,7 @@ fn make_enqueue_request(user_id: &str) -> AiImportEnqueueRequest {
 
 fn progress(stage: AiImportStage, chunk: u32, episodes: &[&str]) -> AiImportProgress {
     AiImportProgress {
+        block_number: None,
         stage,
         chunk: Some(chunk),
         chunks_total: Some(12),
@@ -76,12 +77,22 @@ async fn mark_progress_persists_and_round_trips() -> Result<()> {
         )
         .await?;
 
+    // Issue #827: the block the script states travels in the same frame.
+    let mut with_block = progress(AiImportStage::Extracting, 6, &["Ep. 3", "Ep. 4"]);
+    with_block.block_number = Some(2);
+    queue.mark_progress(id, "worker-1", &with_block).await?;
+
     let job = queue.get(id).await?.expect("job exists");
     let progress = job.progress.expect("progress persisted");
     assert_eq!(progress.stage, AiImportStage::Extracting);
-    assert_eq!(progress.chunk, Some(4));
+    assert_eq!(progress.chunk, Some(6));
     assert_eq!(progress.chunks_total, Some(12));
     assert_eq!(progress.episodes_seen, vec!["Ep. 3", "Ep. 4"]);
+    assert_eq!(
+        progress.block_number,
+        Some(2),
+        "the published block survives the JSONB round trip"
+    );
     Ok(())
 }
 

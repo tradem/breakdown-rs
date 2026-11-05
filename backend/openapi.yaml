@@ -597,6 +597,24 @@ components:
         reached a `mark_progress` call yet (fresh `pending` claims, retried
         attempts before their first stage boundary — the claim SQL resets it).
       properties:
+        block_number:
+          description: |-
+            The production block number the script's page headers state, or the
+            model's answer when the deterministic `Block:` scan found no marker
+            (issue #827). `None` means "the script does not state one" — never a
+            fabricated number, and never the job's import TARGET
+            ([`AiImportTarget::block_number`]), which is a separate fact: only
+            because the two travel side by side can a client show "script says 2 ·
+            importing into 1" and flag a mismatch before the apply's cross-block
+            guard fires.
+
+            Additive with `serde(default)`: frames written before the field
+            existed deserialize as `None`, and a client then renders the import
+            target as the associated block instead of an empty field.
+          format: int32
+          type:
+          - integer
+          - 'null'
         chunk:
           description: |-
             Chunk counter of the extraction progress. `0` is a deliberate
@@ -4176,6 +4194,22 @@ components:
         stored before this field existed still load (they simply carry `0`, which a
         client renders as "not recorded").
       properties:
+        block_number:
+          description: |-
+            The production block number the document states in its page headers
+            (issue #827) — the deterministic [`extract_block_number`] scan's
+            answer, or the model's `block_number` when the scan found no marker.
+
+            Deliberately separate from the job's import TARGET
+            ([`crate::ai::AiImportTarget::block_number`]): the two are different
+            facts, and keeping them apart is what lets a reviewer compare them.
+            Additive with `serde(default)`, so previews stored before this field
+            existed still load (as `None` — honest absence, never a fabricated
+            number).
+          format: int32
+          type:
+          - integer
+          - 'null'
         scenes:
           items:
             $ref: '#/components/schemas/DraftScene'

@@ -76,6 +76,7 @@ fn merge_returns_matched_and_both_unmatched_sets() {
 #[test]
 fn planner_uses_update_for_a_previously_mapped_row() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![DraftScene {
             draft_ref: "scene-1".into(),
@@ -120,6 +121,7 @@ fn planner_uses_update_for_a_previously_mapped_row() {
 #[test]
 fn open_uncertainties_and_unmatched_rows_block_apply() {
     let script = ScriptContext {
+        block_number: None,
         uncertainties: vec![Uncertainty {
             scene_index: 0,
             field: "location".into(),
@@ -444,6 +446,7 @@ fn planner_folds_umlauts_when_matching_a_category_hint() {
     // unmatched (`Hüte`/`hüte`), silently creating the piece uncategorized.
     let hats = CostumeCategoryId::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from("BEN")],
@@ -494,6 +497,7 @@ fn planner_folds_umlauts_when_matching_a_category_hint() {
 fn planner_resolves_a_category_hint_case_insensitively() {
     let top = CostumeCategoryId::new();
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from("BEN")],
@@ -541,6 +545,7 @@ fn planner_leaves_an_unknown_category_hint_uncategorized() {
     // An unknown hint is not an error: the piece is still applied, just without
     // a category (spec `ai-costume-extraction`).
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".into(),
             characters: vec![DraftCharacter::from("BEN")],
@@ -964,6 +969,7 @@ fn an_acknowledged_blocking_uncertainty_resolves_the_gate() {
     // Issue #663: the reviewer acknowledges the ambiguity in the apply
     // request, so the gate counts only the *unacknowledged* blockers.
     let preview = ScriptContext {
+        block_number: None,
         uncertainties: vec![
             Uncertainty {
                 scene_index: 1,
@@ -1038,6 +1044,7 @@ fn only_a_field_ambiguity_blocks_the_apply() {
     // preview unappliable — one unverifiable costume may not cost the reviewer a
     // paid re-import of an 85-chunk document.
     let dropped = ScriptContext {
+        block_number: None,
         uncertainties: vec![Uncertainty {
             scene_index: 3,
             field: "costumes".into(),
@@ -1169,6 +1176,7 @@ fn differing_non_default_categories_keep_the_first_signal() {
     // Genuine conflict (guest vs extra): deterministic first-non-default
     // wins; the reviewer corrects it in the Cast screen (#678).
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![
             DraftScene {
                 draft_ref: "1. INT. OP".to_owned(),
@@ -1203,6 +1211,7 @@ fn differing_non_default_categories_keep_the_first_signal() {
 #[test]
 fn the_apply_plan_carries_the_extracted_category() {
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![DraftScene {
             draft_ref: "1. INT. OP".to_owned(),
             characters: vec![
@@ -1286,6 +1295,7 @@ fn agreeing_and_default_corrected_signals_do_not_surface_a_conflict() {
     // BEN: main_cast (default) then guest — the non-default signal corrects
     // the default, no conflict. LENA: guest twice — agreeing, no conflict.
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![
             DraftScene {
                 draft_ref: "1. INT. OP".to_owned(),
@@ -1324,6 +1334,7 @@ fn agreeing_and_default_corrected_signals_do_not_surface_a_conflict() {
 #[test]
 fn a_conflict_uncertainty_blocks_the_apply_until_acknowledged() {
     let mut preview = ScriptContext {
+        block_number: None,
         scenes: vec![
             DraftScene {
                 draft_ref: "1. INT. OP".to_owned(),
@@ -1895,6 +1906,108 @@ fn draft_episode_group_key_prefers_the_number() {
 }
 
 // ===========================================================================
+// Block extraction (issue #827)
+// ===========================================================================
+
+#[test]
+fn block_marker_reads_both_header_shapes() {
+    // The two shapes production page headers use: a colon after the field name
+    // and a bare space. Both state the same block.
+    assert_eq!(block_marker("Block: 2"), Some(2));
+    assert_eq!(block_marker("Block 2"), Some(2));
+}
+
+#[test]
+fn block_marker_reads_only_the_leading_digits_of_a_glued_header() {
+    // Issue #826's glued page header: `Block: 098/Ep.: 294` names block 98.
+    // Everything after the `/` belongs to the NEXT field, never to the number
+    // — the same "leading digits only" rule the episode suffix follows.
+    assert_eq!(block_marker("Block: 098/Ep.: 294"), Some(98));
+    assert_eq!(block_marker("Block: 2   Ep.: 3 (Der Unfall)"), Some(2));
+}
+
+#[test]
+fn block_marker_is_case_insensitive() {
+    // Page headers also arrive in capitals; the field SHAPE, not the casing,
+    // decides (`day_marker` reads `TAG 1` for the same reason).
+    assert_eq!(block_marker("BLOCK: 2   EP.: 3"), Some(2));
+    assert_eq!(block_marker("block: 2"), Some(2));
+}
+
+#[test]
+fn block_marker_ignores_prose_and_scene_headings() {
+    // `Block` is a German noun, so casing alone guards nothing — the field
+    // SHAPE does. Prose continues with a lowercase word or a sentence
+    // punctuation mark, and a scene heading separates its labels with a
+    // hyphen; a page-header field ends at the line, a separator or the next
+    // (uppercase) field.
+    for prose in [
+        "Block 2 wurde am Montag gedreht.",
+        "Der Block 2 war besser als der dritte.",
+        "Wir drehen Block 2.",
+        "Datenblock 2",
+        "Block: 1000",
+        "Block 2a war eine Szene",
+        "1. I/T - Block 2 - WOHNUNG",
+    ] {
+        assert_eq!(block_marker(prose), None, "`{prose}` is prose, not a field");
+    }
+}
+
+#[test]
+fn extract_block_number_takes_the_first_page_header() {
+    // Page headers repeat the marker on every page; the value is one fact, so
+    // the FIRST occurrence wins instead of flipping per line.
+    let document = "\
+Block: 2   Ep.: 3 (Der Unfall)
+
+1. I/T - WOHNUNG
+Aktion.
+
+Block: 2   Ep.: 3 (Der Unfall)
+
+2. I/T - KLINIKUM
+Aktion.
+";
+    assert_eq!(extract_block_number(document), Some(2));
+}
+
+#[test]
+fn extract_block_number_keeps_the_first_of_two_differing_headers() {
+    // A document that spans two blocks publishes the one it OPENS with — the
+    // single published number must not become a per-line flip-flop.
+    let document = "\
+Block: 2
+
+1. I/T - WOHNUNG
+Aktion.
+
+Block: 3
+
+2. I/T - KLINIKUM
+Aktion.
+";
+    assert_eq!(extract_block_number(document), Some(2));
+}
+
+#[test]
+fn extract_block_number_is_absent_without_a_marker() {
+    // An episode-only header states no block: honest absence, never a number
+    // inferred from the episode or the scene numbering.
+    let document = "Ep.: 3 (Der Unfall)\n\n1. I/T - WOHNUNG\nAktion.\n";
+    assert_eq!(extract_block_number(document), None);
+}
+
+#[test]
+fn extract_block_number_ignores_a_scene_heading_mention() {
+    let document = "\
+1. I/T - BLOCK 2 - WOHNUNG
+Aktion.
+";
+    assert_eq!(extract_block_number(document), None);
+}
+
+// ===========================================================================
 // DraftEpisode::display_label — progress label for episodes_seen (issue #664)
 // ===========================================================================
 
@@ -1929,6 +2042,7 @@ fn draft_episode_display_label_is_none_without_number_or_title() {
 #[test]
 fn episode_group_refs_lists_distinct_group_refs_in_order() {
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![
             DraftScene {
                 episode: Some(DraftEpisode {
@@ -2792,6 +2906,7 @@ fn old_preview_without_shooting_day_still_loads() {
 #[test]
 fn shooting_day_group_refs_are_first_seen_order() {
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![
             DraftScene {
                 draft_ref: "1. I/T - OP".into(),
@@ -3296,6 +3411,7 @@ fn plan_continuity(
 #[test]
 fn a_continued_outfit_plans_the_beat_without_creating_a_look() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene(
@@ -3331,6 +3447,7 @@ fn a_continued_outfit_plans_the_beat_without_creating_a_look() {
 fn a_continuation_chain_resolves_to_the_row_that_creates_the_look() {
     // scene 3 continues scene 2, which continues scene 1: only scene 1 creates.
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene("s1", &["BEN"], vec![explicit_outfit("BEN", "Zivil-Look")]),
@@ -3353,6 +3470,7 @@ fn a_continuation_chain_resolves_to_the_row_that_creates_the_look() {
 #[test]
 fn a_continuation_without_a_source_outfit_is_reported() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene("source", &["BEN"], Vec::new()),
@@ -3374,6 +3492,7 @@ fn a_continuation_without_a_source_outfit_is_reported() {
 #[test]
 fn a_continued_selection_plans_the_source_look() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene(
@@ -3410,6 +3529,7 @@ fn a_continued_selection_plans_the_source_look() {
 #[test]
 fn an_inferred_selection_plans_a_context_look_with_no_pieces() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![continuity_scene("target", &["BEN"], Vec::new())],
         uncertainties: Vec::new(),
@@ -3442,6 +3562,7 @@ fn an_inferred_selection_plans_a_context_look_with_no_pieces() {
 #[test]
 fn an_unoffered_selection_refuses_the_plan() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![continuity_scene("target", &["BEN"], Vec::new())],
         uncertainties: Vec::new(),
@@ -3464,6 +3585,7 @@ fn an_unoffered_selection_refuses_the_plan() {
 #[test]
 fn two_selections_for_one_gap_refuse_the_plan() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene(
@@ -3500,6 +3622,7 @@ fn two_selections_for_one_gap_refuse_the_plan() {
 #[test]
 fn a_gap_without_a_selection_plans_no_outfit() {
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene(
@@ -3586,6 +3709,7 @@ fn a_beat_ordinal_comes_from_the_preview_not_the_review_decisions() {
     // reviewer accepts an outfit they rejected before, and the shifted row would
     // then find the other row's confirmed mapping row and silently get no beat.
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene("s1", &["BEN"], vec![explicit_outfit("BEN", "Zivil-Look")]),
@@ -3652,6 +3776,7 @@ fn a_continuity_selection_is_addressed_by_the_draft_figure_position() {
     // The selection is request-carried, so its address must come from something
     // immutable: the figure's position in the draft's own character list.
     let preview = ScriptContext {
+        block_number: None,
         title: None,
         scenes: vec![
             continuity_scene("s1", &["BEN"], vec![explicit_outfit("BEN", "Zivil-Look")]),
@@ -3702,6 +3827,7 @@ fn stored_script_context_without_reconciliation_counters_still_loads() {
 #[test]
 fn reconciliation_counters_round_trip_through_the_preview_payload() {
     let context = ScriptContext {
+        block_number: None,
         title: None,
         scenes: Vec::new(),
         uncertainties: Vec::new(),

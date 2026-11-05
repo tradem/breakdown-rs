@@ -120,6 +120,7 @@ fn provider_parser_rejects_unknown_values() {
 #[test]
 fn apply_gate_rejects_open_uncertainties() {
     let preview = ScriptContext {
+        block_number: None,
         scenes: vec![DraftScene::default()],
         uncertainties: vec![breakdown_core::ai::Uncertainty {
             scene_index: 0,

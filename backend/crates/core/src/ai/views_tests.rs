@@ -221,6 +221,9 @@ fn ai_import_progress_default_is_extracting_text_without_counts() {
     assert_eq!(progress.started_at, None);
     assert_eq!(progress.done_bytes, None);
     assert_eq!(progress.total_bytes, None);
+    // Issue #827: no block until a frame states one — never a zero that
+    // would read as "block 0".
+    assert_eq!(progress.block_number, None);
 }
 
 #[test]
@@ -308,6 +311,7 @@ fn ai_import_progress_eta_fields_are_additive_on_the_wire() {
     assert_eq!(legacy.total_bytes, None);
 
     let current = AiImportProgress {
+        block_number: None,
         stage: AiImportStage::Extracting,
         chunk: Some(3),
         chunks_total: Some(12),
@@ -328,6 +332,32 @@ fn ai_import_progress_eta_fields_are_additive_on_the_wire() {
     let round_trip: AiImportProgress =
         serde_json::from_value(json).expect("a #762 frame round-trips");
     assert_eq!(round_trip, current);
+}
+
+/// Issue #827: the script's block number is additive in BOTH directions — a
+/// frame written before the field existed still deserializes (as `None`, never
+/// as a fabricated number), and a newer frame round-trips.
+#[test]
+fn ai_import_progress_block_number_is_additive_on_the_wire() {
+    let legacy: AiImportProgress = serde_json::from_str(
+        r#"{"stage":"extracting","chunk":1,"chunks_total":3,
+            "episodes_seen":["Ep. 3"]}"#,
+    )
+    .expect("a pre-#827 frame deserializes");
+    assert_eq!(legacy.block_number, None);
+
+    let current = AiImportProgress {
+        stage: AiImportStage::Extracting,
+        chunk: Some(1),
+        chunks_total: Some(3),
+        block_number: Some(2),
+        ..AiImportProgress::default()
+    };
+    let json = serde_json::to_value(&current).expect("progress serializes");
+    assert_eq!(json["block_number"], 2);
+    let round_trip: AiImportProgress =
+        serde_json::from_value(json).expect("a #827 frame round-trips");
+    assert_eq!(round_trip.block_number, Some(2));
 }
 
 #[test]
@@ -417,6 +447,7 @@ fn ai_import_job_progress_is_optional_on_the_wire() {
     assert_eq!(job.progress, None);
 
     let with_progress = AiImportProgress {
+        block_number: None,
         stage: AiImportStage::Extracting,
         chunk: Some(4),
         chunks_total: Some(12),

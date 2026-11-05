@@ -631,6 +631,12 @@ struct ChatMessageResponse {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 struct ScriptContextSchema {
     title: Option<String>,
+    /// The production block number the scene block's page headers state
+    /// (issue #827) — the number only, e.g. `2` for `Block: 2` and `98` for
+    /// the glued header `Block: 098/Ep.: 294`. Null when the block states
+    /// none: the deterministic scan is the primary source and this field is
+    /// the fallback for a document whose header the scan could not read.
+    block_number: Option<i32>,
     scenes: Vec<DraftSceneSchema>,
     uncertainties: Vec<UncertaintySchema>,
 }
@@ -924,6 +930,31 @@ mod tests {
             .get("$defs")
             .or_else(|| value.get("definitions"))
             .unwrap_or_else(|| panic!("no type definitions in the emitted schema: {value}"))
+    }
+
+    /// Issue #827: the block number the prompt asks for only reaches the
+    /// server because the provider-facing mirror declares it — a prompt rule
+    /// without a schema field is unreachable under `strict` Structured Outputs
+    /// (the model cannot emit a property the schema does not define, which is
+    /// why the per-scene `episode` rule never arrives).
+    #[test]
+    fn provider_schema_mirrors_the_block_number_field() {
+        let schema = schemars::schema_for!(ScriptContextSchema);
+        let value = serde_json::to_value(&schema).expect("schema serializes");
+        let block = &defs(&value)["ScriptContextSchema"]["properties"]["block_number"];
+        let block = if block.is_object() {
+            block
+        } else {
+            &value["properties"]["block_number"]
+        };
+        assert!(
+            block.is_object(),
+            "the schema sent to the provider must carry `block_number`"
+        );
+        assert!(
+            block["description"].is_string(),
+            "`block_number` needs a description, the schema is the model's contract"
+        );
     }
 
     #[test]

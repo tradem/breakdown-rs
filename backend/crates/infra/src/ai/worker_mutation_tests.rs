@@ -498,6 +498,7 @@ impl LlmClient for EpisodeMockClient {
     ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         Ok(LlmCallOutcome::new(
             ScriptContext {
+                block_number: None,
                 scenes: vec![DraftScene {
                     episode: Some(DraftEpisode {
                         number: Some(3),
@@ -505,6 +506,27 @@ impl LlmClient for EpisodeMockClient {
                     }),
                     ..Default::default()
                 }],
+                ..Default::default()
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+}
+
+/// Client reporting a block number the deterministic scan cannot read (issue
+/// #827): a header in a shape the scan does not recognize.
+struct BlockFallbackMockClient;
+
+#[async_trait::async_trait]
+impl LlmClient for BlockFallbackMockClient {
+    async fn chat_constrained(
+        &self,
+        _: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                block_number: Some(5),
+                scenes: vec![DraftScene::default()],
                 ..Default::default()
             },
             LlmCallUsage::default(),
@@ -588,6 +610,68 @@ async fn script_worker_publishes_throttled_progress_frames() {
         assert!(
             frame.written_at.is_some(),
             "every frame is stamped at publication"
+        );
+    }
+}
+
+/// Issue #827: the block the DOCUMENT states travels on every progress frame
+/// — the reviewer can compare it with the import target before paying for an
+/// apply that the cross-block guard would refuse.
+#[tokio::test]
+async fn script_worker_publishes_the_block_the_document_states() {
+    let queue = Arc::new(MockQueue::new());
+    queue.enqueue_job(DocumentKind::Script).await;
+    let worker = script_worker(Arc::clone(&queue), Arc::new(EpisodeMockClient));
+    let job = claim_script_job(&queue).await;
+
+    let script = "\
+Block: 2   Ep.: 3 (Titel)
+INT. ROOM - DAY
+Hello.
+
+INT. ROOM 2 - NIGHT
+More.";
+
+    let result = worker.process_text(&job, "worker-progress", script).await;
+    assert!(result.is_ok(), "script run should succeed: {result:?}");
+
+    let log = queue.progress_log.lock().await;
+    assert!(!log.is_empty(), "the run publishes progress frames");
+    for frame in log.iter() {
+        assert_eq!(
+            frame.block_number,
+            Some(2),
+            "every frame names the block the page header states"
+        );
+    }
+}
+
+/// Issue #827: the model's `block_number` is the FALLBACK for a document whose
+/// header the deterministic scan cannot read — never an override. The first
+/// frame is published before any paid call, so it still says "not known".
+#[tokio::test]
+async fn script_worker_falls_back_to_the_models_block_number() {
+    let queue = Arc::new(MockQueue::new());
+    queue.enqueue_job(DocumentKind::Script).await;
+    let worker = script_worker(Arc::clone(&queue), Arc::new(BlockFallbackMockClient));
+    let job = claim_script_job(&queue).await;
+
+    // No `Block:` marker at all: only the model can name one.
+    let script = "Ep.: 3 (Titel)\nINT. ROOM - DAY\nHello.";
+
+    let result = worker.process_text(&job, "worker-progress", script).await;
+    assert!(result.is_ok(), "script run should succeed: {result:?}");
+
+    let log = queue.progress_log.lock().await;
+    assert_eq!(
+        log[0].block_number, None,
+        "the frame after chunking precedes every paid call"
+    );
+    for frame in log.iter().skip(1) {
+        assert_eq!(
+            frame.block_number,
+            Some(5),
+            "the model's block fills the gap the scan left"
         );
     }
 }
@@ -824,6 +908,7 @@ async fn claim_resets_progress_from_a_prior_attempt() {
         let mut job = job;
         job.status = JobStatus::Failed;
         job.progress = Some(AiImportProgress {
+            block_number: None,
             stage: AiImportStage::StoringPreview,
             chunk: Some(2),
             chunks_total: Some(2),

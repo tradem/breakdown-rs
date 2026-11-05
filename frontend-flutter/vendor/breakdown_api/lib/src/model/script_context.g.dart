@@ -8,6 +8,8 @@ part of 'script_context.dart';
 
 class _$ScriptContext extends ScriptContext {
   @override
+  final int? blockNumber;
+  @override
   final BuiltList<DraftScene> scenes;
   @override
   final int? scenesDetected;
@@ -24,7 +26,8 @@ class _$ScriptContext extends ScriptContext {
       (ScriptContextBuilder()..update(updates))._build();
 
   _$ScriptContext._(
-      {required this.scenes,
+      {this.blockNumber,
+      required this.scenes,
       this.scenesDetected,
       this.scenesExtracted,
       this.scenesSynthesized,
@@ -42,6 +45,7 @@ class _$ScriptContext extends ScriptContext {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is ScriptContext &&
+        blockNumber == other.blockNumber &&
         scenes == other.scenes &&
         scenesDetected == other.scenesDetected &&
         scenesExtracted == other.scenesExtracted &&
@@ -53,6 +57,7 @@ class _$ScriptContext extends ScriptContext {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, blockNumber.hashCode);
     _$hash = $jc(_$hash, scenes.hashCode);
     _$hash = $jc(_$hash, scenesDetected.hashCode);
     _$hash = $jc(_$hash, scenesExtracted.hashCode);
@@ -66,6 +71,7 @@ class _$ScriptContext extends ScriptContext {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ScriptContext')
+          ..add('blockNumber', blockNumber)
           ..add('scenes', scenes)
           ..add('scenesDetected', scenesDetected)
           ..add('scenesExtracted', scenesExtracted)
@@ -79,6 +85,10 @@ class _$ScriptContext extends ScriptContext {
 class ScriptContextBuilder
     implements Builder<ScriptContext, ScriptContextBuilder> {
   _$ScriptContext? _$v;
+
+  int? _blockNumber;
+  int? get blockNumber => _$this._blockNumber;
+  set blockNumber(int? blockNumber) => _$this._blockNumber = blockNumber;
 
   ListBuilder<DraftScene>? _scenes;
   ListBuilder<DraftScene> get scenes =>
@@ -117,6 +127,7 @@ class ScriptContextBuilder
   ScriptContextBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _blockNumber = $v.blockNumber;
       _scenes = $v.scenes.toBuilder();
       _scenesDetected = $v.scenesDetected;
       _scenesExtracted = $v.scenesExtracted;
@@ -146,6 +157,7 @@ class ScriptContextBuilder
     try {
       _$result = _$v ??
           _$ScriptContext._(
+            blockNumber: blockNumber,
             scenes: scenes.build(),
             scenesDetected: scenesDetected,
             scenesExtracted: scenesExtracted,

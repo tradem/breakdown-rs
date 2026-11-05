@@ -16,6 +16,7 @@ part 'script_context.g.dart';
 /// Static LLM target for script extraction. Optional fields express the null-on-doubt rule: uncertain values must not be asserted by the model.  The three `scenes_*` counters are **server-derived reconciliation data** (issue #758), not model output: the extraction worker overwrites them at the storing boundary from what the deterministic scan and the model actually produced. They exist because the pipeline had no way to notice that a 57-heading script had turned into a 4-row preview — every consumer saw only `scenes.len()`. All three are additive with `serde(default)`, so previews stored before this field existed still load (they simply carry `0`, which a client renders as \"not recorded\").
 ///
 /// Properties:
+/// * [blockNumber] - The production block number the document states in its page headers (issue #827) — the deterministic [`extract_block_number`] scan's answer, or the model's `block_number` when the scan found no marker.  Deliberately separate from the job's import TARGET ([`crate::ai::AiImportTarget::block_number`]): the two are different facts, and keeping them apart is what lets a reviewer compare them. Additive with `serde(default)`, so previews stored before this field existed still load (as `None` — honest absence, never a fabricated number).
 /// * [scenes]
 /// * [scenesDetected] - Scene headings the deterministic scan detected — the chunk count after [`merge_duplicate_scene_numbers`] (issue #758). This is the number the document states, not the number the model produced.
 /// * [scenesExtracted] - Preview rows the model itself returned, summed over all chunks (issue #758). Deliberately **excludes** rows rebuilt from document metadata, so `scenes_extracted < scenes_detected` is the visible shortfall.
@@ -25,6 +26,10 @@ part 'script_context.g.dart';
 @BuiltValue()
 abstract class ScriptContext
     implements Built<ScriptContext, ScriptContextBuilder> {
+  /// The production block number the document states in its page headers (issue #827) — the deterministic [`extract_block_number`] scan's answer, or the model's `block_number` when the scan found no marker.  Deliberately separate from the job's import TARGET ([`crate::ai::AiImportTarget::block_number`]): the two are different facts, and keeping them apart is what lets a reviewer compare them. Additive with `serde(default)`, so previews stored before this field existed still load (as `None` — honest absence, never a fabricated number).
+  @BuiltValueField(wireName: r'block_number')
+  int? get blockNumber;
+
   @BuiltValueField(wireName: r'scenes')
   BuiltList<DraftScene> get scenes;
 
@@ -71,6 +76,13 @@ class _$ScriptContextSerializer implements PrimitiveSerializer<ScriptContext> {
     ScriptContext object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.blockNumber != null) {
+      yield r'block_number';
+      yield serializers.serialize(
+        object.blockNumber,
+        specifiedType: const FullType.nullable(int),
+      );
+    }
     yield r'scenes';
     yield serializers.serialize(
       object.scenes,
@@ -134,6 +146,14 @@ class _$ScriptContextSerializer implements PrimitiveSerializer<ScriptContext> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'block_number':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.blockNumber = valueDes;
+          break;
         case r'scenes':
           final valueDes = serializers.deserialize(
             value,

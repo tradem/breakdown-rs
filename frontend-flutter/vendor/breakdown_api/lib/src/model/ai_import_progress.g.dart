@@ -8,6 +8,8 @@ part of 'ai_import_progress.dart';
 
 class _$AiImportProgress extends AiImportProgress {
   @override
+  final int? blockNumber;
+  @override
   final int? chunk;
   @override
   final int? chunksTotal;
@@ -29,7 +31,8 @@ class _$AiImportProgress extends AiImportProgress {
       (AiImportProgressBuilder()..update(updates))._build();
 
   _$AiImportProgress._(
-      {this.chunk,
+      {this.blockNumber,
+      this.chunk,
       this.chunksTotal,
       this.doneBytes,
       this.episodesSeen,
@@ -50,6 +53,7 @@ class _$AiImportProgress extends AiImportProgress {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is AiImportProgress &&
+        blockNumber == other.blockNumber &&
         chunk == other.chunk &&
         chunksTotal == other.chunksTotal &&
         doneBytes == other.doneBytes &&
@@ -63,6 +67,7 @@ class _$AiImportProgress extends AiImportProgress {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, blockNumber.hashCode);
     _$hash = $jc(_$hash, chunk.hashCode);
     _$hash = $jc(_$hash, chunksTotal.hashCode);
     _$hash = $jc(_$hash, doneBytes.hashCode);
@@ -78,6 +83,7 @@ class _$AiImportProgress extends AiImportProgress {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'AiImportProgress')
+          ..add('blockNumber', blockNumber)
           ..add('chunk', chunk)
           ..add('chunksTotal', chunksTotal)
           ..add('doneBytes', doneBytes)
@@ -93,6 +99,10 @@ class _$AiImportProgress extends AiImportProgress {
 class AiImportProgressBuilder
     implements Builder<AiImportProgress, AiImportProgressBuilder> {
   _$AiImportProgress? _$v;
+
+  int? _blockNumber;
+  int? get blockNumber => _$this._blockNumber;
+  set blockNumber(int? blockNumber) => _$this._blockNumber = blockNumber;
 
   int? _chunk;
   int? get chunk => _$this._chunk;
@@ -135,6 +145,7 @@ class AiImportProgressBuilder
   AiImportProgressBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _blockNumber = $v.blockNumber;
       _chunk = $v.chunk;
       _chunksTotal = $v.chunksTotal;
       _doneBytes = $v.doneBytes;
@@ -166,6 +177,7 @@ class AiImportProgressBuilder
     try {
       _$result = _$v ??
           _$AiImportProgress._(
+            blockNumber: blockNumber,
             chunk: chunk,
             chunksTotal: chunksTotal,
             doneBytes: doneBytes,

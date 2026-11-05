@@ -16,6 +16,25 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.68.0] - Unreleased
+
+### Added — the script's block number reaches the job progress (issue #827)
+
+- The script worker publishes `AiImportProgress::block_number` from the
+  deterministic `Block:` page-header scan on its FIRST frame (no extra LLM
+  tokens) and falls back to the model's answer only when the scan found no
+  marker — the two-source discipline the episode metadata follows. The value
+  also lands in the stored preview (`ScriptContext::block_number`).
+- `ScriptContextSchema` — the provider-facing strict mirror — declares
+  `block_number`. Without it the prompt rule would be unreachable under
+  `strict` Structured Outputs: the model cannot emit a property the schema does
+  not define (the reason the older per-scene `episode` rule never arrives).
+- The default script prompt gains a `<block>` element that states the marker
+  rules: leading digits only, repeated page headers are not a conflict, a
+  missing marker is no uncertainty, and a location name inside a scene heading
+  is not a block number.
+- **0.67.1 → 0.68.0** (MINOR).
+
 ## [0.67.1] - Unreleased
 
 ### Fixed — the default script prompt resolves `(OT)` and the `Ep.: <n>/<suffix>` marker (issue #826)

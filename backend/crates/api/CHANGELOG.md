@@ -17,6 +17,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.56.0] - Unreleased
+
+### Added — `block_number` on the AI-import progress and the stored preview (issue #827)
+
+- `AiImportProgress.block_number` and `ScriptContext.block_number` are on the
+  wire, both nullable and both additive: the production block the SCRIPT states,
+  rendered next to the episodes and kept separate from
+  `AiImportTarget.block_number` (the block the import will write into), so a
+  client can flag a script/target mismatch before the apply runs.
+  `openapi.yaml` is regenerated in the same commit; a client that predates the
+  field simply renders the target as the associated block.
+- **0.55.3 → 0.56.0** (MINOR).
+
 ## [0.55.3] - Unreleased
 
 ### Changed — re-pin to core 0.57.1 / infra 0.67.1 and pin the issue #826 preview contract
