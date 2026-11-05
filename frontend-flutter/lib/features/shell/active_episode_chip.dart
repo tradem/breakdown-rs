@@ -16,6 +16,7 @@ import '../blocks/active_block_gate.dart';
 import '../episodes/episodes_controller.dart';
 import 'planning_location.dart';
 import 'scope_pill.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The episode scope chip (issue #624): says WHICH EPISODE the shell's
 /// quick-create entries act on.
@@ -168,7 +169,7 @@ class _EpisodePickerScaffold extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.episodeChipPickTitle)),
+      appBar: BreakdownAppBar(title: l10n.episodeChipPickTitle),
       // Issue #666: pull-to-refresh on the shared cache-first seam — a stale
       // list (TTL window, or an AI apply that created an episode server-side)
       // is recoverable from the picker itself, consistent with the episodes

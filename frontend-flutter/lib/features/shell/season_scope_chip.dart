@@ -11,11 +11,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../seasons/season_display_label.dart';
 import '../seasons/seasons_screen.dart';
 import 'planning_location.dart';
 import 'production_overview_screen.dart';
 import 'scope_pill.dart';
 import 'shell_controller.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The season scope chip (issue #610, redesigned as a pill in #638): the
 /// season half of the shell's "what filters your requests" surface, sibling
@@ -32,6 +34,11 @@ import 'shell_controller.dart';
 /// - **no active season** → a neutral "Season wählen" pill opening the
 ///   season scope picker;
 /// - **active season** → the season's label in the level highlight color.
+///
+/// Issue #825: the label always leads with the season NUMBER — „1 · Name"
+/// for a named season, „Season 1" for an unnamed (null **or** blank) one,
+/// exactly mirroring the episode pill's rule (issue #709). The `Season: `
+/// wrapper is retired so the two pills read alike.
 ///
 /// // AUTHZ-GATE: the chip is display + navigation only — it dispatches no
 // command and performs no network call (the picker's season read is the
@@ -54,8 +61,10 @@ class SeasonScopeChip extends ConsumerWidget {
       key: const Key('season-scope-chip'),
       label: season == null
           ? l10n.scopeChipSeasonUnset
-          : l10n.scopeChipSeason(
-              season.title ?? l10n.seasonsDefaultTitle(season.number),
+          : seasonDisplayLabel(
+              l10n,
+              number: season.number,
+              title: season.title,
             ),
       selected: season != null,
       selectedColor: scheme.primaryContainer,
@@ -91,7 +100,7 @@ class SeasonScopePickerScreen extends ConsumerWidget {
     final activeSeason = ref.watch(shellControllerProvider).activeSeason;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.scopeChipSeasonPickTitle)),
+      appBar: BreakdownAppBar(title: l10n.scopeChipSeasonPickTitle),
       body: RefreshIndicator(
         onRefresh: () => _refresh(ref),
         child: ListView(
@@ -158,7 +167,11 @@ class SeasonScopePickerScreen extends ConsumerWidget {
                         : Theme.of(context).colorScheme.outline,
                   ),
                   title: Text(
-                    season.title ?? l10n.seasonsDefaultTitle(season.number),
+                    seasonDisplayLabel(
+                      l10n,
+                      number: season.number,
+                      title: season.title,
+                    ),
                   ),
                   onTap: () => _pickSeason(context, ref, season),
                 ),

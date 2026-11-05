@@ -26,6 +26,7 @@ import 'blocks_controller.dart';
 import 'blocks_state.dart';
 import 'create_block_sheet.dart';
 import 'widgets/blocks_widgets.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// The season-level aggregated Soll-Ist entry (issue #571): pushes the
 /// season-scope aggregate screen with the acted-on [SeasonView] as nav
@@ -120,10 +121,8 @@ class BlocksScreen extends ConsumerWidget {
     // reports an unbounded constraint.
     return LayoutBuilder(
       builder: (context, constraints) => Scaffold(
-        appBar: AppBar(
-          title: Text(
-            season.title ?? l10n.blockSeasonNumber('${season.number}'),
-          ),
+        appBar: BreakdownAppBar(
+          title: season.title ?? l10n.blockSeasonNumber('${season.number}'),
           actions: [
             // Season-level aggregated Soll-Ist entry (issue #571): labelled
             // per the visible-label norm; pushes the season-scope aggregate

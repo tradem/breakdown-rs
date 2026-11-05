@@ -10,6 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../design/spacing.dart';
 import '../../l10n/app_localizations_provider.dart';
 import 'app_info_controller.dart';
+import '../../design/components/breakdown_app_bar.dart';
 
 /// Bundled technology logos for the "Auf der Schulter von Riesen" section
 /// (issue #655, user request): the free technologies this app is built on.
@@ -57,9 +58,9 @@ class CreditsScreen extends ConsumerWidget {
     final l10n = l10nOf(context);
     return Scaffold(
       key: const Key('credits-screen'),
-      appBar: AppBar(
+      appBar: BreakdownAppBar(
         key: const Key('credits-appbar'),
-        title: Text(l10n.creditsTitle),
+        title: l10n.creditsTitle,
       ),
       body: ListView(
         key: const Key('credits-list'),

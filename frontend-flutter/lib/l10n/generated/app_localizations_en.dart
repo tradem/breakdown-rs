@@ -2781,11 +2781,6 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String scopeChipSeason(Object season) {
-    return 'Season: $season';
-  }
-
-  @override
   String get scopeChipSeasonTooltip => 'Choose active season';
 
   @override
@@ -2908,6 +2903,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String seasonsDefaultTitle(Object number) {
     return 'Season $number';
+  }
+
+  @override
+  String seasonNumberName(Object name, Object number) {
+    return '$number · $name';
   }
 
   @override
