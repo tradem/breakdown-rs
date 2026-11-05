@@ -102,6 +102,49 @@ not *unsupported language*. Two argument traps: `search_graph` takes a
 (`frontend-flutter/**`), and committed `.g.dart` files are indexed, so a hit
 ending in `.g.dart` must be traced back to its hand-written source.
 
+**Produce the Discovery-evidence block (mandatory artefact).** A graph-first
+claim is only reviewable if it is written down — prose rules lose to `grep`
+under time pressure, so the workflow demands the evidence instead of the
+intention. Fill this in during Step 2 and carry it verbatim into the proposal
+(Step 4) and the PR body (Step 9).
+
+The canonical bullet list lives in `.github/PULL_REQUEST_TEMPLATE/flutter.md`,
+section "Discovery evidence" — one owner, so template and skill cannot drift
+apart. Translated to this area: "Text (occurrence)" names ARB keys, widget keys,
+problem `code`s and prose, and "Not the graph (and why)" names e.g. Riverpod
+`ref.watch` wiring → `scripts/who-watches.sh`, class construction →
+`analyze_ast_impact`.
+
+Rules that make the block a gate rather than another paragraph:
+
+- A **symbol question** (where is X defined, who calls X, what does a change
+  touch) answered only with `rg` is sent back: `rg` cannot report kinds, edge
+  types or completeness.
+- A **negative claim** ("nothing else consumes X", "no other call site") needs
+  the `Coverage` line; without it the claim is provisional, not done.
+- A missing block is a review blocker, exactly like a missing `AUTHZ-GATE`
+  comment — the reviewer checks for the block, not for good intentions.
+
+**One call, not four (validated codemode recipe).** `search_code` already returns
+definition + line + `in`/`out` counts for a symbol OR a literal key, and the
+coverage verdict rides in the same script (measured 0.6 s wall time for both
+calls on this repo). Reach for this before chaining `search_graph` → `trace_path`
+→ `rg` by hand:
+
+````js
+// @options: {"max_output_tokens": 3000}
+const symbol = "<SymbolOrKey>";
+const paths = ["<file-or-dir>"];
+const [hits, cov] = await Promise.allSettled([
+  tools.search_code({ project: "breakdown-rs", pattern: symbol, mode: "compact", limit: 5 }),
+  tools.check_index_coverage({ project: "breakdown-rs", paths }),
+]);
+return text(`${hits.value}\n${cov.value}`);
+````
+
+Caller **names** are the one thing `search_code` does not give (it reports
+counts); add `trace_path … inbound` when the names matter.
+
 ### Step 3: Create Feature Branch
 
 ```bash
@@ -296,10 +339,11 @@ gh pr create --title "{type}: {description} (issue #{number})" --body "[PR descr
 The PR body MUST include:
 
 1. A **Summary** and **Changes** section (what / why).
-2. The **affected-packages / generated-artifacts table** from Step 6, verbatim.
-3. A **Validation** section (`dart format`, `flutter analyze`, `flutter test`,
+2. The **Discovery evidence** block from Step 2, verbatim.
+3. The **affected-packages / generated-artifacts table** from Step 6, verbatim.
+4. A **Validation** section (`dart format`, `flutter analyze`, `flutter test`,
    and — if codegen ran — `build_runner` / OpenAPI drift check results).
-4. Acceptance criteria checkboxes from the issue.
+5. Acceptance criteria checkboxes from the issue.
 
 Example PR body sections:
 
@@ -342,7 +386,7 @@ even when nothing changed:
 
 | Schritt | Ergebnis |
 |---|---|
-| Drift-Check | ... |
+| Drift-Check / Discovery evidence | Block vorhanden; Coverage clean (oder Lücken benannt + verifiziert) |
 | Tests | `flutter test`: N passed |
 | Lints | `flutter analyze`: clean |
 | Format | `dart format --set-exit-if-changed .`: clean |

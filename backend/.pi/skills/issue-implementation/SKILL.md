@@ -5,7 +5,7 @@ license: AGPL-3.0
 compatibility: Requires `gh` CLI authenticated with GitHub.
 metadata:
   author: breakdown-rs
-  version: "1.2"
+  version: "1.3"
 ---
 
 # Issue Implementation Workflow
@@ -44,13 +44,70 @@ fi
 
 ### Step 2: Check for Drift
 
-```bash
-# Search for related code
-analyze_ast_search --query "[keywords from issue]" --mode summary
+Freshness first — the knowledge-graph index is machine-local and rots between
+refreshes, so a stale index answers "no such symbol" for code that exists:
 
-# Check existing implementations
+```bash
+root=$(git rev-parse --show-toplevel)             # the scripts are monorepo-root assets
+bash "$root/scripts/check-graph-freshness.sh"        # report: fresh / stale
+bash "$root/scripts/reindex-graph.sh" --if-stale     # only when the index lags
+```
+
+Then use the matching tool for the shape of the question — the graph
+(`codebase-memory`, project `breakdown-rs`) for meaning, `rg` only for text
+(ARB keys, problem codes, config values, Markdown):
+
+```bash
+# Meaning questions (definition, callers, blast radius) → graph
+search_graph --name_pattern ".*[Keyword].*" --file_pattern "backend/**"
+trace_path --function_name "[KnownHandlerOrService]" --direction inbound
+# Second opinion on the same question (ast-bro resolves Rust too)
+analyze_ast_search --query "[keywords from issue]" --mode summary
 analyze_ast_context --path "[affected files]"
 ```
+
+**Produce the Discovery-evidence block (mandatory artefact).** A graph-first
+claim is only reviewable if it is written down — prose rules lose to `grep`
+under time pressure, so the workflow demands the evidence instead of the
+intention. Fill this in during Step 2 and carry it verbatim into the proposal
+(Step 4) and the PR body (Step 9).
+
+The canonical bullet list lives in `.github/PULL_REQUEST_TEMPLATE/flutter.md`,
+section "Discovery evidence" (today the only PR template that carries it) — one
+owner, so template and skill cannot drift apart. Translated to this area: "Text
+(occurrence)" names problem `code`s and config values, and "Not the graph (and
+why)" names e.g. macro-generated dispatch → `rg` plus a source read,
+trait-object dispatch → `analyze_ast_impact`.
+
+Rules that make the block a gate rather than another paragraph:
+
+- A **symbol question** (where is X defined, who calls X, what does a change
+  touch) answered only with `rg` is sent back: `rg` cannot report kinds, edge
+  types or completeness.
+- A **negative claim** ("nothing else consumes X", "no other call site") needs
+  the `Coverage` line; without it the claim is provisional, not done.
+- A missing block is a review blocker, exactly like a missing `AUTHZ-GATE`
+  comment — the reviewer checks for the block, not for good intentions.
+
+**One call, not four (validated codemode recipe).** `search_code` already returns
+definition + line + `in`/`out` counts for a symbol OR a literal key, and the
+coverage verdict rides in the same script (measured 0.6 s wall time for both
+calls on this repo). Reach for this before chaining `search_graph` → `trace_path`
+→ `rg` by hand:
+
+````js
+// @options: {"max_output_tokens": 3000}
+const symbol = "<SymbolOrKey>";
+const paths = ["<file-or-dir>"];
+const [hits, cov] = await Promise.allSettled([
+  tools.search_code({ project: "breakdown-rs", pattern: symbol, mode: "compact", limit: 5 }),
+  tools.check_index_coverage({ project: "breakdown-rs", paths }),
+]);
+return text(`${hits.value}\n${cov.value}`);
+````
+
+Caller **names** are the one thing `search_code` does not give (it reports
+counts); add `trace_path … inbound` when the names matter.
 
 **Ask user if drift detected:**
 
@@ -236,9 +293,10 @@ gh pr create --title "{type}: {description} (issue #{number})" --body "[PR descr
 The PR body MUST include:
 
 1. A **Summary** and **Changes** section (what / why).
-2. The **version-bump table** from Step 6, verbatim.
-3. A **Validation** section (test/clippy/lint results).
-4. Acceptance criteria checkboxes from the issue.
+2. The **Discovery evidence** block from Step 2, verbatim.
+3. The **version-bump table** from Step 6, verbatim.
+4. A **Validation** section (test/clippy/lint results).
+5. Acceptance criteria checkboxes from the issue.
 
 Example PR body sections:
 

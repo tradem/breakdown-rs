@@ -49,6 +49,19 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
 > `CODEBASE_MEMORY_SKIP_AUTOINDEX=1` opts out. An empty graph result for code
 > you can see on disk means *stale index*, not *broken tool* — except under
 > `vendor/breakdown_api/`, which the indexer prunes by design.
+>
+> The `graph-first-nudge` advisory (it annotates symbol-shaped `rg`/`grep` and
+> cold whole-file reads) is a **global** extension: project-local extensions
+> only load for sessions started at *their* directory, so an area session like
+> this one needs `scripts/install-pi-extensions.sh` once per clone (it links
+> the monorepo's `.pi/extensions/*.ts` into `~/.pi/agent/extensions/`, or
+> `$PI_CODING_AGENT_DIR`). `/reload` activates it in a running session. No
+> `── code-aware (… )` block after a symbol-shaped grep means it is not
+> loaded — not that the tool is broken. Silence alone is not proof though: the
+> advisory also stays quiet inside its cooldowns (12 s after a search nudge,
+> 45 s after a read nudge), after its per-session caps, with
+> `PI_GRAPH_NUDGE=0`, and in a cwd no indexed project contains — so check
+> `/extensions` before concluding it is missing.
 
 ---
 

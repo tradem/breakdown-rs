@@ -44,7 +44,11 @@ cannot report completeness. Text search is therefore the CORRECT tool for pure
 text (ARB keys, problem `code`s, config values, prose) and the WRONG one for
 meaning (who defines/uses X, what breaks). When a text search does hit a
 symbol-shaped token, `.pi/extensions/graph-first-nudge.ts` appends the
-code-aware answer to the same result — a soft advisory, never a block.
+code-aware answer to the same result — a soft advisory, never a block. The
+same extension annotates a **cold whole-file `read`** of a sizeable code file
+with that file's symbol outline, because that (not `rg`) is where discovery
+budget actually goes; it is linked machine-wide by
+`scripts/install-pi-extensions.sh` so area sessions see it too.
 
 | Question | Tool |
 |---|---|
@@ -132,6 +136,17 @@ Rules of thumb:
   `Provider`/`ref.watch`, extension methods and code-generated mixins can hide
   an edge. Treat a `trace_path` result as *candidate* edges; the analyzer
   (`flutter analyze`) remains the authority for compilation.
+- **Global-loading check:** the advisory only fires when the session actually
+  loaded `.pi/extensions/`. Project-local extensions are discovered from the
+  session's own project directory, so an area session (`frontend-flutter/`)
+  needs the global link from `scripts/install-pi-extensions.sh`; a session that
+  shows no `── code-aware (codebase-memory · …)` block after a symbol-shaped
+  `rg` or a cold whole-file read has not loaded it — check `/extensions`
+  (and `/reload` after linking) before concluding the tool is broken. Silence is
+  not proof on its own: the extension also stays quiet for 12 s after a nudge
+  (45 s for reads), after 40 nudges per session (12 for reads), with
+  `PI_GRAPH_NUDGE=0`, with a `# literal:` marker, and where no indexed project
+  contains the session cwd — so confirm with `/extensions` first.
 - Test files are indexed but marked; exclude them in a trace unless the test is
   the thing you are changing.
 - Markdown/prose (AGENTS.md, OpenSpec artifacts, screen specs) is only reachable
