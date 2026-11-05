@@ -2377,6 +2377,21 @@ class AppLocalizationsEn extends AppLocalizations {
       'Created — the list is still catching up. Pull to refresh.';
 
   @override
+  String blocksSpanRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String blocksSpanFrom(String date) {
+    return 'From $date';
+  }
+
+  @override
+  String blocksSpanTo(String date) {
+    return 'Until $date';
+  }
+
+  @override
   String get blocksCreateTitle => 'Create block';
 
   @override

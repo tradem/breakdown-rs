@@ -3926,6 +3926,24 @@ abstract class AppLocalizations {
   /// **'Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.'**
   String get blocksTileSyncingStale;
 
+  /// Block time span when both bounds are known (issue #832). Declared placeholders keep the BOUND order in the generated getter, so a caller cannot swap them by alphabet.
+  ///
+  /// In de, this message translates to:
+  /// **'{start} – {end}'**
+  String blocksSpanRange(String start, String end);
+
+  /// Single-ended block time span with only a start date (issue #832).
+  ///
+  /// In de, this message translates to:
+  /// **'ab {date}'**
+  String blocksSpanFrom(String date);
+
+  /// Single-ended block time span with only an end date (issue #832).
+  ///
+  /// In de, this message translates to:
+  /// **'bis {date}'**
+  String blocksSpanTo(String date);
+
   /// No description provided for @blocksCreateTitle.
   ///
   /// In de, this message translates to:

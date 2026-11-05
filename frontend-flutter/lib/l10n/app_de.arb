@@ -710,6 +710,36 @@
   "blocksBackToSeasons": "Zurück zu den Staffeln",
   "blocksTileSyncing": "Gerade erstellt – wird synchronisiert …",
   "blocksTileSyncingStale": "Erstellt – die Liste wird noch aktualisiert. Ziehe zum Aktualisieren nach unten.",
+  "blocksSpanRange": "{start} – {end}",
+  "@blocksSpanRange": {
+    "description": "Block time span when both bounds are known (issue #832). Declared placeholders keep the BOUND order in the generated getter, so a caller cannot swap them by alphabet.",
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
+  "blocksSpanFrom": "ab {date}",
+  "@blocksSpanFrom": {
+    "description": "Single-ended block time span with only a start date (issue #832).",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "blocksSpanTo": "bis {date}",
+  "@blocksSpanTo": {
+    "description": "Single-ended block time span with only an end date (issue #832).",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "blocksCreateTitle": "Block erstellen",
   "blocksNumberLabel": "Nummer",
   "blocksNumberRequired": "Es ist eine ganze Zahl erforderlich",
