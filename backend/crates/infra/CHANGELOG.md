@@ -16,6 +16,32 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.72.0] - Unreleased
+
+### Changed — the apply claim gets an owner-scoped stamp (issue #863)
+
+- Migration `20261106000002_ai_apply_claim_stamp` adds
+  `ai_import_job.apply_claim_at TIMESTAMPTZ`: the instant the current run took
+  the slot, written by the claim (and by a stealing claim) and by NOTHING else.
+  The row's `updated_at` was the tempting shortcut — the claim stamps it too —
+  but every run-scoped write bumps it, including a previous apply's post-apply
+  summary, which lands after that apply released the slot. Judging the next
+  owner by it understates a dead run's silence by the gap to that write and
+  delays the steal by the same amount (review follow-up).
+- `claim_apply_run` stamps `apply_claim_at` and its unpublished-owner branch now
+  compares it: `OR (apply_progress IS NULL AND COALESCE(apply_claim_at,
+  updated_at) < $3)`. The `COALESCE` is the rolling-deploy fallback: a claim made
+  before the column existed keeps NULL there and is judged by the stamp it always
+  used, so it is never more stealable than before. The payload branch
+  (`apply_progress->>'updated_at'`) is untouched.
+- `PgAiImportQueue::apply_run_state` selects `apply_claim_at` into
+  `ApplyRunState::owner_claimed_at`, so the refused age and the steal decision
+  read the same owner-scoped instant.
+- Covered against real Postgres by three cases in
+  `ai_import_job_progress.rs`: a late run-scoped write cannot extend a claim's
+  window (new), a pre-stamp claim reports no age but stays protected (new), and
+  the existing unpublished-claim steal test now forces the claim stamp.
+
 ## [0.70.0] - Unreleased
 
 ### Changed — the set-once statement is total and idempotent (review of #829)

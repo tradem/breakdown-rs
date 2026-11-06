@@ -4965,24 +4965,22 @@ fn single_row_apply_request() -> ApplyAiImportRequest {
 }
 
 /// Seed a **live** apply-run claim on a `succeeded` script job (issues #800,
-/// #805).
+/// #805, #863).
 ///
 /// [published_ago] is the owning run's only payload — how long ago it last
 /// published. `None` models a run that claimed the slot but has not written
-/// its first frame yet, i.e. the one case where the refusal carries no age.
+/// its first frame yet: since issue #863 that run is aged from the claim instant
+/// the claim itself stamped, so the refusal carries an age in both cases.
 ///
-/// Returns the run id and the payload's own `updated_at` (if it published), so
-/// a caller can bound the age the handler reports ANALYTICALLY instead of
-/// guessing a window: the handler measures the age at some instant between the
-/// caller's "before the request" and "after the response" stamps.
+/// Returns the run id and the **stamp the refusal must age from**, so a caller
+/// can bound the reported age ANALYTICALLY instead of guessing a window: the
+/// handler measures the age at some instant between the caller's "before the
+/// request" and "after the response" stamps.
 async fn seed_live_apply_claim(
     ports: &FakePorts,
     job_id: AiImportJobId,
     published_ago: Option<chrono::Duration>,
-) -> (
-    breakdown_core::ai::ApplyRunId,
-    Option<chrono::DateTime<Utc>>,
-) {
+) -> (breakdown_core::ai::ApplyRunId, chrono::DateTime<Utc>) {
     let run_id = breakdown_core::ai::ApplyRunId::new();
     assert!(
         ports
@@ -5010,9 +5008,20 @@ async fn seed_live_apply_claim(
             )
             .await
             .expect("the run progress write should succeed");
-        return (run_id, Some(stamp));
+        return (run_id, stamp);
     }
-    (run_id, None)
+    // Claimed but silent: the claim stamped the owner-scoped claim instant, and
+    // that column is exactly what the steal predicate judges this state by — so
+    // it is what the refusal must age from (issue #863).
+    let stamp = ports
+        .ai_import_queue
+        .apply_run_state(job_id)
+        .await
+        .expect("the slot read should succeed")
+        .expect("the seeded job exists")
+        .owner_claimed_at
+        .expect("a winning claim stamps the claim instant");
+    (run_id, stamp)
 }
 
 /// Issue #805: a refused apply names the two facts that turn "something is in
@@ -5030,7 +5039,6 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
     // claim refuses it (issue #800) and the payload's own age travels.
     let (_, stamp) =
         seed_live_apply_claim(&ports, job_id, Some(chrono::Duration::minutes(4))).await;
-    let stamp = stamp.expect("the seeded run published a payload");
 
     // Deterministic bounds instead of a guessed window: the handler measures the
     // age at some instant between these two stamps, so a slow machine (or a
@@ -5074,20 +5082,28 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
     );
 }
 
-/// Issue #805: a run that claimed the slot but never published has no age to
-/// report. The window still travels (it is what a client needs to know), but
-/// `apply_run_age_seconds` must be ABSENT — `0` would claim "just published"
-/// for a run that said nothing.
+/// Issue #863 (closes the #805 corner): a run that claimed the slot but never
+/// published a frame is STILL ageable. The claim stamped the job row, and that
+/// stamp is precisely the column the single-flight claim's steal predicate
+/// judges this state by — so the refusal reports the claim's own age and the
+/// verdict a client derives can never disagree with the server's steal.
+///
+/// Before #863 this refusal carried `stale_after_seconds` only: the owner of a
+/// run that died before its first frame had nothing to age, so the client fell
+/// back to its unaged card and the user waited the whole window out.
 #[tokio::test]
-async fn apply_refusal_omits_the_age_when_the_owning_run_published_nothing() {
+async fn apply_refusal_ages_a_claim_that_never_published_a_frame() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
-    let (_, stamp) = seed_live_apply_claim(&ports, job_id, None).await;
-    assert!(stamp.is_none(), "this fixture publishes nothing on purpose");
+    let (_, claim_stamp) = seed_live_apply_claim(&ports, job_id, None).await;
 
+    // Deterministic bounds instead of a guessed window: the handler measures the
+    // age between these two stamps, so a slow machine widens the bound exactly
+    // as much as it widens the age.
+    let before = Utc::now();
     let problem = apply_ai_import::<FakePorts>(
         State(state(ports)),
         user(),
@@ -5097,19 +5113,30 @@ async fn apply_refusal_omits_the_age_when_the_owning_run_published_nothing() {
     .await
     .expect_err("a live claim must be refused")
     .into_problem();
+    let after = Utc::now();
 
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
     assert_eq!(problem.code, "ai-import.apply-in-flight");
     let extensions = problem
         .extensions
-        .expect("the window is named even without a payload");
+        .expect("both extensions must travel, payload or not");
     assert_eq!(
         extensions
             .get("stale_after_seconds")
             .and_then(|value| value.as_u64()),
-        Some(600)
+        Some(600),
+        "the window still comes from ApplyProgress::STALE_AFTER, never a copy"
     );
+    let age = extensions
+        .get("apply_run_age_seconds")
+        .and_then(|value| value.as_u64())
+        .expect("a claimed slot is aged by its own claim instant (issue #863)");
+    // `num_seconds` truncates, so allow one second of rounding at each end.
+    let lower = (before - claim_stamp).num_seconds() - 1;
+    let upper = (after - claim_stamp).num_seconds() + 1;
     assert!(
-        !extensions.contains_key("apply_run_age_seconds"),
-        "an owner that published nothing has no age, not an age of zero"
+        (lower..=upper).contains(&i64::try_from(age).expect("age fits in i64")),
+        "the reported age must be the CLAIM's age at the refusal \
+         (expected {lower}..={upper}, got {age}s)"
     );
 }

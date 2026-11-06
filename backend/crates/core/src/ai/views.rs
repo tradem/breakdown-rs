@@ -704,6 +704,28 @@ pub struct ApplyRunState {
     /// What the owning run last published; `None` before its first write and
     /// after it cleared the slot.
     pub progress: Option<ApplyProgress>,
+    /// When the owning run **took the slot** (issues #863): the instant the
+    /// claim granted it, stamped by that claim and by nothing else.
+    ///
+    /// It exists because the single-flight claim's steal predicate already
+    /// judges an owner that has published **nothing** by an owner-scoped stamp
+    /// (`OR (apply_progress IS NULL AND COALESCE(apply_claim_at, updated_at) <
+    /// cutoff)`), and the refusal had no way to report the stamp that decision
+    /// was made on — so a run that died before its first frame was unageable on
+    /// the wire (#805 left that open; #863 closes it).
+    ///
+    /// Deliberately **not** the job row's `updated_at`, which is the tempting
+    /// shortcut: that column is bumped by every run-scoped write, including a
+    /// PREVIOUS apply's post-apply summary, which can land after the next claim
+    /// and would then describe the new owner as fresher than it is — understating
+    /// a dead run's silence by that gap and delaying the steal by the same
+    /// amount (issue #863 review). An owner-scoped column cannot be moved by
+    /// anyone else's write.
+    ///
+    /// `None` when the slot reports no claim instant (a claim made before the
+    /// column existed, or an adapter that cannot report it): the refusal then
+    /// reports no age at all rather than inventing one.
+    pub owner_claimed_at: Option<DateTime<Utc>>,
 }
 
 impl ApplyRunState {
@@ -715,6 +737,40 @@ impl ApplyRunState {
     #[must_use]
     pub const fn advanced_since(&self, baseline_seq: i64) -> bool {
         self.seq > baseline_seq
+    }
+
+    /// How long the owning run has been silent at `now` — the ONE definition of
+    /// the age a `409 ai-import.apply-in-flight` reports (issues #805, #863).
+    ///
+    /// The fallback order is the claim's own steal order, so the verdict a
+    /// client derives and the decision the server makes cannot disagree:
+    ///
+    /// 1. the payload's `updated_at` once the owner published a frame — the
+    ///    column the claim compares then
+    ///    (`(apply_progress->>'updated_at')::timestamptz < cutoff`);
+    /// 2. otherwise [`Self::owner_claimed_at`] — the column the claim compares
+    ///    while `apply_progress IS NULL`, which is what makes a run that died
+    ///    **before its first published frame** ageable at all;
+    /// 3. otherwise `None`: nothing to age. Zero would claim "just wrote" for a
+    ///    run that never reported anything.
+    ///
+    /// A future stamp (clock skew between the writer and this reader) is clamped
+    /// to zero: a negative age is not a fact, and the client would render it as
+    /// "just now" anyway.
+    #[must_use]
+    pub fn owner_silence_at(&self, now: DateTime<Utc>) -> Option<chrono::Duration> {
+        let last_write = match (&self.progress, self.owner) {
+            (Some(progress), _) => progress.updated_at,
+            // An unpublished owner is aged by its OWN claim instant — the same
+            // column the steal predicate reads for this state.
+            (None, Some(_)) => self.owner_claimed_at?,
+            // No run owns the slot: there is no owner to age.
+            (None, None) => return None,
+        };
+        Some(
+            now.signed_duration_since(last_write)
+                .max(chrono::Duration::zero()),
+        )
     }
 }
 

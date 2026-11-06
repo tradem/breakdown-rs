@@ -846,9 +846,19 @@ impl AiImportQueue for PgAiImportQueue {
     ///   with a stale (or already full) payload and close on the first frame
     ///   instead of waiting for the new run's;
     /// * an owner that has **not published yet** (`apply_progress IS NULL`) is
-    ///   judged by the row's own `updated_at` — the claim stamps it — never by
-    ///   "no payload means free". Otherwise a second apply could take the slot
-    ///   from a run that simply had not written its first frame.
+    ///   judged by the claim's own stamp `apply_claim_at` — never by "no payload
+    ///   means free". Otherwise a second apply could take the slot from a run
+    ///   that simply had not written its first frame.
+    ///
+    /// `apply_claim_at` is deliberately a column of its own instead of the row's
+    /// `updated_at` (issue #863 review): `updated_at` is bumped by every
+    /// run-scoped write, including a PREVIOUS apply's post-apply summary, so a
+    /// late write could advance the stamp of the current owner and understate a
+    /// dead run's silence by that gap. Only the claim writes `apply_claim_at`,
+    /// so the silence the refusal reports and the steal decided on is one
+    /// owner-scoped instant. A claim made before that column existed has NULL
+    /// there and is judged by the row stamp it used before (`COALESCE`), which
+    /// is exactly the pre-#863 behaviour — never worse.
     ///
     /// `false` means a live run owns the slot — the request answers
     /// `409 ai-import.apply-in-flight` instead of interleaving two runs.
@@ -869,14 +879,20 @@ impl AiImportQueue for PgAiImportQueue {
                 -- describes a run that is over (issue #800 review).
                 apply_progress = NULL,
                 apply_run_seq = apply_run_seq + 1,
+                -- The owner-scoped instant this claim starts (issue #863):
+                -- nothing else writes it, so no other run's late write can
+                -- shift the silence window below.
+                apply_claim_at = now(),
                 updated_at = now()
             WHERE id = $1
               AND status = 'succeeded'
               AND (
                   apply_run_id IS NULL
-                  -- Claimed but nothing published yet: the claim's own row
-                  -- stamp decides whether that owner is still alive.
-                  OR (apply_progress IS NULL AND updated_at < $3)
+                  -- Claimed but nothing published yet: the CLAIM's own stamp
+                  -- decides whether that owner is still alive. The fallback
+                  -- covers a claim made before the column existed.
+                  OR (apply_progress IS NULL
+                      AND COALESCE(apply_claim_at, updated_at) < $3)
                   OR (apply_progress->>'updated_at')::timestamptz < $3
               )
             RETURNING pg_notify('ai_import_job_events', id::text)
@@ -894,19 +910,29 @@ impl AiImportQueue for PgAiImportQueue {
         Ok(result.is_some())
     }
 
-    /// Read the apply-run slot: owner, run counter, published payload (issue
-    /// #800).
+    /// Read the apply-run slot: owner, run counter, published payload and the
+    /// instant the owner took the slot (issues #800, #863).
     ///
     /// `Ok(None)` when the job does not exist (the stream closes). A row that
     /// predates the migration decodes as an empty slot (`owner: None`, `seq: 0`),
     /// which the stream reads exactly like a job no apply ran for.
+    ///
+    /// `apply_claim_at` is selected for one reason: the claim above judges an
+    /// owner that has published **nothing** by that column
+    /// (`OR (apply_progress IS NULL AND COALESCE(apply_claim_at, updated_at) <
+    /// $3)`), and before #863 the refusal could not report the stamp that
+    /// decision was made on — a run that died before its first frame therefore
+    /// had no age on the wire. Reporting the same column here keeps the steal
+    /// and the reported verdict on ONE owner-scoped instant; the row's
+    /// `updated_at` would not do, because another run's late summary write can
+    /// advance it (issue #863 review).
     async fn apply_run_state(
         &self,
         id: AiImportJobId,
     ) -> Result<Option<ApplyRunState>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT apply_progress, apply_run_id, apply_run_seq
+            SELECT apply_progress, apply_run_id, apply_run_seq, apply_claim_at
             FROM ai_import.ai_import_job
             WHERE id = $1
             "#,
@@ -924,6 +950,9 @@ impl AiImportQueue for PgAiImportQueue {
             owner: owner.map(ApplyRunId::from_uuid),
             seq,
             progress: decode_apply_progress(&row),
+            // NULL for a claim made before the column existed: no age, rather
+            // than a stamp another run's write could have moved.
+            owner_claimed_at: row.try_get("apply_claim_at").map_err(map_sqlx_error)?,
         }))
     }
 

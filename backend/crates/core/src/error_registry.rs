@@ -1154,16 +1154,20 @@ problem_codes! {
     /// job permanently.
     ///
     /// Since issue #805 the refusal carries the two facts that let the client
-    /// tell a **live** run from a **dead** one instead of waiting blindly:
+    /// tell a **live** run from a **dead** one instead of waiting blindly, and
+    /// since issue #863 both cover an owner that never published a frame:
     ///
-    /// * `apply_run_age_seconds` (S1) — how long ago the owning run last
-    ///   published (`ApplyProgress::updated_at`), measured against the server's
-    ///   own clock at the moment of the refusal. Server-computed on purpose: an
-    ///   absolute timestamp would need the client's clock, and a device that is
-    ///   minutes off would classify a live run as dead. Absent when the owner
-    ///   has published nothing yet (a run that died before its first frame
-    ///   therefore gets no age — the client waits that one out instead of
-    ///   guessing).
+    /// * `apply_run_age_seconds` (S1) — how long ago the owning run was last
+    ///   heard from, measured against the server's own clock at the moment of
+    ///   the refusal. Server-computed on purpose: an absolute timestamp would
+    ///   need the client's clock, and a device that is minutes off would
+    ///   classify a live run as dead. Aged from the owner's last published
+    ///   payload, or — when it has published nothing yet — from the job row's
+    ///   `updated_at`, which is the same column the claim's steal predicate
+    ///   judges that state by (`apply_progress IS NULL AND updated_at <
+    ///   cutoff`); one timestamp, so the reported verdict and the steal can
+    ///   never disagree. Absent only when the slot reports no timestamp at all
+    ///   (a pre-#863 adapter), never as `0`.
     /// * `stale_after_seconds` (S1) — the window after which the server itself
     ///   considers such a payload abandoned and lets the next claim steal it
     ///   (`ApplyProgress::STALE_AFTER`). Sent, never mirrored client-side: a

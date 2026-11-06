@@ -2400,6 +2400,11 @@ pub struct FakeAiImportQueue {
 pub struct FakeApplyRun {
     pub owner: Option<breakdown_core::ai::ApplyRunId>,
     pub seq: i64,
+    /// When the current owner took the slot (issue #863), stamped by the claim
+    /// and by NOTHING else — the in-memory analogue of `apply_claim_at`. A
+    /// later run-scoped write (progress, telemetry, summary) deliberately does
+    /// not touch it, which is the property the review asked for.
+    pub claimed_at: Option<chrono::DateTime<Utc>>,
 }
 
 #[allow(dead_code)]
@@ -2671,28 +2676,34 @@ impl AiImportQueue for FakeAiImportQueue {
     /// wakes the stream.
     /// Mirror the Postgres adapter's single-flight claim (issue #800): the slot
     /// is won when it is free, a live owner keeps it, and only a `succeeded` job
-    /// has a slot at all.
+    /// has a slot at all. The winning claim stamps the owner-scoped claim instant
+    /// (issue #863) and bumps the row's `updated_at`, exactly like the
+    /// production `UPDATE`.
     async fn claim_apply_run(
         &self,
         id: AiImportJobId,
         run_id: breakdown_core::ai::ApplyRunId,
     ) -> Result<bool, DomainError> {
-        let succeeded = self
-            .jobs
-            .lock()
-            .await
-            .get(&id.as_uuid())
-            .is_some_and(|job| job.status == JobStatus::Succeeded);
-        if !succeeded {
-            return Ok(false);
-        }
+        // Slot before row, the same order `mark_apply_progress` takes them, so
+        // the two cannot lock each other out.
         let mut runs = self.apply_runs.lock().await;
         let slot = runs.entry(id.as_uuid()).or_default();
         if slot.owner.is_some() {
             return Ok(false);
         }
+        let mut jobs = self.jobs.lock().await;
+        let Some(job) = jobs.get_mut(&id.as_uuid()) else {
+            return Ok(false);
+        };
+        if job.status != JobStatus::Succeeded {
+            return Ok(false);
+        }
+        let now = Utc::now();
         slot.owner = Some(run_id);
         slot.seq += 1;
+        slot.claimed_at = Some(now);
+        job.updated_at = now;
+        drop(jobs);
         drop(runs);
         self.hub.notify(id);
         Ok(true)
@@ -2721,6 +2732,9 @@ impl AiImportQueue for FakeAiImportQueue {
             owner: slot.owner,
             seq: slot.seq,
             progress,
+            // The slot's OWN claim instant, never the row's `updated_at` — a
+            // late summary write must not be able to move it (issue #863).
+            owner_claimed_at: slot.claimed_at,
         };
         // Scripted window mutation (issue #800 review): one whole run lands
         // AFTER this read, i.e. before the stream's next read. A baseline taken

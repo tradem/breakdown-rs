@@ -17,6 +17,26 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.60.0] - Unreleased
+
+### Changed — the in-flight age now covers a run that published no frame (issue #863)
+
+- `apply_ai_import` derives the refusal's `apply_run_age_seconds` from
+  `ApplyRunState::owner_silence_at` instead of the published payload alone. A run
+  that claimed the slot and died before its first frame is now aged by its own
+  claim instant — the owner-scoped column the steal predicate reads for that
+  state — so the client can reach its takeover affordance once the window has
+  passed instead of waiting it out with no information. The extension is omitted
+  only when the slot reports no claim instant at all (a claim made before the
+  column existed), never emitted as `0`.
+- `stale_after_seconds` is unchanged (`ApplyProgress::STALE_AFTER`), and the
+  refusal keeps its status, code and extension names: no new problem code
+  (registry stays at 112) and no `backend/openapi.yaml` change (the new claim
+  column is internal to the queue adapter).
+- The apply-stream handler's "adapter reports no slot" fallback reports no claim
+  instant rather than substituting the job row's `updated_at` (review
+  follow-up: a late write from a previous run can advance that column).
+
 ## [0.59.0] - Unreleased
 
 ### Added — `409 ai-import.apply-in-flight` names the blocking run (issue #805)

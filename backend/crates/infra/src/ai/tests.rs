@@ -572,6 +572,11 @@ struct FakeQueueState {
     apply_run: Option<breakdown_core::ai::ApplyRunId>,
     /// Monotonic run counter, bumped on every claim and never cleared.
     apply_run_seq: i64,
+    /// When the owning run **took the slot**, stamped by the claim and by
+    /// nothing else — the analogue of the production `apply_claim_at` column
+    /// (issue #863 review). Run-scoped progress writes deliberately do NOT
+    /// re-stamp it, exactly like the adapter.
+    apply_run_claimed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[async_trait]
@@ -638,6 +643,10 @@ impl AiImportQueue for FakeQueue {
             }
             state.apply_run = Some(run_id);
             state.apply_run_seq += 1;
+            // The claim stamps the owner-scoped claim instant, exactly like the
+            // production `UPDATE` — this stamp is what ages an owner that never
+            // publishes (#863).
+            state.apply_run_claimed_at = Some(chrono::Utc::now());
         }
         // Park the winner so a concurrent apply is guaranteed to meet a live
         // claim (the mutex is released above: the gate must not hold it).
@@ -657,6 +666,7 @@ impl AiImportQueue for FakeQueue {
             owner: state.apply_run,
             seq: state.apply_run_seq,
             progress: state.apply_progress.last().cloned().flatten(),
+            owner_claimed_at: state.apply_run_claimed_at,
         }))
     }
 
