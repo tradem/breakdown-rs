@@ -36,6 +36,7 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/import_target.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
@@ -335,6 +336,20 @@ class FakeAiImportRepository extends AiImportRepository {
 
   ApplyAiImportRequest? lastRequest;
 
+  /// Every `(jobId, blockId)` the preview's target card attached — the actions
+  /// are driven through widget taps, so the call is the assertion.
+  final List<(String, String)> attachCalls = [];
+
+  @override
+  Future<Result<AiImportJob>> attachTarget(
+    String jobId, {
+    required String blockId,
+    Clock clock = Clock.system,
+  }) async {
+    attachCalls.add((jobId, blockId));
+    return getJobAndCache(jobId, clock: clock);
+  }
+
   @override
   Future<Result<ApplyAiImportResponse>> apply(
     String jobId,
@@ -361,6 +376,33 @@ class FakeAiImportRepository extends AiImportRepository {
     return Left(const ProblemError(code: 'ai-import.not-found'));
   }
 }
+
+/// One season block as the list route would return it (issue #829 picker).
+BlockView blockView({
+  required String id,
+  required String seasonId,
+  required int number,
+}) => BlockView(
+  (b) => b
+    ..id = id
+    ..seasonId = seasonId
+    ..projectId = 'project-1'
+    ..number = number
+    ..version = 1
+    ..updatedAt = DateTime.utc(2026, 1, 1),
+);
+
+/// One season row — the shared create-block form pre-fills its ids from it.
+SeasonView seasonView(String id, {int number = 2}) => SeasonView(
+  (b) => b
+    ..id = id
+    ..number = number
+    ..projectId = 'project-1'
+    ..title = 'Season'
+    ..archived = false
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 AiImportJob _succeededJob(
   String id, {
@@ -1024,6 +1066,12 @@ void main() {
       /// Whether the job was already applied (issue #829): its target is frozen.
       bool applied = false,
 
+      /// The target season's block list, for the picker sheet (issue #829).
+      Result<List<BlockView>>? seasonBlocks,
+
+      /// The target season row the shared create-block form pre-fills from.
+      SeasonView? seasonRow,
+
       /// `true` makes the job read FAIL (issue #827 review): the block scope
       /// then cannot know the target, which must not render as "not recorded".
       bool jobReadFails = false,
@@ -1097,6 +1145,12 @@ void main() {
             aiJobBlockScopeProvider.overrideWith(
               (ref, jobId) => Completer<ScriptBlockScope?>().future,
             ),
+          if (seasonBlocks != null)
+            blocksListFetchProvider(targetSeasonId ?? 'season-1')
+                .overrideWith((ref) async => seasonBlocks),
+          if (seasonRow != null)
+            aiImportSeasonViewProvider(targetSeasonId ?? 'season-1')
+                .overrideWith((ref) async => seasonRow),
           configuredAiNamingProvider.overrideWith((ref) {
             if (namingDiscoveryFails) {
               final Future<AiConfigView?> failed = Future.error(
@@ -1833,6 +1887,71 @@ void main() {
 
       expect(find.text('Schedule preview (pre-merge)'), findsOneWidget);
       expect(find.byKey(const Key('ai-row-decision-row-1')), findsNothing);
+      await tester.pump();
+    });
+
+    testWidgets('the picker sheet lists the season\'s blocks and attaches the '
+        'picked one (review finding: the sheet could not open)', (
+      tester,
+    ) async {
+      // `_pick` used to read the list with `ref.watch` from a tap handler, which
+      // asserts outside `build` — the sheet never opened. Driving the tap is the
+      // only way to see that.
+      final blockTwo = blockView(
+        id: 'block-2',
+        seasonId: 'season-2',
+        number: 2,
+      );
+      final blockNine = blockView(
+        id: 'block-9',
+        seasonId: 'season-2',
+        number: 9,
+      );
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: Right([blockTwo, blockNine]),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+        findsOneWidget,
+        reason: 'the sheet lists the season\'s blocks',
+      );
+      await tester.tap(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repo.attachCalls, [('job-1', blockNine.id)]);
+      await tester.pump();
+    });
+
+    testWidgets('the picker\'s "create block" row opens the SHARED form '
+        'instead of silently closing (review finding)', (tester) async {
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: const Right([]),
+        seasonRow: seasonView('season-2'),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-preview-target-pick-create')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('create-block-number')),
+        findsOneWidget,
+        reason: 'the shared create-block form — not a sheet that just closes',
+      );
+      expect(repo.attachCalls, isEmpty);
       await tester.pump();
     });
 

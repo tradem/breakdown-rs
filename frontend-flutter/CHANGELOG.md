@@ -23,6 +23,30 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The import target card's two actions are now actually usable**
+  (`0.4.0-beta.40+132 → 0.4.0-beta.41+133`, review of the #829 work). Three
+  defects, found by tapping the buttons instead of only asserting they exist:
+  - **The "create block" row in the picker sheet did nothing.** It popped an
+    empty result, which `_pick` read as "dismissed", so the sheet closed and
+    stopped. It now routes into the SHARED create-block form (pre-filled with the
+    block number the script states) and attaches whatever the form confirms.
+  - **The picker read the block list with `ref.watch` from a tap handler**, which
+    is unsupported outside `build`: the sheet rendered whatever the provider
+    happened to hold, so an unloaded list produced an empty picker. It now awaits
+    the fetch (`ref.read(...future)`), so the list is complete when the sheet
+    opens.
+  - **The sheet was bounded by the default bottom-sheet height**, making the last
+    rows of a block-rich season unreachable; it is scroll-controlled and scrollable
+    now.
+  - **A stale block-less choice could drop a resolved block.** The choice lives in
+    a session provider, so returning to the submit screen with a season that HAS a
+    block still dispatched `X-Declared-Season` without `X-Active-Block`. A
+    resolved block now always wins: the card renders the normal target and the
+    dispatch carries the block.
+  - Four widget tests drive the actions for real (open the picker, pick a block,
+    open the create form, dispatch with a stale flag); two of them fail on the
+    previous code.
+
 - **A block-less job's target card says "Block unknown" instead of "Block null"**
   (`0.4.0-beta.39+131 → 0.4.0-beta.40+132`, review of PR #856). An upload may now
   carry its target season with `block_number: null` until the block is attached

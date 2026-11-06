@@ -1512,16 +1512,6 @@ class _PreviewTargetActions extends ConsumerStatefulWidget {
 class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
   bool _busy = false;
 
-  /// Mirrors the server's set-once guard: a block of ANOTHER season is refused
-  /// with `ai-import.scope-mismatch`, so the picker never offers one and the
-  /// script's block is only adopted when the season actually has it.
-  Future<List<BlockView>> _seasonBlocks(String seasonId) async {
-    final fetch = ref.watch(blocksListFetchProvider(seasonId));
-    final value = fetch.value;
-    if (value == null) return const [];
-    return value.match((_) => const <BlockView>[], (rows) => rows);
-  }
-
   Future<void> _attach(String blockId) async {
     setState(() => _busy = true);
     final repo = ref.read(aiImportRepositoryProvider);
@@ -1545,12 +1535,26 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
     ref.invalidate(aiJobBlockInfoProvider(widget.jobId));
   }
 
+  /// The picker's outcome: a block to attach, or "create one first".
+  ///
+  /// A sentinel rather than `null`, because `null` already means "the sheet was
+  /// dismissed" — conflating the two made the create row close the sheet and do
+  /// nothing (review finding).
+  static const _createSentinel = 'create';
+
   Future<void> _pick() async {
     final seasonId = widget.scope.targetSeasonId!;
-    final blocks = await _seasonBlocks(seasonId);
+    // `ref.read(...future)`, not `ref.watch`: this runs from a tap, and watching
+    // outside `build` is unsupported (it asserts in debug builds, which made the
+    // sheet impossible to open — review finding).
+    final fetch = await ref.read(blocksListFetchProvider(seasonId).future);
     if (!mounted) return;
-    final picked = await showModalBottomSheet<BlockView>(
+    final blocks = fetch.match((_) => const <BlockView>[], (rows) => rows);
+    final picked = await showModalBottomSheet<String>(
       context: context,
+      // A season can carry many blocks: without this the sheet is bounded by the
+      // default height and the last rows become unreachable (review finding).
+      isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1559,27 +1563,41 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
               title: Text(l10nOf(sheetContext).aiImportTargetPickBlock),
               subtitle: Text(l10nOf(sheetContext).aiImportTargetHint),
             ),
-            for (final block in blocks)
-              ListTile(
-                key: Key('ai-preview-target-pick-${block.id}'),
-                title: Text(
-                  l10nOf(sheetContext).blockTileLabel('${block.number}'),
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(sheetContext).pop(block),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final block in blocks)
+                    ListTile(
+                      key: Key('ai-preview-target-pick-${block.id}'),
+                      title: Text(
+                        l10nOf(sheetContext).blockTileLabel('${block.number}'),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(sheetContext).pop(block.id),
+                    ),
+                ],
               ),
+            ),
             ListTile(
               key: const Key('ai-preview-target-pick-create'),
               leading: const Icon(Icons.add),
               title: Text(l10nOf(sheetContext).aiImportTargetCreateBlock),
-              onTap: () => Navigator.of(sheetContext).pop(),
+              onTap: () => Navigator.of(sheetContext).pop(_createSentinel),
             ),
           ],
         ),
       ),
     );
     if (!mounted || picked == null) return;
-    await _attach(picked.id);
+    if (picked == _createSentinel) {
+      // The script's number is the natural prefill; the shared form still asks
+      // for it, so a season that has no such block ends up with the block the
+      // reviewer confirms.
+      await _create(widget.scope.scriptBlockNumber);
+      return;
+    }
+    await _attach(picked);
   }
 
   Future<void> _create(int? number) async {
