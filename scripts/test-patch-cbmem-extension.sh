@@ -7,8 +7,12 @@
 # Runs the patcher against a FIXTURE agent dir (PI_CODING_AGENT_DIR), so the
 # real generated extension is never touched. Asserts the four properties the
 # patcher promises: the patch applies, it is idempotent, `delete_project` keeps
-# its required argument, and an unknown generated format is refused with exit 2
-# instead of being silently half-patched.
+# its required argument (schema AND allowlist), and an unknown generated format
+# is refused with exit 2 instead of being silently half-patched.
+#
+# Needs bash + python3 only. The one assertion that parses the patched file
+# (`node --check`, TypeScript-aware from Node 22) is SKIPPED with a notice on an
+# older runtime, so this test stays runnable in CI without a toolchain download.
 #
 # Usage: ./test-patch-cbmem-extension.sh
 # Exit status: 0 when all assertions hold, 1 otherwise.
@@ -118,10 +122,15 @@ if grep -q 'project: projectArg()' "$patched" &&
 else
     fail "a non-destructive 'project' schema is still required"
 fi
-if node --check "$patched" >/dev/null 2>&1; then
-    pass "patched file is syntactically valid TS"
+node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+if [ "${node_major:-0}" -ge 22 ] 2>/dev/null; then
+    if node --check "$patched" >/dev/null 2>&1; then
+        pass "patched file is syntactically valid TS"
+    else
+        fail "patched file does not parse (node --check)"
+    fi
 else
-    fail "patched file does not parse (node --check)"
+    echo "⏭  SKIP: patched-file parse check needs node ≥ 22 (found ${node_major:-none})"
 fi
 
 # --- 4. destructive and project-LIKE arguments are left alone ---------------

@@ -43,7 +43,6 @@
 
 set -uo pipefail
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 TARGET="$AGENT_DIR/extensions/cbmem.ts"
 

@@ -133,6 +133,23 @@ jobs:
           persist-credentials: false
       - run: bash scripts/tests/reclaim-disk-test.sh
 
+  # Agent tooling (AGENTS.md §2): `scripts/patch-cbmem-extension.sh` rewrites the
+  # GENERATED codebase-memory pi extension so `project` defaults to the session's
+  # indexed project. A half-applied rewrite would break every graph call, so the
+  # patch's four promises (applies, idempotent, destructive tool untouched,
+  # unknown format refused) are guarded here. Daemon-free — bash + python3 only,
+  # no index, no network; the repo scripts are monorepo-root assets, hence the
+  # working-directory override on the job's default.
+  agent-tooling:
+    name: Agent tooling (cbmem project default)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: bash scripts/test-patch-cbmem-extension.sh
+        working-directory: .
+
   # ADR-020 D2/D5: the declared MSRV floor (workspace rust-version = 1.99,
   # matching the Dockerfile builder) is verified on every PR with the pinned
   # 1.99.0 toolchain. A future MSRV bump is a MAJOR change per crate (D2).
