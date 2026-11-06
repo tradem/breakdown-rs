@@ -69,6 +69,9 @@ problem-ai-import-job-not-deletable =
 problem-ai-import-scope-mismatch =
     The declared season does not own this import's active block. Pick the intended season again so the app can switch to its block, then retry.
 
+problem-ai-import-target-missing =
+    This import has no target block yet. Choose the block its episodes, scenes and shooting days belong to, then start the import again.
+
 problem-ai-import-unsupported-media-type =
     This document type is not supported for AI import.
 

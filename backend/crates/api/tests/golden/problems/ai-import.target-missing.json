@@ -1,0 +1,10 @@
+{
+  "code": "ai-import.target-missing",
+  "detail": "Für diesen Import ist noch kein Zielblock gewählt. Wählen Sie den Block, in den die Episoden, Szenen und Drehtage gehören, und starten Sie den Import danach erneut.",
+  "extensions": {
+    "season_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "AI import job has no target block yet",
+  "type": "https://docs.breakdown.example/problems/ai-import.target-missing"
+}

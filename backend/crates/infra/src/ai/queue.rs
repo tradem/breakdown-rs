@@ -175,9 +175,12 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(&request.document_digest)
         .bind(&request.source_handle)
         .bind(request.source_file_name.as_deref())
-        // Import-target snapshot (issue #771): display/attribution metadata
-        // resolved at the API edge from the block's owning season. All three
-        // columns stay NULL together when the snapshot could not be resolved.
+        // Import-target snapshot (issue #771, widened by #829):
+        // display/attribution metadata resolved at the API edge. The season pair
+        // stays NULL together when the snapshot could not be resolved, while the
+        // block number is written only when a block is known — a block-less
+        // upload (#829) carries its season from the first frame and gains the
+        // block number when the target is attached.
         .bind(request.target.as_ref().map(|t| t.season_id.0))
         .bind(request.target.as_ref().map(|t| t.season_number))
         .bind(request.target.as_ref().map(|t| t.block_number))
@@ -1558,17 +1561,19 @@ fn decode_apply_progress(row: &sqlx::postgres::PgRow) -> Option<ApplyProgress> {
     }
 }
 
-/// Decode the import-target snapshot columns (issue #771).
+/// Decode the import-target snapshot columns (issue #771, widened by #829).
 ///
-/// The three columns are written together, so a partial set means an
+/// The SEASON pair is written together, so a partial season means an
 /// inconsistent row (or a column added mid-flight): the snapshot degrades to
-/// `None` rather than rendering a half-invented target.
+/// `None` rather than rendering a half-invented target. The block number is
+/// optional since issue #829 — a block-less job carries its target season from
+/// the first frame and gains the block number only when the target is attached.
 fn decode_import_target(row: &sqlx::postgres::PgRow) -> Option<AiImportTarget> {
     let season_id: Option<Uuid> = row.try_get("target_season_id").ok().flatten();
     let season_number: Option<i32> = row.try_get("target_season_number").ok().flatten();
     let block_number: Option<i32> = row.try_get("target_block_number").ok().flatten();
-    match (season_id, season_number, block_number) {
-        (Some(season_id), Some(season_number), Some(block_number)) => Some(AiImportTarget {
+    match (season_id, season_number) {
+        (Some(season_id), Some(season_number)) => Some(AiImportTarget {
             season_id: breakdown_core::shared::SeasonId::from_uuid(season_id),
             season_number,
             block_number,

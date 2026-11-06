@@ -734,16 +734,23 @@ impl ApplyRunState {
 /// The numbers are the production-global identities a user speaks in
 /// (`Season {n}` / `Block {n}`); they are display metadata, so a failed season
 /// read degrades the whole snapshot to `None` rather than blocking the upload.
+///
+/// Since issue #829 the target may name a season **without** a block: an upload
+/// is allowed to omit `X-Active-Block` and declare only `X-Declared-Season`, in
+/// which case the job starts block-less and the block is attached later
+/// (`PUT /v1/ai-import/jobs/{id}/target`). The season pair is then always
+/// known while [`Self::block_number`] stays `None` until the attach.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AiImportTarget {
     /// The season the imported rows land in (the owning season of the job's
-    /// block).
+    /// block, or the declared season of a block-less upload).
     pub season_id: SeasonId,
     /// The season's production-global number.
     pub season_number: i32,
     /// The block's production-global number (the block itself is
-    /// [`AiImportJob::block_id`]).
-    pub block_number: i32,
+    /// [`AiImportJob::block_id`]). `None` means "no target block chosen yet"
+    /// (issue #829) — honest absence, never `0` and never a placeholder.
+    pub block_number: Option<i32>,
 }
 
 /// One target episode of an applied AI-import preview (issue #763).

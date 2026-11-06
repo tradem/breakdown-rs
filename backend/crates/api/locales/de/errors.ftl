@@ -69,6 +69,9 @@ problem-ai-import-job-not-deletable =
 problem-ai-import-scope-mismatch =
     Die angegebene Season besitzt den aktiven Block dieses Imports nicht. Wählen Sie die gewünschte Season erneut, damit die App auf deren Block wechselt, und versuchen Sie es noch einmal.
 
+problem-ai-import-target-missing =
+    Für diesen Import ist noch kein Zielblock gewählt. Wählen Sie den Block, in den die Episoden, Szenen und Drehtage gehören, und starten Sie den Import danach erneut.
+
 problem-ai-import-unsupported-media-type =
     Dieser Dokumenttyp wird für den KI-Import nicht unterstützt.
 

@@ -17,6 +17,41 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.57.0] - Unreleased
+
+### Added — an AI upload may omit its target block and declare its season (issue #829)
+
+- `X-Active-Block` is optional on both upload routes. When it is absent,
+  `X-Declared-Season` becomes REQUIRED and is the upload's authorization scope:
+  the handler resolves the season and evaluates
+  `authorize_season_result(Action::Write)` on it — the identical season-typed
+  predicate the block path evaluates on the block's owning season (the block was
+  never the authorization scope, it selected one). The job is stored with
+  `block_id = NULL` and a target that names the season and no block; the block is
+  attached later. With `X-Active-Block` present everything behaves exactly as
+  before, including the #771 declared-season agreement (`409
+  ai-import.scope-mismatch`).
+- Refusals stay on the established surfaces: neither header → `400` (the message
+  now names both), a blank/unparsable declaration → `400` (with no block there is
+  nothing to degrade to, unlike the advisory degradation on the block path), an
+  unknown season → the registered `season.not-found` `404`, a season the caller
+  holds no costume-dept role in → `403 ai-import.forbidden`. The block-less path
+  therefore discloses nothing new about season existence: `GET /v1/seasons` is
+  `Authenticated`-only and membership-unfiltered already.
+- **The block-less state is guarded, not exempt.** Making a block-less job
+  reachable would otherwise have opened a live authorization hole: the job gate
+  ran the season policy only when a block existed, and `apply_ai_import` calls it
+  as its ONLY authorization check — so any authenticated caller could apply into
+  an episode of a season they hold no role in. `authorize_ai_job` now scopes on
+  the job's TARGET season (the block's season only as the pre-#771 fallback), and
+  the apply refuses an unattached target with `409 ai-import.target-missing`
+  (S1 `season_id`) instead of skipping the CWE-639 guard. A PRESENT but unreadable
+  or unparsable `X-Active-Block` is a `400`, never a silent fall-through to the
+  block-less arm (CodeRabbit review).
+- `AiImportTarget.block_number` is nullable on the wire (see `core` 0.58.0 →
+  0.59.0); generated Dart client regenerated and bumped (`breakdown_api` 1.1.0 →
+  1.2.0).
+
 ## [0.56.0] - Unreleased
 
 ### Added — `block_number` on the AI-import progress and the stored preview (issue #827)
