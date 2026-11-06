@@ -39,10 +39,10 @@ use api::handlers::{
     AiImportJobResponse, ApplyAiImportRequest, ApplyEpisodeGroupRequest, CreateAiConfigRequest,
     ListParams, RevokeAiConfigRequest, UpdateAiConfigRequest, apply_ai_import, create_ai_config,
     delete_ai_import_job, get_ai_config, get_ai_import_job, get_ai_import_preview, list_ai_configs,
-    list_ai_import_jobs, revoke_ai_config, update_ai_config, upload_ai_schedule, upload_ai_script,
+    list_ai_import_jobs, put_ai_import_job_target, revoke_ai_config, update_ai_config,
+    upload_ai_schedule, upload_ai_script,
 };
 use api::state::AppState;
-use breakdown_core::ai::AiImportTarget;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
     AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, CostDisplayPreference,
@@ -50,6 +50,7 @@ use breakdown_core::ai::{
     ScriptContext, ShootingSchedule, SourceFormat, TelemetryApplyState, Uncertainty,
     UncertaintyAcknowledgement, UncertaintyKind,
 };
+use breakdown_core::ai::{AiImportTarget, AiImportTargetRequest};
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::membership::Role;
@@ -3557,6 +3558,245 @@ async fn apply_ai_import_refuses_a_blockless_job_without_a_target() {
             .and_then(|value| value.as_str()),
         Some(season_id.0.to_string().as_str())
     );
+}
+
+/// Seed a block belonging to `season_id` — the attach target of the tests below.
+async fn seed_block_in_season(ports: &FakePorts, season_id: SeasonId, number: i32) -> BlockId {
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    let project_id = ports
+        .season_repo
+        .seasons
+        .lock()
+        .await
+        .get(&season_id.0)
+        .map(|season| season.project_id)
+        .unwrap_or_else(ProjectId::new);
+    ports.block_repo.blocks.lock().await.insert(
+        block_id.0,
+        BlockView {
+            id: block_id.0,
+            season_id,
+            project_id,
+            number,
+            start_date: None,
+            end_date: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    block_id
+}
+
+fn target_request(block_id: BlockId) -> AiImportTargetRequest {
+    AiImportTargetRequest { block_id }
+}
+
+/// Issue #829: the attach fills in the write target of a block-less job — the
+/// block id AND the number the visible snapshot renders, in one write.
+#[tokio::test]
+async fn put_ai_import_job_target_attaches_the_block() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let block_id = seed_block_in_season(&ports, season_id, 2).await;
+    let job_id = seed_blockless_script_job(&ports, season_id).await;
+    let queue = ports.ai_import_queue.clone();
+
+    let (status, Json(response)) = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect("the owner may attach a block of the target season");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.job.block_id, Some(block_id));
+    assert_eq!(
+        response.job.target,
+        Some(AiImportTarget {
+            season_id,
+            season_number: 7,
+            block_number: Some(2),
+        }),
+        "the response must carry the number the write stored, not a patched guess"
+    );
+    let persisted = queue.get(job_id).await.expect("queue read").expect("job");
+    assert_eq!(persisted.block_id, Some(block_id));
+}
+
+/// Issue #829: repeating the same attach is an idempotent `200` and writes
+/// nothing — a client retrying after a timeout must not get a conflict.
+#[tokio::test]
+async fn put_ai_import_job_target_is_idempotent_for_the_same_block() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let block_id = seed_block_in_season(&ports, season_id, 2).await;
+    let job_id = seed_blockless_script_job(&ports, season_id).await;
+
+    let first = put_ai_import_job_target::<FakePorts>(
+        State(state(ports.clone())),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect("first attach succeeds");
+    assert_eq!(first.0, StatusCode::OK);
+
+    let (status, Json(response)) = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect("repeating the same attach is a no-op, not a conflict");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.job.block_id, Some(block_id));
+}
+
+/// Issue #829: a DIFFERENT block is refused with the S1 `existing_block_id`
+/// extension naming the block that won, so a racing client re-renders it.
+#[tokio::test]
+async fn put_ai_import_job_target_refuses_a_second_block() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let winning_block = seed_block_in_season(&ports, season_id, 2).await;
+    let other_block = seed_block_in_season(&ports, season_id, 3).await;
+    let mut job = ports
+        .ai_import_queue
+        .get(seed_blockless_script_job(&ports, season_id).await)
+        .await
+        .expect("queue read")
+        .expect("seeded job");
+    let job_id = job.id;
+    job.block_id = Some(winning_block);
+    if let Some(target) = job.target.as_mut() {
+        target.block_number = Some(2);
+    }
+    ports.ai_import_queue.seed(job).await;
+
+    let problem = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(other_block)),
+    )
+    .await
+    .expect_err("the target is set once")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-import.target-immutable");
+    assert_eq!(
+        problem
+            .extensions
+            .as_ref()
+            .and_then(|ext| ext.get("existing_block_id"))
+            .and_then(|value| value.as_str()),
+        Some(winning_block.0.to_string().as_str())
+    );
+}
+
+/// Issue #829: an applied job's target is frozen — `applied: true` says why, so
+/// the client does not offer the action again.
+#[tokio::test]
+async fn put_ai_import_job_target_refuses_an_applied_job() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let block_id = seed_block_in_season(&ports, season_id, 2).await;
+    let mut job = ports
+        .ai_import_queue
+        .get(seed_blockless_script_job(&ports, season_id).await)
+        .await
+        .expect("queue read")
+        .expect("seeded job");
+    let job_id = job.id;
+    job.applied = true;
+    ports.ai_import_queue.seed(job).await;
+
+    let problem = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect_err("an applied job cannot be re-targeted")
+    .into_problem();
+
+    assert_eq!(problem.code, "ai-import.target-immutable");
+    assert_eq!(
+        problem
+            .extensions
+            .as_ref()
+            .and_then(|ext| ext.get("applied"))
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+/// Issue #829: a block of ANOTHER season is refused — otherwise a caller who may
+/// write in season A could point a season-A job at a season-B block.
+#[tokio::test]
+async fn put_ai_import_job_target_refuses_a_block_of_another_season() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let job_id = seed_blockless_script_job(&ports, season_id).await;
+    let foreign_block = seed_block_in_season(&ports, SeasonId::new(), 2).await;
+
+    let problem = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(foreign_block)),
+    )
+    .await
+    .expect_err("the block must belong to the job's target season")
+    .into_problem();
+
+    assert_eq!(problem.code, "ai-import.scope-mismatch");
+}
+
+/// Issue #829: the attach is season-authorized, not owner-authorized — losing
+/// the costume-dept role in the target season closes the job.
+#[tokio::test]
+async fn put_ai_import_job_target_refuses_a_caller_without_a_role() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    ports.season_repo.seasons.lock().await.insert(
+        season_id.0,
+        SeasonView {
+            id: season_id.0,
+            project_id: ProjectId::new(),
+            number: 7,
+            title: None,
+            archived: false,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    let block_id = seed_block_in_season(&ports, season_id, 2).await;
+    let job_id = seed_blockless_script_job(&ports, season_id).await;
+
+    let problem = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect_err("a caller without a role in the target season cannot attach")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-import.forbidden");
 }
 
 #[tokio::test]

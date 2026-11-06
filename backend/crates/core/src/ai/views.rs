@@ -753,6 +753,19 @@ pub struct AiImportTarget {
     pub block_number: Option<i32>,
 }
 
+/// The body of `PUT /v1/ai-import/jobs/{id}/target` (issue #829).
+///
+/// One field on purpose: the attach names the block to write into, and the
+/// server derives everything else it stores (the block's number for the visible
+/// snapshot, its season for the authorization check). A client cannot smuggle in
+/// a season, a number or a job identity — those are server-resolved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AiImportTargetRequest {
+    /// The block this job's rows will land in. Set once: repeating the same
+    /// block is a `200` no-op, a different one is refused.
+    pub block_id: crate::shared::BlockId,
+}
+
 /// One target episode of an applied AI-import preview (issue #763).
 ///
 /// The `applied_count` is the number of scene rows **this** job wrote into the

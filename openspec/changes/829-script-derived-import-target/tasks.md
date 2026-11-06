@@ -15,7 +15,7 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
 
 - [x] 1.1 `core/ai/views.rs`: `AiImportTarget.block_number: Option<i32>`
       (`None` = "no target block chosen yet", never `0`); doc comment widened.
-- [ ] 1.2 **moved to PR 2** `core/ai/views.rs`:
+- [x] 1.2 **landed in PR 2** `core/ai/views.rs`:
       `AiImportTargetRequest { block_id: BlockId }` — the type exists for the
       attach route, which PR 2 adds; introducing it in PR 1 would ship an unused
       request type.
@@ -51,7 +51,7 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
 - [x] 1.8a `decode_import_target` re-stated to season-pair-together (`infra`
       decodes a snapshot whose block number is NULL; the all-or-nothing season
       rule is kept).
-- [ ] 1.9 **moved to PR 2** de/en Fluent copy + golden problems for the two new
+- [x] 1.9 **landed in PR 2** de/en Fluent copy + golden problems for the two new
       codes.
 - [x] 1.10 Tests: matrix from `design.md` D1 (block-less enqueue, 400 on neither/blank
       header, 403 without a role, 404 on an unknown season, unchanged block path
@@ -79,32 +79,32 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
 
 ## 2. Backend: the attach write, the job scope, the apply precondition — size M
 
-- [ ] 2.1 `core/ai/ports.rs`: queue port method
+- [x] 2.1 `core/ai/ports.rs`: queue port method
       `set_target_once(job_id, block_id, block_number) -> TargetAttachOutcome`
       (`Attached` / `Unchanged` / `AlreadySet { existing_block_id }` /
       `Applied` / `NotFound`); default impl keeps unrelated fakes compiling.
-- [ ] 2.2 `infra/ai/queue.rs`: adapter as ONE conditional `UPDATE` —
+- [x] 2.2 `infra/ai/queue.rs`: adapter as ONE conditional `UPDATE` —
       `SET block_id = $2, target_block_number = $3, updated_at = now()
       WHERE id = $1 AND block_id IS NULL AND accept_as_is IS NULL` — plus the
       reads that distinguish `AlreadySet` / `Applied` from `NotFound`. Note
       `applied` is a **derived** view over `accept_as_is IS NOT NULL`
       (`queue.rs:1536-1542`), not a column; the guard uses the column directly.
       No partial write, no migration.
-- [ ] 2.3 `api/handlers/mod.rs`: `put_ai_import_job_target` (route
+- [x] 2.3 `api/handlers/mod.rs`: `put_ai_import_job_target` (route
       `PUT /ai-import/jobs/{id}/target`, utoipa, 200 → `AiImportJob`) enforcing
       D2: `authorize_ai_job(Action::Write)` in the **new** block's season, status
       `succeeded`, same-season block (`409 ai-import.scope-mismatch`),
       `AlreadySet`/`Applied` → `409 ai-import.target-immutable`.
-- [ ] 2.4 **re-split into PR 1** (1.12): `authorize_ai_job` gates on
+- [x] 2.4 **landed in PR 1** (1.12): `authorize_ai_job` gates on
       `target.season_id`; a `target = NULL` pre-#771 row keeps the documented
       owner-only behaviour.
-- [ ] 2.5 **re-split into PR 1** (1.13): `apply_ai_import` refuses
+- [x] 2.5 **landed in PR 1** (1.13): `apply_ai_import` refuses
       `block_id == None` with `409 ai-import.target-missing` + `season_id`.
-- [ ] 2.6 Tests: attach happy path / idempotent repeat / different block /
+- [x] 2.6 Tests: attach happy path / idempotent repeat / different block /
       applied job / foreign season / denied season (403, job unchanged); job
       scope without a role (403 on preview); apply without a target writes
       nothing; golden problems for both codes.
-- [ ] 2.7 `openapi.yaml` + Dart client regenerated; version bumps + CHANGELOGs
+- [x] 2.7 `openapi.yaml` + Dart client regenerated; version bumps + CHANGELOGs
       (`core` 0.60.0, `infra` 0.70.0, `api` 0.58.0).
 
 ## 3. Flutter: adopt from the script, attach, and the effective anchor — size M

@@ -32,6 +32,7 @@ import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
 import 'package:breakdown_api/src/model/ai_import_progress.dart';
 import 'package:breakdown_api/src/model/ai_import_stage.dart';
 import 'package:breakdown_api/src/model/ai_import_target.dart';
+import 'package:breakdown_api/src/model/ai_import_target_request.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
@@ -226,6 +227,7 @@ part 'serializers.g.dart';
   AiImportProgress,
   AiImportStage,
   AiImportTarget,
+  AiImportTargetRequest,
   AiPreviewPayload,
   AiPreviewPayloadOneOf,
   AiPreviewPayloadOneOf1,

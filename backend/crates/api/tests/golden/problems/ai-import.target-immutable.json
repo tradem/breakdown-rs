@@ -1,0 +1,11 @@
+{
+  "code": "ai-import.target-immutable",
+  "detail": "Das Importziel steht bereits fest und lässt sich nicht mehr ändern. Für einen anderen Zielblock starten Sie bitte einen neuen Import.",
+  "extensions": {
+    "applied": true,
+    "existing_block_id": "00000000-0000-0000-0000-000000000001"
+  },
+  "status": 409,
+  "title": "AI import target cannot be changed",
+  "type": "https://docs.breakdown.example/problems/ai-import.target-immutable"
+}

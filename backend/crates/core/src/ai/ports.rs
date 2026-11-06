@@ -774,6 +774,60 @@ pub trait AiImportQueue: Send + Sync {
     async fn delete_terminal(&self, _id: AiImportJobId) -> Result<bool, DomainError> {
         Ok(false)
     }
+
+    /// Attach the write target of a block-less job — **set-once** (issue #829).
+    ///
+    /// Backs `PUT /v1/ai-import/jobs/{id}/target`. The block id and the number
+    /// the visible snapshot renders are written by ONE statement, so the guard
+    /// value and the displayed target cannot drift; `target_season_id` stays
+    /// what the upload resolved (the handler refuses a block of another season
+    /// before this is reached).
+    ///
+    /// Set-once is enforced in the statement, not by a read-then-write in the
+    /// handler: `WHERE block_id IS NULL AND accept_as_is IS NULL`. `accept_as_is`
+    /// is the persisted "an apply landed" fact (`AiImportJob::applied` is derived
+    /// from it), so a job whose rows already went into a block cannot be moved
+    /// afterwards. A repeated attach of the SAME block is reported as
+    /// [`TargetAttachOutcome::Unchanged`] and writes nothing.
+    ///
+    /// The default refuses loudly instead of returning a benign value: an
+    /// adapter that cannot attach must not look like a successful no-op, because
+    /// the caller would then render a target the job does not carry.
+    async fn set_target_once(
+        &self,
+        _id: AiImportJobId,
+        _block_id: BlockId,
+        _block_number: i32,
+    ) -> Result<TargetAttachOutcome, DomainError> {
+        Err(DomainError::ServiceUnavailable {
+            code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
+            reason: "this AI import queue adapter cannot attach a target block".to_owned(),
+        })
+    }
+}
+
+/// What [`AiImportQueue::set_target_once`] did (issue #829).
+///
+/// Distinguishing these four is the whole contract: `Unchanged` is a successful
+/// idempotent repeat, while `AlreadySet` and `AlreadyApplied` are refusals with
+/// different user-facing narratives (the target is taken / the rows are already
+/// written). Collapsing them would force the handler to re-read and re-diagnose
+/// state the adapter already observed atomically.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TargetAttachOutcome {
+    /// The target was attached by this call.
+    Attached,
+    /// The job already carried exactly this block — nothing was written.
+    Unchanged,
+    /// A different block is already attached; the job is unchanged.
+    AlreadySet {
+        /// The block that won, so the client can render it.
+        existing_block_id: BlockId,
+    },
+    /// An apply already recorded rows for this job; its target is frozen.
+    AlreadyApplied,
+    /// No such job (or it vanished between the read and the write).
+    NotFound,
 }
 
 /// Idempotency mapping from a reviewed preview row to the aggregate it was

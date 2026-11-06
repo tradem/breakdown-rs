@@ -22,6 +22,7 @@ import 'package:breakdown_api/src/model/ai_config_view.dart';
 import 'package:breakdown_api/src/model/ai_import_defaults.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
 import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
+import 'package:breakdown_api/src/model/ai_import_target_request.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
@@ -7431,6 +7432,107 @@ class HandlersApi {
     );
 
     return _response;
+  }
+
+  /// Attach the write target of a block-less AI import job — set-once (issue #829).
+  /// An upload may now start without a block (&#x60;X-Declared-Season&#x60; only), so the job has a state it never had before: &#x60;succeeded&#x60;, authorized, and still without a write target. This is the one write that fills it in, and it is deliberately job-scoped rather than a field on the apply request: the apply&#39;s write context comes from the request&#39;s &#x60;episode_id&#x60;, while &#x60;job.block_id&#x60; is what the CWE-639 cross-block guard compares against — one value on the wire keeps the preview, the in-preview episode creation and the guard consistent.  Set-once is enforced by the adapter&#39;s single conditional &#x60;UPDATE&#x60; (&#x60;block_id IS NULL AND accept_as_is IS NULL&#x60;), because the server cannot see a client-side group-episode adoption: &#x60;applied&#x60; is the backstop it CAN see, and a racing client gets an honest 409 instead of a silent re-target.
+  ///
+  /// Parameters:
+  /// * [id]
+  /// * [aiImportTargetRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [AiImportJobResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<AiImportJobResponse>> putAiImportJobTarget({
+    required String id,
+    required AiImportTargetRequest aiImportTargetRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ai-import/jobs/{id}/target'.replaceAll(
+        '{' r'id' '}',
+        encodeQueryParameter(_serializers, id, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'PUT',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(AiImportTargetRequest);
+      _bodyData =
+          _serializers.serialize(aiImportTargetRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    AiImportJobResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(AiImportJobResponse),
+            ) as AiImportJobResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<AiImportJobResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
   }
 
   /// Remove an active member from the block.

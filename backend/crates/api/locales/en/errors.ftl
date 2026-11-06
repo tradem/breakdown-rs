@@ -72,6 +72,9 @@ problem-ai-import-scope-mismatch =
 problem-ai-import-target-missing =
     This import has no target block yet. Choose the block its episodes, scenes and shooting days belong to, then start the import again.
 
+problem-ai-import-target-immutable =
+    This import's target is already set and cannot be changed. Start a new import for a different target block.
+
 problem-ai-import-unsupported-media-type =
     This document type is not supported for AI import.
 
