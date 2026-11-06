@@ -4969,8 +4969,8 @@ fn single_row_apply_request() -> ApplyAiImportRequest {
 ///
 /// [published_ago] is the owning run's only payload — how long ago it last
 /// published. `None` models a run that claimed the slot but has not written
-/// its first frame yet: since issue #863 that run is aged from the row stamp
-/// the claim itself wrote, so the refusal carries an age in both cases.
+/// its first frame yet: since issue #863 that run is aged from the claim instant
+/// the claim itself stamped, so the refusal carries an age in both cases.
 ///
 /// Returns the run id and the **stamp the refusal must age from**, so a caller
 /// can bound the reported age ANALYTICALLY instead of guessing a window: the
@@ -5010,17 +5010,17 @@ async fn seed_live_apply_claim(
             .expect("the run progress write should succeed");
         return (run_id, stamp);
     }
-    // Claimed but silent: the claim stamped the job row, and that column is
-    // exactly what the steal predicate judges this state by — so it is what the
-    // refusal must age from (issue #863).
+    // Claimed but silent: the claim stamped the owner-scoped claim instant, and
+    // that column is exactly what the steal predicate judges this state by — so
+    // it is what the refusal must age from (issue #863).
     let stamp = ports
         .ai_import_queue
         .apply_run_state(job_id)
         .await
         .expect("the slot read should succeed")
         .expect("the seeded job exists")
-        .owner_updated_at
-        .expect("a winning claim stamps the row");
+        .owner_claimed_at
+        .expect("a winning claim stamps the claim instant");
     (run_id, stamp)
 }
 
@@ -5130,7 +5130,7 @@ async fn apply_refusal_ages_a_claim_that_never_published_a_frame() {
     let age = extensions
         .get("apply_run_age_seconds")
         .and_then(|value| value.as_u64())
-        .expect("a claimed slot is aged by the claim's own row stamp (issue #863)");
+        .expect("a claimed slot is aged by its own claim instant (issue #863)");
     // `num_seconds` truncates, so allow one second of rounding at each end.
     let lower = (before - claim_stamp).num_seconds() - 1;
     let upper = (after - claim_stamp).num_seconds() + 1;

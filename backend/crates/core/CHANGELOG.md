@@ -20,24 +20,27 @@ commits (ADR-020 D5).
 
 ### Added — the age of a claim that never published (issue #863)
 
-- `ApplyRunState::owner_updated_at` — the job row's `updated_at`, i.e. **the
-  owner's last write on the row** (progress, decision telemetry and the
-  applied-episode summary all bump it; it is deliberately not "the last progress
-  frame"). It is the column the single-flight claim's steal predicate already
-  judges an owner that published **nothing** by
-  (`OR (apply_progress IS NULL AND updated_at < cutoff)`), and before this read
-  exposed it, the refusal had no way to report the stamp that decision was made
-  on — a run that died before its first frame stayed unageable on the wire, so a
-  client could only wait the window out.
+- `ApplyRunState::owner_claimed_at` — the instant the current apply run **took
+  the slot**, stamped by the claim and by nothing else. It is the column the
+  single-flight claim's steal predicate judges an owner that published
+  **nothing** by (`OR (apply_progress IS NULL AND COALESCE(apply_claim_at,
+  updated_at) < cutoff)`), and before this read exposed it, the refusal had no
+  way to report the stamp that decision was made on — a run that died before its
+  first frame stayed unageable on the wire, so a client could only wait the
+  window out. Deliberately **not** the job row's `updated_at` (which the claim
+  also stamps): that column is bumped by every run-scoped write, including a
+  previous apply's post-apply summary, so it could describe a dead owner as
+  fresher than it is and delay the steal by that gap (review follow-up).
 - `ApplyRunState::owner_silence_at(now)` — the ONE definition of the age a
   `409 ai-import.apply-in-flight` reports, in the claim's own fallback order:
-  the payload's `updated_at` when a frame was published, otherwise the row stamp,
-  otherwise `None` (no stamp → no age, never `0`). The reported verdict and the
-  steal therefore read the same column and cannot disagree. Future stamps are
-  clamped to zero, so clock skew never reports a negative age.
-- The `apply_run_state` port default now reports the job row's `updated_at`
-  (its `get` already read it), so an adapter that only implements `get` is not
-  worse off than before.
+  the payload's `updated_at` when a frame was published, otherwise the claim
+  instant, otherwise `None` (nothing to age, never `0`). The reported verdict and
+  the steal therefore read one owner-scoped instant and cannot disagree. Future
+  stamps are clamped to zero, so clock skew never reports a negative age.
+- The `apply_run_state` port default reports no claim instant (`None`): a job DTO
+  carries none, and guessing one from the row's `updated_at` is exactly the
+  substitution the review rejected. The owner is derived from the payload there,
+  so an age still comes from that payload.
 
 ## [0.61.0] - Unreleased
 

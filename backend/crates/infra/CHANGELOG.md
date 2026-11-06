@@ -18,17 +18,29 @@ commits (ADR-020 D5).
 
 ## [0.72.0] - Unreleased
 
-### Changed — `apply_run_state` reports the stamp the claim judges (issue #863)
+### Changed — the apply claim gets an owner-scoped stamp (issue #863)
 
-- `PgAiImportQueue::apply_run_state` also selects `ai_import_job.updated_at`
-  into `ApplyRunState::owner_updated_at`. The claim's steal predicate compares
-  exactly that column while an owner has published no payload
-  (`apply_progress IS NULL AND updated_at < $3`), so the refusal can now report
-  the age of a run that died before its first frame — and it reports the SAME
-  timestamp the steal consumes, with no second column to disagree. No migration,
-  no new column: the stamp already existed.
-- No behaviour change in the claim itself, and the payload branch of the steal
+- Migration `20261106000002_ai_apply_claim_stamp` adds
+  `ai_import_job.apply_claim_at TIMESTAMPTZ`: the instant the current run took
+  the slot, written by the claim (and by a stealing claim) and by NOTHING else.
+  The row's `updated_at` was the tempting shortcut — the claim stamps it too —
+  but every run-scoped write bumps it, including a previous apply's post-apply
+  summary, which lands after that apply released the slot. Judging the next
+  owner by it understates a dead run's silence by the gap to that write and
+  delays the steal by the same amount (review follow-up).
+- `claim_apply_run` stamps `apply_claim_at` and its unpublished-owner branch now
+  compares it: `OR (apply_progress IS NULL AND COALESCE(apply_claim_at,
+  updated_at) < $3)`. The `COALESCE` is the rolling-deploy fallback: a claim made
+  before the column existed keeps NULL there and is judged by the stamp it always
+  used, so it is never more stealable than before. The payload branch
   (`apply_progress->>'updated_at'`) is untouched.
+- `PgAiImportQueue::apply_run_state` selects `apply_claim_at` into
+  `ApplyRunState::owner_claimed_at`, so the refused age and the steal decision
+  read the same owner-scoped instant.
+- Covered against real Postgres by three cases in
+  `ai_import_job_progress.rs`: a late run-scoped write cannot extend a claim's
+  window (new), a pre-stamp claim reports no age but stays protected (new), and
+  the existing unpublished-claim steal test now forces the claim stamp.
 
 ## [0.70.0] - Unreleased
 

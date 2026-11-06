@@ -514,8 +514,9 @@ mod apply_run_state_default {
         assert_eq!(state.progress, None);
         assert_eq!(state.seq, 0);
         assert!(
-            state.owner_updated_at.is_some(),
-            "the row stamp is reported, like the production read (issue #863)"
+            state.owner_claimed_at.is_none(),
+            "a job DTO carries no claim instant, and the default must not \
+             guess one from the row stamp (issue #863 review)"
         );
         assert_eq!(
             state.owner_silence_at(Utc::now()),
@@ -557,24 +558,24 @@ mod owner_silence {
             owner: Some(run_id),
             seq: 1,
             progress: Some(payload(run_id, now - Duration::minutes(4))),
-            // A younger row stamp must NOT shorten the payload's age: only the
-            // payload's column is the claim's comparison for this state.
-            owner_updated_at: Some(now - Duration::seconds(5)),
+            // A younger claim instant must NOT shorten the payload's age: only
+            // the payload's column is the claim's comparison for this state.
+            owner_claimed_at: Some(now - Duration::seconds(5)),
         };
         assert_eq!(state.owner_silence_at(now), Some(Duration::minutes(4)));
     }
 
     /// The #863 fix: a run that claimed the slot and published nothing is aged
-    /// by the row stamp — the same column the steal predicate reads for
+    /// by its own claim instant — the column the steal predicate reads for
     /// `apply_progress IS NULL`.
     #[test]
-    fn a_claim_without_a_payload_is_aged_by_the_row_stamp() {
+    fn a_claim_without_a_payload_is_aged_by_the_claim_stamp() {
         let now = Utc::now();
         let state = ApplyRunState {
             owner: Some(ApplyRunId::new()),
             seq: 1,
             progress: None,
-            owner_updated_at: Some(now - Duration::minutes(12)),
+            owner_claimed_at: Some(now - Duration::minutes(12)),
         };
         assert_eq!(
             state.owner_silence_at(now),
@@ -584,7 +585,7 @@ mod owner_silence {
     }
 
     /// No stamp anywhere → no age. `0` would claim "just wrote" for a run that
-    /// reported nothing, and a pre-#863 adapter must keep degrading honestly.
+    /// reported nothing, and a pre-#863 claim must keep degrading honestly.
     #[test]
     fn no_stamp_degrades_to_no_age() {
         let now = Utc::now();
@@ -592,20 +593,20 @@ mod owner_silence {
             owner: Some(ApplyRunId::new()),
             seq: 1,
             progress: None,
-            owner_updated_at: None,
+            owner_claimed_at: None,
         };
         assert_eq!(state.owner_silence_at(now), None);
     }
 
-    /// No owner means nothing to age — even a row stamp must not invent one.
+    /// No owner means nothing to age — even a claim instant must not invent one.
     #[test]
-    fn an_idle_slot_is_not_aged_by_the_row_stamp() {
+    fn an_idle_slot_is_not_aged_by_the_claim_stamp() {
         let now = Utc::now();
         let state = ApplyRunState {
             owner: None,
             seq: 3,
             progress: None,
-            owner_updated_at: Some(now - Duration::minutes(30)),
+            owner_claimed_at: Some(now - Duration::minutes(30)),
         };
         assert_eq!(state.owner_silence_at(now), None);
     }
@@ -619,7 +620,7 @@ mod owner_silence {
             owner: Some(ApplyRunId::new()),
             seq: 1,
             progress: None,
-            owner_updated_at: Some(now + Duration::minutes(3)),
+            owner_claimed_at: Some(now + Duration::minutes(3)),
         };
         assert_eq!(state.owner_silence_at(now), Some(Duration::zero()));
     }

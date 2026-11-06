@@ -359,8 +359,8 @@ async fn a_stale_claim_is_stolen_by_the_next_apply() -> Result<()> {
 
 /// Issue #800 review: a run that holds the slot but has **not published its
 /// first frame yet** must not be displaced. Its payload is `NULL`, so the steal
-/// predicate judges that owner by the row's own `updated_at` (which the claim
-/// stamps) — never by "no payload means free".
+/// predicate judges that owner by the claim instant (`apply_claim_at`, issue
+/// #863) — never by "no payload means free".
 #[tokio::test]
 async fn a_claim_without_a_published_payload_is_not_stolen() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -369,17 +369,15 @@ async fn a_claim_without_a_published_payload_is_not_stolen() -> Result<()> {
 
     let live = ApplyRunId::new();
     assert!(queue.claim_apply_run(id, live).await?);
-    // Deliberately no `mark_apply_progress`: the run has published nothing.
+
     assert!(
         !queue.claim_apply_run(id, ApplyRunId::new()).await?,
         "a freshly claimed slot is live even without a payload"
     );
 
-    // Age the claim itself (the row stamp), exactly like a crashed worker would
-    // by doing nothing for a staleness window — no sleeping (AGENTS.md §4).
     let stale_before =
         chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
-    sqlx::query("UPDATE ai_import.ai_import_job SET updated_at = $2 WHERE id = $1")
+    sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
         .bind(id.as_uuid())
         .bind(stale_before)
         .execute(&pool)
@@ -393,6 +391,104 @@ async fn a_claim_without_a_published_payload_is_not_stolen() -> Result<()> {
     let state = queue.apply_run_state(id).await?.expect("run slot");
     assert_eq!(state.owner, Some(next));
     assert_eq!(state.seq, 2, "the steal bumped the counter");
+    Ok(())
+}
+
+/// Issue #863 review: the age of an unpublished claim is **owner-scoped**, so
+/// another run's late write cannot extend it.
+///
+/// The tempting column is the job row's `updated_at`, which the claim also
+/// stamps — and which every run-scoped write bumps. The post-apply summary
+/// (`record_applied_episodes`) of a PREVIOUS apply lands after that apply
+/// released the slot, so it can land after the next claim: judging the new
+/// owner by `updated_at` would describe a dead run as fresher than it is, by
+/// exactly the gap to that write, and delay the steal by the same amount.
+///
+/// This pins both halves of the cure: a late write does not move the claim
+/// instant the refusal reports, and it does not delay the steal.
+#[tokio::test]
+async fn a_late_run_scoped_write_cannot_extend_a_claims_window() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = succeeded_job(&queue, "user-apply-claim-owner-scoped").await?;
+
+    let dead = ApplyRunId::new();
+    assert!(queue.claim_apply_run(id, dead).await?);
+    let claimed_at = queue
+        .apply_run_state(id)
+        .await?
+        .expect("run slot")
+        .owner_claimed_at
+        .expect("the claim stamps its own instant");
+
+    // The previous apply's summary write, landing after the claim took the
+    // slot: it moves `updated_at` and nothing else.
+    sqlx::query("UPDATE ai_import.ai_import_job SET updated_at = now() WHERE id = $1")
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await?;
+
+    assert_eq!(
+        queue
+            .apply_run_state(id)
+            .await?
+            .expect("run slot")
+            .owner_claimed_at,
+        Some(claimed_at),
+        "a late run-scoped write must not move the reported claim instant"
+    );
+
+    // Now let the CLAIM itself go stale while the row stamp stays fresh: the
+    // steal must follow the claim, or a dead owner could block for a second
+    // window on the strength of somebody else's write.
+    let stale_claim =
+        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
+        .bind(id.as_uuid())
+        .bind(stale_claim)
+        .execute(&pool)
+        .await?;
+    sqlx::query("UPDATE ai_import.ai_import_job SET updated_at = now() WHERE id = $1")
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await?;
+
+    let next = ApplyRunId::new();
+    assert!(
+        queue.claim_apply_run(id, next).await?,
+        "the steal follows the owner-scoped claim stamp, not a fresher row stamp"
+    );
+    Ok(())
+}
+
+/// Issue #863: a claim made **before** the claim stamp existed carries `NULL`
+/// there, so the refusal reports no age (the instant was never recorded) while
+/// the steal keeps the pre-#863 fallback — the row stamp the claim always wrote.
+/// A rolling deploy must not make such a live claim stealable.
+#[tokio::test]
+async fn a_pre_stamp_claim_reports_no_age_but_stays_protected() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = succeeded_job(&queue, "user-apply-claim-pre-stamp").await?;
+
+    let legacy = ApplyRunId::new();
+    assert!(queue.claim_apply_run(id, legacy).await?);
+    // Simulate the row an older API process left behind: a claim with no claim
+    // instant, stamped only through `updated_at`.
+    sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = NULL WHERE id = $1")
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await?;
+
+    let state = queue.apply_run_state(id).await?.expect("run slot");
+    assert_eq!(
+        state.owner_claimed_at, None,
+        "the instant was never recorded, so no age is invented"
+    );
+    assert!(
+        !queue.claim_apply_run(id, ApplyRunId::new()).await?,
+        "a live pre-stamp claim is still judged by the row stamp, as before #863"
+    );
     Ok(())
 }
 

@@ -7079,14 +7079,15 @@ pub async fn stream_ai_import_apply_events<P: Ports>(
     let run_state = match queue.apply_run_state(id).await? {
         Some(state) => state,
         // The job exists but the adapter reports no slot: fall back to the job
-        // read so the snapshot still names the payload it published (and the
-        // row stamp it last wrote, which is the same column the claim judges an
-        // unpublished owner by — issue #863).
+        // read so the snapshot still names the payload it published. A job DTO
+        // carries no claim instant, so `owner_claimed_at` stays `None` — the
+        // row's `updated_at` is not a substitute (issue #863 review: a late
+        // write from a previous run can advance it).
         None => breakdown_core::ai::ApplyRunState {
             owner: None,
             seq: 0,
             progress: job.apply_progress.clone(),
-            owner_updated_at: Some(job.updated_at),
+            owner_claimed_at: None,
         },
     };
     let stream = sse_apply_stream(queue, id, run_state, baseline_seq, wakeups);
@@ -8144,14 +8145,14 @@ pub async fn apply_ai_import<P: Ports>(
                         "AI import apply refused: a live run owns the progress slot"
                     );
                     // The owner's silence, read from the same slot the claim
-                    // judged AND aged by the same column that judgement used
-                    // (issue #863): `owner_silence_at` falls back to the row
-                    // stamp the claim compares while no payload exists, so a
-                    // run that died before its first published frame is no
-                    // longer unageable. A read failure must not turn the refusal
-                    // into a different error: the window still travels and the
-                    // age is simply absent, which the client renders as "a live
-                    // run, nothing to age".
+                    // judged AND aged by the same owner-scoped column that
+                    // judgement used (issues #863): `owner_silence_at` falls
+                    // back to the claim instant the steal compares while no
+                    // payload exists, so a run that died before its first
+                    // published frame is no longer unageable. A read failure
+                    // must not turn the refusal into a different error: the
+                    // window still travels and the age is simply absent, which
+                    // the client renders as "a live run, nothing to age".
                     let age_seconds = state
                         .ports
                         .ai_import_queue()

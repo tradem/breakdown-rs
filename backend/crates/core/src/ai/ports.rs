@@ -590,8 +590,8 @@ pub trait AiImportQueue: Send + Sync {
     }
 
     /// Read the apply-run slot of one job (issue #800): its owning run, the
-    /// monotonic run counter, the owner's last published payload and the row
-    /// stamp that owner last wrote ([`ApplyRunState::owner_updated_at`], issue
+    /// monotonic run counter, the owner's last published payload and the instant
+    /// that owner took the slot ([`ApplyRunState::owner_claimed_at`], issues
     /// #863).
     ///
     /// `None` when the job does not exist (the stream closes). The apply stream
@@ -600,20 +600,20 @@ pub trait AiImportQueue: Send + Sync {
     /// happened" from the frames it managed to emit is exactly the bug this
     /// read fixes.
     ///
-    /// The row stamp is not decorative: the single-flight claim
+    /// The claim instant is not decorative: the single-flight claim
     /// ([`claim_apply_run`](Self::claim_apply_run)) judges an owner that has
-    /// published **nothing** by that column, so a refusal cannot report an age
-    /// for that state without it — which is what left a run that died before its
-    /// first frame unageable (issue #863).
+    /// published **nothing** by that owner-scoped stamp, so a refusal cannot
+    /// report an age for that state without it — which is what left a run that
+    /// died before its first frame unageable (issue #863).
     ///
     /// The default **mirrors [`get`](Self::get)** rather than reporting an
     /// empty slot: the stream ends when this returns `None`, so a default
     /// `None` would cut the stream off after its snapshot frame — with no final
     /// `null` frame — for every adapter that publishes progress and wake-ups but
-    /// does not track a slot. Such an adapter has no counter to offer, so `seq`
-    /// stays `0` and the owner is derived from the payload it published: the
-    /// pre-#800 behaviour (a run that starts and clears between two reads stays
-    /// invisible) without losing the runs it *did* publish.
+    /// does not track a slot. Such an adapter has no counter to offer either, so
+    /// `seq` stays `0` and the owner is derived from the payload it published:
+    /// the pre-#800 behaviour (a run that starts and clears between two reads
+    /// stays invisible) without losing the runs it *did* publish.
     async fn apply_run_state(
         &self,
         id: AiImportJobId,
@@ -624,11 +624,11 @@ pub trait AiImportQueue: Send + Sync {
             ApplyRunState {
                 owner,
                 seq: 0,
-                // The job row's own stamp: the same column the production claim
-                // stamps. The owner is derived from the payload here, so an age
-                // comes from that payload; reporting the stamp keeps the read
-                // complete for an adapter that only implements `get`.
-                owner_updated_at: Some(job.updated_at),
+                // A job DTO carries no claim instant, and guessing one from the
+                // row's `updated_at` is exactly what #863 review rejected: the
+                // owner is derived from the payload here, so an age comes from
+                // that payload anyway.
+                owner_claimed_at: None,
                 progress,
             }
         }))

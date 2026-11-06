@@ -412,8 +412,8 @@ pub enum ApiError {
     /// minutes off cannot misclassify a live run as abandoned.
     AiImportApplyInFlight {
         /// Seconds since the owning run was last heard from; `None` only when
-        /// the slot reports neither a payload nor a row stamp (no age to
-        /// report — never zero).
+        /// the slot reports no ageable stamp at all (neither a payload nor a
+        /// claim instant — never zero).
         age_seconds: Option<u64>,
         /// The window after which the server's claim lets the next apply
         /// steal the slot (`ApplyProgress::STALE_AFTER`).
