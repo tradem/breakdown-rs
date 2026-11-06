@@ -37,11 +37,19 @@ tag. Never edit a released entry afterwards.
   is disclosed (`GET /v1/seasons` is already `Authenticated`-only and
   membership-unfiltered) — and the job starts block-less with a target that names
   its season and no block. This is the contract half of "take the block from the
-  script" (#827/`#828` provide the value and the UI); the attach endpoint that
-  fills the block in follows in PR 2/4, which is also where the two new problem
-  codes and the `authorize_ai_job` scope fix land. `AiImportTarget.block_number` is
-  nullable on the wire; crates: `core` 0.58.0 → 0.59.0, `infra` 0.68.0 → 0.69.0,
-  `api` 0.56.0 → 0.57.0; generated Dart client `breakdown_api` 1.1.0 → 1.2.0.
+  script" (#827/#828 provide the value and the pre-upload UI).
+  **The new state is guarded, not exempt** (review of the PR): the job gate
+  evaluated the season policy only when a block existed, and the apply calls it as
+  its only authorization — so a block-less job would have let any authenticated
+  caller apply into an episode of a season they hold no role in. `authorize_ai_job`
+  now scopes on the job's target season (the block's season only as the pre-#771
+  fallback), the apply refuses an unattached target with the newly registered
+  `409 ai-import.target-missing` (S1 `season_id`) instead of skipping the CWE-639
+  guard, and a present-but-unreadable `X-Active-Block` is a `400` rather than a
+  silent block-less upload. `AiImportTarget.block_number` is nullable on the wire;
+  crates: `core` 0.58.0 → 0.59.0, `infra` 0.68.0 → 0.69.0, `api` 0.56.0 → 0.57.0;
+  generated Dart client `breakdown_api` 1.1.0 → 1.2.0. The attach endpoint that
+  fills the block in follows in PR 2/4 (with `ai-import.target-immutable`).
 - **The AI import reads and publishes the script's own BLOCK (issue #827).** The
   import knew and showed the episode it extracted but never the block, so an
   import into the wrong block was only discovered at apply time (or never) —

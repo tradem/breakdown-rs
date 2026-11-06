@@ -18,6 +18,14 @@ commits (ADR-020 D5).
 
 ## [0.59.0] - Unreleased
 
+### Added — `ai-import.target-missing` (issue #829)
+
+- A registered `409` for the state the block-less upload introduces: a succeeded,
+  authorized job whose target block was never attached may not be applied. The S1
+  `season_id` extension names the job's target season. Registry count 110 → 111.
+  It travels with the upload rather than with the attach, so no commit leaves a
+  block-less job applicable without a write target.
+
 ### Changed — the import target may name a season without a block (issue #829)
 
 - `AiImportTarget::block_number` is `Option<i32>`. A block-less upload (the

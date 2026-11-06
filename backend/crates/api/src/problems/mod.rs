@@ -29,8 +29,8 @@ use breakdown_core::error_registry::{
     AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_APPLY_BLOCKED, AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
     AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN,
     AI_IMPORT_JOB_NOT_DELETABLE, AI_IMPORT_NOT_FOUND, AI_IMPORT_SCOPE_MISMATCH,
-    AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
-    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS,
+    AI_IMPORT_TARGET_MISSING, AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
+    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS,
     HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST,
     HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
     HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, REPORT_RENDERER_UNAVAILABLE,
@@ -352,6 +352,11 @@ pub enum ApiError {
     /// contradictory request is refused at the API edge instead of writing
     /// the import into another season's block.
     AiImportScopeMismatch(&'static str),
+    /// 409 `ai-import.target-missing` — an apply reached a **block-less** job
+    /// whose target block was never attached (issue #829). The S1 `season_id`
+    /// extension names the job's target season so the client can route the user
+    /// to the target card for the right season.
+    AiImportTargetMissing(Option<breakdown_core::shared::SeasonId>),
     /// 409 `ai-config.version-mismatch` — optimistic-lock version conflict on
     /// an AI-config edit/revoke. Scoped per aggregate (issue #481); carries
     /// the same S0 `expected_version`/`current_version` extensions as the
@@ -510,6 +515,21 @@ impl ApiError {
             ApiError::AiImportScopeMismatch(msg) => {
                 tracing::debug!(reason = msg, "rendering ai-import scope-mismatch problem");
                 problem(AI_IMPORT_SCOPE_MISMATCH).build()
+            }
+            ApiError::AiImportTargetMissing(season_id) => {
+                tracing::debug!(
+                    season_id = ?season_id,
+                    "rendering ai-import target-missing problem"
+                );
+                let builder = problem(AI_IMPORT_TARGET_MISSING);
+                match season_id {
+                    Some(season_id) => builder.extension("season_id", season_id).build(),
+                    // A pre-#829 row could in principle be block-less AND carry
+                    // no target (no path produces one, but the columns allow
+                    // it): the refusal still holds, only the routing hint is
+                    // absent.
+                    None => builder.build(),
+                }
             }
             ApiError::AiConfigVersionMismatch(expected, current) => {
                 problem(AI_CONFIG_VERSION_MISMATCH)

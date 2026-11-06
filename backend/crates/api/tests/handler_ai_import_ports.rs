@@ -607,6 +607,38 @@ async fn upload_ai_script_refuses_an_unknown_declared_season() {
     assert_eq!(store.handle_count_for_test().await, 0);
 }
 
+/// Issue #829 (CodeRabbit review): a header that is PRESENT must never degrade
+/// into the block-less arm. An unreadable or unparsable `X-Active-Block` is a
+/// client bug and answers `400` — only a genuinely absent header may fall
+/// through to the declared-season scope, so a request that meant to name a block
+/// can never be turned into a different kind of import.
+#[tokio::test]
+async fn upload_ai_script_refuses_a_malformed_active_block_header() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+
+    let mut headers = pdf_headers_with_declared_season(season_id);
+    headers.insert("x-active-block", HeaderValue::from_static("not-a-uuid"));
+
+    let problem = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        headers,
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect_err("a present but unparsable block header must not become a block-less upload")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::BAD_REQUEST.as_u16());
+    assert!(
+        queue.jobs.lock().await.is_empty(),
+        "a refused upload must not leave a job row behind"
+    );
+}
+
 /// Issue #763: an upload without the header stores `NULL` — an honest absence,
 /// never a fabricated name and never the opaque `source_handle`.
 #[tokio::test]
@@ -3409,6 +3441,121 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
     assert!(
         ports.episode_commands.created.lock().await.is_empty(),
         "a 409 pre-check must not create an episode"
+    );
+}
+
+/// Seed a **block-less** succeeded job whose target names `season_id` and no
+/// block — the state the block-less upload introduces (issue #829).
+async fn seed_blockless_script_job(ports: &FakePorts, season_id: SeasonId) -> AiImportJobId {
+    let job_id = seed_episode_grouped_script_job(ports, None, 1).await;
+    let mut job = ports
+        .ai_import_queue
+        .get(job_id)
+        .await
+        .expect("queue read")
+        .expect("seeded job");
+    job.target = Some(AiImportTarget {
+        season_id,
+        season_number: 7,
+        block_number: None,
+    });
+    ports.ai_import_queue.seed(job).await;
+    job_id
+}
+
+/// Issue #829 (CodeRabbit review, the F1 regression): reading a block-less job's
+/// preview is SEASON-scoped. Before this change `authorize_ai_job` skipped the
+/// season policy entirely when the job had no block, which made the block-less
+/// upload an authorization bypass for the job and its preview.
+#[tokio::test]
+async fn get_ai_import_preview_refuses_a_blockless_job_without_a_season_role() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    // The season exists, but the caller holds no membership in it.
+    ports.season_repo.seasons.lock().await.insert(
+        season_id.0,
+        SeasonView {
+            id: season_id.0,
+            project_id: ProjectId::new(),
+            number: 7,
+            title: None,
+            archived: false,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    let job_id = seed_blockless_script_job(&ports, season_id).await;
+
+    let problem = get_ai_import_preview::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(AiImportJobId::from_uuid(job_id.as_uuid())),
+    )
+    .await
+    .expect_err("a block-less job is scoped by its target season, not owner-only")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-import.forbidden");
+}
+
+/// Issue #829 (CodeRabbit review): an apply of a block-less job is refused until
+/// a target block is attached, naming the season so the client can route to the
+/// target card. The CWE-639 guard keeps one meaning because it never has to be
+/// skipped, and nothing is dispatched.
+#[tokio::test]
+async fn apply_ai_import_refuses_a_blockless_job_without_a_target() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let job_id = seed_blockless_script_job(&ports, season_id).await;
+    let episode_id = EpisodeId::new();
+    ports.episode_repo.episodes.lock().await.insert(
+        episode_id.0,
+        EpisodeView {
+            id: episode_id.0,
+            block_id: BlockId::from_uuid(Uuid::now_v7()),
+            project_id: ProjectId::from_uuid(Uuid::now_v7()),
+            number: 294,
+            name: None,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id,
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![ApplyMapping {
+                draft_ref: "scene-0".to_owned(),
+                decision: ApplyMappingDecision::Create,
+                outfit_decisions: Vec::new(),
+            }],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
+        }),
+    )
+    .await
+    .expect_err("an unattached target must block the apply")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-import.target-missing");
+    assert_eq!(
+        problem
+            .extensions
+            .as_ref()
+            .and_then(|ext| ext.get("season_id"))
+            .and_then(|value| value.as_str()),
+        Some(season_id.0.to_string().as_str())
     );
 }
 

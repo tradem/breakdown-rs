@@ -19,10 +19,12 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       `AiImportTargetRequest { block_id: BlockId }` — the type exists for the
       attach route, which PR 2 adds; introducing it in PR 1 would ship an unused
       request type.
-- [ ] 1.3 **moved to PR 2** `core/error_registry.rs`: the two registered codes
-      `ai-import.target-missing` / `ai-import.target-immutable` — both are
-      *produced* by PR 2 (attach + apply precondition); registering them earlier
-      would ship codes nothing can emit.
+- [x] 1.3 `core/error_registry.rs`: `ai-import.target-missing` (`409`, S1
+      `season_id`) — **re-split into PR 1** after the review of this PR: merging
+      it alone would have left a live authorization hole on `main`, so the code
+      that refuses that hole travels with the upload that creates the state (see
+      1.12 + 1.13). `ai-import.target-immutable` stays in PR 2, next to the attach
+      that emits it.
 - [x] 1.4 `api/handlers/mod.rs`: split `authorize_ai_block` into
       `authorize_ai_upload_target` returning
       `AiUploadTarget::{Block(BlockView), Season(SeasonView)}`:
@@ -56,6 +58,18 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       incl. `409 ai-import.scope-mismatch`) in
       `crates/api/tests/handler_ai_import_ports.rs`; `AiImportTarget` wire test in
       both directions (`Some` → `null`) via the regenerated contract.
+- [x] 1.12 **re-split out of PR 2 (design D3)** `api/handlers/mod.rs`:
+      `ai_job_scope_season` + `authorize_ai_job` gate on the job's TARGET season.
+      The policy used to sit inside `if let Some(block_id)`, and `apply_ai_import`
+      calls that helper as its only authorization — so this PR could not merge
+      without it.
+- [x] 1.13 **re-split out of PR 2 (design D4)** `api/handlers/mod.rs`:
+      `apply_ai_import` refuses an unattached target with
+      `409 ai-import.target-missing` (+ `season_id`), so the CWE-639 guard never
+      needs a skip branch.
+- [x] 1.14 `api/handlers/mod.rs` (CodeRabbit review): a PRESENT but unreadable or
+      unparsable `X-Active-Block` is a `400`, never a silent fall-through to the
+      declared-season arm.
 - [x] 1.11 `openapi.yaml` regenerated (`UPDATE_OPENAPI=1 … openapi_drift`),
       Dart client regenerated (`CLIENT_VERSION` 1.2.0) **and the Flutter tree
       kept compiling in the same commit** — the `target.blockNumber` widening to
@@ -81,12 +95,11 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       D2: `authorize_ai_job(Action::Write)` in the **new** block's season, status
       `succeeded`, same-season block (`409 ai-import.scope-mismatch`),
       `AlreadySet`/`Applied` → `409 ai-import.target-immutable`.
-- [ ] 2.4 `api/handlers/mod.rs`: `authorize_ai_job` (6345) gates on
-      `target.season_id` instead of the `if let Some(block_id)` arm; a
-      `target = NULL` pre-#771 row keeps the documented owner-only behaviour.
-- [ ] 2.5 `api/handlers/mod.rs`: `apply_ai_import` (7501) refuses
-      `block_id == None` with `409 ai-import.target-missing` + `season_id`
-      extension; the CWE-639 guard keeps no skip branch (F1 closed).
+- [ ] 2.4 **re-split into PR 1** (1.12): `authorize_ai_job` gates on
+      `target.season_id`; a `target = NULL` pre-#771 row keeps the documented
+      owner-only behaviour.
+- [ ] 2.5 **re-split into PR 1** (1.13): `apply_ai_import` refuses
+      `block_id == None` with `409 ai-import.target-missing` + `season_id`.
 - [ ] 2.6 Tests: attach happy path / idempotent repeat / different block /
       applied job / foreign season / denied season (403, job unchanged); job
       scope without a role (403 on preview); apply without a target writes

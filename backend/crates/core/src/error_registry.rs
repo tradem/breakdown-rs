@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 110;
+const PROBLEM_CODE_COUNT: usize = 111;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1046,6 +1046,21 @@ problem_codes! {
         status: 409,
         title: "AI import job is not in a deletable state",
         extensions: &[],
+    },
+
+    /// 409 — the preview of a **block-less** AI import job was applied before
+    /// its target block was attached (issue #829). An upload may now start
+    /// without a block (`X-Declared-Season` only), so the apply has a state it
+    /// never had before: authorized, succeeded, and still without a write
+    /// target. Refusing it here keeps the CWE-639 cross-block guard with exactly
+    /// one meaning — it never has to be skipped. The S1 `season_id` extension
+    /// names the job's target season, so the client can offer "choose the target
+    /// block" for the right season.
+    AI_IMPORT_TARGET_MISSING {
+        code: "ai-import.target-missing",
+        status: 409,
+        title: "AI import job has no target block yet",
+        extensions: &["season_id"],
     },
 
     /// 409 — the upload declared an intended season (`X-Declared-Season`)

@@ -6254,12 +6254,15 @@ async fn authorize_ai_upload_target<P: Ports>(
     current_user: &CurrentUser,
     headers: &HeaderMap,
 ) -> Result<AiUploadTarget, ApiError> {
-    let Some(raw) = headers
-        .get(ACTIVE_BLOCK_HEADER)
-        .and_then(|value| value.to_str().ok())
-    else {
+    // A header that is PRESENT but unreadable is a `400`, never a silent
+    // fall-through to the block-less arm: opaque bytes must not be able to turn
+    // an upload that meant to name a block into a different kind of import.
+    let Some(value) = headers.get(ACTIVE_BLOCK_HEADER) else {
         return authorize_ai_declared_season(state, current_user, headers).await;
     };
+    let raw = value
+        .to_str()
+        .map_err(|_| ApiError::BadRequest("invalid X-Active-Block header"))?;
     let uuid =
         Uuid::parse_str(raw).map_err(|_| ApiError::BadRequest("invalid X-Active-Block header"))?;
     let block = state.ports.block_repo().find_by_id(uuid).await?;
@@ -6440,6 +6443,38 @@ fn check_declared_ai_season(
     ))
 }
 
+/// The season a job's operations are scoped by (issue #829).
+///
+/// Before #829 this was "the season owning `job.block_id`", which made the gate
+/// a silent no-op for a block-less job: `apply_ai_import` calls this helper as
+/// its ONLY authorization check, so a job without a block would have let any
+/// authenticated caller apply into an episode of a season they hold no role in
+/// (the handler's own comment claimed otherwise; nothing enforced it). The
+/// block-less upload this change introduces is what makes that state reachable,
+/// so the scope moves with it.
+///
+/// The target snapshot's season is the scope, because every upload resolves one:
+/// a block-scoped upload from the block's owning season, a block-less one from
+/// `X-Declared-Season`. The block read stays as the fallback for a pre-#771 row,
+/// whose target genuinely is unknown and must not be invented.
+async fn ai_job_scope_season<P: Ports>(
+    state: &AppState<P>,
+    job: &breakdown_core::ai::AiImportJob,
+) -> Result<Option<SeasonId>, ApiError> {
+    if let Some(target) = job.target.as_ref() {
+        return Ok(Some(target.season_id));
+    }
+    match job.block_id {
+        Some(block_id) => {
+            let block = state.ports.block_repo().find_by_id(block_id.0).await?;
+            Ok(Some(block.season_id))
+        }
+        // A pre-#771 row without a block has no reconstructable season: keep the
+        // documented owner-only behaviour rather than guessing one.
+        None => Ok(None),
+    }
+}
+
 async fn authorize_ai_job<P: Ports>(
     state: &AppState<P>,
     current_user: &CurrentUser,
@@ -6449,16 +6484,16 @@ async fn authorize_ai_job<P: Ports>(
     if job.user_id != current_user.sub {
         return Err(forbidden_ai_job());
     }
-    if let Some(block_id) = job.block_id {
-        let block = state.ports.block_repo().find_by_id(block_id.0).await?;
+    if let Some(season_id) = ai_job_scope_season(state, job).await? {
         // AUTHZ-GATE: AI job status/preview/apply is privileged — the caller
-        // must hold an active piece-dept role in the job's season, decided
-        // via the (fallible) season policy.
+        // must hold an active piece-dept role in the job's TARGET season, decided
+        // via the (fallible) season policy so a read-model failure is a mapped
+        // error instead of a silent 403.
         let decision = state
             .authorization_policy
             .authorize_season_result(&SeasonAuthContext {
                 actor: current_user.sub.clone(),
-                season_id: block.season_id,
+                season_id,
                 action,
             })
             .await?;
@@ -7627,6 +7662,16 @@ pub async fn apply_ai_import<P: Ports>(
             "only a succeeded AI preview can be applied",
         ));
     }
+    // Issue #829: a block-less job has no write target, and the CWE-639 guard
+    // below is deliberately written as "must match" rather than "match when
+    // known". Rather than reintroducing the skip branch that made a block-less
+    // job's apply unguarded, the apply refuses until the target is attached —
+    // the client reads `season_id` off the problem and routes to the target card.
+    if job.block_id.is_none() {
+        return Err(ApiError::AiImportTargetMissing(
+            job.target.as_ref().map(|target| target.season_id),
+        ));
+    }
     let handle = job
         .preview_handle
         .as_deref()
@@ -7819,9 +7864,10 @@ pub async fn apply_ai_import<P: Ports>(
                 let target = state.ports.episode_repo().find_by_id(episode_id.0).await?;
                 // CWE-639 / issue #763 review: the identity of a FOREIGN
                 // episode must never reach the summary, so the lookup carries
-                // the same block guard as the primary target above. A
-                // block-less job stays unguarded by design — it may apply to
-                // any episode it is authorized for.
+                // the same block guard as the primary target above. A block-less
+                // job cannot reach this point at all since issue #829: the apply
+                // refuses it with `ai-import.target-missing` until its target is
+                // attached, so the guard never has to be skipped.
                 if let Some(job_block) = job.block_id
                     && target.block_id != job_block
                 {

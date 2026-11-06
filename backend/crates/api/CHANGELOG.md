@@ -38,6 +38,16 @@ commits (ADR-020 D5).
   holds no costume-dept role in → `403 ai-import.forbidden`. The block-less path
   therefore discloses nothing new about season existence: `GET /v1/seasons` is
   `Authenticated`-only and membership-unfiltered already.
+- **The block-less state is guarded, not exempt.** Making a block-less job
+  reachable would otherwise have opened a live authorization hole: the job gate
+  ran the season policy only when a block existed, and `apply_ai_import` calls it
+  as its ONLY authorization check — so any authenticated caller could apply into
+  an episode of a season they hold no role in. `authorize_ai_job` now scopes on
+  the job's TARGET season (the block's season only as the pre-#771 fallback), and
+  the apply refuses an unattached target with `409 ai-import.target-missing`
+  (S1 `season_id`) instead of skipping the CWE-639 guard. A PRESENT but unreadable
+  or unparsable `X-Active-Block` is a `400`, never a silent fall-through to the
+  block-less arm (CodeRabbit review).
 - `AiImportTarget.block_number` is nullable on the wire (see `core` 0.58.0 →
   0.59.0); generated Dart client regenerated and bumped (`breakdown_api` 1.1.0 →
   1.2.0).

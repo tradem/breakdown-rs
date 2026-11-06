@@ -11138,6 +11138,12 @@ x-code-registry:
   status: 409
   title: AI import job is not in a deletable state
   type: https://docs.breakdown.example/problems/ai-import.job-not-deletable
+- code: ai-import.target-missing
+  extensions:
+  - season_id
+  status: 409
+  title: AI import job has no target block yet
+  type: https://docs.breakdown.example/problems/ai-import.target-missing
 - code: ai-import.scope-mismatch
   extensions: []
   status: 409
