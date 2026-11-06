@@ -155,14 +155,14 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
 
 ## 4. Docs: the decision, the screen, the copy — size S
 
-- [ ] 4.1 ADR: "Authorization scope of a target-less AI import" — the four
+- [x] 4.1 ADR: "Authorization scope of a target-less AI import" — the four
       decisions, F1 and its closure, the existence-oracle answer.
-- [ ] 4.2 `docs/design/screens/ai-import-submit.md`: the adopt/create/frozen
+- [x] 4.2 `docs/design/screens/ai-import-submit.md`: the adopt/create/frozen
       target states + Salt wireframe update.
-- [ ] 4.3 `docs/design/screens/ai-import-jobs.md` + the preview section: the
+- [x] 4.3 `docs/design/screens/ai-import-jobs.md` + the preview section: the
       "target block not chosen yet" state and the attach action.
-- [ ] 4.4 `docs/design/glossary.md`: the new copy keys and any new label/icon.
-- [ ] 4.5 `backend/docs/operations/runbooks.md`: one operator note — a job that
+- [x] 4.4 `docs/design/glossary.md`: the new copy keys and any new label/icon.
+- [x] 4.5 `backend/docs/operations/runbooks.md`: one operator note — a job that
       answers `ai-import.target-missing` needs its target attached before an
       apply; the dev data reset does not resurrect it.
 

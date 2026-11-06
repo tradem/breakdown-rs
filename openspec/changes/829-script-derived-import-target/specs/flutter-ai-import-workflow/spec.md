@@ -104,6 +104,18 @@ different target needs a new import.
 - **THEN** the target card shows the locked state with its reason and offers no
   target action
 
+#### Scenario: The locked reason survives an attached target
+- **WHEN** the job's target is already attached and the job was applied, or a
+  group target is resolved
+- **THEN** the card still states WHY the target is locked instead of rendering
+  nothing
+
+#### Scenario: A block-less schedule preview can still choose its target
+- **WHEN** the payload carries no script block and the job carries no target
+  block (a block-less schedule import)
+- **THEN** the target actions render without a summary line, so the block can be
+  chosen and the apply can become available
+
 #### Scenario: The lock is explained, not silent
 - **WHEN** the locked card is rendered
 - **THEN** it names the cause and states that changing the target requires a new
