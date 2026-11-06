@@ -6223,17 +6223,43 @@ pub async fn revoke_settings<P: Ports>(
     Ok((StatusCode::OK, Json(version)))
 }
 
-async fn authorize_ai_block<P: Ports>(
+/// The resolved write target of an AI upload (issues #771 + #829).
+///
+/// Two arms, because the target may be named either way:
+///
+/// - [`Self::Block`] — the historical path: `X-Active-Block` names the block the
+///   rows land in, and its owning season is the authorization scope.
+/// - [`Self::Season`] — issue #829: the caller declared only its season, so the
+///   job starts block-less and the block is attached later. The scope is the
+///   declared season, evaluated with the SAME season-typed predicate as the
+///   block arm (the block was never the authorization scope — it selected one).
+///
+/// Keeping the two arms apart is what keeps the rest of the handler honest: the
+/// snapshot, the stored `block_id` and the utoipa docs branch on it instead of
+/// guessing from an `Option`.
+enum AiUploadTarget {
+    Block(breakdown_core::block::BlockView),
+    Season(SeasonView),
+}
+
+/// Resolve and authorize an AI upload's write target (issues #771 + #829).
+///
+/// `X-Active-Block` stays the preferred target and keeps its exact previous
+/// semantics when present. When it is absent the upload may instead declare its
+/// season (`X-Declared-Season`), which then becomes the authorization scope —
+/// and that declaration is REQUIRED: an upload with neither header is a client
+/// bug, answered as such before anything is stored.
+async fn authorize_ai_upload_target<P: Ports>(
     state: &AppState<P>,
     current_user: &CurrentUser,
     headers: &HeaderMap,
-) -> Result<breakdown_core::block::BlockView, ApiError> {
-    let raw = headers
-        .get("x-active-block")
+) -> Result<AiUploadTarget, ApiError> {
+    let Some(raw) = headers
+        .get(ACTIVE_BLOCK_HEADER)
         .and_then(|value| value.to_str().ok())
-        .ok_or(ApiError::BadRequest(
-            "X-Active-Block header is required for AI import",
-        ))?;
+    else {
+        return authorize_ai_declared_season(state, current_user, headers).await;
+    };
     let uuid =
         Uuid::parse_str(raw).map_err(|_| ApiError::BadRequest("invalid X-Active-Block header"))?;
     let block = state.ports.block_repo().find_by_id(uuid).await?;
@@ -6252,25 +6278,83 @@ async fn authorize_ai_block<P: Ports>(
     if decision != PolicyDecision::Allow {
         return Err(forbidden_ai_job());
     }
-    Ok(block)
+    Ok(AiUploadTarget::Block(block))
+}
+
+/// The block-less arm of [`authorize_ai_upload_target`] (issue #829).
+///
+/// Resolves the declared season and gates on the identical season predicate, so
+/// the block-less path grants no reach the block path did not: the scope is the
+/// season in both cases. The declared header is mandatory here (there is no
+/// other scope left), and an unparsable value is a `400` rather than the
+/// advisory degradation the block path applies to the same header — with no
+/// block there is nothing left to degrade to.
+async fn authorize_ai_declared_season<P: Ports>(
+    state: &AppState<P>,
+    current_user: &CurrentUser,
+    headers: &HeaderMap,
+) -> Result<AiUploadTarget, ApiError> {
+    let raw = headers
+        .get(DECLARED_SEASON_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(ApiError::BadRequest(
+            "X-Active-Block or X-Declared-Season header is required for AI import",
+        ))?;
+    let uuid = Uuid::parse_str(raw)
+        .map_err(|_| ApiError::BadRequest("invalid X-Declared-Season header"))?;
+    let season = state.ports.season_repo().find_by_id(uuid).await?;
+    // AUTHZ-GATE: a block-less upload is season-scoped — the caller must hold
+    // an active piece-dept role in the DECLARED season, the same predicate the
+    // block arm evaluates on the block's owning season.
+    let decision = state
+        .authorization_policy
+        .authorize_season_result(&SeasonAuthContext {
+            actor: current_user.sub.clone(),
+            season_id: SeasonId::from_uuid(season.id),
+            action: Action::Write,
+        })
+        .await?;
+    if decision != PolicyDecision::Allow {
+        return Err(forbidden_ai_job());
+    }
+    Ok(AiUploadTarget::Season(season))
 }
 
 /// The optional season the upload DECLARES it is importing into (issue #771).
 ///
-/// The write target stays the `X-Active-Block` header — this is an advisory
-/// declaration the client sends from the season it resolved in the UI, so a
-/// contradictory pair ("screen says season B, header carries season A's
-/// block") is refused instead of importing into the wrong season. A header
-/// rather than a body field because the upload body IS the document (same
-/// constraint as `X-Document-Filename`).
+/// The write target stays the `X-Active-Block` header when that is sent — this
+/// is an advisory declaration the client sends from the season it resolved in
+/// the UI, so a contradictory pair ("screen says season B, header carries
+/// season A's block") is refused instead of importing into the wrong season. A
+/// header rather than a body field because the upload body IS the document
+/// (same constraint as `X-Document-Filename`).
+///
+/// Since issue #829 it is ALSO the target itself for a block-less upload: with
+/// no `X-Active-Block` there is no other target and no other scope, so the
+/// header becomes required instead of advisory.
 const DECLARED_SEASON_HEADER: &str = "x-declared-season";
+
+/// The block whose season is the AI-import scope (issue #771).
+///
+/// Optional since issue #829: an upload that omits it must declare
+/// [`DECLARED_SEASON_HEADER`] instead.
+const ACTIVE_BLOCK_HEADER: &str = "x-active-block";
 
 /// Wire documentation of [`DECLARED_SEASON_HEADER`] — one text for both upload
 /// routes, so the two cannot drift.
 const DECLARED_SEASON_HEADER_DOC: &str = "Optional season id the client resolved as the \
-    import target (issue #771). The server compares it with the season owning the \
-    `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; \
-    the header stays the authoritative write target.";
+    import target (issue #771). With `X-Active-Block` the server compares it with the \
+    season owning that block and refuses a mismatch with 409 `ai-import.scope-mismatch`. \
+    Without `X-Active-Block` the header becomes REQUIRED (issue #829): it is then the \
+    upload's authorization scope, the job starts block-less, and the block is attached \
+    later via `PUT /v1/ai-import/jobs/{id}/target`.";
+
+/// Wire documentation of [`ACTIVE_BLOCK_HEADER`] — shared by both upload routes.
+const ACTIVE_BLOCK_HEADER_DOC: &str = "Optional block whose owning season scopes this upload \
+    (issue #771). Optional since issue #829: omit it and send `X-Declared-Season` to start a \
+    block-less job whose target block is attached later. Missing both headers is a 400.";
 
 /// Build the job's target snapshot (issue #771) from the read models the API
 /// edge already resolves: the block's own number plus its season's number.
@@ -6292,7 +6376,7 @@ async fn resolve_ai_import_target<P: Ports>(
         Ok(season) => Some(breakdown_core::ai::AiImportTarget {
             season_id: block.season_id,
             season_number: season.number,
-            block_number: block.number,
+            block_number: Some(block.number),
         }),
         Err(error) => {
             tracing::warn!(
@@ -6302,6 +6386,20 @@ async fn resolve_ai_import_target<P: Ports>(
             );
             None
         }
+    }
+}
+
+/// The block-less arm's target snapshot (issue #829).
+///
+/// Unlike [`resolve_ai_import_target`] this is NOT best-effort: the declared
+/// season IS the job's authorization scope, so its number has to be known — and
+/// it already is, because the season row was loaded and authorized before the
+/// job row exists. The block number stays `None` until the attach.
+fn season_only_ai_import_target(season: &SeasonView) -> breakdown_core::ai::AiImportTarget {
+    breakdown_core::ai::AiImportTarget {
+        season_id: SeasonId::from_uuid(season.id),
+        season_number: season.number,
+        block_number: None,
     }
 }
 
@@ -6421,12 +6519,23 @@ async fn enqueue_ai_upload<P: Ports>(
             ));
         }
     };
-    let block = authorize_ai_block(state, &current_user, &headers).await?;
+    let upload_target = authorize_ai_upload_target(state, &current_user, &headers).await?;
     // Issue #771: a client that resolved an explicit import target declares
     // the season it intends to import into. The header stays authoritative, so
     // a contradiction is refused here — before a document is stored or a job
     // row exists — instead of writing the import into another season's block.
-    check_declared_ai_season(&headers, &block)?;
+    // A block-less upload (#829) has already resolved and authorized its season
+    // from that same header, so there is nothing left to contradict.
+    let (block_id, target) = match &upload_target {
+        AiUploadTarget::Block(block) => {
+            check_declared_ai_season(&headers, block)?;
+            (
+                Some(BlockId::from_uuid(block.id)),
+                resolve_ai_import_target(state, block).await,
+            )
+        }
+        AiUploadTarget::Season(season) => (None, Some(season_only_ai_import_target(season))),
+    };
     // Use the bound resolved once into AppState (shared with the extractor
     // limit in `routes()`); no per-request environment reads.
     if body.len() as u64 > state.ai_import_max_document_bytes {
@@ -6436,7 +6545,6 @@ async fn enqueue_ai_upload<P: Ports>(
     }
     let digest = digest_hex(&body);
     let job_id = AiImportJobId::new();
-    let target = resolve_ai_import_target(state, &block).await;
     let source_handle = state
         .ports
         .ai_document_store()
@@ -6450,7 +6558,9 @@ async fn enqueue_ai_upload<P: Ports>(
             user_id: current_user.sub.clone(),
             document_kind: kind,
             source_format,
-            block_id: Some(BlockId::from_uuid(block.id)),
+            // #829: `None` for a block-less upload — the block is attached
+            // later, and the queue's dedup key does not include it.
+            block_id,
             target,
             dedup_key: ai_dedup_key(&current_user.sub, kind, source_format, &digest),
             document_digest: digest,
@@ -6556,6 +6666,7 @@ fn percent_escapes_are_valid(raw: &str) -> bool {
     post,
     path = "/ai-import/scripts",
     params(
+        ("X-Active-Block" = Option<String>, Header, description = ACTIVE_BLOCK_HEADER_DOC),
         ("X-Document-Filename" = Option<String>, Header, description = DOCUMENT_FILENAME_HEADER_DOC),
         ("X-Declared-Season" = Option<String>, Header, description = DECLARED_SEASON_HEADER_DOC)
     ),
@@ -6563,7 +6674,8 @@ fn percent_escapes_are_valid(raw: &str) -> bool {
     responses(
         (status = 200, body = AiImportJobId, description = "Duplicate upload — existing job id"),
         (status = 202, body = AiImportJobId, description = "Job enqueued"),
-        (status = 404, body = ProblemDetails, description = "AI import disabled"),
+        (status = 400, body = ProblemDetails, description = "Neither X-Active-Block nor X-Declared-Season was sent"),
+        (status = 404, body = ProblemDetails, description = "AI import disabled, or the declared season does not exist"),
         (status = 409, body = ProblemDetails, description = "Declared season does not own the active block"),
         (status = 413, body = ProblemDetails, description = "Document exceeds the configured size limit"),
         (status = 415, body = ProblemDetails, description = "Unsupported media type"),
@@ -6590,6 +6702,7 @@ pub async fn upload_ai_script<P: Ports>(
     post,
     path = "/ai-import/schedules",
     params(
+        ("X-Active-Block" = Option<String>, Header, description = ACTIVE_BLOCK_HEADER_DOC),
         ("X-Document-Filename" = Option<String>, Header, description = DOCUMENT_FILENAME_HEADER_DOC),
         ("X-Declared-Season" = Option<String>, Header, description = DECLARED_SEASON_HEADER_DOC)
     ),
@@ -6602,7 +6715,8 @@ pub async fn upload_ai_script<P: Ports>(
     responses(
         (status = 200, body = AiImportJobId, description = "Duplicate upload — existing job id"),
         (status = 202, body = AiImportJobId, description = "Job enqueued"),
-        (status = 404, body = ProblemDetails, description = "AI import disabled"),
+        (status = 400, body = ProblemDetails, description = "Neither X-Active-Block nor X-Declared-Season was sent"),
+        (status = 404, body = ProblemDetails, description = "AI import disabled, or the declared season does not exist"),
         (status = 409, body = ProblemDetails, description = "Declared season does not own the active block"),
         (status = 413, body = ProblemDetails, description = "Document exceeds the configured size limit"),
         (status = 415, body = ProblemDetails, description = "Unsupported media type"),

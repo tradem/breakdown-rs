@@ -28,6 +28,20 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **An AI upload may target a SEASON instead of a block (issue #829, PR 1/4).**
+  The import target used to be "the block active right now": `X-Active-Block` was
+  required and its owning season was the authorization scope. It is now optional.
+  A caller may send `X-Declared-Season` alone, which becomes the scope — the same
+  season-typed predicate (`authorize_season_result(Action::Write)`) the block path
+  evaluated anyway, so no new capability is granted and no existence information
+  is disclosed (`GET /v1/seasons` is already `Authenticated`-only and
+  membership-unfiltered) — and the job starts block-less with a target that names
+  its season and no block. This is the contract half of "take the block from the
+  script" (#827/`#828` provide the value and the UI); the attach endpoint that
+  fills the block in follows in PR 2/4, which is also where the two new problem
+  codes and the `authorize_ai_job` scope fix land. `AiImportTarget.block_number` is
+  nullable on the wire; crates: `core` 0.58.0 → 0.59.0, `infra` 0.68.0 → 0.69.0,
+  `api` 0.56.0 → 0.57.0; generated Dart client `breakdown_api` 1.1.0 → 1.2.0.
 - **The AI import reads and publishes the script's own BLOCK (issue #827).** The
   import knew and showed the episode it extracted but never the block, so an
   import into the wrong block was only discovered at apply time (or never) —

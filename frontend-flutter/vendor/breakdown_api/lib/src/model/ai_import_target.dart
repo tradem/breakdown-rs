@@ -10,20 +10,20 @@ import 'package:built_value/serializer.dart';
 
 part 'ai_import_target.g.dart';
 
-/// The production target an AI import writes into, snapshotted at dispatch (issue #771).  A job's authoritative write target is the block in `X-Active-Block`; the season follows from that block. Nothing on the wire named the target, so a client could only *believe* it knew where its rows would land — the reported defect was a freshly created season whose import silently went into the previous season's block. This snapshot records WHERE the upload declared it was going, resolved at the API edge from the read models (`GET /v1/blocks/{id}` + `GET /v1/seasons/{id}`) — never invented, and never from a second projection lookup inside the write path (CQRS boundary: the handler is the legitimate consumer).  The numbers are the production-global identities a user speaks in (`Season {n}` / `Block {n}`); they are display metadata, so a failed season read degrades the whole snapshot to `None` rather than blocking the upload.
+/// The production target an AI import writes into, snapshotted at dispatch (issue #771).  A job's authoritative write target is the block in `X-Active-Block`; the season follows from that block. Nothing on the wire named the target, so a client could only *believe* it knew where its rows would land — the reported defect was a freshly created season whose import silently went into the previous season's block. This snapshot records WHERE the upload declared it was going, resolved at the API edge from the read models (`GET /v1/blocks/{id}` + `GET /v1/seasons/{id}`) — never invented, and never from a second projection lookup inside the write path (CQRS boundary: the handler is the legitimate consumer).  The numbers are the production-global identities a user speaks in (`Season {n}` / `Block {n}`); they are display metadata, so a failed season read degrades the whole snapshot to `None` rather than blocking the upload.  Since issue #829 the target may name a season **without** a block: an upload is allowed to omit `X-Active-Block` and declare only `X-Declared-Season`, in which case the job starts block-less and the block is attached later (`PUT /v1/ai-import/jobs/{id}/target`). The season pair is then always known while [`Self::block_number`] stays `None` until the attach.
 ///
 /// Properties:
-/// * [blockNumber] - The block's production-global number (the block itself is [`AiImportJob::block_id`]).
-/// * [seasonId] - The season the imported rows land in (the owning season of the job's block).
+/// * [blockNumber] - The block's production-global number (the block itself is [`AiImportJob::block_id`]). `None` means \"no target block chosen yet\" (issue #829) — honest absence, never `0` and never a placeholder.
+/// * [seasonId] - The season the imported rows land in (the owning season of the job's block, or the declared season of a block-less upload).
 /// * [seasonNumber] - The season's production-global number.
 @BuiltValue()
 abstract class AiImportTarget
     implements Built<AiImportTarget, AiImportTargetBuilder> {
-  /// The block's production-global number (the block itself is [`AiImportJob::block_id`]).
+  /// The block's production-global number (the block itself is [`AiImportJob::block_id`]). `None` means \"no target block chosen yet\" (issue #829) — honest absence, never `0` and never a placeholder.
   @BuiltValueField(wireName: r'block_number')
-  int get blockNumber;
+  int? get blockNumber;
 
-  /// The season the imported rows land in (the owning season of the job's block).
+  /// The season the imported rows land in (the owning season of the job's block, or the declared season of a block-less upload).
   @BuiltValueField(wireName: r'season_id')
   String get seasonId;
 
@@ -57,11 +57,13 @@ class _$AiImportTargetSerializer
     AiImportTarget object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'block_number';
-    yield serializers.serialize(
-      object.blockNumber,
-      specifiedType: const FullType(int),
-    );
+    if (object.blockNumber != null) {
+      yield r'block_number';
+      yield serializers.serialize(
+        object.blockNumber,
+        specifiedType: const FullType.nullable(int),
+      );
+    }
     yield r'season_id';
     yield serializers.serialize(
       object.seasonId,
@@ -100,8 +102,9 @@ class _$AiImportTargetSerializer
         case r'block_number':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(int),
-          ) as int;
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
           result.blockNumber = valueDes;
           break;
         case r'season_id':

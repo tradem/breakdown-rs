@@ -8,7 +8,7 @@ part of 'ai_import_target.dart';
 
 class _$AiImportTarget extends AiImportTarget {
   @override
-  final int blockNumber;
+  final int? blockNumber;
   @override
   final String seasonId;
   @override
@@ -18,9 +18,7 @@ class _$AiImportTarget extends AiImportTarget {
       (AiImportTargetBuilder()..update(updates))._build();
 
   _$AiImportTarget._(
-      {required this.blockNumber,
-      required this.seasonId,
-      required this.seasonNumber})
+      {this.blockNumber, required this.seasonId, required this.seasonNumber})
       : super._();
   @override
   AiImportTarget rebuild(void Function(AiImportTargetBuilder) updates) =>
@@ -105,8 +103,7 @@ class AiImportTargetBuilder
   _$AiImportTarget _build() {
     final _$result = _$v ??
         _$AiImportTarget._(
-          blockNumber: BuiltValueNullFieldError.checkNotNull(
-              blockNumber, r'AiImportTarget', 'blockNumber'),
+          blockNumber: blockNumber,
           seasonId: BuiltValueNullFieldError.checkNotNull(
               seasonId, r'AiImportTarget', 'seasonId'),
           seasonNumber: BuiltValueNullFieldError.checkNotNull(

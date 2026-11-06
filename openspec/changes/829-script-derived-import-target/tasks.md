@@ -13,45 +13,50 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
 
 ## 1. Backend: the block-less upload (contract + authorization) — size M
 
-- [ ] 1.1 `core/ai/views.rs`: `AiImportTarget.block_number: Option<i32>`
+- [x] 1.1 `core/ai/views.rs`: `AiImportTarget.block_number: Option<i32>`
       (`None` = "no target block chosen yet", never `0`); doc comment widened.
-- [ ] 1.2 `core/ai/views.rs`: `AiImportTargetRequest { block_id: BlockId }` for
-      the attach route (additive type, no reuse of the snapshot).
-- [ ] 1.3 `core/error_registry.rs`: two registered codes —
-      `ai-import.target-missing` (`409`, S1 extension `season_id`) and
-      `ai-import.target-immutable` (`409`, S1 extensions `applied`,
-      `existing_block_id`); registry-count test updated.
-- [ ] 1.4 `api/handlers/mod.rs`: split `authorize_ai_block` (6226) into
+- [ ] 1.2 **moved to PR 2** `core/ai/views.rs`:
+      `AiImportTargetRequest { block_id: BlockId }` — the type exists for the
+      attach route, which PR 2 adds; introducing it in PR 1 would ship an unused
+      request type.
+- [ ] 1.3 **moved to PR 2** `core/error_registry.rs`: the two registered codes
+      `ai-import.target-missing` / `ai-import.target-immutable` — both are
+      *produced* by PR 2 (attach + apply precondition); registering them earlier
+      would ship codes nothing can emit.
+- [x] 1.4 `api/handlers/mod.rs`: split `authorize_ai_block` into
       `authorize_ai_upload_target` returning
       `AiUploadTarget::{Block(BlockView), Season(SeasonView)}`:
       `X-Active-Block` present → today's path verbatim (block load, season
       policy, `check_declared_ai_season`); absent → declared season required,
       season resolved, `authorize_season_result(Action::Write)` on it, both
       `// AUTHZ-GATE:`-commented.
-- [ ] 1.5 `api/handlers/mod.rs`: both-absent answers today's `400` (message
+- [x] 1.5 `api/handlers/mod.rs`: both-absent answers today's `400` (message
       widened); unknown declared season answers the established season-not-found
       surface.
-- [ ] 1.6 `api/handlers/mod.rs`: `enqueue_ai_upload` (6397) stores
+- [x] 1.6 `api/handlers/mod.rs`: `enqueue_ai_upload` stores
       `block_id: None` + the season-only target for the season arm;
       `resolve_ai_import_target` gains the season-only variant.
-- [ ] 1.7 `api/handlers/mod.rs`: utoipa — `X-Active-Block` documented optional,
-      `X-Declared-Season` documented as required when it is absent; the two new
-      codes on the upload routes.
-- [ ] 1.8 `infra/ai/queue.rs`: the enqueue binding already persists what it is
+- [x] 1.7 `api/handlers/mod.rs`: utoipa — `X-Active-Block` documented optional,
+      `X-Declared-Season` documented as required when it is absent, `400` on
+      the routes (the two new codes follow with PR 2).
+- [x] 1.8 `infra/ai/queue.rs`: the enqueue binding already persists what it is
       given (`target.as_ref().map(|t| t.block_number)` binds `NULL` for a
       season-only target) — relax the stated "all three columns stay NULL
       together" discipline to "the season pair stays together, the block number
       is written when the block is known", and widen the `target_block_number`
       column `COMMENT` in a comment-only migration (no schema change: the three
       `target_*` columns are already nullable).
-- [ ] 1.8a Verify the pre-existing test that asserts all-or-nothing target
-      persistence is re-stated as season-pair-together, not deleted.
-- [ ] 1.9 de/en Fluent copy + golden problems for the two new codes.
-- [ ] 1.10 Tests: matrix from `design.md` D1 (block-less enqueue, 400, 403 on a
-      foreign season, 404 on an unknown one, unchanged block path, unchanged
-      `409 ai-import.scope-mismatch`); `AiImportTarget` wire test in both
-      directions (`Some` → `null`).
-- [ ] 1.11 `openapi.yaml` regenerated (`UPDATE_OPENAPI=1 … openapi_drift`),
+- [x] 1.8a `decode_import_target` re-stated to season-pair-together (`infra`
+      decodes a snapshot whose block number is NULL; the all-or-nothing season
+      rule is kept).
+- [ ] 1.9 **moved to PR 2** de/en Fluent copy + golden problems for the two new
+      codes.
+- [x] 1.10 Tests: matrix from `design.md` D1 (block-less enqueue, 400 on neither/blank
+      header, 403 without a role, 404 on an unknown season, unchanged block path
+      incl. `409 ai-import.scope-mismatch`) in
+      `crates/api/tests/handler_ai_import_ports.rs`; `AiImportTarget` wire test in
+      both directions (`Some` → `null`) via the regenerated contract.
+- [x] 1.11 `openapi.yaml` regenerated (`UPDATE_OPENAPI=1 … openapi_drift`),
       Dart client regenerated (`CLIENT_VERSION` 1.2.0) **and the Flutter tree
       kept compiling in the same commit** — the `target.blockNumber` widening to
       `int?` is a compile-level adoption, never a behaviour change (the UI

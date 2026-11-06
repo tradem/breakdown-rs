@@ -742,18 +742,27 @@ components:
         The numbers are the production-global identities a user speaks in
         (`Season {n}` / `Block {n}`); they are display metadata, so a failed season
         read degrades the whole snapshot to `None` rather than blocking the upload.
+
+        Since issue #829 the target may name a season **without** a block: an upload
+        is allowed to omit `X-Active-Block` and declare only `X-Declared-Season`, in
+        which case the job starts block-less and the block is attached later
+        (`PUT /v1/ai-import/jobs/{id}/target`). The season pair is then always
+        known while [`Self::block_number`] stays `None` until the attach.
       properties:
         block_number:
           description: |-
             The block's production-global number (the block itself is
-            [`AiImportJob::block_id`]).
+            [`AiImportJob::block_id`]). `None` means "no target block chosen yet"
+            (issue #829) — honest absence, never `0` and never a placeholder.
           format: int32
-          type: integer
+          type:
+          - integer
+          - 'null'
         season_id:
           $ref: '#/components/schemas/SeasonId'
           description: |-
             The season the imported rows land in (the owning season of the job's
-            block).
+            block, or the declared season of a block-less upload).
         season_number:
           description: The season's production-global number.
           format: int32
@@ -761,7 +770,6 @@ components:
       required:
       - season_id
       - season_number
-      - block_number
       type: object
     AiPreviewPayload:
       description: |-
@@ -5785,6 +5793,14 @@ paths:
     post:
       operationId: upload_ai_schedule
       parameters:
+      - description: 'Optional block whose owning season scopes this upload (issue #771). Optional since issue #829: omit it and send `X-Declared-Season` to start a block-less job whose target block is attached later. Missing both headers is a 400.'
+        in: header
+        name: X-Active-Block
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
       - description: 'Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job''s `source_file_name`.'
         in: header
         name: X-Document-Filename
@@ -5793,7 +5809,7 @@ paths:
           type:
           - string
           - 'null'
-      - description: 'Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.'
+      - description: 'Optional season id the client resolved as the import target (issue #771). With `X-Active-Block` the server compares it with the season owning that block and refuses a mismatch with 409 `ai-import.scope-mismatch`. Without `X-Active-Block` the header becomes REQUIRED (issue #829): it is then the upload''s authorization scope, the job starts block-less, and the block is attached later via `PUT /v1/ai-import/jobs/{id}/target`.'
         in: header
         name: X-Declared-Season
         required: false
@@ -5820,6 +5836,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/AiImportJobId'
           description: Job enqueued
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Neither X-Active-Block nor X-Declared-Season was sent
         '403':
           content:
             application/problem+json:
@@ -5831,7 +5853,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: AI import disabled
+          description: AI import disabled, or the declared season does not exist
         '409':
           content:
             application/problem+json:
@@ -5856,6 +5878,14 @@ paths:
     post:
       operationId: upload_ai_script
       parameters:
+      - description: 'Optional block whose owning season scopes this upload (issue #771). Optional since issue #829: omit it and send `X-Declared-Season` to start a block-less job whose target block is attached later. Missing both headers is a 400.'
+        in: header
+        name: X-Active-Block
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
       - description: 'Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job''s `source_file_name`.'
         in: header
         name: X-Document-Filename
@@ -5864,7 +5894,7 @@ paths:
           type:
           - string
           - 'null'
-      - description: 'Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.'
+      - description: 'Optional season id the client resolved as the import target (issue #771). With `X-Active-Block` the server compares it with the season owning that block and refuses a mismatch with 409 `ai-import.scope-mismatch`. Without `X-Active-Block` the header becomes REQUIRED (issue #829): it is then the upload''s authorization scope, the job starts block-less, and the block is attached later via `PUT /v1/ai-import/jobs/{id}/target`.'
         in: header
         name: X-Declared-Season
         required: false
@@ -5891,6 +5921,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/AiImportJobId'
           description: Job enqueued
+        '400':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Neither X-Active-Block nor X-Declared-Season was sent
         '403':
           content:
             application/problem+json:
@@ -5902,7 +5938,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: AI import disabled
+          description: AI import disabled, or the declared season does not exist
         '409':
           content:
             application/problem+json:

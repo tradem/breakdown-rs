@@ -16,6 +16,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.59.0] - Unreleased
+
+### Changed — the import target may name a season without a block (issue #829)
+
+- `AiImportTarget::block_number` is `Option<i32>`. A block-less upload (the
+  caller sent `X-Declared-Season` and no `X-Active-Block`) starts a job whose
+  target names its season — always known, because that season IS the upload's
+  authorization scope — with `block_number: None` until the target block is
+  attached. `None` is honest absence ("no target block chosen yet"), never `0`
+  and never a placeholder, mirroring `AiImportProgress::block_number`'s contract.
+  Nothing changes for a block-scoped upload: the snapshot still carries all three
+  values, and the decade-long rule that the snapshot is display metadata (never a
+  second write target) is untouched. Additive in the read direction — a stored
+  frame renders `null` where a number used to be.
+
 ## [0.58.0] - Unreleased
 
 ### Added — the script's own block number, next to the episodes (issue #827)

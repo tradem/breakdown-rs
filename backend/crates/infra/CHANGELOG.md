@@ -16,6 +16,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.69.0] - Unreleased
+
+### Changed — a target snapshot may carry its season without a block (issue #829)
+
+- `decode_import_target` keeps the SEASON pair's all-or-nothing rule and lets
+  `target_block_number` stay `NULL` on its own: a block-less upload persists the
+  season pair from the first frame and gains the block number when the target is
+  attached. The new migration `20261106000001_ai_import_target_block_optional` is
+  comment-only — the three `target_*` columns were nullable from the start, so no
+  schema change (and therefore no backfill or data risk) is involved.
+- The enqueue binding already wrote what it was given; only its comment claimed
+  "all three columns stay NULL together", which is no longer true.
+
 ## [0.68.0] - Unreleased
 
 ### Added — the script's block number reaches the job progress (issue #827)

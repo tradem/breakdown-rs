@@ -11339,8 +11339,9 @@ class HandlersApi {
   ///
   /// Parameters:
   /// * [body]
+  /// * [xActiveBlock] - Optional block whose owning season scopes this upload (issue #771). Optional since issue #829: omit it and send `X-Declared-Season` to start a block-less job whose target block is attached later. Missing both headers is a 400.
   /// * [xDocumentFilename] - Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job's `source_file_name`.
-  /// * [xDeclaredSeason] - Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.
+  /// * [xDeclaredSeason] - Optional season id the client resolved as the import target (issue #771). With `X-Active-Block` the server compares it with the season owning that block and refuses a mismatch with 409 `ai-import.scope-mismatch`. Without `X-Active-Block` the header becomes REQUIRED (issue #829): it is then the upload's authorization scope, the job starts block-less, and the block is attached later via `PUT /v1/ai-import/jobs/{id}/target`.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -11352,6 +11353,7 @@ class HandlersApi {
   /// Throws [DioException] if API call or serialization fails
   Future<Response<String>> uploadAiSchedule({
     required String body,
+    String? xActiveBlock,
     String? xDocumentFilename,
     String? xDeclaredSeason,
     CancelToken? cancelToken,
@@ -11365,6 +11367,7 @@ class HandlersApi {
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
+        r'X-Active-Block': xActiveBlock,
         r'X-Document-Filename': xDocumentFilename,
         r'X-Declared-Season': xDeclaredSeason,
         ...?headers,
@@ -11434,8 +11437,9 @@ class HandlersApi {
   ///
   /// Parameters:
   /// * [body]
+  /// * [xActiveBlock] - Optional block whose owning season scopes this upload (issue #771). Optional since issue #829: omit it and send `X-Declared-Season` to start a block-less job whose target block is attached later. Missing both headers is a 400.
   /// * [xDocumentFilename] - Percent-encoded UTF-8 name of the uploaded document (issue #763). Optional: absent means the job carries no name. The server sanitizes it (basename only, no control characters, at most 200 characters) before storing it as the job's `source_file_name`.
-  /// * [xDeclaredSeason] - Optional season id the client resolved as the import target (issue #771). The server compares it with the season owning the `X-Active-Block` block and refuses a mismatch with 409 `ai-import.scope-mismatch`; the header stays the authoritative write target.
+  /// * [xDeclaredSeason] - Optional season id the client resolved as the import target (issue #771). With `X-Active-Block` the server compares it with the season owning that block and refuses a mismatch with 409 `ai-import.scope-mismatch`. Without `X-Active-Block` the header becomes REQUIRED (issue #829): it is then the upload's authorization scope, the job starts block-less, and the block is attached later via `PUT /v1/ai-import/jobs/{id}/target`.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -11447,6 +11451,7 @@ class HandlersApi {
   /// Throws [DioException] if API call or serialization fails
   Future<Response<String>> uploadAiScript({
     required String body,
+    String? xActiveBlock,
     String? xDocumentFilename,
     String? xDeclaredSeason,
     CancelToken? cancelToken,
@@ -11460,6 +11465,7 @@ class HandlersApi {
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
+        r'X-Active-Block': xActiveBlock,
         r'X-Document-Filename': xDocumentFilename,
         r'X-Declared-Season': xDeclaredSeason,
         ...?headers,

@@ -303,7 +303,7 @@ async fn upload_ai_script_snapshots_the_declared_target() {
         Some(AiImportTarget {
             season_id,
             season_number: 7,
-            block_number: 1,
+            block_number: Some(1),
         }),
         "the snapshot must name the resolved target, never a fabricated one"
     );
@@ -383,6 +383,228 @@ async fn upload_ai_script_ignores_an_unparsable_declared_season() {
 
     let (status, Json(_)) = result.expect("an unparsable declaration must not block the upload");
     assert_eq!(status, StatusCode::ACCEPTED);
+}
+
+/// Seed a season in which the test user holds an ACTIVE piece-dept role,
+/// WITHOUT seeding a block: the scope of a block-less upload (issue #829).
+///
+/// The season number is 7 (distinct from the stub `1`) so a test can tell a
+/// resolved number from a fabricated one, exactly like `seed_ai_block_access`.
+async fn seed_ai_season_access(ports: &FakePorts, season_id: SeasonId) -> ProjectId {
+    let project_id = ProjectId::new();
+    ports.season_repo.seasons.lock().await.insert(
+        season_id.0,
+        SeasonView {
+            id: season_id.0,
+            project_id,
+            number: 7,
+            title: Some("Target season".to_owned()),
+            archived: false,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    // The season policy resolves the role from the membership rows, so the
+    // synthetic block id is irrelevant here — this path has no block at all.
+    ports
+        .membership_repo
+        .seed_active(
+            BlockId::from_uuid(Uuid::now_v7()),
+            UserId::from_sub(TEST_SUB),
+            Role::CostumeDesigner,
+            season_id,
+            project_id,
+        )
+        .await;
+    project_id
+}
+
+/// A PDF upload request that declares ONLY its season — no `X-Active-Block`
+/// (issue #829). This is the shape a client sends when it imports "blind" and
+/// attaches the target block afterwards.
+fn pdf_headers_with_declared_season(season_id: SeasonId) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", HeaderValue::from_static("application/pdf"));
+    headers.insert(
+        "x-declared-season",
+        HeaderValue::from_str(&season_id.0.to_string()).expect("uuid is a valid header value"),
+    );
+    headers
+}
+
+/// Issue #829: an upload that names only its season starts a block-less job.
+/// The authorization scope is the declared season (the same season predicate the
+/// block path evaluates), and the stored target names the season with NO block
+/// number — never a fabricated one.
+#[tokio::test]
+async fn upload_ai_script_without_a_block_starts_a_block_less_job() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers_with_declared_season(season_id),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (status, Json(job_id)) = result.expect("a season-scoped upload must be accepted");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.block_id, None,
+        "a block-less upload must not invent a block; the target is attached later"
+    );
+    assert_eq!(
+        job.target,
+        Some(AiImportTarget {
+            season_id,
+            season_number: 7,
+            block_number: None,
+        }),
+        "the snapshot names the declared season and no block"
+    );
+}
+
+/// Issue #829: with no `X-Active-Block` there is no other scope, so the
+/// declaration becomes mandatory — an upload with neither header is a client
+/// bug answered before anything is stored.
+#[tokio::test]
+async fn upload_ai_script_without_any_target_header_is_refused() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let store = ports.ai_payload_store.clone();
+
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", HeaderValue::from_static("application/pdf"));
+
+    let problem = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        headers,
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect_err("an upload with neither header must be refused")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::BAD_REQUEST.as_u16());
+    assert!(
+        queue.jobs.lock().await.is_empty(),
+        "a refused upload must not leave a job row behind"
+    );
+    assert_eq!(
+        store.handle_count_for_test().await,
+        0,
+        "a refused upload must not store its source document"
+    );
+}
+
+/// Issue #829: a blank declaration is the same client bug as a missing one —
+/// with no block there is nothing left to degrade to (unlike the advisory
+/// degradation the same header gets on the block path).
+#[tokio::test]
+async fn upload_ai_script_refuses_a_blank_declared_season() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", HeaderValue::from_static("application/pdf"));
+    headers.insert("x-declared-season", HeaderValue::from_static("   "));
+
+    let problem = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        headers,
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect_err("a blank declared season cannot scope an upload")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::BAD_REQUEST.as_u16());
+    assert!(queue.jobs.lock().await.is_empty());
+}
+
+/// Issue #829: the block-less path is season-authorized exactly like the block
+/// path — a caller without the costume-dept role in the declared season is
+/// refused before a document is stored, so the missing block is not a way in.
+#[tokio::test]
+async fn upload_ai_script_refuses_a_declared_season_without_a_role() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let store = ports.ai_payload_store.clone();
+    // A season that exists but carries no membership for the caller.
+    let season_id = SeasonId::new();
+    ports.season_repo.seasons.lock().await.insert(
+        season_id.0,
+        SeasonView {
+            id: season_id.0,
+            project_id: ProjectId::new(),
+            number: 7,
+            title: None,
+            archived: false,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+
+    let problem = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers_with_declared_season(season_id),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect_err("a season without a costume role must not authorize an import")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-import.forbidden");
+    assert!(
+        queue.jobs.lock().await.is_empty(),
+        "a refused upload must not leave a job row behind"
+    );
+    assert_eq!(
+        store.handle_count_for_test().await,
+        0,
+        "a refused upload must not store its source document"
+    );
+}
+
+/// Issue #829: an unknown declared season answers the established season
+/// not-found surface — never a fabricated scope, and never a stored document.
+#[tokio::test]
+async fn upload_ai_script_refuses_an_unknown_declared_season() {
+    let mut ports = FakePorts::default();
+    // The fake answers a stub season for any id unless this is cleared, which
+    // would turn the 404 case into the 403 (no role) one.
+    ports.season_repo.season_exists = false;
+    let queue = ports.ai_import_queue.clone();
+    let store = ports.ai_payload_store.clone();
+    let unknown_season = SeasonId::new();
+
+    let problem = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers_with_declared_season(unknown_season),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect_err("an unknown season cannot scope an import")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::NOT_FOUND.as_u16());
+    assert_eq!(problem.code, "season.not-found");
+    assert!(queue.jobs.lock().await.is_empty());
+    assert_eq!(store.handle_count_for_test().await, 0);
 }
 
 /// Issue #763: an upload without the header stores `NULL` — an honest absence,
