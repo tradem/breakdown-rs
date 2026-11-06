@@ -2642,6 +2642,24 @@ abstract class AppLocalizations {
   /// **'Ziel-Block wählen'**
   String get aiImportTargetPickBlock;
 
+  /// No description provided for @aiImportTargetSwitchBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Block wechseln'**
+  String get aiImportTargetSwitchBlock;
+
+  /// No description provided for @aiImportTargetCreateBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Block anlegen'**
+  String get aiImportTargetCreateBlock;
+
+  /// No description provided for @aiImportTargetSeasonUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Staffel konnte nicht geladen werden. Versuch es erneut.'**
+  String get aiImportTargetSeasonUnavailable;
+
   /// No description provided for @aiImportTargetUnknownSeason.
   ///
   /// In de, this message translates to:

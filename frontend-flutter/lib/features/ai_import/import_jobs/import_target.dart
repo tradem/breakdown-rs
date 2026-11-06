@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../auth/active_block.dart';
@@ -52,3 +54,35 @@ Future<String?> aiImportSeasonNumber(Ref ref, String seasonId) async {
 ActiveScope? aiImportResolvedScope(
   AsyncValue<BlockScopeResolution>? resolution,
 ) => resolution?.value?.scope;
+
+/// The import target's full season row (issue #828).
+///
+/// The target card's "create block" affordance opens the SHARED create-block
+/// form, which takes a `SeasonView` and pre-fills the command's ids from it
+/// (CQRS boundary — never from a second projection lookup). So this resolves
+/// the row rather than hand-rolling a second form with a bare id:
+///
+/// * **cache first** — the normal case, because the user reached this screen
+///   through a season/block scope that was itself read from the cache (the
+///   cache-only number label [`aiImportSeasonNumber`] and the row share the
+///   same read);
+/// * **fetch on a miss** — the completed wizard's season, or a cold cache, is
+///   not a reason to refuse the affordance; the repository is the single owner
+///   of network + cache writes, so the row is fetched through it and cached.
+///
+/// `null` means the season genuinely could not be read (a transport failure):
+/// the card then reports that instead of opening a form it cannot fill.
+@riverpod
+Future<SeasonView?> aiImportSeasonView(Ref ref, String seasonId) async {
+  final repo = ref.watch(seasonRepositoryProvider);
+  final cached = await repo.readCached();
+  final hit = cached.match<SeasonView?>((_) => null, (rows) {
+    for (final row in rows) {
+      if (row.id == seasonId) return row;
+    }
+    return null;
+  });
+  if (hit != null) return hit;
+  final fetched = await repo.getAndCache(seasonId);
+  return fetched.match((_) => null, (row) => row);
+}

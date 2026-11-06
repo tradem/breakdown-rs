@@ -258,3 +258,168 @@ final class AiImportSeasonNumberFamily extends $Family
   @override
   String toString() => r'aiImportSeasonNumberProvider';
 }
+
+/// The import target's full season row (issue #828).
+///
+/// The target card's "create block" affordance opens the SHARED create-block
+/// form, which takes a `SeasonView` and pre-fills the command's ids from it
+/// (CQRS boundary — never from a second projection lookup). So this resolves
+/// the row rather than hand-rolling a second form with a bare id:
+///
+/// * **cache first** — the normal case, because the user reached this screen
+///   through a season/block scope that was itself read from the cache (the
+///   cache-only number label [`aiImportSeasonNumber`] and the row share the
+///   same read);
+/// * **fetch on a miss** — the completed wizard's season, or a cold cache, is
+///   not a reason to refuse the affordance; the repository is the single owner
+///   of network + cache writes, so the row is fetched through it and cached.
+///
+/// `null` means the season genuinely could not be read (a transport failure):
+/// the card then reports that instead of opening a form it cannot fill.
+
+@ProviderFor(aiImportSeasonView)
+final aiImportSeasonViewProvider = AiImportSeasonViewFamily._();
+
+/// The import target's full season row (issue #828).
+///
+/// The target card's "create block" affordance opens the SHARED create-block
+/// form, which takes a `SeasonView` and pre-fills the command's ids from it
+/// (CQRS boundary — never from a second projection lookup). So this resolves
+/// the row rather than hand-rolling a second form with a bare id:
+///
+/// * **cache first** — the normal case, because the user reached this screen
+///   through a season/block scope that was itself read from the cache (the
+///   cache-only number label [`aiImportSeasonNumber`] and the row share the
+///   same read);
+/// * **fetch on a miss** — the completed wizard's season, or a cold cache, is
+///   not a reason to refuse the affordance; the repository is the single owner
+///   of network + cache writes, so the row is fetched through it and cached.
+///
+/// `null` means the season genuinely could not be read (a transport failure):
+/// the card then reports that instead of opening a form it cannot fill.
+
+final class AiImportSeasonViewProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<SeasonView?>,
+          SeasonView?,
+          FutureOr<SeasonView?>
+        >
+    with $FutureModifier<SeasonView?>, $FutureProvider<SeasonView?> {
+  /// The import target's full season row (issue #828).
+  ///
+  /// The target card's "create block" affordance opens the SHARED create-block
+  /// form, which takes a `SeasonView` and pre-fills the command's ids from it
+  /// (CQRS boundary — never from a second projection lookup). So this resolves
+  /// the row rather than hand-rolling a second form with a bare id:
+  ///
+  /// * **cache first** — the normal case, because the user reached this screen
+  ///   through a season/block scope that was itself read from the cache (the
+  ///   cache-only number label [`aiImportSeasonNumber`] and the row share the
+  ///   same read);
+  /// * **fetch on a miss** — the completed wizard's season, or a cold cache, is
+  ///   not a reason to refuse the affordance; the repository is the single owner
+  ///   of network + cache writes, so the row is fetched through it and cached.
+  ///
+  /// `null` means the season genuinely could not be read (a transport failure):
+  /// the card then reports that instead of opening a form it cannot fill.
+  AiImportSeasonViewProvider._({
+    required AiImportSeasonViewFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiImportSeasonViewProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiImportSeasonViewHash();
+
+  @override
+  String toString() {
+    return r'aiImportSeasonViewProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<SeasonView?> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<SeasonView?> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiImportSeasonView(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiImportSeasonViewProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiImportSeasonViewHash() =>
+    r'817e9abac2f9979834c13f85cc27ee8fae73ad88';
+
+/// The import target's full season row (issue #828).
+///
+/// The target card's "create block" affordance opens the SHARED create-block
+/// form, which takes a `SeasonView` and pre-fills the command's ids from it
+/// (CQRS boundary — never from a second projection lookup). So this resolves
+/// the row rather than hand-rolling a second form with a bare id:
+///
+/// * **cache first** — the normal case, because the user reached this screen
+///   through a season/block scope that was itself read from the cache (the
+///   cache-only number label [`aiImportSeasonNumber`] and the row share the
+///   same read);
+/// * **fetch on a miss** — the completed wizard's season, or a cold cache, is
+///   not a reason to refuse the affordance; the repository is the single owner
+///   of network + cache writes, so the row is fetched through it and cached.
+///
+/// `null` means the season genuinely could not be read (a transport failure):
+/// the card then reports that instead of opening a form it cannot fill.
+
+final class AiImportSeasonViewFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<SeasonView?>, String> {
+  AiImportSeasonViewFamily._()
+    : super(
+        retry: null,
+        name: r'aiImportSeasonViewProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The import target's full season row (issue #828).
+  ///
+  /// The target card's "create block" affordance opens the SHARED create-block
+  /// form, which takes a `SeasonView` and pre-fills the command's ids from it
+  /// (CQRS boundary — never from a second projection lookup). So this resolves
+  /// the row rather than hand-rolling a second form with a bare id:
+  ///
+  /// * **cache first** — the normal case, because the user reached this screen
+  ///   through a season/block scope that was itself read from the cache (the
+  ///   cache-only number label [`aiImportSeasonNumber`] and the row share the
+  ///   same read);
+  /// * **fetch on a miss** — the completed wizard's season, or a cold cache, is
+  ///   not a reason to refuse the affordance; the repository is the single owner
+  ///   of network + cache writes, so the row is fetched through it and cached.
+  ///
+  /// `null` means the season genuinely could not be read (a transport failure):
+  /// the card then reports that instead of opening a form it cannot fill.
+
+  AiImportSeasonViewProvider call(String seasonId) =>
+      AiImportSeasonViewProvider._(argument: seasonId, from: this);
+
+  @override
+  String toString() => r'aiImportSeasonViewProvider';
+}

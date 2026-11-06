@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # AI-Import-Ziel (ai-import-submit) — Screen Spec
 
@@ -47,7 +48,8 @@ created season is not yet the ambient scope.
      "Modell: … / …" }
   {^ "Importziel"
      "Staffel 2 · Block 3"
-     "Episoden, Szenen und Drehtage dieses Imports landen in diesem Block." }
+     "Episoden, Szenen und Drehtage dieses Imports landen in diesem Block."
+     [Block wechseln]   [Block anlegen] }
   --
   [Zum Import senden]
 }
@@ -55,10 +57,12 @@ created season is not yet the ambient scope.
 ```
 
 The target card also renders two other static shapes: the **block picker**
-(title + one selectable row per block of the target season) and the **blocked**
-state (a single explanatory line, submit disabled). Expanded (window width class
-≥ medium): the same single column, constrained to a content max-width — the
-form never splits into panes.
+(title + one selectable row per block of the target season, plus the create
+action) and the **blocked** state (the explanatory line **and** the create
+action, submit disabled). Issue #828: every RESOLVED state of the card carries
+at least one action, and the switch sheet lists the same rows as the picker.
+Expanded (window width class ≥ medium): the same single column, constrained to
+a content max-width — the form never splits into panes.
 
 ## Components & Semantics
 
@@ -73,8 +77,11 @@ form never splits into panes.
 | Target card | Card (surface container highest) | The write target of this import — the one fact that decides where every imported row lands. Rendered directly above the submit action, beside the disclosure | `aiImportTargetTitle` |
 | Target line | Title-medium text | `{season} · {block}` from read DTOs only: the season number is resolved **cache-only** and degrades to `Staffel unbekannt`; the block number comes from the resolved scope and degrades to `Block unbekannt`. Never a fabricated number | `aiImportTargetLine` with `blockSeasonNumber` / `blockTileLabel` / `aiImportTargetUnknownSeason` / `aiImportTargetUnknownBlock` |
 | Target hint | Body-small text | States the consequence ("episodes, scenes and shooting days land in this block") so the target is actionable, not decorative | `aiImportTargetHint` |
-| Target picker | List items in the target card | Shown when the target season has **several** blocks: exactly one row per block, tapping adopts it as the sticky scope (the header then follows the line) | `aiImportTargetPickBlock` + `blockTileLabel` |
-| Target blocked state | Body text | No block in the season → "create a block first"; no season context → "select a season first". Both disable the submit action | `aiImportTargetNoBlocks` / `aiImportTargetNoSeason` |
+| Target picker | List items in the target card | Shown when the target season has **several** blocks: exactly one row per block, tapping adopts it as the sticky scope (the header then follows the line). The inline list IS the switch in this state, so the card renders no second switch affordance beside it | `aiImportTargetPickBlock` + `blockTileLabel` |
+| Target blocked state | Body text | No block in the season → "create a block first" **plus the create action** (issue #828: the identical state used to be a dead end); no season context → "select a season first". Both disable the submit action | `aiImportTargetNoBlocks` / `aiImportTargetNoSeason` |
+| Target switch action | Text button in the target card | **"Block wechseln"** (issue #828), rendered in the resolved state too (before, only the unset-scope picker could switch). Opens a bottom sheet listing the target season's blocks with the current one marked; the pick writes `activeBlockProvider` — the same seam as the inline picker, so the line, the declared season and `X-Active-Block` stay one value | `aiImportTargetSwitchBlock` |
+| Target create action | Text button in the target card | **"Block anlegen"** (issue #828), the way out of a season without blocks and a secondary affordance everywhere else. Opens the EXISTING create-block form (never a second form) and adopts the acknowledged block as the target — the form resolves to the created `(id, number)` pair, because the create route answers with an id only | `aiImportTargetCreateBlock` |
+| Season-unavailable report | Snackbar | The season row the create form pre-fills from could not be read: reported instead of opening a form with a guessed id | `aiImportTargetSeasonUnavailable` |
 | Target retry | Text button | The block-list fetch failed: retry re-runs the season's block fetch, error copy keyed on the problem `code` | `blocksFetchError` + `commonRetry` |
 | Submit action | Filled button | Dispatches the upload; **disabled** while no target is resolved (loading, pending pick, no block, fetch failure) **or no document is picked** (issue #831: the picked file lives in `pendingDocumentProvider`, so the affordance states that fact instead of letting a tap discover it — a successful submit clears the provider and disables the button again). The missing-document guard inside the dispatch stays as a backstop | `aiImportSubmit` |
 | Upload progress | Linear progress indicator | Indeterminate only — the wire carries no percentage | — |
@@ -83,11 +90,12 @@ form never splits into panes.
 
 Loading: the target card states `Importziel wird ermittelt …` and the submit
 action is disabled. Data: the target line (or the picker, when the season has
-several blocks) plus the hint. Empty (no block): the "create a block first"
-line, submit disabled. Empty (no season): the "select a season first" line,
-submit disabled. No file picked: the file row states `Keine Datei gewählt` and
-the submit action is disabled — for BOTH kinds (script PDF and schedule
-CSV/PDF), because one button and one predicate serve both flows (issue #831).
+several blocks) plus the hint, and the switch/create actions. Empty (no block):
+the "create a block first" line with the create action, submit disabled. Empty
+(no season): the "select a season first" line, submit disabled. No file picked:
+the file row states `Keine Datei gewählt` and the submit action is disabled —
+for BOTH kinds (script PDF and schedule CSV/PDF), because one button and one
+predicate serve both flows (issue #831).
 Error: the block-list fetch failure renders its code-keyed copy
 with a retry affordance, submit disabled. Optimistic: none — the screen
 dispatches one command (the upload) and hands the projection reconciliation to
@@ -99,6 +107,14 @@ Kind switch clears the pending document. File pick reads the bytes immediately
 (nothing persists client-side beyond the in-flight upload). A pick in the
 multi-block picker writes the sticky scope, which cascades into the
 `X-Active-Block` header and the visible line at once — no manual pill switching.
+The same holds for the switch sheet (issue #828): it exists because the resolved
+state had no way back to another block without leaving the screen entirely, and
+because the pick must reach the scope rather than ride beside the upload — the
+dispatch refuses a target season the active block does not belong to
+(`ai_import.scope_mismatch`, zero calls). Creating a block from the card
+(issue #828) runs the shared form's own AUTHZ-GATE-backed command and then sets
+the acknowledged block as the scope, so the very next tap submits into the block
+the user just created.
 Submit resolves the target first (one block → adopted automatically, several →
 picker, none → blocked), then runs the AUTHZ-GATE, then dispatches the upload
 with the declared season (`X-Declared-Season`). If the active block belongs to a
@@ -137,8 +153,12 @@ Widget tests (`test/features/ai_import/import_submit_screen_test.dart`): the
 target line renders season + block above the submit action; a wizard entry with
 exactly one block adopts it and the dispatch declares that season; several
 blocks render the picker, keep the submit disabled, and a pick publishes the
-line and adopts the scope; a season without blocks and a screen without a season
-context both block the upload with actionable copy; and the submit affordance
+line and adopts the scope; the resolved state offers `Block wechseln` and
+switching in the sheet re-targets the line **and** the dispatched scope (the
+single seam, issue #828); a season without blocks offers `Block anlegen`, opens
+the shared form and adopts the created block as the target; an unreadable season
+row is reported instead of opening a form it cannot fill; a screen without a
+season context blocks the upload with actionable copy; and the submit affordance
 stays disabled until a document is picked, re-disables after the picked file is
 cleared, and gates the same way on both kinds (issue #831). Controller tests
 (`test/features/ai_import/import_jobs_test.dart`): a target season the ambient
