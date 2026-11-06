@@ -330,6 +330,9 @@ class _ImportTargetCard extends ConsumerWidget {
     // narrative, so this only covers the arms that are `data`.
     final listError = resolution is AsyncError ? null : blockListProblem;
 
+    // Issue #829: a deliberate block-less dispatch has no block to show, so the
+    // card states exactly that — with a way back to a block-bearing target.
+    final blockLess = ref.watch(blockLessImportProvider);
     final Widget body;
     // Issue #828 affordances: which of the two a state can honestly offer.
     var canSwitch = false;
@@ -363,9 +366,29 @@ class _ImportTargetCard extends ConsumerWidget {
             ),
           ],
         ),
-        AsyncData(:final value) when value.isEmpty => Text(
-          l10n.aiImportTargetNoBlocks,
+        AsyncData(:final value) when value.isEmpty => Column(
           key: const Key('ai-import-target-no-blocks'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.aiImportTargetNoBlocks),
+            const SizedBox(height: 4),
+            Text(
+              l10n.aiImportTargetBlockLess,
+              key: const Key('ai-import-target-blockless-hint'),
+              style: theme.textTheme.bodySmall,
+            ),
+            TextButton.icon(
+              key: const Key('ai-import-target-blockless'),
+              onPressed: () =>
+                  ref.read(blockLessImportProvider.notifier).set(true),
+              icon: const Icon(Icons.playlist_add_check),
+              label: Text(
+                l10n.aiImportTargetAttachFromScript(
+                  l10n.aiImportTargetUnknownBlock,
+                ),
+              ),
+            ),
+          ],
         ),
         AsyncData(:final value) when value.candidates != null => Column(
           key: const Key('ai-import-target-picker'),
@@ -423,6 +446,49 @@ class _ImportTargetCard extends ConsumerWidget {
           !alreadyPicking &&
           (blocks?.isNotEmpty ?? false);
       canCreate = resolvedValue != null;
+    }
+
+    if (blockLess && seasonId != null) {
+      return Card(
+        key: const Key('ai-import-target'),
+        color: theme.colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.aiImportTargetTitle,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                l10n.aiImportTargetLine(
+                  seasonNumber == null
+                      ? l10n.aiImportTargetUnknownSeason
+                      : l10n.blockSeasonNumber(seasonNumber),
+                  l10n.aiImportTargetUnknownBlock,
+                ),
+                key: const Key('ai-import-target-line'),
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                l10n.aiImportTargetBlockLess,
+                key: const Key('ai-import-target-blockless-hint'),
+                style: theme.textTheme.bodySmall,
+              ),
+              TextButton.icon(
+                key: const Key('ai-import-target-blockless-undo'),
+                onPressed: () =>
+                    ref.read(blockLessImportProvider.notifier).set(false),
+                icon: const Icon(Icons.undo),
+                label: Text(l10n.aiImportTargetPickBlock),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return Card(
@@ -703,6 +769,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
       // The upload progress ride: the controller dispatches without the
       // progress hook (the document is fixed); the indeterminate-to-
       // determinate progress is surfaced via the linear indicator below.
+      final blockLess = ref.read(blockLessImportProvider);
       final res = await ref
           .read(aiImportSubmitControllerProvider.notifier)
           .submit(
@@ -711,6 +778,10 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
             // the declared header, the AUTHZ gate and the visible line must all
             // name the same season (issue #771).
             seasonId: widget.target?.seasonId ?? widget.seasonId,
+            // Issue #829: a deliberate block-less dispatch declares its season
+            // and sends no `X-Active-Block`; the target block is attached after
+            // extraction.
+            blockLess: blockLess,
           );
       if (!mounted) return;
       res.match(
@@ -724,6 +795,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
         },
         (ack) {
           ref.read(pendingDocumentProvider.notifier).set(null);
+          ref.read(blockLessImportProvider.notifier).set(false);
           // Non-fatal stamp warning (review): the job EXISTS — navigate
           // regardless; the warning rides on top of the status screen.
           final stampWarning = ref.read(aiStampWarningProvider);
@@ -761,6 +833,10 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
     // localized "no file picked" line, so the disabled state has a visible
     // explanation.
     final hasDocument = ref.watch(pendingDocumentProvider) != null;
+    // Issue #829: a block-less dispatch is a resolved target too — the season
+    // is mandatory and IS the authorization scope, only the block is deferred.
+    final blockLess = ref.watch(blockLessImportProvider);
+    final hasTarget = widget.target != null || blockLess;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -771,9 +847,7 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
         const SizedBox(height: 12),
         FilledButton(
           key: const Key('ai-import-submit'),
-          onPressed: _busy || widget.target == null || !hasDocument
-              ? null
-              : _submit,
+          onPressed: _busy || !hasTarget || !hasDocument ? null : _submit,
           child: Text(l10nOf(context).aiImportSubmit),
         ),
       ],

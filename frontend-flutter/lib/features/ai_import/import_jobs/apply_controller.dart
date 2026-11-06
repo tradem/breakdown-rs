@@ -795,6 +795,17 @@ class AiApplyState {
     return edits;
   }
 
+  /// Whether any preview group already points at an EXISTING episode
+  /// (issue #829) — the fact that freezes the import target.
+  ///
+  /// The choice is block-bound: the apply's cross-block guard compares that
+  /// episode's block with `job.block_id`, so moving the target afterwards would
+  /// refuse work the reviewer already did. The server cannot see this (the
+  /// adoption is client state until apply), which is exactly why the preview
+  /// renders the freeze itself instead of promising an action that would 403.
+  bool get hasResolvedGroupEpisode =>
+      groupRefs.any((ref) => targetFor(ref) is ExistingEpisodeGroupTarget);
+
   /// Every create target must carry its wire-required number; a marker
   /// without one leaves the target incomplete and apply disabled.
   bool get hasCompleteGroupTargets => groupRefs.every((ref) {

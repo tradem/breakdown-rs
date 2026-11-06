@@ -23,8 +23,23 @@ import 'package:dio/dio.dart';
 /// - an empty/blank id is treated as unset (fail-closed, never sends a
 ///   malformed header the server would 400);
 /// - a caller-set `X-Active-Block` header is never overwritten (explicit
-///   wins — keeps widget/integration tests that pin the header honest).
+///   wins — keeps widget/integration tests that pin the header honest);
+/// - `Options.extra[kNoActiveBlockExtra] == true` suppresses the header for
+///   that ONE request (issue #829): a block-less AI import is scoped by
+///   `X-Declared-Season` alone, and "not sending the header" cannot be expressed
+///   by omission because this interceptor attaches it to every call. A blank or
+///   sentinel value was rejected — a blank header is a malformed-header `400` on
+///   the block-scoped routes and a wire value that means nothing;
 ///   Never throws.
+/// Per-request opt-out key for [ActiveBlockInterceptor] (issue #829).
+///
+/// `Options.extra[kNoActiveBlockExtra] = true` keeps the ambient
+/// `X-Active-Block` OFF one request — the only way to send "this upload has no
+/// target block yet". Deliberately an `extra` flag rather than a null/blank
+/// header value: the header map cannot express absence here, and a blank header
+/// is a malformed-header `400` on every block-scoped route.
+const String kNoActiveBlockExtra = 'noActiveBlock';
+
 class ActiveBlockInterceptor extends Interceptor {
   const ActiveBlockInterceptor(this._activeBlockId);
 
@@ -38,7 +53,9 @@ class ActiveBlockInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     final blockId = _activeBlockId;
-    if (blockId != null &&
+    final optedOut = options.extra[kNoActiveBlockExtra] == true;
+    if (!optedOut &&
+        blockId != null &&
         blockId.trim().isNotEmpty &&
         !options.headers.containsKey(headerName)) {
       options.headers[headerName] = blockId;

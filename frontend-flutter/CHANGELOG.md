@@ -30,6 +30,36 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   user-facing line read `Season 2 · Block null` — a wire artifact in the copy. It
   now takes the same unknown-block branch the submit card already used, which is
   what "the target block is not chosen yet" honestly says.
+- **A block-less import takes its target block from the script, after
+  extraction** (`0.4.0-beta.39+131 → 0.4.0-beta.40+132`, frontend issue #829,
+  PR 3/4). Issues #827 (the script's own block) and #828 (switch/create the
+  target) landed the data and the pre-upload affordances; the remaining gap was
+  the target itself: an import could only ever write into "the block that was
+  active at upload". Now it can be attached afterwards — the reporter's
+  "take it from the script":
+  - **The preview names the target and offers it.** A job whose target block was
+    never chosen renders its scope line plus the actions that can decide it:
+    "Aus Skript übernehmen – Block 2" when the document states a block the
+    target season has, "Block 2 anlegen" (the SHARED create-block form) when it
+    does not, and "Zielblock wählen" over the season's blocks always. Every path
+    goes through ONE seam — `PUT /v1/ai-import/jobs/{id}/target` — so the block
+    the card renders, the value the apply guard compares against and the value
+    the job view reports cannot differ.
+  - **The upload can be deliberately block-less.** A target season without any
+    block (the arm that used to print "no blocks" and block the submit) now
+    explains that the block is chosen after extraction and dispatches with
+    `X-Declared-Season` and NO `X-Active-Block` — via a per-request opt-out of
+    the ambient block interceptor, not a blank/sentinel header. A kind switch
+    clears the choice, so a stale flag cannot degrade a later dispatch.
+  - **The target freezes once the review commits to it.** A preview group that
+    already points at an existing episode is block-bound (the in-preview episode
+    creation writes real rows), so the card renders the locked narrative instead
+    of an action that would 403 at apply. The apply itself is unavailable while
+    no target block is attached, with the localized `ai_import.target_missing`
+    copy; `ai_import.target_immutable` names the racing/refused case.
+  - No new screen, no new wire field (the route and codes are PR 2/4): the
+    client consumes `AiImportTarget.blockNumber`'s nullability, the target
+    route, and `job.target.seasonId` for the season the block list belongs to.
 
 - **The import target card can switch and create the block the import writes
   into** (`0.4.0-beta.38+130 → 0.4.0-beta.39+131`, frontend issue #828).

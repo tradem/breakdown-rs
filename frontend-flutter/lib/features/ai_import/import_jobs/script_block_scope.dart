@@ -36,7 +36,12 @@ part 'script_block_scope.g.dart';
 
 /// The script block / import target pair of one job.
 class ScriptBlockScope {
-  const ScriptBlockScope({this.scriptBlockNumber, this.targetBlockNumber});
+  const ScriptBlockScope({
+    this.scriptBlockNumber,
+    this.targetBlockNumber,
+    this.targetSeasonId,
+    this.applied = false,
+  });
 
   /// [AiImportProgress.blockNumber] — the block the DOCUMENT states. `null`
   /// means the script states none; it is never filled with the target here, so
@@ -48,8 +53,24 @@ class ScriptBlockScope {
   /// for a job whose target was never recorded (a pre-#771 row).
   final int? targetBlockNumber;
 
+  /// [AiImportTarget.seasonId] — the season this import is scoped to. It is
+  /// what a late target attach (#829) needs to resolve the season's block list,
+  /// and it exists from the first frame of a block-less upload because the
+  /// declared season IS the upload's authorization scope.
+  final String? targetSeasonId;
+
+  /// [AiImportJob.applied] — an apply already recorded rows, so the target is
+  /// frozen on both sides (issue #829).
+  final bool applied;
+
   /// Whether the script itself states a block.
   bool get scriptStatesBlock => scriptBlockNumber != null;
+
+  /// Whether this job still needs a target block (issue #829): it was uploaded
+  /// block-less and no attach has happened yet. Only then may the preview offer
+  /// "take it from the script".
+  bool get targetBlockUnset =>
+      targetBlockNumber == null && targetSeasonId != null;
 
   /// The block a surface shows as the association: what the script states,
   /// else the import target. `null` only when the job records no target either
@@ -109,6 +130,8 @@ Future<ScriptBlockScope?> aiJobBlockScope(Ref ref, String jobId) async {
     (job) => ScriptBlockScope(
       scriptBlockNumber: job.progress?.blockNumber,
       targetBlockNumber: job.target?.blockNumber,
+      targetSeasonId: job.target?.seasonId,
+      applied: job.applied ?? false,
     ),
   );
 }

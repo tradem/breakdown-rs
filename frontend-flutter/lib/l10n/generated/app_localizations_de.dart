@@ -4065,4 +4065,44 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get aiApplyNavigationUnresolved =>
       'Der Import wurde angewendet, aber die importierte Episode ließ sich nicht automatisch öffnen. Öffne sie über Skript oder die Episodenliste.';
+
+  @override
+  String get aiPreviewBlockScopeTargetUnset => 'Importziel: noch nicht gewählt';
+
+  @override
+  String aiImportTargetAttachFromScript(String blockLabel) {
+    return 'Aus Skript übernehmen – $blockLabel';
+  }
+
+  @override
+  String aiImportTargetAttachCreate(String number) {
+    return 'Block $number anlegen';
+  }
+
+  @override
+  String get aiImportTargetAttachPick => 'Zielblock wählen';
+
+  @override
+  String get aiImportTargetAttachBusy => 'Zielblock wird übernommen …';
+
+  @override
+  String aiImportTargetAttachDone(String blockLabel) {
+    return 'Zielblock übernommen: $blockLabel';
+  }
+
+  @override
+  String get aiImportTargetMissing =>
+      'Für diesen Import ist noch kein Zielblock gewählt. Wähle den Block, in den die Episoden, Szenen und Drehtage gehören – danach lässt sich importieren.';
+
+  @override
+  String get aiImportTargetImmutable =>
+      'Das Importziel steht bereits fest und lässt sich nicht mehr ändern. Für einen anderen Zielblock starte bitte einen neuen Import.';
+
+  @override
+  String get aiImportTargetFrozen =>
+      'Ziel gesperrt: Das Vorschau-Episodenziel ist bereits gewählt und hängt am Zielblock. Für einen anderen Block starte einen neuen Import.';
+
+  @override
+  String get aiImportTargetBlockLess =>
+      'Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.';
 }

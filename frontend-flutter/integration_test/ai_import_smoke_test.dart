@@ -115,8 +115,7 @@ class FakePipelineRepository extends AiImportRepository {
     required AiScheduleSource source,
     String? fileName,
     String? declaredSeasonId,
-    void Function(int, int)? onSendProgress,
-  }) async => Right(AiUploadAck(jobId: 'job-e2e', duplicate: false));
+    void Function(int, int)? onSendProgress, bool sendActiveBlock = true,}) async => Right(AiUploadAck(jobId: 'job-e2e', duplicate: false));
 
   @override
   Future<Result<AiImportJob>> getJobAndCache(

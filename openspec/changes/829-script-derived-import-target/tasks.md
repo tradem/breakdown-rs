@@ -117,35 +117,35 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
 
 ## 3. Flutter: adopt from the script, attach, and the effective anchor — size M
 
-- [ ] 3.1 `src/network/active_block_interceptor.dart`: per-request opt-out
+- [x] 3.1 `src/network/active_block_interceptor.dart`: per-request opt-out
       (`Options.extra['noActiveBlock'] = true` skips attachment; a caller-set
       header still wins) + interceptor unit test.
-- [ ] 3.2 `data/ai_import_repository.dart`: `attachTarget(jobId, blockId)`
+- [x] 3.2 `data/ai_import_repository.dart`: `attachTarget(jobId, blockId)`
       (`PUT …/target`, `Result`-typed, `ProblemError` code mapping) and the
       upload's `sendActiveBlock: false` path sending `X-Declared-Season` only.
-- [ ] 3.3 `import_jobs/job_status_controller.dart`: `aiJobBlockInfo` (220)
+- [x] 3.3 `import_jobs/job_status_controller.dart`: `aiJobBlockInfo` (220)
       returns the job's **effective** target block; a block-less job returns
       `null`; the attach response replaces the cached row so the provider
       re-renders without a reload.
-- [ ] 3.4 `import_submit_screen.dart` `_ImportTargetCard` (289): the adopt
+- [x] 3.4 `import_submit_screen.dart` `_ImportTargetCard` (289): the adopt
       affordance from #827's script block, the "create block" fallback with the
       number prefilled, the attach call, and the frozen state with its reason.
-- [ ] 3.5 `import_jobs/apply_controller.dart` (`ensureGroupEpisodeResolved`,
+- [x] 3.5 `import_jobs/apply_controller.dart` (`ensureGroupEpisodeResolved`,
       1589) + `apply_screen.dart`/`preview_screen.dart`: creation anchored on
       the effective target, disabled with the reason while none is attached;
       the freeze rule set at the first group resolution.
-- [ ] 3.6 `import_jobs/import_state.dart`: localize `ai_import.target_missing`
+- [x] 3.6 `import_jobs/import_state.dart`: localize `ai_import.target_missing`
       and `ai_import.target_immutable` (extension-driven block naming); apply
       unavailable while no target, with a route to the target card.
-- [ ] 3.7 de/en ARB (`aiImportTargetAdoptScriptBlock`, `aiImportTargetFrozen`,
+- [x] 3.7 de/en ARB (`aiImportTargetAdoptScriptBlock`, `aiImportTargetFrozen`,
       `ai_import.target_missing`, `ai_import.target_immutable`, …) + regenerated
       l10n; key-parity check green.
-- [ ] 3.8 `vendor/breakdown_api/` regenerated (from 1.11/2.7); `int?` block
+- [x] 3.8 `vendor/breakdown_api/` regenerated (from 1.11/2.7); `int?` block
       number adopted at every call site.
-- [ ] 3.9 Tests: unit (attach result mapping, effective anchor resolution,
+- [x] 3.9 Tests: unit (attach result mapping, effective anchor resolution,
       freeze predicate), widget + golden (adopt, create-first, frozen, target
       missing), integration smoke (blind upload → attach → apply).
-- [ ] 3.10 `pubspec.yaml` version bump + `CHANGELOG.md` entry.
+- [x] 3.10 `pubspec.yaml` version bump + `CHANGELOG.md` entry.
 
 ## 4. Docs: the decision, the screen, the copy — size S
 

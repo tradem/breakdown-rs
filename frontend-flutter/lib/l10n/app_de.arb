@@ -1433,5 +1433,43 @@
       }
     }
   },
-  "aiApplyNavigationUnresolved": "Der Import wurde angewendet, aber die importierte Episode ließ sich nicht automatisch öffnen. Öffne sie über Skript oder die Episodenliste."
+  "aiApplyNavigationUnresolved": "Der Import wurde angewendet, aber die importierte Episode ließ sich nicht automatisch öffnen. Öffne sie über Skript oder die Episodenliste.",
+  "aiPreviewBlockScopeTargetUnset": "Importziel: noch nicht gewählt",
+  "@aiPreviewBlockScopeTargetUnset": {},
+  "aiImportTargetAttachFromScript": "Aus Skript übernehmen – {blockLabel}",
+  "@aiImportTargetAttachFromScript": {
+    "placeholders": {
+      "blockLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "aiImportTargetAttachCreate": "Block {number} anlegen",
+  "@aiImportTargetAttachCreate": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
+  "aiImportTargetAttachPick": "Zielblock wählen",
+  "@aiImportTargetAttachPick": {},
+  "aiImportTargetAttachBusy": "Zielblock wird übernommen …",
+  "@aiImportTargetAttachBusy": {},
+  "aiImportTargetAttachDone": "Zielblock übernommen: {blockLabel}",
+  "@aiImportTargetAttachDone": {
+    "placeholders": {
+      "blockLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "aiImportTargetMissing": "Für diesen Import ist noch kein Zielblock gewählt. Wähle den Block, in den die Episoden, Szenen und Drehtage gehören – danach lässt sich importieren.",
+  "@aiImportTargetMissing": {},
+  "aiImportTargetImmutable": "Das Importziel steht bereits fest und lässt sich nicht mehr ändern. Für einen anderen Zielblock starte bitte einen neuen Import.",
+  "@aiImportTargetImmutable": {},
+  "aiImportTargetFrozen": "Ziel gesperrt: Das Vorschau-Episodenziel ist bereits gewählt und hängt am Zielblock. Für einen anderen Block starte einen neuen Import.",
+  "@aiImportTargetFrozen": {},
+  "aiImportTargetBlockLess": "Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.",
+  "@aiImportTargetBlockLess": {}
 }

@@ -18,12 +18,17 @@ import '../../../design/components/ai_score_stars.dart';
 import '../../../design/scene_mood_label.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
+import '../../../data/ai_import_providers.dart';
+import '../../blocks/blocks_controller.dart';
+import '../../blocks/create_block_sheet.dart';
 import '../../episodes/episodes_controller.dart';
 import 'apply_controller.dart';
 import 'apply_screen.dart';
 import 'continuity_gap.dart';
 import 'decision_outcome.dart';
 import 'job_status_controller.dart';
+import 'import_state.dart';
+import 'import_target.dart';
 import 'script_block_scope.dart';
 import '../naming_line.dart';
 import '../../../design/components/breakdown_app_bar.dart';
@@ -1443,12 +1448,234 @@ class _PreviewBlockScope extends ConsumerWidget {
       line = l10n.aiPreviewBlockScopeTargetOnly('$associated');
     }
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            line,
+            key: const Key('ai-preview-block-scope'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        _PreviewTargetActions(jobId: jobId, scope: scope),
+      ],
+    );
+  }
+}
+
+/// The late target attach of a **block-less** import (issue #829).
+///
+/// Shown only while the job has no target block yet: the reviewer then takes
+/// the block the script states (`ScriptContext.blockNumber`, #827), creates it
+/// when the target season does not have it, or picks any block of that season by
+/// hand. Every path goes through the ONE seam — `PUT /v1/ai-import/jobs/{id}/target`
+/// — so the block this card renders, the value the apply guard compares against
+/// and the value the job view reports cannot differ.
+///
+/// Deliberately NOT an affordance on the submit screen: before extraction the
+/// script's block is unknown, so offering "take it from the script" there would
+/// be a promise the app cannot keep.
+///
+/// The card freezes once a preview group points at an EXISTING episode (the
+/// client half of design D5): that episode id is bound to a block, so moving the
+/// target afterwards would make the apply's cross-block guard refuse work the
+/// reviewer already did. The server's backstop for the same rule is the
+/// applied-job refusal; this one is the honest pre-emptive narrative.
+class _PreviewTargetActions extends ConsumerStatefulWidget {
+  const _PreviewTargetActions({required this.jobId, required this.scope});
+
+  final String jobId;
+  final ScriptBlockScope scope;
+
+  @override
+  ConsumerState<_PreviewTargetActions> createState() =>
+      _PreviewTargetActionsState();
+}
+
+class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
+  bool _busy = false;
+
+  /// Mirrors the server's set-once guard: a block of ANOTHER season is refused
+  /// with `ai-import.scope-mismatch`, so the picker never offers one and the
+  /// script's block is only adopted when the season actually has it.
+  Future<List<BlockView>> _seasonBlocks(String seasonId) async {
+    final fetch = ref.watch(blocksListFetchProvider(seasonId));
+    final value = fetch.value;
+    if (value == null) return const [];
+    return value.match((_) => const <BlockView>[], (rows) => rows);
+  }
+
+  Future<void> _attach(String blockId) async {
+    setState(() => _busy = true);
+    final repo = ref.read(aiImportRepositoryProvider);
+    final result = await repo.attachTarget(widget.jobId, blockId: blockId);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final error = result.match((err) => err, (_) => null);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const Key('ai-preview-target-attach-error'),
+          content: Text(aiUploadErrorCopy(l10nOf(context), error)),
+        ),
+      );
+      return;
+    }
+    // The job read and the block anchor are both stale now: the attach response
+    // was cached, so re-reading is a cache hit, and the in-preview episode
+    // creation becomes available with the new block.
+    ref.invalidate(aiJobBlockScopeProvider(widget.jobId));
+    ref.invalidate(aiJobBlockInfoProvider(widget.jobId));
+  }
+
+  Future<void> _pick() async {
+    final seasonId = widget.scope.targetSeasonId!;
+    final blocks = await _seasonBlocks(seasonId);
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<BlockView>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(l10nOf(sheetContext).aiImportTargetPickBlock),
+              subtitle: Text(l10nOf(sheetContext).aiImportTargetHint),
+            ),
+            for (final block in blocks)
+              ListTile(
+                key: Key('ai-preview-target-pick-${block.id}'),
+                title: Text(
+                  l10nOf(sheetContext).blockTileLabel('${block.number}'),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(sheetContext).pop(block),
+              ),
+            ListTile(
+              key: const Key('ai-preview-target-pick-create'),
+              leading: const Icon(Icons.add),
+              title: Text(l10nOf(sheetContext).aiImportTargetCreateBlock),
+              onTap: () => Navigator.of(sheetContext).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || picked == null) return;
+    await _attach(picked.id);
+  }
+
+  Future<void> _create(int? number) async {
+    final seasonId = widget.scope.targetSeasonId!;
+    final season = await ref.read(aiImportSeasonViewProvider(seasonId).future);
+    if (!mounted) return;
+    if (season == null) {
+      // The shared form pre-fills its ids from the season row, so an unreadable
+      // row is reported instead of opening a form it cannot fill.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const Key('ai-preview-target-season-unavailable'),
+          content: Text(l10nOf(context).aiImportTargetSeasonUnavailable),
+        ),
+      );
+      return;
+    }
+    final created = await showCreateBlockSheet(context, ref, season);
+    if (!mounted || created == null) return;
+    // The create route answers with an id only; the number the form already
+    // holds is what the user typed (`CreatedBlock`), never a projection guess.
+    // A block created with a DIFFERENT number than the script states is still
+    // the reviewer's explicit choice — it is adopted as the target.
+    await _attach(created.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = widget.scope;
+    if (!scope.targetBlockUnset) return const SizedBox.shrink();
+    final l10n = l10nOf(context);
+    final theme = Theme.of(context);
+
+    // Design D5: the freeze is a REVIEW fact, not a server one — a group that
+    // already points at an existing episode would be orphaned by a target move.
+    final applyState = ref.watch(aiApplyControllerProvider(widget.jobId));
+    final frozen = applyState.hasResolvedGroupEpisode;
+    if (frozen || scope.applied) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          l10n.aiImportTargetFrozen,
+          key: const Key('ai-preview-target-frozen'),
+          style: theme.textTheme.bodySmall,
+        ),
+      );
+    }
+
+    if (_busy) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: LinearProgressIndicator(
+          key: Key('ai-preview-target-attach-busy'),
+        ),
+      );
+    }
+
+    final seasonId = scope.targetSeasonId!;
+    final blocks = ref.watch(blocksListFetchProvider(seasonId)).value;
+    final rows = blocks?.match<Iterable<BlockView>>(
+      (_) => const <BlockView>[],
+      (value) => value,
+    );
+    final scriptBlock = scope.scriptBlockNumber;
+    BlockView? scriptMatch;
+    if (scriptBlock != null && rows != null) {
+      for (final block in rows) {
+        if (block.number == scriptBlock) scriptMatch = block;
+      }
+    }
+
+    // Which action the state can honestly offer: adopting the script's block
+    // needs that block to EXIST, creating needs the script to state a number,
+    // and picking always works.
+    final Widget? primary = switch (scriptMatch) {
+      final block? => TextButton.icon(
+        key: const Key('ai-preview-target-attach-script'),
+        onPressed: () => _attach(block.id),
+        icon: const Icon(Icons.playlist_add_check),
+        label: Text(
+          l10n.aiImportTargetAttachFromScript(
+            l10n.blockTileLabel('${block.number}'),
+          ),
+        ),
+      ),
+      null when scriptBlock != null => TextButton.icon(
+        key: const Key('ai-preview-target-attach-create'),
+        onPressed: () => _create(scriptBlock),
+        icon: const Icon(Icons.add),
+        label: Text(l10n.aiImportTargetAttachCreate('$scriptBlock')),
+      ),
+      null => null,
+    };
+
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Text(
-        line,
-        key: const Key('ai-preview-block-scope'),
-        style: Theme.of(context).textTheme.bodySmall,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        children: [
+          // The season's block list in flight (or failed) means the adoption
+          // affordance cannot say which block it would attach, so only the
+          // manual picker is offered — never a guessed target.
+          if (rows != null) ?primary,
+          TextButton.icon(
+            key: const Key('ai-preview-target-attach-pick'),
+            onPressed: _pick,
+            icon: const Icon(Icons.swap_horiz),
+            label: Text(l10n.aiImportTargetAttachPick),
+          ),
+        ],
       ),
     );
   }

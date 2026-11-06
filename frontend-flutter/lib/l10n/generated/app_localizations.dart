@@ -6559,6 +6559,66 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Der Import wurde angewendet, aber die importierte Episode ließ sich nicht automatisch öffnen. Öffne sie über Skript oder die Episodenliste.'**
   String get aiApplyNavigationUnresolved;
+
+  /// No description provided for @aiPreviewBlockScopeTargetUnset.
+  ///
+  /// In de, this message translates to:
+  /// **'Importziel: noch nicht gewählt'**
+  String get aiPreviewBlockScopeTargetUnset;
+
+  /// No description provided for @aiImportTargetAttachFromScript.
+  ///
+  /// In de, this message translates to:
+  /// **'Aus Skript übernehmen – {blockLabel}'**
+  String aiImportTargetAttachFromScript(String blockLabel);
+
+  /// No description provided for @aiImportTargetAttachCreate.
+  ///
+  /// In de, this message translates to:
+  /// **'Block {number} anlegen'**
+  String aiImportTargetAttachCreate(String number);
+
+  /// No description provided for @aiImportTargetAttachPick.
+  ///
+  /// In de, this message translates to:
+  /// **'Zielblock wählen'**
+  String get aiImportTargetAttachPick;
+
+  /// No description provided for @aiImportTargetAttachBusy.
+  ///
+  /// In de, this message translates to:
+  /// **'Zielblock wird übernommen …'**
+  String get aiImportTargetAttachBusy;
+
+  /// No description provided for @aiImportTargetAttachDone.
+  ///
+  /// In de, this message translates to:
+  /// **'Zielblock übernommen: {blockLabel}'**
+  String aiImportTargetAttachDone(String blockLabel);
+
+  /// No description provided for @aiImportTargetMissing.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diesen Import ist noch kein Zielblock gewählt. Wähle den Block, in den die Episoden, Szenen und Drehtage gehören – danach lässt sich importieren.'**
+  String get aiImportTargetMissing;
+
+  /// No description provided for @aiImportTargetImmutable.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Importziel steht bereits fest und lässt sich nicht mehr ändern. Für einen anderen Zielblock starte bitte einen neuen Import.'**
+  String get aiImportTargetImmutable;
+
+  /// No description provided for @aiImportTargetFrozen.
+  ///
+  /// In de, this message translates to:
+  /// **'Ziel gesperrt: Das Vorschau-Episodenziel ist bereits gewählt und hängt am Zielblock. Für einen anderen Block starte einen neuen Import.'**
+  String get aiImportTargetFrozen;
+
+  /// No description provided for @aiImportTargetBlockLess.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.'**
+  String get aiImportTargetBlockLess;
 }
 
 class _AppLocalizationsDelegate

@@ -100,6 +100,10 @@ class FakePipelineRepository extends AiImportRepository {
   /// `null` when the dispatch sent no `X-Declared-Season` header.
   String? lastDeclaredSeasonId;
 
+  /// Whether the last dispatch suppressed the ambient `X-Active-Block`
+  /// (issue #829) — `true` for a block-less upload.
+  bool lastSendActiveBlock = true;
+
   @override
   Future<Result<AiUploadAck>> uploadSchedule({
     required Object body,
@@ -107,12 +111,14 @@ class FakePipelineRepository extends AiImportRepository {
     String? fileName,
     String? declaredSeasonId,
     void Function(int, int)? onSendProgress,
+    bool sendActiveBlock = true,
   }) async {
     uploadCalls++;
     lastUploadBody = body;
     lastUploadSource = source;
     lastFileName = fileName;
     lastDeclaredSeasonId = declaredSeasonId;
+    lastSendActiveBlock = sendActiveBlock;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -627,6 +633,82 @@ void main() {
         isNull,
       );
       await tester.pump();
+    });
+
+    testWidgets('a season without blocks offers the BLOCK-LESS upload, and the '
+        'dispatch declares its season while suppressing the ambient block '
+        '(issue #829)', (tester) async {
+      await setupContainer(
+        realActiveBlock: true,
+        seasonId: 'season-b',
+        seasonNumber: '2',
+        blocks: const Right([]),
+      );
+      await pumpScreen(tester, seasonId: 'season-b');
+      repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
+
+      // The empty state is no longer a dead end: it explains that the block is
+      // chosen after extraction and offers exactly that.
+      expect(
+        find.byKey(const Key('ai-import-target-blockless')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+            .onPressed,
+        isNull,
+        reason:
+            'nothing is dispatched until the user either creates a block '
+            'or explicitly chooses the block-less path',
+      );
+
+      // The kind switch CLEARS the block-less choice (`selectKind` resets it),
+      // so it is selected first and the block-less decision after it.
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('ai-import-target-blockless')));
+      await tester.pumpAndSettle();
+
+      // The card now states the deferred block, with a way back.
+      expect(
+        find.byKey(const Key('ai-import-target-blockless-undo')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        contains('Block unknown'),
+        reason: 'the deferred block is stated as unknown, never invented',
+      );
+
+      // Pick a document the same way the other dispatch tests do: the pending
+      // document provider is what both kinds write.
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
+      await tester.tap(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.uploadCalls, 1);
+      expect(
+        repo.lastSendActiveBlock,
+        isFalse,
+        reason:
+            'a block-less upload must not carry the ambient X-Active-Block — '
+            'the server would pin the job to a block the user never chose',
+      );
+      expect(
+        repo.lastDeclaredSeasonId,
+        'season-b',
+        reason: 'the declared season IS the upload authorization scope',
+      );
     });
 
     testWidgets('a season without blocks offers "Block anlegen", opens the '

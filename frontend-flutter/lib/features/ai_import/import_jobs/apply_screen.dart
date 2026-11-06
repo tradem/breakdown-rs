@@ -28,6 +28,7 @@ import '../../../data/cache/seasons_cache_providers.dart';
 import '../../episodes/episodes_controller.dart';
 import '../../scenes/scenes_controller.dart';
 import 'apply_controller.dart';
+import 'script_block_scope.dart';
 import 'continuity_gap.dart';
 import 'import_submit_screen.dart';
 import 'job_eta.dart';
@@ -449,7 +450,15 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
 
     final state = ref.watch(aiApplyControllerProvider(jobId));
     final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
-    final canApply = controller.canApply && _reviewAcknowledged;
+    // Issue #829: an apply writes into the job's target block, so an unattached
+    // target is a REFUSAL the button can state instead of discovering: the
+    // server answers `409 ai-import.target-missing` and the copy is the same.
+    // Only a RESOLVED "no target yet" disables — a pending or failed scope read
+    // never denies (design D3), and the localized 409 stays the backstop.
+    final targetScope = ref.watch(aiJobBlockScopeProvider(jobId)).value;
+    final targetMissing = targetScope?.targetBlockUnset ?? false;
+    final canApply =
+        controller.canApply && _reviewAcknowledged && !targetMissing;
     // Issue #821: the acknowledge panel renders one row per DECISION
     // (`(scene_index, field)` pair), never one per preview entry — the
     // backend acknowledges by pair, so duplicate entries are one question
@@ -893,6 +902,15 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                     setState(() => _reviewAcknowledged = checked ?? false),
                 title: Text(l10nOf(context).aiApplyReviewCheckbox),
               ),
+              if (targetMissing)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    l10nOf(context).aiImportTargetMissing,
+                    key: const Key('ai-apply-target-missing'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
               FilledButton(
                 key: const Key('ai-apply-submit'),
                 onPressed: (canApply && !_applying)

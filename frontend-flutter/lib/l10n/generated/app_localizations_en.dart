@@ -4016,4 +4016,44 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get aiApplyNavigationUnresolved =>
       'The import was applied, but the imported episode could not be opened automatically. Open it via Script or the episode list.';
+
+  @override
+  String get aiPreviewBlockScopeTargetUnset => 'Import target: not chosen yet';
+
+  @override
+  String aiImportTargetAttachFromScript(String blockLabel) {
+    return 'Use the script\'s $blockLabel';
+  }
+
+  @override
+  String aiImportTargetAttachCreate(String number) {
+    return 'Create block $number';
+  }
+
+  @override
+  String get aiImportTargetAttachPick => 'Choose the target block';
+
+  @override
+  String get aiImportTargetAttachBusy => 'Attaching the target block …';
+
+  @override
+  String aiImportTargetAttachDone(String blockLabel) {
+    return 'Target block attached: $blockLabel';
+  }
+
+  @override
+  String get aiImportTargetMissing =>
+      'This import has no target block yet. Choose the block its episodes, scenes and shooting days belong to — then it can be imported.';
+
+  @override
+  String get aiImportTargetImmutable =>
+      'This import\'s target is already set and cannot be changed. Start a new import for a different target block.';
+
+  @override
+  String get aiImportTargetFrozen =>
+      'Target locked: the preview\'s episode target is already chosen and is bound to the target block. Start a new import for a different block.';
+
+  @override
+  String get aiImportTargetBlockLess =>
+      'No target block yet: after the upload the block is taken from the script or chosen by hand.';
 }
