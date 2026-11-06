@@ -68,6 +68,7 @@ and their consequences.
 | [036](ADR-036-es-native-reservation-streams-cross-aggregate-uniqueness.md) | ES-native Reservation Streams for Cross-Aggregate Uniqueness | Accepted | 2026-10-07 | Tobias Rademacher (@tradem); glm-5.3 (neuralwatt); glm-5.3-flash (opencode-go) |
 | [037](ADR-037-sceneshoot-provenance-pair-join-derivation.md) | SceneShoot AI Provenance — Derive via the Pair Join, No First-Class Field | Accepted | 2026-10-07 | Tobias Rademacher (@tradem); glm-5.3-flash (opencode-go) |
 | [038](ADR-038-ai-import-sse-progress-and-event-hub.md) | AI Import Push-Based Job Progress — SSE Snapshot+Deltas, Hexagonal Event Hub (Postgres `NOTIFY` + SQLite Seam), and Client Battery Contract | Proposed | 2026-10-16 | Tobias Rademacher (@tradem); gemini-4-argon (google) |
+| [039](ADR-039-target-less-ai-import-declared-season-and-set-once-attach.md) | A Target-Less AI Import — Declared-Season Upload, Set-Once Target Attach, and the Target Season as the Job Scope | Proposed | 2026-11-06 | Tobias Rademacher (@tradem); deepseek-v4.1-flash (opencode-go) |
 
 ## Creating a New ADR
 

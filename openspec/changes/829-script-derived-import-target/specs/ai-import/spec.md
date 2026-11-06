@@ -86,9 +86,15 @@ refuse:
 - **THEN** the response is `200` with the job view carrying that `block_id` and
   the matching `target.block_number`
 
-#### Scenario: The same attach is idempotent
-- **WHEN** the same block is attached a second time
+#### Scenario: The same attach is idempotent — also after an apply
+- **WHEN** the same block is attached a second time, before or after an apply
 - **THEN** the response is `200`, the job is unchanged and no write occurs
+- **AND** only a DIFFERENT block is refused once rows have landed
+
+#### Scenario: A job without a target season cannot receive a block
+- **WHEN** an attach is attempted on a job whose target snapshot is absent
+- **THEN** the response is `409 domain.conflict` and no block number is stored
+- **AND** the snapshot never ends up with a block number but no season
 
 #### Scenario: A second, different block is refused
 - **WHEN** a different block is attached after one is already set
