@@ -330,7 +330,7 @@ mod apply_run_state_default {
         ApplyProgress, ApplyRunId, DocumentKind, Telemetry,
     };
     // The view types are re-exported on `ai`, not on the port module.
-    use crate::ai::{AppliedEpisode, ApplyStage, JobStatus, SourceFormat};
+    use crate::ai::{ApplyStage, JobStatus, SourceFormat};
     use crate::error::DomainError;
     use crate::shared::UserId;
     use chrono::Utc;
@@ -407,14 +407,6 @@ mod apply_run_state_default {
             &self,
             _id: AiImportJobId,
             _telemetry: Telemetry,
-        ) -> Result<(), DomainError> {
-            Err(unsupported())
-        }
-
-        async fn record_applied_episodes(
-            &self,
-            _id: AiImportJobId,
-            _episodes: &[AppliedEpisode],
         ) -> Result<(), DomainError> {
             Err(unsupported())
         }

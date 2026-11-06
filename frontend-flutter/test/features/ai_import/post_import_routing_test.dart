@@ -153,21 +153,26 @@ AiImportPreviewResponse _previewResponse() => AiImportPreviewResponse(
     ..preview.replace(_scriptPayload()),
 );
 
-AiImportJob _succeededJob() => AiImportJob(
-  (b) => b
-    ..id = _jobId
-    ..userId = 'dev-user'
-    ..status = JobStatus.succeeded
-    ..documentKind = DocumentKind.script
-    ..sourceFormat = SourceFormat.pdf
-    ..dedupKey = 'dedup-$_jobId'
-    ..documentDigest = 'digest-$_jobId'
-    ..sourceHandle = 'handle-$_jobId'
-    ..retries = 0
-    ..maxRetries = 3
-    ..createdAt = DateTime.utc(2026, 1, 1)
-    ..updatedAt = DateTime.utc(2026, 1, 1),
-);
+/// The cached job row. `appliedEpisodes` is what the SERVER derives at the read
+/// edge (issue #864) — a cached row carries the summary of whatever apply last
+/// committed rows, independent of the response of the request in flight.
+AiImportJob _succeededJob({List<AppliedEpisode> appliedEpisodes = const []}) =>
+    AiImportJob(
+      (b) => b
+        ..id = _jobId
+        ..userId = 'dev-user'
+        ..status = JobStatus.succeeded
+        ..documentKind = DocumentKind.script
+        ..sourceFormat = SourceFormat.pdf
+        ..dedupKey = 'dedup-$_jobId'
+        ..documentDigest = 'digest-$_jobId'
+        ..sourceHandle = 'handle-$_jobId'
+        ..retries = 0
+        ..maxRetries = 3
+        ..appliedEpisodes.replace(appliedEpisodes)
+        ..createdAt = DateTime.utc(2026, 1, 1)
+        ..updatedAt = DateTime.utc(2026, 1, 1),
+    );
 
 class _FakeAiImportRepository extends AiImportRepository {
   _FakeAiImportRepository(super.api, super.cache);
@@ -289,6 +294,9 @@ void main() {
       bool seasonCached = true,
       // Seed the block's cached episode row (the number fallback's source).
       bool cachedEpisodeRow = false,
+      // The persisted applied-episode summary on the cached JOB row (issue
+      // #864) — what a previous apply committed, as the server derives it.
+      List<AppliedEpisode> persistedAppliedEpisodes = const [],
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -357,7 +365,7 @@ void main() {
       addTearDown(container.dispose);
       await container.read(authSessionControllerProvider.notifier).signIn();
       await AiImportJobsCacheDao(db).upsertWithEpisodeContext(
-        _succeededJob(),
+        _succeededJob(appliedEpisodes: persistedAppliedEpisodes),
         DateTime.utc(2026, 1, 1),
         episodeId: _episodeId,
         projectId: 'series-1',
@@ -502,6 +510,34 @@ void main() {
         expect(scriptFetches, greaterThan(0));
       },
     );
+
+    testWidgets('a re-apply whose response names no episode resolves the hop from the '
+        'persisted summary (issue #864)', (tester) async {
+      // A second apply of an already-applied preview dispatches nothing: every
+      // row is settled by its confirmed mapping, so the RESPONSE carries an
+      // empty list. The job's durable summary still names where the first run
+      // put the rows — and that is what the hop must use, instead of falling
+      // back to the request's episode.
+      await setupContainer(
+        applyQueue: [Right(_outcome(appliedEpisodes: const []))],
+        persistedAppliedEpisodes: [
+          _appliedEpisode(_episodeId, count: 57, number: 299, name: 'Erlösung'),
+        ],
+      );
+      await pumpWithImportStack(tester);
+
+      await acknowledgeAndApply(tester);
+
+      expect(find.byType(AiPreviewScreen), findsNothing);
+      final scope = container.read(activeEpisodeProvider);
+      expect(scope, isNotNull);
+      expect(scope!.episodeId, _episodeId);
+      expect(scope.episodeNumber, 299);
+      expect(scope.episodeName, 'Erlösung');
+      final report = container.read(aiPostImportReportProvider);
+      expect(report, isNotNull);
+      expect(report!.episodeId, _episodeId);
+    });
 
     testWidgets(
       'a partially applied response keeps its unapplied outfits reachable on '

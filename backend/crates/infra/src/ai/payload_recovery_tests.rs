@@ -34,8 +34,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportQueue, AppliedEpisode, DocumentKind, JobStatus, LlmCallOutcome, LlmChatRequest,
-    LlmClient, LlmProvider, ScriptContext, SourceFormat, Telemetry,
+    AiImportQueue, DocumentKind, JobStatus, LlmCallOutcome, LlmChatRequest, LlmClient, LlmProvider,
+    ScriptContext, SourceFormat, Telemetry,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
@@ -202,14 +202,6 @@ impl AiImportQueue for RecordingQueue {
         &self,
         _id: AiImportJobId,
         _telemetry: Telemetry,
-    ) -> Result<(), DomainError> {
-        Ok(())
-    }
-
-    async fn record_applied_episodes(
-        &self,
-        _id: AiImportJobId,
-        _episodes: &[AppliedEpisode],
     ) -> Result<(), DomainError> {
         Ok(())
     }

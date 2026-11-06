@@ -30,7 +30,7 @@ use std::task::{Context, Poll, Waker};
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
-    AppliedEpisode, DocumentKind, JobStatus, Telemetry,
+    DocumentKind, JobStatus, Telemetry,
 };
 use breakdown_core::error::DomainError;
 
@@ -240,14 +240,6 @@ impl AiImportQueue for DefaultingQueue {
     ) -> Result<(), DomainError> {
         Ok(())
     }
-
-    async fn record_applied_episodes(
-        &self,
-        _id: AiImportJobId,
-        _episodes: &[AppliedEpisode],
-    ) -> Result<(), DomainError> {
-        Ok(())
-    }
 }
 
 /// A queue whose `mark_failed` fails, to prove the default body propagates
@@ -320,14 +312,6 @@ impl AiImportQueue for FailingQueue {
         &self,
         _id: AiImportJobId,
         _telemetry: Telemetry,
-    ) -> Result<(), DomainError> {
-        Ok(())
-    }
-
-    async fn record_applied_episodes(
-        &self,
-        _id: AiImportJobId,
-        _episodes: &[AppliedEpisode],
     ) -> Result<(), DomainError> {
         Ok(())
     }

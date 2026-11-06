@@ -1467,7 +1467,6 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     seed_ai_block_access(&ports, block_id).await;
-    let queue = ports.ai_import_queue.clone();
     let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
 
     // The primary target episode A holds the scene the reviewer updates.
@@ -1592,26 +1591,21 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
         response.applied_episodes[0].applied_count, 2,
         "both updated rows live in the primary episode"
     );
-    let stored = queue
-        .applied_episodes
-        .lock()
-        .await
-        .first()
-        .cloned()
-        .expect("the apply recorded the summary");
-    assert_eq!(stored.1, response.applied_episodes);
+    // Nothing is written to the job here (issue #864): the persisted summary is
+    // derived at the read edge from the mapping rows this apply confirmed, which
+    // the integration tier covers against a real database.
 }
 
 /// Issue #763 (CodeRabbit review): the happy path of an **existing** group
-/// target — the API edge resolves the episode's identity so the summary can name
-/// it, and both the response and the persisted job carry it.
+/// target — the API edge resolves the episode's identity so the response can
+/// name it. The job's persisted summary is derived at the read edge since issue
+/// #864, so this asserts the identity the apply itself resolved.
 #[tokio::test]
 async fn apply_ai_import_labels_an_existing_group_target() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     seed_ai_block_access(&ports, block_id).await;
-    let queue = ports.ai_import_queue.clone();
     // The preview carries an `Ep.: 299` marker, so `ep:299` is a real group.
     let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
     // The reviewer maps both groups onto EXISTING episodes of the same block.
@@ -1704,15 +1698,6 @@ async fn apply_ai_import_labels_an_existing_group_target() {
         response.applied_episodes[1].name.as_deref(),
         Some("Heimkehr")
     );
-    // The persisted summary carries the same identity.
-    let stored = queue
-        .applied_episodes
-        .lock()
-        .await
-        .first()
-        .cloned()
-        .expect("the apply recorded the summary");
-    assert_eq!(stored.1, response.applied_episodes);
 }
 
 /// Issue #763 review (CWE-639): an **existing** group target is resolved at the
@@ -1726,7 +1711,6 @@ async fn apply_ai_import_rejects_an_existing_group_target_from_another_block() {
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     seed_ai_block_access(&ports, block_id).await;
     let mappings = ports.ai_import_mapping.clone();
-    let queue = ports.ai_import_queue.clone();
     let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
 
     // The group target lives in a DIFFERENT block than the job.
@@ -1786,18 +1770,15 @@ async fn apply_ai_import_rejects_an_existing_group_target_from_another_block() {
             .is_empty(),
         "a rejected apply must not write any mapping"
     );
-    assert!(
-        queue.applied_episodes.lock().await.is_empty(),
-        "a rejected apply must not persist an applied-episode summary"
-    );
 }
 
-/// Issue #763: a successful apply records the episodes its rows landed in, both
-/// on the job (so the jobs list can name the target) and in the response. The
-/// label comes from data the request path already holds — the target episode the
-/// handler resolved — never from a second projection lookup.
+/// Issue #763: a successful apply reports the episodes its rows landed in, so
+/// the outcome card can name the target. The label comes from data the request
+/// path already holds — the target episode the handler resolved — never from a
+/// second projection lookup. The JOB's summary is not written here any more
+/// (issue #864): it is derived at the read edge from the confirmed mappings.
 #[tokio::test]
-async fn apply_ai_import_records_the_target_episode_on_the_job() {
+async fn apply_ai_import_reports_the_target_episode() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
@@ -1857,24 +1838,23 @@ async fn apply_ai_import_records_the_target_episode_on_the_job() {
     assert_eq!(applied.number, Some(299));
     assert_eq!(applied.name.as_deref(), Some("Erlösung"));
     assert_eq!(applied.applied_count, 2, "both rows landed in it");
-
-    // The summary was persisted through the queue port (the jobs list reads it
-    // back later), and it is identical to what the response carried.
-    let sink = queue.applied_episodes.lock().await;
-    assert_eq!(sink.len(), 1, "the apply must record the summary once");
-    assert_eq!(sink[0].0, job_id);
-    assert_eq!(sink[0].1, response.applied_episodes);
-    drop(sink);
-    let stored = queue
-        .get(job_id)
-        .await
-        .expect("queue read should succeed")
-        .expect("the job still exists");
-    assert_eq!(stored.applied_episodes, response.applied_episodes);
+    // The job's own summary is not written by the handler any more (issue #864):
+    // it is derived at the read edge from the mapping rows, so the fake queue
+    // holds nothing and this test asserts only what the response promises.
+    assert!(
+        queue
+            .get(job_id)
+            .await
+            .expect("queue read should succeed")
+            .expect("the job still exists")
+            .applied_episodes
+            .is_empty(),
+        "a cancelled-safe read-edge derivation means the apply writes no summary"
+    );
 }
 
 /// Issue #763, multi-episode case: rows applied across episode groups are
-/// reported per episode with their own counts — the list renders
+/// reported per episode with their own counts — the outcome card renders
 /// `299 Erlösung (+2)` from exactly this list.
 #[tokio::test]
 async fn apply_ai_import_records_every_target_episode() {
@@ -1882,7 +1862,6 @@ async fn apply_ai_import_records_every_target_episode() {
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     seed_ai_block_access(&ports, block_id).await;
-    let queue = ports.ai_import_queue.clone();
     let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
     let default_episode = EpisodeId::new();
 
@@ -1957,9 +1936,6 @@ async fn apply_ai_import_records_every_target_episode() {
             .all(|episode| episode.applied_count == 1),
         "each row landed in its own episode"
     );
-    let sink = queue.applied_episodes.lock().await;
-    assert_eq!(sink.len(), 1);
-    assert_eq!(sink[0].1, response.applied_episodes);
 }
 
 #[tokio::test]

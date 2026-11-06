@@ -2,14 +2,15 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-//! Postgres round-trip for the AI-import job identity columns (issue #763):
-//! the sanitized source file name captured at upload and the applied-episode
-//! summary written by a successful apply.
+//! Postgres round-trip for the AI-import job identity surface: the sanitized
+//! source file name captured at upload (issue #763) and the applied-episode
+//! summary **derived from the durable apply mappings** (issue #864).
 //!
-//! What is worth a database here is exactly what the fake cannot prove — the
+//! What is worth a database here is exactly what a fake cannot prove — the
 //! `ON CONFLICT` behaviour of the dedup path (a duplicate re-upload must not
-//! rename the existing row) and the JSONB decode of an empty vs. a populated
-//! summary.
+//! rename the existing row) and the derivation's join: scene mappings to their
+//! projected scene, that scene's episode, that episode's number/title, and the
+//! exclusion of reservations and schedule mappings.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -17,8 +18,8 @@ mod fixtures;
 
 use anyhow::Result;
 use breakdown_core::ai::{
-    AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportQueue, AppliedEpisode,
-    DocumentKind,
+    AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJobId, AiImportMapping, AiImportQueue,
+    AppliedEpisode, DocumentKind,
 };
 use infra::ai::queue::PgAiImportQueue;
 use uuid::Uuid;
@@ -100,110 +101,223 @@ async fn a_duplicate_upload_does_not_rename_the_job() -> Result<()> {
     Ok(())
 }
 
-/// The summary MERGES (issue #763 review): a later apply adds the episodes it
-/// dispatched and restates a known one in place, and an empty list is a no-op —
-/// so a re-apply that found everything already applied cannot erase the earlier
-/// attribution.
-#[tokio::test]
-async fn applied_episodes_merge_instead_of_replacing() -> Result<()> {
-    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
-    let queue = PgAiImportQueue::new(pool);
+/// Insert one `projection_scene` row: the scene an applied draft row became.
+///
+/// The tiny column set is deliberate — the derivation only needs the scene's
+/// identity and its episode.
+async fn insert_scene(pool: &sqlx::PgPool, scene_id: Uuid, episode_id: Uuid) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO projection_scene
+            (id, episode_id, scene_number, location, mood, is_schedule_set,
+             version, updated_at)
+        VALUES ($1, $2, 1, 'Studio', 'Neutral', false, 1, now())
+        "#,
+    )
+    .bind(scene_id)
+    .bind(episode_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
 
-    let request = make_request("user-identity-merge", None);
+/// Insert one `projection_episode` row — the label source of a derived entry.
+async fn insert_episode(
+    pool: &sqlx::PgPool,
+    episode_id: Uuid,
+    number: i32,
+    name: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO projection_episode
+            (id, block_id, project_id, number, name, version, updated_at)
+        VALUES ($1, $2, $3, $4, $5, 1, now())
+        "#,
+    )
+    .bind(episode_id)
+    .bind(Uuid::now_v7())
+    .bind(Uuid::now_v7())
+    .bind(number)
+    .bind(name)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Insert one idempotency mapping row, exactly as the apply worker confirms it.
+/// `aggregate_version = 0` is a *reservation* (the id is claimed, no command
+/// appended yet) — see [`AiImportMapping::RESERVED_VERSION`].
+async fn insert_mapping(
+    pool: &sqlx::PgPool,
+    job_id: AiImportJobId,
+    draft_ref: &str,
+    aggregate_kind: &str,
+    aggregate_id: Uuid,
+    aggregate_version: i64,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO ai_import.projection_ai_import_mapping
+            (preview_id, draft_ref, aggregate_kind, ordinal, aggregate_id,
+             aggregate_version)
+        VALUES ($1, $2, $3, 0, $4, $5)
+        "#,
+    )
+    .bind(job_id.as_uuid())
+    .bind(draft_ref)
+    .bind(aggregate_kind)
+    .bind(aggregate_id)
+    .bind(aggregate_version)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// The applied-episode summary is **derived from the durable apply mappings**
+/// (issue #864), so it survives an apply whose caller disconnected: nothing has
+/// to be written after the run for the job to name its target.
+///
+/// This test seeds exactly what a committed apply leaves behind — a confirmed
+/// `scene` mapping per applied draft row plus the projected scene and episode —
+/// and reads the job back. No summary write happens anywhere in it, which is the
+/// point: the old best-effort column could not be asserted this way, because
+/// "rows committed, summary missing" was a reachable state.
+#[tokio::test]
+async fn applied_episodes_are_derived_from_the_apply_mappings() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    let request = make_request("user-identity-derived", None);
     let id = request.id;
     queue.enqueue(request).await?;
 
-    let episode_a = Uuid::now_v7();
-    let episode_b = Uuid::now_v7();
-    let a = AppliedEpisode {
-        id: episode_a,
-        number: Some(299),
-        name: Some("Erlösung".to_owned()),
-        applied_count: 57,
-    };
-    queue
-        .record_applied_episodes(id, std::slice::from_ref(&a))
-        .await?;
+    // Nothing applied yet: an empty list, not a fabricated entry.
+    let fresh = queue.get(id).await?.expect("job exists");
+    assert!(
+        fresh.applied_episodes.is_empty(),
+        "a job no apply has run for names no target"
+    );
 
-    // A second apply dispatched rows into ANOTHER episode: appended, kept.
-    let b = AppliedEpisode {
-        id: episode_b,
-        number: Some(301),
-        name: None,
-        applied_count: 4,
-    };
-    queue
-        .record_applied_episodes(id, std::slice::from_ref(&b))
-        .await?;
-    let job = queue.get(id).await?.expect("job exists");
-    assert_eq!(job.applied_episodes, vec![a.clone(), b.clone()]);
+    // Episode 299 "Erlösung" received two rows, episode 300 (untitled, and NOT
+    // projected into the episode table) received one.
+    let episode_299 = Uuid::now_v7();
+    let episode_300 = Uuid::now_v7();
+    insert_episode(&pool, episode_299, 299, Some("Erlösung")).await?;
+    insert_episode(&pool, episode_300, 300, None).await?;
+    for (index, draft_ref) in ["scene-0", "scene-1"].iter().enumerate() {
+        let scene_id = Uuid::now_v7();
+        insert_scene(&pool, scene_id, episode_299).await?;
+        insert_mapping(&pool, id, draft_ref, "scene", scene_id, 1 + index as i64).await?;
+    }
+    let scene_300 = Uuid::now_v7();
+    insert_scene(&pool, scene_300, episode_300).await?;
+    insert_mapping(&pool, id, "scene-2", "scene", scene_300, 1).await?;
 
-    // A later apply reports only the rows IT dispatched: the count is
-    // ACCUMULATED on the stored entry (57 + 3 = 60) and the position is kept,
-    // instead of replacing 57 with 3 or duplicating the episode.
-    let later = AppliedEpisode {
-        applied_count: 3,
-        ..a.clone()
-    };
-    queue
-        .record_applied_episodes(id, std::slice::from_ref(&later))
-        .await?;
     let job = queue.get(id).await?.expect("job exists");
     assert_eq!(
         job.applied_episodes,
         vec![
             AppliedEpisode {
-                applied_count: 60,
-                ..a.clone()
+                id: episode_299,
+                number: Some(299),
+                name: Some("Erlösung".to_owned()),
+                applied_count: 2,
             },
-            b.clone()
-        ]
+            AppliedEpisode {
+                id: episode_300,
+                number: Some(300),
+                name: None,
+                applied_count: 1,
+            },
+        ],
+        "one entry per episode, ordered by number, labelled from the projection"
     );
-
-    // A retry that dispatched nothing must not clear the summary.
-    queue.record_applied_episodes(id, &[]).await?;
-    let job = queue.get(id).await?.expect("job exists");
-    assert_eq!(
-        job.applied_episodes
-            .first()
-            .map(|entry| entry.applied_count),
-        Some(60),
-        "an empty report must be a no-op, not a wipe"
-    );
-    assert_eq!(job.applied_episodes.len(), 2);
     Ok(())
 }
 
+/// Not every mapping is applied work, and not every apply names a target.
+///
+/// * a **reserved** scene mapping (an id claimed before the command appended)
+///   has no projected scene, so the join drops it — a reservation is not a row;
+/// * a **schedule** apply writes only `scene_shoot`/`shooting_day` mappings, so
+///   it derives an empty list instead of an invented one (the #763 decision now
+///   falls out of the derivation rather than being a special case).
 #[tokio::test]
-async fn applied_episodes_round_trip() -> Result<()> {
+async fn reservations_and_schedule_mappings_derive_no_target() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
-    let queue = PgAiImportQueue::new(pool);
+    let queue = PgAiImportQueue::new(pool.clone());
 
-    let request = make_request("user-identity-applied", None);
+    let request = make_request("user-identity-reserved", None);
     let id = request.id;
     queue.enqueue(request).await?;
 
-    // Nothing is applied yet: an empty list, not a fabricated entry.
-    let fresh = queue.get(id).await?.expect("job exists");
-    assert!(fresh.applied_episodes.is_empty());
-
-    let summary = vec![
-        AppliedEpisode {
-            id: Uuid::now_v7(),
-            number: Some(299),
-            name: Some("Erlösung".to_owned()),
-            applied_count: 57,
-        },
-        AppliedEpisode {
-            id: Uuid::now_v7(),
-            number: Some(300),
-            name: None,
-            applied_count: 4,
-        },
-    ];
-    queue.record_applied_episodes(id, &summary).await?;
+    // A crashed attempt claimed an id and never appended: `RESERVED_VERSION`.
+    insert_mapping(
+        &pool,
+        id,
+        "scene-0",
+        "scene",
+        Uuid::now_v7(),
+        i64::try_from(AiImportMapping::RESERVED_VERSION.0)?,
+    )
+    .await?;
+    // A schedule merge: scene-shoot and shooting-day mappings only.
+    insert_mapping(&pool, id, "day-0", "scene_shoot", Uuid::now_v7(), 1).await?;
+    insert_mapping(&pool, id, "day-1", "shooting_day", Uuid::now_v7(), 1).await?;
 
     let job = queue.get(id).await?.expect("job exists");
-    assert_eq!(job.applied_episodes, summary);
+    assert!(
+        job.applied_episodes.is_empty(),
+        "a reservation is not applied work and a schedule merge names no episode: {:?}",
+        job.applied_episodes
+    );
+    Ok(())
+}
+
+/// The jobs **list** derives the same summary as the single-job read, in one
+/// batch query per page (issue #864) — the list is where a user actually meets
+/// the target name, so a divergence between the two reads would be the defect.
+#[tokio::test]
+async fn the_jobs_list_derives_the_same_summary() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    let user = "user-identity-list";
+    let applied = make_request(user, None);
+    let applied_id = applied.id;
+    queue.enqueue(applied).await?;
+    let untouched = make_request(user, None);
+    let untouched_id = untouched.id;
+    queue.enqueue(untouched).await?;
+
+    let episode = Uuid::now_v7();
+    insert_episode(&pool, episode, 299, Some("Erlösung")).await?;
+    let scene = Uuid::now_v7();
+    insert_scene(&pool, scene, episode).await?;
+    insert_mapping(&pool, applied_id, "scene-0", "scene", scene, 1).await?;
+
+    let jobs = queue
+        .list_for_user(&breakdown_core::shared::UserId::from_sub(user), 10, 0)
+        .await?;
+    let listed = |wanted: AiImportJobId| {
+        jobs.iter()
+            .find(|job| job.id == wanted)
+            .cloned()
+            .expect("the enqueued job is listed")
+    };
+    assert_eq!(
+        listed(applied_id).applied_episodes,
+        vec![AppliedEpisode {
+            id: episode,
+            number: Some(299),
+            name: Some("Erlösung".to_owned()),
+            applied_count: 1,
+        }]
+    );
+    assert!(
+        listed(untouched_id).applied_episodes.is_empty(),
+        "a job that was never applied keeps answering 'no target'"
+    );
     Ok(())
 }

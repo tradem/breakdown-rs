@@ -17,10 +17,10 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, AppliedEpisode, ApplyMapping,
-    DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind,
-    DraftCharacter, DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan,
-    EpisodeTarget, JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DecisionAnswer,
+    DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind, DraftCharacter,
+    DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
+    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
     OutfitDecision, PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule,
     ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState,
     UNCERTAINTY_FIELD_CHARACTERS, UnappliedOutfitReason, UncertaintyKind, character_identity,
@@ -211,14 +211,6 @@ async fn merge_worker_empty_input_is_non_retryable() {
         ) -> Result<(), DomainError> {
             Ok(())
         }
-
-        async fn record_applied_episodes(
-            &self,
-            _id: AiImportJobId,
-            _episodes: &[AppliedEpisode],
-        ) -> Result<(), DomainError> {
-            Ok(())
-        }
     }
 
     let queue = Arc::new(RetryTrackingQueue::default());
@@ -365,14 +357,6 @@ async fn merge_worker_success_records_telemetry() {
             telemetry: Telemetry,
         ) -> Result<(), DomainError> {
             self.telemetry.lock().unwrap().push(telemetry);
-            Ok(())
-        }
-
-        async fn record_applied_episodes(
-            &self,
-            _id: AiImportJobId,
-            _episodes: &[AppliedEpisode],
-        ) -> Result<(), DomainError> {
             Ok(())
         }
     }
@@ -719,14 +703,6 @@ impl AiImportQueue for FakeQueue {
         telemetry: Telemetry,
     ) -> Result<(), DomainError> {
         self.state.lock().unwrap().telemetry.push(telemetry);
-        Ok(())
-    }
-
-    async fn record_applied_episodes(
-        &self,
-        _id: AiImportJobId,
-        _episodes: &[AppliedEpisode],
-    ) -> Result<(), DomainError> {
         Ok(())
     }
 }

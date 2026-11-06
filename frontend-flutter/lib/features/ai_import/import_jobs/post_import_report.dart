@@ -215,14 +215,27 @@ String aiUnappliedOutfitReasonCopy(
 /// the navigation path, no invented ids, no fabricated numbers: every missing
 /// piece answers `null`, and the caller keeps the outcome card plus an honest
 /// hint instead of a half-navigation.
+///
+/// The target list comes from the response first and from the job's
+/// **persisted** summary second (issue #864). The fallback is load-bearing: a
+/// re-apply of an already-applied preview dispatches nothing (every row is
+/// settled by its mapping), so its response names no episode at all, while the
+/// server-derived job summary still names where the earlier run put the rows.
+/// Without it the hop would fall back to the request's episode — or to nothing —
+/// although a durable answer exists. Both sources are read from the cache, so
+/// the navigation path still never waits for the network.
 Future<AiPostImportTarget?> resolvePostImportTarget(
   WidgetRef ref, {
   required String jobId,
   required ApplyAiImportResponse outcome,
   String? requestEpisodeId,
 }) async {
+  final wire = outcome.appliedEpisodes ?? const <AppliedEpisode>[];
+  final candidates = wire.isEmpty
+      ? await ref.read(aiJobAppliedEpisodesProvider(jobId).future)
+      : wire;
   final choice = pickAppliedTargetEpisode(
-    outcome.appliedEpisodes ?? const <AppliedEpisode>[],
+    candidates,
     requestEpisodeId: requestEpisodeId,
   );
   if (choice == null) return null;

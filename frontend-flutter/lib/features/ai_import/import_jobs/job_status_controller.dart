@@ -20,6 +20,8 @@ import '../../../core/result.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/ai_import_repository.dart'
     show AiImportRepository, isTerminalJobStatus;
+import '../../../data/cache/ai_import_jobs_cache_dao.dart'
+    show appliedEpisodesFromWire;
 import '../../../l10n/generated/app_localizations.dart';
 
 part 'job_status_controller.g.dart';
@@ -267,6 +269,40 @@ Future<bool> aiJobApplied(Ref ref, String jobId) async {
     if (row.id == jobId) return row.applied;
   }
   return false;
+}
+
+/// The applied-episode summary a job's applies left **persisted** (issue #864),
+/// read from the cached job row.
+///
+/// The server derives it at the read edge from the durable apply mappings, so it
+/// exists exactly when rows committed — including an apply whose client
+/// disconnected before the response. That is what makes it usable as the
+/// post-apply hop's fallback: a re-apply of an already-applied preview dispatches
+/// nothing and therefore returns an EMPTY `applied_episodes` in its response,
+/// while the persisted summary still names where the previous run put the rows.
+///
+/// Empty when the row is unknown/offline or no apply ever committed: the caller
+/// keeps its own honest fallback (the request's episode, then the kind/date copy)
+/// rather than inventing a target.
+@riverpod
+Future<List<AppliedEpisode>> aiJobAppliedEpisodes(Ref ref, String jobId) async {
+  final repo = ref.read(aiImportRepositoryProvider);
+  String sub;
+  try {
+    final session = await ref.read(authSessionControllerProvider.future);
+    sub = session?.sub ?? '';
+  } on Object {
+    return const <AppliedEpisode>[];
+  }
+  final rows = await repo.readCached(sub);
+  final err = rows.getLeft().toNullable();
+  if (err != null) return const <AppliedEpisode>[];
+  for (final row in rows.getRight().toNullable()!) {
+    if (row.id == jobId) {
+      return appliedEpisodesFromWire(row.appliedEpisodesJson);
+    }
+  }
+  return const <AppliedEpisode>[];
 }
 
 /// The persisted apply context (episode + series) of a job.

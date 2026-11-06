@@ -94,7 +94,7 @@ screen, on every window size.
 | Plus action (Import) | Extended FAB (`PlusActionFab`, bottom-trailing, key `ai-jobs-plus-fab`) | Issue #823: starts a new import from THIS screen in every list state. Named after what it does (`navAiImport` — „Import"), not the shell's generic „Erstellen", because its sheet carries exactly one entry. Opens the shared quick-create sheet with that single „Import" row, which pushes `AiImportSubmitScreen` on the ROOT navigator (the flow covers the shell). Explicit BUTTON role, visible label, auth-gated (no action for a pending/erroring/signed-out session); the list reserves an 80 dp band plus the bottom system inset (`viewPadding.bottom`, the FAB's own safe margin) so the FAB never covers the last row on a device with a gesture/navigation bar | `navAiImport` + `quickCreateAiImportSubtitle` |
 | Job row | List item | Pushes the job status screen (the single-watch owner) | row key |
 | Row title | Text | The uploaded document's own file name, at most two lines then ellipsized (issue #763); a job without a name keeps „Drehplan · 1. Jan. 2026" | server `source_file_name`, else `aiJobsRowSubtitle` |
-| Row identity line | Text | The imported target once an apply ran: `Skript · 299 Erlösung · 57 angewendet`, `(+n)` for further episodes (issue #763); a named but unapplied row shows `kind · date` here instead, an unnamed one shows nothing (the title already carries it) | `aiJobsRowKindEpisode` / `aiJobsRowEpisodeMore` / `aiJobsRowEpisodeNumber` / `aiJobsRowEpisodeNumberName` / `aiJobsRowApplied` / `aiJobsRowSubtitle` |
+| Row identity line | Text | The imported target once an apply ran: `Skript · 299 Erlösung · 57 angewendet`, `(+n)` for further episodes (issue #763); a named but unapplied row shows `kind · date` here instead, an unnamed one shows nothing (the title already carries it). The summary is server-derived from the job's durable apply mappings (issue #864), so it also appears for an apply whose client disconnected before the response — the client reads it, it never writes it | `aiJobsRowKindEpisode` / `aiJobsRowEpisodeMore` / `aiJobsRowEpisodeNumber` / `aiJobsRowEpisodeNumberName` / `aiJobsRowApplied` / `aiJobsRowSubtitle` |
 | Row status | Text | One of the six honest status copies, always visible next to the icon | `aiImport.jobStatus` |
 | Status icon | Icon | Per-status glyph (see glossary); error-colored for terminal failures — reinforcement only, never the sole carrier | status glyphs |
 | Retry budget | Text | Retryable `failed` rows show `Versuch {retries} von {maxRetries}` | `aiJobRetryBudget` |
@@ -513,9 +513,11 @@ scene + season-script seams (counting overrides); a partially applied response
 keeps its `unapplied_outfits` reachable at the destination and dismisses; a
 report resets the destination's nested navigator to its root; an unresolvable
 destination (no applied episode / uncached season) keeps the review screen
-with the outcome card and the explicit hint, with the scopes untouched. Unit
-test: the target choice (reviewer's episode, biggest contribution, server-order
-ties, schedule apply → none).
+with the outcome card and the explicit hint, with the scopes untouched; a
+re-apply whose response names no episode still lands, because the hop falls back
+to the job's persisted summary (issue #864). Unit test: the target choice
+(reviewer's episode, biggest contribution, server-order ties, schedule apply →
+none).
 
 Widget tests: a row carrying `DecisionRubric.scoringFailed` renders the failure
 note inside its card and NO stars, a scored row renders stars and no note, and a
