@@ -740,6 +740,36 @@ void main() {
       );
     });
 
+    testWidgets('a stale block-less choice never drops the block the card '
+        'showed (review finding)', (tester) async {
+      // The choice lives in a session provider; coming back to a season that HAS
+      // a block must not turn the dispatch block-less behind the user's back.
+      await setupContainer(seasonId: 'season-1', seasonNumber: '2');
+      await pumpScreen(tester, seasonId: 'season-1');
+      repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
+
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      // A leftover from an earlier visit (selectKind clears it, so set it last).
+      container.read(blockLessImportProvider.notifier).set(true);
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
+      await tester.tap(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.uploadCalls, 1);
+      expect(
+        repo.lastSendActiveBlock,
+        isTrue,
+        reason: 'a resolved block wins over a stale block-less choice',
+      );
+      await tester.pump();
+    });
+
     testWidgets('a season without blocks offers "Block anlegen", opens the '
         'SHARED create form and adopts the created block as the target '
         '(issue #828)', (tester) async {

@@ -2660,6 +2660,12 @@ abstract class AppLocalizations {
   /// **'Die Staffel konnte nicht geladen werden. Versuch es erneut.'**
   String get aiImportTargetSeasonUnavailable;
 
+  /// No description provided for @aiImportTargetBlocksUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Blockliste der Staffel konnte nicht geladen werden. Eine leere Liste heißt hier nicht, dass die Staffel keinen Block hat. Versuch es erneut.'**
+  String get aiImportTargetBlocksUnavailable;
+
   /// No description provided for @aiImportTargetUnknownSeason.
   ///
   /// In de, this message translates to:

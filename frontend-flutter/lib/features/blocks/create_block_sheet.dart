@@ -33,8 +33,16 @@ typedef CreatedBlock = ({String id, int number});
 Future<CreatedBlock?> showCreateBlockSheet(
   BuildContext context,
   WidgetRef ref,
-  SeasonView season,
-) {
+  SeasonView season, {
+
+  /// The number the opener already knows (CodeRabbit review of #857): the
+  /// AI-import target card offers "create block N" from the script's block,
+  /// so opening the field EMPTY would ask back for the value the card just
+  /// named in its own button label. The field still stays editable — the
+  /// reviewer confirms the number, the form never dispatches an unconfirmed
+  /// one.
+  int? initialNumber,
+}) {
   final isMacOs = Theme.of(context).platform == TargetPlatform.macOS;
   if (isMacOs) {
     return showDialog<CreatedBlock>(
@@ -42,7 +50,7 @@ Future<CreatedBlock?> showCreateBlockSheet(
       builder: (dialogContext) => Dialog(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
-          child: _CreateBlockForm(season: season),
+          child: _CreateBlockForm(season: season, initialNumber: initialNumber),
         ),
       ),
     );
@@ -58,7 +66,7 @@ Future<CreatedBlock?> showCreateBlockSheet(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(sheetContext).size.height * 0.9,
         ),
-        child: _CreateBlockForm(season: season),
+        child: _CreateBlockForm(season: season, initialNumber: initialNumber),
       ),
     ),
   );
@@ -97,9 +105,14 @@ final DateTime blockPickerLastDay = DateTime(9999, 12, 31);
 /// (each picked day can be cleared again) and the display is read-only
 /// rendered text, never an editable field.
 class _CreateBlockForm extends ConsumerStatefulWidget {
-  const _CreateBlockForm({required this.season});
+  const _CreateBlockForm({required this.season, this.initialNumber});
 
   final SeasonView season;
+
+  /// A number the opener already knows (see [showCreateBlockSheet]).
+  /// Pre-filled into the field, never dispatched without the reviewer's
+  /// confirmation.
+  final int? initialNumber;
 
   @override
   ConsumerState<_CreateBlockForm> createState() => _CreateBlockFormState();
@@ -111,6 +124,16 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
   DateTime? _start;
   DateTime? _end;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // A pre-fill, not a locked value: the field renders it and the reviewer
+    // can still change it (the scenario the AI-import card hands over a
+    // script block number that the season may need under another number).
+    final initial = widget.initialNumber;
+    if (initial != null) _numberController.text = '$initial';
+  }
 
   @override
   void dispose() {

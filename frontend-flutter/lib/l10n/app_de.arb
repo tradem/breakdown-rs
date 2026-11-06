@@ -537,6 +537,7 @@
   "aiImportTargetSwitchBlock": "Block wechseln",
   "aiImportTargetCreateBlock": "Block anlegen",
   "aiImportTargetSeasonUnavailable": "Die Staffel konnte nicht geladen werden. Versuch es erneut.",
+  "aiImportTargetBlocksUnavailable": "Die Blockliste der Staffel konnte nicht geladen werden. Eine leere Liste heißt hier nicht, dass die Staffel keinen Block hat. Versuch es erneut.",
   "aiImportTargetUnknownSeason": "Staffel unbekannt",
   "aiImportTargetUnknownBlock": "Block unbekannt",
   "aiImportScopeMismatch": "Der aktive Block gehört zu einer anderen Staffel als der Import. Der Upload wurde nicht gesendet.",

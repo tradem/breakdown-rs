@@ -140,6 +140,13 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       rebuilt scope keeps `targetSeasonId`/`applied`, an attached target still
       states the locked reason, the apply surface localizes both target codes,
       and the block-less choice cannot enable a dispatch without a season.
+- [x] 3.5b Review fixes on the preview card's picker (CodeRabbit, PR #860): the
+      script block number reaches the shared create form's field for real
+      (`showCreateBlockSheet(… initialNumber:)` — `_create` accepted the number
+      and dropped it, so the form asked back for the value its own button named),
+      and a failed block list (an `Err` or a thrown read) is surfaced with a
+      retry instead of opening a picker that reads exactly like an empty season
+      (`aiImportTargetBlocksUnavailable`).
 - [x] 3.6 `import_jobs/import_state.dart`: localize `ai_import.target_missing`
       and `ai_import.target_immutable` (extension-driven block naming); apply
       unavailable while no target, with a route to the target card.

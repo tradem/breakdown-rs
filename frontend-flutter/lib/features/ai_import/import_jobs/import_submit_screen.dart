@@ -448,7 +448,12 @@ class _ImportTargetCard extends ConsumerWidget {
       canCreate = resolvedValue != null;
     }
 
-    if (blockLess && seasonId != null) {
+    // Review finding: the choice is a SESSION flag, so it can outlive the state
+    // that justified it (pick block-less, leave, come back to a season that now
+    // has a block). It only ever means "there is no block to attach to", so a
+    // resolved block makes it obsolete — rendering the normal target instead of
+    // silently ignoring the block the user has.
+    if (blockLess && seasonId != null && resolved == null) {
       return Card(
         key: const Key('ai-import-target'),
         color: theme.colorScheme.surfaceContainerHighest,
@@ -769,7 +774,10 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
       // The upload progress ride: the controller dispatches without the
       // progress hook (the document is fixed); the indeterminate-to-
       // determinate progress is surfaced via the linear indicator below.
-      final blockLess = ref.read(blockLessImportProvider);
+      // A resolved block wins over a stale block-less choice (review finding):
+      // the dispatch must send the target the card showed.
+      final blockLess =
+          ref.read(blockLessImportProvider) && widget.target == null;
       final res = await ref
           .read(aiImportSubmitControllerProvider.notifier)
           .submit(
@@ -839,7 +847,11 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
     // block-less choice survives in a provider, and a scope that went away
     // (sign-out, backend switch, dev data reset) must not leave a button that
     // can only answer `ai_import.scope_missing`.
-    final blockLess = ref.watch(blockLessImportProvider);
+    // Same rule at the dispatch point: a resolved block always wins over a
+    // stale block-less choice, so the upload cannot silently drop the block the
+    // card showed.
+    final blockLess =
+        ref.watch(blockLessImportProvider) && widget.target == null;
     final hasTarget =
         widget.target != null || (blockLess && widget.seasonId != null);
     return Column(

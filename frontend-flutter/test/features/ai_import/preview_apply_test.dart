@@ -36,6 +36,7 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/import_target.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
@@ -335,6 +336,20 @@ class FakeAiImportRepository extends AiImportRepository {
 
   ApplyAiImportRequest? lastRequest;
 
+  /// Every `(jobId, blockId)` the preview's target card attached — the actions
+  /// are driven through widget taps, so the call is the assertion.
+  final List<(String, String)> attachCalls = [];
+
+  @override
+  Future<Result<AiImportJob>> attachTarget(
+    String jobId, {
+    required String blockId,
+    Clock clock = Clock.system,
+  }) async {
+    attachCalls.add((jobId, blockId));
+    return getJobAndCache(jobId, clock: clock);
+  }
+
   @override
   Future<Result<ApplyAiImportResponse>> apply(
     String jobId,
@@ -361,6 +376,33 @@ class FakeAiImportRepository extends AiImportRepository {
     return Left(const ProblemError(code: 'ai-import.not-found'));
   }
 }
+
+/// One season block as the list route would return it (issue #829 picker).
+BlockView blockView({
+  required String id,
+  required String seasonId,
+  required int number,
+}) => BlockView(
+  (b) => b
+    ..id = id
+    ..seasonId = seasonId
+    ..projectId = 'project-1'
+    ..number = number
+    ..version = 1
+    ..updatedAt = DateTime.utc(2026, 1, 1),
+);
+
+/// One season row — the shared create-block form pre-fills its ids from it.
+SeasonView seasonView(String id, {int number = 2}) => SeasonView(
+  (b) => b
+    ..id = id
+    ..number = number
+    ..projectId = 'project-1'
+    ..title = 'Season'
+    ..archived = false
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 AiImportJob _succeededJob(
   String id, {
@@ -1024,6 +1066,20 @@ void main() {
       /// Whether the job was already applied (issue #829): its target is frozen.
       bool applied = false,
 
+      /// The target season's block list, for the picker sheet (issue #829).
+      Result<List<BlockView>>? seasonBlocks,
+
+      /// Successive block-list answers, one per read (the last one repeats) —
+      /// the picker's retry path (CodeRabbit review of #857): a failed FIRST
+      /// read must be followable by a successful retry, which one fixed
+      /// [seasonBlocks] answer cannot express. Factories rather than `Result`s
+      /// because the retry also models a THROWN read, not only an `Err`.
+      /// Takes precedence over [seasonBlocks].
+      List<Future<Result<List<BlockView>>> Function()>? seasonBlocksSequence,
+
+      /// The target season row the shared create-block form pre-fills from.
+      SeasonView? seasonRow,
+
       /// `true` makes the job read FAIL (issue #827 review): the block scope
       /// then cannot know the target, which must not render as "not recorded".
       bool jobReadFails = false,
@@ -1061,6 +1117,12 @@ void main() {
             ),
       );
       scenes = ValueNotifier(scenesValue ?? Right([_scene('sc-9')]));
+      // ONE mutable queue shared by every read: the override runs per read, not
+      // per container, so a per-call copy would make the retry answer the same
+      // (failed) answer again.
+      final blockListQueue = seasonBlocksSequence == null
+          ? null
+          : List.of(seasonBlocksSequence);
       container = ProviderContainer(
         overrides: [
           appConfigProvider.overrideWithValue(devAuthConfig),
@@ -1097,6 +1159,18 @@ void main() {
             aiJobBlockScopeProvider.overrideWith(
               (ref, jobId) => Completer<ScriptBlockScope?>().future,
             ),
+          if (blockListQueue != null)
+            blocksListFetchProvider(targetSeasonId ?? 'season-1').overrideWith(
+              (ref) => blockListQueue.length > 1
+                  ? blockListQueue.removeAt(0)()
+                  : blockListQueue.first(),
+            )
+          else if (seasonBlocks != null)
+            blocksListFetchProvider(targetSeasonId ?? 'season-1')
+                .overrideWith((ref) async => seasonBlocks),
+          if (seasonRow != null)
+            aiImportSeasonViewProvider(targetSeasonId ?? 'season-1')
+                .overrideWith((ref) async => seasonRow),
           configuredAiNamingProvider.overrideWith((ref) {
             if (namingDiscoveryFails) {
               final Future<AiConfigView?> failed = Future.error(
@@ -1833,6 +1907,198 @@ void main() {
 
       expect(find.text('Schedule preview (pre-merge)'), findsOneWidget);
       expect(find.byKey(const Key('ai-row-decision-row-1')), findsNothing);
+      await tester.pump();
+    });
+
+    testWidgets('the picker sheet lists the season\'s blocks and attaches the '
+        'picked one (review finding: the sheet could not open)', (
+      tester,
+    ) async {
+      // `_pick` used to read the list with `ref.watch` from a tap handler, which
+      // asserts outside `build` — the sheet never opened. Driving the tap is the
+      // only way to see that.
+      final blockTwo = blockView(
+        id: 'block-2',
+        seasonId: 'season-2',
+        number: 2,
+      );
+      final blockNine = blockView(
+        id: 'block-9',
+        seasonId: 'season-2',
+        number: 9,
+      );
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: Right([blockTwo, blockNine]),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+        findsOneWidget,
+        reason: 'the sheet lists the season\'s blocks',
+      );
+      await tester.tap(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repo.attachCalls, [('job-1', blockNine.id)]);
+      await tester.pump();
+    });
+
+    testWidgets('the picker\'s "create block" row opens the SHARED form '
+        'instead of silently closing (review finding)', (tester) async {
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: const Right([]),
+        seasonRow: seasonView('season-2'),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-preview-target-pick-create')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('create-block-number')),
+        findsOneWidget,
+        reason: 'the shared create-block form — not a sheet that just closes',
+      );
+      // CodeRabbit review of #857: the card offered "create block 2" from the
+      // script, so the field must arrive holding that number instead of asking
+      // back for the value the button just named. Still editable, never locked.
+      final numberField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('create-block-number')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(
+        numberField.controller?.text,
+        '2',
+        reason: 'the script\'s block number prefills the shared form',
+      );
+      expect(repo.attachCalls, isEmpty);
+      await tester.pump();
+    });
+
+    testWidgets('a failed block list is surfaced with a retry instead of an '
+        'empty picker (CodeRabbit review of #857)', (tester) async {
+      // A `Err` used to be mapped to an empty list, which opens a picker that
+      // looks exactly like a season without blocks — no rows, no reason, no
+      // way out.
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: const Left(
+          ProblemError(code: 'transport.connectionTimeout'),
+        ),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-error')),
+        findsOneWidget,
+        reason: 'the failure is stated, not rendered as an empty season',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-retry')),
+        findsOneWidget,
+        reason: 'a failed fetch is retryable from the same place',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-create')),
+        findsNothing,
+        reason: 'the picker never opens on a list the client does not hold',
+      );
+      expect(repo.attachCalls, isEmpty);
+      await tester.pump();
+    });
+
+    testWidgets('a THROWN block-list read is surfaced like an `Err`, never an '
+        'empty picker (CodeRabbit review of #857)', (tester) async {
+      // The provider may also FAIL by throwing (a cache/database error, not a
+      // problem-JSON answer). Unhandled, it escapes the tap handler and the
+      // sheet is simply never seen.
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocksSequence: [
+          () => Future<Result<List<BlockView>>>.error(StateError('list down')),
+        ],
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-error')),
+        findsOneWidget,
+        reason: 'a thrown read is a failed list, not a list to pick from',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-retry')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-create')),
+        findsNothing,
+      );
+      expect(repo.attachCalls, isEmpty);
+      await tester.pump();
+    });
+
+    testWidgets('the failed block list\'s retry re-reads the list and opens '
+        'the picker (CodeRabbit review of #857)', (tester) async {
+      final blockNine = blockView(
+        id: 'block-9',
+        seasonId: 'season-2',
+        number: 9,
+      );
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocksSequence: [
+          () async => const Left<ProblemError, List<BlockView>>(
+            ProblemError(code: 'transport.connectionTimeout'),
+          ),
+          () async => Right([blockNine]),
+        ],
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-error')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-pick-retry')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+        findsOneWidget,
+        reason: 'the retry re-reads the list instead of giving up',
+      );
+
+      await tester.tap(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+      );
+      await tester.pumpAndSettle();
+      expect(repo.attachCalls, [('job-1', blockNine.id)]);
       await tester.pump();
     });
 
