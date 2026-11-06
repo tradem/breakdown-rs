@@ -55,9 +55,32 @@
  * whole read under the read tool's 2000-line/50 KB cap already delivered those
  * declarations, so only the "use the outline next time" advice is added.
  *
- * Escape hatches: `PI_GRAPH_NUDGE=0` disables both halves for a session; a
+ * ## The third part: the session-start block (P1b)
+ *
+ * Measured over 538 sessions of this repo: `read` was called 10.148 times and
+ * the graph tools 721 times (14:1), and in the FIRST 3 calls of a session ~80 %
+ * were `bash` (a third of those `rg`/`grep`/`find`), ~12 % `read`, and ~5 % any
+ * graph tool. The first calls set the mode
+ * for the rest of the session, so that window gets more than an advisory:
+ * while the session is younger than [SESSION_START_CALLS] tool calls, a cold
+ * whole-file read is BLOCKED via `tool_call`, and the block reason carries the
+ * outline the read was about to buy. At most [START_BLOCK_CAP] blocks per
+ * session and one per path — a retried read always goes through, and reads
+ * AFTER the start window are never blocked (`tool_call` can only block or
+ * mutate input, so "advise before the call" means block; blocking `rg` was
+ * rejected in the original design and stays rejected, blocking one expensive
+ * whole-file read in the first seconds is not the same thing).
+ *
+ * Escape hatches: `PI_GRAPH_NUDGE=0` disables all three halves for a session; a
  * `# literal:` marker disables the SEARCH half for that one call (a `read` has
- * no command, so a marker cannot suppress the read half).
+ * no command, so a marker cannot suppress the read halves).
+ *
+ * A fourth, cheaper lever rides along: `before_agent_start` adds two guideline
+ * bullets to the system prompt — the discovery order (codebase-memory first,
+ * ast-bro only for what it alone models) and the session-start rule — because
+ * the same rules as AGENTS.md prose lost against the always-present tool
+ * schemas. The bullets carry the resolved project name, so a session started in
+ * `backend/` does not have to spend a call on `list_projects`.
  *
  * Honest limits, surfaced in the appended block rather than hidden:
  *   - Dart class CONSTRUCTION sites are not modelled as call edges (a class
@@ -138,6 +161,15 @@ const READ_SIZE_THRESHOLD_BYTES = 6 * 1024;
 /** A read asking for at least this many lines is a file discovery, not a lookup. */
 const READ_SPAN_THRESHOLD_LINES = 400;
 const MAX_OUTLINE_ROWS = 12;
+
+/**
+ * Session-start window: a cold whole-file read is blocked while the session is
+ * younger than this many tool calls. The window is short on purpose — it
+ * covers the calls that set the mode, not the work.
+ */
+const SESSION_START_CALLS = 5;
+/** Blocks per session: enough to break the reflex, few enough to never nag. */
+const START_BLOCK_CAP = 2;
 
 /**
  * Tools whose result already told the model what is in a file. A read after one
@@ -865,7 +897,10 @@ export function formatReadBlock(args: {
 			`and what does it touch" is one outline plus two snippets — smaller the`,
 		);
 		out.push(
-			`longer the file. Nothing here blocks the read; it just points at that path.`,
+			`longer the file. This block never stops a read; only the ${SESSION_START_CALLS}-call`,
+		);
+		out.push(
+			`session-start guard does, and only once per path.`,
 		);
 	}
 	out.push("");
@@ -922,6 +957,84 @@ export function formatReadBlock(args: {
 	out.push(
 		`(one per cold file per session; PI_GRAPH_NUDGE=0 opts out)`,
 	);
+	return out.join("\n");
+}
+
+/**
+ * May this read be BLOCKED pre-call? Pure, so the self-test pins the window
+ * boundary: the first [SESSION_START_CALLS] calls and at most [START_BLOCK_CAP]
+ * blocks per session.
+ */
+export function mayBlockRead(args: {
+	/** Tool calls so far in this session, THIS one included. */
+	calls: number;
+	/** Blocks already made in this session. */
+	blocks: number;
+}): boolean {
+	if (args.blocks >= START_BLOCK_CAP) return false;
+	return args.calls <= SESSION_START_CALLS;
+}
+
+/**
+ * The BLOCK reason for a cold whole-file read in the session-start window.
+ *
+ * `tool_call` cannot annotate a result that does not exist yet — it can only
+ * block or mutate the input — so the outline is delivered as the block reason,
+ * which is the text the model actually reads. Three promises are kept verbatim:
+ * what was blocked and how big it was, the declarations that replace it, and
+ * that a retry passes (a block is a detour, not a wall).
+ */
+export function formatBlockReason(args: {
+	project: string;
+	relPath: string;
+	bytes: number;
+	rows: { name: string; label: string; lines: string }[];
+	total: number;
+	outlineFailed: boolean;
+}): string {
+	const { project, relPath, bytes, rows, total, outlineFailed } = args;
+	const kb = `${Math.round(bytes / 1024)} KB`;
+	const out: string[] = [];
+	out.push(
+		`blocked: cold whole-file read of ${relPath} (${kb}) at session start.`,
+	);
+	out.push("");
+	if (outlineFailed) {
+		out.push(
+			`The outline lookup failed, so nothing is guessed here. Retry the same read`,
+		);
+		out.push(
+			`(it will pass) or check freshness first: \`scripts/check-graph-freshness.sh\`.`,
+		);
+	} else if (rows.length === 0) {
+		out.push(
+			`The index has no declarations for this path (new file, or excluded —`,
+		);
+		out.push(
+			`\`check_index_coverage\` answers that; \`vendor/\` is never indexed).`,
+		);
+		out.push(`Retry the same read and it will pass.`);
+	} else {
+		out.push(
+			`Instead — ${total} declaration${total === 1 ? "" : "s"} in \`${project}\`:`,
+		);
+		for (const row of rows) {
+			out.push(
+				`  ${row.name.padEnd(22)} ${row.label.padEnd(9)} ${row.lines}`,
+			);
+		}
+		if (total > rows.length) {
+			out.push(`  (+${total - rows.length} more: get_file_outline)`);
+		}
+		out.push("");
+		out.push(`Next: \`read\` the same path with offset/limit for the part you need,`);
+		out.push(
+			`or \`get_file_outline("${relPath}")\` / \`get_code_snippet(<qn>)\`.`,
+		);
+		out.push(
+			`A retry of the whole read goes through unchanged (one block per path).`,
+		);
+	}
 	return out.join("\n");
 }
 
@@ -1048,6 +1161,197 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 		signal?: AbortSignal,
 	): Promise<string | null> =>
 		(await resolveProjectRef(cwd, signal))?.name ?? null;
+
+	// ---------------------------------------------------------------------
+	// Shared read state, used by BOTH read halves (the post-hoc advisory and
+	// the session-start pre-call block) so they can never double-handle one
+	// read.
+	//
+	// Discovery tools report REPOSITORY-relative paths (that is what the graph
+	// tools take), while `read` passes paths relative to the session cwd —
+	// which is commonly a SUBDIRECTORY (`frontend-flutter/`). Every reported
+	// path is therefore kept NORMALIZED and matched against all three shapes a
+	// read can produce (cwd-relative, project-relative, absolute): one set hit
+	// each, never a scan over every earlier tool call.
+	// ---------------------------------------------------------------------
+	const inspectedPaths = new Set<string>();
+	const readNudged = new Set<string>();
+	let lastReadNudgeAt = 0;
+	let readNudges = 0;
+
+	/** Tool calls seen this session — the clock of the session-start window. */
+	let toolCalls = 0;
+	/** Cold reads blocked pre-call this session. */
+	let blockedReads = 0;
+
+	/**
+	 * The gate both read halves share: is this a COLD whole-file read of a code
+	 * file inside the indexed project? The cheap decisions (path shape, size,
+	 * read span) run BEFORE the `list_projects` round trip, and a path a
+	 * discovery tool already reported on is never cold.
+	 */
+	const coldReadOf = async (args: {
+		input?: { path?: string; offset?: number | null; limit?: number | null };
+		cwd: string;
+		signal?: AbortSignal;
+	}): Promise<{
+		abs: string;
+		cwdRel: string;
+		decision: ReadDecision;
+		project: ProjectRef;
+	} | null> => {
+		if (!args.input?.path) return null;
+
+		const abs = absPath(args.input.path, args.cwd);
+		if (readNudged.has(abs)) return null;
+
+		// Cheapest first: prose, test trees and generated sources are the RIGHT
+		// whole-read, and deciding that must not cost a CLI call.
+		const cwdRel = posix.relative(args.cwd, abs);
+		if (!isReadCandidatePath(cwdRel)) return null;
+
+		// Stat BEFORE deciding: size is the "is this a file discovery" signal.
+		// A missing file is an error the read tool already reports.
+		let sizeBytes: number;
+		try {
+			sizeBytes = statSync(abs).size;
+		} catch {
+			return null;
+		}
+
+		const project = await resolveProjectRef(args.cwd, args.signal);
+		if (!project) return null;
+
+		const decision = decideRead({
+			path: args.input.path,
+			offset: args.input.offset ?? null,
+			limit: args.input.limit ?? null,
+			cwd: args.cwd,
+			projectRoot: project.root,
+			sizeBytes,
+		});
+		if (!decision) return null;
+
+		// A file whose outline a discovery tool already reported on is not cold.
+		if (
+			inspectedPaths.has(cwdRel) ||
+			inspectedPaths.has(decision.relPath) ||
+			inspectedPaths.has(abs)
+		) {
+			return null;
+		}
+		return { abs, cwdRel, decision, project };
+	};
+
+	// The project name is resolved once per session so the prompt bullets can
+	// NAME it: a session started in `backend/` should not spend its first call
+	// on `list_projects`. Not awaited — a slow daemon must not delay startup.
+	let projectHint: string | null = null;
+	pi.on("session_start", async (_event, ctx) => {
+		void resolveProject(ctx.cwd, ctx.signal)
+			.then((name) => {
+				projectHint = name;
+			})
+			.catch(() => {});
+	});
+
+	// ---------------------------------------------------------------------
+	// The rules, where they are read: two guideline bullets in the system
+	// prompt. AGENTS.md prose lost against the always-present tool schemas
+	// (measured: 0.7 % of 97.000 tool calls were graph calls), and the tool
+	// schemas cannot be changed from here. `sessionPromptOptions` collections
+	// are mutable and pi patches only the DIFF, so adding the same bullets every
+	// run costs no cache miss.
+	// ---------------------------------------------------------------------
+	pi.on("before_agent_start", async (event) => {
+		try {
+			const guidelines = event.systemPromptOptions?.promptGuidelines;
+			if (!Array.isArray(guidelines)) return;
+			const project = projectHint;
+			const discovery =
+				"Code discovery is codebase-memory FIRST " +
+				(project
+					? `(project \`${project}\`: omit \`project\`, it defaults to the session's indexed project)`
+					: "(the `project` argument defaults to the session's indexed project)") +
+				": search_code / search_graph / get_file_outline / get_code_snippet / trace_path answer " +
+				'"where is X, who uses X, what breaks if I change X". ' +
+				"ast-bro is the fallback ONLY where it models what the graph does not " +
+				"(analyze_ast_surface for re-export-resolved public API, analyze_ast_impact for " +
+				"Dart construction sites). rg stays correct for plain TEXT: ARB keys, problem " +
+				"codes, config values, prose.";
+			const start =
+				"Session start: do not read a large code file whole — search_code(\"<symbol>\") or " +
+				'get_file_outline("<path>") first. ' +
+				`The first ${SESSION_START_CALLS} tool calls of a session set its working mode.`;
+			if (!guidelines.includes(discovery)) guidelines.push(discovery);
+			if (!guidelines.includes(start)) guidelines.push(start);
+		} catch {
+			// A prompt that cannot be extended must not break the run.
+			return;
+		}
+	});
+
+	// ---------------------------------------------------------------------
+	// P1b: the session-start PRE-CALL block.
+	//
+	// `tool_call` can only block or mutate input — an advisory attached to a
+	// result that does not exist yet is not a thing — so "advise before the
+	// call" means block, and the block REASON carries the outline the read was
+	// about to buy. Only inside the start window, at most [START_BLOCK_CAP]
+	// times, once per path: a retry always goes through, which is what makes
+	// this a detour instead of a wall.
+	// ---------------------------------------------------------------------
+	pi.on("tool_call", async (event, ctx) => {
+		try {
+			toolCalls++;
+			if (event.toolName !== "read") return;
+			if (!mayBlockRead({ calls: toolCalls, blocks: blockedReads })) return;
+
+			const read = await coldReadOf({
+				input: event.input as {
+					path?: string;
+					offset?: number | null;
+					limit?: number | null;
+				},
+				cwd: ctx.cwd,
+				signal: ctx.signal,
+			});
+			if (!read) return;
+
+			// Sibling calls are preflighted SEQUENTIALLY, so reserving after the
+			// await cannot overshoot the cap.
+			blockedReads++;
+			readNudged.add(read.abs);
+
+			const outline = await graphCli(
+				pi.exec.bind(pi),
+				"get_file_outline",
+				{
+					project: read.project.name,
+					file_path: read.decision.relPath,
+					limit: MAX_OUTLINE_ROWS,
+					format: "json",
+				},
+				{ cwd: ctx.cwd, signal: ctx.signal, bin },
+			);
+
+			const parsed = readOutlineRows(outline);
+			return {
+				block: true as const,
+				reason: formatBlockReason({
+					project: read.project.name,
+					relPath: read.decision.relPath,
+					bytes: read.decision.bytes,
+					rows: parsed.rows,
+					total: parsed.total,
+					outlineFailed: outline === null,
+				}),
+			};
+		} catch {
+			// Fail OPEN: a broken advisory must never block a legitimate call.
+			return;
+		}
+	});
 
 	pi.on("tool_result", async (event, ctx) => {
 		try {
@@ -1185,22 +1489,10 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 	// Read advisory (P1): a COLD whole-file read of a sizeable code file.
 	//
 	// Text search was never the expensive drift; a 24 KB `read` of a 550-line
-	// screen is, and it happens exactly when the outline was skipped. "Cold" is
-	// per file: the moment a code-aware tool reported on that path, later reads
-	// of it are not annotated.
-	//
-	// Discovery tools report REPOSITORY-relative paths (that is what the graph
-	// tools take), while `read` passes paths relative to the session cwd — which
-	// is commonly a SUBDIRECTORY (`frontend-flutter/`). Every reported path is
-	// therefore kept NORMALIZED and matched against all three shapes a read can
-	// produce (cwd-relative, project-relative, absolute): one set hit each, never
-	// a scan over every earlier tool call.
+	// screen is, and it happens exactly when the outline was skipped. The gate
+	// is shared with the pre-call block ([coldReadOf]); the state it uses lives
+	// next to the project resolver above.
 	// -----------------------------------------------------------------------
-	const inspectedPaths = new Set<string>();
-	const readNudged = new Set<string>();
-	let lastReadNudgeAt = 0;
-	let readNudges = 0;
-
 	pi.on("tool_result", async (event, ctx) => {
 		try {
 			// Bookkeeping comes first: a discovery tool's result marks its file
@@ -1224,48 +1516,16 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 			const input = event.input as
 				| { path?: string; offset?: number | null; limit?: number | null }
 				| undefined;
-			if (!input?.path) return;
 
-			const abs = absPath(input.path, ctx.cwd);
-			if (readNudged.has(abs)) return;
-
-			// Cheapest first: prose, test trees and generated sources are the
-			// RIGHT whole-read, and deciding that must not cost a CLI call.
-			const cwdRel = posix.relative(ctx.cwd, abs);
-			if (!isReadCandidatePath(cwdRel)) return;
-
-			// Stat BEFORE deciding: size is the "is this a file discovery"
-			// signal. A missing file is an error the read tool already reports.
-			let sizeBytes: number;
-			try {
-				sizeBytes = statSync(abs).size;
-			} catch {
-				return;
-			}
-
-			const project = await resolveProjectRef(ctx.cwd, ctx.signal);
-			if (!project) return;
-
-			const decision = decideRead({
-				path: input.path,
-				offset: input.offset ?? null,
-				limit: input.limit ?? null,
+			const read = await coldReadOf({
+				input,
 				cwd: ctx.cwd,
-				projectRoot: project.root,
-				sizeBytes,
+				signal: ctx.signal,
 			});
-			if (!decision) return;
+			if (!read) return;
 
-			// A file whose outline a discovery tool already reported on is not
-			// cold — annotating that read would be pure noise. The path may be
-			// spelled relative to the cwd, to the project root, or absolute.
-			if (
-				inspectedPaths.has(cwdRel) ||
-				inspectedPaths.has(decision.relPath) ||
-				inspectedPaths.has(abs)
-			) {
-				return;
-			}
+			const project = read.project;
+			const decision = read.decision;
 
 			// Budget RESERVED before the await (sibling calls run concurrently).
 			const now = Date.now();
@@ -1274,7 +1534,7 @@ export default function graphFirstNudge(pi: ExtensionAPI): void {
 			lastReadNudgeAt = now;
 			const verbose = readNudges === 0;
 			readNudges++;
-			readNudged.add(abs);
+			readNudged.add(read.abs);
 
 			// The graph runs in the SESSION cwd (the project root is only used to
 			// relativize the path — `get_file_outline` wants repo-relative paths).
@@ -1650,6 +1910,76 @@ if (invokedDirectly) {
 	console.log(
 		`${truncationOk ? "ok  " : "FAIL"} formatReadBlock(rows only when truncated)`,
 	);
+
+	// P1b: the session-start window is a BOUNDARY, and a boundary is exactly
+	// what a self-test is for — one call too many must not block.
+	const blockCases: { calls: number; blocks: number; want: boolean }[] = [
+		{ calls: 1, blocks: 0, want: true },
+		{ calls: 3, blocks: 1, want: true },
+		{ calls: SESSION_START_CALLS, blocks: 0, want: true },
+		{ calls: SESSION_START_CALLS + 1, blocks: 0, want: false },
+		{ calls: 1, blocks: START_BLOCK_CAP, want: false },
+		{ calls: 1, blocks: START_BLOCK_CAP - 1, want: true },
+	];
+	for (const testCase of blockCases) {
+		const got = mayBlockRead(testCase);
+		const ok = got === testCase.want;
+		if (!ok) failed++;
+		console.log(
+			`${ok ? "ok  " : "FAIL"} mayBlockRead(calls=${testCase.calls}, blocks=${testCase.blocks}) → ${got} (want ${testCase.want})`,
+		);
+	}
+
+	// The block reason is the ONLY thing the model sees for a blocked read, so
+	// it must name the file, the declarations that replace it, and the fact that
+	// a retry passes — and it must degrade honestly when the outline is missing.
+	const blockedReason = formatBlockReason({
+		project: "breakdown-rs",
+		relPath: "frontend-flutter/lib/features/shell/app_shell.dart",
+		bytes: BIG,
+		rows: rows.rows,
+		total: rows.total,
+		outlineFailed: false,
+	});
+	const blockedOk =
+		blockedReason.includes("blocked:") &&
+		blockedReason.includes("frontend-flutter/lib/features/shell/app_shell.dart") &&
+		blockedReason.includes("24 KB") &&
+		blockedReason.includes("AppShellState") &&
+		blockedReason.includes("get_file_outline") &&
+		blockedReason.includes("retry") &&
+		blockedReason.includes("+5 more");
+	if (!blockedOk) failed++;
+	console.log(`${blockedOk ? "ok  " : "FAIL"} formatBlockReason(rows)`);
+
+	const failedReason = formatBlockReason({
+		project: "breakdown-rs",
+		relPath: "frontend-flutter/lib/a.dart",
+		bytes: BIG,
+		rows: [],
+		total: 0,
+		outlineFailed: true,
+	});
+	const failedReasonOk =
+		failedReason.includes("outline lookup failed") &&
+		failedReason.includes("check-graph-freshness.sh") &&
+		failedReason.includes("will pass") &&
+		!failedReason.includes("declaration");
+	if (!failedReasonOk) failed++;
+	console.log(`${failedReasonOk ? "ok  " : "FAIL"} formatBlockReason(failed lookup)`);
+
+	const emptyReason = formatBlockReason({
+		project: "breakdown-rs",
+		relPath: "frontend-flutter/lib/brand_new.dart",
+		bytes: BIG,
+		rows: [],
+		total: 0,
+		outlineFailed: false,
+	});
+	const emptyReasonOk =
+		emptyReason.includes("no declarations") && emptyReason.includes("will pass");
+	if (!emptyReasonOk) failed++;
+	console.log(`${emptyReasonOk ? "ok  " : "FAIL"} formatBlockReason(no declarations)`);
 
 	console.log(failed === 0 ? "self-test passed" : `${failed} failure(s)`);
 	process.exit(failed === 0 ? 0 : 1);

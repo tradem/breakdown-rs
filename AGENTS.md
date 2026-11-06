@@ -46,23 +46,49 @@ the authoritative copy and is edited in place.
   completeness — so for every *meaning* question (where is X defined, who uses
   X, what does a change touch, how does X work) use the **`codebase-memory`
   knowledge graph** for project `breakdown-rs` (seeded at the monorepo root,
-  covering backend Rust **and** frontend Dart) or ast-bro. `rg`/`grep` stays the
-  CORRECT tool — not the lazy fallback — for pure text: ARB keys, problem
-  `code`s, config/YAML values, Markdown/prose, version strings, and every path
-  under `docs/`, `openspec/`, `lib/l10n/` and the test trees.
+  covering backend Rust **and** frontend Dart). **codebase-memory is the first
+  choice; ast-bro is the fallback only where it models something the graph does
+  not** — `analyze_ast_surface` (re-export-resolved public API) and
+  `analyze_ast_impact` for Dart *construction* sites, which the graph does not
+  model. Everything else ast-bro offers has a codebase-memory counterpart
+  (`analyze_ast_map`→`get_file_outline`, `analyze_ast_search`→`search_code`,
+  `analyze_ast_trace`→`trace_path`, `analyze_ast_impact`(Rust)→`trace_path
+  inbound`), and ast-bro cannot index Dart at all — so a Flutter question has
+  no ast-bro path, while every ast-bro question has a codebase-memory path.
+  `rg`/`grep` stays the CORRECT tool — not the lazy fallback — for pure text:
+  ARB keys, problem `code`s, config/YAML values, Markdown/prose, version
+  strings, and every path under `docs/`, `openspec/`, `lib/l10n/` and the test
+  trees.
   The decision is supported, not just stated: `.pi/extensions/graph-first-nudge.ts` appends the
   code-aware result to a symbol-shaped text search AND attaches the symbol
-  outline to a cold whole-file `read` of a sizeable code file (soft advisory,
-  never a block; `PI_GRAPH_NUDGE=0` opts out of both halves, and a `# literal:`
-  marker opts out of the search half for one call), and
+  outline to a cold whole-file `read` of a sizeable code file (soft advisory;
+  `PI_GRAPH_NUDGE=0` opts out, and a `# literal:` marker opts out of the
+  search half for one call), and
   `scripts/who-watches.sh <provider>` answers the one question the graph is
   structurally blind to (Riverpod `ref.watch` wiring) by combining both tools
-  in one call. The extension lives in the monorepo's project-local
+  in one call. The extension also speaks up where prose provably lost — 0,7 %
+  of ~97.000 tool calls in 538 logged sessions were graph calls, and in a
+  session's first three calls ~80 % are `bash` (a third of those
+  `rg`/`grep`/`find`), ~12 % `read` and ~5 % any graph tool — so it adds two guideline
+  bullets to the system prompt (discovery order + the resolved project name)
+  and, while a session is younger than 5 tool calls, **blocks** a cold
+  whole-file read of a large code file once per path, handing back the outline
+  as the reason instead of the file. A retry always passes; nothing after the
+  start window is ever blocked. The extension lives in the monorepo's project-local
   `.pi/extensions/`, which pi only loads for sessions started at THAT directory
   — run `scripts/install-pi-extensions.sh` once per clone to link it into
   `~/.pi/agent/extensions/`, so area sessions (`frontend-flutter/`, `backend/`)
   get it too; the extension resolves the indexed project from the session cwd
   and stays silent where no project matches.
+  The graph's `project` argument is optional: `scripts/patch-cbmem-extension.sh`
+  (applied by `scripts/install-pi-extensions.sh`, because codebase-memory-mcp
+  REGENERATES the file on every update) makes it default to the `.codebase-memory/`
+  artifact's project, so no call pays a `list_projects` round trip first —
+  `delete_project` keeps its required argument.
+  Model choice affects graph use more than any prompt: measured over the same
+  sessions, `deepseek-v4.1-flash` used a graph tool in 0,28 % of its calls,
+  `glm-5.3-flash` in 0,58 %, `gpt-5.6-luna` in 2,4 %, `kimi-k2.7-code` in 15,4 %.
+  For discovery-heavy work pick a model from the upper half, not the cheapest.
   The index is machine-local (`.codebase-memory/` is gitignored), so freshness is
   a local duty, never a CI gate: `scripts/check-graph-freshness.sh` to report,
   `scripts/reindex-graph.sh [--if-stale]` to refresh; the `post-merge`,
