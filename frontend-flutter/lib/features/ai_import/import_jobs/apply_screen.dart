@@ -466,6 +466,10 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
         (value) => value,
       );
       if (response == null) return;
+      // The apply outlives the review screen: a pop while the POST was in flight
+      // must not route a disposed section into the imported material (the
+      // navigation reads `ref`, which throws after dispose).
+      if (!mounted) return;
       await _openImportedEpisode(response);
     } finally {
       if (mounted) setState(() => _applying = false);
@@ -560,8 +564,11 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     final now = ref.watch(clockProvider).now();
     // While the blocking run is still inside the server's window, an apply
     // cannot succeed (the server would refuse it again) — the submit button
-    // says so by being disabled instead of producing that refusal.
-    final blockedByLiveRun = inFlight != null && !inFlight.isStaleAt(now);
+    // says so by being disabled instead of producing that refusal. Only a KNOWN
+    // age supports that claim: a run that published nothing blocks nothing the
+    // client can prove, so it must not lock the action (issue #805 review).
+    final blockedByLiveRun =
+        inFlight != null && inFlight.age != null && !inFlight.isStaleAt(now);
 
     // The explicit episode pick over the season's episodes from the read DTOs
     // — ids never guessed.
@@ -988,15 +995,25 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                   ),
                 ),
               // Issue #805: the blocking run, named. Live → what it is and
-              // when a takeover becomes possible; dead → the explicit takeover
-              // (never an automatic steal).
-              if (inFlight != null)
+              // when a takeover becomes possible; abandoned → the explicit
+              // takeover (never an automatic steal); unaged → the server decides.
+              if (inFlight != null) ...[
+                // Only mounted while a notice can settle: the run's stream tells
+                // us the moment the block is gone, so the countdown is a bound
+                // and not the only truth (issue #805 review).
+                _ApplyInFlightSettledWatcher(
+                  jobId: jobId,
+                  onSettled: controller.dismissApplyInFlight,
+                ),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _ApplyInFlightNotice(
                     inFlight: inFlight,
                     now: now,
-                    onTakeover: _applying
+                    // The takeover is the normal apply dispatch, so it obeys the
+                    // normal preconditions: a revoked review acknowledgement (or
+                    // an unresolved target) must disable it, not be bypassed.
+                    onTakeover: (_applying || !canApply)
                         ? null
                         : () => _dispatchApply(
                             knownApplied: knownApplied,
@@ -1006,6 +1023,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                           ),
                   ),
                 ),
+              ],
               FilledButton(
                 key: const Key('ai-apply-submit'),
                 onPressed: (canApply && !_applying && !blockedByLiveRun)
@@ -1437,18 +1455,23 @@ Future<List<EpisodeView>> aiEpisodePickerRows(Ref ref, String jobId) async {
 
 /// The refused apply whose blocking run the server NAMED (issue #805).
 ///
-/// One decision, two states — both decided by the server's own facts, never by
-/// a client-side guess:
+/// Three states, all decided by the server's own facts, never by a client-side
+/// guess:
 ///
-/// * **live** (`age < staleAfter`) — another run still owns the progress slot
-///   and its last publication is inside the server's window. The copy names
-///   that silence and when a takeover becomes possible; the submit button stays
+/// * **live** (`age <= staleAfter`) — another run still owns the progress slot
+///   and its last publication is inside the server's window. The copy names that
+///   silence and when a takeover becomes possible; the submit button stays
 ///   disabled because a second apply would only be refused again.
-/// * **dead** (`age >= staleAfter`) — by the server's own predicate that
-///   payload is abandoned and the next claim steals the slot. The card offers
-///   the **explicit** takeover instead of stealing on its own: the blocking run
-///   may be this person's other device, and the single-flight contract forbids
-///   a blind re-dispatch.
+/// * **abandoned** (`age > staleAfter`) — by the server's own predicate (strict:
+///   `payload.updated_at < now - STALE_AFTER`) that payload is abandoned and the
+///   next claim steals the slot. The card offers the **explicit** takeover
+///   instead of stealing on its own: the blocking run may be this person's other
+///   device, and the single-flight contract forbids a blind re-dispatch.
+/// * **unaged** (`age == null`) — the owner claimed the slot but published no
+///   progress, so no age exists to compare. The card claims neither liveness nor
+///   abandonment: it says exactly that and leaves the action available, because
+///   the server's claim decides anyway. Without this state a server that omits
+///   the age would leave the apply disabled forever — the pre-#805 dead end.
 ///
 /// Never an error card: nothing failed. The pre-#805 defect was exactly that —
 /// a blocking narrative with no way out except restarting the app.
@@ -1462,67 +1485,127 @@ class _ApplyInFlightNotice extends StatelessWidget {
   final AiApplyInFlight inFlight;
   final DateTime now;
 
-  /// Dispatches the takeover; `null` while a dispatch is already out.
+  /// Dispatches the takeover; `null` while it must not be pressed (a dispatch is
+  /// already out, or the apply preconditions are not met any more — e.g. the
+  /// reviewer revoked the acknowledgement).
   final VoidCallback? onTakeover;
 
   @override
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
     final theme = Theme.of(context);
-    final age = inFlight.ageAt(now);
+    final age = inFlight.age;
     final stale = inFlight.isStaleAt(now);
-    // The age copy comes from the shared relative-time formatter (the same one
-    // the seasons card uses), so the wording lives in the ARB catalogs and
-    // every locale renders its own units.
-    final ageLabel = relativeTimeSince(
-      now.subtract(age),
-      clock: Clock.fixed(now),
-      copy: RelativeTimeCopy(
-        justNow: l10n.seasonsStaleJustNow,
-        minutes: (count) => l10n.seasonsStaleMinutes('$count'),
-        hours: (count) => l10n.seasonsStaleHours('$count'),
-        days: (count) => l10n.seasonsStaleDays('$count'),
-      ),
-    );
+    final unaged = age == null;
     // Whole minutes until the server would let a takeover through, rounded UP
-    // so the copy never promises "0 min" while the run is still live.
-    final remaining = inFlight.staleAfter - age;
-    final remainingMinutes = remaining.inSeconds <= 0
-        ? 0
-        : (remaining.inSeconds + 59) ~/ 60;
+    // from MICROSECONDS (a sub-second remainder would otherwise floor to zero
+    // and promise "0 min" while the run is still live) and never below one.
+    final remaining = inFlight.staleAfter - inFlight.ageAt(now);
+    final remainingMicros = remaining.inMicroseconds;
+    final remainingMinutes = remainingMicros <= 0
+        ? 1
+        : (remainingMicros + Duration.microsecondsPerMinute - 1) ~/
+              Duration.microsecondsPerMinute;
     return Column(
-      key: Key(stale ? 'ai-apply-in-flight-stale' : 'ai-apply-in-flight-live'),
+      key: Key(
+        stale
+            ? 'ai-apply-in-flight-stale'
+            : unaged
+            ? 'ai-apply-in-flight-unaged'
+            : 'ai-apply-in-flight-live',
+      ),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           key: const Key('ai-apply-in-flight-copy'),
-          stale
-              ? l10n.aiApplyInFlightStale(ageLabel)
-              : l10n.aiApplyInFlightLive(ageLabel),
+          unaged
+              // No age to name: the copy states the gap instead of inventing a
+              // last publication that never happened.
+              ? l10n.aiApplyInFlightNoAge
+              : stale
+              ? l10n.aiApplyInFlightStale(_ageLabel(l10n, inFlight.ageAt(now)))
+              : l10n.aiApplyInFlightLive(_ageLabel(l10n, inFlight.ageAt(now))),
           style: theme.textTheme.bodySmall,
         ),
-        if (stale) ...[
-          const SizedBox(height: 2),
-          Text(
-            key: const Key('ai-apply-in-flight-hint'),
-            l10n.aiApplyInFlightStaleHint,
-            style: theme.textTheme.bodySmall,
-          ),
-          TextButton(
-            key: const Key('ai-apply-in-flight-takeover'),
-            onPressed: onTakeover,
-            child: Text(l10n.aiApplyInFlightTakeover),
-          ),
-        ] else ...[
+        if (!stale) ...[
           const SizedBox(height: 2),
           Text(
             key: const Key('ai-apply-in-flight-countdown'),
-            l10n.aiApplyInFlightTakeoverIn(remainingMinutes),
+            unaged
+                ? l10n.aiApplyInFlightNoAgeHint
+                : l10n.aiApplyInFlightTakeoverIn(remainingMinutes),
             style: theme.textTheme.bodySmall,
+          ),
+        ],
+        if (stale || unaged) ...[
+          if (stale) ...[
+            const SizedBox(height: 2),
+            Text(
+              key: const Key('ai-apply-in-flight-hint'),
+              l10n.aiApplyInFlightStaleHint,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+          TextButton(
+            key: const Key('ai-apply-in-flight-takeover'),
+            onPressed: onTakeover,
+            child: Text(
+              unaged
+                  ? l10n.aiApplyInFlightCheckAgain
+                  : l10n.aiApplyInFlightTakeover,
+            ),
           ),
         ],
       ],
     );
+  }
+
+  /// The age copy comes from the shared relative-time formatter (the same one
+  /// the seasons card uses), so the wording lives in the ARB catalogs and every
+  /// locale renders its own units.
+  String _ageLabel(AppLocalizations l10n, Duration age) => relativeTimeSince(
+    now.subtract(age),
+    clock: Clock.fixed(now),
+    copy: RelativeTimeCopy(
+      justNow: l10n.seasonsStaleJustNow,
+      minutes: (count) => l10n.seasonsStaleMinutes('$count'),
+      hours: (count) => l10n.seasonsStaleHours('$count'),
+      days: (count) => l10n.seasonsStaleDays('$count'),
+    ),
+  );
+}
+
+/// Clears a stored blocked-run notice as soon as the run that owned the slot
+/// reports its **end** (issue #805 review).
+///
+/// The notice outlives the `POST` that produced it, so its local countdown is
+/// not the only source of truth: once the run ends, the server sends the apply
+/// stream's final `null` frame (`AiApplyRunFinished`). A notice left standing
+/// would keep the apply disabled — and offer a takeover for a run that no longer
+/// exists — until the countdown ran out.
+///
+/// Only `AiApplyRunFinished` clears it. `AiApplyRunIdle` deliberately does NOT:
+/// the server documents `apply_progress: None` as "no progress published", never
+/// as "idle" (issue #762), so a subscribed-but-empty snapshot proves nothing
+/// about the slot. Clearing on it would invent a free run.
+///
+/// Rendered only while a notice exists, so the SSE subscription exists exactly
+/// as long as it can settle something.
+class _ApplyInFlightSettledWatcher extends ConsumerWidget {
+  const _ApplyInFlightSettledWatcher({
+    required this.jobId,
+    required this.onSettled,
+  });
+
+  final String jobId;
+  final VoidCallback onSettled;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(aiApplyRunProvider(jobId), (previous, next) {
+      if (next.value is AiApplyRunFinished) onSettled();
+    });
+    return const SizedBox.shrink();
   }
 }
 

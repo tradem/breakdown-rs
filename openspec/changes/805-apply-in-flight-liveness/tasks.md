@@ -55,3 +55,23 @@
 
 - [x] 5.1 `docs/design/screens/ai-import-jobs.md`: the blocked-run section.
 - [x] 5.2 CHANGELOG entries (`core`, `api`, `frontend-flutter`).
+
+## 6. Review follow-ups (PR #862)
+
+- [x] 6.1 The reconciliation loop re-checks the locally aged refusal AFTER each
+      backoff and stops before a dispatch would cross the window (waiting is not
+      consent); `onAttempt` is not fired for a dispatch that does not happen.
+- [x] 6.2 Strict stale boundary on BOTH sides of the wire contract: the client
+      treats `age > window` as abandoned (`age == window` stays live), matching
+      the claim's `payload.updated_at < now - STALE_AFTER`.
+- [x] 6.3 An ambiguous timeout discards the remembered refusal, so a budget that
+      ends on an unknown outcome reports `ApplyUnresolved`, not a live-run card.
+- [x] 6.4 New "unaged" card state (no fabricated age, no countdown, apply stays
+      available) for a refusal that carries no `apply_run_age_seconds`.
+- [x] 6.5 The notice clears on the apply-run stream's end frame
+      (`AiApplyRunFinished`) — never on `AiApplyRunIdle`, which proves nothing.
+- [x] 6.6 Takeover obeys the normal apply preconditions (review acknowledgement,
+      resolved target) and `mounted` is re-checked before the post-apply routing.
+- [x] 6.7 Backend age assertion is bounded ANALYTICALLY from the payload stamp and
+      the request window, so no wall-clock guess can break it.
+

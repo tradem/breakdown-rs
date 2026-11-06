@@ -1402,6 +1402,17 @@ class AppLocalizationsDe extends AppLocalizations {
       'Du kannst die Übernahme jetzt erneut starten – bereits übernommene Zeilen werden übersprungen.';
 
   @override
+  String get aiApplyInFlightNoAge =>
+      'Für diese Vorschau hält ein Lauf den Platz, ohne Fortschritt zu melden.';
+
+  @override
+  String get aiApplyInFlightNoAgeHint =>
+      'Ob er noch läuft, lässt sich daraus nicht ableiten – ein neuer Start entscheidet der Server.';
+
+  @override
+  String get aiApplyInFlightCheckAgain => 'Erneut starten';
+
+  @override
   String get aiApplyInFlightTakeover => 'Jetzt übernehmen';
 
   @override

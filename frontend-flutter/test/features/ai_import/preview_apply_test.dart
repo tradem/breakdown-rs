@@ -1102,6 +1102,17 @@ void main() {
       /// Parks the block-scope read in flight, so the loading arm can be
       /// asserted (nothing rendered — no claim while the answer is missing).
       bool blockScopePending = false,
+
+      /// Pins the app clock (issue #805 review): the blocked-run notice's age
+      /// and its live→abandoned flip are time-based, so a test advances time
+      /// instead of waiting for it.
+      Clock? clock,
+
+      /// The apply-run stream a blocked-run notice listens to (issue #805
+      /// review). `null` keeps the production provider, which stays pending in
+      /// these tests (no membership), so a notice survives as long as the test
+      /// needs it.
+      Stream<AiApplyRunState>? applyRunStates,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -1146,6 +1157,9 @@ void main() {
             (ref) => const _ImmediateScheduler(),
           ),
           aiPreviewProvider.overrideWith((ref, jobId) async => preview.value),
+          if (clock != null) clockProvider.overrideWithValue(clock),
+          if (applyRunStates != null)
+            aiApplyRunProvider('job-1').overrideWith((ref) => applyRunStates),
           aiJobContextProvider.overrideWith((ref, jobId) async {
             if (!withPersistedContext) return null;
             return const AiJobContext(episodeId: 'ep-1', projectId: 'series-1');
@@ -1403,6 +1417,152 @@ void main() {
       // And the exhausted budget is reported as "a run is live", never as
       // "outcome unknown".
       expect(find.textContaining('unbekannt'), findsNothing);
+    });
+
+    testWidgets('a live blocked run flips to abandoned once the server window '
+        'passes — and never dispatches on its own (issue #805 review)', (
+      tester,
+    ) async {
+      var now = DateTime.utc(2026, 1, 1, 12);
+      await setupContainer(
+        clock: Clock(() => now),
+        // The whole review-screen budget (`kMaxApplyAttempts`) meets the SAME
+        // live refusal — the client waits inside its bound instead of blocking.
+        applyQueue: [
+          for (var i = 0; i < 3; i++)
+            Left(_applyInFlight(ageSeconds: 30, staleAfterSeconds: 60)),
+        ],
+      );
+      await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-apply-in-flight-takeover')),
+        findsNothing,
+      );
+
+      // The window passes while the card stays mounted: the ticker (1 s) is all
+      // that drives the flip — no request, no re-post.
+      final dispatchedWhileLive = repo.applyRequests.length;
+      now = now.add(const Duration(seconds: 40));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.byKey(const Key('ai-apply-in-flight-stale')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-apply-in-flight-takeover')),
+        findsOneWidget,
+      );
+      expect(
+        repo.applyRequests,
+        hasLength(dispatchedWhileLive),
+        reason: 'the flip itself must not dispatch anything',
+      );
+    });
+
+    testWidgets('a refusal WITHOUT an age offers a way out instead of locking '
+        'the apply (issue #805 review)', (tester) async {
+      await setupContainer(
+        // The owner claimed the slot but published no frame: the server sends
+        // the window only, so there is no age to classify. One per budget
+        // attempt, because the loop keeps waiting rather than blocking.
+        applyQueue: [
+          for (var i = 0; i < 3; i++)
+            const Left(
+              ProblemError(
+                code: 'ai-import.apply-in-flight',
+                status: 409,
+                extensions: <String, dynamic>{'stale_after_seconds': 600},
+              ),
+            ),
+        ],
+      );
+      await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(
+        find.byKey(const Key('ai-apply-in-flight-unaged')),
+        findsOneWidget,
+      );
+      // The copy claims neither liveness nor abandonment, and there is no
+      // fabricated age — the countdown slot carries the honest hint instead.
+      expect(
+        find.textContaining('without reporting any progress'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('cannot be derived'), findsOneWidget);
+      // The escape exists — and the apply button is NOT locked by a block the
+      // client cannot prove.
+      expect(
+        find.byKey(const Key('ai-apply-in-flight-takeover')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-apply-submit')))
+            .onPressed,
+        isNotNull,
+      );
+    });
+
+    testWidgets("the run's own END frame clears the blocked-run notice "
+        '(issue #805 review)', (tester) async {
+      final runs = StreamController<AiApplyRunState>.broadcast();
+      addTearDown(runs.close);
+      await setupContainer(
+        applyRunStates: runs.stream,
+        applyQueue: [
+          for (var i = 0; i < 3; i++)
+            Left(_applyInFlight(ageSeconds: 30, staleAfterSeconds: 600)),
+        ],
+      );
+      await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsOneWidget);
+
+      // The blocking run ends: the server sends the apply stream's final frame,
+      // so the countdown is no longer the only truth and the block is gone.
+      runs.add(
+        AiApplyRunFinished(
+          ApplyProgress(
+            (b) => b
+              ..stage = ApplyStage.applying
+              ..applied = 6
+              ..total = 6
+              ..startedAt = DateTime.utc(2026, 1, 1, 11, 59)
+              ..updatedAt = DateTime.utc(2026, 1, 1, 12),
+          ),
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsNothing);
+      expect(find.byKey(const Key('ai-apply-in-flight-stale')), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-apply-submit')))
+            .onPressed,
+        isNotNull,
+        reason: 'a settled run must release the apply action again',
+      );
     });
 
     testWidgets('the preview names the block the SCRIPT states next to the '

@@ -859,21 +859,46 @@ class AiImportRepository extends BaseRepository {
   /// first, **before** that attempt is dispatched: a retry is a NEW
   /// server-side run (the first one's stream has already seen its end
   /// frame), so a live progress view has to re-open its watch to follow it.
+  ///
+  /// [clock] measures the LOCAL wait after a refusal that named its blocking
+  /// run (issue #805 review): the bounded budget may not run past the server's
+  /// own window, or a retry would steal an abandoned claim without the user
+  /// asking for it. Injected so the bound is testable without waiting.
   Future<ApplyReconciliation> applyWithReconciliation(
     String jobId,
     ApplyAiImportRequest request, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = kMaxApplyAttempts,
     void Function(int attempt)? onAttempt,
+    Clock clock = Clock.system,
   }) async {
     ProblemError? lastError;
     // The last refusal that named its owning run (issue #805). A budget that
     // ends on one of these is NOT an unknown outcome: the client knows exactly
     // what blocks it, and who can clear it.
     ApplyInFlight? inFlight;
+    // When that refusal was received: the local wait is measured from here, so
+    // the loop can stop BEFORE a retry would cross the server's window.
+    DateTime? refusedAt;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt > 0) {
         await scheduler.tick(attempt - 1);
+        // The WAIT itself can cross the server's window (issue #805 review), so
+        // this is checked after the tick and immediately before the dispatch it
+        // precedes: waiting long enough is not consent, and a dispatch past the
+        // window would be accepted and steal the abandoned claim. `onAttempt` is
+        // deliberately not called for a dispatch that never happens (it re-arms
+        // the live progress stream). A refusal whose owner published nothing
+        // carries no age to age, so this bound cannot apply to it (see
+        // [ApplyInFlightWindow.age]); that state has its own escape instead.
+        final blocked = inFlight;
+        final knownAge = blocked?.age;
+        if (blocked != null &&
+            refusedAt != null &&
+            knownAge != null &&
+            knownAge + clock.now().difference(refusedAt) > blocked.staleAfter) {
+          return blocked;
+        }
         onAttempt?.call(attempt);
       }
       final res = await apply(jobId, request);
@@ -888,7 +913,7 @@ class AiImportRepository extends BaseRepository {
         // second device.
         final window = applyInFlightWindow(error);
         final age = window?.age;
-        if (window != null && age != null && age >= window.staleAfter) {
+        if (window != null && age != null && age > window.staleAfter) {
           // Issue #805: the owning run has been silent for longer than the
           // server's own staleness window, so the server itself considers the
           // payload abandoned and the next claim would steal the slot. Stop
@@ -896,6 +921,11 @@ class AiImportRepository extends BaseRepository {
           // be this person's other device, and a blind automatic steal is
           // exactly what the single-flight contract forbids), so the caller
           // gets the classification and offers the explicit re-run.
+          //
+          // Strictly `>`: the server's predicate is `payload.updated_at <
+          // now - STALE_AFTER`, so at exactly the window the claim still refuses
+          // and the run is live. `>=` would claim an abandonment the server does
+          // not act on.
           return ApplyInFlight(error, age: age, staleAfter: window.staleAfter);
         }
         // A live run (or one with nothing published to age) keeps the bounded
@@ -909,6 +939,7 @@ class AiImportRepository extends BaseRepository {
             age: window.age,
             staleAfter: window.staleAfter,
           );
+          refusedAt = clock.now();
         }
         continue;
       }
@@ -918,10 +949,18 @@ class AiImportRepository extends BaseRepository {
         return ApplyBlocked(error);
       }
       lastError = error;
+      // Issue #805 review: an ambiguous timeout makes the outcome UNKNOWN again,
+      // so the earlier refusal no longer describes what blocks this job — a
+      // resolved run may have finished, or the dispatch may even have landed.
+      // Dropping it keeps the final report honest: a budget that ends on an
+      // unknown outcome is `ApplyUnresolved`, not a live-run card with a stale
+      // takeover action.
+      inFlight = null;
+      refusedAt = null;
       // Re-read the job reality BEFORE any re-dispatch. A failed re-read
       // is itself an unknown outcome — keep consuming the budget; only a
       // successful read with a non-succeeded status is a definitive block.
-      final job = await getJobAndCache(jobId);
+      final job = await getJobAndCache(jobId, clock: clock);
       final read = job.getRight().toNullable();
       if (read == null) continue;
       if (read.status != JobStatus.succeeded) {

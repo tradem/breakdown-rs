@@ -43,6 +43,14 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     single-flight contract still forbids a blind re-dispatch.
   A server that predates the extensions keeps the previous wait behaviour — the
   client never mirrors a window it was not told.
+  Review round (CodeRabbit): waiting inside the bounded budget is not consent, so
+  the loop re-checks the locally aged refusal after every backoff and stops
+  BEFORE a dispatch would cross the server's window; the boundary is strict,
+  mirroring the claim's own predicate (at exactly the window the run is still
+  live); a refusal whose owner published nothing is its own "unaged" state that
+  neither invents an age nor locks the apply; and the notice clears the moment
+  the apply-run stream reports the blocking run's end, so a finished run cannot
+  keep blocking until the countdown expires.
 
 - **The import target card's two actions are now actually usable**
   (`0.4.0-beta.40+132 → 0.4.0-beta.41+133`, review of the #829 work). Three

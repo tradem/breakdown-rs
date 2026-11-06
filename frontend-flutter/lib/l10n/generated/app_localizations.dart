@@ -2239,6 +2239,24 @@ abstract class AppLocalizations {
   /// **'Du kannst die Übernahme jetzt erneut starten – bereits übernommene Zeilen werden übersprungen.'**
   String get aiApplyInFlightStaleHint;
 
+  /// Issue #805: the blocking run published no progress at all, so no age exists. The copy must claim neither liveness nor abandonment.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diese Vorschau hält ein Lauf den Platz, ohne Fortschritt zu melden.'**
+  String get aiApplyInFlightNoAge;
+
+  /// Issue #805: the honest follow-up for an unaged refusal — no countdown, no staleness claim; the server's claim is authoritative.
+  ///
+  /// In de, this message translates to:
+  /// **'Ob er noch läuft, lässt sich daraus nicht ableiten – ein neuer Start entscheidet der Server.'**
+  String get aiApplyInFlightNoAgeHint;
+
+  /// Issue #805: the action offered when the blocking run's age is unknown — a re-dispatch the server accepts or refuses, since neither side can classify the run.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneut starten'**
+  String get aiApplyInFlightCheckAgain;
+
   /// Issue #805: the explicit takeover action for an abandoned apply run.
   ///
   /// In de, this message translates to:

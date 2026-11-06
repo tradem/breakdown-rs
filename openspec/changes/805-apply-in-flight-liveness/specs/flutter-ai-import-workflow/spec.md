@@ -13,26 +13,38 @@ client SHALL classify the refusal from the server's own S1 extensions
 (`apply_run_age_seconds`, `stale_after_seconds`) and SHALL render a decision
 card inside the apply section, never the generic apply-error narrative:
 
-- While `age < stale_after`, the card SHALL state that an apply is running, name
+- While `age <= stale_after`, the card SHALL state that an apply is running, name
   the owning run's last publication as a localized relative age, and show the
-  whole minutes remaining until a takeover becomes possible. The submit button
-  SHALL be disabled in that state — a second dispatch could only be refused
-  again — and NO takeover affordance SHALL be offered.
-- Once `age >= stale_after` (including while the card stays open, derived from
+  whole minutes remaining until a takeover becomes possible (rounded up, never
+  zero). The submit button SHALL be disabled in that state — a second dispatch
+  could only be refused again — and NO takeover affordance SHALL be offered.
+  The boundary is STRICT, mirroring the claim's own predicate: at exactly the
+  window the server still refuses, so the run is still live.
+- Once `age > stale_after` (including while the card stays open, derived from
   the server-measured age plus local elapsed time; no polling request), the card
   SHALL state that the run counts as abandoned and SHALL offer one explicit
   takeover action, which re-dispatches the same idempotent apply without a
   second confirmation dialog.
+- When the refusal carries NO `apply_run_age_seconds` (an owner that published
+  nothing), the card SHALL claim neither liveness nor abandonment: it SHALL say
+  that no progress was reported, SHALL NOT fabricate an age or a countdown, and
+  SHALL keep the apply action available while offering the same explicit action
+  — the server's claim stays authoritative either way.
 
 The classification SHALL NOT be mirrored client-side: a refusal that carries no
 `stale_after_seconds` (a server predating the extensions) keeps the previous
 bounded-wait behaviour and renders no takeover.
 
 The reconciliation loop SHALL NOT steal an abandoned claim on its own: a refusal
-whose age is at or past the window SHALL end the loop after that single
-dispatch. A refusal for a live run MAY consume the bounded attempt budget (the
-client's own earlier POST may still be running); if the budget ends there, the
-outcome SHALL be reported as a blocked live run, never as an unknown outcome.
+older than the window SHALL end the loop after that single dispatch. A refusal
+for a live run MAY consume the bounded attempt budget (the client's own earlier
+POST may still be running), but the loop SHALL re-check the locally aged refusal
+after each backoff and BEFORE the next dispatch: once the wait would carry the
+age past the window, the loop SHALL stop and report the blocked run instead of
+dispatching into a claim the server would hand over. If the budget ends on a
+live refusal the outcome SHALL be reported as a blocked live run, never as an
+unknown outcome; if it ends on an ambiguous timeout the earlier refusal SHALL be
+discarded, so the outcome is reported as unknown.
 
 #### Scenario: An abandoned run offers the takeover
 

@@ -22,9 +22,10 @@ from an abandoned one instead of waiting blindly:
   the age rather than change the refusal into a different error.
 
 The age SHALL be a duration, not an absolute timestamp, so a client whose clock
-is wrong cannot misclassify a live run as abandoned. `age >= window` SHALL mean
-the server itself considers that payload abandoned — the next atomic claim would
-steal the slot — while `age < window` means the run is live.
+is wrong cannot misclassify a live run as abandoned. A payload older than the
+window SHALL mean the server itself considers it abandoned — the next atomic
+claim would steal the slot — while a payload inside the window (including one
+exactly AT it, because the claim's comparison is strict) means the run is live.
 
 The refusal SHALL NOT change: it remains a `409` with no new problem code, and
 the single-flight claim stays the authority. Emitting the extensions is additive

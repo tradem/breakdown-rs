@@ -542,15 +542,28 @@ class AiApplyInFlight {
 
   /// The owning run's silence at [now]: the server's measurement plus whatever
   /// elapsed locally since receipt.
-  Duration ageAt(DateTime now) =>
-      (age ?? Duration.zero) + now.difference(observedAt);
-
-  /// True when the server's own window has elapsed — i.e. the server considers
-  /// that payload abandoned and the next claim would steal the slot.
   ///
-  /// `false` while [age] is unknown: a run that never published has no age, and
-  /// calling it dead would invent a liveness the server never reported.
-  bool isStaleAt(DateTime now) => age != null && ageAt(now) >= staleAfter;
+  /// The local elapsed is CLAMPED at zero: a backward wall-clock correction must
+  /// not turn the age into a negative (and the formatter into "just now"), and
+  /// the age never shrinks below what the server reported. A forward correction
+  /// can make this verdict early — deliberately accepted: a takeover is only a
+  /// DISPATCH, and the server's own claim stays authoritative, so the worst case
+  /// is one harmlessly refused request, never a stolen slot.
+  Duration ageAt(DateTime now) {
+    final elapsed = now.difference(observedAt);
+    return (age ?? Duration.zero) +
+        (elapsed.isNegative ? Duration.zero : elapsed);
+  }
+
+  /// True when the server's own window has been exceeded — i.e. the server
+  /// considers that payload abandoned and the next claim would steal the slot.
+  ///
+  /// Strictly `>`: the server's predicate is `payload.updated_at <
+  /// now - STALE_AFTER`, so at exactly the window the run is still live and a
+  /// retry is still refused. `false` while [age] is unknown too: a run that
+  /// never published has no age, and calling it dead would invent a liveness the
+  /// server never reported (that state gets its own copy instead).
+  bool isStaleAt(DateTime now) => age != null && ageAt(now) > staleAfter;
 }
 
 /// The apply selection state (task 4.2): rows, the persisted episode
@@ -1301,6 +1314,19 @@ class AiApplyController extends _$AiApplyController {
 
   void dismissCommandError() {
     state = state.copyWith(commandError: null);
+  }
+
+  /// Drops a stored blocked-run notice because the run that owned the slot
+  /// settled (issue #805 review).
+  ///
+  /// The notice outlives the `POST` that produced it, so the hardcoded countdown
+  /// is not the only source of truth: the apply-run stream reports the run's end
+  /// (`AiApplyRunFinished`) or an already free slot (`AiApplyRunIdle`). Either
+  /// way the block is gone — a notice left standing would keep the apply
+  /// disabled and offer a takeover for a run that no longer exists.
+  void dismissApplyInFlight() {
+    if (state.applyInFlight == null) return;
+    state = state.copyWith(applyInFlight: null);
   }
 
   bool get canApply =>

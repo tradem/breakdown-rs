@@ -4970,11 +4970,19 @@ fn single_row_apply_request() -> ApplyAiImportRequest {
 /// [published_ago] is the owning run's only payload — how long ago it last
 /// published. `None` models a run that claimed the slot but has not written
 /// its first frame yet, i.e. the one case where the refusal carries no age.
+///
+/// Returns the run id and the payload's own `updated_at` (if it published), so
+/// a caller can bound the age the handler reports ANALYTICALLY instead of
+/// guessing a window: the handler measures the age at some instant between the
+/// caller's "before the request" and "after the response" stamps.
 async fn seed_live_apply_claim(
     ports: &FakePorts,
     job_id: AiImportJobId,
     published_ago: Option<chrono::Duration>,
-) -> breakdown_core::ai::ApplyRunId {
+) -> (
+    breakdown_core::ai::ApplyRunId,
+    Option<chrono::DateTime<Utc>>,
+) {
     let run_id = breakdown_core::ai::ApplyRunId::new();
     assert!(
         ports
@@ -5002,8 +5010,9 @@ async fn seed_live_apply_claim(
             )
             .await
             .expect("the run progress write should succeed");
+        return (run_id, Some(stamp));
     }
-    run_id
+    (run_id, None)
 }
 
 /// Issue #805: a refused apply names the two facts that turn "something is in
@@ -5019,8 +5028,15 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
     // The owning run published 4 minutes ago: inside `STALE_AFTER`, so the
     // claim refuses it (issue #800) and the payload's own age travels.
-    seed_live_apply_claim(&ports, job_id, Some(chrono::Duration::minutes(4))).await;
+    let (_, stamp) =
+        seed_live_apply_claim(&ports, job_id, Some(chrono::Duration::minutes(4))).await;
+    let stamp = stamp.expect("the seeded run published a payload");
 
+    // Deterministic bounds instead of a guessed window: the handler measures the
+    // age at some instant between these two stamps, so a slow machine (or a
+    // paused test) widens the bound EXACTLY as much as it widens the age —
+    // never a wall-clock guess that a fixed `..=300` range would break.
+    let before = Utc::now();
     let problem = apply_ai_import::<FakePorts>(
         State(state(ports)),
         user(),
@@ -5030,6 +5046,7 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
     .await
     .expect_err("a live run must be refused")
     .into_problem();
+    let after = Utc::now();
 
     assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
     assert_eq!(problem.code, "ai-import.apply-in-flight");
@@ -5047,9 +5064,13 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
         .get("apply_run_age_seconds")
         .and_then(|value| value.as_u64())
         .expect("the owning run published a payload, so its age travels");
+    // `num_seconds` truncates, so allow one second of rounding at each end.
+    let lower = (before - stamp).num_seconds() - 1;
+    let upper = (after - stamp).num_seconds() + 1;
     assert!(
-        (240..=300).contains(&age),
-        "the published payload is 4 minutes old, got {age}s"
+        (lower..=upper).contains(&i64::try_from(age).expect("age fits in i64")),
+        "the reported age must be the payload's age at the refusal \
+         (expected {lower}..={upper}, got {age}s)"
     );
 }
 
@@ -5064,7 +5085,8 @@ async fn apply_refusal_omits_the_age_when_the_owning_run_published_nothing() {
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
     seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
-    seed_live_apply_claim(&ports, job_id, None).await;
+    let (_, stamp) = seed_live_apply_claim(&ports, job_id, None).await;
+    assert!(stamp.is_none(), "this fixture publishes nothing on purpose");
 
     let problem = apply_ai_import::<FakePorts>(
         State(state(ports)),

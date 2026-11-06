@@ -463,16 +463,21 @@ block into a decision (S1 extensions, both server-measured):
 - `stale_after_seconds` — the server's own staleness window
   (`ApplyProgress::STALE_AFTER`). Sent, never mirrored client-side.
 
-`age < window` ⇒ **live**; `age >= window` ⇒ **abandoned by the server's own
-predicate** (the next claim steals the slot). The card is not an error card:
-nothing failed, and the copy names what blocks and what the user can do.
+`age <= window` ⇒ **live**; `age > window` ⇒ **abandoned by the server's own
+predicate** (strict: the claim steals only a payload OLDER than the window, so at
+exactly the window the run is still protected). `age` unknown ⇒ **unaged**: the
+owner holds the slot but published nothing, so the card names that instead of
+inventing an age or a verdict. The card is not an error card: nothing failed, and
+the copy names what blocks and what the user can do.
 
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
 | Live blocking run | Body-small text inside the apply card, above the submit button (`ai-apply-in-flight-live`) | Names the run's own last publication (`letzte Meldung vor 3 min`) — server-measured age plus the elapsed time since receipt. The submit button is DISABLED while the run is inside the server's window: a second dispatch could only be refused again. Never a takeover affordance here | `aiApplyInFlightLive` |
 | Takeover countdown | Body-small text under the live line (`ai-apply-in-flight-countdown`) | Whole minutes until the server's window has passed, rounded UP (never "0 min" next to a live run). Ticks locally once a second — no polling request, because the server would answer the same refusal until the window passed | `aiApplyInFlightTakeoverIn` |
 | Abandoned run | Body-small text (`ai-apply-in-flight-stale`) + hint + explicit action | The blocking run published nothing for longer than the window. The hint states that already-applied rows are skipped, because the takeover is the same idempotent apply | `aiApplyInFlightStale`, `aiApplyInFlightStaleHint` |
-| Takeover | `TextButton` (`ai-apply-in-flight-takeover`) | The **explicit** way out: re-dispatches the apply, no second confirmation dialog (this card IS the confirmation), no app restart. The server's claim steals the abandoned slot in the same statement. Never automatic — a live run may be this person's other device, so a blind re-dispatch stays forbidden | `aiApplyInFlightTakeover` |
+| Unaged blocking run | Body-small text + hint (`ai-apply-in-flight-unaged`) | The owner claimed the slot but published no progress, so there is no age to compare. The card claims neither liveness nor abandonment, shows no countdown, and leaves the apply action available — the server's claim decides. Without this state such a refusal would disable the apply forever | `aiApplyInFlightNoAge`, `aiApplyInFlightNoAgeHint` |
+| Takeover | `TextButton` (`ai-apply-in-flight-takeover`) | The **explicit** way out: re-dispatches the apply, no second confirmation dialog (this card IS the confirmation), no app restart. The server's claim steals the abandoned slot in the same statement. Never automatic — a live run may be this person's other device, so a blind re-dispatch stays forbidden. The button obeys the normal apply preconditions (review acknowledgement, resolved target) and is disabled while a dispatch is out | `aiApplyInFlightTakeover`, `aiApplyInFlightCheckAgain` |
+| Settled run | — (stream listener) | The card outlives the `POST`, so the countdown is a bound, not the truth: the apply-run stream's final `null` frame (`AiApplyRunFinished`) clears the notice the moment the blocking run ends. `AiApplyRunIdle` deliberately does NOT — `apply_progress: None` is "no progress published", never "idle" | — |
 
 Decisions in the data layer, not the widget: a refusal naming an **abandoned**
 run stops the reconciliation loop at once (one dispatch, then the user's

@@ -1384,6 +1384,17 @@ class AppLocalizationsEn extends AppLocalizations {
       'You can start the takeover now — rows already applied are skipped.';
 
   @override
+  String get aiApplyInFlightNoAge =>
+      'A run holds this preview\'s slot without reporting any progress.';
+
+  @override
+  String get aiApplyInFlightNoAgeHint =>
+      'Whether it is still running cannot be derived from that — the server decides a new start.';
+
+  @override
+  String get aiApplyInFlightCheckAgain => 'Start again';
+
+  @override
   String get aiApplyInFlightTakeover => 'Take over now';
 
   @override

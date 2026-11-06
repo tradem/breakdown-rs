@@ -459,6 +459,18 @@
   "@aiApplyInFlightStaleHint": {
     "description": "Issue #805: the takeover re-runs the idempotent apply, so already-applied rows are skipped instead of imported twice."
   },
+  "aiApplyInFlightNoAge": "Für diese Vorschau hält ein Lauf den Platz, ohne Fortschritt zu melden.",
+  "@aiApplyInFlightNoAge": {
+    "description": "Issue #805: the blocking run published no progress at all, so no age exists. The copy must claim neither liveness nor abandonment."
+  },
+  "aiApplyInFlightNoAgeHint": "Ob er noch läuft, lässt sich daraus nicht ableiten – ein neuer Start entscheidet der Server.",
+  "@aiApplyInFlightNoAgeHint": {
+    "description": "Issue #805: the honest follow-up for an unaged refusal — no countdown, no staleness claim; the server's claim is authoritative."
+  },
+  "aiApplyInFlightCheckAgain": "Erneut starten",
+  "@aiApplyInFlightCheckAgain": {
+    "description": "Issue #805: the action offered when the blocking run's age is unknown — a re-dispatch the server accepts or refuses, since neither side can classify the run."
+  },
   "aiApplyInFlightTakeover": "Jetzt übernehmen",
   "@aiApplyInFlightTakeover": {
     "description": "Issue #805: the explicit takeover action for an abandoned apply run."
