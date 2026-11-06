@@ -23,6 +23,46 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The import target card can switch and create the block the import writes
+  into** (`0.4.0-beta.38+130 → 0.4.0-beta.39+131`, frontend issue #828).
+  The card named the target ("Season 1 · Block 1") but the only way to change it
+  was to leave the screen for the shell's block pill — and a season without
+  blocks was a dead end: the card printed "no blocks" as plain text, so the block
+  the import needed could not be created from the very place that revealed it was
+  missing. Both gaps close without a wire change:
+  - **Switch block, always.** A visible "Block wechseln" action on the card,
+    available in the resolved state too (before, only the unset-scope candidate
+    picker could switch), opens the target season's block list as a sheet and
+    sets the pick through `activeBlockProvider` — the same seam the inline picker
+    and the block pill use, so the shown line, the declared season
+    (`X-Declared-Season`) and `X-Active-Block` cannot drift (issue #771's single
+    seam). The dispatch's `ai_import.scope_mismatch` guard therefore keeps
+    holding: no block id is ever sent beside the upload.
+  - **Create block.** A visible "Block anlegen" action opens the EXISTING
+    create-block form (no second form) and adopts the acknowledged block as the
+    target. The form now resolves to the created `(id, number)` pair, because the
+    create route answers with an id only and the projection has not reconciled
+    yet (projector lag is asynchronous, §4) — the number the user typed is the
+    only honest label source. The season row the form pre-fills its ids from is
+    resolved cache-first with a repository fetch on a miss (never a guessed id);
+    an unreadable row is reported instead of opening a form it cannot fill. A
+    NEWER explicit selection wins: if the scope changed while the form was open
+    (a restore, or the shell's block pill), the created block never overwrites
+    the choice the user just made.
+  - **No dead end.** Every resolved target state offers an action: `ready`
+    (switch + create), the inline candidate picker (the list IS the switch, plus
+    create) and `empty` (create). Loading and error keep their own honest states
+    (status line, code-keyed retry). The inline picker and the switch sheet share
+    one block row, so a block looks and behaves identically in both paths. A
+    failed block-list fetch on a target that is already resolved (the sticky
+    scope matched, so the card renders `ready` and the resolution never reports
+    the error) states the failure with a retry instead of silently hiding the
+    switch — the block list re-fetches without leaving the screen.
+  - New ARB keys `aiImportTargetSwitchBlock`, `aiImportTargetCreateBlock` and
+    `aiImportTargetSeasonUnavailable` (de/en), recorded in the glossary; target
+    actions carry their own test keys (`ai-import-target-switch`,
+    `ai-import-target-create`), the target line keeps `ai-import-target-line`.
+
 - **The import shows the block the SCRIPT states, next to the block it imports
   into** (`0.4.0-beta.37+129 → 0.4.0-beta.38+130`, frontend issue #827, PR 2/2).
   The import knew and showed the episode it extracted but never the block, so

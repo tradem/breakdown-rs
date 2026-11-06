@@ -1633,6 +1633,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiImportTargetPickBlock => 'Choose the target block';
 
   @override
+  String get aiImportTargetSwitchBlock => 'Switch block';
+
+  @override
+  String get aiImportTargetCreateBlock => 'Create block';
+
+  @override
+  String get aiImportTargetSeasonUnavailable =>
+      'The season could not be loaded. Try again.';
+
+  @override
   String get aiImportTargetUnknownSeason => 'Season unknown';
 
   @override

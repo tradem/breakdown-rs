@@ -1656,6 +1656,16 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiImportTargetPickBlock => 'Ziel-Block wählen';
 
   @override
+  String get aiImportTargetSwitchBlock => 'Block wechseln';
+
+  @override
+  String get aiImportTargetCreateBlock => 'Block anlegen';
+
+  @override
+  String get aiImportTargetSeasonUnavailable =>
+      'Die Staffel konnte nicht geladen werden. Versuch es erneut.';
+
+  @override
   String get aiImportTargetUnknownSeason => 'Staffel unbekannt';
 
   @override

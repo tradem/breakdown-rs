@@ -8,6 +8,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:breakdown_api/breakdown_api.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +17,7 @@ import '../../../auth/active_block.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../blocks/active_block_gate.dart';
 import '../../blocks/blocks_controller.dart';
+import '../../blocks/create_block_sheet.dart';
 import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import '../ai_config/ai_config_screen.dart';
@@ -298,8 +300,40 @@ class _ImportTargetCard extends ConsumerWidget {
     final seasonNumber = seasonId == null
         ? null
         : ref.watch(aiImportSeasonNumberProvider(seasonId!)).value;
+    // Issue #828: the season's blocks as the list route publishes them — the
+    // candidate source of the explicit "switch block" action. A resolved scope
+    // carries only the ONE acted-on block, so switching in the `ready` arm needs
+    // this list. The fetch reports a failure as a `Left` INSIDE the data (the
+    // repositories return `Result`, never throw), so both shapes are unwrapped:
+    // rows for the switch, the problem for the honest retry surface below.
+    final fetch = seasonId == null
+        ? null
+        : ref.watch(blocksListFetchProvider(seasonId!));
+    final blocks = fetch?.value?.match(
+      (_) => const <BlockView>[],
+      (rows) => rows,
+    );
+    final blockListProblem = switch (fetch) {
+      null => null,
+      AsyncError(:final error) => error,
+      AsyncData(:final value) => value.match<Object?>(
+        (err) => err,
+        (_) => null,
+      ),
+      _ => null,
+    };
+    // Review (#828): with the sticky scope already matching the season the
+    // resolution is `ready` even when the block-list fetch FAILED, so the switch
+    // action would vanish with no explanation — and leaving the screen for the
+    // block pill is the very defect this card fixes. Surface the failure with
+    // its retry; the `AsyncError` resolution arm already renders the same
+    // narrative, so this only covers the arms that are `data`.
+    final listError = resolution is AsyncError ? null : blockListProblem;
 
     final Widget body;
+    // Issue #828 affordances: which of the two a state can honestly offer.
+    var canSwitch = false;
+    var canCreate = false;
     if (seasonId == null) {
       body = Text(
         l10n.aiImportTargetNoSeason,
@@ -340,12 +374,11 @@ class _ImportTargetCard extends ConsumerWidget {
             Text(l10n.aiImportTargetPickBlock),
             const SizedBox(height: 4),
             for (final block in value.candidates!)
-              ListTile(
+              _ImportTargetBlockTile(
                 key: Key('ai-import-target-pick-${block.id}'),
-                dense: true,
+                block: block,
+                selected: false,
                 contentPadding: EdgeInsets.zero,
-                title: Text(l10n.blockTileLabel('${block.number}')),
-                trailing: const Icon(Icons.chevron_right),
                 onTap: () => ref
                     .read(activeBlockProvider.notifier)
                     .set(
@@ -380,6 +413,16 @@ class _ImportTargetCard extends ConsumerWidget {
           ],
         ),
       };
+      // A RESOLVED target always offers a way forward (issue #828): switching
+      // needs the season's blocks, creating never does. The inline candidate
+      // picker IS the switch for the `needsPick` arm, so it never renders both.
+      final resolvedValue = resolution!.value;
+      final alreadyPicking = resolvedValue?.candidates != null;
+      canSwitch =
+          resolvedValue != null &&
+          !alreadyPicking &&
+          (blocks?.isNotEmpty ?? false);
+      canCreate = resolvedValue != null;
     }
 
     return Card(
@@ -397,11 +440,223 @@ class _ImportTargetCard extends ConsumerWidget {
             ),
             const SizedBox(height: 4),
             body,
+            if (listError != null)
+              Row(
+                key: const Key('ai-import-target-list-error'),
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.blocksFetchError(blockScopeErrorCode(listError)),
+                    ),
+                  ),
+                  TextButton(
+                    key: const Key('ai-import-target-list-retry'),
+                    onPressed: () =>
+                        ref.invalidate(blocksListFetchProvider(seasonId!)),
+                    child: Text(l10n.commonRetry),
+                  ),
+                ],
+              ),
+            if (canSwitch || canCreate)
+              _ImportTargetActions(
+                onSwitch: canSwitch
+                    ? () => _switchImportBlock(
+                        context,
+                        ref,
+                        seasonId: seasonId!,
+                        blocks: blocks ?? const <BlockView>[],
+                        currentBlockId: resolved?.blockId,
+                      )
+                    : null,
+                onCreate: canCreate
+                    ? () => _createImportBlock(context, ref, seasonId!)
+                    : null,
+              ),
           ],
         ),
       ),
     );
   }
+}
+
+/// One block row of the target card (issue #828): the inline candidate picker
+/// and the explicit switch sheet render the SAME row, so a block looks and
+/// behaves identically in both paths. Presentation only — the caller owns the
+/// selection seam.
+class _ImportTargetBlockTile extends StatelessWidget {
+  const _ImportTargetBlockTile({
+    super.key,
+    required this.block,
+    required this.selected,
+    required this.onTap,
+    this.contentPadding = EdgeInsets.zero,
+  });
+
+  final BlockView block;
+
+  /// `true` for the block the scope already points at (the switch sheet's
+  /// "you are here" marker): a picker that cannot tell you the current target
+  /// invites a pointless round-trip.
+  final bool selected;
+
+  final VoidCallback onTap;
+  final EdgeInsetsGeometry contentPadding;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    dense: true,
+    contentPadding: contentPadding,
+    title: Text(l10nOf(context).blockTileLabel('${block.number}')),
+    trailing: Icon(selected ? Icons.check : Icons.chevron_right),
+    onTap: onTap,
+  );
+}
+
+/// The target card's actions (issue #828): "Block wechseln" and "Block
+/// anlegen" as VISIBLE text buttons (glossary "visible labels" rule — no
+/// icon-only affordance). Which one is rendered is the card's decision; this
+/// widget only lays them out.
+class _ImportTargetActions extends StatelessWidget {
+  const _ImportTargetActions({this.onSwitch, this.onCreate});
+
+  final VoidCallback? onSwitch;
+  final VoidCallback? onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return Wrap(
+      spacing: 8,
+      children: [
+        if (onSwitch != null)
+          TextButton(
+            key: const Key('ai-import-target-switch'),
+            onPressed: onSwitch,
+            child: Text(l10n.aiImportTargetSwitchBlock),
+          ),
+        if (onCreate != null)
+          TextButton(
+            key: const Key('ai-import-target-create'),
+            onPressed: onCreate,
+            child: Text(l10n.aiImportTargetCreateBlock),
+          ),
+      ],
+    );
+  }
+}
+
+/// Opens the target season's block list as a sheet (issue #828).
+///
+/// The card could already switch blocks in ONE state only (the candidate
+/// picker, while the sticky scope did not match the season); a resolved target
+/// had no switch affordance at all, so changing it meant leaving the screen for
+/// the shell's block pill. Resolves to the picked block, `null` on dismissal.
+Future<BlockView?> _showImportTargetBlockSheet(
+  BuildContext context, {
+  required List<BlockView> blocks,
+  required String? currentBlockId,
+}) {
+  final l10n = l10nOf(context);
+  return showModalBottomSheet<BlockView>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: ListView(
+        key: const Key('ai-import-target-switch-sheet'),
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              l10n.aiImportTargetPickBlock,
+              style: Theme.of(sheetContext).textTheme.titleMedium,
+            ),
+          ),
+          for (final block in blocks)
+            _ImportTargetBlockTile(
+              key: Key('ai-import-target-switch-${block.id}'),
+              block: block,
+              selected: block.id == currentBlockId,
+              onTap: () => Navigator.of(sheetContext).pop(block),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Switches the import target (issue #828).
+///
+/// The pick goes through [activeBlockProvider] — the SAME seam the inline
+/// picker and the shell's block pill use — so the visible target line, the
+/// declared season and the `X-Active-Block` header stay one value (issue #771's
+/// single seam). Sending a block id with the upload instead would be refused by
+/// the dispatch's `ai_import.scope_mismatch` guard, by design.
+Future<void> _switchImportBlock(
+  BuildContext context,
+  WidgetRef ref, {
+  required String seasonId,
+  required List<BlockView> blocks,
+  required String? currentBlockId,
+}) async {
+  final picked = await _showImportTargetBlockSheet(
+    context,
+    blocks: blocks,
+    currentBlockId: currentBlockId,
+  );
+  if (picked == null) return;
+  ref
+      .read(activeBlockProvider.notifier)
+      .set(seasonId: seasonId, blockId: picked.id, blockNumber: picked.number);
+}
+
+/// Creates the block the import needs, from the target card (issue #828).
+///
+/// The reported dead end was a season without blocks: the card printed "no
+/// blocks" as plain text and left the user to find the Blocks screen. The
+/// SHARED create-block form is reused (never a second form), and the block it
+/// acknowledges becomes the active scope — the create route answers with an id
+/// only, so the number the user typed rides back from the form ([CreatedBlock])
+/// rather than being re-derived from a projection that has not reconciled yet.
+///
+/// A NEWER explicit selection wins: the form opens after an awaited row read
+/// (cache hit is instant, a miss is a round-trip) and the scope can legitimately
+/// change while this future is in flight — a sign-in restore, or the shell's
+/// block pill. Re-pointing the target at the block this form created would then
+/// silently contradict the choice the user just made, so the scope captured at
+/// the start of the interaction must still be current.
+Future<void> _createImportBlock(
+  BuildContext context,
+  WidgetRef ref,
+  String seasonId,
+) async {
+  final l10n = l10nOf(context);
+  final selectionBefore = ref.read(activeBlockProvider);
+  final season = await ref.read(aiImportSeasonViewProvider(seasonId).future);
+  if (!context.mounted) return;
+  if (season == null) {
+    // The shared form pre-fills its ids from the season row (CQRS boundary),
+    // so an unreadable row is reported instead of opening a form it cannot
+    // fill with a guessed id.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        key: const Key('ai-import-target-season-unavailable'),
+        content: Text(l10n.aiImportTargetSeasonUnavailable),
+      ),
+    );
+    return;
+  }
+  final created = await showCreateBlockSheet(context, ref, season);
+  if (created == null) return;
+  if (ref.read(activeBlockProvider) != selectionBefore) return;
+  ref
+      .read(activeBlockProvider.notifier)
+      .set(
+        seasonId: seasonId,
+        blockId: created.id,
+        blockNumber: created.number,
+      );
 }
 
 /// The submit dispatch for the picked file. Shows linear progress while the

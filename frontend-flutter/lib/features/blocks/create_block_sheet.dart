@@ -15,16 +15,29 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/locale_formatters.dart';
 import 'blocks_controller.dart';
 
+/// The block a successful create ack put on the wire (issue #828).
+///
+/// The create route answers with an id (+ version) only, so the number the
+/// user typed is the only source for a visible label. Handing the pair back to
+/// the caller lets it adopt the new block as its own target without
+/// re-deriving it from a projection that has not reconciled yet (projector lag
+/// is asynchronous — `CQRS on the client`, AGENTS.md §4).
+typedef CreatedBlock = ({String id, int number});
+
 /// Opens the Create Block form: a centered dialog on macOS (side-sheet
 /// width cap 480 dp, Escape-closable) and a bottom sheet on Android.
-Future<void> showCreateBlockSheet(
+///
+/// Resolves to the created block on an acknowledgement, `null` on a failed
+/// command (the code-keyed banner belongs to the screen that opened the form)
+/// or on a dismissal.
+Future<CreatedBlock?> showCreateBlockSheet(
   BuildContext context,
   WidgetRef ref,
   SeasonView season,
 ) {
   final isMacOs = Theme.of(context).platform == TargetPlatform.macOS;
   if (isMacOs) {
-    return showDialog<void>(
+    return showDialog<CreatedBlock>(
       context: context,
       builder: (dialogContext) => Dialog(
         child: ConstrainedBox(
@@ -34,7 +47,7 @@ Future<void> showCreateBlockSheet(
       ),
     );
   }
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<CreatedBlock>(
     context: context,
     isScrollControlled: true,
     builder: (sheetContext) => Padding(
@@ -139,19 +152,26 @@ class _CreateBlockFormState extends ConsumerState<_CreateBlockForm> {
     // submit never dispatches a span the backend would store unchecked.
     if (!blockDateOrderValid(_start, _end)) return;
     setState(() => _busy = true);
+    final number = int.parse(_numberController.text.trim());
     final result = await ref
         .read(blocksControllerProvider(widget.season.id).notifier)
         .create(
           season: widget.season,
-          number: int.parse(_numberController.text.trim()),
+          number: number,
           startDate: blockWireDate(_start),
           endDate: blockWireDate(_end),
         );
     // Explicitly consumed: Ok renders as the optimistic overlay row, Err
     // renders in the screen's code-keyed banner — no local reaction needed.
-    result.match<void>((_) {}, (_) {});
+    // The ack still travels back (issue #828), because a caller that asked for
+    // the block (the AI-import target card) can adopt it as its scope target
+    // without waiting for the projector to publish it.
+    final created = result.match<CreatedBlock?>(
+      (_) => null,
+      (res) => (id: res.id, number: number),
+    );
     if (!mounted) return;
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(created);
   }
 
   /// One optional day: a visible label, the read-only rendered value (never
