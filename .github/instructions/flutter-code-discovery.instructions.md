@@ -48,14 +48,28 @@ code-aware answer to the same result — a soft advisory, never a block. The
 same extension annotates a **cold whole-file `read`** of a sizeable code file
 with that file's symbol outline, because that (not `rg`) is where discovery
 budget actually goes; it is linked machine-wide by
-`scripts/install-pi-extensions.sh` so area sessions see it too.
+`scripts/install-pi-extensions.sh` so area sessions see it too. In the first
+5 tool calls of a session that read is **blocked** once per path and the
+outline comes back as the block reason (a retry always passes) — the start of a
+session is where the mode for the rest of it is set.
+
+**codebase-memory first, ast-bro second — and only where it is second to none.**
+ast-bro cannot index Dart at all, so no Flutter question has an
+ast-bro-only answer except `analyze_ast_surface` (re-export-resolved public API)
+and `analyze_ast_impact` for *construction* sites (the graph models call edges,
+not `Widget()` instantiations). Everything else ast-bro offers is duplicated by
+a codebase-memory tool — use the codebase-memory one. The graph's `project`
+argument is optional (defaults to the artifact of the nearest
+`.codebase-memory/`, applied by `scripts/install-pi-extensions.sh`), so no call
+spends a `list_projects` round trip.
 
 | Question | Tool |
 |---|---|
-| "How does X work?", "what does this file contain?" | `get_code_snippet` / `get_file_outline`, else `analyze_ast_context` |
-| "Who calls X?", "what breaks if I change/rename X?" | `trace_path` (inbound/outbound), else `analyze_ast_impact` |
-| "Where is X / find the symbol named …" | `search_graph` (`name_pattern`), ast-bro `analyze_ast_search` as second opinion |
-| "How does module A relate to B?", "architecture" | `get_architecture`, else `analyze_ast_graph` |
+| "How does X work?", "what does this file contain?" | `get_code_snippet` / `get_file_outline` (ast-bro `analyze_ast_context` is a convenience second) |
+| "Who calls X?", "what breaks if I change/rename X?" | `trace_path` (inbound/outbound); for Dart *construction* sites only, ast-bro `analyze_ast_impact` |
+| "Where is X / find the symbol named …" | `search_graph` (`name_pattern`), or `search_code` when the rank should follow graph structure |
+| "How does module A relate to B?", "architecture" | `get_architecture` (ast-bro `analyze_ast_graph` is the fallback) |
+| Public API surface of a package (re-exports resolved) | ast-bro `analyze_ast_surface` — the one question with no codebase-memory counterpart |
 | Non-trivial multi-hop aggregation | `query_graph` (Cypher) |
 | Projection-DTO ↔ screen wiring, "what did my branch touch" | `detect_changes` |
 | **"Who observes this Riverpod provider?"** (`ref.watch` is not a graph edge) | `scripts/who-watches.sh <provider>` — the graph definition plus the subscribing call sites (`ref.watch` / `ref.listen`); `ref.read` sites are listed separately because they do not subscribe |
