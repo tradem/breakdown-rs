@@ -90,10 +90,10 @@ The client then owns the **decision**, not the policy:
 - **The claim-without-payload corner stays as it is.** A run that crashed
   before publishing its first frame has no payload to age, so no
   `apply_run_age_seconds` is sent and the client keeps waiting that run out.
-  Widening that would mean exposing the claim's own row stamp on
-  `ApplyRunState` — recorded here as a follow-up candidate, not smuggled in.
-- **`applied_episodes` staying `NULL`** (the issue's "also observed") is
-  #759's durability question and is not decided here.
+  Widening that means exposing the claim's own row stamp on `ApplyRunState` —
+  tracked as issue #863, not smuggled in.
+- **`applied_episodes` staying `NULL`** (the issue's "also observed") is #759's
+  durability question and is not decided here — tracked as issue #864.
 
 ## Acceptance
 
