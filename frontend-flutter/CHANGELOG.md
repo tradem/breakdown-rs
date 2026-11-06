@@ -50,10 +50,12 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     block still dispatched `X-Declared-Season` without `X-Active-Block`. A
     resolved block now always wins: the card renders the normal target and the
     dispatch carries the block.
-  - Five widget tests drive the actions for real (open the picker, pick a block,
-    open the create form and assert the prefilled number, fail the block list and
-    assert the retry, dispatch with a stale flag); two of them fail on the
-    previous code.
+  - Six widget tests drive the actions for real (open the picker, pick a block,
+    open the create form and assert the prefilled number, an `Err` block list
+    with its retry, a THROWN block list, a retry that re-reads the list and then
+    attaches, dispatch with a stale flag); the create-form and stale-flag ones
+    are verified to fail on the previous code, and the three failure tests
+    cannot pass while a failed read renders as an empty list.
 
 - **A block-less job's target card says "Block unknown" instead of "Block null"**
   (`0.4.0-beta.39+131 → 0.4.0-beta.40+132`, review of PR #856). An upload may now

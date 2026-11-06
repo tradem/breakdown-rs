@@ -1069,6 +1069,14 @@ void main() {
       /// The target season's block list, for the picker sheet (issue #829).
       Result<List<BlockView>>? seasonBlocks,
 
+      /// Successive block-list answers, one per read (the last one repeats) —
+      /// the picker's retry path (CodeRabbit review of #857): a failed FIRST
+      /// read must be followable by a successful retry, which one fixed
+      /// [seasonBlocks] answer cannot express. Factories rather than `Result`s
+      /// because the retry also models a THROWN read, not only an `Err`.
+      /// Takes precedence over [seasonBlocks].
+      List<Future<Result<List<BlockView>>> Function()>? seasonBlocksSequence,
+
       /// The target season row the shared create-block form pre-fills from.
       SeasonView? seasonRow,
 
@@ -1109,6 +1117,12 @@ void main() {
             ),
       );
       scenes = ValueNotifier(scenesValue ?? Right([_scene('sc-9')]));
+      // ONE mutable queue shared by every read: the override runs per read, not
+      // per container, so a per-call copy would make the retry answer the same
+      // (failed) answer again.
+      final blockListQueue = seasonBlocksSequence == null
+          ? null
+          : List.of(seasonBlocksSequence);
       container = ProviderContainer(
         overrides: [
           appConfigProvider.overrideWithValue(devAuthConfig),
@@ -1145,7 +1159,13 @@ void main() {
             aiJobBlockScopeProvider.overrideWith(
               (ref, jobId) => Completer<ScriptBlockScope?>().future,
             ),
-          if (seasonBlocks != null)
+          if (blockListQueue != null)
+            blocksListFetchProvider(targetSeasonId ?? 'season-1').overrideWith(
+              (ref) => blockListQueue.length > 1
+                  ? blockListQueue.removeAt(0)()
+                  : blockListQueue.first(),
+            )
+          else if (seasonBlocks != null)
             blocksListFetchProvider(targetSeasonId ?? 'season-1')
                 .overrideWith((ref) async => seasonBlocks),
           if (seasonRow != null)
@@ -2002,6 +2022,83 @@ void main() {
         reason: 'the picker never opens on a list the client does not hold',
       );
       expect(repo.attachCalls, isEmpty);
+      await tester.pump();
+    });
+
+    testWidgets('a THROWN block-list read is surfaced like an `Err`, never an '
+        'empty picker (CodeRabbit review of #857)', (tester) async {
+      // The provider may also FAIL by throwing (a cache/database error, not a
+      // problem-JSON answer). Unhandled, it escapes the tap handler and the
+      // sheet is simply never seen.
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocksSequence: [
+          () => Future<Result<List<BlockView>>>.error(StateError('list down')),
+        ],
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-error')),
+        findsOneWidget,
+        reason: 'a thrown read is a failed list, not a list to pick from',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-retry')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-create')),
+        findsNothing,
+      );
+      expect(repo.attachCalls, isEmpty);
+      await tester.pump();
+    });
+
+    testWidgets('the failed block list\'s retry re-reads the list and opens '
+        'the picker (CodeRabbit review of #857)', (tester) async {
+      final blockNine = blockView(
+        id: 'block-9',
+        seasonId: 'season-2',
+        number: 9,
+      );
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocksSequence: [
+          () async => const Left<ProblemError, List<BlockView>>(
+            ProblemError(code: 'transport.connectionTimeout'),
+          ),
+          () async => Right([blockNine]),
+        ],
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-error')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-pick-retry')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+        findsOneWidget,
+        reason: 'the retry re-reads the list instead of giving up',
+      );
+
+      await tester.tap(
+        find.byKey(Key('ai-preview-target-pick-${blockNine.id}')),
+      );
+      await tester.pumpAndSettle();
+      expect(repo.attachCalls, [('job-1', blockNine.id)]);
       await tester.pump();
     });
 
