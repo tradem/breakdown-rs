@@ -572,6 +572,9 @@ struct FakeQueueState {
     apply_run: Option<breakdown_core::ai::ApplyRunId>,
     /// Monotonic run counter, bumped on every claim and never cleared.
     apply_run_seq: i64,
+    /// When the owning run last wrote to the (fake) job row — the analogue of
+    /// the production `ai_import_job.updated_at` the claim stamps (issue #863).
+    apply_run_updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[async_trait]
@@ -638,6 +641,9 @@ impl AiImportQueue for FakeQueue {
             }
             state.apply_run = Some(run_id);
             state.apply_run_seq += 1;
+            // The claim stamps the row, exactly like the production `UPDATE` —
+            // this stamp is what ages an owner that never publishes (#863).
+            state.apply_run_updated_at = Some(chrono::Utc::now());
         }
         // Park the winner so a concurrent apply is guaranteed to meet a live
         // claim (the mutex is released above: the gate must not hold it).
@@ -657,6 +663,7 @@ impl AiImportQueue for FakeQueue {
             owner: state.apply_run,
             seq: state.apply_run_seq,
             progress: state.apply_progress.last().cloned().flatten(),
+            owner_updated_at: state.apply_run_updated_at,
         }))
     }
 
@@ -685,6 +692,10 @@ impl AiImportQueue for FakeQueue {
             }
         }
         state.apply_progress.push(progress.cloned());
+        // Every run-scoped write re-stamps the row in production, so the fake
+        // must too — otherwise a test could pass on a stamp the real adapter
+        // would have moved (#863).
+        state.apply_run_updated_at = Some(chrono::Utc::now());
         if progress.is_none() {
             state.apply_run = None;
         }

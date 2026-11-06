@@ -590,13 +590,21 @@ pub trait AiImportQueue: Send + Sync {
     }
 
     /// Read the apply-run slot of one job (issue #800): its owning run, the
-    /// monotonic run counter and the owner's last published payload.
+    /// monotonic run counter, the owner's last published payload and the row
+    /// stamp that owner last wrote ([`ApplyRunState::owner_updated_at`], issue
+    /// #863).
     ///
     /// `None` when the job does not exist (the stream closes). The apply stream
     /// needs the counter, not just the payload: a run that starts and clears
     /// between two re-reads leaves no payload behind, and inferring "a run
     /// happened" from the frames it managed to emit is exactly the bug this
     /// read fixes.
+    ///
+    /// The row stamp is not decorative: the single-flight claim
+    /// ([`claim_apply_run`](Self::claim_apply_run)) judges an owner that has
+    /// published **nothing** by that column, so a refusal cannot report an age
+    /// for that state without it — which is what left a run that died before its
+    /// first frame unageable (issue #863).
     ///
     /// The default **mirrors [`get`](Self::get)** rather than reporting an
     /// empty slot: the stream ends when this returns `None`, so a default
@@ -612,9 +620,15 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<Option<ApplyRunState>, DomainError> {
         Ok(self.get(id).await?.map(|job| {
             let progress = job.apply_progress;
+            let owner = progress.as_ref().map(|frame| frame.run_id);
             ApplyRunState {
-                owner: progress.as_ref().map(|frame| frame.run_id),
+                owner,
                 seq: 0,
+                // The job row's own stamp: the same column the production claim
+                // stamps. The owner is derived from the payload here, so an age
+                // comes from that payload; reporting the stamp keeps the read
+                // complete for an adapter that only implements `get`.
+                owner_updated_at: Some(job.updated_at),
                 progress,
             }
         }))

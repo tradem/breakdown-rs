@@ -403,16 +403,17 @@ pub enum ApiError {
     AiImportApplyMissingEpisodeGroup(String),
     /// 409 `ai-import.apply-in-flight` — a live apply run already owns the
     /// job's progress slot, with the two facts the client needs to tell a
-    /// live run from a dead one (issue #805): the owning run's last
-    /// publication age (`apply_run_age_seconds`, omitted when that run has
-    /// published no payload yet) and the server's own staleness window
+    /// live run from a dead one (issues #805/#863): the owning run's silence
+    /// (`apply_run_age_seconds`, omitted only when the slot reports no
+    /// timestamp to age at all) and the server's own staleness window
     /// (`stale_after_seconds` = `ApplyProgress::STALE_AFTER`).
     ///
     /// The age is measured here, server-side, so a client clock that is
     /// minutes off cannot misclassify a live run as abandoned.
     AiImportApplyInFlight {
-        /// Seconds since the owning run last published; `None` when it has
-        /// published nothing yet (no age to report).
+        /// Seconds since the owning run was last heard from; `None` only when
+        /// the slot reports neither a payload nor a row stamp (no age to
+        /// report — never zero).
         age_seconds: Option<u64>,
         /// The window after which the server's claim lets the next apply
         /// steal the slot (`ApplyProgress::STALE_AFTER`).

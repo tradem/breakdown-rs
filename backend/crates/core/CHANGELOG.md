@@ -16,6 +16,29 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.62.0] - Unreleased
+
+### Added — the age of a claim that never published (issue #863)
+
+- `ApplyRunState::owner_updated_at` — the job row's `updated_at`, i.e. **the
+  owner's last write on the row** (progress, decision telemetry and the
+  applied-episode summary all bump it; it is deliberately not "the last progress
+  frame"). It is the column the single-flight claim's steal predicate already
+  judges an owner that published **nothing** by
+  (`OR (apply_progress IS NULL AND updated_at < cutoff)`), and before this read
+  exposed it, the refusal had no way to report the stamp that decision was made
+  on — a run that died before its first frame stayed unageable on the wire, so a
+  client could only wait the window out.
+- `ApplyRunState::owner_silence_at(now)` — the ONE definition of the age a
+  `409 ai-import.apply-in-flight` reports, in the claim's own fallback order:
+  the payload's `updated_at` when a frame was published, otherwise the row stamp,
+  otherwise `None` (no stamp → no age, never `0`). The reported verdict and the
+  steal therefore read the same column and cannot disagree. Future stamps are
+  clamped to zero, so clock skew never reports a negative age.
+- The `apply_run_state` port default now reports the job row's `updated_at`
+  (its `get` already read it), so an adapter that only implements `get` is not
+  worse off than before.
+
 ## [0.61.0] - Unreleased
 
 ### Added — the blocking apply run's age on the refusal (issue #805)

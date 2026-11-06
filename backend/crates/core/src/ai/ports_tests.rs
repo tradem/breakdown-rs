@@ -513,5 +513,114 @@ mod apply_run_state_default {
         assert_eq!(state.owner, None);
         assert_eq!(state.progress, None);
         assert_eq!(state.seq, 0);
+        assert!(
+            state.owner_updated_at.is_some(),
+            "the row stamp is reported, like the production read (issue #863)"
+        );
+        assert_eq!(
+            state.owner_silence_at(Utc::now()),
+            None,
+            "a slot with no owner has nothing to age"
+        );
+    }
+}
+
+// ===========================================================================
+// Issue #863 — the ONE definition of the blocked run's age
+// ===========================================================================
+
+mod owner_silence {
+    use super::super::{ApplyProgress, ApplyRunId, ApplyRunState};
+    // The view types are re-exported on `ai`, not on the port module.
+    use crate::ai::ApplyStage;
+    use chrono::{Duration, Utc};
+
+    fn payload(run_id: ApplyRunId, updated_at: chrono::DateTime<Utc>) -> ApplyProgress {
+        ApplyProgress {
+            stage: ApplyStage::Applying,
+            applied: 0,
+            total: 0,
+            started_at: updated_at,
+            updated_at,
+            run_id,
+        }
+    }
+
+    /// The published case is unchanged since #805: the payload's own stamp is
+    /// the age, because that is the column the claim compares once a payload
+    /// exists.
+    #[test]
+    fn a_published_payload_is_aged_by_its_own_stamp() {
+        let run_id = ApplyRunId::new();
+        let now = Utc::now();
+        let state = ApplyRunState {
+            owner: Some(run_id),
+            seq: 1,
+            progress: Some(payload(run_id, now - Duration::minutes(4))),
+            // A younger row stamp must NOT shorten the payload's age: only the
+            // payload's column is the claim's comparison for this state.
+            owner_updated_at: Some(now - Duration::seconds(5)),
+        };
+        assert_eq!(state.owner_silence_at(now), Some(Duration::minutes(4)));
+    }
+
+    /// The #863 fix: a run that claimed the slot and published nothing is aged
+    /// by the row stamp — the same column the steal predicate reads for
+    /// `apply_progress IS NULL`.
+    #[test]
+    fn a_claim_without_a_payload_is_aged_by_the_row_stamp() {
+        let now = Utc::now();
+        let state = ApplyRunState {
+            owner: Some(ApplyRunId::new()),
+            seq: 1,
+            progress: None,
+            owner_updated_at: Some(now - Duration::minutes(12)),
+        };
+        assert_eq!(
+            state.owner_silence_at(now),
+            Some(Duration::minutes(12)),
+            "a dead run that never published now has an age past the window"
+        );
+    }
+
+    /// No stamp anywhere → no age. `0` would claim "just wrote" for a run that
+    /// reported nothing, and a pre-#863 adapter must keep degrading honestly.
+    #[test]
+    fn no_stamp_degrades_to_no_age() {
+        let now = Utc::now();
+        let state = ApplyRunState {
+            owner: Some(ApplyRunId::new()),
+            seq: 1,
+            progress: None,
+            owner_updated_at: None,
+        };
+        assert_eq!(state.owner_silence_at(now), None);
+    }
+
+    /// No owner means nothing to age — even a row stamp must not invent one.
+    #[test]
+    fn an_idle_slot_is_not_aged_by_the_row_stamp() {
+        let now = Utc::now();
+        let state = ApplyRunState {
+            owner: None,
+            seq: 3,
+            progress: None,
+            owner_updated_at: Some(now - Duration::minutes(30)),
+        };
+        assert_eq!(state.owner_silence_at(now), None);
+    }
+
+    /// A stamp in the future (clock skew between writer and reader) is clamped
+    /// to zero instead of reporting a negative age.
+    #[test]
+    fn a_future_stamp_is_clamped_to_zero() {
+        let now = Utc::now();
+        let state = ApplyRunState {
+            owner: Some(ApplyRunId::new()),
+            seq: 1,
+            progress: None,
+            owner_updated_at: Some(now + Duration::minutes(3)),
+        };
+        assert_eq!(state.owner_silence_at(now), Some(Duration::zero()));
     }
 }

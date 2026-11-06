@@ -7079,11 +7079,14 @@ pub async fn stream_ai_import_apply_events<P: Ports>(
     let run_state = match queue.apply_run_state(id).await? {
         Some(state) => state,
         // The job exists but the adapter reports no slot: fall back to the job
-        // read so the snapshot still names the payload it published.
+        // read so the snapshot still names the payload it published (and the
+        // row stamp it last wrote, which is the same column the claim judges an
+        // unpublished owner by — issue #863).
         None => breakdown_core::ai::ApplyRunState {
             owner: None,
             seq: 0,
             progress: job.apply_progress.clone(),
+            owner_updated_at: Some(job.updated_at),
         },
     };
     let stream = sse_apply_stream(queue, id, run_state, baseline_seq, wakeups);
@@ -8128,10 +8131,10 @@ pub async fn apply_ai_import<P: Ports>(
                 // Issue #805: the claim refused because a live run owns the
                 // progress slot. The refusal is enriched with the two facts the
                 // client needs to tell a live run from a dead one — the owner's
-                // last publication age and the server's own staleness window
-                // (the single definition of it, never a constant a client
-                // mirrors). `age >= window` is the server's own "abandoned"
-                // verdict; the client asks the user before acting on it.
+                // silence and the server's own staleness window (the single
+                // definition of it, never a constant a client mirrors).
+                // `age >= window` is the server's own "abandoned" verdict; the
+                // client asks the user before acting on it.
                 Err(DomainError::Conflict { code, reason })
                     if code.code == AI_IMPORT_APPLY_IN_FLIGHT.code =>
                 {
@@ -8140,11 +8143,15 @@ pub async fn apply_ai_import<P: Ports>(
                         %reason,
                         "AI import apply refused: a live run owns the progress slot"
                     );
-                    // The owner's last publication, read from the same slot the
-                    // claim judged. A read failure must not turn the refusal
+                    // The owner's silence, read from the same slot the claim
+                    // judged AND aged by the same column that judgement used
+                    // (issue #863): `owner_silence_at` falls back to the row
+                    // stamp the claim compares while no payload exists, so a
+                    // run that died before its first published frame is no
+                    // longer unageable. A read failure must not turn the refusal
                     // into a different error: the window still travels and the
-                    // age is simply absent (nothing was published to age), which
-                    // the client renders as "a live run, no progress yet".
+                    // age is simply absent, which the client renders as "a live
+                    // run, nothing to age".
                     let age_seconds = state
                         .ports
                         .ai_import_queue()
@@ -8152,14 +8159,8 @@ pub async fn apply_ai_import<P: Ports>(
                         .await
                         .ok()
                         .flatten()
-                        .and_then(|run| run.progress)
-                        .map(|progress: breakdown_core::ai::ApplyProgress| {
-                            chrono::Utc::now()
-                                .signed_duration_since(progress.updated_at)
-                                .num_seconds()
-                                .max(0)
-                                .unsigned_abs()
-                        });
+                        .and_then(|run| run.owner_silence_at(chrono::Utc::now()))
+                        .map(|silence| silence.num_seconds().unsigned_abs());
                     return Err(ApiError::AiImportApplyInFlight {
                         age_seconds,
                         stale_after_seconds: breakdown_core::ai::ApplyProgress::STALE_AFTER

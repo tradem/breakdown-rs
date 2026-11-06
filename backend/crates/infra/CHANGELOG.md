@@ -16,6 +16,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.72.0] - Unreleased
+
+### Changed — `apply_run_state` reports the stamp the claim judges (issue #863)
+
+- `PgAiImportQueue::apply_run_state` also selects `ai_import_job.updated_at`
+  into `ApplyRunState::owner_updated_at`. The claim's steal predicate compares
+  exactly that column while an owner has published no payload
+  (`apply_progress IS NULL AND updated_at < $3`), so the refusal can now report
+  the age of a run that died before its first frame — and it reports the SAME
+  timestamp the steal consumes, with no second column to disagree. No migration,
+  no new column: the stamp already existed.
+- No behaviour change in the claim itself, and the payload branch of the steal
+  (`apply_progress->>'updated_at'`) is untouched.
+
 ## [0.70.0] - Unreleased
 
 ### Changed — the set-once statement is total and idempotent (review of #829)

@@ -106,6 +106,10 @@ fn run_state(
         owner,
         seq,
         progress,
+        // These stream tests are about frames, not about the refusal's age
+        // (issue #863); the slot reports no stamp, which the core read treats
+        // as "nothing to age" rather than inventing one.
+        owner_updated_at: None,
     }
 }
 

@@ -894,19 +894,27 @@ impl AiImportQueue for PgAiImportQueue {
         Ok(result.is_some())
     }
 
-    /// Read the apply-run slot: owner, run counter, published payload (issue
-    /// #800).
+    /// Read the apply-run slot: owner, run counter, published payload and the
+    /// row stamp the owner last wrote (issues #800, #863).
     ///
     /// `Ok(None)` when the job does not exist (the stream closes). A row that
     /// predates the migration decodes as an empty slot (`owner: None`, `seq: 0`),
     /// which the stream reads exactly like a job no apply ran for.
+    ///
+    /// `updated_at` is selected for one reason: the claim above judges an owner
+    /// that has published **nothing** by that column
+    /// (`OR (apply_progress IS NULL AND updated_at < $3)`), and before #863 the
+    /// refusal could not report the stamp that decision was made on — a run that
+    /// died before its first frame therefore had no age on the wire. Reporting
+    /// the same column here keeps the steal and the reported verdict on ONE
+    /// timestamp; there is no second column that could disagree.
     async fn apply_run_state(
         &self,
         id: AiImportJobId,
     ) -> Result<Option<ApplyRunState>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT apply_progress, apply_run_id, apply_run_seq
+            SELECT apply_progress, apply_run_id, apply_run_seq, updated_at
             FROM ai_import.ai_import_job
             WHERE id = $1
             "#,
@@ -924,6 +932,9 @@ impl AiImportQueue for PgAiImportQueue {
             owner: owner.map(ApplyRunId::from_uuid),
             seq,
             progress: decode_apply_progress(&row),
+            // The owner's last write on the row (not "the last progress
+            // frame"): telemetry and the applied-episode summary bump it too.
+            owner_updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
         }))
     }
 

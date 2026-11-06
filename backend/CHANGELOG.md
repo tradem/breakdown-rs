@@ -49,6 +49,8 @@ tag. Never edit a released entry afterwards.
   (registry stays at 112).
   Covered by two handler tests (a live claim with a 4-minute-old payload, and a
   claim that published nothing) plus the regenerated problem golden.
+  The second of those two cases no longer omits the age — a claim that published
+  no frame is aged by its own row stamp since issue #863 (see `Fixed`).
 
 - **A block-less AI import receives its target block later (issue #829, PR 2/4).**
   PR 1 made the upload's block optional and closed the authorization hole that
@@ -133,6 +135,39 @@ tag. Never edit a released entry afterwards.
   so no version bump.
 
 ### Fixed
+
+- **A run that died before its first progress frame no longer blocks an apply
+  without an age (issue #863, follow-up to #805).** #805 put the blocking run's
+  silence on the wire (`apply_run_age_seconds`) next to the server's own window
+  (`stale_after_seconds`), but the age could only be measured from a *published*
+  payload: `claim_apply_run` stamps the job row and leaves `apply_progress` NULL,
+  and `ApplyRunState` exposed no row stamp, so a run that claimed the slot and
+  died before its first frame (the claim → first-frame gap covers real plan
+  assembly, not microseconds) answered the refusal with the window only. The
+  client correctly rendered "an apply is running, no progress published yet",
+  offered no takeover, and the user waited the full `ApplyProgress::STALE_AFTER`
+  (10 min) for a process that was already gone. `ApplyRunState` now carries
+  `owner_updated_at` (the job row's `updated_at`, documented as *the owner's last
+  write on the row* — telemetry and the applied-episode summary bump it too), the
+  Postgres read selects it, and `ApplyRunState::owner_silence_at` is the single
+  definition of the reported age in the **claim's own fallback order**: the
+  payload's stamp when one exists, else the row stamp, else no age at all. That
+  makes the acceptance criterion structural rather than a promise — the steal
+  predicate and the reported verdict read the same column, so they cannot
+  disagree — and it keeps the honest `None` for a slot that reports no stamp
+  (never `0`, which would claim "just wrote"). No migration, no new column, no
+  new problem code, no wire-shape change (`stale_after_seconds` semantics
+  unchanged); the refusal keeps its status, code and extension names, so the
+  generated Dart client is byte-identical, and the Flutter card needed no change
+  — it already turns an age past the window into the takeover affordance. The
+  alternative (publishing an initial `applying 0/N` frame from the claim) was
+  rejected: it erases the "the owner published nothing" state #805 deliberately
+  kept honest and invents a `started_at` for work that has not begun. Covered by
+  five pure core tests on the fallback order (payload wins; claim-without-payload
+  aged by the row stamp; no stamp → no age; idle slot not aged; future stamp
+  clamped) and by the rewritten handler test, which now bounds the refusal's age
+  analytically against the claim's own stamp. Crates: `core` 0.61.0 → 0.62.0,
+  `infra` 0.71.0 → 0.72.0, `api` 0.59.0 → 0.60.0.
 
 - **`GET /v1/meta/credits` names every documented co-author — and the parity
   guard now actually sees all of them.** The credits list is a compile-time const
