@@ -92,7 +92,8 @@ a content max-width — the form never splits into panes.
 Loading: the target card states `Importziel wird ermittelt …` and the submit
 action is disabled. Data: the target line (or the picker, when the season has
 several blocks) plus the hint, and the switch/create actions. Empty (no block):
-the "create a block first" line with the create action, submit disabled. Empty
+the "create a block first" line with the create action **and** the block-less
+choice (issue #829, below), submit disabled until one of them is taken. Empty
 (no season): the "select a season first" line, submit disabled. No file picked:
 the file row states `Keine Datei gewählt` and the submit action is disabled —
 for BOTH kinds (script PDF and schedule CSV/PDF), because one button and one
@@ -128,6 +129,30 @@ answers the same code when a declaration contradicts the header, so one
 narrative covers both provenances. A failed dispatch stays on the screen with a
 code-keyed snackbar; a 202 opens the job status screen, a 200 opens it with the
 duplicate callout.
+
+## Block-less target — the block is taken after extraction (issue #829)
+
+A season may legitimately have no block yet, and the script itself names the
+block. The card therefore offers a third path besides create and switch: dispatch
+**without** a target block and decide it after extraction, from the document
+(ADR-039).
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Block-less choice | TextButton.icon in the empty arm | States that the block is chosen after the upload, and dispatches `X-Declared-Season` with NO `X-Active-Block` | `aiImportTargetAttachFromScript` (name only) / `aiImportTargetBlockLess` (hint) / `aiImportTargetBlockless` key |
+| Deferred-target line | Card + `aiImportTargetLine` | Renders `{season} · Block unbekannt` with the same hint and an undo back to a resolved block | `aiImportTargetUnknownBlock` / `aiImportTargetPickBlock` (undo) |
+
+Semantics of the state:
+
+- The choice is **per dispatch**, not a mode: a kind switch clears it, and so
+  does a successful upload, so a stale flag can never degrade a later dispatch.
+- The season stays mandatory — it IS the upload's authorization scope — so the
+  `ai_import.scope_missing` guard still runs; only the block is deferred, and the
+  scope-mismatch guard is skipped (there is no block to contradict the season).
+- The dispatch suppresses the ambient `X-Active-Block` through a per-request
+  interceptor opt-out, never a blank or sentinel header value.
+- The submit action is enabled by a resolved block **or** by this choice; both
+  are visible on the card, so the button's state always has a visible cause.
 
 ## Input & Validation
 

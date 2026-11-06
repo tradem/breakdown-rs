@@ -166,6 +166,45 @@ guessed season.
 |---|---|---|---|
 | Target card | Card (surface container highest) under the status card | `{season} · {block}` from the server-snapshotted `season_number` / `block_number`. A job without a snapshot (pre-#771 row, or a fresh upload whose season read failed) renders the honest, cause-neutral "not recorded" narrative instead of an invented season | `aiImportTargetTitle` / `aiImportTargetLine` / `aiImportTargetNotRecorded` |
 
+## Preview — the target block is attached after extraction (issue #829)
+
+A job uploaded without `X-Active-Block` carries its target **season** and no
+block (ADR-039). The preview's block-scope line then carries the actions that
+decide it, and nothing else may:
+
+| State | Rendering |
+|---|---|
+| script states block N, target season has block N | "Aus Skript übernehmen – Block N" → `PUT /v1/ai-import/jobs/{id}/target` |
+| script states block N, the season has no block N | "Block N anlegen" → the shared create-block form → attach the created block |
+| the script states no block (or the list is unreadable) | "Zielblock wählen" over the target season's blocks, with a create entry |
+| attached | the actions disappear; the scope line names the target |
+| a preview group already points at an existing episode, or the job was already applied | the locked narrative, no action |
+
+The card renders the summary and these actions **independently**: a block-less
+schedule preview has neither a script block nor a target block, so a card that
+only appeared next to a summary line would hide the picker — and the apply stays
+unavailable without a target.
+
+The freeze is deliberate (design D5): the review-time episode creation writes
+real rows into a block, so a later target move would make the apply's cross-block
+guard refuse work the reviewer already did. The locked narrative is stated in
+every state it holds — an already-applied job as well as a resolved group target,
+and next to a script/target mismatch warning — because that is exactly when a
+reviewer looks for a way to change the target. The server's own backstop is the
+applied-job refusal (`409 ai-import.target-immutable`, `applied: true`); the
+client lock is the honest pre-emptive narrative for the state the server cannot
+see.
+
+While no target is attached, the apply is unavailable with the localized
+`aiImportTargetMissing` copy; the server answers the same state with
+`409 ai-import.target-missing` (S1 `season_id`), so two provenances share one
+narrative. A raced attach renders the same code with `existing_block_id`, naming
+the block that won.
+
+Test keys: `ai-preview-target-attach-script`, `ai-preview-target-attach-create`,
+`ai-preview-target-attach-pick`, `ai-preview-target-attach-busy`,
+`ai-preview-target-frozen`, `ai-apply-target-missing`.
+
 ## Preview & Apply — detected vs extracted scenes (issue #758)
 
 The script preview's subtitle states what the DOCUMENT had, not only what the

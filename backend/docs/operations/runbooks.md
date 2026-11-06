@@ -1213,3 +1213,45 @@ could not score. The scoring pass is deliberately **non-fatal** — the extracti
 job still succeeds and the preview rows simply carry no stars — so a red
 telemetry field is the only place this shows up. The worker log line to grep is
 `ai-decision: scoring pass failed after the bounded quick retry`.
+
+## 15. AI import answers `ai-import.target-missing` (issue #829)
+
+An AI import job may legitimately exist **without** a target block: an upload
+that sends `X-Declared-Season` and no `X-Active-Block` starts a block-less job
+whose target season is known (it is the upload's authorization scope) while the
+block is attached later — from the block the script states, or by hand on the
+preview screen (ADR-039).
+
+An apply on such a job is refused with `409 ai-import.target-missing` (S1
+extension `season_id`), and that refusal is **correct**, not an outage:
+
+1. Open the job's preview. The block-scope line carries the attach actions
+   ("Aus Skript übernehmen – Block N", "Block N anlegen", "Zielblock wählen").
+2. Attaching calls `PUT /v1/ai-import/jobs/{id}/target` with `{block_id}`. It is
+   set-once: the same block repeated is an idempotent `200`, so a retry after a
+   timeout is safe and must not be "fixed" by clearing the column.
+3. Then apply.
+
+Diagnose a stranded job with SQL (read-only):
+
+```sql
+SELECT id, status, block_id, target_season_id, target_season_number,
+       target_block_number, accept_as_is IS NOT NULL AS applied,
+       updated_at
+FROM ai_import.ai_import_job
+WHERE id = '<job-id>';
+```
+
+- `block_id IS NULL AND applied = false` → the target is simply not chosen yet;
+  the preview action attaches it.
+- `409 ai-import.target-immutable` with `existing_block_id` → a block is already
+  attached (another device won); nothing is broken. With `applied: true` the
+  apply already recorded rows, so the target is frozen by design: a different
+  target needs a **new import**. Do not move it with SQL — the episode rows and
+  the apply idempotency mapping are bound to the old block.
+
+**Dev data reset interaction:** `backend/scripts/reset-dev-data.sh` clears the
+business scope (season/block/episode ids) and any remembered import job ids, so
+a job referenced by an old client screen answers `404`. The *keep* rules are
+unchanged (AI config + credential bindings stay), and the reset never
+resurrects a target.
