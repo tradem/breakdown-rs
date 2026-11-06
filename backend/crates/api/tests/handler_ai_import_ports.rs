@@ -3658,6 +3658,110 @@ async fn put_ai_import_job_target_is_idempotent_for_the_same_block() {
     assert_eq!(response.job.block_id, Some(block_id));
 }
 
+/// Issue #829 (review): the SAME block repeated AFTER an apply is still an
+/// idempotent `200` — the retry asks for nothing that is not already true, and a
+/// `409 target-immutable` there would report a frozen target for a satisfied
+/// request. Only a DIFFERENT block is a refusal once the target is set.
+#[tokio::test]
+async fn put_ai_import_job_target_stays_idempotent_when_the_job_was_applied() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let block_id = seed_block_in_season(&ports, season_id, 2).await;
+    let mut job = ports
+        .ai_import_queue
+        .get(seed_blockless_script_job(&ports, season_id).await)
+        .await
+        .expect("queue read")
+        .expect("seeded job");
+    let job_id = job.id;
+    job.block_id = Some(block_id);
+    job.applied = true;
+    if let Some(target) = job.target.as_mut() {
+        target.block_number = Some(2);
+    }
+    ports.ai_import_queue.seed(job).await;
+
+    let (status, Json(response)) = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect("the same block must stay an idempotent success");
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response.job.block_id, Some(block_id));
+}
+
+/// Issue #829 (review): only a `succeeded` job accepts a target. A job that is
+/// still queued or running has no preview to attach one to, and `failed`/
+/// `dead_letter` must be retried rather than re-targeted.
+#[tokio::test]
+async fn put_ai_import_job_target_refuses_a_non_succeeded_job() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let block_id = seed_block_in_season(&ports, season_id, 2).await;
+    let mut job = ports
+        .ai_import_queue
+        .get(seed_blockless_script_job(&ports, season_id).await)
+        .await
+        .expect("queue read")
+        .expect("seeded job");
+    let job_id = job.id;
+    job.status = JobStatus::Running;
+    ports.ai_import_queue.seed(job).await;
+
+    let problem = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect_err("a running job has no preview to attach a target to")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "domain.conflict");
+}
+
+/// Issue #829 (review): a job with NO target snapshot is refused. Writing a
+/// block number there would store it without the season pair, and the row's
+/// target would stop decoding (`target_season_id` NULL, `target_block_number`
+/// set) — the season is also what the attach is authorized against.
+#[tokio::test]
+async fn put_ai_import_job_target_refuses_a_job_without_a_target_snapshot() {
+    let ports = FakePorts::default();
+    let season_id = SeasonId::new();
+    seed_ai_season_access(&ports, season_id).await;
+    let block_id = seed_block_in_season(&ports, season_id, 2).await;
+    let mut job = ports
+        .ai_import_queue
+        .get(seed_blockless_script_job(&ports, season_id).await)
+        .await
+        .expect("queue read")
+        .expect("seeded job");
+    let job_id = job.id;
+    job.target = None;
+    ports.ai_import_queue.seed(job).await;
+
+    let problem = put_ai_import_job_target::<FakePorts>(
+        State(state(ports)),
+        user(),
+        api::problems::Path(job_id),
+        Json(target_request(block_id)),
+    )
+    .await
+    .expect_err("a target-less job cannot receive a block")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "domain.conflict");
+}
+
 /// Issue #829: a DIFFERENT block is refused with the S1 `existing_block_id`
 /// extension naming the block that won, so a racing client re-renders it.
 #[tokio::test]

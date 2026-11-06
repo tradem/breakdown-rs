@@ -18,6 +18,22 @@ commits (ADR-020 D5).
 
 ## [0.70.0] - Unreleased
 
+### Changed — the set-once statement is total and idempotent (review of #829)
+
+- `set_target_once` now also requires `target_season_id IS NOT NULL`: a block
+  number stored without its season pair would leave a target that no longer
+  decodes. The state is unreachable today (every upload resolves a season), but
+  the statement is the last line and is now total.
+- The same block repeated is an idempotent success **before** the applied state
+  is considered: a retry after the rows landed asks for nothing that is not
+  already true, so it must not answer `AlreadyApplied` (a 409 the client renders
+  as "target frozen").
+- The adapter is covered by a real-Postgres suite
+  (`crates/integration-tests/tests/ai_import_job_target.rs`) — until now only the
+  in-memory fake exercised the rule, so the predicate could have been dropped
+  without a red test.
+
+
 ### Added — `set_target_once` as one atomic statement (issue #829)
 
 - `PgAiImportQueue::set_target_once` attaches a block-less job's write target

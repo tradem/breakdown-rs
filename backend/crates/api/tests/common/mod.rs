@@ -2518,13 +2518,18 @@ impl AiImportQueue for FakeAiImportQueue {
         let Some(job) = jobs.get_mut(&id.as_uuid()) else {
             return Ok(breakdown_core::ai::TargetAttachOutcome::NotFound);
         };
+        // Same block first: an idempotent repeat stays a success even after an
+        // apply, mirroring the production adapter's ordering (review of #829).
+        if job.block_id == Some(block_id) {
+            return Ok(breakdown_core::ai::TargetAttachOutcome::Unchanged);
+        }
         if job.applied {
             return Ok(breakdown_core::ai::TargetAttachOutcome::AlreadyApplied);
         }
+        if job.target.is_none() {
+            return Ok(breakdown_core::ai::TargetAttachOutcome::NoTargetSeason);
+        }
         match job.block_id {
-            Some(existing) if existing == block_id => {
-                Ok(breakdown_core::ai::TargetAttachOutcome::Unchanged)
-            }
             Some(existing) => Ok(breakdown_core::ai::TargetAttachOutcome::AlreadySet {
                 existing_block_id: existing,
             }),

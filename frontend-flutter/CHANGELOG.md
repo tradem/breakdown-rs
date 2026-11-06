@@ -23,6 +23,14 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A block-less job's target card says "Block unknown" instead of "Block null"**
+  (`0.4.0-beta.39+131 → 0.4.0-beta.40+132`, review of PR #856). An upload may now
+  carry its target season with `block_number: null` until the block is attached
+  (issue #829), and the job-status card interpolated that field directly, so the
+  user-facing line read `Season 2 · Block null` — a wire artifact in the copy. It
+  now takes the same unknown-block branch the submit card already used, which is
+  what "the target block is not chosen yet" honestly says.
+
 - **The import target card can switch and create the block the import writes
   into** (`0.4.0-beta.38+130 → 0.4.0-beta.39+131`, frontend issue #828).
   The card named the target ("Season 1 · Block 1") but the only way to change it

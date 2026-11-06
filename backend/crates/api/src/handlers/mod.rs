@@ -7497,6 +7497,14 @@ pub async fn put_ai_import_job_target<P: Ports>(
         breakdown_core::ai::TargetAttachOutcome::NotFound => {
             return Err(ApiError::AiImportNotFound("AI import job not found"));
         }
+        // The adapter refuses a job without a target season: the season is the
+        // attach's authorization scope AND the snapshot's other half, so a block
+        // number stored without it would leave a target that cannot decode.
+        breakdown_core::ai::TargetAttachOutcome::NoTargetSeason => {
+            return Err(ApiError::Conflict(
+                "the job carries no target season, so a target block cannot be attached",
+            ));
+        }
     }
     // Re-read so the response carries what the atomic write produced (the block
     // id AND the target number) instead of a locally patched guess.

@@ -104,6 +104,14 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       applied job / foreign season / denied season (403, job unchanged); job
       scope without a role (403 on preview); apply without a target writes
       nothing; golden problems for both codes.
+- [x] 2.6a Real-Postgres suite for the adapter
+      (`integration-tests/tests/ai_import_job_target.rs`): attach, second
+      block, frozen-after-apply, idempotent-after-apply, unknown job, and
+      the target-less row — the predicate is no longer only tested by the
+      in-memory fake. Review of `#856` also moved the same-block check
+      before the applied state, made the statement total
+      (`target_season_id IS NOT NULL`), added `NoTargetSeason`, and pulled
+      the client's `Block unknown` guard into this PR.
 - [x] 2.7 `openapi.yaml` + Dart client regenerated; version bumps + CHANGELOGs
       (`core` 0.60.0, `infra` 0.70.0, `api` 0.58.0).
 

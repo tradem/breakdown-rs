@@ -828,6 +828,15 @@ pub enum TargetAttachOutcome {
     AlreadyApplied,
     /// No such job (or it vanished between the read and the write).
     NotFound,
+    /// The job carries no target **season**, so it cannot receive a block.
+    ///
+    /// The season is what the attach is authorized against and what the write
+    /// keeps alongside the block number: storing one without the other would
+    /// leave a row whose target no longer decodes. No path produces that state
+    /// today (every upload resolves a season); the outcome exists so the
+    /// adapter's refusal is truthful instead of borrowing another outcome's
+    /// name.
+    NoTargetSeason,
 }
 
 /// Idempotency mapping from a reviewed preview row to the aggregate it was

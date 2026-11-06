@@ -1287,6 +1287,11 @@ impl AiImportQueue for PgAiImportQueue {
             WHERE id = $1
               AND block_id IS NULL
               AND accept_as_is IS NULL
+              -- A job without a target SEASON cannot receive a block: the
+              -- season is the attach's authorization scope and the snapshot's
+              -- other half, so storing the number alone would leave a target
+              -- that no longer decodes (review of #829).
+              AND target_season_id IS NOT NULL
             "#,
         )
         .bind(id.as_uuid())
@@ -1306,7 +1311,7 @@ impl AiImportQueue for PgAiImportQueue {
         // an "applied" job can never be mistaken for a free slot.
         let row = sqlx::query(
             r#"
-            SELECT block_id, accept_as_is
+            SELECT block_id, accept_as_is, target_season_id
             FROM ai_import.ai_import_job
             WHERE id = $1
             "#,
@@ -1322,14 +1327,28 @@ impl AiImportQueue for PgAiImportQueue {
             .try_get::<Option<bool>, _>("accept_as_is")
             .map_err(map_sqlx_error)?
             .is_some();
-        if applied {
-            return Ok(TargetAttachOutcome::AlreadyApplied);
-        }
         let existing: Option<Uuid> = row
             .try_get::<Option<Uuid>, _>("block_id")
             .map_err(map_sqlx_error)?;
+        // The SAME block is an idempotent success, checked BEFORE the applied
+        // state (review of #829): a retry after the rows landed asks for nothing
+        // that is not already true, and answering 409 there would report a
+        // frozen target for a request that is satisfied.
+        if existing == Some(block_id.0) {
+            return Ok(TargetAttachOutcome::Unchanged);
+        }
+        if applied {
+            return Ok(TargetAttachOutcome::AlreadyApplied);
+        }
+
+        let has_target_season = row
+            .try_get::<Option<Uuid>, _>("target_season_id")
+            .map_err(map_sqlx_error)?
+            .is_some();
+        if !has_target_season {
+            return Ok(TargetAttachOutcome::NoTargetSeason);
+        }
         Ok(match existing {
-            Some(existing) if existing == block_id.0 => TargetAttachOutcome::Unchanged,
             Some(existing) => TargetAttachOutcome::AlreadySet {
                 existing_block_id: BlockId::from_uuid(existing),
             },

@@ -42,6 +42,11 @@ tag. Never edit a released entry afterwards.
   attaches cannot both win and the guard value and the displayed number cannot
   drift. Crates: `core` 0.59.0 → 0.60.0, `infra` 0.69.0 → 0.70.0, `api` 0.57.0 →
   0.58.0; generated Dart client `breakdown_api` 1.2.0 → 1.3.0.
+  The set-once rule is covered by a real-Postgres suite
+  (`integration-tests/tests/ai_import_job_target.rs`), the same block repeated
+  stays an idempotent success even after an apply, and the statement refuses a
+  row that carries no target season (a block number without its season pair
+  would not decode).
 - **An AI upload may target a SEASON instead of a block (issue #829, PR 1/4).**
   The import target used to be "the block active right now": `X-Active-Block` was
   required and its owning season was the authorization scope. It is now optional.

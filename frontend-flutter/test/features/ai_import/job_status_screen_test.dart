@@ -931,6 +931,34 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('a block-less job names its season and says the block is not '
+      'chosen yet, never "Block null" (issue #829)', (tester) async {
+    // Review of PR #856: a block-less upload carries its season with
+    // `block_number: null` until the target is attached. Interpolating the
+    // field rendered "Season 2 · Block null" — a wire artifact leaking into
+    // user-facing copy.
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.succeeded,
+          target: AiImportTarget(
+            (b) => b
+              ..seasonId = 'season-2'
+              ..seasonNumber = 2,
+          ),
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    final line = tester
+        .widget<Text>(find.byKey(const Key('ai-job-target-line')))
+        .data;
+    expect(line, 'Season 2 · Block unknown');
+    expect(line, isNot(contains('null')));
+    await tester.pump();
+  });
+
   testWidgets('a job without a recorded target says so instead of inventing '
       'a season (issue #771)', (tester) async {
     await setupContainer(
