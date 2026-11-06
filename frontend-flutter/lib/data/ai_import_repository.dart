@@ -11,6 +11,7 @@ import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
 import '../core/problem_error.dart';
+import '../src/network/active_block_interceptor.dart';
 import '../core/result.dart';
 import '../domain/reconciliation/reconciliation_scheduler.dart';
 import 'base_repository.dart';
@@ -202,6 +203,7 @@ class AiImportRepository extends BaseRepository {
     required AiScheduleSource source,
     String? fileName,
     String? declaredSeasonId,
+    bool sendActiveBlock = true,
     void Function(int count, int total)? onSendProgress,
   }) => _upload(
     '/v1/ai-import/schedules',
@@ -209,6 +211,7 @@ class AiImportRepository extends BaseRepository {
     scheduleContentType(source),
     fileName,
     declaredSeasonId,
+    sendActiveBlock,
     onSendProgress,
   );
 
@@ -224,6 +227,7 @@ class AiImportRepository extends BaseRepository {
     required Object body,
     String? fileName,
     String? declaredSeasonId,
+    bool sendActiveBlock = true,
     void Function(int count, int total)? onSendProgress,
   }) => _upload(
     '/v1/ai-import/scripts',
@@ -231,6 +235,7 @@ class AiImportRepository extends BaseRepository {
     kScriptContentType,
     fileName,
     declaredSeasonId,
+    sendActiveBlock,
     onSendProgress,
   );
 
@@ -250,6 +255,7 @@ class AiImportRepository extends BaseRepository {
     String contentType,
     String? fileName,
     String? declaredSeasonId,
+    bool sendActiveBlock,
     void Function(int count, int total)? onSendProgress,
   ) async {
     try {
@@ -272,6 +278,11 @@ class AiImportRepository extends BaseRepository {
           // Both 200 (duplicate) and 202 (enqueued) are acknowledged —
           // the branch happens on the status code below.
           validateStatus: (status) => status == 200 || status == 202,
+          // Issue #829: a block-less upload sends the declaration only. The
+          // ambient scope header is suppressed per request — an upload that
+          // carries a block would silently be a DIFFERENT import than the one
+          // the card showed.
+          extra: sendActiveBlock ? null : {kNoActiveBlockExtra: true},
         ),
         onSendProgress: onSendProgress,
       );
@@ -345,6 +356,52 @@ class AiImportRepository extends BaseRepository {
         await cache.upsertAll([response.job], clock.now());
       } on Object {
         // Best-effort: keep the fetched job.
+      }
+      return Right(response.job);
+    });
+  }
+
+  /// `PUT /v1/ai-import/jobs/{id}/target` — attach the write target of a
+  /// block-less job (issue #829).
+  ///
+  /// Set-once on the server: repeating the attached block is an idempotent
+  /// `200`, a different block answers the registered `409
+  /// ai-import.target-immutable` (with `existing_block_id` or `applied: true`),
+  /// which the caller renders as copy — never as an internal error. The
+  /// response is the updated job, so the caller learns the new block id AND the
+  /// target number from one round-trip; `getJobAndCache` would need a second
+  /// read to say the same.
+  ///
+  /// Writing the returned job through the cache here is what makes the
+  /// in-preview episode creation work right after an attach: it reads the job's
+  /// block anchor from the cached row (`aiJobBlockInfo`), which the upload of a
+  /// block-less job left empty.
+  ///
+  /// // AUTHZ-GATE: callers resolve the season membership via
+  /// `currentMembershipProvider` BEFORE invoking; the server re-checks it on the
+  /// job's target season and answers `403 ai-import.forbidden`.
+  Future<Result<AiImportJob>> attachTarget(
+    String jobId, {
+    required String blockId,
+    Clock clock = Clock.system,
+  }) async {
+    final attached = await run(
+      () => api.getHandlersApi().putAiImportJobTarget(
+        id: jobId,
+        aiImportTargetRequest: AiImportTargetRequest(
+          (b) => b..blockId = blockId,
+        ),
+      ),
+      dtoInvalidCode: 'ai_import.dto_invalid',
+    );
+    return attached.match((err) async => Left<ProblemError, AiImportJob>(err), (
+      response,
+    ) async {
+      try {
+        await cache.upsertAll([response.job], clock.now());
+      } on Object {
+        // Best-effort, exactly like `getJobAndCache`: a cache fault must never
+        // discard a write the server already committed.
       }
       return Right(response.job);
     });

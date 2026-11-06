@@ -1223,5 +1223,43 @@
       }
     }
   },
-  "aiApplyNavigationUnresolved": "The import was applied, but the imported episode could not be opened automatically. Open it via Script or the episode list."
+  "aiApplyNavigationUnresolved": "The import was applied, but the imported episode could not be opened automatically. Open it via Script or the episode list.",
+  "aiPreviewBlockScopeTargetUnset": "Import target: not chosen yet",
+  "@aiPreviewBlockScopeTargetUnset": {},
+  "aiImportTargetAttachFromScript": "Use the script's {blockLabel}",
+  "@aiImportTargetAttachFromScript": {
+    "placeholders": {
+      "blockLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "aiImportTargetAttachCreate": "Create block {number}",
+  "@aiImportTargetAttachCreate": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
+  "aiImportTargetAttachPick": "Choose the target block",
+  "@aiImportTargetAttachPick": {},
+  "aiImportTargetAttachBusy": "Attaching the target block …",
+  "@aiImportTargetAttachBusy": {},
+  "aiImportTargetAttachDone": "Target block attached: {blockLabel}",
+  "@aiImportTargetAttachDone": {
+    "placeholders": {
+      "blockLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "aiImportTargetMissing": "This import has no target block yet. Choose the block its episodes, scenes and shooting days belong to — then it can be imported.",
+  "@aiImportTargetMissing": {},
+  "aiImportTargetImmutable": "This import's target is already set and cannot be changed. Start a new import for a different target block.",
+  "@aiImportTargetImmutable": {},
+  "aiImportTargetFrozen": "Target locked: the preview's episode target is already chosen and is bound to the target block. Start a new import for a different block.",
+  "@aiImportTargetFrozen": {},
+  "aiImportTargetBlockLess": "No target block yet: after the upload the block is taken from the script or chosen by hand.",
+  "@aiImportTargetBlockLess": {}
 }

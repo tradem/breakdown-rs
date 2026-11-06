@@ -45,6 +45,9 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     if (state == kind) return;
     state = kind;
     ref.read(pendingDocumentProvider.notifier).set(null);
+    // A kind switch invalidates the block-less choice too: it was made for the
+    // previous dispatch, and a stale flag would degrade a later upload.
+    ref.read(blockLessImportProvider.notifier).set(false);
   }
 
   /// The submit dispatch. Returns the acknowledgement on success (the
@@ -75,6 +78,7 @@ class AiImportSubmitController extends _$AiImportSubmitController {
   Future<Result<AiUploadAck>> submit(
     AiImportDocument document, {
     String? seasonId,
+    bool blockLess = false,
   }) async {
     // Every dispatch starts clean: a previous dispatch's non-fatal stamp
     // warning must not leak into this one's outcome.
@@ -86,11 +90,20 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       const error = ProblemError(code: 'ai_import.scope_missing', status: 400);
       return const Left(error);
     }
+    // Issue #829: a deliberately block-less dispatch declares its season and
+    // sends no block at all, so there is no block to contradict the season —
+    // the mismatch guard below only applies to the block-bearing path. The
+    // season stays mandatory either way: it IS the upload's authorization scope
+    // server-side, and `scope_missing` above already refuses its absence.
+    //
     // Issue #771: a target season the active block does not belong to is never
     // uploaded "into". Refused BEFORE the gate/capability fetch, so no call is
     // issued at all (the screen's resolution normally already re-scoped, which
     // makes this the guard against the window where it could not).
-    if (seasonId != null && scope != null && scope.seasonId != seasonId) {
+    if (!blockLess &&
+        seasonId != null &&
+        scope != null &&
+        scope.seasonId != seasonId) {
       return const Left(
         ProblemError(code: 'ai_import.scope_mismatch', status: 409),
       );
@@ -161,12 +174,17 @@ class AiImportSubmitController extends _$AiImportSubmitController {
         // target, so the server refuses a request whose block belongs
         // elsewhere instead of importing into the wrong season.
         declaredSeasonId: gateSeasonId,
+        // Issue #829: a block-less upload suppresses the ambient
+        // `X-Active-Block` for this request only, so the job starts with a
+        // target season and no block — the block is attached after extraction.
+        sendActiveBlock: !blockLess,
       ),
       AiImportKind.script when document.source == AiScheduleSource.pdf =>
         repo.uploadScript(
           body: document.body,
           fileName: document.fileName,
           declaredSeasonId: gateSeasonId,
+          sendActiveBlock: !blockLess,
         ),
       AiImportKind.script => Future<Result<AiUploadAck>>.value(
         const Left(
@@ -259,6 +277,28 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     }
   }
 }
+
+/// Whether this dispatch is deliberately **block-less** (issue #829).
+///
+/// The submit card offers it in exactly one state: the target season has no
+/// block at all (the arm that used to be a dead end printing "no blocks"). The
+/// upload then declares its season and sends NO `X-Active-Block`, so the job
+/// starts with a target season and no block and the block is attached after
+/// extraction — from the script it states (#827) or by hand.
+///
+/// Cleared on every kind switch, exactly like the pending document: a stale
+/// "block-less" flag must never silently degrade a later dispatch that has a
+/// resolved block.
+class BlockLessImport extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool value) => state = value;
+}
+
+final blockLessImportProvider = NotifierProvider<BlockLessImport, bool>(
+  BlockLessImport.new,
+);
 
 /// The pending document (picked file). Cleared after every dispatch —
 /// by [selectKind] (a kind switch invalidates the body) and by the

@@ -64,6 +64,45 @@ void main() {
       expect(headers.containsKey('X-Active-Block'), isFalse);
     });
 
+    test(
+      'a per-request opt-out suppresses the ambient header (issue #829)',
+      () async {
+        Map<String, dynamic>? captured;
+        final dio = Dio()
+          ..interceptors.addAll([
+            const ActiveBlockInterceptor('block-1'),
+            InterceptorsWrapper(
+              onRequest: (options, handler) {
+                captured = Map.of(options.headers);
+                handler.resolve(
+                  Response(requestOptions: options, statusCode: 200),
+                );
+              },
+            ),
+          ]);
+        await dio.post(
+          'https://api.example.com/v1/ai-import/scripts',
+          options: Options(extra: {kNoActiveBlockExtra: true}),
+        );
+        expect(
+          captured!.containsKey('X-Active-Block'),
+          isFalse,
+          reason:
+              'a block-less import declares its season and must not carry the '
+              'ambient block — an upload with a block is a different import '
+              'than the one the card showed',
+        );
+      },
+    );
+
+    test('the opt-out does not leak into the next request', () async {
+      final headers = await headersThrough(
+        const ActiveBlockInterceptor('block-1'),
+        'https://api.example.com/v1/episodes?block_id=block-1',
+      );
+      expect(headers['X-Active-Block'], 'block-1');
+    });
+
     test('never overwrites a caller-set header', () async {
       Map<String, dynamic>? captured;
       final dio = Dio()

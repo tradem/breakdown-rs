@@ -106,6 +106,10 @@ class FakeAiImportRepository extends AiImportRepository {
   /// when the dispatch sent no `X-Declared-Season` header.
   String? lastDeclaredSeasonId;
 
+  /// Whether the last dispatch asked for the ambient `X-Active-Block` to be
+  /// SUPPRESSED (issue #829) — `false` means the block travelled with it.
+  bool lastSendActiveBlock = true;
+
   /// The scripted watch stream (a controllable controller per test).
   StreamController<Result<AiImportJob>>? watchController;
 
@@ -120,10 +124,12 @@ class FakeAiImportRepository extends AiImportRepository {
     String? fileName,
     String? declaredSeasonId,
     void Function(int, int)? onSendProgress,
+    bool sendActiveBlock = true,
   }) async {
     uploadCalls++;
     lastFileName = fileName;
     lastDeclaredSeasonId = declaredSeasonId;
+    lastSendActiveBlock = sendActiveBlock;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -133,10 +139,12 @@ class FakeAiImportRepository extends AiImportRepository {
     String? fileName,
     String? declaredSeasonId,
     void Function(int, int)? onSendProgress,
+    bool sendActiveBlock = true,
   }) async {
     uploadCalls++;
     lastFileName = fileName;
     lastDeclaredSeasonId = declaredSeasonId;
+    lastSendActiveBlock = sendActiveBlock;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 

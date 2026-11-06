@@ -116,6 +116,7 @@ class FakePipelineRepository extends AiImportRepository {
     String? fileName,
     String? declaredSeasonId,
     void Function(int, int)? onSendProgress,
+    bool sendActiveBlock = true,
   }) async => Right(AiUploadAck(jobId: 'job-e2e', duplicate: false));
 
   @override

@@ -370,6 +370,14 @@ AiImportJob _succeededJob(
   /// The import TARGET's block number (issue #771) — `null` keeps a job that
   /// recorded no target at all.
   int? targetBlockNumber,
+
+  /// The target SEASON (issue #829): a block-less upload carries its season
+  /// while `blockNumber` stays null until the block is attached. When set with
+  /// no [targetBlockNumber] the job is exactly that state.
+  String? targetSeasonId,
+
+  /// Whether an apply already recorded rows (issue #829) — freezes the target.
+  bool applied = false,
 }) => AiImportJob((b) {
   b
     ..id = id
@@ -391,16 +399,17 @@ AiImportJob _succeededJob(
   // preview header names as USED. Absent for a pre-#609 job, which then names
   // no used pair at all.
   if (telemetry != null) b.telemetry.replace(telemetry);
-  if (targetBlockNumber != null) {
+  if (targetBlockNumber != null || targetSeasonId != null) {
     b.target.replace(
       AiImportTarget(
         (t) => t
-          ..seasonId = 'season-1'
+          ..seasonId = targetSeasonId ?? 'season-1'
           ..seasonNumber = 1
           ..blockNumber = targetBlockNumber,
       ),
     );
   }
+  if (applied) b.applied = true;
 });
 
 /// The `JobTelemetrySummary` identity pair (issue #831) — the SAME pair the job
@@ -1008,6 +1017,13 @@ void main() {
       /// script payload. `null` keeps the pre-#827 payload shape.
       int? scriptBlockNumber,
 
+      /// The target SEASON of the job (issue #829) — set it to model a
+      /// block-less import (season known, block not chosen yet).
+      String? targetSeasonId,
+
+      /// Whether the job was already applied (issue #829): its target is frozen.
+      bool applied = false,
+
       /// `true` makes the job read FAIL (issue #827 review): the block scope
       /// then cannot know the target, which must not render as "not recorded".
       bool jobReadFails = false,
@@ -1033,6 +1049,8 @@ void main() {
                 'job-1',
                 telemetry: telemetry,
                 targetBlockNumber: targetBlockNumber,
+                targetSeasonId: targetSeasonId,
+                applied: applied,
               ),
             );
       if (applyQueue != null) repo.applyQueue.addAll(applyQueue);
@@ -1815,6 +1833,82 @@ void main() {
 
       expect(find.text('Schedule preview (pre-merge)'), findsOneWidget);
       expect(find.byKey(const Key('ai-row-decision-row-1')), findsNothing);
+      await tester.pump();
+    });
+
+    testWidgets('a block-less SCHEDULE preview still offers the target '
+        'picker (review of #857)', (tester) async {
+      // The reported defect: a schedule payload carries no script block and the
+      // job has no target block yet, so every "nothing to summarise" early
+      // return hid the only affordance that could name a target — the apply
+      // stayed disabled with no way out. The actions must not depend on the
+      // summary line.
+      await setupContainer(
+        previewValue: Right(_previewResponse(_preMergePayload())),
+        targetSeasonId: 'season-2',
+      );
+      await pumpPreview(tester);
+
+      expect(
+        find.byKey(const Key('ai-preview-target-attach-pick')),
+        findsOneWidget,
+        reason: 'the picker is the only way to give this job a target',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-block-scope')),
+        findsNothing,
+        reason:
+            'there is no block fact to summarise — and the card renders '
+            'without one',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('an attached target still states WHY it is locked once the '
+        'job was applied (review of #857)', (tester) async {
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 1))),
+        targetBlockNumber: 1,
+        applied: true,
+      );
+      await pumpPreview(tester);
+
+      expect(
+        find.byKey(const Key('ai-preview-target-frozen')),
+        findsOneWidget,
+        reason:
+            'a reviewer looking for the target action must learn why it '
+            'is gone',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-attach-pick')),
+        findsNothing,
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a block-less script preview keeps its scope facts when the '
+        'scope is rebuilt (review of #857)', (tester) async {
+      // The screen rebuilds the scope from the payload + the job read; dropping
+      // `targetSeasonId`/`applied` there made the actions believe the job never
+      // had a target season, so they never rendered.
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+      );
+      await pumpPreview(tester);
+
+      expect(
+        find.byKey(const Key('ai-preview-target-attach-pick')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-preview-block-scope')))
+            .data,
+        contains('2'),
+        reason: 'the script block is still summarised',
+      );
       await tester.pump();
     });
 
@@ -3298,6 +3392,31 @@ void main() {
         state.targetFor('ep:294'),
         isA<CreateEpisodeGroupTarget>(),
         reason: 'a cross-block episode must not be adopted into the context',
+      );
+    });
+
+    test('the two target codes reach the APPLY surface too (review of #857)', () {
+      // The apply card disables its action only when the scope RESOLVES to "no
+      // target yet"; an unreadable read falls through to the server on purpose
+      // (design D3), so the refusal must explain itself rather than render the
+      // generic text.
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      for (final code in const [
+        'ai-import.target-missing',
+        'ai_import.target_missing',
+      ]) {
+        expect(
+          aiApplyErrorCopy(l10n, ProblemError(code: code)),
+          contains('no target block yet'),
+          reason: '$code must name the missing target',
+        );
+      }
+      expect(
+        aiApplyErrorCopy(
+          l10n,
+          const ProblemError(code: 'ai-import.target-immutable'),
+        ),
+        contains('cannot be changed'),
       );
     });
 

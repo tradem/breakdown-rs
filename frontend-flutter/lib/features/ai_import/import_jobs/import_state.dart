@@ -72,6 +72,13 @@ String aiUploadErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // with the scoped server code so one narrative covers both provenances).
       'ai-import.scope-mismatch' ||
       'ai_import.scope_mismatch' => l10n.aiImportScopeMismatch,
+      // Issue #829: the two target states a block-less import can reach. Both
+      // are branchable server codes, rendered as copy — never as an internal
+      // error, and never as a retry prompt (retrying cannot change either).
+      'ai-import.target-missing' ||
+      'ai_import.target_missing' => l10n.aiImportTargetMissing,
+      'ai-import.target-immutable' ||
+      'ai_import.target_immutable' => l10n.aiImportTargetImmutable,
       'authz.denied' || 'membership.pending' => l10n.aiUploadPermissions,
       _ when error.code.startsWith('transport.') => l10n.aiUploadNetwork,
       _ => l10n.aiUploadGeneric(error.code),
