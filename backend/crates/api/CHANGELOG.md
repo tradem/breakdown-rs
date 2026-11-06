@@ -17,6 +17,25 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.58.0] - Unreleased
+
+### Added — `PUT /v1/ai-import/jobs/{id}/target` (issue #829)
+
+- The one write that fills in a block-less job's target. Set-once and
+  idempotent: the same block repeated is a `200` no-op, a different one is
+  `409 ai-import.target-immutable` with the S1 `existing_block_id`, and a job
+  whose apply already recorded rows answers the same code with `applied: true`.
+  Only `succeeded` jobs accept a target (`409 domain.conflict` otherwise) and
+  only a block of the job's target season (`409 ai-import.scope-mismatch`), so a
+  caller authorized in season A cannot point a season-A job at a season-B block.
+  The response is the updated job view, so the client learns the new block id and
+  the target number from one round-trip.
+- Registered code `ai-import.target-immutable` (`409`, S1 `existing_block_id` /
+  `applied`) with de/en Fluent copy + golden snapshot; registry count 111 → 112.
+- The job-gate scope fix and the apply's `ai-import.target-missing` precondition
+  that make the block-less state safe moved **into PR 1** (see that entry), so
+  this crate version carries the attach only.
+
 ## [0.57.0] - Unreleased
 
 ### Added — an AI upload may omit its target block and declare its season (issue #829)

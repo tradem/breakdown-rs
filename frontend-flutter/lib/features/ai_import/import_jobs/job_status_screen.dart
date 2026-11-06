@@ -153,7 +153,13 @@ class _JobTargetCard extends StatelessWidget {
                   ? l10n.aiImportTargetNotRecorded
                   : l10n.aiImportTargetLine(
                       l10n.blockSeasonNumber('${target.seasonNumber}'),
-                      l10n.blockTileLabel('${target.blockNumber}'),
+                      // Issue #829 (review of PR #856): a block-less upload
+                      // carries its season with `block_number: null` until the
+                      // target is attached, so the card must say "unknown"
+                      // instead of interpolating the word "null" into the line.
+                      target.blockNumber == null
+                          ? l10n.aiImportTargetUnknownBlock
+                          : l10n.blockTileLabel('${target.blockNumber}'),
                     ),
               key: const Key('ai-job-target-line'),
             ),

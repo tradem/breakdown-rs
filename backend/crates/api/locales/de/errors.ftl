@@ -72,6 +72,9 @@ problem-ai-import-scope-mismatch =
 problem-ai-import-target-missing =
     Für diesen Import ist noch kein Zielblock gewählt. Wählen Sie den Block, in den die Episoden, Szenen und Drehtage gehören, und starten Sie den Import danach erneut.
 
+problem-ai-import-target-immutable =
+    Das Importziel steht bereits fest und lässt sich nicht mehr ändern. Für einen anderen Zielblock starten Sie bitte einen neuen Import.
+
 problem-ai-import-unsupported-media-type =
     Dieser Dokumenttyp wird für den KI-Import nicht unterstützt.
 

@@ -2505,6 +2505,45 @@ impl AiImportQueue for FakeAiImportQueue {
 
     /// Mirrors the Postgres adapter: only terminal rows are removed, and the
     /// dedup index entry is released with the row (issue #671).
+    /// Set-once target attach (issue #829), mirroring the production adapter's
+    /// one-statement contract: attach-only, refused once an apply landed, a
+    /// repeat of the same block is an idempotent no-op.
+    async fn set_target_once(
+        &self,
+        id: AiImportJobId,
+        block_id: breakdown_core::shared::BlockId,
+        block_number: i32,
+    ) -> Result<breakdown_core::ai::TargetAttachOutcome, DomainError> {
+        let mut jobs = self.jobs.lock().await;
+        let Some(job) = jobs.get_mut(&id.as_uuid()) else {
+            return Ok(breakdown_core::ai::TargetAttachOutcome::NotFound);
+        };
+        // Same block first: an idempotent repeat stays a success even after an
+        // apply, mirroring the production adapter's ordering (review of #829).
+        if job.block_id == Some(block_id) {
+            return Ok(breakdown_core::ai::TargetAttachOutcome::Unchanged);
+        }
+        if job.applied {
+            return Ok(breakdown_core::ai::TargetAttachOutcome::AlreadyApplied);
+        }
+        if job.target.is_none() {
+            return Ok(breakdown_core::ai::TargetAttachOutcome::NoTargetSeason);
+        }
+        match job.block_id {
+            Some(existing) => Ok(breakdown_core::ai::TargetAttachOutcome::AlreadySet {
+                existing_block_id: existing,
+            }),
+            None => {
+                job.block_id = Some(block_id);
+                if let Some(target) = job.target.as_mut() {
+                    target.block_number = Some(block_number);
+                }
+                job.updated_at = Utc::now();
+                Ok(breakdown_core::ai::TargetAttachOutcome::Attached)
+            }
+        }
+    }
+
     async fn delete_terminal(&self, id: AiImportJobId) -> Result<bool, DomainError> {
         let terminal = matches!(
             self.jobs.lock().await.get(&id.as_uuid()),

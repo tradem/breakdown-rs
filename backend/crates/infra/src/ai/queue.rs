@@ -13,10 +13,10 @@ use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
     ApplyRunState, CostBreakdown, DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary,
-    LlmProvider, SourceFormat, Telemetry,
+    LlmProvider, SourceFormat, TargetAttachOutcome, Telemetry,
 };
 use breakdown_core::error::DomainError;
-use breakdown_core::shared::UserId;
+use breakdown_core::shared::{BlockId, UserId};
 use chrono::{DateTime, Utc};
 use futures::Stream;
 use sqlx::{PgPool, Row};
@@ -1258,6 +1258,105 @@ impl AiImportQueue for PgAiImportQueue {
         }
         tx.commit().await.map_err(map_sqlx_error)?;
         Ok(result.rows_affected() == 1)
+    }
+
+    /// Attach the write target of a block-less job, set-once (issue #829).
+    ///
+    /// One statement carries the set-once contract so no read-then-write window
+    /// exists: `block_id IS NULL` makes it attach-only, and
+    /// `accept_as_is IS NULL` refuses a job whose apply already recorded rows
+    /// (`AiImportJob::applied` is derived from that column). The block id and the
+    /// number the visible snapshot renders move together, and
+    /// `updated_at` is touched so the jobs list re-orders like any other write.
+    ///
+    /// A zero-row result is then diagnosed with ONE follow-up read, which is
+    /// only ever reached by a refusal path or an idempotent repeat — never by a
+    /// successful attach.
+    async fn set_target_once(
+        &self,
+        id: AiImportJobId,
+        block_id: BlockId,
+        block_number: i32,
+    ) -> Result<TargetAttachOutcome, DomainError> {
+        let attached = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET block_id = $2,
+                target_block_number = $3,
+                updated_at = now()
+            WHERE id = $1
+              AND block_id IS NULL
+              AND accept_as_is IS NULL
+              -- A job without a target SEASON cannot receive a block: the
+              -- season is the attach's authorization scope and the snapshot's
+              -- other half, so storing the number alone would leave a target
+              -- that no longer decodes (review of #829).
+              AND target_season_id IS NOT NULL
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(block_id.0)
+        .bind(block_number)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        if attached.rows_affected() == 1 {
+            // Same wake-up the other writes emit: a watching client must see the
+            // attached target without reconnecting (issue #664).
+            self.hub.notify(id);
+            return Ok(TargetAttachOutcome::Attached);
+        }
+        // Diagnose the refusal. `try_get` on a missing row degrades to NotFound
+        // below; a decode fault on `accept_as_is` is mapped, never defaulted, so
+        // an "applied" job can never be mistaken for a free slot.
+        let row = sqlx::query(
+            r#"
+            SELECT block_id, accept_as_is, target_season_id
+            FROM ai_import.ai_import_job
+            WHERE id = $1
+            "#,
+        )
+        .bind(id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some(row) = row else {
+            return Ok(TargetAttachOutcome::NotFound);
+        };
+        let applied = row
+            .try_get::<Option<bool>, _>("accept_as_is")
+            .map_err(map_sqlx_error)?
+            .is_some();
+        let existing: Option<Uuid> = row
+            .try_get::<Option<Uuid>, _>("block_id")
+            .map_err(map_sqlx_error)?;
+        // The SAME block is an idempotent success, checked BEFORE the applied
+        // state (review of #829): a retry after the rows landed asks for nothing
+        // that is not already true, and answering 409 there would report a
+        // frozen target for a request that is satisfied.
+        if existing == Some(block_id.0) {
+            return Ok(TargetAttachOutcome::Unchanged);
+        }
+        if applied {
+            return Ok(TargetAttachOutcome::AlreadyApplied);
+        }
+
+        let has_target_season = row
+            .try_get::<Option<Uuid>, _>("target_season_id")
+            .map_err(map_sqlx_error)?
+            .is_some();
+        if !has_target_season {
+            return Ok(TargetAttachOutcome::NoTargetSeason);
+        }
+        Ok(match existing {
+            Some(existing) => TargetAttachOutcome::AlreadySet {
+                existing_block_id: BlockId::from_uuid(existing),
+            },
+            // No block and no apply: the UPDATE above matched, so this is a race
+            // with a concurrent attach/apply. Reporting `AlreadyApplied` is the
+            // safe direction — it never claims a slot the caller did not get.
+            None => TargetAttachOutcome::AlreadyApplied,
+        })
     }
 }
 

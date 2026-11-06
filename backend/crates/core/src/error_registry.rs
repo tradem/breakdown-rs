@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 111;
+const PROBLEM_CODE_COUNT: usize = 112;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1061,6 +1061,20 @@ problem_codes! {
         status: 409,
         title: "AI import job has no target block yet",
         extensions: &["season_id"],
+    },
+
+    /// 409 — the target of an AI import job can be attached but not re-targeted
+    /// (issue #829). Raised for the two states the set-once attach refuses: a
+    /// *different* block once one is already set (S1 `existing_block_id` names
+    /// the block that won, so a racing client re-renders it instead of guessing)
+    /// and a job whose apply already recorded rows (S1 `applied: true` — those
+    /// rows are bound to the old block, so moving the target would orphan them).
+    /// The same block repeated is NOT a refusal: it is an idempotent no-op.
+    AI_IMPORT_TARGET_IMMUTABLE {
+        code: "ai-import.target-immutable",
+        status: 409,
+        title: "AI import target cannot be changed",
+        extensions: &["existing_block_id", "applied"],
     },
 
     /// 409 — the upload declared an intended season (`X-Declared-Season`)

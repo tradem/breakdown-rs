@@ -16,6 +16,29 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.60.0] - Unreleased
+
+### Added — the set-once target attach (issue #829)
+
+- `AiImportQueue::set_target_once(id, block_id, block_number)` returning
+  `TargetAttachOutcome` (`Attached` / `Unchanged` / `AlreadySet { .. }` /
+  `AlreadyApplied` / `NotFound`). The four distinguishable outcomes are the
+  contract: a repeated attach of the same block is a successful no-op, while
+  "taken" and "already applied" are refusals with different narratives, and
+  collapsing them would force the handler to re-read state the adapter observed
+  atomically. The default implementation refuses loudly instead of returning a
+  benign value — an adapter that cannot attach must not look like it succeeded.
+- `TargetAttachOutcome::NoTargetSeason` — the adapter's refusal for a job that
+  carries no target season and therefore cannot receive a block (storing the
+  number alone would leave a target that cannot decode). No path produces the
+  state; the outcome exists so the refusal is truthful instead of borrowing
+  another variant's name.
+- `AiImportTargetRequest { block_id }` — the attach body. One field: the block.
+  The season, the number and the job identity are server-resolved.
+- Registered code `ai-import.target-immutable` (`409`, S1 `existing_block_id` /
+  `applied`); registry count 111 → 112. (`ai-import.target-missing` and the
+  job-scope fix travel with the upload in PR 1.)
+
 ## [0.59.0] - Unreleased
 
 ### Added — `ai-import.target-missing` (issue #829)

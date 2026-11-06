@@ -38,12 +38,12 @@ use axum::{Router, routing};
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJobId, AiImportPreviewResponse, AiImportQueue,
-    AiModelPricingRepository as _, AiPreviewPayload, ApplyGateError, ApplyMapping,
-    CostDisplayPreference, CreateAiConfig, DocumentKind, EpisodeGroupPlan, EpisodeTarget,
-    LlmProvider, MergedPreview, ModelInfo, OutfitContinuitySelection, RevokeAiConfig,
-    ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    Uncertainty, UncertaintyAcknowledgement, UpdateAiConfig, ensure_script_applyable,
-    episode_group_refs, shooting_day_group_refs,
+    AiImportTargetRequest, AiModelPricingRepository as _, AiPreviewPayload, ApplyGateError,
+    ApplyMapping, CostDisplayPreference, CreateAiConfig, DocumentKind, EpisodeGroupPlan,
+    EpisodeTarget, LlmProvider, MergedPreview, ModelInfo, OutfitContinuitySelection,
+    RevokeAiConfig, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
+    TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement, UpdateAiConfig,
+    ensure_script_applyable, episode_group_refs, shooting_day_group_refs,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -7417,6 +7417,106 @@ pub async fn get_ai_import_preview<P: Ports>(
     ))
 }
 
+/// Attach the write target of a block-less AI import job — set-once
+/// (issue #829).
+///
+/// An upload may now start without a block (`X-Declared-Season` only), so the
+/// job has a state it never had before: `succeeded`, authorized, and still
+/// without a write target. This is the one write that fills it in, and it is
+/// deliberately job-scoped rather than a field on the apply request: the apply's
+/// write context comes from the request's `episode_id`, while `job.block_id` is
+/// what the CWE-639 cross-block guard compares against — one value on the wire
+/// keeps the preview, the in-preview episode creation and the guard consistent.
+///
+/// Set-once is enforced by the adapter's single conditional `UPDATE`
+/// (`block_id IS NULL AND accept_as_is IS NULL`), because the server cannot see
+/// a client-side group-episode adoption: `applied` is the backstop it CAN see,
+/// and a racing client gets an honest 409 instead of a silent re-target.
+#[utoipa::path(
+    put,
+    path = "/ai-import/jobs/{id}/target",
+    params(("id" = Uuid, Path)),
+    request_body = AiImportTargetRequest,
+    responses(
+        (status = 200, body = AiImportJobResponse, description = "Target attached (or already attached — idempotent)"),
+        (status = 403, body = ProblemDetails, description = "Not authorized for this job or for the attached block's season"),
+        (status = 404, body = ProblemDetails, description = "Job or block not found"),
+        (status = 409, body = ProblemDetails, description = "Job is not succeeded, the block belongs to another season, or the target is already set/applied")
+    )
+)]
+pub async fn put_ai_import_job_target<P: Ports>(
+    State(state): State<AppState<P>>,
+    current_user: CurrentUser,
+    Path(id): Path<AiImportJobId>,
+    Json(request): Json<AiImportTargetRequest>,
+) -> ApiResult<AiImportJobResponse> {
+    // AUTHZ-GATE: attaching a target is a privileged production mutation on a
+    // job that is about to write real rows — the caller must own the job AND
+    // hold an active piece-dept role in its target season.
+    let job = state.ports.ai_import_queue().get(id).await?;
+    let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
+    authorize_ai_job(&state, &current_user, &job, Action::Write).await?;
+    // Only a succeeded job has a preview to attach a target to: `pending`/
+    // `running` have none, and `failed`/`dead_letter` must be retried, not
+    // re-targeted. Same conflict surface the apply uses for its status gate.
+    if job.status != breakdown_core::ai::JobStatus::Succeeded {
+        return Err(ApiError::Conflict(
+            "only a succeeded AI import job accepts a target block",
+        ));
+    }
+    let block = state
+        .ports
+        .block_repo()
+        .find_by_id(request.block_id.0)
+        .await?;
+    // The attached block must belong to the season the job was authorized for.
+    // Otherwise a caller who may write in season A could point a season-A job at
+    // a block of season B — the same contradiction `check_declared_ai_season`
+    // refuses at upload, answered with the same registered code.
+    if let Some(target) = job.target.as_ref()
+        && block.season_id != target.season_id
+    {
+        return Err(ApiError::AiImportScopeMismatch(
+            "the attached block does not belong to the job's target season",
+        ));
+    }
+    match state
+        .ports
+        .ai_import_queue()
+        .set_target_once(id, request.block_id, block.number)
+        .await?
+    {
+        breakdown_core::ai::TargetAttachOutcome::Attached
+        | breakdown_core::ai::TargetAttachOutcome::Unchanged => {}
+        breakdown_core::ai::TargetAttachOutcome::AlreadySet { existing_block_id } => {
+            return Err(ApiError::AiImportTargetAlreadySet(existing_block_id));
+        }
+        breakdown_core::ai::TargetAttachOutcome::AlreadyApplied => {
+            return Err(ApiError::AiImportTargetAlreadyApplied);
+        }
+        breakdown_core::ai::TargetAttachOutcome::NotFound => {
+            return Err(ApiError::AiImportNotFound("AI import job not found"));
+        }
+        // The adapter refuses a job without a target season: the season is the
+        // attach's authorization scope AND the snapshot's other half, so a block
+        // number stored without it would leave a target that cannot decode.
+        breakdown_core::ai::TargetAttachOutcome::NoTargetSeason => {
+            return Err(ApiError::Conflict(
+                "the job carries no target season, so a target block cannot be attached",
+            ));
+        }
+    }
+    // Re-read so the response carries what the atomic write produced (the block
+    // id AND the target number) instead of a locally patched guess.
+    let job = state
+        .ports
+        .ai_import_queue()
+        .get(id)
+        .await?
+        .ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
+    Ok((StatusCode::OK, Json(AiImportJobResponse { job })))
+}
+
 #[utoipa::path(
     delete,
     path = "/ai-import/jobs/{id}",
@@ -9632,6 +9732,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/ai-import/jobs/{id}/apply",
             routing::post(apply_ai_import::<ProductionPorts>),
+        )
+        .route(
+            "/ai-import/jobs/{id}/target",
+            routing::put(put_ai_import_job_target::<ProductionPorts>),
         )
         .route(
             "/ai-import/config",

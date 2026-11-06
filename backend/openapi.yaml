@@ -771,6 +771,23 @@ components:
       - season_id
       - season_number
       type: object
+    AiImportTargetRequest:
+      description: |-
+        The body of `PUT /v1/ai-import/jobs/{id}/target` (issue #829).
+
+        One field on purpose: the attach names the block to write into, and the
+        server derives everything else it stores (the block's number for the visible
+        snapshot, its season for the authorization check). A client cannot smuggle in
+        a season, a number or a job identity — those are server-resolved.
+      properties:
+        block_id:
+          $ref: '#/components/schemas/BlockId'
+          description: |-
+            The block this job's rows will land in. Set once: repeating the same
+            block is a `200` no-op, a different one is refused.
+      required:
+      - block_id
+      type: object
     AiPreviewPayload:
       description: |-
         Typed preview payload served by `GET /v1/ai-import/jobs/{id}/preview`
@@ -5646,6 +5663,65 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
+      tags:
+      - handlers
+  /v1/ai-import/jobs/{id}/target:
+    put:
+      description: |-
+        An upload may now start without a block (`X-Declared-Season` only), so the
+        job has a state it never had before: `succeeded`, authorized, and still
+        without a write target. This is the one write that fills it in, and it is
+        deliberately job-scoped rather than a field on the apply request: the apply's
+        write context comes from the request's `episode_id`, while `job.block_id` is
+        what the CWE-639 cross-block guard compares against — one value on the wire
+        keeps the preview, the in-preview episode creation and the guard consistent.
+
+        Set-once is enforced by the adapter's single conditional `UPDATE`
+        (`block_id IS NULL AND accept_as_is IS NULL`), because the server cannot see
+        a client-side group-episode adoption: `applied` is the backstop it CAN see,
+        and a racing client gets an honest 409 instead of a silent re-target.
+      operationId: put_ai_import_job_target
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AiImportTargetRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiImportJobResponse'
+          description: Target attached (or already attached — idempotent)
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Not authorized for this job or for the attached block's season
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Job or block not found
+        '409':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Job is not succeeded, the block belongs to another season, or the target is already set/applied
+      summary: |-
+        Attach the write target of a block-less AI import job — set-once
+        (issue #829).
       tags:
       - handlers
   /v1/ai-import/providers:
@@ -11144,6 +11220,13 @@ x-code-registry:
   status: 409
   title: AI import job has no target block yet
   type: https://docs.breakdown.example/problems/ai-import.target-missing
+- code: ai-import.target-immutable
+  extensions:
+  - existing_block_id
+  - applied
+  status: 409
+  title: AI import target cannot be changed
+  type: https://docs.breakdown.example/problems/ai-import.target-immutable
 - code: ai-import.scope-mismatch
   extensions: []
   status: 409

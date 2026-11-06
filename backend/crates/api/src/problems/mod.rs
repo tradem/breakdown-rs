@@ -29,12 +29,12 @@ use breakdown_core::error_registry::{
     AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_APPLY_BLOCKED, AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
     AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN,
     AI_IMPORT_JOB_NOT_DELETABLE, AI_IMPORT_NOT_FOUND, AI_IMPORT_SCOPE_MISMATCH,
-    AI_IMPORT_TARGET_MISSING, AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
-    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS,
-    HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST,
-    HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
-    HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, REPORT_RENDERER_UNAVAILABLE,
-    SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
+    AI_IMPORT_TARGET_IMMUTABLE, AI_IMPORT_TARGET_MISSING, AI_IMPORT_UNSUPPORTED_MEDIA_TYPE,
+    DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE,
+    DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
+    HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
+    HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
+    REPORT_RENDERER_UNAVAILABLE, SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
 };
 
 use serde::Serialize;
@@ -357,6 +357,15 @@ pub enum ApiError {
     /// extension names the job's target season so the client can route the user
     /// to the target card for the right season.
     AiImportTargetMissing(Option<breakdown_core::shared::SeasonId>),
+    /// 409 `ai-import.target-immutable` — the set-once attach found a DIFFERENT
+    /// block already attached (issue #829). The S1 `existing_block_id`
+    /// extension names the block that won, so a racing client re-renders it
+    /// instead of guessing.
+    AiImportTargetAlreadySet(breakdown_core::shared::BlockId),
+    /// 409 `ai-import.target-immutable` — the set-once attach found that an
+    /// apply already recorded rows, so the target is frozen (issue #829). The
+    /// S1 `applied: true` extension says why.
+    AiImportTargetAlreadyApplied,
     /// 409 `ai-config.version-mismatch` — optimistic-lock version conflict on
     /// an AI-config edit/revoke. Scoped per aggregate (issue #481); carries
     /// the same S0 `expected_version`/`current_version` extensions as the
@@ -530,6 +539,21 @@ impl ApiError {
                     // absent.
                     None => builder.build(),
                 }
+            }
+            ApiError::AiImportTargetAlreadySet(existing_block_id) => {
+                tracing::debug!(
+                    existing_block_id = %existing_block_id.0,
+                    "rendering ai-import target-immutable problem (already attached)"
+                );
+                problem(AI_IMPORT_TARGET_IMMUTABLE)
+                    .extension("existing_block_id", existing_block_id)
+                    .build()
+            }
+            ApiError::AiImportTargetAlreadyApplied => {
+                tracing::debug!("rendering ai-import target-immutable problem (applied)");
+                problem(AI_IMPORT_TARGET_IMMUTABLE)
+                    .extension("applied", true)
+                    .build()
             }
             ApiError::AiConfigVersionMismatch(expected, current) => {
                 problem(AI_CONFIG_VERSION_MISMATCH)

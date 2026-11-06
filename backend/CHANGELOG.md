@@ -28,6 +28,25 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **A block-less AI import receives its target block later (issue #829, PR 2/4).**
+  PR 1 made the upload's block optional and closed the authorization hole that
+  state opened; this PR adds the write that fills the block in:
+  `PUT /v1/ai-import/jobs/{id}/target` (`{block_id}`). It is set-once — the same
+  block repeated is an idempotent `200`, a different one is the newly registered
+  `409 ai-import.target-immutable` (+ `existing_block_id`), a job whose apply
+  already recorded rows is the same code (+ `applied: true`) — only for
+  `succeeded` jobs, and only for a block of the job's target season (`409
+  ai-import.scope-mismatch`, so a caller authorized in season A cannot point a
+  season-A job at a season-B block). The adapter performs it in ONE conditional
+  statement (`WHERE block_id IS NULL AND accept_as_is IS NULL`), so two racing
+  attaches cannot both win and the guard value and the displayed number cannot
+  drift. Crates: `core` 0.59.0 → 0.60.0, `infra` 0.69.0 → 0.70.0, `api` 0.57.0 →
+  0.58.0; generated Dart client `breakdown_api` 1.2.0 → 1.3.0.
+  The set-once rule is covered by a real-Postgres suite
+  (`integration-tests/tests/ai_import_job_target.rs`), the same block repeated
+  stays an idempotent success even after an apply, and the statement refuses a
+  row that carries no target season (a block number without its season pair
+  would not decode).
 - **An AI upload may target a SEASON instead of a block (issue #829, PR 1/4).**
   The import target used to be "the block active right now": `X-Active-Block` was
   required and its owning season was the authorization scope. It is now optional.

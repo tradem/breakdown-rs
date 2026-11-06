@@ -90,7 +90,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        111,
+        112,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -381,6 +381,9 @@ fn api_routes_have_deliberate_authorization_requirement() {
         ),
         ("/ai-import/jobs/{id}/preview", Requirement::Authenticated),
         ("/ai-import/jobs/{id}/apply", Requirement::Authenticated),
+        // Issue #829: attaching a job's target block — same handler-internal
+        // ownership + target-season gate as the apply it enables.
+        ("/ai-import/jobs/{id}/target", Requirement::Authenticated),
         ("/ai-import/config", Requirement::Authenticated),
         ("/ai-import/config/{id}", Requirement::Authenticated),
         ("/ai-import/config/{id}/revoke", Requirement::Authenticated),
