@@ -52,7 +52,10 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       `409 ai-import.scope-mismatch`); `AiImportTarget` wire test in both
       directions (`Some` → `null`).
 - [ ] 1.11 `openapi.yaml` regenerated (`UPDATE_OPENAPI=1 … openapi_drift`),
-      Dart client regenerated (`CLIENT_VERSION` 1.2.0), version bumps + CHANGELOGs
+      Dart client regenerated (`CLIENT_VERSION` 1.2.0) **and the Flutter tree
+      kept compiling in the same commit** — the `target.blockNumber` widening to
+      `int?` is a compile-level adoption, never a behaviour change (the UI
+      adoption is PR 3), so no PR leaves `main` red. Version bumps + CHANGELOGs
       (`core` 0.59.0, `infra` 0.69.0, `api` 0.57.0, dependent pins).
 
 ## 2. Backend: the attach write, the job scope, the apply precondition — size M
