@@ -1003,6 +1003,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                 // and not the only truth (issue #805 review).
                 _ApplyInFlightSettledWatcher(
                   jobId: jobId,
+                  onRunning: controller.refreshApplyInFlight,
                   onSettled: controller.dismissApplyInFlight,
                 ),
                 Padding(
@@ -1575,35 +1576,55 @@ class _ApplyInFlightNotice extends StatelessWidget {
   );
 }
 
-/// Clears a stored blocked-run notice as soon as the run that owned the slot
-/// reports its **end** (issue #805 review).
+/// Keeps a stored blocked-run notice honest while it outlives the `POST` that
+/// produced it (issue #805 review).
 ///
-/// The notice outlives the `POST` that produced it, so its local countdown is
-/// not the only source of truth: once the run ends, the server sends the apply
-/// stream's final `null` frame (`AiApplyRunFinished`). A notice left standing
-/// would keep the apply disabled — and offer a takeover for a run that no longer
-/// exists — until the countdown ran out.
+/// The notice's own countdown is a bound, not the truth, so it follows the same
+/// dedicated apply stream the progress card uses:
 ///
-/// Only `AiApplyRunFinished` clears it. `AiApplyRunIdle` deliberately does NOT:
-/// the server documents `apply_progress: None` as "no progress published", never
-/// as "idle" (issue #762), so a subscribed-but-empty snapshot proves nothing
-/// about the slot. Clearing on it would invent a free run.
+/// * a **progress** frame (`AiApplyRunRunning`) proves the owning run is still
+///   publishing, so the notice re-anchors its local silence to that frame. A run
+///   that keeps working therefore can never be labelled abandoned by a countdown
+///   that was started minutes ago — the reported defect. The re-anchor uses the
+///   frame ARRIVAL (not the payload's server timestamp), so no clock comparison
+///   between two machines is involved.
+/// * the run's **end** frame (`AiApplyRunFinished`) clears the notice: the slot
+///   is free, the apply action must be released instead of waiting out a
+///   countdown for a run that no longer exists.
+///
+/// `AiApplyRunIdle` deliberately does NOTHING: the server documents
+/// `apply_progress: None` as "no progress published", never as "idle"
+/// (issue #762), so a subscribed-but-empty snapshot proves nothing about the
+/// slot. Clearing on it would invent a free run.
 ///
 /// Rendered only while a notice exists, so the SSE subscription exists exactly
-/// as long as it can settle something.
+/// as long as it can change something.
 class _ApplyInFlightSettledWatcher extends ConsumerWidget {
   const _ApplyInFlightSettledWatcher({
     required this.jobId,
+    required this.onRunning,
     required this.onSettled,
   });
 
   final String jobId;
+
+  /// The owning run published again: re-anchor the notice's local silence.
+  final VoidCallback onRunning;
+
+  /// The owning run ended: the block is gone.
   final VoidCallback onSettled;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.listen(aiApplyRunProvider(jobId), (previous, next) {
-      if (next.value is AiApplyRunFinished) onSettled();
+      switch (next.value) {
+        case AiApplyRunRunning():
+          onRunning();
+        case AiApplyRunFinished():
+          onSettled();
+        case _:
+          break;
+      }
     });
     return const SizedBox.shrink();
   }

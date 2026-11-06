@@ -1565,6 +1565,60 @@ void main() {
       );
     });
 
+    testWidgets('a progress frame re-anchors the notice, so a working run is '
+        'never labelled abandoned by a stale countdown (issue #805 review)', (
+      tester,
+    ) async {
+      var now = DateTime.utc(2026, 1, 1, 12);
+      final runs = StreamController<AiApplyRunState>.broadcast();
+      addTearDown(runs.close);
+      await setupContainer(
+        clock: Clock(() => now),
+        applyRunStates: runs.stream,
+        applyQueue: [
+          for (var i = 0; i < 3; i++)
+            Left(_applyInFlight(ageSeconds: 30, staleAfterSeconds: 60)),
+        ],
+      );
+      await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsOneWidget);
+
+      // The run keeps working: fresh progress after the window would have
+      // passed re-anchors the local silence instead of declaring it abandoned.
+      now = now.add(const Duration(seconds: 50));
+      runs.add(
+        AiApplyRunRunning(
+          ApplyProgress(
+            (b) => b
+              ..stage = ApplyStage.applying
+              ..applied = 12
+              ..total = 59
+              ..startedAt = DateTime.utc(2026, 1, 1, 11, 55)
+              ..updatedAt = DateTime.utc(2026, 1, 1, 11, 59, 30),
+          ),
+        ),
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      now = now.add(const Duration(seconds: 30));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-in-flight-stale')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-apply-in-flight-takeover')),
+        findsNothing,
+        reason: 'a run that published 30 s ago is inside the 60 s window',
+      );
+    });
+
     testWidgets('the preview names the block the SCRIPT states next to the '
         'import target (issue #827)', (tester) async {
       await setupContainer(targetBlockNumber: 2, scriptBlockNumber: 2);

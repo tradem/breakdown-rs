@@ -50,7 +50,9 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   live); a refusal whose owner published nothing is its own "unaged" state that
   neither invents an age nor locks the apply; and the notice clears the moment
   the apply-run stream reports the blocking run's end, so a finished run cannot
-  keep blocking until the countdown expires.
+  keep blocking until the countdown expires — and a progress frame re-anchors the
+  notice's silence to that arrival, so a run that keeps publishing is never
+  labelled abandoned by a stale local countdown.
 
 - **The import target card's two actions are now actually usable**
   (`0.4.0-beta.40+132 → 0.4.0-beta.41+133`, review of the #829 work). Three

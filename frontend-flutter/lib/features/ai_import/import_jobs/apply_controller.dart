@@ -1316,6 +1316,29 @@ class AiApplyController extends _$AiApplyController {
     state = state.copyWith(commandError: null);
   }
 
+  /// Re-anchors a stored blocked-run notice because the owning run published
+  /// again (issue #805 review).
+  ///
+  /// The notice's countdown starts from the refusal, so without this a run that
+  /// simply kept working would be labelled abandoned by a local clock — the
+  /// notice would claim a death the server never reported. A progress frame
+  /// proves the opposite: the payload was current when the server emitted it, so
+  /// the local silence restarts at that arrival. The window is unchanged (it is
+  /// the server's), and the age is reset rather than recomputed from the frame's
+  /// server timestamp, so no client/server clock comparison is involved.
+  void refreshApplyInFlight() {
+    final current = state.applyInFlight;
+    if (current == null) return;
+    state = state.copyWith(
+      applyInFlight: AiApplyInFlight(
+        error: current.error,
+        age: Duration.zero,
+        staleAfter: current.staleAfter,
+        observedAt: ref.read(clockProvider).now(),
+      ),
+    );
+  }
+
   /// Drops a stored blocked-run notice because the run that owned the slot
   /// settled (issue #805 review).
   ///

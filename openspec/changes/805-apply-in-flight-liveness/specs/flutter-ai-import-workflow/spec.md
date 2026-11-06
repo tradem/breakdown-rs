@@ -35,6 +35,14 @@ The classification SHALL NOT be mirrored client-side: a refusal that carries no
 `stale_after_seconds` (a server predating the extensions) keeps the previous
 bounded-wait behaviour and renders no takeover.
 
+While a notice is stored, the client SHALL follow the apply-run stream: a
+**progress** frame SHALL re-anchor the notice's local silence to that frame's
+arrival (so a run that keeps publishing is never labelled abandoned by a
+countdown started earlier, and no client/server timestamp comparison is made),
+and the run's **end** frame SHALL clear the notice so the apply action is
+released. An empty snapshot SHALL NOT clear it: `apply_progress: None` means "no
+progress published", never "idle".
+
 The reconciliation loop SHALL NOT steal an abandoned claim on its own: a refusal
 older than the window SHALL end the loop after that single dispatch. A refusal
 for a live run MAY consume the bounded attempt budget (the client's own earlier

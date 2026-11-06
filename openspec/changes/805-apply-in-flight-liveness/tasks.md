@@ -74,4 +74,7 @@
       resolved target) and `mounted` is re-checked before the post-apply routing.
 - [x] 6.7 Backend age assertion is bounded ANALYTICALLY from the payload stamp and
       the request window, so no wall-clock guess can break it.
+- [x] 6.8 A progress frame from the apply-run stream re-anchors the stored notice
+      (arrival-based, no cross-clock comparison), so a publishing run is never
+      labelled abandoned by an older countdown; widget test drives the frame.
 
