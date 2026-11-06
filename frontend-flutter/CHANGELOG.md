@@ -23,6 +23,27 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A crashed apply run no longer leaves the client waiting** (issue #805,
+  `0.4.0-beta.41+133 → 0.4.0-beta.42+134`). An API process that died mid-apply
+  left its progress payload on the job, so every further apply was refused with
+  `409 ai-import.apply-in-flight` for up to ten minutes — and the client treated
+  that refusal as "keep waiting", spent its bounded budget on it and ended in the
+  generic "outcome unknown" card with no way forward except restarting the app.
+  The refusal now carries the owning run's silence and the server's own staleness
+  window (S1 extensions, server-measured so a skewed device clock cannot
+  misclassify a live run), and the apply card says which one it is:
+  - **live** — the card names the run's last update and the countdown until a
+    takeover becomes possible; the apply button stays disabled because a second
+    dispatch can only be refused again, and an exhausted budget is reported as
+    "a run is live", never as "outcome unknown";
+  - **abandoned** — past the server's window the card states that the run counts
+    as abandoned and offers the **explicit** takeover, which re-dispatches the
+    idempotent apply (already-applied rows are skipped). Nothing is stolen
+    automatically: a live run may be this person's other device, so the
+    single-flight contract still forbids a blind re-dispatch.
+  A server that predates the extensions keeps the previous wait behaviour — the
+  client never mirrors a window it was not told.
+
 - **The import target card's two actions are now actually usable**
   (`0.4.0-beta.40+132 → 0.4.0-beta.41+133`, review of the #829 work). Three
   defects, found by tapping the buttons instead of only asserting they exist:

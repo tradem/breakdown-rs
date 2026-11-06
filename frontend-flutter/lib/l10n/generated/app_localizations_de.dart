@@ -1377,6 +1377,34 @@ class AppLocalizationsDe extends AppLocalizations {
       'Für diese Vorschau läuft bereits eine Übernahme. Verfolge deren Fortschritt – ein zweiter Start ist erst danach möglich.';
 
   @override
+  String aiApplyInFlightLive(String age) {
+    return 'Für diese Vorschau übernimmt gerade ein Lauf (letzte Meldung $age).';
+  }
+
+  @override
+  String aiApplyInFlightTakeoverIn(int minutes) {
+    String _temp0 = intl.Intl.pluralLogic(
+      minutes,
+      locale: localeName,
+      other: '$minutes min',
+      one: '1 min',
+    );
+    return 'Übernehmen möglich in $_temp0';
+  }
+
+  @override
+  String aiApplyInFlightStale(String age) {
+    return 'Der Lauf für diese Vorschau meldet keinen Fortschritt mehr (letzte Meldung $age) und gilt als abgebrochen.';
+  }
+
+  @override
+  String get aiApplyInFlightStaleHint =>
+      'Du kannst die Übernahme jetzt erneut starten – bereits übernommene Zeilen werden übersprungen.';
+
+  @override
+  String get aiApplyInFlightTakeover => 'Jetzt übernehmen';
+
+  @override
   String get aiApplyErrorMissingMapping =>
       'Eine Skriptzeile hat keine Prüfentscheidung – lade die Vorschau neu und übernimm erneut.';
 

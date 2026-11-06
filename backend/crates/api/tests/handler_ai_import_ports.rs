@@ -4943,3 +4943,151 @@ async fn update_ai_config_omitted_decision_fields_resolve_from_the_stored_bindin
     assert_eq!(command.decision_model, None);
     assert_eq!(command.decision_vault_key_id, None);
 }
+
+/// An apply request that carries exactly one reviewable row and no group / day
+/// / continuity decisions — enough to reach the worker's single-flight claim.
+fn single_row_apply_request() -> ApplyAiImportRequest {
+    ApplyAiImportRequest {
+        continuity_selections: Vec::new(),
+        episode_id: EpisodeId::new(),
+        project_id: None,
+        uncertainty_acknowledgements: Vec::new(),
+        mappings: vec![ApplyMapping {
+            draft_ref: "scene-0".to_owned(),
+            decision: ApplyMappingDecision::Create,
+            outfit_decisions: Vec::new(),
+        }],
+        accept_as_is: true,
+        edit_distance: 0,
+        episode_groups: Vec::new(),
+        shooting_days: Vec::new(),
+    }
+}
+
+/// Seed a **live** apply-run claim on a `succeeded` script job (issues #800,
+/// #805).
+///
+/// [published_ago] is the owning run's only payload — how long ago it last
+/// published. `None` models a run that claimed the slot but has not written
+/// its first frame yet, i.e. the one case where the refusal carries no age.
+async fn seed_live_apply_claim(
+    ports: &FakePorts,
+    job_id: AiImportJobId,
+    published_ago: Option<chrono::Duration>,
+) -> breakdown_core::ai::ApplyRunId {
+    let run_id = breakdown_core::ai::ApplyRunId::new();
+    assert!(
+        ports
+            .ai_import_queue
+            .claim_apply_run(job_id, run_id)
+            .await
+            .expect("the claim write should succeed"),
+        "the seeded job's apply slot starts free"
+    );
+    if let Some(ago) = published_ago {
+        let stamp = Utc::now() - ago;
+        ports
+            .ai_import_queue
+            .mark_apply_progress(
+                job_id,
+                run_id,
+                Some(&breakdown_core::ai::ApplyProgress {
+                    stage: breakdown_core::ai::ApplyStage::Applying,
+                    applied: 6,
+                    total: 59,
+                    started_at: stamp,
+                    updated_at: stamp,
+                    run_id,
+                }),
+            )
+            .await
+            .expect("the run progress write should succeed");
+    }
+    run_id
+}
+
+/// Issue #805: a refused apply names the two facts that turn "something is in
+/// flight" into a decision — how long ago the owning run last published, and
+/// the server's own staleness window. Both are S1 extensions of the registered
+/// `409 ai-import.apply-in-flight`; without them the client could only wait.
+#[tokio::test]
+async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+    // The owning run published 4 minutes ago: inside `STALE_AFTER`, so the
+    // claim refuses it (issue #800) and the payload's own age travels.
+    seed_live_apply_claim(&ports, job_id, Some(chrono::Duration::minutes(4))).await;
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(single_row_apply_request()),
+    )
+    .await
+    .expect_err("a live run must be refused")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
+    assert_eq!(problem.code, "ai-import.apply-in-flight");
+    let extensions = problem
+        .extensions
+        .expect("the refusal must name the blocking run's age and the window");
+    assert_eq!(
+        extensions
+            .get("stale_after_seconds")
+            .and_then(|value| value.as_u64()),
+        Some(600),
+        "the window travels from ApplyProgress::STALE_AFTER, never a copy"
+    );
+    let age = extensions
+        .get("apply_run_age_seconds")
+        .and_then(|value| value.as_u64())
+        .expect("the owning run published a payload, so its age travels");
+    assert!(
+        (240..=300).contains(&age),
+        "the published payload is 4 minutes old, got {age}s"
+    );
+}
+
+/// Issue #805: a run that claimed the slot but never published has no age to
+/// report. The window still travels (it is what a client needs to know), but
+/// `apply_run_age_seconds` must be ABSENT — `0` would claim "just published"
+/// for a run that said nothing.
+#[tokio::test]
+async fn apply_refusal_omits_the_age_when_the_owning_run_published_nothing() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+    seed_live_apply_claim(&ports, job_id, None).await;
+
+    let problem = apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(single_row_apply_request()),
+    )
+    .await
+    .expect_err("a live claim must be refused")
+    .into_problem();
+
+    assert_eq!(problem.code, "ai-import.apply-in-flight");
+    let extensions = problem
+        .extensions
+        .expect("the window is named even without a payload");
+    assert_eq!(
+        extensions
+            .get("stale_after_seconds")
+            .and_then(|value| value.as_u64()),
+        Some(600)
+    );
+    assert!(
+        !extensions.contains_key("apply_run_age_seconds"),
+        "an owner that published nothing has no age, not an age of zero"
+    );
+}

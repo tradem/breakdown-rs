@@ -504,6 +504,55 @@ class BlockingUncertaintyGroup {
       );
 }
 
+/// A refused apply whose **blocking run the server named** (issue #805).
+///
+/// `409 ai-import.apply-in-flight` is not a failure: another run of this job
+/// owns the progress slot. Before #805 the client could only say "a run is in
+/// flight" and wait — it could not tell a second device applying right now from
+/// a crashed run that left its payload behind. The server now sends the owning
+/// run's silence (`apply_run_age_seconds`) and its own window
+/// (`stale_after_seconds`), so the card can say which one it is.
+///
+/// The observation is stamped with the client clock at receipt, so the age
+/// keeps growing while the card is open and the state flips from "live" to
+/// "stale" **without another request** — the server would answer the same
+/// refusal until its window passed, and asking it again would only cost a
+/// round trip.
+class AiApplyInFlight {
+  const AiApplyInFlight({
+    required this.error,
+    required this.age,
+    required this.staleAfter,
+    required this.observedAt,
+  });
+
+  /// The refusal that named this run (the S1 extensions are on it).
+  final ProblemError error;
+
+  /// The owning run's silence as the SERVER measured it at [observedAt];
+  /// `null` when that run had published nothing yet (no age — never zero).
+  final Duration? age;
+
+  /// The server's staleness window (`ApplyProgress::STALE_AFTER`), never
+  /// mirrored client-side.
+  final Duration staleAfter;
+
+  /// When the refusal was received (the client's injectable clock).
+  final DateTime observedAt;
+
+  /// The owning run's silence at [now]: the server's measurement plus whatever
+  /// elapsed locally since receipt.
+  Duration ageAt(DateTime now) =>
+      (age ?? Duration.zero) + now.difference(observedAt);
+
+  /// True when the server's own window has elapsed — i.e. the server considers
+  /// that payload abandoned and the next claim would steal the slot.
+  ///
+  /// `false` while [age] is unknown: a run that never published has no age, and
+  /// calling it dead would invent a liveness the server never reported.
+  bool isStaleAt(DateTime now) => age != null && ageAt(now) >= staleAfter;
+}
+
 /// The apply selection state (task 4.2): rows, the persisted episode
 /// context, and the mapping-request builder inputs.
 ///
@@ -517,6 +566,7 @@ class AiApplyState {
     this.context,
     this.outcome,
     this.commandError,
+    this.applyInFlight,
     this.groupTargets = const <String, EpisodeGroupTarget>{},
     this.dayDecisions = const <String, bool>{},
     this.blockingUncertainties = const <Uncertainty>[],
@@ -541,6 +591,12 @@ class AiApplyState {
 
   /// The last command failure, keyed on the stable problem `code`.
   final ProblemError? commandError;
+
+  /// A refused dispatch whose blocking run the SERVER named (issue #805):
+  /// `null` unless the last apply met `409 ai-import.apply-in-flight` with the
+  /// S1 age/window extensions. It is not a [commandError] — nothing failed, and
+  /// the copy must say what is blocking and what the user can do about it.
+  final AiApplyInFlight? applyInFlight;
 
   /// The reviewer's per-group episode targets, keyed by the backend-derived
   /// group ref. ABSENT entries fall back to the seeded default (create-new,
@@ -625,6 +681,7 @@ class AiApplyState {
     Object? context = _unset,
     Object? outcome = _unset,
     Object? commandError = _unset,
+    Object? applyInFlight = _unset,
     Map<String, EpisodeGroupTarget>? groupTargets,
     Map<String, bool>? dayDecisions,
     List<Uncertainty>? blockingUncertainties,
@@ -642,6 +699,9 @@ class AiApplyState {
     commandError: identical(commandError, _unset)
         ? this.commandError
         : commandError as ProblemError?,
+    applyInFlight: identical(applyInFlight, _unset)
+        ? this.applyInFlight
+        : applyInFlight as AiApplyInFlight?,
     groupTargets: groupTargets ?? this.groupTargets,
     dayDecisions: dayDecisions ?? this.dayDecisions,
     blockingUncertainties: blockingUncertainties ?? this.blockingUncertainties,
@@ -1371,6 +1431,8 @@ class AiApplyController extends _$AiApplyController {
           // A successful (re-)apply disproves every earlier command failure:
           // keeping it would render the old error next to the outcome card.
           commandError: null,
+          // The blocking run is gone (this dispatch claimed the slot).
+          applyInFlight: null,
         );
         return Right(response);
       case ApplyBlocked(:final error):
@@ -1379,6 +1441,7 @@ class AiApplyController extends _$AiApplyController {
           context: context,
           outcome: null,
           commandError: error,
+          applyInFlight: null,
         );
         return Left(error);
       case ApplyUnresolved(:final error):
@@ -1387,6 +1450,26 @@ class AiApplyController extends _$AiApplyController {
           context: context,
           outcome: null,
           commandError: error,
+          applyInFlight: null,
+        );
+        return Left(error);
+      case ApplyInFlight(:final error, :final age, :final staleAfter):
+        if (!ref.mounted) return Left(error);
+        // Issue #805: the server named the run that blocks this dispatch, so
+        // this is a decision, not an error. It gets its own state slot (never
+        // `commandError`): the card must explain what is blocking and, once the
+        // server's window has passed, offer the explicit takeover — while the
+        // run is live there is nothing to retry, so no error narrative.
+        state = state.copyWith(
+          context: context,
+          outcome: null,
+          commandError: null,
+          applyInFlight: AiApplyInFlight(
+            error: error,
+            age: age,
+            staleAfter: staleAfter,
+            observedAt: ref.read(clockProvider).now(),
+          ),
         );
         return Left(error);
     }

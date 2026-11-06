@@ -28,6 +28,28 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **A refused apply names the run that blocks it (issue #805).**
+  `409 ai-import.apply-in-flight` used to say only "a run is live", so a client
+  that met the refusal could not tell a second device applying right now from a
+  crashed run whose payload still held the slot for up to
+  `ApplyProgress::STALE_AFTER` (10 min) — and a dead run left no way forward
+  except waiting out the window. The refusal now carries two S1 extensions:
+  `apply_run_age_seconds` (how long the owning run had been silent, measured
+  server-side at the refusal, from the run slot `apply_run_state` already
+  exposes) and `stale_after_seconds` (the server's own window, one definition).
+  `age >= window` is the server's own "abandoned" verdict, so the client offers
+  an explicit takeover instead of a blind wait; below it the run is live and the
+  copy says so. The age is omitted when the owner published nothing yet (no age
+  exists — `0` would claim "just published"), and it is a DURATION, not a
+  timestamp, so a skewed device clock cannot misclassify a live run. The
+  extensions are untyped on the wire (`ProblemDetails.extensions`), so the
+  generated Dart client is unchanged and `backend/openapi.yaml` moves only in
+  `x-code-registry`. Crates: `core` 0.60.0 → 0.61.0, `infra` 0.70.0 → 0.71.0,
+  `api` 0.58.0 → 0.59.0; no `breakdown_api` bump, no new problem code
+  (registry stays at 112).
+  Covered by two handler tests (a live claim with a 4-minute-old payload, and a
+  claim that published nothing) plus the regenerated problem golden.
+
 - **A block-less AI import receives its target block later (issue #829, PR 2/4).**
   PR 1 made the upload's block optional and closed the authorization hole that
   state opened; this PR adds the write that fills the block in:

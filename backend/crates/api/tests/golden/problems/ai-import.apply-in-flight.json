@@ -1,6 +1,10 @@
 {
   "code": "ai-import.apply-in-flight",
   "detail": "Für diesen Import läuft bereits eine Übernahme. Verfolgen Sie deren Fortschritt; ein zweiter Start ist erst danach möglich.",
+  "extensions": {
+    "apply_run_age_seconds": "00000000-0000-0000-0000-000000000001",
+    "stale_after_seconds": "00000000-0000-0000-0000-000000000001"
+  },
   "status": 409,
   "title": "AI import apply is already running for this job",
   "type": "https://docs.breakdown.example/problems/ai-import.apply-in-flight"

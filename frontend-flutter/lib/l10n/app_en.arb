@@ -390,6 +390,41 @@
   "aiApplyErrorGeneric": "The apply failed ({code}).",
   "aiApplyErrorApplyBlocked": "The preview still carries unresolved review questions — confirm them below to apply.",
   "aiApplyErrorApplyInFlight": "An apply is already running for this preview. Follow its progress — a second one becomes possible once it ends.",
+  "aiApplyInFlightLive": "An apply is running for this preview (last update {age}).",
+  "@aiApplyInFlightLive": {
+    "description": "Issue #805: the server named the live apply run that blocks this dispatch. `age` is the RELATIVE time since that run last published (e.g. '3 min ago'), never a client-side guess.",
+    "placeholders": {
+      "age": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyInFlightTakeoverIn": "Takeover possible in {minutes, plural, =1{1 min} other{{minutes} min}}",
+  "@aiApplyInFlightTakeoverIn": {
+    "description": "Issue #805: countdown until the server's staleness window has passed and the abandoned run may be taken over.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "aiApplyInFlightStale": "The apply has stopped reporting progress (last update {age}) and counts as abandoned.",
+  "@aiApplyInFlightStale": {
+    "description": "Issue #805: the blocking run published nothing for longer than the server's staleness window, so the server considers it abandoned.",
+    "placeholders": {
+      "age": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyInFlightStaleHint": "You can start the takeover now — rows already applied are skipped.",
+  "@aiApplyInFlightStaleHint": {
+    "description": "Issue #805: the takeover re-runs the idempotent apply, so already-applied rows are skipped instead of imported twice."
+  },
+  "aiApplyInFlightTakeover": "Take over now",
+  "@aiApplyInFlightTakeover": {
+    "description": "Issue #805: the explicit takeover action for an abandoned apply run."
+  },
   "aiApplyErrorMissingMapping": "A script row has no review decision — refresh the preview and re-apply.",
   "aiApplyErrorMissingEpisodeGroup": "An episode target no longer matches the preview — refresh the preview and re-apply.",
   "aiApplyErrorUnknownContinuityCandidate": "The preview no longer offers this wardrobe choice — refresh the preview and apply again.",

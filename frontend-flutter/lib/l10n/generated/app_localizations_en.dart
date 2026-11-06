@@ -1359,6 +1359,34 @@ class AppLocalizationsEn extends AppLocalizations {
       'An apply is already running for this preview. Follow its progress — a second one becomes possible once it ends.';
 
   @override
+  String aiApplyInFlightLive(String age) {
+    return 'An apply is running for this preview (last update $age).';
+  }
+
+  @override
+  String aiApplyInFlightTakeoverIn(int minutes) {
+    String _temp0 = intl.Intl.pluralLogic(
+      minutes,
+      locale: localeName,
+      other: '$minutes min',
+      one: '1 min',
+    );
+    return 'Takeover possible in $_temp0';
+  }
+
+  @override
+  String aiApplyInFlightStale(String age) {
+    return 'The apply has stopped reporting progress (last update $age) and counts as abandoned.';
+  }
+
+  @override
+  String get aiApplyInFlightStaleHint =>
+      'You can start the takeover now — rows already applied are skipped.';
+
+  @override
+  String get aiApplyInFlightTakeover => 'Take over now';
+
+  @override
   String get aiApplyErrorMissingMapping =>
       'A script row has no review decision — refresh the preview and re-apply.';
 

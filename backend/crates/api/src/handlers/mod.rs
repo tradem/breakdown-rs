@@ -66,9 +66,9 @@ use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, MEMBERSHIP_NOT_FOUND,
-    PIECE_CONTAINER_UNRESOLVED, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
-    SEASON_NUMBER_ALREADY_EXISTS, SHOOTING_DAY_EPISODE_MISMATCH,
+    AI_IMPORT_APPLY_IN_FLIGHT, BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED,
+    MEMBERSHIP_NOT_FOUND, PIECE_CONTAINER_UNRESOLVED, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
+    SEASON_ARCHIVED, SEASON_NOT_FOUND, SEASON_NUMBER_ALREADY_EXISTS, SHOOTING_DAY_EPISODE_MISMATCH,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -8102,7 +8102,7 @@ pub async fn apply_ai_import<P: Ports>(
                 // target season itself (the piece steps stay valid).
                 season_repo: Arc::new(state.ports.season_repo().clone()),
             };
-            let applied = worker
+            let applied = match worker
                 .apply_script(ApplyScriptRequest {
                     actor: current_user.sub,
                     preview_id: id,
@@ -8122,7 +8122,53 @@ pub async fn apply_ai_import<P: Ports>(
                     categories,
                     telemetry: Some(telemetry),
                 })
-                .await?;
+                .await
+            {
+                Ok(applied) => applied,
+                // Issue #805: the claim refused because a live run owns the
+                // progress slot. The refusal is enriched with the two facts the
+                // client needs to tell a live run from a dead one — the owner's
+                // last publication age and the server's own staleness window
+                // (the single definition of it, never a constant a client
+                // mirrors). `age >= window` is the server's own "abandoned"
+                // verdict; the client asks the user before acting on it.
+                Err(DomainError::Conflict { code, reason })
+                    if code.code == AI_IMPORT_APPLY_IN_FLIGHT.code =>
+                {
+                    tracing::debug!(
+                        job_id = %id.as_uuid(),
+                        %reason,
+                        "AI import apply refused: a live run owns the progress slot"
+                    );
+                    // The owner's last publication, read from the same slot the
+                    // claim judged. A read failure must not turn the refusal
+                    // into a different error: the window still travels and the
+                    // age is simply absent (nothing was published to age), which
+                    // the client renders as "a live run, no progress yet".
+                    let age_seconds = state
+                        .ports
+                        .ai_import_queue()
+                        .apply_run_state(id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|run| run.progress)
+                        .map(|progress: breakdown_core::ai::ApplyProgress| {
+                            chrono::Utc::now()
+                                .signed_duration_since(progress.updated_at)
+                                .num_seconds()
+                                .max(0)
+                                .unsigned_abs()
+                        });
+                    return Err(ApiError::AiImportApplyInFlight {
+                        age_seconds,
+                        stale_after_seconds: breakdown_core::ai::ApplyProgress::STALE_AFTER
+                            .num_seconds()
+                            .unsigned_abs(),
+                    });
+                }
+                Err(error) => return Err(error.into()),
+            };
             // Persist the target episodes on the job (issue #763) so the jobs
             // list can name the import. Best-effort, exactly like the apply
             // telemetry below: the rows are already written, so a summary fault

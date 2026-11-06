@@ -21,6 +21,8 @@ import '../../../auth/auth_providers.dart';
 import '../../../core/problem_error.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/cache/hierarchy_cache_dao.dart';
+import '../../../data/cache/clock.dart';
+import '../../../data/cache/relative_time.dart';
 import '../../../design/components/ai_score_stars.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -407,6 +409,69 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     }
   }
 
+  /// Ticks once a second while a refused dispatch names a blocking run
+  /// (issue #805), so the notice's age and countdown advance — and the takeover
+  /// appears — without asking the server again (it would answer the same
+  /// refusal until its own window passed).
+  Timer? _inFlightTicker;
+
+  void _syncInFlightTicker({required bool needed}) {
+    if (needed && _inFlightTicker == null) {
+      _inFlightTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    if (!needed && _inFlightTicker != null) {
+      _inFlightTicker?.cancel();
+      _inFlightTicker = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _inFlightTicker?.cancel();
+    _inFlightTicker = null;
+    super.dispose();
+  }
+
+  /// Dispatch the apply. The submit button and the in-flight TAKEOVER (issue
+  /// #805) both go through here: the takeover is the same idempotent dispatch,
+  /// only its precondition differs (the server's staleness window has passed).
+  ///
+  /// [confirmBeforeApply] is skipped for the takeover: the notice itself is the
+  /// confirmation (it states that the blocking run is abandoned), so a second
+  /// "apply again?" dialog would only repeat the question the user just
+  /// answered.
+  Future<void> _dispatchApply({
+    required bool knownApplied,
+    required bool confirmBeforeApply,
+  }) async {
+    if (_applying) return;
+    if (confirmBeforeApply &&
+        !await _confirmReapply(knownApplied: knownApplied)) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _applying = true);
+    try {
+      final applied = await ref
+          .read(aiApplyControllerProvider(widget.jobId).notifier)
+          .apply();
+      // The result is consumed explicitly: an `Err` renders the code-keyed
+      // narrative (controller state), a `Ok` opens the imported material and
+      // carries the report along (issue #759).
+      final response = applied.match<ApplyAiImportResponse?>(
+        (_) => null,
+        (value) => value,
+      );
+      if (response == null) return;
+      await _openImportedEpisode(response);
+    } finally {
+      if (mounted) setState(() => _applying = false);
+    }
+  }
+
   /// Ask before a **second** apply of an already-imported preview (issue #800).
   ///
   /// True runs the apply. The dialog names what the second run does — re-apply
@@ -486,6 +551,17 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
         : (state.context?.blockId.isNotEmpty ?? false)
         ? state.context!.blockId
         : null;
+
+    // Issue #805: a refusal that NAMED its blocking run is a live decision, not
+    // an error. The card ticks (see [_syncInFlightTicker]) so the age grows and
+    // the takeover appears on its own once the server's window has passed.
+    final inFlight = state.applyInFlight;
+    _syncInFlightTicker(needed: inFlight != null);
+    final now = ref.watch(clockProvider).now();
+    // While the blocking run is still inside the server's window, an apply
+    // cannot succeed (the server would refuse it again) — the submit button
+    // says so by being disabled instead of producing that refusal.
+    final blockedByLiveRun = inFlight != null && !inFlight.isStaleAt(now);
 
     // The explicit episode pick over the season's episodes from the read DTOs
     // — ids never guessed.
@@ -911,40 +987,32 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
+              // Issue #805: the blocking run, named. Live → what it is and
+              // when a takeover becomes possible; dead → the explicit takeover
+              // (never an automatic steal).
+              if (inFlight != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ApplyInFlightNotice(
+                    inFlight: inFlight,
+                    now: now,
+                    onTakeover: _applying
+                        ? null
+                        : () => _dispatchApply(
+                            knownApplied: knownApplied,
+                            // The notice IS the confirmation: it states that the
+                            // blocking run is abandoned.
+                            confirmBeforeApply: false,
+                          ),
+                  ),
+                ),
               FilledButton(
                 key: const Key('ai-apply-submit'),
-                onPressed: (canApply && !_applying)
-                    ? () async {
-                        // Issue #800: a preview that was already imported may be
-                        // applied again — that is the recovery path for a run
-                        // the server interrupted (the apply is idempotent,
-                        // reserve-before-create) — but never silently: the
-                        // second run asks first, and the button says which one
-                        // it is.
-                        if (confirmBeforeApply &&
-                            !await _confirmReapply(
-                              knownApplied: knownApplied,
-                            )) {
-                          return;
-                        }
-                        setState(() => _applying = true);
-                        try {
-                          final applied = await controller.apply();
-                          // The result is consumed explicitly: an `Err` renders
-                          // the code-keyed narrative (controller state), a `Ok`
-                          // opens the imported material and carries the report
-                          // along (issue #759).
-                          final response = applied
-                              .match<ApplyAiImportResponse?>(
-                                (_) => null,
-                                (value) => value,
-                              );
-                          if (response == null) return;
-                          await _openImportedEpisode(response);
-                        } finally {
-                          if (mounted) setState(() => _applying = false);
-                        }
-                      }
+                onPressed: (canApply && !_applying && !blockedByLiveRun)
+                    ? () => _dispatchApply(
+                        knownApplied: knownApplied,
+                        confirmBeforeApply: confirmBeforeApply,
+                      )
                     : null,
                 child: _applying
                     ? const SizedBox(
@@ -1365,6 +1433,97 @@ Future<List<EpisodeView>> aiEpisodePickerRows(Ref ref, String jobId) async {
     // Empty cache → surface the failure code (the sheet's error branch).
     throw err;
   }, (rows) async => rows);
+}
+
+/// The refused apply whose blocking run the server NAMED (issue #805).
+///
+/// One decision, two states — both decided by the server's own facts, never by
+/// a client-side guess:
+///
+/// * **live** (`age < staleAfter`) — another run still owns the progress slot
+///   and its last publication is inside the server's window. The copy names
+///   that silence and when a takeover becomes possible; the submit button stays
+///   disabled because a second apply would only be refused again.
+/// * **dead** (`age >= staleAfter`) — by the server's own predicate that
+///   payload is abandoned and the next claim steals the slot. The card offers
+///   the **explicit** takeover instead of stealing on its own: the blocking run
+///   may be this person's other device, and the single-flight contract forbids
+///   a blind re-dispatch.
+///
+/// Never an error card: nothing failed. The pre-#805 defect was exactly that —
+/// a blocking narrative with no way out except restarting the app.
+class _ApplyInFlightNotice extends StatelessWidget {
+  const _ApplyInFlightNotice({
+    required this.inFlight,
+    required this.now,
+    required this.onTakeover,
+  });
+
+  final AiApplyInFlight inFlight;
+  final DateTime now;
+
+  /// Dispatches the takeover; `null` while a dispatch is already out.
+  final VoidCallback? onTakeover;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final theme = Theme.of(context);
+    final age = inFlight.ageAt(now);
+    final stale = inFlight.isStaleAt(now);
+    // The age copy comes from the shared relative-time formatter (the same one
+    // the seasons card uses), so the wording lives in the ARB catalogs and
+    // every locale renders its own units.
+    final ageLabel = relativeTimeSince(
+      now.subtract(age),
+      clock: Clock.fixed(now),
+      copy: RelativeTimeCopy(
+        justNow: l10n.seasonsStaleJustNow,
+        minutes: (count) => l10n.seasonsStaleMinutes('$count'),
+        hours: (count) => l10n.seasonsStaleHours('$count'),
+        days: (count) => l10n.seasonsStaleDays('$count'),
+      ),
+    );
+    // Whole minutes until the server would let a takeover through, rounded UP
+    // so the copy never promises "0 min" while the run is still live.
+    final remaining = inFlight.staleAfter - age;
+    final remainingMinutes = remaining.inSeconds <= 0
+        ? 0
+        : (remaining.inSeconds + 59) ~/ 60;
+    return Column(
+      key: Key(stale ? 'ai-apply-in-flight-stale' : 'ai-apply-in-flight-live'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          key: const Key('ai-apply-in-flight-copy'),
+          stale
+              ? l10n.aiApplyInFlightStale(ageLabel)
+              : l10n.aiApplyInFlightLive(ageLabel),
+          style: theme.textTheme.bodySmall,
+        ),
+        if (stale) ...[
+          const SizedBox(height: 2),
+          Text(
+            key: const Key('ai-apply-in-flight-hint'),
+            l10n.aiApplyInFlightStaleHint,
+            style: theme.textTheme.bodySmall,
+          ),
+          TextButton(
+            key: const Key('ai-apply-in-flight-takeover'),
+            onPressed: onTakeover,
+            child: Text(l10n.aiApplyInFlightTakeover),
+          ),
+        ] else ...[
+          const SizedBox(height: 2),
+          Text(
+            key: const Key('ai-apply-in-flight-countdown'),
+            l10n.aiApplyInFlightTakeoverIn(remainingMinutes),
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 /// Live progress of the apply run in flight (issue #762).

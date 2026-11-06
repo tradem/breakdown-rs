@@ -472,6 +472,21 @@ JobTelemetrySummary _jobTelemetry({
     ..provider = provider,
 );
 
+/// The `409 ai-import.apply-in-flight` refusal as the server emits it since
+/// issue #805: the owning run's published age and the server's own window ride
+/// in the problem's S1 extensions, so the client can classify the block.
+ProblemError _applyInFlight({
+  required int ageSeconds,
+  required int staleAfterSeconds,
+}) => ProblemError(
+  code: 'ai-import.apply-in-flight',
+  status: 409,
+  extensions: <String, dynamic>{
+    'apply_run_age_seconds': ageSeconds,
+    'stale_after_seconds': staleAfterSeconds,
+  },
+);
+
 ApplyAiImportResponse _outcome({
   int appliedCount = 2,
   int createdDays = 1,
@@ -1303,6 +1318,91 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a refused apply that names an ABANDONED run says so and '
+        'offers the explicit takeover (issue #805)', (tester) async {
+      await setupContainer(
+        applyQueue: [
+          // The blocking run published 700 s ago — past the server's 600 s
+          // window, so the server itself considers that payload abandoned.
+          Left(_applyInFlight(ageSeconds: 700, staleAfterSeconds: 600)),
+          Right(_outcome()),
+        ],
+      );
+      await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(find.byKey(const Key('ai-apply-in-flight-stale')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsNothing);
+      // The copy names the run's own silence (server-measured 700 s = 11 min)
+      // and the consequence — never the generic "something is in flight".
+      expect(find.textContaining('11 min ago'), findsOneWidget);
+      expect(find.textContaining('counts as abandoned'), findsOneWidget);
+      // This is a decision, not a failure: no apply-error narrative.
+      expect(find.byKey(const Key('ai-apply-error')), findsNothing);
+      expect(
+        repo.applyRequests,
+        hasLength(1),
+        reason:
+            'a dead claim is never stolen automatically — the takeover is the '
+            "user's call",
+      );
+
+      // The explicit way out, one tap, no second dialog (the card IS the
+      // confirmation) — and no app restart.
+      await tester.tap(find.byKey(const Key('ai-apply-in-flight-takeover')));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(repo.applyRequests, hasLength(2));
+      expect(find.byKey(const Key('ai-apply-in-flight-stale')), findsNothing);
+    });
+
+    testWidgets('a LIVE run still blocks: the card names it, the apply stays '
+        'disabled and no takeover is offered (issue #805)', (tester) async {
+      await setupContainer(
+        applyQueue: [
+          // Past the review screen's bounded budget (`kMaxApplyAttempts`), all
+          // answered with the SAME live refusal (published 30 s ago, inside the
+          // 600 s window).
+          for (var i = 0; i < 3; i++)
+            Left(_applyInFlight(ageSeconds: 30, staleAfterSeconds: 600)),
+        ],
+      );
+      await pumpPreview(tester);
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      expect(find.byKey(const Key('ai-apply-in-flight-live')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-in-flight-stale')), findsNothing);
+      expect(find.textContaining('just now'), findsOneWidget);
+      expect(find.textContaining('Takeover possible in'), findsOneWidget);
+      expect(
+        find.byKey(const Key('ai-apply-in-flight-takeover')),
+        findsNothing,
+        reason: 'the server would refuse a takeover inside its own window',
+      );
+      // A second apply cannot succeed while the run is live: the button is
+      // disabled instead of producing the same refusal again.
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-apply-submit')))
+            .onPressed,
+        isNull,
+      );
+      // And the exhausted budget is reported as "a run is live", never as
+      // "outcome unknown".
+      expect(find.textContaining('unbekannt'), findsNothing);
     });
 
     testWidgets('the preview names the block the SCRIPT states next to the '

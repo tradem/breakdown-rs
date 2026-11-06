@@ -1148,15 +1148,36 @@ problem_codes! {
     /// the first POST is still running — is refused here instead of silently
     /// interleaving two runs' counters.
     ///
-    /// Not a failure narrative: the client treats it as "a run is live, keep
-    /// waiting" and follows that run's stream, and it never renders the
-    /// blocking apply-error branch. A claim whose owner died is stolen by the
-    /// next apply (staleness), so this code can never lock a job permanently.
+    /// Not a failure narrative: the client follows that run's stream, and it
+    /// never renders the blocking apply-error branch. A claim whose owner died
+    /// is stolen by the next apply (staleness), so this code can never lock a
+    /// job permanently.
+    ///
+    /// Since issue #805 the refusal carries the two facts that let the client
+    /// tell a **live** run from a **dead** one instead of waiting blindly:
+    ///
+    /// * `apply_run_age_seconds` (S1) — how long ago the owning run last
+    ///   published (`ApplyProgress::updated_at`), measured against the server's
+    ///   own clock at the moment of the refusal. Server-computed on purpose: an
+    ///   absolute timestamp would need the client's clock, and a device that is
+    ///   minutes off would classify a live run as dead. Absent when the owner
+    ///   has published nothing yet (a run that died before its first frame
+    ///   therefore gets no age — the client waits that one out instead of
+    ///   guessing).
+    /// * `stale_after_seconds` (S1) — the window after which the server itself
+    ///   considers such a payload abandoned and lets the next claim steal it
+    ///   (`ApplyProgress::STALE_AFTER`). Sent, never mirrored client-side: a
+    ///   duplicated window would drift from the single definition.
+    ///
+    /// `age >= stale_after` means the run is dead **by the server's own
+    /// predicate** — the next apply takes the slot over. That is a user
+    /// decision (a live run may be the same person's other device), so the
+    /// client offers it explicitly instead of stealing automatically.
     AI_IMPORT_APPLY_IN_FLIGHT {
         code: "ai-import.apply-in-flight",
         status: 409,
         title: "AI import apply is already running for this job",
-        extensions: &[],
+        extensions: &["apply_run_age_seconds", "stale_after_seconds"],
     },
 
     /// 409 — the apply request carried no day decision for a shooting-day
