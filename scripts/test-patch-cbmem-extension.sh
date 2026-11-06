@@ -122,7 +122,7 @@ if grep -q 'project: projectArg()' "$patched" &&
 else
     fail "a non-destructive 'project' schema is still required"
 fi
-node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)
 if [ "${node_major:-0}" -ge 22 ] 2>/dev/null; then
     if node --check "$patched" >/dev/null 2>&1; then
         pass "patched file is syntactically valid TS"
