@@ -22,9 +22,9 @@
 # nearest `.codebase-memory/artifact.json` and reads its `project` field. That
 # file is written by the indexer next to the index itself (per worktree, see
 # AGENTS.md §2), so the answer is free — no `list_projects` round trip, no
-# parsing of human-formatted output. Passing `project` explicitly still wins,
-# and `delete_project` is deliberately NOT defaulted: a destructive call must
-# name its target.
+# parsing of human-formatted output. Passing `project` explicitly still wins.
+# `delete_project` is deliberately untouched — no allowlist entry AND no schema
+# change — because a destructive call must name its target.
 #
 # The file is GENERATED and rewritten on every codebase-memory-mcp install or
 # update, so this patch is re-applied by `scripts/install-pi-extensions.sh`
@@ -186,9 +186,9 @@ if mode == "check":
 
 if mode == "dry-run":
     print("would patch " + target + ":")
-    print("  " + str(schema_matches) + " 'project' schemas -> optional")
+    print("  " + str(schema_matches - len(NO_DEFAULT)) + " 'project' schemas -> optional")
     print("  project default injected into call(), allowlist (" + str(len(project_tools)) + "): " + ", ".join(project_tools))
-    print("  never defaulted: " + ", ".join(sorted(NO_DEFAULT)))
+    print("  untouched (still required): " + ", ".join(sorted(NO_DEFAULT)))
     sys.exit(0)
 
 # --- the patch -------------------------------------------------------------
@@ -197,15 +197,36 @@ helpers = HELPERS.replace("__PROJECT_TOOLS__", allowlist)
 injection = helpers + CALL_ANCHOR + "\n" + GUARD
 
 patched = source.replace(CALL_ANCHOR, injection, 1)
-patched = SCHEMA_RE.sub("project: projectArg()", patched)
+
+# The schema rewrite runs PER TOOL BLOCK, so a destructive tool keeps a required
+# argument in its schema. Loosening it there while refusing to default it would
+# advertise an omission that still fails — a schema that lies is worse than a
+# blunt one.
+chunks = re.split(r"(?=pi\.registerTool\(\{)", patched)
+rewritten = 0
+kept: list[str] = []
+for index, chunk in enumerate(chunks):
+    name_match = re.search(r"name:\s*'([^']+)'", chunk)
+    name = name_match.group(1) if name_match else None
+    if index == 0 or name in NO_DEFAULT:
+        if index > 0:
+            kept.append(str(name))
+        chunks[index] = chunk
+        continue
+    chunks[index], count = SCHEMA_RE.subn("project: projectArg()", chunk)
+    rewritten += count
+patched = "".join(chunks)
 
 # Verify the patch landed as intended before writing: a half-applied edit to a
 # generated file is worse than no edit (every graph call would fail at runtime).
 if MARKER not in patched or CALL_ANCHOR not in patched:
     print("failed: patch did not apply cleanly (no anchor in result)", file=sys.stderr)
     sys.exit(2)
-if SCHEMA_RE.search(patched):
-    print("failed: some 'project' schemas are still required", file=sys.stderr)
+if rewritten != len(project_tools):
+    print(
+        "failed: rewrote " + str(rewritten) + " schemas for " + str(len(project_tools)) + " allowlisted tools",
+        file=sys.stderr,
+    )
     sys.exit(2)
 if "projectArg()" not in patched or "defaultProject()" not in patched:
     print("failed: patch result is missing its own parts", file=sys.stderr)
@@ -215,6 +236,6 @@ with open(target, "w", encoding="utf-8") as handle:
     handle.write(patched)
 
 print("patched " + target)
-print("  " + str(schema_matches) + " 'project' schemas -> optional")
-print("  cwd default injected; never defaulted: " + ", ".join(sorted(NO_DEFAULT)))
+print("  " + str(rewritten) + " 'project' schemas -> optional")
+print("  cwd default injected; untouched (still required): " + ", ".join(sorted(NO_DEFAULT)))
 PY

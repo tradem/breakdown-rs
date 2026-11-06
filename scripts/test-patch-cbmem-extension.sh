@@ -112,10 +112,11 @@ else
 fi
 patched="$FIXTURE/agent/extensions/cbmem.ts"
 if grep -q 'project: projectArg()' "$patched" &&
-    ! grep -qE '^[[:space:]]*project: Type\.String\(\)' "$patched"; then
-    pass "every 'project' schema became optional"
+    ! sed -n "/name: 'search_graph'/,/execute/p" "$patched" | grep -qE '^[[:space:]]*project: Type\.String\(\)';
+ then
+    pass "a non-destructive 'project' schema became optional"
 else
-    fail "a required 'project' schema survived"
+    fail "a non-destructive 'project' schema is still required"
 fi
 if node --check "$patched" >/dev/null 2>&1; then
     pass "patched file is syntactically valid TS"
@@ -130,14 +131,15 @@ if grep -q 'base_project: Type.String()' "$patched" &&
 else
     fail "the patcher rewrote a project-like argument it does not own"
 fi
-if grep -A3 "'delete_project'," "$patched" | grep -q "'delete_project',"; then
-    if ! sed -n "/const PROJECT_TOOLS/,/^]);/p" "$patched" | grep -q "'delete_project'"; then
-        pass "delete_project is never defaulted"
-    else
-        fail "delete_project is in the project-default allowlist"
-    fi
+if sed -n "/name: 'delete_project'/,/execute/p" "$patched" | grep -qE '^[[:space:]]*project: Type\.String\(\)'; then
+    pass "delete_project keeps its REQUIRED schema"
 else
-    pass "delete_project is never defaulted (absent from the allowlist)"
+    fail "delete_project's schema was loosened but it is never defaulted (the schema would lie)"
+fi
+if ! sed -n "/const PROJECT_TOOLS/,/^]);/p" "$patched" | grep -q "'delete_project'"; then
+    pass "delete_project is not in the project-default allowlist"
+else
+    fail "delete_project is in the project-default allowlist"
 fi
 
 # --- 5. idempotent: a second run is a no-op ---------------------------------
