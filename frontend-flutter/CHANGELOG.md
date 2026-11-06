@@ -30,6 +30,13 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     empty result, which `_pick` read as "dismissed", so the sheet closed and
     stopped. It now routes into the SHARED create-block form (pre-filled with the
     block number the script states) and attaches whatever the form confirms.
+  - **A failed block list opened a picker that looked like an empty season.**
+    The fetch's `Err` was mapped to an empty list, so the sheet showed no rows and
+    no reason — indistinguishable from "this season has no block yet". The picker
+    now opens only on a list the client holds; a failure (a `Err` or a thrown
+    read) says so and offers the retry that drops the cached failure. The script
+    block number also reaches the create form's field for real (it was accepted
+    and dropped, so the form asked back for the value its own button named).
   - **The picker read the block list with `ref.watch` from a tap handler**, which
     is unsupported outside `build`: the sheet rendered whatever the provider
     happened to hold, so an unloaded list produced an empty picker. It now awaits
@@ -43,8 +50,9 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     block still dispatched `X-Declared-Season` without `X-Active-Block`. A
     resolved block now always wins: the card renders the normal target and the
     dispatch carries the block.
-  - Four widget tests drive the actions for real (open the picker, pick a block,
-    open the create form, dispatch with a stale flag); two of them fail on the
+  - Five widget tests drive the actions for real (open the picker, pick a block,
+    open the create form and assert the prefilled number, fail the block list and
+    assert the retry, dispatch with a stale flag); two of them fail on the
     previous code.
 
 - **A block-less job's target card says "Block unknown" instead of "Block null"**

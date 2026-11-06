@@ -1547,9 +1547,28 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
     // `ref.read(...future)`, not `ref.watch`: this runs from a tap, and watching
     // outside `build` is unsupported (it asserts in debug builds, which made the
     // sheet impossible to open — review finding).
-    final fetch = await ref.read(blocksListFetchProvider(seasonId).future);
+    final List<BlockView> blocks;
+    try {
+      final fetch = await ref.read(blocksListFetchProvider(seasonId).future);
+      if (!mounted) return;
+      // CodeRabbit review of #857: a FAILED list used to open the picker EMPTY,
+      // which reads exactly like a season that has no block yet — the reviewer
+      // could not pick and was never told why. The picker opens only on a list
+      // the client actually holds; a failure says so and offers the retry.
+      final failed = fetch.match((error) => error, (_) => null);
+      if (failed != null) {
+        _surfaceBlockListFailure(seasonId, failed);
+        return;
+      }
+      blocks = fetch.getOrElse((_) => const <BlockView>[]);
+    } catch (_) {
+      // A provider that THROWS (rather than answering `Err`) is still a failed
+      // list — swallowed, it would surface as a picker with no rows.
+      if (!mounted) return;
+      _surfaceBlockListFailure(seasonId, null);
+      return;
+    }
     if (!mounted) return;
-    final blocks = fetch.match((_) => const <BlockView>[], (rows) => rows);
     final picked = await showModalBottomSheet<String>(
       context: context,
       // A season can carry many blocks: without this the sheet is bounded by the
@@ -1600,6 +1619,35 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
     await _attach(picked);
   }
 
+  /// The target season's block list could not be read: say so instead of
+  /// opening a picker that looks like an empty season, and offer the retry
+  /// that drops the cached failure and re-runs the picker
+  /// (CodeRabbit review of #857).
+  ///
+  /// A THROWN provider error is still a failed list: it reaches the same
+  /// narrative with the code-less copy, never the empty-season reading.
+  void _surfaceBlockListFailure(String seasonId, ProblemError? error) {
+    final l10n = l10nOf(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        key: const Key('ai-preview-target-pick-error'),
+        content: Text(
+          error == null
+              ? l10n.aiImportTargetBlocksUnavailable
+              : aiUploadErrorCopy(l10n, error),
+        ),
+        action: SnackBarAction(
+          key: const Key('ai-preview-target-pick-retry'),
+          label: l10n.commonRetry,
+          onPressed: () {
+            ref.invalidate(blocksListFetchProvider(seasonId));
+            unawaited(_pick());
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _create(int? number) async {
     final seasonId = widget.scope.targetSeasonId!;
     final season = await ref.read(aiImportSeasonViewProvider(seasonId).future);
@@ -1615,7 +1663,14 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
       );
       return;
     }
-    final created = await showCreateBlockSheet(context, ref, season);
+    final created = await showCreateBlockSheet(
+      context,
+      ref,
+      season,
+      // The card just offered "create block N" from the script: opening an
+      // empty field would ask back for the number it named.
+      initialNumber: number,
+    );
     if (!mounted || created == null) return;
     // The create route answers with an id only; the number the form already
     // holds is what the user typed (`CreatedBlock`), never a projection guess.

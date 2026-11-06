@@ -1666,6 +1666,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Staffel konnte nicht geladen werden. Versuch es erneut.';
 
   @override
+  String get aiImportTargetBlocksUnavailable =>
+      'Die Blockliste der Staffel konnte nicht geladen werden. Eine leere Liste heißt hier nicht, dass die Staffel keinen Block hat. Versuch es erneut.';
+
+  @override
   String get aiImportTargetUnknownSeason => 'Staffel unbekannt';
 
   @override

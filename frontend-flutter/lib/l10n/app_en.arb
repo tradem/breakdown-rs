@@ -499,6 +499,7 @@
   "aiImportTargetSwitchBlock": "Switch block",
   "aiImportTargetCreateBlock": "Create block",
   "aiImportTargetSeasonUnavailable": "The season could not be loaded. Try again.",
+  "aiImportTargetBlocksUnavailable": "The season's block list could not be loaded. An empty list here does not mean the season has no block. Try again.",
   "aiImportTargetUnknownSeason": "Season unknown",
   "aiImportTargetUnknownBlock": "Block unknown",
   "aiImportScopeMismatch": "The active block belongs to a different season than this import. Nothing was uploaded.",

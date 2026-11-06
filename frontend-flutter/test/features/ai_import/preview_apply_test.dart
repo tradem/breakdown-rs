@@ -1951,6 +1951,56 @@ void main() {
         findsOneWidget,
         reason: 'the shared create-block form — not a sheet that just closes',
       );
+      // CodeRabbit review of #857: the card offered "create block 2" from the
+      // script, so the field must arrive holding that number instead of asking
+      // back for the value the button just named. Still editable, never locked.
+      final numberField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('create-block-number')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(
+        numberField.controller?.text,
+        '2',
+        reason: 'the script\'s block number prefills the shared form',
+      );
+      expect(repo.attachCalls, isEmpty);
+      await tester.pump();
+    });
+
+    testWidgets('a failed block list is surfaced with a retry instead of an '
+        'empty picker (CodeRabbit review of #857)', (tester) async {
+      // A `Err` used to be mapped to an empty list, which opens a picker that
+      // looks exactly like a season without blocks — no rows, no reason, no
+      // way out.
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: const Left(
+          ProblemError(code: 'transport.connectionTimeout'),
+        ),
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-error')),
+        findsOneWidget,
+        reason: 'the failure is stated, not rendered as an empty season',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-retry')),
+        findsOneWidget,
+        reason: 'a failed fetch is retryable from the same place',
+      );
+      expect(
+        find.byKey(const Key('ai-preview-target-pick-create')),
+        findsNothing,
+        reason: 'the picker never opens on a list the client does not hold',
+      );
       expect(repo.attachCalls, isEmpty);
       await tester.pump();
     });

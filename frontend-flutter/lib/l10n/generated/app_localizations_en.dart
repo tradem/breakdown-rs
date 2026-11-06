@@ -1643,6 +1643,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The season could not be loaded. Try again.';
 
   @override
+  String get aiImportTargetBlocksUnavailable =>
+      'The season\'s block list could not be loaded. An empty list here does not mean the season has no block. Try again.';
+
+  @override
   String get aiImportTargetUnknownSeason => 'Season unknown';
 
   @override
