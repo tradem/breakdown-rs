@@ -160,7 +160,11 @@ the shared form and adopts the created block as the target; an unreadable season
 row is reported instead of opening a form it cannot fill; a screen without a
 season context blocks the upload with actionable copy; and the submit affordance
 stays disabled until a document is picked, re-disables after the picked file is
-cleared, and gates the same way on both kinds (issue #831). Controller tests
+cleared, and gates the same way on both kinds (issue #831). Unit tests
+(`test/unit/ai_import_target_season_view_test.dart`): `aiImportSeasonView`
+answers from the cache without a fetch, fetches only on a miss (with the asked
+id — never a guess), ignores a cached row for another season, and yields `null`
+when the row cannot be read (both Err arms). Controller tests
 (`test/features/ai_import/import_jobs_test.dart`): a target season the ambient
 block does not belong to is refused with `ai_import.scope_mismatch` and zero
 repository calls; a matching season dispatches and declares it. Repository
