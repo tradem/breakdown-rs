@@ -26,6 +26,7 @@ import 'job_cost_card.dart' show aiJobCostMetricIcon;
 import 'job_status_screen.dart';
 import 'import_state.dart' show aiJobStageCopy;
 import 'jobs_controller.dart';
+import 'script_block_scope.dart';
 
 /// The AI-import **jobs screen** (issue #547): the "what did I import"
 /// surface over the previously-unused `GET /v1/ai-import/jobs` wiring.
@@ -312,12 +313,15 @@ class _JobRow extends ConsumerWidget {
               aiJobStageCopy(l10n, job.progress!.stage),
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (job.progress!.episodesSeen?.isNotEmpty ?? false)
+            // Issue #827: the block the script states joins the episode list on
+            // the SAME one-line discovery value — only when the backend
+            // published one, so a job without a marker keeps the plain episode
+            // line. One line, one fact per clause: the list stays scannable.
+            if (job.progress!.blockNumber != null ||
+                (job.progress!.episodesSeen?.isNotEmpty ?? false))
               Text(
                 key: Key('ai-jobs-row-episodes-${job.id}'),
-                l10n.aiJobEpisodesSeenValues(
-                  job.progress!.episodesSeen!.join(', '),
-                ),
+                aiJobsRowDetectedValues(l10n, job.progress!),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
           ],

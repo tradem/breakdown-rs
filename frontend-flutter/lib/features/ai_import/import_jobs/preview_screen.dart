@@ -24,6 +24,7 @@ import 'apply_screen.dart';
 import 'continuity_gap.dart';
 import 'decision_outcome.dart';
 import 'job_status_controller.dart';
+import 'script_block_scope.dart';
 import '../naming_line.dart';
 import '../../../design/components/breakdown_app_bar.dart';
 
@@ -368,6 +369,15 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
           ),
         ),
         _payloadHeader(context, payload),
+        // Issue #827: what the SCRIPT states about its block, next to the block
+        // this import writes into. The script value comes from the payload
+        // itself (`ScriptContext.blockNumber`, persisted with the preview), so
+        // it survives the job's progress being cleared on success; the target
+        // is the job's own `target`.
+        _PreviewBlockScope(
+          jobId: widget.jobId,
+          payloadBlock: _scriptBlockOf(payload),
+        ),
         // Low-score review filter (issue #723): shown only when at least
         // one row carries a score — a filter over an all-null set would be
         // dead UI. Filtering is view-only; the apply payload is untouched.
@@ -396,6 +406,16 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
       ],
     );
   }
+
+  /// The block the SCRIPT states, read from the typed payload: only the script
+  /// variant carries one (`ScriptContext.blockNumber`). Schedule and merged
+  /// payloads have no script context — `null` is the honest answer, and the
+  /// scope line then falls back to the job's progress or to the target-only
+  /// wording.
+  int? _scriptBlockOf(Object payload) => switch (payload) {
+    AiPreviewPayloadOneOf() => payload.data.blockNumber,
+    _ => null,
+  };
 
   /// True when at least one preview row of [payload] carries a Decision
   /// Model score (issue #723) — gates the scored banner note and the
@@ -1319,4 +1339,117 @@ class _ContinuityGapCard extends ConsumerWidget {
   /// The candidate's confidence as a whole percentage (the Decision Model's
   /// calibrated probability; never re-invented, only rounded for display).
   String _percent(double confidence) => '${(confidence * 100).round()}';
+}
+
+/// The script-block scope line (issue #827): the block the SCRIPT states next
+/// to the block this import writes into.
+///
+/// Three honest renderings, never a blank field:
+///
+/// - both values known and equal → one line naming each ("Skript: Block 2 ·
+///   Importziel: Block 2");
+/// - both known and DIFFERENT → a warning banner, non-blocking at this stage.
+///   It is the strongest early hint that the document is being imported into
+///   the wrong block; the apply's cross-block guard stays authoritative;
+/// - the script states none → the import target is shown as the ASSOCIATED
+///   block with explicit wording ("aus dem Importziel übernommen"), so the
+///   reviewer still learns where the rows land.
+///
+/// The script value prefers the payload (`ScriptContext.blockNumber`, stored
+/// with the preview) over the live progress — `mark_succeeded` clears the
+/// progress, and the preview is reached exactly then. A merged/schedule payload
+/// carries no script context, so there only the target is known.
+///
+/// The job read is a third axis (CodeRabbit review): `loading` renders nothing
+/// (the line appears with the value), a `error` names only the script's block
+/// and calls the target UNKNOWN, and `data` with a null target is the one case
+/// that may say "not recorded".
+class _PreviewBlockScope extends ConsumerWidget {
+  const _PreviewBlockScope({required this.jobId, required this.payloadBlock});
+
+  final String jobId;
+  final int? payloadBlock;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final read = ref.watch(aiJobBlockScopeProvider(jobId));
+    final loaded = read.value;
+    if (loaded == null) {
+      // Three states, three honest renderings (CodeRabbit review): a job read
+      // that has not ANSWERED yet is not a job that recorded no target. While
+      // it is in flight the line renders nothing (it appears with the value),
+      // and a FAILED read names the script's block with the target explicitly
+      // UNKNOWN — never the "import target not recorded" wording, which is the
+      // `data`-with-null-target case below.
+      if (read.isLoading || payloadBlock == null) {
+        return const SizedBox.shrink();
+      }
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          l10nOf(context).aiPreviewBlockScopeUnknownTarget('$payloadBlock'),
+          key: const Key('ai-preview-block-scope'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      );
+    }
+    final scope = ScriptBlockScope(
+      scriptBlockNumber: payloadBlock ?? loaded.scriptBlockNumber,
+      targetBlockNumber: loaded.targetBlockNumber,
+    );
+    final associated = scope.associatedBlockNumber;
+    if (associated == null) return const SizedBox.shrink();
+    final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    if (scope.mismatch) {
+      return Container(
+        key: const Key('ai-preview-block-scope-mismatch'),
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: scheme.errorContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.warning_amber_outlined, color: scheme.error),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                key: const Key('ai-preview-block-scope-mismatch-text'),
+                l10n.aiPreviewBlockScopeMismatch(
+                  '${scope.scriptBlockNumber}',
+                  '${scope.targetBlockNumber}',
+                ),
+                style: TextStyle(color: scheme.onErrorContainer),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final String line;
+    if (scope.scriptStatesBlock && scope.targetBlockNumber != null) {
+      line = l10n.aiPreviewBlockScope(
+        '${scope.scriptBlockNumber}',
+        '${scope.targetBlockNumber}',
+      );
+    } else if (scope.scriptStatesBlock) {
+      line = l10n.aiPreviewBlockScopeScriptOnly('${scope.scriptBlockNumber}');
+    } else {
+      line = l10n.aiPreviewBlockScopeTargetOnly('$associated');
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Text(
+        line,
+        key: const Key('ai-preview-block-scope'),
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    );
+  }
 }

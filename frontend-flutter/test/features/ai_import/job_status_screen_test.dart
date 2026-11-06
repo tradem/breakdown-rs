@@ -84,6 +84,8 @@ AiImportJob _job(
             ..chunk = progress.chunk
             ..chunksTotal = progress.chunksTotal
             ..episodesSeen.replace(progress.episodesSeen ?? BuiltList<String>())
+            // Issue #827: the block the script states.
+            ..blockNumber = progress.blockNumber
             // Issue #762: the ETA's time anchor + byte budget.
             ..startedAt = progress.startedAt
             ..doneBytes = progress.doneBytes
@@ -391,11 +393,13 @@ void main() {
     int? chunk = 4,
     int? chunksTotal = 12,
     List<String> episodes = const ['Ep. 3', 'Ep. 4'],
+    int? blockNumber,
   }) => AiImportProgress(
     (b) => b
       ..stage = stage
       ..chunk = chunk
       ..chunksTotal = chunksTotal
+      ..blockNumber = blockNumber
       ..episodesSeen.replace(BuiltList<String>(episodes)),
   );
 
@@ -419,6 +423,41 @@ void main() {
     expect(find.byKey(const Key('ai-job-episodes-chips')), findsOneWidget);
     expect(find.text('Ep. 3'), findsOneWidget);
     expect(find.text('Ep. 4'), findsOneWidget);
+  });
+
+  testWidgets('the block the script states renders as a chip next to the '
+      'episodes (issue #827)', (tester) async {
+    await setupContainer(
+      Right(_job(JobStatus.running, progress: buildProgress(blockNumber: 2))),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-job-block-label')), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-block-chips')), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const Key('ai-job-block-chip')),
+              matching: find.byType(Text),
+            ),
+          )
+          .data,
+      'Block 2',
+    );
+  });
+
+  testWidgets('a script without a block marker renders no block chip — the '
+      'card never invents one (issue #827)', (tester) async {
+    await setupContainer(
+      Right(_job(JobStatus.running, progress: buildProgress())),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-job-block-chip')), findsNothing);
+    expect(find.byKey(const Key('ai-job-block-label')), findsNothing);
+    // The episode chips stay untouched.
+    expect(find.byKey(const Key('ai-job-episodes-chips')), findsOneWidget);
   });
 
   testWidgets('a live progress update swaps the stage copy (SSE push)', (
