@@ -134,6 +134,12 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       1589) + `apply_screen.dart`/`preview_screen.dart`: creation anchored on
       the effective target, disabled with the reason while none is attached;
       the freeze rule set at the first group resolution.
+- [x] 3.5a Review fixes on the preview card: the actions render independently of
+      the summary line (a block-less SCHEDULE preview has neither block number,
+      so the early returns hid the picker and apply could never unblock), the
+      rebuilt scope keeps `targetSeasonId`/`applied`, an attached target still
+      states the locked reason, the apply surface localizes both target codes,
+      and the block-less choice cannot enable a dispatch without a season.
 - [x] 3.6 `import_jobs/import_state.dart`: localize `ai_import.target_missing`
       and `ai_import.target_immutable` (extension-driven block naming); apply
       unavailable while no target, with a route to the target card.

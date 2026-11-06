@@ -1403,6 +1403,15 @@ class AiApplyController extends _$AiApplyController {
 String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
     switch (error.code) {
       'ai-import.forbidden' => l10n.jobWatchForbidden,
+      // Issue #829 (review of #857): the apply reached the server without an
+      // attached target block. The card disables the action when the scope
+      // RESOLVES to "no target yet", but an unreadable scope read falls through
+      // to the server on purpose (design D3: a pending fetch never denies) — so
+      // this code must explain itself instead of rendering the generic text.
+      'ai-import.target-missing' ||
+      'ai_import.target_missing' => l10n.aiImportTargetMissing,
+      'ai-import.target-immutable' ||
+      'ai_import.target_immutable' => l10n.aiImportTargetImmutable,
       'ai_import.apply_job_not_succeeded' => l10n.aiApplyErrorNotSucceeded,
       'ai_import.apply_unresolved' => l10n.aiApplyErrorUnresolved,
       'ai_import.apply_context_missing' => l10n.aiApplyErrorContextMissing,

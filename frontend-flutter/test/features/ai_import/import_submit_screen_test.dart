@@ -711,6 +711,35 @@ void main() {
       );
     });
 
+    testWidgets('the block-less choice cannot enable a dispatch without a '
+        'season (review of #857)', (tester) async {
+      // The choice lives in a provider, so it can outlive the scope that made it
+      // (sign-out, backend switch, dev data reset). A dispatch in that state
+      // could only answer `ai_import.scope_missing`, so the button must not be
+      // enabled by the flag alone.
+      // `realActiveBlock: true` is what leaves the screen WITHOUT a season
+      // context (which is the state this test is about).
+      await setupContainer(realActiveBlock: true);
+      await pumpScreen(tester);
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      // Set AFTER the kind switch: `selectKind` clears the choice by design.
+      container.read(blockLessImportProvider.notifier).set(true);
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+            .onPressed,
+        isNull,
+        reason: 'a block-less dispatch still needs the season that scopes it',
+      );
+    });
+
     testWidgets('a season without blocks offers "Block anlegen", opens the '
         'SHARED create form and adopts the created block as the target '
         '(issue #828)', (tester) async {

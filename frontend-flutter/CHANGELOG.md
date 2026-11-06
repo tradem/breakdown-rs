@@ -60,6 +60,16 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   - No new screen, no new wire field (the route and codes are PR 2/4): the
     client consumes `AiImportTarget.blockNumber`'s nullability, the target
     route, and `job.target.seasonId` for the season the block list belongs to.
+  - Review fixes (same PR): the actions no longer depend on the summary line, so
+    a block-less **schedule** preview (no script block, no target block) still
+    offers the picker instead of leaving apply disabled with no way out; the
+    rebuilt scope keeps `targetSeasonId`/`applied` (dropping them made the card
+    believe the job never had a target season); an attached target still states
+    WHY it is locked once the job was applied; the apply surface localizes the
+    two target codes (a pending/unreadable scope read falls through to the server
+    by design, so the refusal must explain itself); and the block-less choice
+    cannot enable a dispatch whose season context went away
+    (`ai_import.scope_missing`).
 
 - **The import target card can switch and create the block the import writes
   into** (`0.4.0-beta.38+130 → 0.4.0-beta.39+131`, frontend issue #828).

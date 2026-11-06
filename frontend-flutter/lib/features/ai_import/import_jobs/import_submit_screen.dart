@@ -835,8 +835,13 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
     final hasDocument = ref.watch(pendingDocumentProvider) != null;
     // Issue #829: a block-less dispatch is a resolved target too — the season
     // is mandatory and IS the authorization scope, only the block is deferred.
+    // The season is therefore part of the condition (review of #857): the
+    // block-less choice survives in a provider, and a scope that went away
+    // (sign-out, backend switch, dev data reset) must not leave a button that
+    // can only answer `ai_import.scope_missing`.
     final blockLess = ref.watch(blockLessImportProvider);
-    final hasTarget = widget.target != null || blockLess;
+    final hasTarget =
+        widget.target != null || (blockLess && widget.seasonId != null);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

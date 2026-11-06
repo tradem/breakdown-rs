@@ -1379,86 +1379,101 @@ class _PreviewBlockScope extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final read = ref.watch(aiJobBlockScopeProvider(jobId));
     final loaded = read.value;
+    final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    // Review of #857: the attach actions must NOT depend on the summary line.
+    // A block-less SCHEDULE preview has neither a script block nor a target
+    // block, so every "nothing to say" early return used to hide the only way
+    // to name a target — and the apply could never leave its disabled state.
+    //
+    // A read that has not answered yet is not a job that recorded no target:
+    // while it is in flight nothing renders (it appears with the value), and a
+    // FAILED read names the script's block with the target explicitly UNKNOWN —
+    // never the "not recorded" wording, which is the `data`-with-null-target
+    // case.
+    final ScriptBlockScope scope;
+    Widget? summary;
     if (loaded == null) {
-      // Three states, three honest renderings (CodeRabbit review): a job read
-      // that has not ANSWERED yet is not a job that recorded no target. While
-      // it is in flight the line renders nothing (it appears with the value),
-      // and a FAILED read names the script's block with the target explicitly
-      // UNKNOWN — never the "import target not recorded" wording, which is the
-      // `data`-with-null-target case below.
-      if (read.isLoading || payloadBlock == null) {
-        return const SizedBox.shrink();
-      }
-      return Padding(
+      if (read.isLoading) return const SizedBox.shrink();
+      if (payloadBlock == null) return const SizedBox.shrink();
+      scope = ScriptBlockScope(scriptBlockNumber: payloadBlock);
+      summary = Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Text(
-          l10nOf(context).aiPreviewBlockScopeUnknownTarget('$payloadBlock'),
+          l10n.aiPreviewBlockScopeUnknownTarget('$payloadBlock'),
           key: const Key('ai-preview-block-scope'),
           style: Theme.of(context).textTheme.bodySmall,
         ),
       );
-    }
-    final scope = ScriptBlockScope(
-      scriptBlockNumber: payloadBlock ?? loaded.scriptBlockNumber,
-      targetBlockNumber: loaded.targetBlockNumber,
-    );
-    final associated = scope.associatedBlockNumber;
-    if (associated == null) return const SizedBox.shrink();
-    final l10n = l10nOf(context);
-    final scheme = Theme.of(context).colorScheme;
-
-    if (scope.mismatch) {
-      return Container(
-        key: const Key('ai-preview-block-scope-mismatch'),
-        margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: scheme.errorContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.warning_amber_outlined, color: scheme.error),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                key: const Key('ai-preview-block-scope-mismatch-text'),
-                l10n.aiPreviewBlockScopeMismatch(
-                  '${scope.scriptBlockNumber}',
-                  '${scope.targetBlockNumber}',
-                ),
-                style: TextStyle(color: scheme.onErrorContainer),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final String line;
-    if (scope.scriptStatesBlock && scope.targetBlockNumber != null) {
-      line = l10n.aiPreviewBlockScope(
-        '${scope.scriptBlockNumber}',
-        '${scope.targetBlockNumber}',
-      );
-    } else if (scope.scriptStatesBlock) {
-      line = l10n.aiPreviewBlockScopeScriptOnly('${scope.scriptBlockNumber}');
     } else {
-      line = l10n.aiPreviewBlockScopeTargetOnly('$associated');
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
+      scope = ScriptBlockScope(
+        scriptBlockNumber: payloadBlock ?? loaded.scriptBlockNumber,
+        targetBlockNumber: loaded.targetBlockNumber,
+        // The rebuilt scope must keep what the source carried, or the actions
+        // below think the job never had a target season (review of #857).
+        targetSeasonId: loaded.targetSeasonId,
+        applied: loaded.applied,
+      );
+      final associated = scope.associatedBlockNumber;
+      if (scope.mismatch) {
+        summary = Container(
+          key: const Key('ai-preview-block-scope-mismatch'),
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.errorContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber_outlined, color: scheme.error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  key: const Key('ai-preview-block-scope-mismatch-text'),
+                  l10n.aiPreviewBlockScopeMismatch(
+                    '${scope.scriptBlockNumber}',
+                    '${scope.targetBlockNumber}',
+                  ),
+                  style: TextStyle(color: scheme.onErrorContainer),
+                ),
+              ),
+            ],
+          ),
+        );
+      } else if (associated != null) {
+        final String line;
+        if (scope.scriptStatesBlock && scope.targetBlockNumber != null) {
+          line = l10n.aiPreviewBlockScope(
+            '${scope.scriptBlockNumber}',
+            '${scope.targetBlockNumber}',
+          );
+        } else if (scope.scriptStatesBlock) {
+          line = l10n.aiPreviewBlockScopeScriptOnly(
+            '${scope.scriptBlockNumber}',
+          );
+        } else {
+          line = l10n.aiPreviewBlockScopeTargetOnly('$associated');
+        }
+        summary = Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Text(
             line,
             key: const Key('ai-preview-block-scope'),
             style: Theme.of(context).textTheme.bodySmall,
           ),
-        ),
+        );
+      }
+    }
+
+    // The actions render themselves (or nothing): keeping a second predicate
+    // here would duplicate the decision and could drift from it.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ?summary,
         _PreviewTargetActions(jobId: jobId, scope: scope),
       ],
     );
@@ -1594,12 +1609,14 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
   @override
   Widget build(BuildContext context) {
     final scope = widget.scope;
-    if (!scope.targetBlockUnset) return const SizedBox.shrink();
     final l10n = l10nOf(context);
     final theme = Theme.of(context);
 
     // Design D5: the freeze is a REVIEW fact, not a server one — a group that
     // already points at an existing episode would be orphaned by a target move.
+    // Review of #857: the locked reason is rendered even when the target is
+    // already attached (and next to a script/target mismatch warning), because
+    // that is exactly when a reviewer looks for a way to change it.
     final applyState = ref.watch(aiApplyControllerProvider(widget.jobId));
     final frozen = applyState.hasResolvedGroupEpisode;
     if (frozen || scope.applied) {
@@ -1612,6 +1629,9 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
         ),
       );
     }
+
+    // Nothing to decide and nothing locked: no card at all.
+    if (!scope.targetBlockUnset) return const SizedBox.shrink();
 
     if (_busy) {
       return const Padding(
