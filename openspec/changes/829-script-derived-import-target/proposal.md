@@ -95,6 +95,29 @@ number. A block-less upload therefore discloses nothing new: it answers
 `404 season.not-found` for an id that does not exist — both already derivable
 from the read model. The block path keeps today's behaviour unchanged.
 
+## Capabilities
+
+Both capabilities are **existing** (`openspec/specs/`): this change rewrites
+requirements in them, so each needs a delta spec at
+`specs/<capability>/spec.md`. No new capability is introduced — the target
+attach is a contract extension of the AI-import bounded context, not a new one.
+
+- **Modified Capabilities:**
+  - `ai-import` — ADDED: block-less upload authorized by the declared season,
+    the set-once target attach, the target-season job scope, the apply's target
+    precondition, a target snapshot without a block. MODIFIED: "Authorization
+    gates on import endpoints" (the scope becomes season-shaped and job-scoped
+    operations gate on the target season), "Push-based job progress stream via
+    Server-Sent Events (SSE)" (the authz scope in its rejection scenario, plus
+    the attach's pushed frame), "Import is an operational job queue" (the dedup
+    key excludes the target, so a duplicate never re-targets).
+  - `flutter-ai-import-workflow` — ADDED: adopt/create the target block from the
+    script, the block-less dispatch, the effective-target anchor for the
+    in-preview episode creation, the frozen target, the apply's target-missing
+    and target-immutable handling. MODIFIED: "Raw-Document Job Submission"
+    (a dispatch may send the declaration only), "Tolerant Preview Rendering and
+    Explicit Apply" (the apply requires an attached target).
+
 ## Impact
 
 - **Specs:** `ai-import` (ADDED: block-less upload authorization, set-once

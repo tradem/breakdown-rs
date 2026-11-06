@@ -135,3 +135,109 @@ silently becomes the target.
   `ai-import.target-immutable` are rendered
 - **THEN** `de` and `en` ARB catalogs both carry the copy and the ARB key-parity
   check passes
+
+## MODIFIED Requirements
+
+### Requirement: Raw-Document Job Submission
+The workflow SHALL submit schedules (CSV file, PDF file, or pasted
+plain text) and scripts (PDF) as RAW-body uploads with the matching
+declared `Content-Type` (never multipart), after the season
+membership AUTHZ-GATE (capability check before the network call,
+`// AUTHZ-GATE:` annotated). A 202 SHALL navigate to the job status
+screen; a 200 duplicate SHALL navigate with an explicit "already
+imported (duplicate)" callout; 413/415/404 SHALL render copy keyed on
+the problem `code`.
+
+The dispatch SHALL send the target it displays: a resolved block target travels
+as `X-Active-Block` (with `X-Declared-Season` when the client resolved a season),
+and a deliberately block-less dispatch SHALL send `X-Declared-Season` with **no**
+`X-Active-Block` — expressed as an explicit per-request opt-out of the ambient
+block interceptor, never as a blank or sentinel header value.
+
+#### Scenario: Schedule upload accepted
+- **WHEN** the user submits a CSV and the backend returns 202 with a
+  job id.
+- **THEN** the job status screen pushes with the returned id; the
+  submission screen surfaces in-flight progress and never blocks the
+  frame on the upload.
+
+#### Scenario: Duplicate document
+- **WHEN** the upload returns 200 (digest-duplicate).
+- **THEN** the UI navigates to the existing job with the duplicate
+  callout; nothing implies a second import was created.
+
+#### Scenario: Membership denial short-circuits
+- **WHEN** a user without the costume-dept capability submits.
+- **THEN** the client denies before the network call with the 403
+  narrative (fake-repository call count of zero in tests).
+
+#### Scenario: Block-less upload carries only the declaration
+- **WHEN** the user submits with a target season and no chosen block
+- **THEN** the request carries `X-Declared-Season` and no `X-Active-Block`, and
+  the job status screen names the target block as not yet chosen with the attach
+  action
+
+#### Scenario: A block target is never silently dropped
+- **WHEN** the screen resolves a block for the displayed target
+- **THEN** the dispatch carries exactly that block in `X-Active-Block`, and a
+  season the resolved block does not belong to is refused client-side
+  (`ai_import.scope_mismatch`, zero requests)
+
+### Requirement: Tolerant Preview Rendering and Explicit Apply
+The preview screen SHALL render the typed `AiImportPreviewResponse` / `AiPreviewPayload` (`kind`/`data`: `script` → `ScriptContext`, `schedule` → `ShootingSchedule`, `merged` → `MergedPreview`; backend issue #337, PR #357) from the generated client: recognized payloads as cards, an unknown future `kind` as an explicit degraded card with a stable code — never silently coerced data, never retyped DTOs. The apply action SHALL submit `ApplyAiImportRequest`
+with `draft_ref`s taken verbatim from the preview rows the user acted
+on, per-row decisions (Create / Update with the picked aggregate id +
+version from the read DTO / skip), the job's PERSISTED episode context
+(`episode_id` + `series_id`, stamped onto the cached job row at submit
+time — never read from the navigation stack; a missing context requires
+the explicit episode picker before the apply dispatch), and the
+`accept_as_is` + `edit_distance` values from the actual selection state. The 200 response SHALL render the outcome
+summary (`applied_count`, `created_days`, `planned_scene_shoots`).
+
+The apply SHALL additionally require the job's attached target block: while the
+job carries no target block the action SHALL be unavailable with the localized
+`ai_import.target_missing` copy and a route to the target card, and zero apply
+requests SHALL be issued. A `409 ai-import.target-immutable` from a raced attach
+SHALL be localized as `ai_import.target_immutable`, naming the block that is
+already set when the extension carries it, and SHALL re-render that target.
+
+#### Scenario: Partial preview results
+- **WHEN** the preview contains a mix of recognized rows and an
+  unknown future `kind`.
+- **THEN** recognized rows are actionable; the unknown payload renders as
+  a degraded card excluded from one-tap accept-all; apply proceeds only
+  with explicit user decisions.
+
+#### Scenario: Unknown preview kind strict-rejects
+- **WHEN** the preview carries a `kind` string the client does not know.
+- **THEN** the screen renders the standard error state keyed on the
+  stable code instead of guessing a meaning (no guessed rendering).
+
+#### Scenario: Apply with mixed decisions
+- **WHEN** the user marks one row Create, one Update (existing
+  aggregate picked), and skips the rest.
+- **THEN** the request carries exactly those mappings; the summary
+  card reflects the server's outcome counts; deep navigation to the
+  affected episode is offered.
+
+#### Scenario: Apply reconciles after an ambiguous timeout
+- **WHEN** an apply dispatch times out with an unknown outcome.
+- **THEN** the controller re-reads the job/outcome first and reconciles
+  (bounded retry, server-side idempotency per backend issue #338) —
+  never blind re-dispatch, never a duplicate import implied.
+
+#### Scenario: Empty preview
+- **WHEN** a succeeded job's preview returns 404.
+- **THEN** an explicit "no preview available" state renders with the
+  option to view the job's terminal status; no fabricated rows.
+
+#### Scenario: No target block means no apply
+- **WHEN** the reviewer reaches the apply action on a job that never received a
+  target block
+- **THEN** the action is unavailable with the localized target-missing copy and
+  a route to the target card, and zero apply requests are issued
+
+#### Scenario: A raced attach is explained in place
+- **WHEN** the server answers `409 ai-import.target-immutable` with an
+  `existing_block_id` extension
+- **THEN** the localized copy names that block and the target card re-renders it

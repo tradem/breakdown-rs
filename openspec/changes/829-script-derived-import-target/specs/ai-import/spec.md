@@ -166,3 +166,141 @@ already nullable.
 #### Scenario: A block-scoped upload is unchanged
 - **WHEN** a job was uploaded with a block
 - **THEN** its target carries all three values, as before this change
+
+## MODIFIED Requirements
+
+### Requirement: Authorization gates on import endpoints
+All AI import and configuration endpoints SHALL be gated by active costume-dept
+membership. Privileged handlers under `Authenticated`-only routes SHALL call the
+relevant `AuthorizationPolicy` method inside the handler body and return 403 on
+denial, and SHALL carry a `// AUTHZ-GATE:` comment (mirrors the photo-handler
+rule). AI config create/mutate SHALL additionally gate on
+`has_active_credential_role`.
+
+The scope SHALL be:
+
+- **at upload** — the season owning the `X-Active-Block` block when that header
+  is present, and the `X-Declared-Season` season when it is absent
+  (`authorize_season_result` with `Action::Write` on that season in both cases,
+  since the predicate is season-scoped either way);
+- **on every job-scoped operation** (status, list frame, preview, event streams,
+  apply, target attach, delete) — the job's **target season**, plus the attached
+  block as the write target whenever one is attached. No job-scoped operation
+  SHALL degrade to an ownership-only check while the job's target season is
+  known.
+
+#### Scenario: Non-member cannot import
+- **WHEN** a user without an active costume-dept role in the target block — or,
+  for a block-less upload, in the declared target season — attempts to upload a
+  script
+- **THEN** the system returns 403
+
+#### Scenario: Non-member cannot read a block-less job
+- **WHEN** the owner of a block-less job requests its preview after losing the
+  costume-dept role in the job's target season
+- **THEN** the system returns `403 ai-import.forbidden` and the preview payload
+  is never read
+
+#### Scenario: The write target still constrains the apply
+- **WHEN** an authorized caller applies a job whose attached block is A while the
+  request names an episode of block B
+- **THEN** the system returns `403 ai-import.forbidden` (the CWE-639 guard)
+
+### Requirement: Push-based job progress stream via Server-Sent Events (SSE)
+The system SHALL expose `GET /v1/ai-import/jobs/{id}/events` returning a
+`text/event-stream` (`Cache-Control: no-store, no-transform`,
+`X-Accel-Buffering: no`)
+stream of `AiImportJobResponse` frames (`event: job`). The handler SHALL
+enforce authentication and the handler-internal `// AUTHZ-GATE:`
+`authorize_ai_job` check (`Action::Read`) before opening the stream,
+returning `404 ai-import.disabled` when AI import is disabled,
+`404 ai-import.not-found` when the job does not exist, and
+`403 ai-import.forbidden` when the caller is not authorized.
+
+The first message on every initial connect and every `Last-Event-ID`
+reconnect SHALL be a full snapshot of the current `AiImportJobResponse`,
+so clients need no separate catch-up polling. Subsequent messages SHALL be
+pushed without database polling whenever an owner-fenced status or progress
+write commits, distributed through a storage-agnostic port subscription
+(`AiImportQueue::subscribe`) backed by an in-process broadcast hub
+(`AiJobEventHub`). In the PostgreSQL operating mode, fenced writes SHALL
+additionally emit `pg_notify('ai_import_job_events', ...)` in the same SQL
+statement, bridged into the local hub by a single shared `PgListener` per
+API instance; single-node test and future SQLite operating modes SHALL
+publish directly to the in-process hub without requiring `LISTEN/NOTIFY`.
+The stream SHALL emit keep-alive comment frames (~30 s) and SHALL close
+automatically immediately after emitting a frame whose `job.status` is
+terminal (`succeeded`, `dead_letter`, `payload_unavailable`).
+
+#### Scenario: Initial connect receives an immediate full snapshot
+- **WHEN** an authorized user opens `GET /v1/ai-import/jobs/{id}/events` for a
+  running job
+- **THEN** the server responds with `200 OK` and `Content-Type: text/event-stream`
+- **AND** the first SSE event (`event: job`) carries the full current
+  `AiImportJobResponse` snapshot (including `progress`) and an `id` field
+
+#### Scenario: Reconnect with Last-Event-ID converges via fresh snapshot
+- **WHEN** a client reconnects to `GET /v1/ai-import/jobs/{id}/events` with a
+  `Last-Event-ID` header after missing intermediate chunk updates
+- **THEN** the server immediately emits the latest authoritative
+  `AiImportJobResponse` snapshot as the first SSE event without requiring
+  catch-up polling
+
+#### Scenario: Fenced progress and status updates push over the stream and terminal status closes it
+- **WHEN** a worker commits `mark_progress` and then `mark_succeeded` for a
+  watched job
+- **THEN** the SSE stream pushes an `event: job` frame for the progress update
+  and an `event: job` frame with `status = "succeeded"`
+- **AND** the server closes the SSE stream immediately after the terminal
+  `succeeded` frame
+
+#### Scenario: Already-terminal job emits one snapshot and closes
+- **WHEN** an authorized user connects to `GET /v1/ai-import/jobs/{id}/events`
+  for a job that is already in `succeeded`, `dead_letter`, or
+  `payload_unavailable`
+- **THEN** the server emits the single snapshot `event: job` frame and closes
+  the stream immediately
+
+#### Scenario: Unauthorized caller is rejected before streaming
+- **WHEN** a user who does not own the job or lacks active costume-department
+  membership in the job's target season requests
+  `GET /v1/ai-import/jobs/{id}/events`
+- **THEN** the handler rejects the request with `403 ai-import.forbidden`
+  (`application/problem+json`) before opening an SSE stream
+
+#### Scenario: The attach pushes the new target to a watching client
+- **WHEN** a client is streaming a job's events and the job's target block is
+  attached by another request
+- **THEN** the stream pushes an `event: job` frame whose snapshot carries the
+  attached `block_id` and the filled `target.block_number`, with no reconnect
+  required
+
+### Requirement: Import is an operational job queue
+AI imports SHALL be modelled as operational jobs (`AiImportJob`), NOT as
+event-sourced aggregates or sagas. The queue SHALL live in a dedicated
+Postgres schema, mirror the `ReportArchivalQueue` pattern (dedup key,
+`Pending|Running|Succeeded|Failed|DeadLetter` status, idempotent enqueue),
+and emit NO business events. The job family consists of three kinds:
+`ScriptImport` (LLM), `ScheduleImport` (CSV native OR LLM) and `Merge`
+(deterministic, no LLM). The dedup key SHALL NOT include the import target, so
+an upload that names no target block and a re-upload that names one are the same
+document for duplicate detection.
+
+#### Scenario: Re-uploading the same document is deduplicated
+- **WHEN** a user uploads a document whose hash + user id matches an existing
+  job
+- **THEN** the system returns the existing job id without enqueuing a new job
+
+#### Scenario: A deduplicated re-upload does not re-target the existing job
+- **WHEN** a user re-uploads a document that already has a job, this time with a
+  block the existing job does not carry
+- **THEN** the system returns the existing job id, that job's stored target stays
+  unchanged, and the response never implies the new block was adopted — the
+  client offers the target attach for the existing job instead
+
+#### Scenario: Import failures are classified
+- **WHEN** an LLM call returns 429/5xx/timeout
+- **THEN** the job is retried in-loop via `retry_transient` and mapped to
+  `ServiceUnavailable`
+- **WHEN** an LLM call returns 4xx (bad key / bad model)
+- **THEN** the job transitions to `Failed` (permanent) without retry
