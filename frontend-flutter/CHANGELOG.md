@@ -45,12 +45,19 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     yet (projector lag is asynchronous, §4) — the number the user typed is the
     only honest label source. The season row the form pre-fills its ids from is
     resolved cache-first with a repository fetch on a miss (never a guessed id);
-    an unreadable row is reported instead of opening a form it cannot fill.
+    an unreadable row is reported instead of opening a form it cannot fill. A
+    NEWER explicit selection wins: if the scope changed while the form was open
+    (a restore, or the shell's block pill), the created block never overwrites
+    the choice the user just made.
   - **No dead end.** Every resolved target state offers an action: `ready`
     (switch + create), the inline candidate picker (the list IS the switch, plus
     create) and `empty` (create). Loading and error keep their own honest states
     (status line, code-keyed retry). The inline picker and the switch sheet share
-    one block row, so a block looks and behaves identically in both paths.
+    one block row, so a block looks and behaves identically in both paths. A
+    failed block-list fetch on a target that is already resolved (the sticky
+    scope matched, so the card renders `ready` and the resolution never reports
+    the error) states the failure with a retry instead of silently hiding the
+    switch — the block list re-fetches without leaving the screen.
   - New ARB keys `aiImportTargetSwitchBlock`, `aiImportTargetCreateBlock` and
     `aiImportTargetSeasonUnavailable` (de/en), recorded in the glossary; target
     actions carry their own test keys (`ai-import-target-switch`,

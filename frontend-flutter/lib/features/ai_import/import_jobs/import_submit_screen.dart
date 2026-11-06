@@ -303,14 +303,32 @@ class _ImportTargetCard extends ConsumerWidget {
     // Issue #828: the season's blocks as the list route publishes them — the
     // candidate source of the explicit "switch block" action. A resolved scope
     // carries only the ONE acted-on block, so switching in the `ready` arm needs
-    // this list; when it is empty (or the fetch failed) the switch is simply not
-    // offered and the create action is the way out.
-    final blocks = seasonId == null
+    // this list. The fetch reports a failure as a `Left` INSIDE the data (the
+    // repositories return `Result`, never throw), so both shapes are unwrapped:
+    // rows for the switch, the problem for the honest retry surface below.
+    final fetch = seasonId == null
         ? null
-        : ref
-              .watch(blocksListFetchProvider(seasonId!))
-              .value
-              ?.match((_) => const <BlockView>[], (rows) => rows);
+        : ref.watch(blocksListFetchProvider(seasonId!));
+    final blocks = fetch?.value?.match(
+      (_) => const <BlockView>[],
+      (rows) => rows,
+    );
+    final blockListProblem = switch (fetch) {
+      null => null,
+      AsyncError(:final error) => error,
+      AsyncData(:final value) => value.match<Object?>(
+        (err) => err,
+        (_) => null,
+      ),
+      _ => null,
+    };
+    // Review (#828): with the sticky scope already matching the season the
+    // resolution is `ready` even when the block-list fetch FAILED, so the switch
+    // action would vanish with no explanation — and leaving the screen for the
+    // block pill is the very defect this card fixes. Surface the failure with
+    // its retry; the `AsyncError` resolution arm already renders the same
+    // narrative, so this only covers the arms that are `data`.
+    final listError = resolution is AsyncError ? null : blockListProblem;
 
     final Widget body;
     // Issue #828 affordances: which of the two a state can honestly offer.
@@ -422,6 +440,23 @@ class _ImportTargetCard extends ConsumerWidget {
             ),
             const SizedBox(height: 4),
             body,
+            if (listError != null)
+              Row(
+                key: const Key('ai-import-target-list-error'),
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.blocksFetchError(blockScopeErrorCode(listError)),
+                    ),
+                  ),
+                  TextButton(
+                    key: const Key('ai-import-target-list-retry'),
+                    onPressed: () =>
+                        ref.invalidate(blocksListFetchProvider(seasonId!)),
+                    child: Text(l10n.commonRetry),
+                  ),
+                ],
+              ),
             if (canSwitch || canCreate)
               _ImportTargetActions(
                 onSwitch: canSwitch
@@ -584,12 +619,20 @@ Future<void> _switchImportBlock(
 /// acknowledges becomes the active scope — the create route answers with an id
 /// only, so the number the user typed rides back from the form ([CreatedBlock])
 /// rather than being re-derived from a projection that has not reconciled yet.
+///
+/// A NEWER explicit selection wins: the form opens after an awaited row read
+/// (cache hit is instant, a miss is a round-trip) and the scope can legitimately
+/// change while this future is in flight — a sign-in restore, or the shell's
+/// block pill. Re-pointing the target at the block this form created would then
+/// silently contradict the choice the user just made, so the scope captured at
+/// the start of the interaction must still be current.
 Future<void> _createImportBlock(
   BuildContext context,
   WidgetRef ref,
   String seasonId,
 ) async {
   final l10n = l10nOf(context);
+  final selectionBefore = ref.read(activeBlockProvider);
   final season = await ref.read(aiImportSeasonViewProvider(seasonId).future);
   if (!context.mounted) return;
   if (season == null) {
@@ -606,6 +649,7 @@ Future<void> _createImportBlock(
   }
   final created = await showCreateBlockSheet(context, ref, season);
   if (created == null) return;
+  if (ref.read(activeBlockProvider) != selectionBefore) return;
   ref
       .read(activeBlockProvider.notifier)
       .set(

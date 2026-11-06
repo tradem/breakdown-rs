@@ -82,7 +82,8 @@ a content max-width — the form never splits into panes.
 | Target switch action | Text button in the target card | **"Block wechseln"** (issue #828), rendered in the resolved state too (before, only the unset-scope picker could switch). Opens a bottom sheet listing the target season's blocks with the current one marked; the pick writes `activeBlockProvider` — the same seam as the inline picker, so the line, the declared season and `X-Active-Block` stay one value | `aiImportTargetSwitchBlock` |
 | Target create action | Text button in the target card | **"Block anlegen"** (issue #828), the way out of a season without blocks and a secondary affordance everywhere else. Opens the EXISTING create-block form (never a second form) and adopts the acknowledged block as the target — the form resolves to the created `(id, number)` pair, because the create route answers with an id only | `aiImportTargetCreateBlock` |
 | Season-unavailable report | Snackbar | The season row the create form pre-fills from could not be read: reported instead of opening a form with a guessed id | `aiImportTargetSeasonUnavailable` |
-| Target retry | Text button | The block-list fetch failed: retry re-runs the season's block fetch, error copy keyed on the problem `code` | `blocksFetchError` + `commonRetry` |
+| Target retry | Text button | The block-list fetch failed while the target itself could not resolve: retry re-runs the season's block fetch, error copy keyed on the problem `code` | `blocksFetchError` + `commonRetry` |
+| Target list-retry | Inline error line + text button | Review of #828: the block-list fetch failed but the sticky scope already matched the season, so the resolution is `ready` and the switch action would silently disappear. The failure is stated with the same code-keyed copy and a retry that re-runs the same season's fetch, so switching stays reachable without leaving the screen | `blocksFetchError` + `commonRetry` |
 | Submit action | Filled button | Dispatches the upload; **disabled** while no target is resolved (loading, pending pick, no block, fetch failure) **or no document is picked** (issue #831: the picked file lives in `pendingDocumentProvider`, so the affordance states that fact instead of letting a tap discover it — a successful submit clears the provider and disables the button again). The missing-document guard inside the dispatch stays as a backstop | `aiImportSubmit` |
 | Upload progress | Linear progress indicator | Indeterminate only — the wire carries no percentage | — |
 
@@ -114,7 +115,10 @@ dispatch refuses a target season the active block does not belong to
 (`ai_import.scope_mismatch`, zero calls). Creating a block from the card
 (issue #828) runs the shared form's own AUTHZ-GATE-backed command and then sets
 the acknowledged block as the scope, so the very next tap submits into the block
-the user just created.
+the user just created. A NEWER explicit selection wins (review of #828): the
+scope captured when the create interaction started must still be current, so a
+scope change that landed while the form was open (a restore, or the shell's
+block pill) is never overwritten by the created block.
 Submit resolves the target first (one block → adopted automatically, several →
 picker, none → blocked), then runs the AUTHZ-GATE, then dispatches the upload
 with the declared season (`X-Declared-Season`). If the active block belongs to a
@@ -157,7 +161,11 @@ line and adopts the scope; the resolved state offers `Block wechseln` and
 switching in the sheet re-targets the line **and** the dispatched scope (the
 single seam, issue #828); a season without blocks offers `Block anlegen`, opens
 the shared form and adopts the created block as the target; an unreadable season
-row is reported instead of opening a form it cannot fill; a screen without a
+row is reported instead of opening a form it cannot fill; a failed block-list
+fetch on a RESOLVED target states the failure with a retry that brings the
+switch back (and the recovered list is usable); a newer scope selection taken
+while the create form is open is not clobbered by the created block; a screen
+without a
 season context blocks the upload with actionable copy; and the submit affordance
 stays disabled until a document is picked, re-disables after the picked file is
 cleared, and gates the same way on both kinds (issue #831). Unit tests

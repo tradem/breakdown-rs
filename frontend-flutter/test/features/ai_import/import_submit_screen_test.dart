@@ -64,6 +64,10 @@ const devAuthConfig = AppConfig(
   defaultProjectId: 'series-1',
 );
 
+/// A block-list fetch failure as the transport layer reports it (review of
+/// #828: the resolved target must state it instead of hiding the switch).
+const _networkDown = ProblemError(code: 'transport.connectionError');
+
 AiImportJob _job(String id, JobStatus status) => AiImportJob(
   (b) => b
     ..id = id
@@ -207,6 +211,9 @@ void main() {
     String? seasonId,
     String? seasonNumber = '2',
     Result<List<BlockView>>? blocks,
+    // Review (#828): a scripted SEQUENCE for the block-list fetch, so a failure
+    // followed by a successful retry is expressible.
+    Future<Result<List<BlockView>>> Function()? blocksFetch,
     // Issue #828 knobs: the create action needs the season ROW (the shared
     // create-block form takes a `SeasonView`) and a scriptable create ack.
     SeasonView? season,
@@ -230,7 +237,10 @@ void main() {
         if (seasonId != null && seasonNumber != null)
           aiImportSeasonNumberProvider(seasonId)
               .overrideWith((ref) async => seasonNumber),
-        if (seasonId != null && blocks != null)
+        if (seasonId != null && blocksFetch != null)
+          blocksListFetchProvider(seasonId)
+              .overrideWith((ref) => blocksFetch()),
+        if (seasonId != null && blocks != null && blocksFetch == null)
           blocksListFetchProvider(seasonId).overrideWith((ref) async => blocks),
         // Issue #828: the season row the create action pre-fills its command
         // from. Overridden for EVERY season-scoped case (default `null`), so no
@@ -699,6 +709,104 @@ void main() {
         reason: 'no form with a guessed id',
       );
       await tester.pump();
+    });
+
+    testWidgets('a failed block-list fetch surfaces on a RESOLVED target with '
+        'a retry that brings the switch back (review of #828)', (tester) async {
+      // The sticky scope matches the season, so the resolution is `ready` even
+      // though the list fetch fails: without an explicit narrative the switch
+      // action would just disappear.
+      var calls = 0;
+      await setupContainer(
+        seasonId: 'season-1',
+        blocksFetch: () async {
+          calls++;
+          if (calls == 1) return const Left(_networkDown);
+          return Right([
+            blockView('block-1', seasonId: 'season-1', number: 3),
+            blockView('block-9', seasonId: 'season-1', number: 9),
+          ]);
+        },
+      );
+      await pumpScreen(tester);
+
+      // The target is still resolved and named …
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        'Season 2 · Block 3',
+      );
+      // … the switch is honestly unavailable …
+      expect(find.byKey(const Key('ai-import-target-switch')), findsNothing);
+      // … and the failure is stated with a retry instead of vanishing.
+      expect(
+        find.byKey(const Key('ai-import-target-list-error')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('ai-import-target-create')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('ai-import-target-list-retry')));
+      await tester.pumpAndSettle();
+
+      expect(calls, 2, reason: 'the retry re-runs the same season\'s fetch');
+      expect(
+        find.byKey(const Key('ai-import-target-list-error')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('ai-import-target-switch')), findsOneWidget);
+
+      // The recovered list is usable without leaving the screen.
+      await tester.tap(find.byKey(const Key('ai-import-target-switch')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('ai-import-target-switch-block-9')),
+      );
+      await tester.pumpAndSettle();
+      expect(container.read(activeBlockProvider)?.blockId, 'block-9');
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        'Season 2 · Block 9',
+      );
+    });
+
+    testWidgets('a newer block selection taken while the create form is open '
+        'is not clobbered by the created block (review of #828)', (
+      tester,
+    ) async {
+      await setupContainer(
+        realActiveBlock: true,
+        seasonId: 'season-b',
+        blocks: const Right([]),
+        season: seasonView('season-b'),
+        blockCreate: true,
+      );
+      await pumpScreen(tester, seasonId: 'season-b');
+
+      await tester.tap(find.byKey(const Key('ai-import-target-create')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('create-block-number')), findsOneWidget);
+
+      // The scope can change while this future is in flight (a restore, or the
+      // shell's block pill). The newer explicit choice must win.
+      container
+          .read(activeBlockProvider.notifier)
+          .set(seasonId: 'season-b', blockId: 'block-newer', blockNumber: 8);
+      await tester.pump();
+
+      await tester.enterText(find.byKey(const Key('create-block-number')), '4');
+      await tester.tap(find.byKey(const Key('create-block-submit')));
+      await tester.pumpAndSettle();
+
+      expect(blockRepo.createCalls, 1, reason: 'the block WAS created');
+      expect(
+        container.read(activeBlockProvider)?.blockId,
+        'block-newer',
+        reason: 'the created block must not overwrite a newer selection',
+      );
+      expect(container.read(activeBlockProvider)?.blockNumber, 8);
     });
 
     testWidgets('no season context at all renders the select-a-season state '
