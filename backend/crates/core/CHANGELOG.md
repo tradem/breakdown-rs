@@ -16,6 +16,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.61.0] - Unreleased
+
+### Added — the blocking apply run's age on the refusal (issue #805)
+
+- `ai-import.apply-in-flight` declares two S1 extensions: `apply_run_age_seconds`
+  (how long the owning run had been silent, SERVER-measured at the refusal) and
+  `stale_after_seconds` (the server's own `ApplyProgress::STALE_AFTER` window).
+  They are what turns "something is in flight" into a decision: `age >= window`
+  is the server's own "abandoned" verdict, and below it the run is live. The age
+  is deliberately not an absolute timestamp — a client clock that is minutes off
+  would classify a live run as dead — and it is absent when the owner published
+  nothing yet (no age exists; `0` would claim "just published").
+  No new code, no count change (112).
+
 ## [0.60.0] - Unreleased
 
 ### Added — the set-once target attach (issue #829)

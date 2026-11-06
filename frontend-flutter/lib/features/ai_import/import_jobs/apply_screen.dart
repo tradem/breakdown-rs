@@ -21,6 +21,8 @@ import '../../../auth/auth_providers.dart';
 import '../../../core/problem_error.dart';
 import '../../../data/ai_import_providers.dart';
 import '../../../data/cache/hierarchy_cache_dao.dart';
+import '../../../data/cache/clock.dart';
+import '../../../data/cache/relative_time.dart';
 import '../../../design/components/ai_score_stars.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
@@ -407,6 +409,73 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     }
   }
 
+  /// Ticks once a second while a refused dispatch names a blocking run
+  /// (issue #805), so the notice's age and countdown advance — and the takeover
+  /// appears — without asking the server again (it would answer the same
+  /// refusal until its own window passed).
+  Timer? _inFlightTicker;
+
+  void _syncInFlightTicker({required bool needed}) {
+    if (needed && _inFlightTicker == null) {
+      _inFlightTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    if (!needed && _inFlightTicker != null) {
+      _inFlightTicker?.cancel();
+      _inFlightTicker = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _inFlightTicker?.cancel();
+    _inFlightTicker = null;
+    super.dispose();
+  }
+
+  /// Dispatch the apply. The submit button and the in-flight TAKEOVER (issue
+  /// #805) both go through here: the takeover is the same idempotent dispatch,
+  /// only its precondition differs (the server's staleness window has passed).
+  ///
+  /// [confirmBeforeApply] is skipped for the takeover: the notice itself is the
+  /// confirmation (it states that the blocking run is abandoned), so a second
+  /// "apply again?" dialog would only repeat the question the user just
+  /// answered.
+  Future<void> _dispatchApply({
+    required bool knownApplied,
+    required bool confirmBeforeApply,
+  }) async {
+    if (_applying) return;
+    if (confirmBeforeApply &&
+        !await _confirmReapply(knownApplied: knownApplied)) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _applying = true);
+    try {
+      final applied = await ref
+          .read(aiApplyControllerProvider(widget.jobId).notifier)
+          .apply();
+      // The result is consumed explicitly: an `Err` renders the code-keyed
+      // narrative (controller state), a `Ok` opens the imported material and
+      // carries the report along (issue #759).
+      final response = applied.match<ApplyAiImportResponse?>(
+        (_) => null,
+        (value) => value,
+      );
+      if (response == null) return;
+      // The apply outlives the review screen: a pop while the POST was in flight
+      // must not route a disposed section into the imported material (the
+      // navigation reads `ref`, which throws after dispose).
+      if (!mounted) return;
+      await _openImportedEpisode(response);
+    } finally {
+      if (mounted) setState(() => _applying = false);
+    }
+  }
+
   /// Ask before a **second** apply of an already-imported preview (issue #800).
   ///
   /// True runs the apply. The dialog names what the second run does — re-apply
@@ -486,6 +555,20 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
         : (state.context?.blockId.isNotEmpty ?? false)
         ? state.context!.blockId
         : null;
+
+    // Issue #805: a refusal that NAMED its blocking run is a live decision, not
+    // an error. The card ticks (see [_syncInFlightTicker]) so the age grows and
+    // the takeover appears on its own once the server's window has passed.
+    final inFlight = state.applyInFlight;
+    _syncInFlightTicker(needed: inFlight != null);
+    final now = ref.watch(clockProvider).now();
+    // While the blocking run is still inside the server's window, an apply
+    // cannot succeed (the server would refuse it again) — the submit button
+    // says so by being disabled instead of producing that refusal. Only a KNOWN
+    // age supports that claim: a run that published nothing blocks nothing the
+    // client can prove, so it must not lock the action (issue #805 review).
+    final blockedByLiveRun =
+        inFlight != null && inFlight.age != null && !inFlight.isStaleAt(now);
 
     // The explicit episode pick over the season's episodes from the read DTOs
     // — ids never guessed.
@@ -911,40 +994,44 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
+              // Issue #805: the blocking run, named. Live → what it is and
+              // when a takeover becomes possible; abandoned → the explicit
+              // takeover (never an automatic steal); unaged → the server decides.
+              if (inFlight != null) ...[
+                // Only mounted while a notice can settle: the run's stream tells
+                // us the moment the block is gone, so the countdown is a bound
+                // and not the only truth (issue #805 review).
+                _ApplyInFlightSettledWatcher(
+                  jobId: jobId,
+                  onRunning: controller.refreshApplyInFlight,
+                  onSettled: controller.dismissApplyInFlight,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ApplyInFlightNotice(
+                    inFlight: inFlight,
+                    now: now,
+                    // The takeover is the normal apply dispatch, so it obeys the
+                    // normal preconditions: a revoked review acknowledgement (or
+                    // an unresolved target) must disable it, not be bypassed.
+                    onTakeover: (_applying || !canApply)
+                        ? null
+                        : () => _dispatchApply(
+                            knownApplied: knownApplied,
+                            // The notice IS the confirmation: it states that the
+                            // blocking run is abandoned.
+                            confirmBeforeApply: false,
+                          ),
+                  ),
+                ),
+              ],
               FilledButton(
                 key: const Key('ai-apply-submit'),
-                onPressed: (canApply && !_applying)
-                    ? () async {
-                        // Issue #800: a preview that was already imported may be
-                        // applied again — that is the recovery path for a run
-                        // the server interrupted (the apply is idempotent,
-                        // reserve-before-create) — but never silently: the
-                        // second run asks first, and the button says which one
-                        // it is.
-                        if (confirmBeforeApply &&
-                            !await _confirmReapply(
-                              knownApplied: knownApplied,
-                            )) {
-                          return;
-                        }
-                        setState(() => _applying = true);
-                        try {
-                          final applied = await controller.apply();
-                          // The result is consumed explicitly: an `Err` renders
-                          // the code-keyed narrative (controller state), a `Ok`
-                          // opens the imported material and carries the report
-                          // along (issue #759).
-                          final response = applied
-                              .match<ApplyAiImportResponse?>(
-                                (_) => null,
-                                (value) => value,
-                              );
-                          if (response == null) return;
-                          await _openImportedEpisode(response);
-                        } finally {
-                          if (mounted) setState(() => _applying = false);
-                        }
-                      }
+                onPressed: (canApply && !_applying && !blockedByLiveRun)
+                    ? () => _dispatchApply(
+                        knownApplied: knownApplied,
+                        confirmBeforeApply: confirmBeforeApply,
+                      )
                     : null,
                 child: _applying
                     ? const SizedBox(
@@ -1365,6 +1452,182 @@ Future<List<EpisodeView>> aiEpisodePickerRows(Ref ref, String jobId) async {
     // Empty cache → surface the failure code (the sheet's error branch).
     throw err;
   }, (rows) async => rows);
+}
+
+/// The refused apply whose blocking run the server NAMED (issue #805).
+///
+/// Three states, all decided by the server's own facts, never by a client-side
+/// guess:
+///
+/// * **live** (`age <= staleAfter`) — another run still owns the progress slot
+///   and its last publication is inside the server's window. The copy names that
+///   silence and when a takeover becomes possible; the submit button stays
+///   disabled because a second apply would only be refused again.
+/// * **abandoned** (`age > staleAfter`) — by the server's own predicate (strict:
+///   `payload.updated_at < now - STALE_AFTER`) that payload is abandoned and the
+///   next claim steals the slot. The card offers the **explicit** takeover
+///   instead of stealing on its own: the blocking run may be this person's other
+///   device, and the single-flight contract forbids a blind re-dispatch.
+/// * **unaged** (`age == null`) — the owner claimed the slot but published no
+///   progress, so no age exists to compare. The card claims neither liveness nor
+///   abandonment: it says exactly that and leaves the action available, because
+///   the server's claim decides anyway. Without this state a server that omits
+///   the age would leave the apply disabled forever — the pre-#805 dead end.
+///
+/// Never an error card: nothing failed. The pre-#805 defect was exactly that —
+/// a blocking narrative with no way out except restarting the app.
+class _ApplyInFlightNotice extends StatelessWidget {
+  const _ApplyInFlightNotice({
+    required this.inFlight,
+    required this.now,
+    required this.onTakeover,
+  });
+
+  final AiApplyInFlight inFlight;
+  final DateTime now;
+
+  /// Dispatches the takeover; `null` while it must not be pressed (a dispatch is
+  /// already out, or the apply preconditions are not met any more — e.g. the
+  /// reviewer revoked the acknowledgement).
+  final VoidCallback? onTakeover;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final theme = Theme.of(context);
+    final age = inFlight.age;
+    final stale = inFlight.isStaleAt(now);
+    final unaged = age == null;
+    // Whole minutes until the server would let a takeover through, rounded UP
+    // from MICROSECONDS (a sub-second remainder would otherwise floor to zero
+    // and promise "0 min" while the run is still live) and never below one.
+    final remaining = inFlight.staleAfter - inFlight.ageAt(now);
+    final remainingMicros = remaining.inMicroseconds;
+    final remainingMinutes = remainingMicros <= 0
+        ? 1
+        : (remainingMicros + Duration.microsecondsPerMinute - 1) ~/
+              Duration.microsecondsPerMinute;
+    return Column(
+      key: Key(
+        stale
+            ? 'ai-apply-in-flight-stale'
+            : unaged
+            ? 'ai-apply-in-flight-unaged'
+            : 'ai-apply-in-flight-live',
+      ),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          key: const Key('ai-apply-in-flight-copy'),
+          unaged
+              // No age to name: the copy states the gap instead of inventing a
+              // last publication that never happened.
+              ? l10n.aiApplyInFlightNoAge
+              : stale
+              ? l10n.aiApplyInFlightStale(_ageLabel(l10n, inFlight.ageAt(now)))
+              : l10n.aiApplyInFlightLive(_ageLabel(l10n, inFlight.ageAt(now))),
+          style: theme.textTheme.bodySmall,
+        ),
+        if (!stale) ...[
+          const SizedBox(height: 2),
+          Text(
+            key: const Key('ai-apply-in-flight-countdown'),
+            unaged
+                ? l10n.aiApplyInFlightNoAgeHint
+                : l10n.aiApplyInFlightTakeoverIn(remainingMinutes),
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+        if (stale || unaged) ...[
+          if (stale) ...[
+            const SizedBox(height: 2),
+            Text(
+              key: const Key('ai-apply-in-flight-hint'),
+              l10n.aiApplyInFlightStaleHint,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+          TextButton(
+            key: const Key('ai-apply-in-flight-takeover'),
+            onPressed: onTakeover,
+            child: Text(
+              unaged
+                  ? l10n.aiApplyInFlightCheckAgain
+                  : l10n.aiApplyInFlightTakeover,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// The age copy comes from the shared relative-time formatter (the same one
+  /// the seasons card uses), so the wording lives in the ARB catalogs and every
+  /// locale renders its own units.
+  String _ageLabel(AppLocalizations l10n, Duration age) => relativeTimeSince(
+    now.subtract(age),
+    clock: Clock.fixed(now),
+    copy: RelativeTimeCopy(
+      justNow: l10n.seasonsStaleJustNow,
+      minutes: (count) => l10n.seasonsStaleMinutes('$count'),
+      hours: (count) => l10n.seasonsStaleHours('$count'),
+      days: (count) => l10n.seasonsStaleDays('$count'),
+    ),
+  );
+}
+
+/// Keeps a stored blocked-run notice honest while it outlives the `POST` that
+/// produced it (issue #805 review).
+///
+/// The notice's own countdown is a bound, not the truth, so it follows the same
+/// dedicated apply stream the progress card uses:
+///
+/// * a **progress** frame (`AiApplyRunRunning`) proves the owning run is still
+///   publishing, so the notice re-anchors its local silence to that frame. A run
+///   that keeps working therefore can never be labelled abandoned by a countdown
+///   that was started minutes ago — the reported defect. The re-anchor uses the
+///   frame ARRIVAL (not the payload's server timestamp), so no clock comparison
+///   between two machines is involved.
+/// * the run's **end** frame (`AiApplyRunFinished`) clears the notice: the slot
+///   is free, the apply action must be released instead of waiting out a
+///   countdown for a run that no longer exists.
+///
+/// `AiApplyRunIdle` deliberately does NOTHING: the server documents
+/// `apply_progress: None` as "no progress published", never as "idle"
+/// (issue #762), so a subscribed-but-empty snapshot proves nothing about the
+/// slot. Clearing on it would invent a free run.
+///
+/// Rendered only while a notice exists, so the SSE subscription exists exactly
+/// as long as it can change something.
+class _ApplyInFlightSettledWatcher extends ConsumerWidget {
+  const _ApplyInFlightSettledWatcher({
+    required this.jobId,
+    required this.onRunning,
+    required this.onSettled,
+  });
+
+  final String jobId;
+
+  /// The owning run published again: re-anchor the notice's local silence.
+  final VoidCallback onRunning;
+
+  /// The owning run ended: the block is gone.
+  final VoidCallback onSettled;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(aiApplyRunProvider(jobId), (previous, next) {
+      switch (next.value) {
+        case AiApplyRunRunning():
+          onRunning();
+        case AiApplyRunFinished():
+          onSettled();
+        case _:
+          break;
+      }
+    });
+    return const SizedBox.shrink();
+  }
 }
 
 /// Live progress of the apply run in flight (issue #762).

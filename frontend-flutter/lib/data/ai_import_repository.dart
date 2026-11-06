@@ -151,6 +151,36 @@ class ApplyUnresolved extends ApplyReconciliation {
   final ProblemError error;
 }
 
+/// The dispatch was refused because **another run of this job** owns the
+/// progress slot (`409 ai-import.apply-in-flight`, issues #800/#805).
+///
+/// Not a failure and not an unknown outcome: the block is *named*, so the UI
+/// can say which one it is instead of rendering the generic unresolved card.
+/// [age] is how long the owning run had been silent when the server refused
+/// (the S1 `apply_run_age_seconds` extension; `null` when that run published
+/// nothing yet), and [staleAfter] is the server's own window
+/// (`stale_after_seconds`) — the client never mirrors it.
+///
+/// `age >= staleAfter` means the run is **dead by the server's predicate**:
+/// the next apply steals the slot. That is the user's call, so this outcome
+/// never re-dispatches by itself.
+class ApplyInFlight extends ApplyReconciliation {
+  const ApplyInFlight(
+    this.error, {
+    required this.age,
+    required this.staleAfter,
+  });
+
+  final ProblemError error;
+
+  /// The owning run's silence at the moment of the refusal; `null` when it
+  /// has published no progress yet (nothing to age — never invented as zero).
+  final Duration? age;
+
+  /// The window after which the server lets the next claim steal the slot.
+  final Duration staleAfter;
+}
+
 /// Read/write repository for the AI-import **workflow** boundary
 /// (`flutter-ai-import-workflow` tasks 1.2/1.4).
 ///
@@ -829,17 +859,46 @@ class AiImportRepository extends BaseRepository {
   /// first, **before** that attempt is dispatched: a retry is a NEW
   /// server-side run (the first one's stream has already seen its end
   /// frame), so a live progress view has to re-open its watch to follow it.
+  ///
+  /// [clock] measures the LOCAL wait after a refusal that named its blocking
+  /// run (issue #805 review): the bounded budget may not run past the server's
+  /// own window, or a retry would steal an abandoned claim without the user
+  /// asking for it. Injected so the bound is testable without waiting.
   Future<ApplyReconciliation> applyWithReconciliation(
     String jobId,
     ApplyAiImportRequest request, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = kMaxApplyAttempts,
     void Function(int attempt)? onAttempt,
+    Clock clock = Clock.system,
   }) async {
     ProblemError? lastError;
+    // The last refusal that named its owning run (issue #805). A budget that
+    // ends on one of these is NOT an unknown outcome: the client knows exactly
+    // what blocks it, and who can clear it.
+    ApplyInFlight? inFlight;
+    // When that refusal was received: the local wait is measured from here, so
+    // the loop can stop BEFORE a retry would cross the server's window.
+    DateTime? refusedAt;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt > 0) {
         await scheduler.tick(attempt - 1);
+        // The WAIT itself can cross the server's window (issue #805 review), so
+        // this is checked after the tick and immediately before the dispatch it
+        // precedes: waiting long enough is not consent, and a dispatch past the
+        // window would be accepted and steal the abandoned claim. `onAttempt` is
+        // deliberately not called for a dispatch that never happens (it re-arms
+        // the live progress stream). A refusal whose owner published nothing
+        // carries no age to age, so this bound cannot apply to it (see
+        // [ApplyInFlightWindow.age]); that state has its own escape instead.
+        final blocked = inFlight;
+        final knownAge = blocked?.age;
+        if (blocked != null &&
+            refusedAt != null &&
+            knownAge != null &&
+            knownAge + clock.now().difference(refusedAt) > blocked.staleAfter) {
+          return blocked;
+        }
         onAttempt?.call(attempt);
       }
       final res = await apply(jobId, request);
@@ -851,10 +910,37 @@ class AiImportRepository extends BaseRepository {
         // server refused this dispatch with `409 ai-import.apply-in-flight`.
         // That is not a failure — it is this client's own earlier POST still
         // running (the ambiguous-timeout retry legitimately lands here) or a
-        // second device. Keep consuming the bounded budget instead of surfacing
-        // the blocking apply-error card; the live run's stream carries the
-        // progress, and once it ends the next attempt goes through.
+        // second device.
+        final window = applyInFlightWindow(error);
+        final age = window?.age;
+        if (window != null && age != null && age > window.staleAfter) {
+          // Issue #805: the owning run has been silent for longer than the
+          // server's own staleness window, so the server itself considers the
+          // payload abandoned and the next claim would steal the slot. Stop
+          // consuming the budget: the takeover is a USER decision (the run may
+          // be this person's other device, and a blind automatic steal is
+          // exactly what the single-flight contract forbids), so the caller
+          // gets the classification and offers the explicit re-run.
+          //
+          // Strictly `>`: the server's predicate is `payload.updated_at <
+          // now - STALE_AFTER`, so at exactly the window the claim still refuses
+          // and the run is live. `>=` would claim an abandonment the server does
+          // not act on.
+          return ApplyInFlight(error, age: age, staleAfter: window.staleAfter);
+        }
+        // A live run (or one with nothing published to age) keeps the bounded
+        // budget: once it ends, the next claim goes through and this client's
+        // own apply lands. The refusal is remembered so a budget that ends
+        // here is reported as "a run is live", never as "outcome unknown".
         lastError = error;
+        if (window != null) {
+          inFlight = ApplyInFlight(
+            error,
+            age: window.age,
+            staleAfter: window.staleAfter,
+          );
+          refusedAt = clock.now();
+        }
         continue;
       }
       if (!isAmbiguousTimeout(error)) {
@@ -863,10 +949,18 @@ class AiImportRepository extends BaseRepository {
         return ApplyBlocked(error);
       }
       lastError = error;
+      // Issue #805 review: an ambiguous timeout makes the outcome UNKNOWN again,
+      // so the earlier refusal no longer describes what blocks this job — a
+      // resolved run may have finished, or the dispatch may even have landed.
+      // Dropping it keeps the final report honest: a budget that ends on an
+      // unknown outcome is `ApplyUnresolved`, not a live-run card with a stale
+      // takeover action.
+      inFlight = null;
+      refusedAt = null;
       // Re-read the job reality BEFORE any re-dispatch. A failed re-read
       // is itself an unknown outcome — keep consuming the budget; only a
       // successful read with a non-succeeded status is a definitive block.
-      final job = await getJobAndCache(jobId);
+      final job = await getJobAndCache(jobId, clock: clock);
       final read = job.getRight().toNullable();
       if (read == null) continue;
       if (read.status != JobStatus.succeeded) {
@@ -879,9 +973,10 @@ class AiImportRepository extends BaseRepository {
         );
       }
     }
-    return ApplyUnresolved(
-      lastError ?? const ProblemError(code: 'ai_import.apply_unresolved'),
-    );
+    return inFlight ??
+        ApplyUnresolved(
+          lastError ?? const ProblemError(code: 'ai_import.apply_unresolved'),
+        );
   }
 }
 
@@ -913,3 +1008,40 @@ bool isAmbiguousTimeout(ProblemError error) => switch (error.code) {
 /// apply-error narrative.
 bool isApplyInFlight(ProblemError error) =>
     error.code == 'ai-import.apply-in-flight';
+
+/// The facts a `409 ai-import.apply-in-flight` carries about the run that
+/// blocks the dispatch (issue #805, S1 extensions of the registered code).
+class ApplyInFlightWindow {
+  const ApplyInFlightWindow({required this.age, required this.staleAfter});
+
+  /// How long the owning run had been silent when the server refused, as the
+  /// SERVER measured it. `null` when that run has published no progress yet —
+  /// no age exists, and inventing one would claim a liveness the server did
+  /// not report.
+  final Duration? age;
+
+  /// The server's own staleness window (`ApplyProgress::STALE_AFTER`): after
+  /// this much silence the server's claim lets the next apply steal the slot.
+  final Duration staleAfter;
+}
+
+/// Parses [ApplyInFlightWindow] from a refusal, or `null` when [error] is a
+/// different code **or** a pre-#805 server that names no window.
+///
+/// A server that sends no window gets the pre-#805 behaviour from the caller
+/// (bounded waiting, generic unresolved copy): the client never guesses a
+/// policy the server did not state, and it never mirrors the constant.
+ApplyInFlightWindow? applyInFlightWindow(ProblemError error) {
+  if (!isApplyInFlight(error)) return null;
+  final extensions = error.extensions;
+  if (extensions == null) return null;
+  final seconds = extensions['stale_after_seconds'];
+  if (seconds is! num || seconds <= 0) return null;
+  final ageSeconds = extensions['apply_run_age_seconds'];
+  return ApplyInFlightWindow(
+    age: ageSeconds is num && ageSeconds >= 0
+        ? Duration(seconds: ageSeconds.toInt())
+        : null,
+    staleAfter: Duration(seconds: seconds.toInt()),
+  );
+}

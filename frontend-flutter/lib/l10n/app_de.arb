@@ -428,6 +428,53 @@
   "aiApplyErrorGeneric": "Das Anwenden ist fehlgeschlagen ({code}).",
   "aiApplyErrorApplyBlocked": "Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.",
   "aiApplyErrorApplyInFlight": "Für diese Vorschau läuft bereits eine Übernahme. Verfolge deren Fortschritt – ein zweiter Start ist erst danach möglich.",
+  "aiApplyInFlightLive": "Für diese Vorschau übernimmt gerade ein Lauf (letzte Meldung {age}).",
+  "@aiApplyInFlightLive": {
+    "description": "Issue #805: the server named the live apply run that blocks this dispatch. `age` is the RELATIVE time since that run last published (e.g. 'vor 3 min'), never a client-side guess.",
+    "placeholders": {
+      "age": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyInFlightTakeoverIn": "Übernehmen möglich in {minutes, plural, =1{1 min} other{{minutes} min}}",
+  "@aiApplyInFlightTakeoverIn": {
+    "description": "Issue #805: countdown until the server's staleness window has passed and the abandoned run may be taken over.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "aiApplyInFlightStale": "Der Lauf für diese Vorschau meldet keinen Fortschritt mehr (letzte Meldung {age}) und gilt als abgebrochen.",
+  "@aiApplyInFlightStale": {
+    "description": "Issue #805: the blocking run published nothing for longer than the server's staleness window, so the server considers it abandoned.",
+    "placeholders": {
+      "age": {
+        "type": "String"
+      }
+    }
+  },
+  "aiApplyInFlightStaleHint": "Du kannst die Übernahme jetzt erneut starten – bereits übernommene Zeilen werden übersprungen.",
+  "@aiApplyInFlightStaleHint": {
+    "description": "Issue #805: the takeover re-runs the idempotent apply, so already-applied rows are skipped instead of imported twice."
+  },
+  "aiApplyInFlightNoAge": "Für diese Vorschau hält ein Lauf den Platz, ohne Fortschritt zu melden.",
+  "@aiApplyInFlightNoAge": {
+    "description": "Issue #805: the blocking run published no progress at all, so no age exists. The copy must claim neither liveness nor abandonment."
+  },
+  "aiApplyInFlightNoAgeHint": "Ob er noch läuft, lässt sich daraus nicht ableiten – ein neuer Start entscheidet der Server.",
+  "@aiApplyInFlightNoAgeHint": {
+    "description": "Issue #805: the honest follow-up for an unaged refusal — no countdown, no staleness claim; the server's claim is authoritative."
+  },
+  "aiApplyInFlightCheckAgain": "Erneut starten",
+  "@aiApplyInFlightCheckAgain": {
+    "description": "Issue #805: the action offered when the blocking run's age is unknown — a re-dispatch the server accepts or refuses, since neither side can classify the run."
+  },
+  "aiApplyInFlightTakeover": "Jetzt übernehmen",
+  "@aiApplyInFlightTakeover": {
+    "description": "Issue #805: the explicit takeover action for an abandoned apply run."
+  },
   "aiApplyErrorMissingMapping": "Eine Skriptzeile hat keine Prüfentscheidung – lade die Vorschau neu und übernimm erneut.",
   "aiApplyErrorMissingEpisodeGroup": "Ein Episoden-Ziel passt nicht mehr zur Vorschau – lade die Vorschau neu und übernimm erneut.",
   "aiApplyErrorUnknownContinuityCandidate": "Die Vorschau bietet diese Garderoben-Wahl nicht mehr an – lade die Vorschau neu und übernimm erneut.",

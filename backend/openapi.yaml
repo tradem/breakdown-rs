@@ -11258,7 +11258,9 @@ x-code-registry:
   title: AI import apply maps an episode group the preview does not carry
   type: https://docs.breakdown.example/problems/ai-import.apply-missing-episode-group
 - code: ai-import.apply-in-flight
-  extensions: []
+  extensions:
+  - apply_run_age_seconds
+  - stale_after_seconds
   status: 409
   title: AI import apply is already running for this job
   type: https://docs.breakdown.example/problems/ai-import.apply-in-flight

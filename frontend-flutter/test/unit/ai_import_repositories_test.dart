@@ -31,9 +31,11 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:one_of/one_of.dart';
 
 import 'package:built_collection/built_collection.dart' show BuiltList;
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/data/ai_config_repository.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 
@@ -304,6 +306,22 @@ class _FakeScheduler extends ReconciliationScheduler {
 
   @override
   Future<void> tick(int attempt) async => ticks++;
+}
+
+/// A scheduler that also runs [onTick], so a test can advance an injected clock
+/// by exactly the backoff it models (issue #805 review: the WAIT is what can
+/// cross the server's window).
+class _TickActionScheduler extends ReconciliationScheduler {
+  _TickActionScheduler(this.onTick);
+
+  final void Function() onTick;
+  int ticks = 0;
+
+  @override
+  Future<void> tick(int attempt) async {
+    ticks++;
+    onTick();
+  }
 }
 
 /// One scripted HTTP outcome for the reconciliation tests.
@@ -1501,6 +1519,302 @@ void main() {
             'two applies and NO job re-read: an in-flight 409 is not an '
             'ambiguous outcome, so the retry re-dispatches the (idempotent) '
             'apply instead of guessing from a projection read',
+      );
+    });
+
+    test('applyWithReconciliation: a refusal naming a DEAD run stops at once '
+        'and hands the takeover to the user (issue #805)', () async {
+      // The run's payload is older than the server's own window, so a second
+      // attempt WOULD steal the slot. The client still does not steal on its
+      // own — the blocking run may be this person's other device — so one
+      // dispatch, then the decision.
+      final requests = <RequestOptions>[];
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response<Object>(
+                  requestOptions: options,
+                  statusCode: 409,
+                  data: <String, dynamic>{
+                    'code': 'ai-import.apply-in-flight',
+                    'status': 409,
+                    'extensions': <String, dynamic>{
+                      'apply_run_age_seconds': 700,
+                      'stale_after_seconds': 600,
+                    },
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      final scheduler = _FakeScheduler();
+      final outcome = await AiImportRepository(
+        BreakdownApi(dio: dio),
+        _dao(),
+      ).applyWithReconciliation('j1', _applyRequest(), scheduler: scheduler);
+      expect(outcome, isA<ApplyInFlight>());
+      final inFlight = outcome as ApplyInFlight;
+      expect(inFlight.age, const Duration(seconds: 700));
+      expect(inFlight.staleAfter, const Duration(minutes: 10));
+      expect(
+        requests,
+        hasLength(1),
+        reason: 'a dead claim is never stolen without the user\'s tap',
+      );
+      expect(scheduler.ticks, 0);
+    });
+
+    test('applyWithReconciliation: a LIVE refusal keeps the budget and reports '
+        'the blocking run, never "outcome unknown" (issue #805)', () async {
+      final requests = <RequestOptions>[];
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response<Object>(
+                  requestOptions: options,
+                  statusCode: 409,
+                  data: <String, dynamic>{
+                    'code': 'ai-import.apply-in-flight',
+                    'status': 409,
+                    'extensions': <String, dynamic>{
+                      'apply_run_age_seconds': 30,
+                      'stale_after_seconds': 600,
+                    },
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      final scheduler = _FakeScheduler();
+      final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
+          .applyWithReconciliation(
+            'j1',
+            _applyRequest(),
+            scheduler: scheduler,
+            maxAttempts: 2,
+          );
+      // The run is live, so the budget is consumed (it may end inside it — the
+      // ambiguous-timeout retry waits for its own POST)…
+      expect(scheduler.ticks, 1);
+      expect(requests, hasLength(2));
+      // …and the exhausted budget is NOT "outcome unknown": the server named
+      // the run that blocks the dispatch.
+      expect(outcome, isA<ApplyInFlight>());
+      expect((outcome as ApplyInFlight).age, const Duration(seconds: 30));
+    });
+
+    test('applyWithReconciliation: a live refusal stops before the local wait '
+        'crosses the server window (issue #805 review)', () async {
+      // Waiting long enough is not consent. The refusal arrives INSIDE the
+      // window, but the next backoff would land past it — and a dispatch then
+      // would STEAL the abandoned claim without the user ever asking for it.
+      var now = DateTime.utc(2026, 1, 1, 12);
+      final clock = Clock(() => now);
+      final requests = <RequestOptions>[];
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response<Object>(
+                  requestOptions: options,
+                  statusCode: 409,
+                  data: <String, dynamic>{
+                    'code': 'ai-import.apply-in-flight',
+                    'status': 409,
+                    'extensions': <String, dynamic>{
+                      'apply_run_age_seconds': 30,
+                      'stale_after_seconds': 600,
+                    },
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      // The backoff is where the window is crossed: the second attempt would be
+      // dispatched eleven minutes after the refusal.
+      final scheduler = _TickActionScheduler(
+        () => now = now.add(const Duration(minutes: 11)),
+      );
+      final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
+          .applyWithReconciliation(
+            'j1',
+            _applyRequest(),
+            scheduler: scheduler,
+            clock: clock,
+          );
+      expect(outcome, isA<ApplyInFlight>());
+      expect(scheduler.ticks, 1, reason: 'the tick happened, the POST did not');
+      expect(
+        requests,
+        hasLength(1),
+        reason:
+            'the loop must stop at the window instead of dispatching into a '
+            'claim the server would now hand over',
+      );
+    });
+
+    test('applyWithReconciliation: an ambiguous timeout after a live refusal '
+        'makes the outcome unknown again (issue #805 review)', () async {
+      // The earlier refusal described the job a moment ago; a timeout means the
+      // LAST observation is unknown, so a budget that ends here must report that
+      // — never a live-run card with a takeover action derived from stale news.
+      var call = 0;
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            call++;
+            if (call == 1) {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response<Object>(
+                    requestOptions: options,
+                    statusCode: 409,
+                    data: <String, dynamic>{
+                      'code': 'ai-import.apply-in-flight',
+                      'status': 409,
+                      'extensions': <String, dynamic>{
+                        'apply_run_age_seconds': 30,
+                        'stale_after_seconds': 600,
+                      },
+                    },
+                  ),
+                ),
+              );
+              return;
+            }
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionTimeout,
+              ),
+            );
+          },
+        ),
+      );
+      final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
+          .applyWithReconciliation(
+            'j1',
+            _applyRequest(),
+            scheduler: _FakeScheduler(),
+            maxAttempts: 2,
+          );
+      expect(outcome, isA<ApplyUnresolved>());
+    });
+
+    test('applyWithReconciliation: the stale boundary follows the server\'s '
+        'STRICT predicate (issue #805 review)', () async {
+      // The server steals when `payload.updated_at < now - STALE_AFTER`, so a
+      // payload one second INSIDE the window is still live (both dispatches of
+      // the budget happen, none of them steals) …
+      Future<(ApplyReconciliation, int)> run(int ageSeconds) async {
+        final requests = <RequestOptions>[];
+        final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              requests.add(options);
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response<Object>(
+                    requestOptions: options,
+                    statusCode: 409,
+                    data: <String, dynamic>{
+                      'code': 'ai-import.apply-in-flight',
+                      'status': 409,
+                      'extensions': <String, dynamic>{
+                        'apply_run_age_seconds': ageSeconds,
+                        'stale_after_seconds': 600,
+                      },
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+        final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
+            .applyWithReconciliation(
+              'j1',
+              _applyRequest(),
+              scheduler: _FakeScheduler(),
+              maxAttempts: 2,
+            );
+        return (outcome, requests.length);
+      }
+
+      final (inside, insideRequests) = await run(598);
+      expect(insideRequests, 2, reason: 'inside the window the run is live');
+      expect(inside, isA<ApplyInFlight>());
+      expect((inside as ApplyInFlight).age, const Duration(seconds: 598));
+
+      // … and one second PAST it the abandoned claim is never re-dispatched.
+      final (past, pastRequests) = await run(601);
+      expect(pastRequests, 1, reason: 'past the window a retry would steal');
+      expect(past, isA<ApplyInFlight>());
+      final pastInFlight = past as ApplyInFlight;
+      expect(pastInFlight.age, const Duration(seconds: 601));
+      expect(pastInFlight.staleAfter, const Duration(minutes: 10));
+    });
+
+    test('applyInFlightWindow: no window on the wire means no classification '
+        '(pre-#805 server keeps the wait)', () {
+      expect(
+        applyInFlightWindow(
+          const ProblemError(code: 'ai-import.apply-in-flight'),
+        ),
+        isNull,
+        reason: 'a server that names no window gets the pre-#805 behaviour',
+      );
+      expect(
+        applyInFlightWindow(
+          const ProblemError(
+            code: 'domain.conflict',
+            extensions: <String, dynamic>{'stale_after_seconds': 600},
+          ),
+        ),
+        isNull,
+        reason: 'only the in-flight code is parsed',
+      );
+      final window = applyInFlightWindow(
+        const ProblemError(
+          code: 'ai-import.apply-in-flight',
+          extensions: <String, dynamic>{'stale_after_seconds': 600},
+        ),
+      );
+      expect(window, isNotNull);
+      expect(window!.staleAfter, const Duration(minutes: 10));
+      expect(
+        window.age,
+        isNull,
+        reason: 'an owner that published nothing has no age — never zero',
       );
     });
 

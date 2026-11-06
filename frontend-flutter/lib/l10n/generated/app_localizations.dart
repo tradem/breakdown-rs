@@ -2215,6 +2215,54 @@ abstract class AppLocalizations {
   /// **'Für diese Vorschau läuft bereits eine Übernahme. Verfolge deren Fortschritt – ein zweiter Start ist erst danach möglich.'**
   String get aiApplyErrorApplyInFlight;
 
+  /// Issue #805: the server named the live apply run that blocks this dispatch. `age` is the RELATIVE time since that run last published (e.g. 'vor 3 min'), never a client-side guess.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diese Vorschau übernimmt gerade ein Lauf (letzte Meldung {age}).'**
+  String aiApplyInFlightLive(String age);
+
+  /// Issue #805: countdown until the server's staleness window has passed and the abandoned run may be taken over.
+  ///
+  /// In de, this message translates to:
+  /// **'Übernehmen möglich in {minutes, plural, =1{1 min} other{{minutes} min}}'**
+  String aiApplyInFlightTakeoverIn(int minutes);
+
+  /// Issue #805: the blocking run published nothing for longer than the server's staleness window, so the server considers it abandoned.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Lauf für diese Vorschau meldet keinen Fortschritt mehr (letzte Meldung {age}) und gilt als abgebrochen.'**
+  String aiApplyInFlightStale(String age);
+
+  /// Issue #805: the takeover re-runs the idempotent apply, so already-applied rows are skipped instead of imported twice.
+  ///
+  /// In de, this message translates to:
+  /// **'Du kannst die Übernahme jetzt erneut starten – bereits übernommene Zeilen werden übersprungen.'**
+  String get aiApplyInFlightStaleHint;
+
+  /// Issue #805: the blocking run published no progress at all, so no age exists. The copy must claim neither liveness nor abandonment.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diese Vorschau hält ein Lauf den Platz, ohne Fortschritt zu melden.'**
+  String get aiApplyInFlightNoAge;
+
+  /// Issue #805: the honest follow-up for an unaged refusal — no countdown, no staleness claim; the server's claim is authoritative.
+  ///
+  /// In de, this message translates to:
+  /// **'Ob er noch läuft, lässt sich daraus nicht ableiten – ein neuer Start entscheidet der Server.'**
+  String get aiApplyInFlightNoAgeHint;
+
+  /// Issue #805: the action offered when the blocking run's age is unknown — a re-dispatch the server accepts or refuses, since neither side can classify the run.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneut starten'**
+  String get aiApplyInFlightCheckAgain;
+
+  /// Issue #805: the explicit takeover action for an abandoned apply run.
+  ///
+  /// In de, this message translates to:
+  /// **'Jetzt übernehmen'**
+  String get aiApplyInFlightTakeover;
+
   /// No description provided for @aiApplyErrorMissingMapping.
   ///
   /// In de, this message translates to:

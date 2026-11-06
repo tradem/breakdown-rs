@@ -26,15 +26,16 @@ use axum::response::{IntoResponse, Response};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
     AI_CONFIG_FORBIDDEN, AI_CONFIG_PROVIDER_MISMATCH, AI_CONFIG_VAULT_KEY_FORBIDDEN,
-    AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_APPLY_BLOCKED, AI_IMPORT_APPLY_MISSING_EPISODE_GROUP,
-    AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED, AI_IMPORT_FORBIDDEN,
-    AI_IMPORT_JOB_NOT_DELETABLE, AI_IMPORT_NOT_FOUND, AI_IMPORT_SCOPE_MISMATCH,
-    AI_IMPORT_TARGET_IMMUTABLE, AI_IMPORT_TARGET_MISSING, AI_IMPORT_UNSUPPORTED_MEDIA_TYPE,
-    DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE,
-    DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS, HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM,
-    HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST, HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE,
-    HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND, HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode,
-    REPORT_RENDERER_UNAVAILABLE, SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
+    AI_CONFIG_VERSION_MISMATCH, AI_IMPORT_APPLY_BLOCKED, AI_IMPORT_APPLY_IN_FLIGHT,
+    AI_IMPORT_APPLY_MISSING_EPISODE_GROUP, AI_IMPORT_APPLY_MISSING_MAPPING, AI_IMPORT_DISABLED,
+    AI_IMPORT_FORBIDDEN, AI_IMPORT_JOB_NOT_DELETABLE, AI_IMPORT_NOT_FOUND,
+    AI_IMPORT_SCOPE_MISMATCH, AI_IMPORT_TARGET_IMMUTABLE, AI_IMPORT_TARGET_MISSING,
+    AI_IMPORT_UNSUPPORTED_MEDIA_TYPE, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
+    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NUMBER_ALREADY_EXISTS,
+    HTTP_BAD_JSON_BODY, HTTP_BAD_PATH_PARAM, HTTP_BAD_QUERY_PARAM, HTTP_BAD_REQUEST,
+    HTTP_INTERNAL_ERROR, HTTP_PAYLOAD_TOO_LARGE, HTTP_REQUEST_TIMEOUT, HTTP_ROUTE_NOT_FOUND,
+    HTTP_UNSUPPORTED_MEDIA_TYPE, ProblemCode, REPORT_RENDERER_UNAVAILABLE,
+    SETTINGS_BINDING_FORBIDDEN, SETTINGS_FORBIDDEN,
 };
 
 use serde::Serialize;
@@ -400,6 +401,23 @@ pub enum ApiError {
     /// an episode group the preview does not carry (client bug, issue
     /// #581/#663); the S1 `episode_ref` extension names it.
     AiImportApplyMissingEpisodeGroup(String),
+    /// 409 `ai-import.apply-in-flight` — a live apply run already owns the
+    /// job's progress slot, with the two facts the client needs to tell a
+    /// live run from a dead one (issue #805): the owning run's last
+    /// publication age (`apply_run_age_seconds`, omitted when that run has
+    /// published no payload yet) and the server's own staleness window
+    /// (`stale_after_seconds` = `ApplyProgress::STALE_AFTER`).
+    ///
+    /// The age is measured here, server-side, so a client clock that is
+    /// minutes off cannot misclassify a live run as abandoned.
+    AiImportApplyInFlight {
+        /// Seconds since the owning run last published; `None` when it has
+        /// published nothing yet (no age to report).
+        age_seconds: Option<u64>,
+        /// The window after which the server's claim lets the next apply
+        /// steal the slot (`ApplyProgress::STALE_AFTER`).
+        stale_after_seconds: u64,
+    },
     /// 409 `episode.number-already-exists` — the create-number pre-check
     /// (#404 doctrine) found the number taken. The S1 `existing_episode_id`
     /// extension carries the existing episode's id and `number` the
@@ -573,6 +591,22 @@ impl ApiError {
                 problem(AI_IMPORT_APPLY_MISSING_EPISODE_GROUP)
                     .extension("episode_ref", episode_ref)
                     .build()
+            }
+            ApiError::AiImportApplyInFlight {
+                age_seconds,
+                stale_after_seconds,
+            } => {
+                // Issue #805: the window always travels (it is what turns an
+                // age into a live/dead verdict); the age only when the owning
+                // run actually published something — `0` would claim "just
+                // published" for a run that never did.
+                let builder = problem(AI_IMPORT_APPLY_IN_FLIGHT)
+                    .extension("stale_after_seconds", stale_after_seconds);
+                let builder = match age_seconds {
+                    Some(age) => builder.extension("apply_run_age_seconds", age),
+                    None => builder,
+                };
+                builder.build()
             }
             ApiError::EpisodeNumberAlreadyExists(
                 existing_episode_id,

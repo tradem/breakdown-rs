@@ -17,6 +17,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.59.0] - Unreleased
+
+### Added — `409 ai-import.apply-in-flight` names the blocking run (issue #805)
+
+- `ApiError::AiImportApplyInFlight { age_seconds, stale_after_seconds }` renders
+  the two S1 extensions of the registered refusal, so a client that meets a live
+  apply run can tell it from a crashed one instead of waiting blindly. The
+  handler catches the claim conflict from `ApplyWriter::apply_script`,
+  re-reads the run slot (`apply_run_state`) for the owner's last publication and
+  reports `ApplyProgress::STALE_AFTER` as the window — one definition, never a
+  copy. A read failure omits the age rather than failing the refusal.
+- `backend/openapi.yaml` regenerated (`x-code-registry` only: the extensions are
+  untyped on the wire, so the generated Dart client is unchanged).
+
 ## [0.58.0] - Unreleased
 
 ### Added — `PUT /v1/ai-import/jobs/{id}/target` (issue #829)
