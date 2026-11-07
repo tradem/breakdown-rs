@@ -326,6 +326,8 @@ async fn eappend_schedule_scene_links_join_and_reverse_query() -> Result<()> {
         id: scene_id,
         episode_id,
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(7),
             location: Some("Berlin".into()),
             mood: Some("dark".into()),
@@ -438,6 +440,8 @@ async fn eappend_archive_while_referenced_hides_from_picker_keeps_link() -> Resu
         id: scene_id,
         episode_id,
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(3),
             location: Some("Studio".into()),
             mood: Some("neutral".into()),

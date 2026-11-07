@@ -225,6 +225,8 @@ fn sample_chain() -> SampleChain {
             id: scene_id,
             episode_id: EpisodeId(episode_id),
             details: SceneDetails {
+                scene_score: None,
+                synopsis_score: None,
                 scene_number: Some(1),
                 location: Some("Set A".to_string()),
                 mood: Some("Tag".to_string()),

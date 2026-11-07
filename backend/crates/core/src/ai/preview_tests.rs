@@ -24,6 +24,8 @@ fn scene(number: u32) -> SceneView {
         is_schedule_set: false,
         summary: None,
         script_day: None,
+        scene_score: None,
+        synopsis_score: None,
         shooting_day_ids: Vec::new(),
         assigned_characters: Vec::new(),
         outfit_beats: Vec::new(),

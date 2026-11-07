@@ -269,6 +269,8 @@ async fn aggregate_state_matches_query_result_for_same_event_stream() -> Result<
     }
 
     let details = SceneDetails {
+        scene_score: None,
+        synopsis_score: None,
         scene_number: Some(7),
         location: Some("Studio".into()),
         mood: Some("Neutral".into()),

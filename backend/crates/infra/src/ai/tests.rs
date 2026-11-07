@@ -363,6 +363,8 @@ async fn merge_worker_success_records_telemetry() {
 
     fn scene(number: u32) -> SceneView {
         SceneView {
+            scene_score: None,
+            synopsis_score: None,
             id: Uuid::now_v7(),
             episode_id: EpisodeId::new(),
             scene_number: Some(number),
@@ -2031,6 +2033,8 @@ impl ScheduleApplyFixture {
     fn new() -> Self {
         let scene_id = Uuid::now_v7();
         let scene = breakdown_core::scene::views::SceneView {
+            scene_score: None,
+            synopsis_score: None,
             id: scene_id,
             episode_id: breakdown_core::shared::EpisodeId::new(),
             scene_number: Some(1),

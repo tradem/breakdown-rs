@@ -64,8 +64,8 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 sqlx::query(
                     r#"
                     INSERT INTO projection_scene
-                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, source, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                        (id, episode_id, scene_number, location, mood, is_schedule_set, summary, script_day, scene_score, synopsis_score, source, version, projector_version, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                     ON CONFLICT (id) DO UPDATE SET
                         episode_id = EXCLUDED.episode_id,
                         scene_number = EXCLUDED.scene_number,
@@ -74,6 +74,8 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                         is_schedule_set = EXCLUDED.is_schedule_set,
                         summary = EXCLUDED.summary,
                         script_day = EXCLUDED.script_day,
+                        scene_score = EXCLUDED.scene_score,
+                        synopsis_score = EXCLUDED.synopsis_score,
                         source = EXCLUDED.source,
                         version = EXCLUDED.version,
                         projector_version = EXCLUDED.projector_version,
@@ -88,6 +90,11 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.is_schedule_set)
                 .bind(details.summary)
                 .bind(details.script_day)
+                // Decision-Model scores (issue #834): written on create,
+                // `None` binds as NULL (unscored scene). `double precision`
+                // columns; the domain values are `f32` (lossless upcast).
+                .bind(details.scene_score.map(f64::from))
+                .bind(details.synopsis_score.map(f64::from))
                 .bind(source_json)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)

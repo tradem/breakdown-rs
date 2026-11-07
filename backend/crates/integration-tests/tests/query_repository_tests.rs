@@ -219,6 +219,8 @@ async fn scenes_by_episode_returns_data() -> Result<()> {
         episode_id,
         project_id: Some(ProjectId::new()),
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(1),
             location: Some("A".into()),
             mood: Some("A".into()),

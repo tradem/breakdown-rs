@@ -904,6 +904,8 @@ async fn merge_worker_publishes_merging_and_storing_progress() {
 
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let scene = SceneView {
+        scene_score: None,
+        synopsis_score: None,
         id: uuid::Uuid::now_v7(),
         episode_id: EpisodeId::new(),
         scene_number: Some(1),

@@ -52,6 +52,25 @@ pub struct SceneDetails {
     /// Fictional script-chronology day (e.g. "1. Spieltag"), distinct
     /// from the calendar `ShootingDay.date`. Free-form search index.
     pub script_day: Option<String>,
+    /// Decision-Model quality score of the extracted scene (issue #834,
+    /// mirrors `DraftScene.scene_score`, issue #722), `0.0..=1.0`. Set once
+    /// at apply time (the projector writes it on `SceneCreated` and
+    /// PRESERVES it on `SceneDetailsUpdated` — a later detail edit must not
+    /// erase the recorded provenance); `None` for manual scenes and for
+    /// rows whose best-effort scoring pass failed (honest absence, never a
+    /// fabricated value). Additive on the wire with a serde default per
+    /// ADR-021 (older events/clients omit the fields). The aggregate
+    /// validates the range at command time and preserves the values across
+    /// details updates AND replay — the aggregate state, the events and the
+    /// projection never diverge on these two fields.
+    #[serde(default)]
+    pub scene_score: Option<f32>,
+    /// Decision-Model quality score of the TL;DR `summary` (issue #834,
+    /// mirrors `DraftScene.synopsis_score`, issue #722). Same lifecycle as
+    /// [`SceneDetails::scene_score`]: written once at apply, preserved on
+    /// detail updates, `None` = unscored.
+    #[serde(default)]
+    pub synopsis_score: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

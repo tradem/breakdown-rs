@@ -270,6 +270,8 @@ async fn scene_create() -> Result<()> {
         episode_id,
         project_id: Some(ProjectId::new()),
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(42),
             location: Some("Berlin".into()),
             mood: Some("dark".into()),
@@ -307,6 +309,8 @@ async fn scene_update_details() -> Result<()> {
         episode_id,
         project_id: Some(ProjectId::new()),
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(1),
             location: Some("A".into()),
             mood: Some("A".into()),
@@ -325,6 +329,8 @@ async fn scene_update_details() -> Result<()> {
             breakdown_core::scene::commands::UpdateSceneDetails {
                 id: scene_id,
                 details: SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     scene_number: Some(99),
                     location: Some("Updated".into()),
                     mood: Some("bright".into()),
@@ -365,6 +371,8 @@ async fn scene_assign_remove_character() -> Result<()> {
         episode_id,
         project_id: Some(ProjectId::new()),
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(1),
             location: None,
             mood: None,
@@ -1004,6 +1012,8 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
                 episode_id,
                 project_id: Some(ProjectId::new()),
                 details: SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     scene_number: Some(1),
                     location: None,
                     mood: None,
