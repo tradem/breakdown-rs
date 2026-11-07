@@ -48,6 +48,8 @@ async fn get_scene_returns_view_from_repo() {
     let ports = common::FakePorts::default();
     let scene_id = Uuid::now_v7();
     let view = SceneView {
+        scene_score: None,
+        synopsis_score: None,
         id: scene_id,
         episode_id: EpisodeId::new(),
         scene_number: None,

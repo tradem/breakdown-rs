@@ -24,10 +24,12 @@ part 'scene_view.g.dart';
 /// * [mood]
 /// * [outfitBeats] - Ordered outfit beats per (character, order) — the scene-side casting relation (issue #546). Additive on the wire; empty for scenes without beats.
 /// * [sceneNumber]
+/// * [sceneScore] - Decision-Model quality score of the extracted scene (issue #834, from `SceneDetails.scene_score` at apply time), `0.0..=1.0`. `None` = unscored (manual scene, or the best-effort scoring pass failed) — the client renders the honest absence, never fabricated stars. Serde-defaulted additive on the wire (ADR-021).
 /// * [scriptDay] - Fictional script-chronology day (e.g. \"1. Spieltag\"), distinct from the calendar `ShootingDay.date`.
 /// * [shootingDayIds] - Shooting days this scene is scheduled on.
 /// * [source_] - Provenance discriminator (EU AI Act transparency, issue #517). `Some(AiExtracted)` marks AI-imported scenes; `Some(Manual)` is the user-created path; `None` is only produced by clients that do not know the field (legacy caches). Serde-`default`-backed and additive on the wire (ADR-021 D3/MINOR).
 /// * [summary]
+/// * [synopsisScore] - Decision-Model quality score of the TL;DR `summary` (issue #834). Same honest-absence contract as [`SceneView::scene_score`].
 /// * [updatedAt]
 /// * [version] - Aggregate version of the last applied event; echo back in optimistic-locking commands.
 @BuiltValue()
@@ -58,6 +60,10 @@ abstract class SceneView implements Built<SceneView, SceneViewBuilder> {
   @BuiltValueField(wireName: r'scene_number')
   int? get sceneNumber;
 
+  /// Decision-Model quality score of the extracted scene (issue #834, from `SceneDetails.scene_score` at apply time), `0.0..=1.0`. `None` = unscored (manual scene, or the best-effort scoring pass failed) — the client renders the honest absence, never fabricated stars. Serde-defaulted additive on the wire (ADR-021).
+  @BuiltValueField(wireName: r'scene_score')
+  double? get sceneScore;
+
   /// Fictional script-chronology day (e.g. \"1. Spieltag\"), distinct from the calendar `ShootingDay.date`.
   @BuiltValueField(wireName: r'script_day')
   String? get scriptDay;
@@ -72,6 +78,10 @@ abstract class SceneView implements Built<SceneView, SceneViewBuilder> {
 
   @BuiltValueField(wireName: r'summary')
   String? get summary;
+
+  /// Decision-Model quality score of the TL;DR `summary` (issue #834). Same honest-absence contract as [`SceneView::scene_score`].
+  @BuiltValueField(wireName: r'synopsis_score')
+  double? get synopsisScore;
 
   @BuiltValueField(wireName: r'updated_at')
   DateTime get updatedAt;
@@ -152,6 +162,13 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
         specifiedType: const FullType.nullable(int),
       );
     }
+    if (object.sceneScore != null) {
+      yield r'scene_score';
+      yield serializers.serialize(
+        object.sceneScore,
+        specifiedType: const FullType.nullable(double),
+      );
+    }
     if (object.scriptDay != null) {
       yield r'script_day';
       yield serializers.serialize(
@@ -176,6 +193,13 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
       yield serializers.serialize(
         object.summary,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.synopsisScore != null) {
+      yield r'synopsis_score';
+      yield serializers.serialize(
+        object.synopsisScore,
+        specifiedType: const FullType.nullable(double),
       );
     }
     yield r'updated_at';
@@ -274,6 +298,14 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
           if (valueDes == null) continue;
           result.sceneNumber = valueDes;
           break;
+        case r'scene_score':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(double),
+          ) as double?;
+          if (valueDes == null) continue;
+          result.sceneScore = valueDes;
+          break;
         case r'script_day':
           final valueDes = serializers.deserialize(
             value,
@@ -304,6 +336,14 @@ class _$SceneViewSerializer implements PrimitiveSerializer<SceneView> {
           ) as String?;
           if (valueDes == null) continue;
           result.summary = valueDes;
+          break;
+        case r'synopsis_score':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(double),
+          ) as double?;
+          if (valueDes == null) continue;
+          result.synopsisScore = valueDes;
           break;
         case r'updated_at':
           final valueDes = serializers.deserialize(

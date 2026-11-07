@@ -28,6 +28,28 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **Decision-Model scene scores are persisted and exposed (issue #834, backend PR).**
+  The scene quality scores the import preview already computed (issue #722's
+  `DraftScene.scene_score` / `synopsis_score`, `0.0..=1.0`, absent when no
+  scoring pass ran or it failed) now survive the apply: both fields moved into
+  `SceneDetails` (`serde(default)`, additive per ADR-021) and ride the
+  `SceneCreated` event, the projector writes them into two new nullable
+  `double precision` columns (`projection_scene.scene_score` /
+  `.synopsis_score`, migration `20261107000001`), and `SceneView` exposes them
+  on the wire (`scene_score` / `synopsis_score`, MINOR-additive — the wire
+  fixture allowlist and the regenerated OpenAPI/Dart client follow).
+  Lifecycle: written ONCE at apply time; a later `SceneDetailsUpdated`
+  PRESERVES the recorded provenance (the projector's update statement does not
+  touch the columns) — re-scoring or user-editable ratings are explicitly out
+  of scope for #834. A manual scene and a failed scoring pass both read `NULL`:
+  the client renders the honest absence, never a fabricated star.
+  Covered by the core serde round-trip tests (pre-#834 payloads replay
+  unscored), the projector test (persist-on-create + survive-details-update),
+  the extended wire fixture allowlist, and the Tier-4 apply round trip
+  (`ai_script_apply_scene_scores.rs`). Crates: `core` 0.63.0 → 0.64.0,
+  `infra` 0.73.0 → 0.74.0, `api` 0.61.0 → 0.62.0; generated Dart client
+  `breakdown_api` 1.3.0 → 1.4.0.
+
 - **A refused apply names the run that blocks it (issue #805).**
   `409 ai-import.apply-in-flight` used to say only "a run is live", so a client
   that met the refusal could not tell a second device applying right now from a

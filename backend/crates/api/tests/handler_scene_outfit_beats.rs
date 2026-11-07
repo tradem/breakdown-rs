@@ -48,6 +48,8 @@ async fn seed_scene(ports: &common::FakePorts, scene_id: Uuid) {
     ports.scene_repo.scenes.lock().await.insert(
         scene_id,
         SceneView {
+            scene_score: None,
+            synopsis_score: None,
             id: scene_id,
             episode_id: EpisodeId::from_uuid(Uuid::now_v7()),
             scene_number: Some(3),
