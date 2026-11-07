@@ -389,6 +389,8 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
         id: scene_id,
         episode_id: breakdown_core::shared::EpisodeId::from_uuid(ep),
         details: breakdown_core::scene::events::SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(1),
             location: Some("loc".into()),
             mood: Some("mood".into()),
@@ -652,6 +654,8 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
                 id: sid,
                 episode_id: ep1,
                 details: breakdown_core::scene::events::SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     scene_number: Some(number),
                     location: Some("loc".into()),
                     mood: None,

@@ -1502,6 +1502,8 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
     ports.scene_repo.scenes.lock().await.insert(
         second_scene_id,
         SceneView {
+            scene_score: None,
+            synopsis_score: None,
             id: second_scene_id,
             episode_id: episode_a,
             scene_number: Some(2),
@@ -1521,6 +1523,8 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
     ports.scene_repo.scenes.lock().await.insert(
         scene_id,
         SceneView {
+            scene_score: None,
+            synopsis_score: None,
             id: scene_id,
             episode_id: episode_a,
             scene_number: Some(1),

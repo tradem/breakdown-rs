@@ -161,6 +161,8 @@ async fn scene_created_projects_scene_details() -> Result<()> {
         id: scene_id,
         episode_id,
         details: breakdown_core::scene::events::SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(42),
             location: Some("Berlin".into()),
             mood: Some("dark".into()),
@@ -223,6 +225,8 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
         id: scene_id,
         episode_id,
         details: breakdown_core::scene::events::SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(1),
             location: Some("A".into()),
             mood: Some("A".into()),
@@ -247,6 +251,8 @@ async fn scene_details_updated_projects_changes() -> Result<()> {
     let updated = breakdown_core::scene::events::SceneEvent::SceneDetailsUpdated {
         id: scene_id,
         details: breakdown_core::scene::events::SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(99),
             location: Some("Updated".into()),
             mood: Some("bright".into()),
@@ -306,6 +312,8 @@ async fn scene_assign_character_creates_sub_row() -> Result<()> {
             id: scene_id,
             episode_id,
             details: breakdown_core::scene::events::SceneDetails {
+                scene_score: None,
+                synopsis_score: None,
                 scene_number: Some(1),
                 location: None,
                 mood: None,
@@ -371,6 +379,8 @@ async fn scene_remove_character_clears_sub_row() -> Result<()> {
             id: scene_id,
             episode_id,
             details: breakdown_core::scene::events::SceneDetails {
+                scene_score: None,
+                synopsis_score: None,
                 scene_number: Some(1),
                 location: None,
                 mood: None,

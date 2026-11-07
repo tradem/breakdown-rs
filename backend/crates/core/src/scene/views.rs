@@ -35,6 +35,17 @@ pub struct SceneView {
     /// Fictional script-chronology day (e.g. "1. Spieltag"), distinct
     /// from the calendar `ShootingDay.date`.
     pub script_day: Option<String>,
+    /// Decision-Model quality score of the extracted scene (issue #834,
+    /// from `SceneDetails.scene_score` at apply time), `0.0..=1.0`.
+    /// `None` = unscored (manual scene, or the best-effort scoring pass
+    /// failed) — the client renders the honest absence, never fabricated
+    /// stars. Serde-defaulted additive on the wire (ADR-021).
+    #[serde(default)]
+    pub scene_score: Option<f32>,
+    /// Decision-Model quality score of the TL;DR `summary` (issue #834).
+    /// Same honest-absence contract as [`SceneView::scene_score`].
+    #[serde(default)]
+    pub synopsis_score: Option<f32>,
     /// Shooting days this scene is scheduled on.
     pub shooting_day_ids: Vec<ShootingDayId>,
     pub assigned_characters: Vec<Uuid>,

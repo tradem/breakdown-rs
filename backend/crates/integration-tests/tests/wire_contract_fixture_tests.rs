@@ -93,6 +93,11 @@ const ADDITIVE_ALLOWLIST: &[(&str, &str)] = &[
     // `#[serde(default)]`-backed (an empty list for every pre-#546 client;
     // MINOR-additive on the response shape).
     ("scene_view", "scene_view.outfit_beats"),
+    // #834: the Decision-Model quality scores on `SceneDetails`/`SceneView`
+    // — additive and `#[serde(default)]`-backed (`null`/absent for every
+    // pre-#834 client, default-identical to "unscored"; MINOR-additive).
+    ("scene_view", "scene_view.scene_score"),
+    ("scene_view", "scene_view.synopsis_score"),
 ];
 
 /// Deliberate MAJOR breaks (ADR-021 D2/D5): fields REMOVED from, or whose
@@ -257,6 +262,11 @@ fn sample_views() -> Vec<(&'static str, Value)> {
                 is_schedule_set: true,
                 summary: Some("Eröffnungsszene".to_string()),
                 script_day: Some("1. Spieltag".to_string()),
+                // Unscored in the frozen fixture: the scores are additive
+                // (allowlist above), `None` serializes as `null` — exactly
+                // what a pre-#834 client tolerated.
+                scene_score: None,
+                synopsis_score: None,
                 shooting_day_ids: vec![ShootingDayId(shooting_day_id)],
                 assigned_characters: vec![character_id],
                 outfit_beats: Vec::new(),

@@ -27,6 +27,8 @@ fn project_id() -> ProjectId {
 fn create_scene() -> SceneAggregate {
     let episode_id = EpisodeId::new();
     let details = SceneDetails {
+        scene_score: None,
+        synopsis_score: None,
         scene_number: Some(1),
         location: Some("Studio A".to_string()),
         mood: Some("IN".to_string()),
@@ -66,6 +68,8 @@ fn create_scene() -> SceneAggregate {
 fn test_create_scene_success() {
     let episode_id = EpisodeId::new();
     let details = SceneDetails {
+        scene_score: None,
+        synopsis_score: None,
         scene_number: Some(5),
         location: Some("Berlin".into()),
         mood: Some("DA".into()),
@@ -107,6 +111,8 @@ fn test_create_scene_success() {
 fn test_update_scene_details_success() {
     let mut agg = create_scene();
     let details = SceneDetails {
+        scene_score: None,
+        synopsis_score: None,
         scene_number: Some(10),
         location: Some("Exterior".into()),
         mood: Some("AT".into()),
@@ -153,6 +159,8 @@ fn test_update_scene_details_wrong_version() {
         UpdateSceneDetails {
             id: agg.id,
             details: SceneDetails {
+                scene_score: None,
+                synopsis_score: None,
                 scene_number: Some(99),
                 ..Default::default()
             },
@@ -188,6 +196,8 @@ fn test_all_mutating_commands_reject_stale_version_as_version_mismatch() {
             UpdateSceneDetails {
                 id: agg.id,
                 details: SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     scene_number: Some(99),
                     ..Default::default()
                 },
@@ -464,6 +474,8 @@ fn test_summary_round_trips_through_update_guard() {
             UpdateSceneDetails {
                 id: agg.id,
                 details: SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     summary: Some(summary.clone()),
                     ..agg.details.clone()
                 },
@@ -501,6 +513,8 @@ fn test_script_day_round_trips_through_update_guard() {
             UpdateSceneDetails {
                 id: agg.id,
                 details: SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     script_day: Some(script_day.clone()),
                     ..agg.details.clone()
                 },
@@ -948,4 +962,83 @@ fn test_clear_all_without_beats_is_beat_not_found_code() {
         Err(SceneError::NoOutfitBeats { character_id: c }) => assert_eq!(c, character_id),
         _ => panic!("Expected NoOutfitBeats"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Decision-Model score round trip (issue #834)
+// ---------------------------------------------------------------------------
+
+/// A pre-#834 `SceneCreated` payload (no score keys) replays as unscored —
+/// the serde defaults keep historic events deserializable without a data
+/// migration (ADR-021 additivity).
+#[test]
+fn test_scene_created_without_scores_replays_unscored() {
+    let payload = serde_json::json!({
+        "SceneCreated": {
+            "id": Uuid::now_v7(),
+            "episode_id": EpisodeId::new(),
+            "details": {
+                "scene_number": 1,
+                "location": "Set A",
+                "mood": "Tag",
+                "is_schedule_set": false,
+                "summary": "Eröffnungsszene",
+                "script_day": "1. Spieltag"
+            },
+            "assigned_characters": [],
+            "source": "Manual",
+            "version": 1
+        }
+    });
+    let event: SceneEvent = serde_json::from_value(payload).unwrap();
+    match event {
+        SceneEvent::SceneCreated { details, .. } => {
+            assert_eq!(details.scene_score, None);
+            assert_eq!(details.synopsis_score, None);
+        }
+        other => panic!("Expected SceneCreated, got {other:?}"),
+    }
+}
+
+/// A scored apply payload round-trips both scores verbatim.
+#[test]
+fn test_scene_created_with_scores_round_trips() {
+    let payload = serde_json::json!({
+        "SceneCreated": {
+            "id": Uuid::now_v7(),
+            "episode_id": EpisodeId::new(),
+            "details": {
+                "is_schedule_set": false,
+                "scene_score": 0.82,
+                "synopsis_score": 0.41
+            },
+            "assigned_characters": [],
+            "source": "Manual",
+            "version": 1
+        }
+    });
+    let event: SceneEvent = serde_json::from_value(payload).unwrap();
+    match event {
+        SceneEvent::SceneCreated { details, .. } => {
+            assert_eq!(details.scene_score, Some(0.82));
+            assert_eq!(details.synopsis_score, Some(0.41));
+        }
+        other => panic!("Expected SceneCreated, got {other:?}"),
+    }
+}
+
+/// The apply payload builder carries the draft's Decision-Model scores into
+/// `SceneDetails` — the values the projector persists at apply time (#834).
+#[test]
+fn test_draft_scene_details_carries_scores() {
+    use breakdown_core::ai::DraftScene;
+    let draft = DraftScene {
+        draft_ref: "scene-1".to_string(),
+        scene_score: Some(0.77),
+        synopsis_score: Some(0.55),
+        ..Default::default()
+    };
+    let details = draft.scene_details();
+    assert_eq!(details.scene_score, Some(0.77));
+    assert_eq!(details.synopsis_score, Some(0.55));
 }

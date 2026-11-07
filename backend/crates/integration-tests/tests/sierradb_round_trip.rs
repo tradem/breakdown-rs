@@ -110,6 +110,8 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
         id: scene_id,
         episode_id,
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(7),
             location: Some("Berlin".into()),
             mood: Some("dark".into()),
@@ -227,6 +229,8 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
         id: scene_id,
         episode_id,
         details: SceneDetails {
+            scene_score: None,
+            synopsis_score: None,
             scene_number: Some(7),
             location: Some("Berlin".into()),
             mood: Some("dark".into()),
@@ -391,6 +395,8 @@ async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
                 episode_id,
                 project_id: None,
                 details: SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     scene_number: Some(7),
                     location: Some("Berlin".into()),
                     mood: Some("dark".into()),
@@ -432,6 +438,8 @@ async fn command_service_create_scene_round_trips_via_escan() -> Result<()> {
             UpdateSceneDetails {
                 id: scene_id,
                 details: SceneDetails {
+                    scene_score: None,
+                    synopsis_score: None,
                     scene_number: Some(8),
                     location: Some("Potsdam".into()),
                     mood: Some("bright".into()),

@@ -24,6 +24,8 @@ class _$SceneView extends SceneView {
   @override
   final int? sceneNumber;
   @override
+  final double? sceneScore;
+  @override
   final String? scriptDay;
   @override
   final BuiltList<String> shootingDayIds;
@@ -31,6 +33,8 @@ class _$SceneView extends SceneView {
   final SceneSource? source_;
   @override
   final String? summary;
+  @override
+  final double? synopsisScore;
   @override
   final DateTime updatedAt;
   @override
@@ -48,10 +52,12 @@ class _$SceneView extends SceneView {
       this.mood,
       this.outfitBeats,
       this.sceneNumber,
+      this.sceneScore,
       this.scriptDay,
       required this.shootingDayIds,
       this.source_,
       this.summary,
+      this.synopsisScore,
       required this.updatedAt,
       required this.version})
       : super._();
@@ -74,10 +80,12 @@ class _$SceneView extends SceneView {
         mood == other.mood &&
         outfitBeats == other.outfitBeats &&
         sceneNumber == other.sceneNumber &&
+        sceneScore == other.sceneScore &&
         scriptDay == other.scriptDay &&
         shootingDayIds == other.shootingDayIds &&
         source_ == other.source_ &&
         summary == other.summary &&
+        synopsisScore == other.synopsisScore &&
         updatedAt == other.updatedAt &&
         version == other.version;
   }
@@ -93,10 +101,12 @@ class _$SceneView extends SceneView {
     _$hash = $jc(_$hash, mood.hashCode);
     _$hash = $jc(_$hash, outfitBeats.hashCode);
     _$hash = $jc(_$hash, sceneNumber.hashCode);
+    _$hash = $jc(_$hash, sceneScore.hashCode);
     _$hash = $jc(_$hash, scriptDay.hashCode);
     _$hash = $jc(_$hash, shootingDayIds.hashCode);
     _$hash = $jc(_$hash, source_.hashCode);
     _$hash = $jc(_$hash, summary.hashCode);
+    _$hash = $jc(_$hash, synopsisScore.hashCode);
     _$hash = $jc(_$hash, updatedAt.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
     _$hash = $jf(_$hash);
@@ -114,10 +124,12 @@ class _$SceneView extends SceneView {
           ..add('mood', mood)
           ..add('outfitBeats', outfitBeats)
           ..add('sceneNumber', sceneNumber)
+          ..add('sceneScore', sceneScore)
           ..add('scriptDay', scriptDay)
           ..add('shootingDayIds', shootingDayIds)
           ..add('source_', source_)
           ..add('summary', summary)
+          ..add('synopsisScore', synopsisScore)
           ..add('updatedAt', updatedAt)
           ..add('version', version))
         .toString();
@@ -164,6 +176,10 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
   int? get sceneNumber => _$this._sceneNumber;
   set sceneNumber(int? sceneNumber) => _$this._sceneNumber = sceneNumber;
 
+  double? _sceneScore;
+  double? get sceneScore => _$this._sceneScore;
+  set sceneScore(double? sceneScore) => _$this._sceneScore = sceneScore;
+
   String? _scriptDay;
   String? get scriptDay => _$this._scriptDay;
   set scriptDay(String? scriptDay) => _$this._scriptDay = scriptDay;
@@ -181,6 +197,11 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
   String? _summary;
   String? get summary => _$this._summary;
   set summary(String? summary) => _$this._summary = summary;
+
+  double? _synopsisScore;
+  double? get synopsisScore => _$this._synopsisScore;
+  set synopsisScore(double? synopsisScore) =>
+      _$this._synopsisScore = synopsisScore;
 
   DateTime? _updatedAt;
   DateTime? get updatedAt => _$this._updatedAt;
@@ -205,10 +226,12 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
       _mood = $v.mood;
       _outfitBeats = $v.outfitBeats?.toBuilder();
       _sceneNumber = $v.sceneNumber;
+      _sceneScore = $v.sceneScore;
       _scriptDay = $v.scriptDay;
       _shootingDayIds = $v.shootingDayIds.toBuilder();
       _source_ = $v.source_?.toBuilder();
       _summary = $v.summary;
+      _synopsisScore = $v.synopsisScore;
       _updatedAt = $v.updatedAt;
       _version = $v.version;
       _$v = null;
@@ -244,10 +267,12 @@ class SceneViewBuilder implements Builder<SceneView, SceneViewBuilder> {
             mood: mood,
             outfitBeats: _outfitBeats?.build(),
             sceneNumber: sceneNumber,
+            sceneScore: sceneScore,
             scriptDay: scriptDay,
             shootingDayIds: shootingDayIds.build(),
             source_: _source_?.build(),
             summary: summary,
+            synopsisScore: synopsisScore,
             updatedAt: BuiltValueNullFieldError.checkNotNull(
                 updatedAt, r'SceneView', 'updatedAt'),
             version: BuiltValueNullFieldError.checkNotNull(

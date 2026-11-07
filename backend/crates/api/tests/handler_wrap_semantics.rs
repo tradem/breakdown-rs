@@ -97,6 +97,8 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
     ports.scene_repo.scenes.lock().await.insert(
         scene_id,
         SceneView {
+            scene_score: None,
+            synopsis_score: None,
             id: scene_id,
             episode_id,
             scene_number: None,

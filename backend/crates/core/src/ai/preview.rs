@@ -1217,6 +1217,12 @@ impl DraftScene {
             is_schedule_set: false,
             summary: self.summary.clone(),
             script_day: self.script_day.clone(),
+            // The Decision-Model scores ride the same apply payload (issue
+            // #834): the projector persists them on `SceneCreated`, so the
+            // scene detail screen can show them without re-reading the
+            // preview. `None` when no scoring pass ran or it failed.
+            scene_score: self.scene_score,
+            synopsis_score: self.synopsis_score,
         }
     }
 }

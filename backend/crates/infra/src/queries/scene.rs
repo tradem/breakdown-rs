@@ -59,6 +59,8 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.is_schedule_set,
                 s.summary,
                 s.script_day,
+                s.scene_score,
+                s.synopsis_score,
                 s.source,
                 s.version,
                 s.updated_at,
@@ -123,6 +125,8 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.is_schedule_set,
                 s.summary,
                 s.script_day,
+                s.scene_score,
+                s.synopsis_score,
                 s.source,
                 s.version,
                 s.updated_at,
@@ -181,6 +185,8 @@ impl SceneRepository for SceneRepositoryImpl {
                 s.is_schedule_set,
                 s.summary,
                 s.script_day,
+                s.scene_score,
+                s.synopsis_score,
                 s.source,
                 s.version,
                 s.updated_at,
@@ -240,6 +246,10 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
     let summary: Option<String> = row.try_get("summary").map_err(map_err)?;
     let script_day: Option<String> = row.try_get("script_day").map_err(map_err)?;
     let shooting_day_ids: Vec<Uuid> = row.try_get("shooting_day_ids").map_err(map_err)?;
+    // `double precision` columns decode as f64; the domain values are f32
+    // (upcast at write time is lossless, downcast back is exact).
+    let scene_score: Option<f64> = row.try_get("scene_score").map_err(map_err)?;
+    let synopsis_score: Option<f64> = row.try_get("synopsis_score").map_err(map_err)?;
     let source_json: serde_json::Value = row.try_get("source").map_err(map_err)?;
     let source = serde_json::from_value::<SceneSource>(source_json.clone()).map_err(|e| {
         DomainError::conflict(format!(
@@ -255,6 +265,8 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
         is_schedule_set: row.try_get("is_schedule_set").map_err(map_err)?,
         summary,
         script_day,
+        scene_score: scene_score.map(|v| v as f32),
+        synopsis_score: synopsis_score.map(|v| v as f32),
         shooting_day_ids: shooting_day_ids.into_iter().map(ShootingDayId).collect(),
         assigned_characters: row.try_get("assigned_characters").map_err(map_err)?,
         outfit_beats,
