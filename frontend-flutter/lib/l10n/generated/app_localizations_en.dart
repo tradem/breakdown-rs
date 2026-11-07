@@ -4098,7 +4098,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiImportTargetBlockLess =>
-      'Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.';
+      'No target block yet: after the upload the block is taken from the script or chosen by hand.';
 
   @override
   String sceneDetailTitle(Object number) {
