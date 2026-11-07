@@ -57,10 +57,13 @@
 - [x] 4.6 Integration: a mapped scene whose episode has NO projection row keeps
       its entry with honest-absent labels (a LEFT join, not an inner one) and
       sorts last — the assertion that would otherwise pass with an inner join.
-- [x] 4.7 Integration (Tier 4, real worker + SierraDB + projectors): the apply
-      future is cancelled at the first committed scene row; the job read then
-      derives exactly those rows. This is the criterion-5 test — a regression
-      that moves the summary back onto the write path leaves this test empty
+- [x] 4.7 Integration (Tier 4, real worker + SierraDB + projectors): the mapping
+      repository is gated — the first `scene` mapping is committed, then `insert`
+      never returns, parking the worker mid-run. The test waits for the gate's
+      own signal, aborts the future, asserts the join reports CANCELLED (a
+      completed run is a failure, never a vacuous pass), then asserts the job
+      read derives exactly that one row. This is the criterion-5 test — a
+      regression that moves the summary back onto the write path leaves it empty
       while the seeded-fixture tests still pass.
 
 ## 5. Client — the hop reads the durable source

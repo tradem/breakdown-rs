@@ -7,11 +7,13 @@
 //! resolvable**.
 //!
 //! The production `ApplyWorker` write chain is driven with a real SierraDB and
-//! Postgres, and the apply future is then **cancelled** (`JoinHandle::abort`,
-//! i.e. the future is dropped at its next await point) at the moment the first
-//! scene row's mapping is confirmed — the state a dropped HTTP connection
-//! leaves the server in: rows committed, handler future gone, nobody to run the
-//! trailing work.
+//! Postgres. Its mapping repository is wrapped in a **gate**: the first scene
+//! mapping is written for real and the `insert` call then never returns, which
+//! parks the worker inside `create_scene_reserved`'s confirm step. That is what
+//! makes the cancellation provable instead of hopeful — the test waits for the
+//! gate's own signal (the row IS committed, the run IS in flight), aborts the
+//! future and asserts the join reports **cancelled**. A run that finished first
+//! would be a test failure, never a vacuous pass.
 //!
 //! Two things are asserted:
 //!
@@ -28,10 +30,10 @@
 //! list, while the seeded-fixture tests in `ai_import_job_identity` would still
 //! pass.
 //!
-//! Determinism: the cancellation is gated on the DURABLE evidence (a confirmed
-//! mapping row), never on a clock budget — the poll only bounds the wait for the
-//! worker's own progress, and the assertion is an invariant over what is in the
-//! database at read time, so it holds on a fast and a slow machine alike.
+//! Determinism: no poll races the worker and no wall-clock budget is involved.
+//! The gate blocks the worker until the test drops the future, so exactly ONE
+//! scene mapping is committed when the run is cancelled, and the summary must
+//! report exactly that.
 
 #![allow(
     clippy::unwrap_used,
@@ -48,9 +50,11 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::ai::{
-    AiImportEnqueueRequest, AiImportJobId, AiImportQueue, ApplyMapping, ApplyMappingDecision,
-    DocumentKind, DraftScene, ScriptContext, SourceFormat,
+    AiImportEnqueueRequest, AiImportJobId, AiImportMapping, AiImportMappingRepository,
+    AiImportQueue, ApplyMapping, ApplyMappingDecision, DocumentKind, DraftScene, ScriptContext,
+    SourceFormat, mapping_kind,
 };
+use breakdown_core::error::DomainError;
 use breakdown_core::shared::{BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use fixtures::{spawn_postgres_with_connections, spawn_sierradb};
 use infra::ai::{ApplyScriptRequest, ApplyWorker, PgAiImportMappingRepository, PgAiImportQueue};
@@ -122,18 +126,61 @@ async fn confirmed_scene_mappings(pool: &sqlx::PgPool, job: AiImportJobId) -> Re
     Ok(count)
 }
 
-/// Wait until the FIRST scene row of the run is durably mapped, i.e. until the
-/// apply has committed something the summary has to account for.
-async fn await_first_committed_row(pool: &sqlx::PgPool, job: AiImportJobId) -> Result<()> {
-    let deadline = std::time::Instant::now() + DEADLINE;
-    loop {
-        if confirmed_scene_mappings(pool, job).await? >= 1 {
-            return Ok(());
+/// A mapping repository that holds the apply **in flight** at a chosen point.
+///
+/// The first confirmed `scene` mapping is written for real (so the row the
+/// summary must derive is durable), then `insert` never returns, parking the
+/// worker inside `create_scene_reserved`'s confirm step until the test drops the
+/// apply future. Without such a gate "cancel an in-flight apply" is a race: a
+/// three-row preview can finish between the test's observation and its `abort()`,
+/// and the assertion would then pass without ever exercising cancellation.
+struct GatedMappings<M> {
+    inner: M,
+    /// Signalled once the first scene mapping is durably confirmed.
+    confirmed: tokio::sync::mpsc::Sender<()>,
+    /// Held so exactly one call parks (the gate is a one-shot).
+    gate_taken: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl<M: AiImportMappingRepository> AiImportMappingRepository for GatedMappings<M> {
+    async fn find(
+        &self,
+        preview_id: AiImportJobId,
+        draft_ref: &str,
+        aggregate_kind: &str,
+        ordinal: i32,
+    ) -> Result<Option<AiImportMapping>, DomainError> {
+        self.inner
+            .find(preview_id, draft_ref, aggregate_kind, ordinal)
+            .await
+    }
+
+    async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
+        self.inner.reserve(mapping).await
+    }
+
+    async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
+        let is_scene = mapping.aggregate_kind == mapping_kind::SCENE;
+        self.inner.insert(mapping).await?;
+        if is_scene
+            && !self
+                .gate_taken
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            // The row above is committed and the run is provably mid-flight:
+            // tell the test, then never resolve this future again.
+            let _ = self.confirmed.send(()).await;
+            std::future::pending::<()>().await;
         }
-        if std::time::Instant::now() >= deadline {
-            anyhow::bail!("the apply never committed a scene row to cancel after");
-        }
-        tokio::time::sleep(POLL).await;
+        Ok(())
+    }
+
+    async fn list_by_preview(
+        &self,
+        preview_id: AiImportJobId,
+    ) -> Result<Vec<AiImportMapping>, DomainError> {
+        self.inner.list_by_preview(preview_id).await
     }
 }
 
@@ -172,6 +219,9 @@ async fn a_cancelled_apply_still_leaves_its_summary_resolvable() -> Result<()> {
     let cmd_service = CommandService::new(conn);
     let finality_gate = WrapFinalityGate::new(pool.clone());
     let queue = Arc::new(PgAiImportQueue::new(pool.clone()));
+    // The gate: the test learns the moment the first scene mapping is committed
+    // and the worker stays parked there until the future is dropped.
+    let (confirmed_tx, mut confirmed_rx) = tokio::sync::mpsc::channel(1);
     let worker = ApplyWorker {
         scene_commands: Arc::new(SceneCommandsImpl::new(cmd_service.clone())),
         character_commands: Arc::new(CharacterCommandsImpl::new(cmd_service.clone())),
@@ -185,7 +235,11 @@ async fn a_cancelled_apply_still_leaves_its_summary_resolvable() -> Result<()> {
             cmd_service.clone(),
             finality_gate,
         )),
-        mappings: Arc::new(PgAiImportMappingRepository::new(pool.clone())),
+        mappings: Arc::new(GatedMappings {
+            inner: PgAiImportMappingRepository::new(pool.clone()),
+            confirmed: confirmed_tx,
+            gate_taken: std::sync::atomic::AtomicBool::new(false),
+        }),
         queue: Arc::clone(&queue),
         season_repo: Arc::new(SeasonRepositoryImpl::new(pool.clone())),
     };
@@ -243,18 +297,33 @@ async fn a_cancelled_apply_still_leaves_its_summary_resolvable() -> Result<()> {
             .await
     });
 
-    // Cancel at the first durable row — not at a wall-clock instant.
-    await_first_committed_row(&pool, job).await?;
+    // Wait for the gate: the first scene mapping is committed AND the worker is
+    // still inside the run. Nothing here races a clock.
+    confirmed_rx
+        .recv()
+        .await
+        .expect("the apply must reach its first scene confirm");
+
     apply.abort();
-    // Joining a cancelled task returns `Err(Cancelled)`; the await is what makes
-    // the cancellation observable here.
-    let _ = apply.await;
+    // The join result is the proof that the run was CANCELLED rather than
+    // finished: a completed apply would make the durability claim vacuous.
+    match apply.await {
+        Err(error) => assert!(
+            error.is_cancelled(),
+            "the apply future must be cancelled, not merely finished: {error}"
+        ),
+        Ok(Ok(_)) => panic!(
+            "the apply ran to completion before the cancellation — the gate \
+             failed to hold it in flight"
+        ),
+        Ok(Err(domain)) => panic!("the apply failed instead of being cancelled: {domain}"),
+    }
 
     let committed = confirmed_scene_mappings(&pool, job).await?;
-    assert!(
-        committed >= 1,
-        "the cancellation must happen after at least one committed row, or the \
-         test proves nothing about a partial run"
+    assert_eq!(
+        committed, 1,
+        "the gate parks the run at its FIRST confirmed scene mapping, so exactly \
+         one row is committed"
     );
     await_scene_projection(&pool, committed).await?;
 
