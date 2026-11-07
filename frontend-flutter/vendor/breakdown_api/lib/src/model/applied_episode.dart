@@ -16,7 +16,7 @@ part 'applied_episode.g.dart';
 /// * [appliedCount] - Scene rows applied into this episode.
 /// * [id] - The episode the rows were applied into.
 /// * [name] - Its title, when the episode has one. `None` is honest absence — an untitled episode renders by number alone.
-/// * [number] - Its production-global number (the identity a user speaks in), when the apply path knew it. `None` is honest absence — never `0`, never a number read back from a projection the write path must not consult.
+/// * [number] - Its production-global number (the identity a user speaks in). `None` is honest absence — never `0`. Since issue #864 the entry is derived from the read model, so the number is the persisted episode's own when the episode row is known to the projection.
 @BuiltValue()
 abstract class AppliedEpisode
     implements Built<AppliedEpisode, AppliedEpisodeBuilder> {
@@ -32,7 +32,7 @@ abstract class AppliedEpisode
   @BuiltValueField(wireName: r'name')
   String? get name;
 
-  /// Its production-global number (the identity a user speaks in), when the apply path knew it. `None` is honest absence — never `0`, never a number read back from a projection the write path must not consult.
+  /// Its production-global number (the identity a user speaks in). `None` is honest absence — never `0`. Since issue #864 the entry is derived from the read model, so the number is the persisted episode's own when the episode row is known to the projection.
   @BuiltValueField(wireName: r'number')
   int? get number;
 

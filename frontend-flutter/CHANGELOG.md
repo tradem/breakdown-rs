@@ -23,6 +23,22 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The post-apply hop no longer needs the apply response to know where the
+  import landed** (issue #864, `0.4.0-beta.42+134 → 0.4.0-beta.43+135`). A
+  second apply of an already-applied preview dispatches nothing — every row is
+  settled by its confirmed mapping — so its response listed no episode at all,
+  and the hop fell back to the request's episode even though the job knew
+  exactly where its rows were. The server now derives that summary from the
+  durable apply mappings (so it also survives an apply whose client disconnected
+  before the response), and the hop reads it when the response names nothing:
+  `aiJobAppliedEpisodesProvider` takes the persisted summary from the cached job
+  row (cache-only, like `aiJobAppliedProvider` — the navigation path still never
+  waits for the network) and the target choice runs over it. An absent, offline
+  or undecodable summary degrades to the previous honest behaviour: the request's
+  episode, and then no navigation with the outcome card kept in place. Regenerated
+  `vendor/breakdown_api` (documentation-only wire change: the `applied_episodes`
+  / `AppliedEpisode.number` / `ApplyStage` descriptions moved; no shape change).
+
 - **A crashed apply run no longer leaves the client waiting** (issue #805,
   `0.4.0-beta.41+133 → 0.4.0-beta.42+134`). An API process that died mid-apply
   left its progress payload on the job, so every further apply was refused with
