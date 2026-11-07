@@ -245,6 +245,20 @@ String sceneCreateErrorCopy(AppLocalizations l10n, ProblemError error) =>
       _ => l10n.scenesCreateErrorGeneric(error.code),
     };
 
+/// Localized client-side copy for a scene-detail update failure (issue
+/// #834), keyed on the stable problem `code` (never the server's localized
+/// `detail`). The 409 `concurrency.version-mismatch` arm renders the
+/// localized retry narrative: the scene changed elsewhere, refresh and
+/// re-try — the command itself is never re-dispatched automatically.
+String sceneUpdateErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'scene.validation' => l10n.sceneUpdateErrorValidation,
+      'concurrency.version-mismatch' => l10n.sceneUpdateErrorConflict,
+      _ when error.code.startsWith('transport.') =>
+        l10n.sceneUpdateErrorNetwork,
+      _ => l10n.sceneUpdateErrorGeneric(error.code),
+    };
+
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
 class ScenesController extends _$ScenesController {
@@ -392,6 +406,70 @@ class ScenesController extends _$ScenesController {
         // Fire-and-forget: the UI must not block on projector lag.
         unawaited(reconcile());
         return Right<ProblemError, IdVersionResponse>(res);
+      },
+    );
+  }
+
+  /// Submits the Update Scene Details command (issue #834): all fields of
+  /// the edit sheet, the `version` ECHOED from the acted-on `SceneView`
+  /// (optimistic locking, #473 doctrine — the version comes from the read
+  /// DTO the user is acting on, never a second lookup).
+  ///
+  /// AUTHZ-GATE: the backend update handler is `CurrentUser`-gated
+  /// (auth-only). The client mirrors that gate — no network call is issued
+  /// without an authenticated session.
+  Future<Result<int>> updateDetails({
+    required SceneView scene,
+    required SceneDetails details,
+  }) async {
+    // AUTHZ-GATE: authenticated session required; deny before any network
+    // call. Awaited (not read): a pending restore must resolve first.
+    final resolved = await _resolveSession();
+    if (resolved == null) {
+      const error = ProblemError(
+        code: 'authz.denied',
+        title: 'An authenticated session is required to update scenes',
+        status: 403,
+      );
+      ref.read(scenesCommandErrorProvider(episodeId).notifier).set(error);
+      return Left(error);
+    }
+
+    final repo = ref.read(sceneRepositoryProvider);
+    final ack = await repo.updateDetails(
+      scene.id,
+      UpdateSceneDetailsRequest(
+        (b) => b
+          ..details.replace(details)
+          ..version = scene.version,
+      ),
+    );
+
+    return ack.match(
+      (err) {
+        ref.read(scenesCommandErrorProvider(episodeId).notifier).set(err);
+        return Left<ProblemError, int>(err);
+      },
+      (res) {
+        ref.read(scenesCommandErrorProvider(episodeId).notifier).clear();
+        // Optimistic-after-2xx on the edited row: the overlay carries the
+        // submitted summary/number at the acked version until the
+        // projection catches up (version-fenced drop, same store the
+        // create flow uses).
+        ref
+            .read(scenesOverlaysProvider(episodeId).notifier)
+            .add(
+              SceneOverlay(
+                id: scene.id,
+                summary: details.summary,
+                sceneNumber: details.sceneNumber,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        // Fire-and-forget: the UI must not block on projector lag.
+        unawaited(reconcile());
+        return Right<ProblemError, int>(res);
       },
     );
   }

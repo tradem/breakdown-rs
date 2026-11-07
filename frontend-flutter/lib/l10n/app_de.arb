@@ -1519,5 +1519,27 @@
   "aiImportTargetFrozen": "Ziel gesperrt: Das Vorschau-Episodenziel ist bereits gewählt und hängt am Zielblock. Für einen anderen Block starte einen neuen Import.",
   "@aiImportTargetFrozen": {},
   "aiImportTargetBlockLess": "Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.",
-  "@aiImportTargetBlockLess": {}
+  "@aiImportTargetBlockLess": {},
+  "sceneDetailTitle": "Szene {number}",
+  "@sceneDetailTitle": {
+    "placeholders": {
+      "number": {}
+    }
+  },
+  "sceneDetailSynopsisTitle": "Synopsis",
+  "sceneDetailNoSynopsis": "Keine Synopsis",
+  "sceneDetailRatingScene": "Szene",
+  "sceneDetailRatingSynopsis": "Synopsis",
+  "sceneDetailEditTooltip": "Szene bearbeiten",
+  "sceneDetailEditNumber": "Szenennummer",
+  "sceneDetailEditNumberHint": "Die Nummer steuert nur die Sortierung – doppelte Nummern werden (noch) nicht geprüft.",
+  "sceneDetailEditLocation": "Ort",
+  "sceneDetailEditMood": "Stimmung",
+  "sceneDetailEditMoodCustom": "Eigene Stimmung",
+  "sceneDetailEditScriptDay": "Drehtag im Skript",
+  "sceneDetailEditSummary": "Synopsis",
+  "sceneUpdateErrorValidation": "Die Änderung wurde abgelehnt – bitte prüfe Nummer und Texte.",
+  "sceneUpdateErrorConflict": "Die Szene wurde zwischenzeitlich geändert. Aktualisiere die Ansicht und versuche es erneut.",
+  "sceneUpdateErrorNetwork": "Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuche es erneut.",
+  "sceneUpdateErrorGeneric": "Die Szene konnte nicht gespeichert werden ({code})."
 }

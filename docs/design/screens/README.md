@@ -33,6 +33,14 @@ copy key.
 > rail typography); encoding behavior in Salt produces misleading
 > wireframes.
 >
+> **Divider-free collapsible sections.** A collapsible section renders
+> through the shared `SectionCard` component (`lib/design/components/`):
+> card surface + whitespace, NO shape borders and NO `Divider` in any
+> expansion state, collapsed by default, count kept in the header (issue
+> #834 — the Material-3 `ExpansionTile` default border chrome reads as
+> stray horizontal lines). A screen opts into an initially-open section
+> only deliberately.
+>
 > **Platform neutrality.** Specs use generic Material 3 component
 > vocabulary ("navigation bar", "extended FAB", "assist chip") — never
 > Flutter widget names (`NavigationBar`, `FloatingActionButton`).

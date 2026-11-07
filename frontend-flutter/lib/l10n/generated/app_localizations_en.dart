@@ -4098,5 +4098,64 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiImportTargetBlockLess =>
-      'No target block yet: after the upload the block is taken from the script or chosen by hand.';
+      'Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.';
+
+  @override
+  String sceneDetailTitle(Object number) {
+    return 'Scene $number';
+  }
+
+  @override
+  String get sceneDetailSynopsisTitle => 'Synopsis';
+
+  @override
+  String get sceneDetailNoSynopsis => 'No synopsis';
+
+  @override
+  String get sceneDetailRatingScene => 'Scene';
+
+  @override
+  String get sceneDetailRatingSynopsis => 'Synopsis';
+
+  @override
+  String get sceneDetailEditTooltip => 'Edit scene';
+
+  @override
+  String get sceneDetailEditNumber => 'Scene number';
+
+  @override
+  String get sceneDetailEditNumberHint =>
+      'The number only drives ordering — duplicate numbers are not (yet) checked.';
+
+  @override
+  String get sceneDetailEditLocation => 'Location';
+
+  @override
+  String get sceneDetailEditMood => 'Mood';
+
+  @override
+  String get sceneDetailEditMoodCustom => 'Custom mood';
+
+  @override
+  String get sceneDetailEditScriptDay => 'Script day';
+
+  @override
+  String get sceneDetailEditSummary => 'Synopsis';
+
+  @override
+  String get sceneUpdateErrorValidation =>
+      'The change was rejected — check the number and the texts.';
+
+  @override
+  String get sceneUpdateErrorConflict =>
+      'The scene changed in the meantime. Refresh the view and try again.';
+
+  @override
+  String get sceneUpdateErrorNetwork =>
+      'Network problem — the change was not saved. Try again.';
+
+  @override
+  String sceneUpdateErrorGeneric(Object code) {
+    return 'The scene could not be saved ($code).';
+  }
 }
