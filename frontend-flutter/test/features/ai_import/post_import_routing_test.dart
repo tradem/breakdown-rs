@@ -46,6 +46,7 @@ import 'package:frontend_flutter/data/season_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/post_import_report.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/preview_screen.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
@@ -275,6 +276,10 @@ void main() {
     /// must not touch it (CodeRabbit #802): the number fallback is a cache read.
     late int episodeListFetches;
 
+    /// How often the jobs LIST seam ran. A successful apply reconciles the job
+    /// projection so the server-derived summary reaches the cache (issue #864).
+    late int jobsListFetches;
+
     setUp(() {
       storage = FakeSecureStoragePlatform();
       FlutterSecureStoragePlatform.instance = storage;
@@ -282,6 +287,7 @@ void main() {
       scenesFetches = 0;
       scriptFetches = 0;
       episodeListFetches = 0;
+      jobsListFetches = 0;
     });
 
     tearDown(() async {
@@ -350,6 +356,14 @@ void main() {
             scenesFetches++;
             return const Right(<SceneView>[]);
           }),
+          // A counter, not a fake result: the post-apply reconciliation names
+          // the seam, but the hop itself must never await it (issue #864).
+          aiImportJobsFetchProvider.overrideWith((ref) async {
+            jobsListFetches++;
+            return const Right<ProblemError, List<AiImportJob>>(
+              <AiImportJob>[],
+            );
+          }),
           // A counter, not a fake result: the routing path must never own a
           // network read (see the cache-fallback test below).
           episodesListFetchProvider(_blockId, _seasonId).overrideWith((
@@ -390,6 +404,11 @@ void main() {
       // disposed autoDispose instance.
       container.listen(scenesListFetchProvider(_episodeId), (_, _) {});
       await container.read(scenesListFetchProvider(_episodeId).future);
+      // Same for the jobs list: the post-apply reconciliation invalidates it
+      // (issue #864), and an invalidation only re-runs a provider a listener
+      // holds — the production jobs screen is mounted behind the import stack.
+      container.listen(aiImportJobsFetchProvider, (_, _) {});
+      await container.read(aiImportJobsFetchProvider.future);
     }
 
     /// The production topology: the Script destination is already mounted (the
@@ -538,6 +557,115 @@ void main() {
       expect(report, isNotNull);
       expect(report!.episodeId, _episodeId);
     });
+
+    testWidgets('a re-apply publishes the persisted place but never its historical counts '
+        '(issue #864 review)', (tester) async {
+      // The persisted summary describes EARLIER applies, so it may only say
+      // WHERE to go. Attaching its counts (or its further episodes) to THIS
+      // request's report would claim rows the user did not just write.
+      await setupContainer(
+        applyQueue: [Right(_outcome(appliedEpisodes: const []))],
+        persistedAppliedEpisodes: [
+          _appliedEpisode(_episodeId, count: 57, number: 299, name: 'Erlösung'),
+          _appliedEpisode(
+            _otherEpisodeId,
+            count: 4,
+            number: 298,
+            name: 'Ankunft',
+          ),
+        ],
+      );
+      await pumpWithImportStack(tester);
+
+      await acknowledgeAndApply(tester);
+
+      final scope = container.read(activeEpisodeProvider);
+      expect(scope, isNotNull);
+      expect(scope!.episodeId, _episodeId);
+      final report = container.read(aiPostImportReportProvider);
+      expect(report, isNotNull);
+      expect(report!.episodeId, _episodeId);
+      expect(
+        report.others,
+        isEmpty,
+        reason: 'historical episodes are not this request\'s output',
+      );
+      expect(
+        find.byKey(const Key('ai-post-import-other-episode-$_otherEpisodeId')),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      'a persisted target the caches cannot resolve keeps the screen AND shows '
+      'the hint (issue #864 review)',
+      (tester) async {
+        // Before the durable fallback the hint was derived from the RESPONSE
+        // being non-empty, so this state (a target the server knows, a season
+        // the cache does not hold) stayed silent after a re-apply.
+        await setupContainer(
+          seasonCached: false,
+          applyQueue: [Right(_outcome(appliedEpisodes: const []))],
+          persistedAppliedEpisodes: [
+            _appliedEpisode(
+              _episodeId,
+              count: 57,
+              number: 299,
+              name: 'Erlösung',
+            ),
+          ],
+        );
+        await pumpWithImportStack(tester);
+
+        await acknowledgeAndApply(tester);
+
+        expect(find.byType(AiPreviewScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('ai-apply-navigation-unresolved')),
+          findsOneWidget,
+          reason: 'a known target that cannot be resolved must say so',
+        );
+        expect(
+          container.read(shellControllerProvider).selectedIndex,
+          kCastTabIndex,
+        );
+      },
+    );
+
+    testWidgets(
+      'a successful apply reconciles the job projection so the durable summary '
+      'reaches the cache (issue #864 review)',
+      (tester) async {
+        await setupContainer(
+          applyQueue: [
+            Right(
+              _outcome(
+                appliedEpisodes: [
+                  _appliedEpisode(
+                    _episodeId,
+                    count: 30,
+                    number: 299,
+                    name: 'Erlösung',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+        await pumpWithImportStack(tester);
+        final before = jobsListFetches;
+
+        await acknowledgeAndApply(tester);
+
+        expect(
+          jobsListFetches,
+          greaterThan(before),
+          reason:
+              'the apply must re-run the job list so the derived summary is '
+              'cached for a later hop',
+        );
+      },
+    );
 
     testWidgets(
       'a partially applied response keeps its unapplied outfits reachable on '

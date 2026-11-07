@@ -199,10 +199,12 @@ async fn applied_episodes_are_derived_from_the_apply_mappings() -> Result<()> {
         "a job no apply has run for names no target"
     );
 
-    // Episode 299 "Erlösung" received two rows, episode 300 (untitled, and NOT
-    // projected into the episode table) received one.
+    // Episode 299 "Erlösung" received two rows; episode 300 is projected but
+    // UNTITLED; episode 301 is not projected at all (projector lag, or a target
+    // whose episode row this deployment never saw) and received one row each.
     let episode_299 = Uuid::now_v7();
     let episode_300 = Uuid::now_v7();
+    let episode_301 = Uuid::now_v7();
     insert_episode(&pool, episode_299, 299, Some("Erlösung")).await?;
     insert_episode(&pool, episode_300, 300, None).await?;
     for (index, draft_ref) in ["scene-0", "scene-1"].iter().enumerate() {
@@ -213,6 +215,12 @@ async fn applied_episodes_are_derived_from_the_apply_mappings() -> Result<()> {
     let scene_300 = Uuid::now_v7();
     insert_scene(&pool, scene_300, episode_300).await?;
     insert_mapping(&pool, id, "scene-2", "scene", scene_300, 1).await?;
+    // A mapped scene whose episode has NO `projection_episode` row: the entry
+    // must still exist (a LEFT join, not an inner one) with honest-absent
+    // labels — dropping it would make a real applied row invisible.
+    let scene_301 = Uuid::now_v7();
+    insert_scene(&pool, scene_301, episode_301).await?;
+    insert_mapping(&pool, id, "scene-3", "scene", scene_301, 1).await?;
 
     let job = queue.get(id).await?.expect("job exists");
     assert_eq!(
@@ -230,8 +238,15 @@ async fn applied_episodes_are_derived_from_the_apply_mappings() -> Result<()> {
                 name: None,
                 applied_count: 1,
             },
+            AppliedEpisode {
+                id: episode_301,
+                number: None,
+                name: None,
+                applied_count: 1,
+            },
         ],
-        "one entry per episode, ordered by number, labelled from the projection"
+        "one entry per episode, ordered by number (unlabelled last), labelled \
+         from the projection — an unprojected episode keeps its row"
     );
     Ok(())
 }

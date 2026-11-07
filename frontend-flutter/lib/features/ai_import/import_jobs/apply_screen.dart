@@ -341,9 +341,12 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
   bool _applying = false;
 
   /// Set when a SUCCESSFUL apply could not be routed to its imported material
-  /// (issue #759): no applied episode on the response, or a season / episode
-  /// number the read caches do not hold. The outcome card then says so instead
-  /// of leaving the user to wonder why the screen did not change.
+  /// (issue #759) although the server knows a target episode — a season, block
+  /// or episode number the read caches do not hold. The outcome card then says so
+  /// instead of leaving the user to wonder why the screen did not change. A job
+  /// with NO target episode at all (a schedule merge, or nothing ever applied)
+  /// keeps the card without that hint: there is no imported episode to open
+  /// (issue #864 gives that distinction a name, [PostImportResolution]).
   bool _navigationUnresolved = false;
 
   /// The reviewer-rejected day groups (issue #706), resolved to their display
@@ -366,7 +369,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
   /// imported rows nowhere while pretending to have opened them.
   Future<void> _openImportedEpisode(ApplyAiImportResponse outcome) async {
     final state = ref.read(aiApplyControllerProvider(widget.jobId));
-    final target = await resolvePostImportTarget(
+    final (:target, :hadCandidates) = await resolvePostImportTarget(
       ref,
       jobId: widget.jobId,
       outcome: outcome,
@@ -377,13 +380,10 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
       // CodeRabbit #802: a SCHEDULE apply dispatches no episode at all (it
       // merges onto the project's existing scenes and days), so "the imported
       // episode could not be opened" would be a claim about something that does
-      // not exist. The hint is for the real failure — episodes WERE applied but
-      // the destination is not resolvable from the read caches.
-      final appliedEpisodes = outcome.appliedEpisodes;
-      setState(
-        () => _navigationUnresolved =
-            appliedEpisodes != null && appliedEpisodes.isNotEmpty,
-      );
+      // not exist. The hint is for the real failure — a target episode IS known
+      // (from the response, or from the job's durable summary since issue #864)
+      // but the destination is not resolvable from the read caches.
+      setState(() => _navigationUnresolved = hadCandidates);
       return;
     }
     openImportedEpisode(

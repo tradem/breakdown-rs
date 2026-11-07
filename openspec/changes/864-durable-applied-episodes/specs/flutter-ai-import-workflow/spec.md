@@ -17,11 +17,26 @@ The fallback is load-bearing and not cosmetic: a re-apply of an already-applied
 preview dispatches nothing (every row is settled by its confirmed mapping), so
 its response carries an empty list while the job still says where the rows are.
 
+Because a persisted summary describes **earlier** applies, it SHALL only answer
+WHERE to go: the report published at the destination SHALL list as "also
+applied" only the episodes **this** request dispatched (the response's own
+list), never the historical summary's remaining entries, so no earlier row count
+is attributed to the request the user just confirmed.
+
 The fallback SHALL remain a cache read: the navigation path SHALL NOT wait for,
 or depend on, the network. An absent, offline or undecodable cached summary SHALL
-degrade to the existing honest behaviour — the request's episode, and then no
-navigation at all with the outcome card kept in place. No id or number SHALL ever
-be invented.
+degrade to the existing honest behaviour — navigation is skipped and the outcome
+card stays in place. No id or number SHALL ever be invented.
+
+The resolution SHALL tell the caller whether the server knows a target episode at
+all, so the "the imported episode could not be opened" hint is shown exactly when
+a target exists but does not resolve from the read caches. A job with no target
+episode whatsoever — a schedule merge, or nothing ever applied — SHALL keep the
+outcome card **without** that hint.
+
+A successful apply SHALL reconcile the job projection (re-run the jobs list and
+drop the job-scoped summary read) so the server-derived summary reaches the cache
+for a later hop, without the hop itself awaiting it.
 
 #### Scenario: A re-apply with an empty response still lands on the imported episode
 
@@ -30,9 +45,20 @@ be invented.
 - **THEN** the app leaves the review screen for the Script destination with that
   episode in scope
 
+#### Scenario: A persisted target never donates its historical counts
+
+- **WHEN** the persisted summary names two episodes with 57 and 4 rows
+- **THEN** the destination report lists no "also applied" episode for this
+  request, because it dispatched none
+
+#### Scenario: A known target that cannot be resolved still says so
+
+- **WHEN** the persisted summary names an episode whose season the read caches do
+  not hold
+- **THEN** the review screen stays with the outcome card AND the explicit hint
+
 #### Scenario: An offline or unknown job degrades honestly
 
 - **WHEN** the response names no episode and the cached job row is unknown or its
   summary undecodable
-- **THEN** the existing fallback applies (the request's episode, else the outcome
-  card with its hint) and nothing is invented
+- **THEN** navigation is skipped, the outcome card stays, and nothing is invented

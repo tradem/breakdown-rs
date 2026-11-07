@@ -54,6 +54,14 @@
       (`scene_shoot`/`shooting_day`) derive no target.
 - [x] 4.5 Integration: `list_for_user` derives the same summary as `get`, and a
       never-applied job on the same page still answers empty.
+- [x] 4.6 Integration: a mapped scene whose episode has NO projection row keeps
+      its entry with honest-absent labels (a LEFT join, not an inner one) and
+      sorts last — the assertion that would otherwise pass with an inner join.
+- [x] 4.7 Integration (Tier 4, real worker + SierraDB + projectors): the apply
+      future is cancelled at the first committed scene row; the job read then
+      derives exactly those rows. This is the criterion-5 test — a regression
+      that moves the summary back onto the write path leaves this test empty
+      while the seeded-fixture tests still pass.
 
 ## 5. Client — the hop reads the durable source
 
@@ -64,6 +72,15 @@
       episode — the re-apply case — instead of dropping to the request's episode.
 - [x] 5.3 Widget test: a re-apply whose response carries an empty list still
       lands on the persisted episode (id, number, name) and publishes the report.
+- [x] 5.4 The persisted summary may only name the PLACE: the published report
+      carries `others` from the response alone, so earlier row counts are never
+      attributed to this request (review follow-up).
+- [x] 5.5 The resolution reports `hadCandidates`, so a known-but-unresolvable
+      target shows the explicit hint while a schedule merge keeps the card
+      without it (review follow-up).
+- [x] 5.6 A successful apply invalidates the jobs list and the job-scoped summary
+      provider, so the derived summary reaches the cache for a later hop (review
+      follow-up).
 
 ## 6. Housekeeping
 

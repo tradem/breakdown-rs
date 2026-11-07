@@ -524,13 +524,19 @@ pub struct AiImportJob {
     ///   episode the request named;
     /// * the list is ordered by episode number (id as the tiebreak), so two
     ///   reads of an unchanged job agree;
-    /// * empty means exactly "this job applied no rows" — a job that was never
-    ///   applied and a job whose apply was cancelled *before* its first commit
-    ///   both answer an empty list honestly.
+    /// * empty means "no **scene** row of this job is mapped to a projected
+    ///   scene" — NOT "this job applied nothing". A schedule apply is the
+    ///   standing example of the difference: it does commit work (shooting days,
+    ///   scene-shoot links) while naming no episode, so its list is empty by
+    ///   design. An empty list is also what a job no apply has run for answers,
+    ///   and what an apply cancelled before its first scene commit leaves
+    ///   behind.
     ///
     /// The derivation is display metadata: a failure to read it degrades to an
     /// empty list (the client renders its kind/date copy) and never makes the
-    /// job unreachable.
+    /// job unreachable — so an empty list can also mean "the derivation could
+    /// not be read just now". A client therefore never treats empty as proof
+    /// that no work happened, only as "no target to name".
     #[serde(default)]
     pub applied_episodes: Vec<AppliedEpisode>,
     /// What the optional Decision Model scoring pass actually did for this job
