@@ -6673,6 +6673,108 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.'**
   String get aiImportTargetBlockLess;
+
+  /// No description provided for @sceneDetailTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene {number}'**
+  String sceneDetailTitle(Object number);
+
+  /// No description provided for @sceneDetailSynopsisTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Synopsis'**
+  String get sceneDetailSynopsisTitle;
+
+  /// No description provided for @sceneDetailNoSynopsis.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Synopsis'**
+  String get sceneDetailNoSynopsis;
+
+  /// No description provided for @sceneDetailRatingScene.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene'**
+  String get sceneDetailRatingScene;
+
+  /// No description provided for @sceneDetailRatingSynopsis.
+  ///
+  /// In de, this message translates to:
+  /// **'Synopsis'**
+  String get sceneDetailRatingSynopsis;
+
+  /// No description provided for @sceneDetailEditTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Szene bearbeiten'**
+  String get sceneDetailEditTooltip;
+
+  /// No description provided for @sceneDetailEditNumber.
+  ///
+  /// In de, this message translates to:
+  /// **'Szenennummer'**
+  String get sceneDetailEditNumber;
+
+  /// No description provided for @sceneDetailEditNumberHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Nummer steuert nur die Sortierung – doppelte Nummern werden (noch) nicht geprüft.'**
+  String get sceneDetailEditNumberHint;
+
+  /// No description provided for @sceneDetailEditLocation.
+  ///
+  /// In de, this message translates to:
+  /// **'Ort'**
+  String get sceneDetailEditLocation;
+
+  /// No description provided for @sceneDetailEditMood.
+  ///
+  /// In de, this message translates to:
+  /// **'Stimmung'**
+  String get sceneDetailEditMood;
+
+  /// No description provided for @sceneDetailEditMoodCustom.
+  ///
+  /// In de, this message translates to:
+  /// **'Eigene Stimmung'**
+  String get sceneDetailEditMoodCustom;
+
+  /// No description provided for @sceneDetailEditScriptDay.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag im Skript'**
+  String get sceneDetailEditScriptDay;
+
+  /// No description provided for @sceneDetailEditSummary.
+  ///
+  /// In de, this message translates to:
+  /// **'Synopsis'**
+  String get sceneDetailEditSummary;
+
+  /// No description provided for @sceneUpdateErrorValidation.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Änderung wurde abgelehnt – bitte prüfe Nummer und Texte.'**
+  String get sceneUpdateErrorValidation;
+
+  /// No description provided for @sceneUpdateErrorConflict.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Szene wurde zwischenzeitlich geändert. Aktualisiere die Ansicht und versuche es erneut.'**
+  String get sceneUpdateErrorConflict;
+
+  /// No description provided for @sceneUpdateErrorNetwork.
+  ///
+  /// In de, this message translates to:
+  /// **'Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuche es erneut.'**
+  String get sceneUpdateErrorNetwork;
+
+  /// No description provided for @sceneUpdateErrorGeneric.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Szene konnte nicht gespeichert werden ({code}).'**
+  String sceneUpdateErrorGeneric(Object code);
 }
 
 class _AppLocalizationsDelegate

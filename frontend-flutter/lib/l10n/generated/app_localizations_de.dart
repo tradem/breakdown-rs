@@ -4148,4 +4148,63 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get aiImportTargetBlockLess =>
       'Ohne Zielblock: Der Block wird nach dem Hochladen aus dem Skript übernommen oder von Hand gewählt.';
+
+  @override
+  String sceneDetailTitle(Object number) {
+    return 'Szene $number';
+  }
+
+  @override
+  String get sceneDetailSynopsisTitle => 'Synopsis';
+
+  @override
+  String get sceneDetailNoSynopsis => 'Keine Synopsis';
+
+  @override
+  String get sceneDetailRatingScene => 'Szene';
+
+  @override
+  String get sceneDetailRatingSynopsis => 'Synopsis';
+
+  @override
+  String get sceneDetailEditTooltip => 'Szene bearbeiten';
+
+  @override
+  String get sceneDetailEditNumber => 'Szenennummer';
+
+  @override
+  String get sceneDetailEditNumberHint =>
+      'Die Nummer steuert nur die Sortierung – doppelte Nummern werden (noch) nicht geprüft.';
+
+  @override
+  String get sceneDetailEditLocation => 'Ort';
+
+  @override
+  String get sceneDetailEditMood => 'Stimmung';
+
+  @override
+  String get sceneDetailEditMoodCustom => 'Eigene Stimmung';
+
+  @override
+  String get sceneDetailEditScriptDay => 'Drehtag im Skript';
+
+  @override
+  String get sceneDetailEditSummary => 'Synopsis';
+
+  @override
+  String get sceneUpdateErrorValidation =>
+      'Die Änderung wurde abgelehnt – bitte prüfe Nummer und Texte.';
+
+  @override
+  String get sceneUpdateErrorConflict =>
+      'Die Szene wurde zwischenzeitlich geändert. Aktualisiere die Ansicht und versuche es erneut.';
+
+  @override
+  String get sceneUpdateErrorNetwork =>
+      'Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuche es erneut.';
+
+  @override
+  String sceneUpdateErrorGeneric(Object code) {
+    return 'Die Szene konnte nicht gespeichert werden ($code).';
+  }
 }
