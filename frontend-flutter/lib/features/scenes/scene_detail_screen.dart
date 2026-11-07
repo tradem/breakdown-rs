@@ -18,8 +18,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../design/components/ai_provenance_badge.dart';
+import '../../design/components/ai_score_stars.dart';
+import '../../design/components/section_card.dart';
 import '../../design/material_icons.dart';
 import '../../design/scene_mood_label.dart';
+import '../../design/spacing.dart';
 import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -33,13 +36,15 @@ import '../shooting_days/create_shooting_day_sheet.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'pick_outfit_sheet.dart';
 import 'scene_beats.dart';
+import 'scene_edit_sheet.dart';
 import 'scenes_controller.dart';
 import 'scenes_state.dart';
 import '../../design/components/breakdown_app_bar.dart';
 
-/// `SceneDetailScreen` — collapsible sections layout (design §4).
+/// `SceneDetailScreen` — compact header + divider-free, collapsed-by-default
+/// sections (issue #834 redesign; design §4).
 ///
-/// The Phase 1 scenes screen gains two sections here:
+/// The Phase 1 scenes screen keeps two sections here:
 /// * **Characters** (5.2): assigned characters resolved from
 ///   `SceneView.assignedCharacters` ids via the characters projection
 ///   (read-DTO join only — never aggregate reconstruction); assign (picker
@@ -88,12 +93,21 @@ class SceneDetailScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: BreakdownAppBar(
+        // „Szene {n}" — the summary is page content, never the app-bar
+        // title (issue #834: a whole sentence clipped into the bar read
+        // like a bug).
         title: scene == null
             ? l10nOf(context).sceneDetailTitleFallback
-            : (scene.summary?.isNotEmpty == true
-                  ? scene.summary!
-                  : l10nOf(context)
-                        .sceneTileLabel('${scene.sceneNumber ?? ''}')),
+            : l10nOf(context).sceneDetailTitle('${scene.sceneNumber ?? ''}'),
+        actions: [
+          if (scene != null)
+            IconButton(
+              key: const Key('scene-detail-edit'),
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: l10nOf(context).sceneDetailEditTooltip,
+              onPressed: () => _openEditor(context, ref, scene),
+            ),
+        ],
       ),
       body: switch ((scene, scenesState.projected)) {
         // Resolved scene with its collapsible sections.
@@ -105,20 +119,24 @@ class SceneDetailScreen extends ConsumerWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
-              _SceneSummary(scene: s),
-              const SizedBox(height: 8),
+              // Page identity, not a tile (issue #834): no card border
+              // around the header block.
+              _SceneHeader(scene: s),
+              const SizedBox(height: AppSpacing.space12),
+              _SceneSynopsisSection(scene: s),
+              const SizedBox(height: AppSpacing.space8),
               _SceneCharactersSection(
                 seasonId: seasonId,
                 episodeId: episodeId,
                 scene: s,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.space8),
               _SceneOutfitsSection(
                 seasonId: seasonId,
                 episodeId: episodeId,
                 scene: s,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.space8),
               _SceneShootingDaysSection(
                 seasonId: seasonId,
                 episode: episode,
@@ -145,6 +163,28 @@ class SceneDetailScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _openEditor(
+    BuildContext context,
+    WidgetRef ref,
+    SceneView scene,
+  ) async {
+    final result = await showSceneEditSheet(context, scene);
+    if (result == null || !context.mounted) return;
+    // Dispatch with the VERSION ECHOED from the read DTO the sheet was
+    // opened from (optimistic locking, #473). The controller runs the
+    // client-side AUTHZ-GATE and the optimistic overlay + bounded refetch.
+    final result2 = await ref
+        .read(scenesControllerProvider(episodeId).notifier)
+        .updateDetails(scene: scene, details: result.details);
+    if (!context.mounted) return;
+    result2.match(
+      (err) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(sceneUpdateErrorCopy(l10nOf(context), err))),
+      ),
+      (_) {},
+    );
+  }
+
   SceneView? _resolveScene(ScenesScreenState state) {
     for (final s in state.cachedRows) {
       if (s.id == sceneId) return s;
@@ -153,40 +193,183 @@ class SceneDetailScreen extends ConsumerWidget {
   }
 }
 
-class _SceneSummary extends StatelessWidget {
-  const _SceneSummary({required this.scene});
+/// The identity block (issue #834): the number as a large numeral, the
+/// location as the title line, and the metadata chip row — mood (#721
+/// icons), script day, geplant/ungeplant, and the AI-provenance badge from
+/// `SceneView.source`. No card border: this reads as page identity.
+class _SceneHeader extends StatelessWidget {
+  const _SceneHeader({required this.scene});
 
   final SceneView scene;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (scene.location case final location?)
-            Text(l10nOf(context).sceneLoc(location)),
-          // Set-shorthand mood with its reinforcing icons (issue #721):
-          // the icons render NEXT TO the visible text, never instead of it.
-          if (scene.mood case final mood?)
-            SceneMoodLabel(
-              key: Key('scene-mood-${scene.id}'),
-              mood: mood,
-              label: l10nOf(context).sceneMood(mood),
-            ),
-          if (scene.scriptDay case final day?)
-            Text(l10nOf(context).sceneDetailScriptDay(day)),
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    return Column(
+      key: const Key('scene-detail-header'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${scene.sceneNumber ?? ""}',
+          key: const Key('scene-detail-header-number'),
+          style: Theme.of(context).textTheme.displaySmall,
+        ),
+        if (scene.location case final location?)
           Text(
-            scene.isScheduleSet
-                ? l10nOf(context).sceneScheduled
-                : l10nOf(context).sceneUnscheduled,
-            key: Key('scene-schedule-flag-${scene.id}'),
+            location,
+            key: const Key('scene-detail-header-location'),
+            style: Theme.of(context).textTheme.titleLarge,
           ),
-        ],
-      ),
+        const SizedBox(height: AppSpacing.space8),
+        Wrap(
+          key: const Key('scene-detail-header-chips'),
+          spacing: AppSpacing.space8,
+          runSpacing: AppSpacing.space4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            // Set-shorthand mood with its reinforcing icons (issue #721):
+            // the icons render NEXT TO the visible text, never instead of it.
+            if (scene.mood case final mood?)
+              SceneMoodLabel(
+                key: Key('scene-mood-${scene.id}'),
+                mood: mood,
+                label: l10n.sceneMood(mood),
+              ),
+            if (scene.scriptDay case final day?)
+              _HeaderChip(label: l10n.sceneDay(day)),
+            _HeaderChip(
+              key: Key('scene-schedule-flag-${scene.id}'),
+              label: scene.isScheduleSet
+                  ? l10n.sceneScheduled
+                  : l10n.sceneUnscheduled,
+            ),
+            // EU-AI-Act provenance (issue #834): the shared badge keyed on
+            // the read DTO's discriminator; Manual/absent render nothing.
+            switch (sceneProvenance(scene.source_)) {
+              AiProvenanceVariant.aiExtracted => AiProvenanceBadge(
+                semanticKey: 'scene-ai-badge-${scene.id}',
+              ),
+              _ => const SizedBox.shrink(),
+            },
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One metadata chip of the header row: a bordered pill on
+/// `surfaceContainerHigh` — tokens only, no inline colors.
+class _HeaderChip extends StatelessWidget {
+  const _HeaderChip({super.key, required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.space8,
+      vertical: AppSpacing.space2,
     ),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(label, style: Theme.of(context).textTheme.labelMedium),
   );
+}
+
+/// The synopsis section (issue #834): the full summary in its own area —
+/// NOT the app-bar title — with the AI-provenance badge when applicable,
+/// the persisted Decision-Model ratings ([AiScoreStars]; absent values
+/// render nothing, never a fabricated star), and the honest „Keine
+/// Synopsis" empty state.
+class _SceneSynopsisSection extends StatelessWidget {
+  const _SceneSynopsisSection({required this.scene});
+
+  final SceneView scene;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final summary = scene.summary;
+    final hasScores = scene.sceneScore != null || scene.synopsisScore != null;
+    return Card(
+      key: Key('scene-synopsis-${scene.id}'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.space12),
+        child: Column(
+          key: const Key('scene-synopsis-body'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  l10n.sceneDetailSynopsisTitle,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const Spacer(),
+                switch (sceneProvenance(scene.source_)) {
+                  AiProvenanceVariant.aiExtracted => AiProvenanceBadge(
+                    semanticKey: 'scene-synopsis-ai-badge-${scene.id}',
+                  ),
+                  _ => const SizedBox.shrink(),
+                },
+              ],
+            ),
+            const SizedBox(height: AppSpacing.space8),
+            if (summary == null || summary.isEmpty)
+              Text(
+                l10n.sceneDetailNoSynopsis,
+                key: const Key('scene-synopsis-empty'),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              )
+            else
+              Text(
+                summary,
+                key: const Key('scene-synopsis-text'),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            // The Decision-Model ratings (issue #834): one star row per
+            // PRESENT score — `AiScoreStars` renders nothing for `null`, so
+            // an unscored scene shows no stars at all (honest absence).
+            if (hasScores) ...[
+              const SizedBox(height: AppSpacing.space8),
+              if (scene.synopsisScore case final score?)
+                Row(
+                  key: const Key('scene-synopsis-rating-synopsis'),
+                  children: [
+                    Text(
+                      l10n.sceneDetailRatingSynopsis,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    const SizedBox(width: AppSpacing.space4),
+                    AiScoreStars(score: score),
+                  ],
+                ),
+              if (scene.sceneScore case final score?) ...[
+                const SizedBox(height: AppSpacing.space4),
+                Row(
+                  key: const Key('scene-synopsis-rating-scene'),
+                  children: [
+                    Text(
+                      l10n.sceneDetailRatingScene,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    const SizedBox(width: AppSpacing.space4),
+                    AiScoreStars(score: score),
+                  ],
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Characters section: assigned list (read-DTO join) + assign/remove.
@@ -219,10 +402,11 @@ class _SceneCharactersSection extends ConsumerWidget {
       (c) => !assignable.contains(c.id),
     );
 
-    return ExpansionTile(
+    // SectionCard (issue #834): no divider chrome, collapsed by default —
+    // the count in the header keeps the collapsed state informative.
+    return SectionCard(
       key: Key('scene-characters-${scene.id}'),
-      initiallyExpanded: true,
-      title: Text(
+      header: Text(
         l10nOf(context).sceneDetailCharactersTitle('${assigned.length}'),
       ),
       children: [
@@ -421,10 +605,10 @@ class _SceneOutfitsSection extends ConsumerWidget {
         .firstOrNull;
     final l10n = l10nOf(context);
 
-    return ExpansionTile(
+    // SectionCard (issue #834): no divider chrome, collapsed by default.
+    return SectionCard(
       key: Key('scene-pieces-${scene.id}'),
-      initiallyExpanded: true,
-      title: Text(l10n.sceneDetailOutfitsTitle('$totalBeats')),
+      header: Text(l10n.sceneDetailOutfitsTitle('$totalBeats')),
       children: [
         if (scene.assignedCharacters.isEmpty)
           ListTile(
@@ -683,10 +867,10 @@ class _SceneShootingDaysSection extends ConsumerWidget {
         if (!d.archived && !scheduled.contains(d.id)) d,
     ];
 
-    return ExpansionTile(
+    // SectionCard (issue #834): no divider chrome, collapsed by default.
+    return SectionCard(
       key: Key('scene-shooting-days-${scene.id}'),
-      initiallyExpanded: true,
-      title: Text(
+      header: Text(
         l10nOf(context).sceneDetailShootingDaysTitle('${scheduled.length}'),
       ),
       children: [
