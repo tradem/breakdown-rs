@@ -97,7 +97,7 @@ final class AiJobBlockScopeProvider
   }
 }
 
-String _$aiJobBlockScopeHash() => r'b32c022aa55b491386f3f69252ed392396f6575e';
+String _$aiJobBlockScopeHash() => r'22f59043e7324666a11bf9716ed7fd3f7ce2e6c7';
 
 /// The job's script-block scope, or `null` when the job row is unreadable.
 ///

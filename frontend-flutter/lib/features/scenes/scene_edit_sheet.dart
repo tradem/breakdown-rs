@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../../design/scene_mood_label.dart';
 import '../../design/spacing.dart';
+import '../../design/gen/design_tokens.g.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 
@@ -33,22 +34,38 @@ class SceneEditResult {
 ///
 /// Number editing warns but invents no rule: the backend holds no
 /// uniqueness/ordering invariant on `(episode, scene_number)`, so the sheet
-/// carries a hint line instead of a fake validation.
+/// carries a hint line instead of a fake validation. Unparseable input is
+/// rejected BEFORE closing — an invalid number must never silently clear
+/// the stored one (CodeRabbit #868).
 ///
-/// Returns `null` when dismissed; otherwise a [SceneEditResult].
+/// The sheet dispatches through [onSubmit] and stays OPEN on failure: the
+/// localized error renders inside the sheet and the DRAFT survives
+/// (CodeRabbit #868 — a network failure must not discard the user's edit).
+/// It closes only on success; returns `null` when dismissed.
 Future<SceneEditResult?> showSceneEditSheet(
   BuildContext context,
-  SceneView scene,
-) => showModalBottomSheet<SceneEditResult>(
+  SceneView scene, {
+  required Future<String?> Function(SceneEditResult result) onSubmit,
+}) => showModalBottomSheet<SceneEditResult>(
   context: context,
   isScrollControlled: true,
-  builder: (_) => SceneEditSheet(scene: scene),
+  isDismissible: false,
+  builder: (_) => SceneEditSheet(scene: scene, onSubmit: onSubmit),
 );
 
 class SceneEditSheet extends StatefulWidget {
-  const SceneEditSheet({super.key, required this.scene});
+  const SceneEditSheet({
+    super.key,
+    required this.scene,
+    required this.onSubmit,
+  });
 
   final SceneView scene;
+
+  /// Dispatches the payload; returns the localized error copy on failure,
+  /// `null` on success. While the future resolves non-null the sheet keeps
+  /// its state (and shows the error) — the user can correct and retry.
+  final Future<String?> Function(SceneEditResult result) onSubmit;
 
   @override
   State<SceneEditSheet> createState() => _SceneEditSheetState();
@@ -61,10 +78,18 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
   late final TextEditingController _scriptDay;
   late final TextEditingController _summary;
 
-  /// The mood chip selection: a value from [canonicalSceneMoods] OR the
-  /// stored (non-canonical) value — never `null` while the stored mood
-  /// exists, so the editor cannot silently drop an unrecognized value.
+  /// The mood chip selection: the stored value VERBATIM (a canonical
+  /// shorthand OR an unrecognized value — untrimmed, so a save that touches
+  /// nothing else echoes it byte-for-byte, CodeRabbit #868) or a chip the
+  /// user picked. Never `null` while the stored mood exists, so the editor
+  /// cannot silently drop an unrecognized value.
   String? _selectedMood;
+
+  /// Localized failure copy of the last submit — rendered INSIDE the sheet
+  /// so a failed save keeps the draft editable (CodeRabbit #868).
+  String? _error;
+  bool _submitting = false;
+  String? _numberError;
 
   @override
   void initState() {
@@ -80,7 +105,7 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
       // A non-canonical stored mood keeps its OWN chip selected — it stays
       // selectable and the save echoes it verbatim unless the user picks a
       // canonical shorthand (issue #834: never destroy a stored value).
-      _selectedMood = stored;
+      _selectedMood = scene.mood;
     }
   }
 
@@ -96,6 +121,12 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
 
   void _selectMood(String? mood) {
     setState(() {
+      // Deselect: the field must not keep secretly submitting the chip's
+      // value (CodeRabbit #868) — clear it when it still holds the chip's
+      // text, keep the user's own text when they already edited past it.
+      if (mood == null && _mood.text == _selectedMood) {
+        _mood.clear();
+      }
       _selectedMood = mood;
       if (mood != null) {
         // The canonical chips and the free-text field stay in sync: picking
@@ -105,9 +136,17 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
     });
   }
 
-  SceneDetails _buildDetails() {
+  /// Parses the number field: `null` input clears the stored number (the
+  /// intentional case), unparseable NON-empty input is a validation error
+  /// that must NOT silently clear the stored number (CodeRabbit #868).
+  int? _parseNumber() {
     final numberText = _number.text.trim();
-    final number = numberText.isEmpty ? null : int.tryParse(numberText);
+    if (numberText.isEmpty) return null;
+    return int.tryParse(numberText);
+  }
+
+  SceneDetails _buildDetails() {
+    final number = _parseNumber();
     final mood = _selectedMood ?? _mood.text.trim().nullIfEmpty;
     return SceneDetails(
       (b) => b
@@ -125,6 +164,35 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
         ..synopsisScore = widget.scene.synopsisScore
         ..mood = mood,
     );
+  }
+
+  Future<void> _submit() async {
+    final l10n = l10nOf(context);
+    final numberText = _number.text.trim();
+    if (numberText.isNotEmpty && _parseNumber() == null) {
+      setState(() {
+        _numberError = l10n.sceneDetailEditNumberError;
+      });
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _numberError = null;
+    });
+    final error = await widget.onSubmit(
+      SceneEditResult(details: _buildDetails()),
+    );
+    if (!mounted) return;
+    setState(() {
+      _submitting = false;
+      // Success closes the sheet; failure keeps it open with the DRAFT
+      // intact and the localized error inside (CodeRabbit #868).
+      _error = error;
+    });
+    if (error == null) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -146,6 +214,42 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
               l10n.sceneDetailEditTooltip,
               style: Theme.of(context).textTheme.titleMedium,
             ),
+            // Failed submits render INSIDE the sheet — the draft survives
+            // and stays editable (CodeRabbit #868).
+            if (_error != null) ...[
+              const SizedBox(height: AppSpacing.space8),
+              Material(
+                key: const Key('scene-edit-error'),
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(
+                  DesignTokens.sizeRadiusSmall,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.space8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(width: AppSpacing.space8),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.space16),
             TextFormField(
               key: const Key('scene-edit-number'),
@@ -154,6 +258,7 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
               decoration: InputDecoration(
                 labelText: l10n.sceneDetailEditNumber,
                 helperText: l10n.sceneDetailEditNumberHint,
+                errorText: _numberError,
               ),
             ),
             const SizedBox(height: AppSpacing.space12),
@@ -223,16 +328,22 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
               children: [
                 TextButton(
                   key: const Key('scene-edit-cancel'),
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: _submitting
+                      ? null
+                      : () => Navigator.of(context).pop(),
                   child: Text(l10n.commonCancel),
                 ),
                 const SizedBox(width: AppSpacing.space8),
                 FilledButton(
                   key: const Key('scene-edit-save'),
-                  onPressed: () =>
-                      Navigator.of(context)
-                          .pop(SceneEditResult(details: _buildDetails())),
-                  child: Text(l10n.commonSave),
+                  onPressed: _submitting ? null : _submit,
+                  child: _submitting
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(l10n.commonSave),
                 ),
               ],
             ),

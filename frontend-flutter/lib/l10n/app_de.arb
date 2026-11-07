@@ -1533,6 +1533,7 @@
   "sceneDetailEditTooltip": "Szene bearbeiten",
   "sceneDetailEditNumber": "Szenennummer",
   "sceneDetailEditNumberHint": "Die Nummer steuert nur die Sortierung – doppelte Nummern werden (noch) nicht geprüft.",
+  "sceneDetailEditNumberError": "Bitte eine gültige ganze Zahl eingeben – die gespeicherte Nummer wurde nicht geändert.",
   "sceneDetailEditLocation": "Ort",
   "sceneDetailEditMood": "Stimmung",
   "sceneDetailEditMoodCustom": "Eigene Stimmung",

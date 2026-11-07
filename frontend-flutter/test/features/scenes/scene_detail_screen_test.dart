@@ -57,6 +57,7 @@ SceneView _scene({
   List<String> days = const [],
   int version = 1,
   List<SceneOutfitBeatView> beats = const [],
+  String? mood,
 }) => SceneView(
   (b) => b
     ..id = id
@@ -64,6 +65,7 @@ SceneView _scene({
     ..assignedCharacters.replace(characters)
     ..isScheduleSet = days.isNotEmpty
     ..location = 'Studio A'
+    ..mood = mood
     ..sceneNumber = 7
     ..shootingDayIds.replace(days)
     ..outfitBeats.replace(beats)
@@ -271,7 +273,10 @@ class _FakeSceneRepository extends SceneRepository {
     updateCalls++;
     lastVersion = request.version;
     lastUpdateDetails = request;
-    return Future.value(nextWrite ?? const Right(2));
+    // Realistic ack: the NEXT aggregate version after the echoed one — the
+    // details overlay's optimistic fence (`row.version < overlay.version`)
+    // only holds when the ack advances the version (CodeRabbit #868 flow).
+    return Future.value(nextWrite ?? Right((request.version) + 1));
   }
 
   @override
@@ -1334,6 +1339,25 @@ void main() {
         await expandSection(tester, key);
       }
       expect(find.byType(Divider), findsNothing);
+      // The M3 ExpansionTile paints its divider LINES from `shape` — not
+      // from `Divider` widgets. If the shape default ever returns, the
+      // lines reappear without any Divider in the tree (CodeRabbit #868):
+      // assert the borderless CONFIG in both states.
+      for (final tile in tester.widgetList<ExpansionTile>(
+        find.byType(ExpansionTile),
+      )) {
+        expect(tile.shape, const Border());
+        expect(tile.collapsedShape, const Border());
+      }
+      // And each section owns a stable, UNIQUE PageStorageKey so an
+      // expanded section survives scroll-out/in of the retained viewport.
+      final storageKeys = tester
+          .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+          .map((t) => t.key)
+          .whereType<PageStorageKey>()
+          .map((k) => k.value)
+          .toSet();
+      expect(storageKeys, hasLength(3));
     });
 
     testWidgets('header block: numeral, location, mood + schedule chips', (
@@ -1398,15 +1422,21 @@ void main() {
         find.byKey(const Key('scene-synopsis-rating-scene')),
         findsOneWidget,
       );
-      // Both score rows render, with the acted-on values (issue #723
-      // bucketing maps 0.82 → 5 stars and 0.55 → 3 stars — the bucket
-      // math itself is covered by the AiScoreStars unit tests; here the
-      // honest plumbing is the contract).
-      final stars = tester
-          .widgetList<AiScoreStars>(find.byType(AiScoreStars))
-          .toList();
-      expect(stars, hasLength(2));
-      expect(stars.map((s) => s.score), containsAll([0.55, 0.82]));
+      // Both score rows render, and the score sits under the KEYED row —
+      // a swap would now fail (CodeRabbit #868; the bucket math itself is
+      // covered by the AiScoreStars unit tests).
+      double? scoreUnderRow(String rowKey) {
+        final row = find.byKey(Key(rowKey));
+        final starsWidgets = tester
+            .widgetList<AiScoreStars>(
+              find.descendant(of: row, matching: find.byType(AiScoreStars)),
+            )
+            .toList();
+        return starsWidgets.isEmpty ? null : starsWidgets.first.score;
+      }
+
+      expect(scoreUnderRow('scene-synopsis-rating-synopsis'), 0.82);
+      expect(scoreUnderRow('scene-synopsis-rating-scene'), 0.55);
     });
 
     testWidgets('null scores render no stars at all', (tester) async {
@@ -1440,6 +1470,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(sceneRepo.updateCalls, 1);
       expect(sceneRepo.lastVersion, 4);
+      // Optimistic DETAILS overlay (issue #834): the edited location stays
+      // visible even though the projection still serves the pre-edit row —
+      // the version-fenced overlay holds the saved state until catch-up.
+      expect(find.text('Set C'), findsWidgets);
     });
 
     testWidgets('a non-canonical mood survives the editor untouched', (
@@ -1477,16 +1511,21 @@ void main() {
       expect(sceneRepo.lastUpdateDetails!.details.mood, 'I/T');
     });
 
-    testWidgets('version conflict renders the localized retry narrative', (
+    testWidgets('version conflict: sheet stays open, projection refreshes', (
       tester,
     ) async {
-      await setupContainer(scene: _scene());
+      final fetchLog = <int>[];
+      await setupContainer(scene: _scene(), scenesFetchLog: fetchLog);
       await pumpDetail(tester);
+      final baseline = fetchLog.length;
       sceneRepo.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-detail-edit')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('scene-edit-save')));
       await tester.pumpAndSettle();
+      // The localized retry narrative renders INSIDE the sheet — the draft
+      // survives (CodeRabbit #868).
+      expect(find.byKey(const Key('scene-edit-error')), findsOneWidget);
       expect(
         find.text(
           'The scene changed in the meantime. '
@@ -1494,8 +1533,102 @@ void main() {
         ),
         findsOneWidget,
       );
-      // The command is never re-dispatched automatically: exactly one call.
+      expect(find.byKey(const Key('scene-edit-sheet')), findsOneWidget);
+      // The conflict refreshed the projection WITHOUT resubmitting.
+      expect(fetchLog.length, greaterThan(baseline));
       expect(sceneRepo.updateCalls, 1);
     });
+
+    testWidgets('failed save keeps the draft and a retry succeeds', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene());
+      await pumpDetail(tester);
+      // First save fails (network), then succeeds on retry.
+      sceneRepo.nextWrite = const Left(
+        ProblemError(code: 'transport.timeout', status: 0),
+      );
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('scene-edit-location')),
+        'Set D',
+      );
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      // The sheet stays open, the error renders inside and the DRAFT
+      // survives — the user does not retype their edit.
+      expect(find.byKey(const Key('scene-edit-error')), findsOneWidget);
+      expect(find.text('Set D'), findsWidgets);
+      sceneRepo.nextWrite = null;
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(sceneRepo.updateCalls, 2);
+      expect(sceneRepo.lastUpdateDetails!.details.location, 'Set D');
+      // Success closes the sheet.
+      expect(find.byKey(const Key('scene-edit-sheet')), findsNothing);
+    });
+
+    testWidgets('an unparseable number is rejected before saving', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene());
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('scene-edit-number')), '7a');
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      // The sheet stays open with the field error; nothing was dispatched
+      // and the stored number is NOT silently cleared.
+      expect(
+        find.text(
+          'Enter a valid whole number — the stored number was not changed.',
+        ),
+        findsOneWidget,
+      );
+      expect(sceneRepo.updateCalls, 0);
+      // Fixing the input saves successfully.
+      await tester.enterText(find.byKey(const Key('scene-edit-number')), '12');
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(sceneRepo.updateCalls, 1);
+      expect(sceneRepo.lastUpdateDetails!.details.sceneNumber, 12);
+    });
+
+    testWidgets('deselecting a mood chip clears the field value', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene(mood: 'I/T'));
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-edit-mood-I/T')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      // The deselected chip's value must not be secretly submitted
+      // (CodeRabbit #868): no mood left.
+      expect(sceneRepo.lastUpdateDetails!.details.mood, isNull);
+    });
+
+    testWidgets(
+      'a stored mood with surrounding whitespace is echoed verbatim',
+      (tester) async {
+        await setupContainer(scene: _scene(mood: ' X/Y '));
+        await pumpDetail(tester);
+        await tester.tap(find.byKey(const Key('scene-detail-edit')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('scene-edit-location')),
+          'Set E',
+        );
+        await tester.tap(find.byKey(const Key('scene-edit-save')));
+        await tester.pumpAndSettle();
+        // The editor never trims a stored value it did not touch
+        // (CodeRabbit #868).
+        expect(sceneRepo.lastUpdateDetails!.details.mood, ' X/Y ');
+      },
+    );
   });
 }

@@ -816,6 +816,140 @@ abstract class _$SceneBeatOverlays extends $Notifier<List<SceneBeatOverlay>> {
   }
 }
 
+/// Controller-state optimistic DETAILS-overlay store per episode (issue
+/// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
+/// against the projected row version, because an EXISTING scene's
+/// projection row is present from the start and an id-presence drop would
+/// flash the old values back while the projection lags.
+
+@ProviderFor(SceneDetailsOverlays)
+final sceneDetailsOverlaysProvider = SceneDetailsOverlaysFamily._();
+
+/// Controller-state optimistic DETAILS-overlay store per episode (issue
+/// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
+/// against the projected row version, because an EXISTING scene's
+/// projection row is present from the start and an id-presence drop would
+/// flash the old values back while the projection lags.
+final class SceneDetailsOverlaysProvider
+    extends $NotifierProvider<SceneDetailsOverlays, List<SceneDetailsOverlay>> {
+  /// Controller-state optimistic DETAILS-overlay store per episode (issue
+  /// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
+  /// against the projected row version, because an EXISTING scene's
+  /// projection row is present from the start and an id-presence drop would
+  /// flash the old values back while the projection lags.
+  SceneDetailsOverlaysProvider._({
+    required SceneDetailsOverlaysFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'sceneDetailsOverlaysProvider',
+         isAutoDispose: false,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$sceneDetailsOverlaysHash();
+
+  @override
+  String toString() {
+    return r'sceneDetailsOverlaysProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  SceneDetailsOverlays create() => SceneDetailsOverlays();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(List<SceneDetailsOverlay> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<List<SceneDetailsOverlay>>(value),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is SceneDetailsOverlaysProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$sceneDetailsOverlaysHash() =>
+    r'f7bdad3dd0ef65cf6386fe51a1421e3e21dd6c2d';
+
+/// Controller-state optimistic DETAILS-overlay store per episode (issue
+/// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
+/// against the projected row version, because an EXISTING scene's
+/// projection row is present from the start and an id-presence drop would
+/// flash the old values back while the projection lags.
+
+final class SceneDetailsOverlaysFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          SceneDetailsOverlays,
+          List<SceneDetailsOverlay>,
+          List<SceneDetailsOverlay>,
+          List<SceneDetailsOverlay>,
+          String
+        > {
+  SceneDetailsOverlaysFamily._()
+    : super(
+        retry: null,
+        name: r'sceneDetailsOverlaysProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: false,
+      );
+
+  /// Controller-state optimistic DETAILS-overlay store per episode (issue
+  /// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
+  /// against the projected row version, because an EXISTING scene's
+  /// projection row is present from the start and an id-presence drop would
+  /// flash the old values back while the projection lags.
+
+  SceneDetailsOverlaysProvider call(String episodeId) =>
+      SceneDetailsOverlaysProvider._(argument: episodeId, from: this);
+
+  @override
+  String toString() => r'sceneDetailsOverlaysProvider';
+}
+
+/// Controller-state optimistic DETAILS-overlay store per episode (issue
+/// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
+/// against the projected row version, because an EXISTING scene's
+/// projection row is present from the start and an id-presence drop would
+/// flash the old values back while the projection lags.
+
+abstract class _$SceneDetailsOverlays
+    extends $Notifier<List<SceneDetailsOverlay>> {
+  late final _$args = ref.$arg as String;
+  String get episodeId => _$args;
+
+  List<SceneDetailsOverlay> build(String episodeId);
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref =
+        this.ref as $Ref<List<SceneDetailsOverlay>, List<SceneDetailsOverlay>>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<List<SceneDetailsOverlay>, List<SceneDetailsOverlay>>,
+              List<SceneDetailsOverlay>,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, () => build(_$args));
+  }
+}
+
 /// Last command failure per episode, surfaced to the screen keyed on `code`.
 
 @ProviderFor(ScenesCommandError)
@@ -977,7 +1111,7 @@ final class ScenesControllerProvider
   }
 }
 
-String _$scenesControllerHash() => r'5d731a36aa91c491f43cd4822687a2c6c82a68e6';
+String _$scenesControllerHash() => r'b6b1946f2d954f5862b516fe0017faa91b861a55';
 
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 

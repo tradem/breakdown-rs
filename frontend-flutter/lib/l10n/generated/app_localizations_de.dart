@@ -4177,6 +4177,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Nummer steuert nur die Sortierung – doppelte Nummern werden (noch) nicht geprüft.';
 
   @override
+  String get sceneDetailEditNumberError =>
+      'Bitte eine gültige ganze Zahl eingeben – die gespeicherte Nummer wurde nicht geändert.';
+
+  @override
   String get sceneDetailEditLocation => 'Ort';
 
   @override

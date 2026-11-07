@@ -168,20 +168,31 @@ class SceneDetailScreen extends ConsumerWidget {
     WidgetRef ref,
     SceneView scene,
   ) async {
-    final result = await showSceneEditSheet(context, scene);
-    if (result == null || !context.mounted) return;
-    // Dispatch with the VERSION ECHOED from the read DTO the sheet was
-    // opened from (optimistic locking, #473). The controller runs the
-    // client-side AUTHZ-GATE and the optimistic overlay + bounded refetch.
-    final result2 = await ref
-        .read(scenesControllerProvider(episodeId).notifier)
-        .updateDetails(scene: scene, details: result.details);
-    if (!context.mounted) return;
-    result2.match(
-      (err) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(sceneUpdateErrorCopy(l10nOf(context), err))),
-      ),
-      (_) {},
+    // The sheet dispatches THROUGH this callback and stays open on failure
+    // (the draft survives, the localized error renders inside — CodeRabbit
+    // #868). The version echo resolves from the CURRENT projected row at
+    // dispatch time, not the snapshot the sheet was opened from: a retry
+    // after a conflict (the conflict refreshes the projection) must echo
+    // the fresh version (optimistic locking, #473). The controller runs
+    // the client-side AUTHZ-GATE, the details overlay and the bounded
+    // refetch.
+    await showSceneEditSheet(
+      context,
+      scene,
+      onSubmit: (result) async {
+        final current = ref
+            .read(scenesControllerProvider(episodeId))
+            .cachedRows
+            .where((s) => s.id == scene.id)
+            .firstOrNull;
+        final err = await ref
+            .read(scenesControllerProvider(episodeId).notifier)
+            .updateDetails(scene: current ?? scene, details: result.details);
+        return err.fold(
+          (problem) => sceneUpdateErrorCopy(l10nOf(context), problem),
+          (_) => null,
+        );
+      },
     );
   }
 
@@ -303,13 +314,18 @@ class _SceneSynopsisSection extends StatelessWidget {
           key: const Key('scene-synopsis-body'),
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            // Wrap, not Row+Spacer: on a narrow screen with enlarged text,
+            // the badge wraps BELOW the title instead of overflowing the
+            // heading (CodeRabbit #868).
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              runSpacing: AppSpacing.space4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
                   l10n.sceneDetailSynopsisTitle,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-                const Spacer(),
                 switch (sceneProvenance(scene.source_)) {
                   AiProvenanceVariant.aiExtracted => AiProvenanceBadge(
                     semanticKey: 'scene-synopsis-ai-badge-${scene.id}',
@@ -406,6 +422,7 @@ class _SceneCharactersSection extends ConsumerWidget {
     // the count in the header keeps the collapsed state informative.
     return SectionCard(
       key: Key('scene-characters-${scene.id}'),
+      pageStorageKey: 'scene-section-characters',
       header: Text(
         l10nOf(context).sceneDetailCharactersTitle('${assigned.length}'),
       ),
@@ -608,6 +625,7 @@ class _SceneOutfitsSection extends ConsumerWidget {
     // SectionCard (issue #834): no divider chrome, collapsed by default.
     return SectionCard(
       key: Key('scene-pieces-${scene.id}'),
+      pageStorageKey: 'scene-section-outfits',
       header: Text(l10n.sceneDetailOutfitsTitle('$totalBeats')),
       children: [
         if (scene.assignedCharacters.isEmpty)
@@ -870,6 +888,7 @@ class _SceneShootingDaysSection extends ConsumerWidget {
     // SectionCard (issue #834): no divider chrome, collapsed by default.
     return SectionCard(
       key: Key('scene-shooting-days-${scene.id}'),
+      pageStorageKey: 'scene-section-shooting-days',
       header: Text(
         l10nOf(context).sceneDetailShootingDaysTitle('${scheduled.length}'),
       ),

@@ -135,6 +135,80 @@ class SceneBeatOverlay implements ReconciliationOverlay {
   int get hashCode => Object.hash(id, version, status, warning);
 }
 
+/// Controller-state optimistic overlay for a scene DETAILS update (issue
+/// #834): like [SceneBeatOverlay], it carries the acked aggregate version
+/// as the optimistic fence — the projection row for an EXISTING scene is
+/// present from the start, so a details overlay must be dropped only when
+/// the projected row reaches the acked version, never on id presence (a
+/// lagging projection would otherwise flash the old values back and the
+/// next edit could conflict on the stale version).
+class SceneDetailsOverlay implements ReconciliationOverlay {
+  const SceneDetailsOverlay({
+    required this.id,
+    required this.version,
+    required this.details,
+    required this.status,
+    this.warning,
+  });
+
+  /// The SCENE id this overlay's details belong to.
+  @override
+  final String id;
+
+  /// The aggregate version echoed by the command's 2xx ack.
+  final int version;
+
+  /// The complete optimistic details payload (display rendering only; the
+  /// projected row replaces it once the projection catches up).
+  final SceneDetails details;
+
+  @override
+  final OverlayStatus status;
+
+  @override
+  final String? warning;
+
+  @override
+  SceneDetailsOverlay copyWithStatus({
+    OverlayStatus? status,
+    String? warning,
+    bool clearWarning = false,
+  }) => SceneDetailsOverlay(
+    id: id,
+    version: version,
+    details: details,
+    status: status ?? this.status,
+    warning: clearWarning ? null : (warning ?? this.warning),
+  );
+
+  /// Returns the scene row with the overlay's optimistic details applied
+  /// (display-only; the projected row wins after the version-fenced drop).
+  /// `SceneView` carries the details FLAT — map field by field; the scores
+  /// are creation provenance and are never part of a details update.
+  SceneView applyTo(SceneView row) => row.rebuild(
+    (b) => b
+      ..sceneNumber = details.sceneNumber
+      ..location = details.location
+      ..mood = details.mood
+      ..isScheduleSet = details.isScheduleSet
+      ..summary = details.summary
+      ..scriptDay = details.scriptDay
+      ..version = version,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SceneDetailsOverlay &&
+          other.id == id &&
+          other.version == version &&
+          other.status == status &&
+          other.warning == warning;
+
+  @override
+  int get hashCode => Object.hash(id, version, status, warning);
+}
+
 /// One row rendered by `ScenesScreen`.
 sealed class SceneRow {
   const SceneRow();
@@ -162,6 +236,7 @@ class ScenesScreenState {
     this.isStale = false,
     this.overlays = const [],
     this.beatOverlays = const [],
+    this.detailsOverlays = const [],
     this.commandError,
   });
 
@@ -174,6 +249,11 @@ class ScenesScreenState {
   /// into [cachedRows] by the controller; the screen reads this for the
   /// reconciling/stale indicator.
   final List<SceneBeatOverlay> beatOverlays;
+
+  /// Ephemeral optimistic DETAILS overlays per scene (issue #834), merged
+  /// into [cachedRows] by the controller; the detail screen reads this for
+  /// the reconciling/stale indicator of a details update.
+  final List<SceneDetailsOverlay> detailsOverlays;
 
   /// Last command failure keyed by its stable problem `code`.
   final ProblemError? commandError;

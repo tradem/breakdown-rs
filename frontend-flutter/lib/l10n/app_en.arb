@@ -1323,6 +1323,7 @@
   "sceneDetailEditTooltip": "Edit scene",
   "sceneDetailEditNumber": "Scene number",
   "sceneDetailEditNumberHint": "The number only drives ordering — duplicate numbers are not (yet) checked.",
+  "sceneDetailEditNumberError": "Enter a valid whole number — the stored number was not changed.",
   "sceneDetailEditLocation": "Location",
   "sceneDetailEditMood": "Mood",
   "sceneDetailEditMoodCustom": "Custom mood",

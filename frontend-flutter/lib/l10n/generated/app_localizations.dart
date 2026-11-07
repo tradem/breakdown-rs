@@ -6722,6 +6722,12 @@ abstract class AppLocalizations {
   /// **'Die Nummer steuert nur die Sortierung – doppelte Nummern werden (noch) nicht geprüft.'**
   String get sceneDetailEditNumberHint;
 
+  /// No description provided for @sceneDetailEditNumberError.
+  ///
+  /// In de, this message translates to:
+  /// **'Bitte eine gültige ganze Zahl eingeben – die gespeicherte Nummer wurde nicht geändert.'**
+  String get sceneDetailEditNumberError;
+
   /// No description provided for @sceneDetailEditLocation.
   ///
   /// In de, this message translates to:

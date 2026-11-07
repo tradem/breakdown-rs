@@ -24,9 +24,11 @@ part of 'ai_config_reachability.dart';
 /// health pill owns the periodic poll. A retry is an explicit user action
 /// (`ref.invalidate(aiConfigReachabilityProvider)`), which re-runs the probe.
 ///
-/// AutoDispose by design: leaving the Settings screen or the configuration
-/// screen drops the state, so the next visit measures again instead of
-/// serving a stale "reachable" verdict as if it were current.
+/// AutoDispose by design: the state is dropped once no widget watches it,
+/// which happens when the Settings screen leaves the tree. The Settings tile
+/// keeps watching it while the configuration screen is pushed (that route sits
+/// above a still-mounted Settings subtree), so popping the screen keeps the
+/// cached verdict; a new Settings visit measures again.
 
 @ProviderFor(aiConfigReachability)
 final aiConfigReachabilityProvider = AiConfigReachabilityProvider._();
@@ -47,9 +49,11 @@ final aiConfigReachabilityProvider = AiConfigReachabilityProvider._();
 /// health pill owns the periodic poll. A retry is an explicit user action
 /// (`ref.invalidate(aiConfigReachabilityProvider)`), which re-runs the probe.
 ///
-/// AutoDispose by design: leaving the Settings screen or the configuration
-/// screen drops the state, so the next visit measures again instead of
-/// serving a stale "reachable" verdict as if it were current.
+/// AutoDispose by design: the state is dropped once no widget watches it,
+/// which happens when the Settings screen leaves the tree. The Settings tile
+/// keeps watching it while the configuration screen is pushed (that route sits
+/// above a still-mounted Settings subtree), so popping the screen keeps the
+/// cached verdict; a new Settings visit measures again.
 
 final class AiConfigReachabilityProvider
     extends
@@ -77,9 +81,11 @@ final class AiConfigReachabilityProvider
   /// health pill owns the periodic poll. A retry is an explicit user action
   /// (`ref.invalidate(aiConfigReachabilityProvider)`), which re-runs the probe.
   ///
-  /// AutoDispose by design: leaving the Settings screen or the configuration
-  /// screen drops the state, so the next visit measures again instead of
-  /// serving a stale "reachable" verdict as if it were current.
+  /// AutoDispose by design: the state is dropped once no widget watches it,
+  /// which happens when the Settings screen leaves the tree. The Settings tile
+  /// keeps watching it while the configuration screen is pushed (that route sits
+  /// above a still-mounted Settings subtree), so popping the screen keeps the
+  /// cached verdict; a new Settings visit measures again.
   AiConfigReachabilityProvider._()
     : super(
         from: null,

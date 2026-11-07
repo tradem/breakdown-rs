@@ -4128,6 +4128,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The number only drives ordering — duplicate numbers are not (yet) checked.';
 
   @override
+  String get sceneDetailEditNumberError =>
+      'Enter a valid whole number — the stored number was not changed.';
+
+  @override
   String get sceneDetailEditLocation => 'Location';
 
   @override

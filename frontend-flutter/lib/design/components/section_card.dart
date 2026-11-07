@@ -28,6 +28,7 @@ class SectionCard extends StatelessWidget {
     required this.header,
     required this.children,
     this.initiallyExpanded = false,
+    this.pageStorageKey,
   });
 
   /// The section header (title + count). Rendered as the tile title; keep
@@ -41,12 +42,20 @@ class SectionCard extends StatelessWidget {
   /// default, issue #834 PO requirement).
   final bool initiallyExpanded;
 
+  /// Stable, UNIQUE-per-section identity for the tile's [PageStorageKey]
+  /// (CodeRabbit #868): a [ListView] destroys the subtrees of sections that
+  /// scroll out of the retained viewport — without storage the tile comes
+  /// back COLLAPSED and hides its controls. Callers pass one stable value
+  /// per section (e.g. `'scene-section-characters'`).
+  final Object? pageStorageKey;
+
   @override
   Widget build(BuildContext context) => Card(
     // Clip so the tile's ink stays inside the rounded card corners.
     clipBehavior: Clip.antiAlias,
     margin: EdgeInsets.zero,
     child: ExpansionTile(
+      key: pageStorageKey == null ? null : PageStorageKey(pageStorageKey),
       // No borders in either state — THE point of the component (issue #834).
       shape: const Border(),
       collapsedShape: const Border(),
