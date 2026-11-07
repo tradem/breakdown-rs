@@ -1772,6 +1772,118 @@ async fn apply_ai_import_rejects_an_existing_group_target_from_another_block() {
     );
 }
 
+/// Issue #864, acceptance criterion at the **handler** boundary: a client that
+/// disconnects mid-apply drops the handler future.
+///
+/// What this pins is the handler's half of the durability contract, and nothing
+/// else: the apply worker's confirmed mapping survives the cancellation, and the
+/// handler contributes NO summary (the port method that used to write one is
+/// gone, and the job row is untouched). The other half — that the read edge
+/// derives the summary from exactly those mapping rows after projector catch-up —
+/// needs a database and lives in the Tier-4 test
+/// `a_cancelled_apply_still_leaves_its_summary_resolvable`
+/// (`integration-tests/tests/ai_import_applied_episodes_cancelled.rs`), because
+/// this harness is deliberately fake-based and has no projection to derive from.
+///
+/// The cancellation is deterministic: the fake mapping repository is gated on the
+/// first confirmed `scene` mapping, so the future is provably in flight when it is
+/// aborted — a handler that finished first fails the test instead of passing it.
+#[tokio::test]
+async fn a_cancelled_apply_handler_writes_no_summary_and_keeps_the_mapping() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let mappings = ports.ai_import_mapping.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
+
+    // Park the apply inside its first confirmed mapping.
+    let mut confirmed = mappings.arm_confirm_gate().await;
+
+    let handle = tokio::spawn(apply_ai_import::<FakePorts>(
+        State(state(ports)),
+        user(),
+        Path(job_id),
+        Json(ApplyAiImportRequest {
+            continuity_selections: Vec::new(),
+            episode_id: EpisodeId::new(),
+            project_id: None,
+            uncertainty_acknowledgements: Vec::new(),
+            mappings: vec![
+                ApplyMapping {
+                    draft_ref: "scene-0".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+                ApplyMapping {
+                    draft_ref: "scene-1".to_owned(),
+                    decision: ApplyMappingDecision::Create,
+                    outfit_decisions: Vec::new(),
+                },
+            ],
+            accept_as_is: true,
+            edit_distance: 0,
+            episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
+        }),
+    ));
+
+    // The gate's own signal: a mapping is confirmed AND the handler is still
+    // running. No poll, no clock budget.
+    confirmed
+        .recv()
+        .await
+        .expect("the apply must reach its first confirm");
+
+    handle.abort();
+    let cancelled = match handle.await {
+        Err(error) => {
+            assert!(
+                error.is_cancelled(),
+                "the handler future must be cancelled, not merely finished: {error}"
+            );
+            true
+        }
+        // A handler that answered means the gate failed to park it, so every
+        // assertion below would prove nothing about a cancelled run.
+        Ok(_) => false,
+    };
+    assert!(
+        cancelled,
+        "the handler answered before the cancellation — the gate failed to hold it"
+    );
+
+    // The worker's durable record survived the cancellation: one CONFIRMED scene
+    // mapping (`aggregate_version > 0`), the row the read edge derives from.
+    let stored = mappings
+        .list_by_preview(job_id)
+        .await
+        .expect("mapping read should succeed");
+    let confirmed_rows: Vec<_> = stored
+        .iter()
+        .filter(|mapping| mapping.aggregate_kind == "scene" && !mapping.is_reserved())
+        .collect();
+    assert_eq!(
+        confirmed_rows.len(),
+        1,
+        "the gate parks the run at its first confirmed mapping"
+    );
+
+    // And the handler wrote no summary: the job the read edge serves is untouched.
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("the job still exists");
+    assert!(
+        job.applied_episodes.is_empty(),
+        "a cancelled handler must leave no summary of its own — the summary is the \
+         read edge's derivation, never a handler write: {:?}",
+        job.applied_episodes
+    );
+}
+
 /// Issue #763: a successful apply reports the episodes its rows landed in, so
 /// the outcome card can name the target. The label comes from data the request
 /// path already holds — the target episode the handler resolved — never from a

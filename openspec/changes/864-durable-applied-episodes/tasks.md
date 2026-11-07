@@ -54,6 +54,11 @@
       (`scene_shoot`/`shooting_day`) derive no target.
 - [x] 4.5 Integration: `list_for_user` derives the same summary as `get`, and a
       never-applied job on the same page still answers empty.
+- [x] 4.8 API handler (fake harness): the handler future is dropped mid-apply
+      (gate on the first confirmed `scene` mapping) — the confirmed mapping
+      survives and the handler writes NO summary. The derivation assertion stays
+      in 4.7 because this harness has no projection to derive from; a gate that
+      does not park fails the test instead of passing it.
 - [x] 4.6 Integration: a mapped scene whose episode has NO projection row keeps
       its entry with honest-absent labels (a LEFT join, not an inner one) and
       sorts last — the assertion that would otherwise pass with an inner join.

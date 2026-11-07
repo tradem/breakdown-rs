@@ -2820,6 +2820,27 @@ impl AiImportQueue for FakeAiImportQueue {
 #[allow(dead_code)]
 pub struct FakeAiImportMappingRepo {
     pub mappings: Arc<Mutex<Vec<AiImportMapping>>>,
+    /// One-shot gate on the FIRST confirmed `scene` mapping (issue #864 review).
+    ///
+    /// The row above is stored for real, then `insert` never returns — which lets
+    /// a handler test cancel a future that is provably IN FLIGHT (a completed
+    /// apply would make its assertion vacuous). `None`, the default, leaves the
+    /// fake unblocked; a test arms it with
+    /// [`Self::arm_confirm_gate`].
+    pub confirm_gate: Arc<Mutex<Option<tokio::sync::mpsc::Sender<()>>>>,
+}
+
+impl FakeAiImportMappingRepo {
+    /// Arms the gate: the next confirmed `scene` mapping signals the returned
+    /// receiver and then parks the apply there forever.
+    // Test-support module shared across harnesses; only the apply-cancellation
+    // test arms it.
+    #[allow(dead_code)]
+    pub async fn arm_confirm_gate(&self) -> tokio::sync::mpsc::Receiver<()> {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        *self.confirm_gate.lock().await = Some(tx);
+        rx
+    }
 }
 
 /// In-memory fake of the `ai_model_pricing` read model (issue #675). Empty
@@ -2935,14 +2956,26 @@ impl AiImportMappingRepository for FakeAiImportMappingRepo {
     }
 
     async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
-        let mut guard = self.mappings.lock().await;
-        if let Some(existing) = guard.iter_mut().find(|m| same_mapping_key(m, &mapping)) {
-            // Mirror the production upsert's monotonic version guard.
-            if existing.aggregate_version.0 < mapping.aggregate_version.0 {
-                *existing = mapping;
+        let is_scene = mapping.aggregate_kind == breakdown_core::ai::mapping_kind::SCENE;
+        {
+            let mut guard = self.mappings.lock().await;
+            if let Some(existing) = guard.iter_mut().find(|m| same_mapping_key(m, &mapping)) {
+                // Mirror the production upsert's monotonic version guard.
+                if existing.aggregate_version.0 < mapping.aggregate_version.0 {
+                    *existing = mapping;
+                }
+            } else {
+                guard.push(mapping);
             }
-        } else {
-            guard.push(mapping);
+        }
+        if is_scene {
+            // The confirmed row is stored; now park the caller so a test can
+            // cancel it mid-run (see the field doc).
+            let gate = self.confirm_gate.lock().await.take();
+            if let Some(signal) = gate {
+                let _ = signal.send(()).await;
+                std::future::pending::<()>().await;
+            }
         }
         Ok(())
     }
