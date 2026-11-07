@@ -31,10 +31,15 @@ use crate::common;
 
 use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
 use api::problems::{Path, Query};
+use axum::Router;
+use axum::body::Body as AxumBody;
 use axum::extract::State;
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
+use axum::middleware::from_fn_with_state;
+use axum::routing::post;
+use tower::ServiceExt;
 
-use api::auth::CurrentUser;
+use api::auth::{AuthState, CurrentUser, auth_middleware};
 use api::handlers::{
     AiImportJobResponse, ApplyAiImportRequest, ApplyEpisodeGroupRequest, CreateAiConfigRequest,
     ListParams, RevokeAiConfigRequest, UpdateAiConfigRequest, apply_ai_import, create_ai_config,
@@ -61,6 +66,7 @@ use chrono::Utc;
 use common::FakePorts;
 use infra::ai::{AiDocumentStore, AiPreviewStore};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 const TEST_SUB: &str = "ai-ports-test-user";
@@ -1772,24 +1778,31 @@ async fn apply_ai_import_rejects_an_existing_group_target_from_another_block() {
     );
 }
 
-/// Issue #864, acceptance criterion at the **handler** boundary: a client that
-/// disconnects mid-apply drops the handler future.
+/// Issue #864, acceptance criterion at the **HTTP** boundary: a client that
+/// drops the request while the apply is running.
 ///
-/// What this pins is the handler's half of the durability contract, and nothing
-/// else: the apply worker's confirmed mapping survives the cancellation, and the
-/// handler contributes NO summary (the port method that used to write one is
-/// gone, and the job row is untouched). The other half — that the read edge
-/// derives the summary from exactly those mapping rows after projector catch-up —
-/// needs a database and lives in the Tier-4 test
+/// The request is dispatched through a real `axum::Router` (the production route
+/// path, the handler, the real `auth_middleware`), and then the response future
+/// is **dropped** — which is precisely what hyper does when the connection goes
+/// away, so the cancellation point is the HTTP service future rather than a
+/// hand-picked `await` inside the handler.
+///
+/// What this pins is the server-side half of the durability contract: the apply
+/// worker's confirmed mapping survives the dropped request, and the handler
+/// contributes NO summary (the port method that used to write one is gone, and the
+/// job row is untouched). The other half — that the read edge derives the summary
+/// from exactly those mapping rows after projector catch-up — needs a database and
+/// lives in the Tier-4 test
 /// `a_cancelled_apply_still_leaves_its_summary_resolvable`
 /// (`integration-tests/tests/ai_import_applied_episodes_cancelled.rs`), because
 /// this harness is deliberately fake-based and has no projection to derive from.
 ///
 /// The cancellation is deterministic: the fake mapping repository is gated on the
-/// first confirmed `scene` mapping, so the future is provably in flight when it is
-/// aborted — a handler that finished first fails the test instead of passing it.
+/// first confirmed `scene` mapping, so the request is provably in flight when the
+/// future is dropped — a request that answered first fails the test instead of
+/// passing it.
 #[tokio::test]
-async fn a_cancelled_apply_handler_writes_no_summary_and_keeps_the_mapping() {
+async fn a_client_dropping_the_apply_request_leaves_no_summary_and_keeps_the_mapping() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
@@ -1797,65 +1810,57 @@ async fn a_cancelled_apply_handler_writes_no_summary_and_keeps_the_mapping() {
     let queue = ports.ai_import_queue.clone();
     let mappings = ports.ai_import_mapping.clone();
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
+    let episode_id = EpisodeId::new();
 
     // Park the apply inside its first confirmed mapping.
     let mut confirmed = mappings.arm_confirm_gate().await;
 
-    let handle = tokio::spawn(apply_ai_import::<FakePorts>(
-        State(state(ports)),
-        user(),
-        Path(job_id),
-        Json(ApplyAiImportRequest {
-            continuity_selections: Vec::new(),
-            episode_id: EpisodeId::new(),
-            project_id: None,
-            uncertainty_acknowledgements: Vec::new(),
-            mappings: vec![
-                ApplyMapping {
-                    draft_ref: "scene-0".to_owned(),
-                    decision: ApplyMappingDecision::Create,
-                    outfit_decisions: Vec::new(),
-                },
-                ApplyMapping {
-                    draft_ref: "scene-1".to_owned(),
-                    decision: ApplyMappingDecision::Create,
-                    outfit_decisions: Vec::new(),
-                },
-            ],
-            accept_as_is: true,
-            edit_distance: 0,
-            episode_groups: Vec::new(),
-            shooting_days: Vec::new(),
-        }),
-    ));
+    let app = Router::new()
+        .route(
+            "/v1/ai-import/jobs/{id}/apply",
+            post(apply_ai_import::<FakePorts>),
+        )
+        // The REAL authentication middleware, so `CurrentUser` reaches the
+        // handler the same way it does in production (dev mode: no JWKS).
+        .layer(from_fn_with_state(
+            Arc::new(AuthState::dev(user())),
+            auth_middleware,
+        ))
+        .with_state(state(ports));
 
-    // The gate's own signal: a mapping is confirmed AND the handler is still
-    // running. No poll, no clock budget.
-    confirmed
-        .recv()
-        .await
-        .expect("the apply must reach its first confirm");
+    let body = serde_json::json!({
+        "episode_id": episode_id.0.to_string(),
+        "project_id": serde_json::Value::Null,
+        "mappings": [
+            {"draft_ref": "scene-0", "decision": "Create", "outfit_decisions": []},
+            {"draft_ref": "scene-1", "decision": "Create", "outfit_decisions": []},
+        ],
+        "accept_as_is": true,
+        "edit_distance": 0,
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/v1/ai-import/jobs/{}/apply", job_id.as_uuid()))
+        .header("content-type", "application/json")
+        .body(AxumBody::from(body.to_string()))
+        .expect("request builds");
 
-    handle.abort();
-    let cancelled = match handle.await {
-        Err(error) => {
-            assert!(
-                error.is_cancelled(),
-                "the handler future must be cancelled, not merely finished: {error}"
-            );
-            true
-        }
-        // A handler that answered means the gate failed to park it, so every
-        // assertion below would prove nothing about a cancelled run.
-        Ok(_) => false,
+    // The response future IS the HTTP service future: polling it is what runs the
+    // handler, and dropping it is the client disappearing.
+    let mut response = Box::pin(app.oneshot(request));
+    let answered = tokio::select! {
+        // The gate's own signal: a mapping is confirmed AND the apply is running.
+        _ = confirmed.recv() => false,
+        _ = &mut response => true,
     };
     assert!(
-        cancelled,
-        "the handler answered before the cancellation — the gate failed to hold it"
+        !answered,
+        "the request answered before the cancellation — the gate failed to hold it"
     );
+    drop(response);
 
-    // The worker's durable record survived the cancellation: one CONFIRMED scene
-    // mapping (`aggregate_version > 0`), the row the read edge derives from.
+    // The worker's durable record survived the dropped request: one CONFIRMED
+    // scene mapping (`aggregate_version > 0`), the row the read edge derives from.
     let stored = mappings
         .list_by_preview(job_id)
         .await
@@ -1878,7 +1883,7 @@ async fn a_cancelled_apply_handler_writes_no_summary_and_keeps_the_mapping() {
         .expect("the job still exists");
     assert!(
         job.applied_episodes.is_empty(),
-        "a cancelled handler must leave no summary of its own — the summary is the \
+        "a dropped request must leave no summary of its own — the summary is the \
          read edge's derivation, never a handler write: {:?}",
         job.applied_episodes
     );

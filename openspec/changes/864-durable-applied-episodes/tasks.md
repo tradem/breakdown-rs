@@ -54,11 +54,13 @@
       (`scene_shoot`/`shooting_day`) derive no target.
 - [x] 4.5 Integration: `list_for_user` derives the same summary as `get`, and a
       never-applied job on the same page still answers empty.
-- [x] 4.8 API handler (fake harness): the handler future is dropped mid-apply
-      (gate on the first confirmed `scene` mapping) — the confirmed mapping
-      survives and the handler writes NO summary. The derivation assertion stays
-      in 4.7 because this harness has no projection to derive from; a gate that
-      does not park fails the test instead of passing it.
+- [x] 4.8 API HTTP layer (fake harness): the apply request is dispatched through
+      a real `axum::Router` (production path, handler, real auth middleware) and
+      its **response future is dropped** mid-apply — what hyper does when the
+      connection goes away. The confirmed mapping survives; the handler writes NO
+      summary. The derivation assertion stays in 4.7 because this harness has no
+      projection to derive from; a request that answers before the drop fails the
+      test instead of passing it.
 - [x] 4.6 Integration: a mapped scene whose episode has NO projection row keeps
       its entry with honest-absent labels (a LEFT join, not an inner one) and
       sorts last — the assertion that would otherwise pass with an inner join.
