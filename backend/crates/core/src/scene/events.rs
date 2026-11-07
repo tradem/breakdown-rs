@@ -59,7 +59,10 @@ pub struct SceneDetails {
     /// erase the recorded provenance); `None` for manual scenes and for
     /// rows whose best-effort scoring pass failed (honest absence, never a
     /// fabricated value). Additive on the wire with a serde default per
-    /// ADR-021 (older events/clients omit the fields).
+    /// ADR-021 (older events/clients omit the fields). The aggregate
+    /// validates the range at command time and preserves the values across
+    /// details updates AND replay — the aggregate state, the events and the
+    /// projection never diverge on these two fields.
     #[serde(default)]
     pub scene_score: Option<f32>,
     /// Decision-Model quality score of the TL;DR `summary` (issue #834,

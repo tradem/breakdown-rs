@@ -1042,3 +1042,175 @@ fn test_draft_scene_details_carries_scores() {
     assert_eq!(details.scene_score, Some(0.77));
     assert_eq!(details.synopsis_score, Some(0.55));
 }
+
+// ---------------------------------------------------------------------------
+// CodeRabbit review (issue #834): score preservation + range validation
+// ---------------------------------------------------------------------------
+
+/// A details update CANNOT change the creation-time provenance: the emitted
+/// event carries the aggregate's own scores, and replay preserves them —
+/// aggregate state and projection never diverge (CodeRabbit #867).
+#[test]
+fn test_update_details_preserves_creation_scores() {
+    let episode_id = EpisodeId::new();
+    let scored = SceneDetails {
+        scene_score: Some(0.82),
+        synopsis_score: Some(0.41),
+        scene_number: Some(1),
+        location: Some("Studio A".to_string()),
+        is_schedule_set: false,
+        ..Default::default()
+    };
+    let events = SceneAggregate::default()
+        .handle(
+            CreateScene {
+                id: Uuid::now_v7(),
+                episode_id,
+                project_id: Some(project_id()),
+                details: scored,
+                source: SceneSource::Manual,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let mut agg = SceneAggregate::default();
+    test_support::replay_events(&mut agg, events);
+
+    // The update payload ECHOES different scores (e.g. a legacy client that
+    // omits them, or one that edits them): the aggregate must ignore that.
+    let edited = SceneDetails {
+        scene_score: None,
+        synopsis_score: Some(0.99),
+        scene_number: Some(2),
+        location: Some("Set B".to_string()),
+        is_schedule_set: false,
+        ..Default::default()
+    };
+    let events = agg
+        .handle(
+            UpdateSceneDetails {
+                id: agg.id,
+                details: edited.clone(),
+                project_id: Some(project_id()),
+                version: agg.version,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    match &events[0] {
+        SceneEvent::SceneDetailsUpdated { details, .. } => {
+            // The EVENT carries the preserved provenance, not the echo.
+            assert_eq!(details.scene_score, Some(0.82));
+            assert_eq!(details.synopsis_score, Some(0.41));
+        }
+        other => panic!("Expected SceneDetailsUpdated, got {other:?}"),
+    }
+    test_support::replay_events(&mut agg, events);
+    assert_eq!(agg.details.scene_score, Some(0.82));
+    assert_eq!(agg.details.synopsis_score, Some(0.41));
+    assert_eq!(agg.details.scene_number, Some(2));
+}
+
+/// Scores are EXCLUDED from the unchanged comparison: a payload that
+/// differs only in the (preserved) scores is "unchanged" — emitting an
+/// event the projector would ignore would be a phantom version bump.
+#[test]
+fn test_score_only_change_is_unchanged() {
+    let episode_id = EpisodeId::new();
+    let scored = SceneDetails {
+        scene_score: Some(0.82),
+        scene_number: Some(1),
+        location: Some("Studio A".to_string()),
+        is_schedule_set: false,
+        ..Default::default()
+    };
+    let events = SceneAggregate::default()
+        .handle(
+            CreateScene {
+                id: Uuid::now_v7(),
+                episode_id,
+                project_id: Some(project_id()),
+                details: scored,
+                source: SceneSource::Manual,
+            },
+            make_ctx(),
+        )
+        .unwrap();
+    let mut agg = SceneAggregate::default();
+    test_support::replay_events(&mut agg, events);
+
+    let result = agg.handle(
+        UpdateSceneDetails {
+            id: agg.id,
+            // Same fields, DIFFERENT scores — must still read as unchanged.
+            details: SceneDetails {
+                scene_score: Some(0.11),
+                scene_number: Some(1),
+                location: Some("Studio A".to_string()),
+                is_schedule_set: false,
+                ..Default::default()
+            },
+            project_id: Some(project_id()),
+            version: agg.version,
+        },
+        make_ctx(),
+    );
+    assert!(matches!(
+        result.unwrap_err(),
+        SceneError::ValidationError(ref m) if m.contains("unchanged")
+    ));
+}
+
+/// The command path rejects out-of-range Decision-Model scores BEFORE any
+/// `SceneCreated` is emitted — `SceneView` never serves a value its own
+/// documentation (`0.0..=1.0`) contradicts (CodeRabbit #867).
+#[test]
+fn test_create_scene_rejects_out_of_range_scores() {
+    for (field, score) in [("scene_score", 1.5f32), ("scene_score", -0.1)] {
+        let result = SceneAggregate::default().handle(
+            CreateScene {
+                id: Uuid::now_v7(),
+                episode_id: EpisodeId::new(),
+                project_id: Some(project_id()),
+                details: SceneDetails {
+                    scene_score: (field == "scene_score").then_some(score),
+                    synopsis_score: (field == "synopsis_score").then_some(score),
+                    is_schedule_set: false,
+                    ..Default::default()
+                },
+                source: SceneSource::Manual,
+            },
+            make_ctx(),
+        );
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                SceneError::ValidationError(ref m) if m.contains(field)
+            ),
+            "expected {field}={score} to be rejected"
+        );
+    }
+}
+
+/// The documented range boundaries are valid; the scoring pass emits them.
+#[test]
+fn test_create_scene_accepts_boundary_scores() {
+    for score in [0.0f32, 1.0] {
+        let result = SceneAggregate::default().handle(
+            CreateScene {
+                id: Uuid::now_v7(),
+                episode_id: EpisodeId::new(),
+                project_id: Some(project_id()),
+                details: SceneDetails {
+                    scene_score: Some(score),
+                    synopsis_score: Some(score),
+                    is_schedule_set: false,
+                    ..Default::default()
+                },
+                source: SceneSource::Manual,
+            },
+            make_ctx(),
+        );
+        assert!(result.is_ok(), "boundary score {score} must be accepted");
+    }
+}

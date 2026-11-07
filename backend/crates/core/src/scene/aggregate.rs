@@ -91,6 +91,14 @@ impl Apply for SceneAggregate {
             SceneEvent::SceneDetailsUpdated {
                 details, version, ..
             } => {
+                // Scores are creation-time provenance (issue #834): replay
+                // PRESERVES them exactly like the projector's update handler
+                // does, so the aggregate state and the projection can never
+                // diverge on a details update — including legacy pre-#834
+                // events whose payloads carry no score keys at all.
+                let mut details = details;
+                details.scene_score = self.details.scene_score;
+                details.synopsis_score = self.details.synopsis_score;
                 self.details = details;
                 self.version = version;
             }
@@ -198,6 +206,25 @@ impl Command<CreateScene> for SceneAggregate {
         if self.deleted {
             return Err(SceneError::Deleted { id: self.id });
         }
+        // Decision-Model scores are provenance data with a documented range
+        // (`0.0..=1.0`, issue #834): a wire value outside it must never reach
+        // the event store, or `SceneView` would serve a score its own
+        // documentation contradicts. `NaN` is rejected explicitly — serde
+        // cannot even carry it as a number, but the guard keeps the contract
+        // self-contained.
+        for (field, score) in [
+            ("scene_score", cmd.details.scene_score),
+            ("synopsis_score", cmd.details.synopsis_score),
+        ] {
+            if let Some(score) = score {
+                let in_range = (0.0..=1.0).contains(&score) && !score.is_nan();
+                if !in_range {
+                    return Err(SceneError::ValidationError(format!(
+                        "{field} must be within 0.0..=1.0"
+                    )));
+                }
+            }
+        }
         Ok(vec![SceneEvent::SceneCreated {
             id: cmd.id,
             episode_id: cmd.episode_id,
@@ -225,7 +252,17 @@ impl Command<UpdateSceneDetails> for SceneAggregate {
                 actual: self.version,
             });
         }
-        if cmd.details == self.details {
+        // Decision-Model scores are creation-time provenance (issue #834):
+        // a details update CANNOT change them. The values are overwritten
+        // with the aggregate's own before the unchanged-comparison, so a
+        // score-only "change" is correctly rejected as unchanged and the
+        // emitted event always carries the preserved provenance — the
+        // projector's preserve-on-update semantics and the aggregate's
+        // replay state stay consistent.
+        let mut details = cmd.details;
+        details.scene_score = self.details.scene_score;
+        details.synopsis_score = self.details.synopsis_score;
+        if details == self.details {
             return Err(SceneError::ValidationError(
                 "Scene details unchanged".into(),
             ));
@@ -233,7 +270,7 @@ impl Command<UpdateSceneDetails> for SceneAggregate {
         let new_version = self.version.next();
         Ok(vec![SceneEvent::SceneDetailsUpdated {
             id: self.id,
-            details: cmd.details,
+            details,
             version: new_version,
         }])
     }
