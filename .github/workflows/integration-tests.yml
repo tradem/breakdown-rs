@@ -171,6 +171,7 @@ jobs:
           # files run in the dedicated `ai-import-integration-tests` job.
           cargo test -p integration-tests \
             --test ai_concurrency_shutdown \
+            --test ai_import_job_identity \
             --test ai_import_mapping_reservation \
             --test ai_import_queue_telemetry \
             --test ai_payload_restart_recovery \
@@ -199,8 +200,11 @@ jobs:
           #
           # Note: --test <name> flags go BEFORE the first -- (Cargo option);
           # --test-threads=1 goes AFTER -- (test runner option).
+          # `ai_import_applied_episodes_cancelled` (issue #864) drives the real
+          # ApplyWorker against SierraDB + projectors, so it belongs here.
           cargo test -p integration-tests \
             --test sierradb_round_trip \
+            --test ai_import_applied_episodes_cancelled \
             --test dev_reset_replay \
             --test audit_projector_tests \
             --test audit_cross_cutting_tests \

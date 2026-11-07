@@ -552,3 +552,150 @@ final class AiJobAppliedFamily extends $Family
   @override
   String toString() => r'aiJobAppliedProvider';
 }
+
+/// The applied-episode summary a job's applies left **persisted** (issue #864),
+/// read from the cached job row.
+///
+/// The server derives it at the read edge from the durable apply mappings, so it
+/// exists exactly when rows committed — including an apply whose client
+/// disconnected before the response. That is what makes it usable as the
+/// post-apply hop's fallback: a re-apply of an already-applied preview dispatches
+/// nothing and therefore returns an EMPTY `applied_episodes` in its response,
+/// while the persisted summary still names where the previous run put the rows.
+///
+/// Empty when the row is unknown/offline or no apply ever committed: the caller
+/// keeps its own honest fallback (the request's episode, then the kind/date copy)
+/// rather than inventing a target.
+
+@ProviderFor(aiJobAppliedEpisodes)
+final aiJobAppliedEpisodesProvider = AiJobAppliedEpisodesFamily._();
+
+/// The applied-episode summary a job's applies left **persisted** (issue #864),
+/// read from the cached job row.
+///
+/// The server derives it at the read edge from the durable apply mappings, so it
+/// exists exactly when rows committed — including an apply whose client
+/// disconnected before the response. That is what makes it usable as the
+/// post-apply hop's fallback: a re-apply of an already-applied preview dispatches
+/// nothing and therefore returns an EMPTY `applied_episodes` in its response,
+/// while the persisted summary still names where the previous run put the rows.
+///
+/// Empty when the row is unknown/offline or no apply ever committed: the caller
+/// keeps its own honest fallback (the request's episode, then the kind/date copy)
+/// rather than inventing a target.
+
+final class AiJobAppliedEpisodesProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<AppliedEpisode>>,
+          List<AppliedEpisode>,
+          FutureOr<List<AppliedEpisode>>
+        >
+    with
+        $FutureModifier<List<AppliedEpisode>>,
+        $FutureProvider<List<AppliedEpisode>> {
+  /// The applied-episode summary a job's applies left **persisted** (issue #864),
+  /// read from the cached job row.
+  ///
+  /// The server derives it at the read edge from the durable apply mappings, so it
+  /// exists exactly when rows committed — including an apply whose client
+  /// disconnected before the response. That is what makes it usable as the
+  /// post-apply hop's fallback: a re-apply of an already-applied preview dispatches
+  /// nothing and therefore returns an EMPTY `applied_episodes` in its response,
+  /// while the persisted summary still names where the previous run put the rows.
+  ///
+  /// Empty when the row is unknown/offline or no apply ever committed: the caller
+  /// keeps its own honest fallback (the request's episode, then the kind/date copy)
+  /// rather than inventing a target.
+  AiJobAppliedEpisodesProvider._({
+    required AiJobAppliedEpisodesFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiJobAppliedEpisodesProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiJobAppliedEpisodesHash();
+
+  @override
+  String toString() {
+    return r'aiJobAppliedEpisodesProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<List<AppliedEpisode>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<List<AppliedEpisode>> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiJobAppliedEpisodes(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiJobAppliedEpisodesProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiJobAppliedEpisodesHash() =>
+    r'd17d7aba47e0899b6faf0c84a5fc8e5231cccf28';
+
+/// The applied-episode summary a job's applies left **persisted** (issue #864),
+/// read from the cached job row.
+///
+/// The server derives it at the read edge from the durable apply mappings, so it
+/// exists exactly when rows committed — including an apply whose client
+/// disconnected before the response. That is what makes it usable as the
+/// post-apply hop's fallback: a re-apply of an already-applied preview dispatches
+/// nothing and therefore returns an EMPTY `applied_episodes` in its response,
+/// while the persisted summary still names where the previous run put the rows.
+///
+/// Empty when the row is unknown/offline or no apply ever committed: the caller
+/// keeps its own honest fallback (the request's episode, then the kind/date copy)
+/// rather than inventing a target.
+
+final class AiJobAppliedEpisodesFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<List<AppliedEpisode>>, String> {
+  AiJobAppliedEpisodesFamily._()
+    : super(
+        retry: null,
+        name: r'aiJobAppliedEpisodesProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The applied-episode summary a job's applies left **persisted** (issue #864),
+  /// read from the cached job row.
+  ///
+  /// The server derives it at the read edge from the durable apply mappings, so it
+  /// exists exactly when rows committed — including an apply whose client
+  /// disconnected before the response. That is what makes it usable as the
+  /// post-apply hop's fallback: a re-apply of an already-applied preview dispatches
+  /// nothing and therefore returns an EMPTY `applied_episodes` in its response,
+  /// while the persisted summary still names where the previous run put the rows.
+  ///
+  /// Empty when the row is unknown/offline or no apply ever committed: the caller
+  /// keeps its own honest fallback (the request's episode, then the kind/date copy)
+  /// rather than inventing a target.
+
+  AiJobAppliedEpisodesProvider call(String jobId) =>
+      AiJobAppliedEpisodesProvider._(argument: jobId, from: this);
+
+  @override
+  String toString() => r'aiJobAppliedEpisodesProvider';
+}

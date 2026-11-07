@@ -398,11 +398,12 @@ async fn a_claim_without_a_published_payload_is_not_stolen() -> Result<()> {
 /// another run's late write cannot extend it.
 ///
 /// The tempting column is the job row's `updated_at`, which the claim also
-/// stamps — and which every run-scoped write bumps. The post-apply summary
-/// (`record_applied_episodes`) of a PREVIOUS apply lands after that apply
-/// released the slot, so it can land after the next claim: judging the new
-/// owner by `updated_at` would describe a dead run as fresher than it is, by
-/// exactly the gap to that write, and delay the steal by the same amount.
+/// stamps — and which every run-scoped write bumps. A PREVIOUS apply's
+/// post-apply write (its telemetry, or the applied-episode summary while that
+/// was still a column — issue #864) lands after that apply released the slot,
+/// so it can land after the next claim: judging the new owner by `updated_at`
+/// would describe a dead run as fresher than it is, by exactly the gap to that
+/// write, and delay the steal by the same amount.
 ///
 /// This pins both halves of the cure: a late write does not move the claim
 /// instant the refusal reports, and it does not delay the steal.
@@ -421,7 +422,7 @@ async fn a_late_run_scoped_write_cannot_extend_a_claims_window() -> Result<()> {
         .owner_claimed_at
         .expect("the claim stamps its own instant");
 
-    // The previous apply's summary write, landing after the claim took the
+    // A previous apply's post-apply write, landing after the claim took the
     // slot: it moves `updated_at` and nothing else.
     sqlx::query("UPDATE ai_import.ai_import_job SET updated_at = now() WHERE id = $1")
         .bind(id.as_uuid())

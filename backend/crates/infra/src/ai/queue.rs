@@ -6,6 +6,7 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
     ApplyRunState, CostBreakdown, DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary,
-    LlmProvider, SourceFormat, TargetAttachOutcome, Telemetry,
+    LlmProvider, SourceFormat, TargetAttachOutcome, Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{BlockId, UserId};
@@ -106,6 +107,99 @@ impl PgAiImportQueue {
     /// so cross-instance `pg_notify` payloads land in the same fan-out.
     pub fn event_hub(&self) -> AiJobEventHub {
         self.hub.clone()
+    }
+
+    /// Derive the applied-episode summary from the **durable** apply mappings
+    /// (issue #864), one batch query for every job the caller is about to
+    /// return.
+    ///
+    /// Why the read edge instead of the apply path: the summary used to be
+    /// written by `apply_ai_import` *after* `ApplyWorker::apply_script`
+    /// returned. A client that dropped or retried the request cancelled that
+    /// handler future — the scene rows were already committed, the summary write
+    /// never ran, and nothing retried it, so a completed apply could read back
+    /// as "never applied". Denormalizing the summary from what actually
+    /// committed removes the write entirely, so no cancellation point can lose
+    /// it.
+    ///
+    /// The durable source is `projection_ai_import_mapping`: every applied scene
+    /// row owns a `scene` mapping whose `aggregate_id` is the scene (a *new* one
+    /// or the existing scene a reconciliation row updated), and
+    /// `projection_scene.episode_id` says where that scene lives — the row's real
+    /// home, not the episode the request happened to name. The episode's own
+    /// number/title label the entry, which is the same authority a client would
+    /// read.
+    ///
+    /// Two deliberate properties:
+    ///
+    /// * a still-**reserved** mapping (a crashed attempt that claimed an id) has
+    ///   no scene projection row, so the join drops it: a reservation is not
+    ///   applied work;
+    /// * a schedule apply writes only `scene_shoot`/`shooting_day` mappings, so
+    ///   it derives an empty list — the #763 decision (a schedule merge names no
+    ///   target episode) falls out of the derivation instead of being a special
+    ///   case.
+    ///
+    /// A failed derivation is display-metadata loss, never a failed read: the
+    /// caller degrades to an empty list, exactly like an undecodable JSONB
+    /// column did before.
+    async fn derived_applied_episodes(
+        &self,
+        ids: &[AiImportJobId],
+    ) -> HashMap<Uuid, Vec<AppliedEpisode>> {
+        if ids.is_empty() {
+            return HashMap::new();
+        }
+        let jobs: Vec<Uuid> = ids.iter().map(|id| id.as_uuid()).collect();
+        let rows = sqlx::query(
+            r#"
+            SELECT mapping.preview_id                AS job_id,
+                   scene.episode_id                  AS episode_id,
+                   episode.number                    AS episode_number,
+                   episode.name                      AS episode_name,
+                   count(*)                          AS applied_count
+            FROM ai_import.projection_ai_import_mapping AS mapping
+            JOIN projection_scene AS scene ON scene.id = mapping.aggregate_id
+            LEFT JOIN projection_episode AS episode ON episode.id = scene.episode_id
+            WHERE mapping.aggregate_kind = $1
+              AND mapping.preview_id = ANY($2)
+            GROUP BY mapping.preview_id, scene.episode_id, episode.number, episode.name
+            ORDER BY mapping.preview_id, episode.number NULLS LAST, scene.episode_id
+            "#,
+        )
+        .bind(mapping_kind::SCENE)
+        .bind(&jobs)
+        .fetch_all(&self.pool)
+        .await;
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to derive the AI import applied-episode summary; serving no recorded target"
+                );
+                return HashMap::new();
+            }
+        };
+        let mut derived: HashMap<Uuid, Vec<AppliedEpisode>> = HashMap::new();
+        for row in rows {
+            let Ok(job_id) = row.try_get::<Uuid, _>("job_id") else {
+                continue;
+            };
+            let (Ok(episode_id), Ok(applied_count)) = (
+                row.try_get::<Uuid, _>("episode_id"),
+                row.try_get::<i64, _>("applied_count"),
+            ) else {
+                continue;
+            };
+            derived.entry(job_id).or_default().push(AppliedEpisode {
+                id: episode_id,
+                number: row.try_get("episode_number").ok().flatten(),
+                name: row.try_get("episode_name").ok().flatten(),
+                applied_count: u32::try_from(applied_count).unwrap_or(u32::MAX),
+            });
+        }
+        derived
     }
 
     fn lease_secs(&self) -> f64 {
@@ -521,6 +615,11 @@ impl AiImportQueue for PgAiImportQueue {
         match row.map(map_job_row).transpose()? {
             Some(mut job) => {
                 job.attempts = self.list_attempts(id, ATTEMPT_HISTORY_LIMIT).await?;
+                job.applied_episodes = self
+                    .derived_applied_episodes(std::slice::from_ref(&id))
+                    .await
+                    .remove(&id.as_uuid())
+                    .unwrap_or_default();
                 Ok(Some(job))
             }
             None => Ok(None),
@@ -554,7 +653,19 @@ impl AiImportQueue for PgAiImportQueue {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        rows.into_iter().map(map_job_row).collect()
+        let mut jobs: Vec<AiImportJob> = rows
+            .into_iter()
+            .map(map_job_row)
+            .collect::<Result<_, _>>()?;
+        // One batch query for the whole page (issue #864): a per-job derivation
+        // would turn the list into N+1 queries, and the summary is display
+        // metadata every row on the page wants.
+        let ids: Vec<AiImportJobId> = jobs.iter().map(|job| job.id).collect();
+        let mut derived = self.derived_applied_episodes(&ids).await;
+        for job in &mut jobs {
+            job.applied_episodes = derived.remove(&job.id.as_uuid()).unwrap_or_default();
+        }
+        Ok(jobs)
     }
 
     /// Re-affirm the `running` status and extend the current lease.
@@ -1112,114 +1223,6 @@ impl AiImportQueue for PgAiImportQueue {
         Ok(())
     }
 
-    /// Record the target episodes of a successful apply (issue #763).
-    ///
-    /// Unfenced for the same reason as [`record_telemetry`]: the apply only
-    /// runs on a `succeeded` job, so no worker holds a claim that could be
-    /// displaced. `updated_at` is bumped deliberately — the jobs list orders by
-    /// it, and a job the user just applied to is the most recently *used* row.
-    /// Payload retention is measured from the same column, so an applied job's
-    /// preview lives a full retention window longer, which is the intended
-    /// direction: the user may still re-open it.
-    /// Record the target episodes a successful apply dispatched rows into
-    /// (issue #763).
-    ///
-    /// Unfenced for the same reason as [`record_telemetry`]: the apply only runs
-    /// on a `succeeded` job, so no worker holds a claim that could be displaced.
-    ///
-    /// The write **merges** instead of replacing, and the row lock makes the
-    /// read-merge-write atomic against a concurrent duplicate apply. Merging is
-    /// what keeps a retry from destroying correct attribution (CodeRabbit
-    /// review): a retry finds every row already applied and therefore reports no
-    /// entries at all — replacing would wipe the first apply's summary, while a
-    /// union keeps it and lets a partially applied job add the episodes it
-    /// reached later. A known episode's `applied_count` is **accumulated** (a
-    /// later apply reports only its own rows) and its position is kept; a new
-    /// episode is appended.
-    ///
-    /// `updated_at` is bumped deliberately — the jobs list orders by it, and a
-    /// job the user just applied to is the most recently *used* row. Payload
-    /// retention is measured from the same column, so an applied job's preview
-    /// lives a full retention window longer, which is the intended direction:
-    /// the user may still re-open it.
-    async fn record_applied_episodes(
-        &self,
-        id: AiImportJobId,
-        episodes: &[AppliedEpisode],
-    ) -> Result<(), DomainError> {
-        if episodes.is_empty() {
-            // Nothing dispatched: keep the existing summary untouched (a retry
-            // of an applied preview must not blank it), and skip the row lock.
-            return Ok(());
-        }
-        let mut transaction = self.pool.begin().await.map_err(map_sqlx_error)?;
-        // `Option<Option<_>>`: the outer one is "no such job row", the inner one
-        // is the nullable column — a job no apply has written a summary for yet.
-        let existing: Option<Option<serde_json::Value>> = sqlx::query_scalar(
-            r#"
-            SELECT applied_episodes
-            FROM ai_import.ai_import_job
-            WHERE id = $1
-            FOR UPDATE
-            "#,
-        )
-        .bind(id.as_uuid())
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(map_sqlx_error)?;
-        let Some(stored) = existing else {
-            // The job vanished between the apply and this write (a concurrent
-            // delete): nothing to annotate, and no error to raise for it.
-            transaction.rollback().await.map_err(map_sqlx_error)?;
-            return Ok(());
-        };
-        // An undecodable payload degrades to "nothing recorded yet", exactly
-        // like the read path — a broken display field never blocks the merge.
-        let mut merged: Vec<AppliedEpisode> = stored
-            .and_then(|value| serde_json::from_value(value).ok())
-            .unwrap_or_default();
-        for entry in episodes {
-            match merged.iter_mut().find(|known| known.id == entry.id) {
-                // ACCUMULATE, do not replace (CodeRabbit review): a later apply
-                // reports only the rows IT dispatched, so replacing would turn a
-                // stored 57 rows + 3 new ones into 3. Rows are never dispatched
-                // twice (a confirmed mapping short-circuits), so the sum is the
-                // job's real total for that episode. The freshest non-empty label
-                // wins, because a later apply may have resolved the episode's
-                // title where the earlier one could not.
-                Some(known) => {
-                    known.applied_count = known.applied_count.saturating_add(entry.applied_count);
-                    if entry.number.is_some() || entry.name.is_some() {
-                        known.number = entry.number;
-                        known.name = entry.name.clone();
-                    }
-                }
-                None => merged.push(entry.clone()),
-            }
-        }
-        let payload = serde_json::to_value(&merged).map_err(|error| {
-            DomainError::validation(format!(
-                "AI import applied-episode summary is not serializable: {error}"
-            ))
-        })?;
-        sqlx::query(
-            r#"
-            UPDATE ai_import.ai_import_job
-            SET applied_episodes = $2, updated_at = now()
-            WHERE id = $1
-            RETURNING pg_notify('ai_import_job_events', id::text)
-            "#,
-        )
-        .bind(id.as_uuid())
-        .bind(payload)
-        .execute(&mut *transaction)
-        .await
-        .map_err(map_sqlx_error)?;
-        transaction.commit().await.map_err(map_sqlx_error)?;
-        self.hub.notify(id);
-        Ok(())
-    }
-
     async fn list_attempts(
         &self,
         id: AiImportJobId,
@@ -1652,7 +1655,10 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         attempts: Vec::new(),
         telemetry: decode_job_telemetry(&row),
         cost: decode_job_cost(&row),
-        applied_episodes: decode_applied_episodes(&row),
+        // Derived at the read edge (issue #864): `get`/`list_for_user` fill
+        // this from the durable apply mappings. Claim contexts leave it empty
+        // because no client reads a claimed job.
+        applied_episodes: Vec::new(),
         // Job-level Decision Model outcome (issue #767). Advisory: a NULL
         // column (pre-#767 row, or a job no worker completed) renders as the
         // honest "not recorded" rather than a guessed class.
@@ -1707,25 +1713,6 @@ fn decode_import_target(row: &sqlx::postgres::PgRow) -> Option<AiImportTarget> {
             block_number,
         }),
         _ => None,
-    }
-}
-
-/// Decode the persisted `applied_episodes` JSONB list (issue #763).
-///
-/// A display summary, exactly like [`decode_job_cost`]: an undecodable payload
-/// degrades to "no recorded target" rather than failing the whole job read — a
-/// broken display field must never make the job unreachable.
-fn decode_applied_episodes(row: &sqlx::postgres::PgRow) -> Vec<AppliedEpisode> {
-    let value: Option<serde_json::Value> = row.try_get("applied_episodes").ok().flatten();
-    let Some(value) = value else {
-        return Vec::new();
-    };
-    match serde_json::from_value::<Vec<AppliedEpisode>>(value) {
-        Ok(episodes) => episodes,
-        Err(err) => {
-            tracing::warn!(error = %err, "failed to decode ai_import applied_episodes payload");
-            Vec::new()
-        }
     }
 }
 

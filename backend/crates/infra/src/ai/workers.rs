@@ -1624,11 +1624,19 @@ pub struct ScriptApplyResult {
     /// never dropped: a silently missing look is the failure mode this change
     /// exists to remove (design D5).
     pub unapplied_outfits: Vec<UnappliedOutfit>,
-    /// The episodes this apply landed rows in, in first-applied order, each
-    /// with its own row count (issue #763). The apply is the only place that
-    /// knows both halves — the resolved target episode of every row and how
-    /// many rows went there — so the summary is produced here and persisted by
-    /// the API edge; no projection is consulted.
+    /// The episodes this apply dispatched rows into, in first-applied order,
+    /// each with its own row count (issue #763). The apply is the only place
+    /// that knows both halves — the resolved target episode of every row and how
+    /// many rows went there — so THIS REQUEST's response is built from it; no
+    /// projection is consulted on the write path.
+    ///
+    /// It is not the persisted summary (issue #864): the job's read edge derives
+    /// that from the confirmed mappings plus the scenes they point at, so a
+    /// cancelled handler future cannot lose it and a row reconciled onto an
+    /// existing scene is attributed to that scene's own episode. The two can
+    /// therefore disagree in exactly those two situations, by design — the
+    /// response answers "what did this request just do", the job answers "where
+    /// are this job's rows".
     pub applied_episodes: Vec<AppliedEpisode>,
 }
 

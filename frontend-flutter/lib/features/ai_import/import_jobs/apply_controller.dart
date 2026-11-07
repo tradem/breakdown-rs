@@ -30,6 +30,7 @@ import '../../scenes/scenes_controller.dart';
 import '../../scenes/season_script_controller.dart';
 import 'continuity_gap.dart';
 import 'job_status_controller.dart';
+import 'jobs_controller.dart' show aiImportJobsFetchProvider;
 
 part 'apply_controller.g.dart';
 
@@ -1474,6 +1475,16 @@ class AiApplyController extends _$AiApplyController {
               ..invalidate(scenesCacheStaleProvider(episode.id));
           }
         }
+        // Issue #864: the job ROW now carries the server-derived applied-episode
+        // summary, and the post-apply hop reads it when the response names no
+        // episode. Refresh the list so that durable summary reaches the cache
+        // without waiting for the user to open the jobs screen — the hop itself
+        // stays cache-only (fire-and-forget here, never awaited on the
+        // navigation path). The job-scoped summary provider is dropped with it,
+        // or the family instance would keep serving the pre-apply read.
+        ref
+          ..invalidate(aiImportJobsFetchProvider)
+          ..invalidate(aiJobAppliedEpisodesProvider(jobId));
         state = state.copyWith(
           context: context,
           outcome: response,

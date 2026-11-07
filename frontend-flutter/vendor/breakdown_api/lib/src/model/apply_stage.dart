@@ -11,7 +11,7 @@ import 'package:built_value/serializer.dart';
 
 part 'apply_stage.g.dart';
 
-/// Which part of an apply run is executing (issue #762).  Coarse on purpose: the per-row counter is the progress signal, and these stages only say whether rows are still being dispatched or the run is closing out (shooting-day links, the applied-episode summary).
+/// Which part of an apply run is executing (issue #762).  Coarse on purpose: the per-row counter is the progress signal, and these stages only say whether rows are still being dispatched or the run is closing out (the shooting-day and scene-shoot links).
 class ApplyStage extends EnumClass {
   @BuiltValueEnumConst(wireName: r'applying')
   static const ApplyStage applying = _$applying;

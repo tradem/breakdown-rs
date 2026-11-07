@@ -8171,32 +8171,13 @@ pub async fn apply_ai_import<P: Ports>(
                 }
                 Err(error) => return Err(error.into()),
             };
-            // Persist the target episodes on the job (issue #763) so the jobs
-            // list can name the import. Best-effort, exactly like the apply
-            // telemetry below: the rows are already written, so a summary fault
-            // must never turn a successful apply into an error the caller would
-            // retry.
-            //
-            // Accepted tradeoff (documented in the delta spec): a write that
-            // fails despite the apply's own successful writes leaves the job with
-            // the list from its EARLIER successful applies (or an empty one if
-            // there are none) — the episodes this request dispatched are then
-            // missing, and a client without a name falls back to its kind/date
-            // copy. Durable recovery would need a persisted source for the
-            // summary that survives the failed write; the apply response still
-            // carries what this request dispatched, and a later apply that
-            // dispatches rows merges into the column.
-            if let Err(error) = state
-                .ports
-                .ai_import_queue()
-                .record_applied_episodes(id, &applied.applied_episodes)
-                .await
-            {
-                tracing::warn!(
-                    %error,
-                    "failed to record AI import applied episodes after a successful script apply"
-                );
-            }
+            // The applied-episode summary is NOT written here (issue #864). It
+            // used to be a best-effort post-apply write, which a cancelled
+            // handler future skipped entirely — committed rows, no summary, no
+            // retry. The job's read edge now derives it from the durable apply
+            // mappings the worker confirmed per row, so the response below
+            // carries what THIS request dispatched while every later read
+            // answers from what actually committed.
             Ok((
                 StatusCode::OK,
                 Json(ApplyAiImportResponse {

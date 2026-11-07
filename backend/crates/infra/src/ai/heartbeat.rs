@@ -147,7 +147,7 @@ mod tests {
     use async_trait::async_trait;
     use breakdown_core::ai::{
         AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
-        AppliedEpisode, DocumentKind, Telemetry,
+        DocumentKind, Telemetry,
     };
     use breakdown_core::error::DomainError;
     use std::sync::Arc;
@@ -248,14 +248,6 @@ mod tests {
             _telemetry: Telemetry,
         ) -> Result<(), DomainError> {
             unimplemented!("not exercised by the heartbeat")
-        }
-
-        async fn record_applied_episodes(
-            &self,
-            _id: AiImportJobId,
-            _episodes: &[AppliedEpisode],
-        ) -> Result<(), DomainError> {
-            Ok(())
         }
     }
 

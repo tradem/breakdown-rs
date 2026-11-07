@@ -136,6 +136,42 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **A completed AI apply can no longer lose its target-episode summary (issue
+  #864, follow-up to #805).** After a completed apply of the live episode-300
+  import, the job's `applied_episodes` was still `NULL`, so the "#759" hop had
+  no summary to resolve. The data was fine — the scene rows had committed; the
+  summary a later feature reads had not, for two independent reasons: the write
+  ran *after* `ApplyWorker::apply_script` returned, so a client that dropped or
+  retried the request cancelled the handler future with the rows already
+  committed and nothing left to retry it; and it was best-effort by design, so
+  "no summary" was indistinguishable from "no apply ever ran".
+  The summary is now **derived at the read edge** from the durable apply
+  mappings — the `scene` rows of `projection_ai_import_mapping` joined to their
+  projected scene and that scene's episode — so an apply that committed rows
+  leaves it resolvable even when the client disconnected mid-run, because no
+  write has to survive the cancelled future. The denormalized column, its port
+  method (`AiImportQueue::record_applied_episodes`) and the handler's
+  post-apply write are gone (migration `20261106000003`), and the derivation is
+  also more accurate on two counts: a row reconciled onto an **existing** scene
+  is attributed to that scene's episode instead of the episode the request
+  named, and a still-reserved mapping (an id claimed, nothing appended) no
+  longer risks being counted as applied work. A schedule apply derives an empty
+  list by construction (it writes only `scene_shoot`/`shooting_day` mappings),
+  so the #763 decision needs no special case, and one query per jobs page keeps
+  the list free of N+1 reads. "No summary" now means exactly one thing: no row
+  of this job is mapped to a projected scene.
+  The `POST …/apply` response still reports what that request dispatched (its
+  own plan, no projector wait), and the Flutter post-apply hop gained the
+  matching fallback: when the response names no episode — the re-apply case —
+  it reads the job's persisted summary from the cache instead of dropping to the
+  request's episode.
+  Crates: `core` 0.62.0 → 0.63.0, `infra` 0.72.0 → 0.73.0, `api` 0.60.0 →
+  0.61.0. No new problem code, no wire-shape change (`applied_episodes` keeps
+  its name and meaning; only its description moved in `backend/openapi.yaml`).
+  Covered by three database tests (derivation with counts and labels, reservations
+  and schedule mappings deriving nothing, list == get) plus a widget test for
+  the hop's durable fallback.
+
 - **A run that died before its first progress frame no longer blocks an apply
   without an age (issue #863, follow-up to #805).** #805 put the blocking run's
   silence on the wire (`apply_run_age_seconds`) next to the server's own window

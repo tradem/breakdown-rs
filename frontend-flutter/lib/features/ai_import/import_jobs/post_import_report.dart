@@ -205,37 +205,76 @@ String aiUnappliedOutfitReasonCopy(
   _ => l10n.commonUnknown,
 };
 
-/// Resolves WHERE the app opens after a successful apply (issue #759), or
-/// `null` when the destination cannot be resolved honestly.
+/// What [resolvePostImportTarget] learned (issue #759).
+///
+/// [hadCandidates] is the piece the caller needs and a bare `null` cannot carry:
+/// it says whether the SERVER knows a target episode for this job at all. `false`
+/// is the honest "there is nothing to open" (a schedule merge names no episode,
+/// and a job nothing was ever applied to names none either) — the CodeRabbit #802
+/// case where an "the imported episode could not be opened" hint would be a claim
+/// about something that does not exist. `true` with a `null` [target] is the real
+/// failure: an episode WAS named but the destination is not resolvable from the
+/// read caches, so the caller keeps the outcome card AND says so.
+typedef PostImportResolution = ({
+  AiPostImportTarget? target,
+  bool hadCandidates,
+});
+
+/// Resolves WHERE the app opens after a successful apply (issue #759), or a
+/// `null` [PostImportResolution.target] when the destination cannot be resolved
+/// honestly.
 ///
 /// Reads only seams the client already trusts for navigation context:
 /// the job's cached block (the request scope), the block row's season id, the
 /// seasons read cache (the Script view is season-scoped), and — only when the
 /// wire carried no number — the block's CACHED episode rows. No network read on
 /// the navigation path, no invented ids, no fabricated numbers: every missing
-/// piece answers `null`, and the caller keeps the outcome card plus an honest
-/// hint instead of a half-navigation.
-Future<AiPostImportTarget?> resolvePostImportTarget(
+/// piece answers a `null` target, and the caller keeps the outcome card plus an
+/// honest hint instead of a half-navigation.
+///
+/// The target list comes from the response first and from the job's
+/// **persisted** summary second (issue #864). The fallback is load-bearing: a
+/// re-apply of an already-applied preview dispatches nothing (every row is
+/// settled by its mapping), so its response names no episode at all, while the
+/// server-derived job summary still names where the earlier run put the rows.
+/// Without it the hop would fall back to the request's episode — or to nothing —
+/// although a durable answer exists. Both sources are read from the cache, so
+/// the navigation path still never waits for the network.
+///
+/// A persisted summary describes EARLIER applies, so it may only answer WHERE to
+/// go: the returned target carries `others` from the response alone, because
+/// "this apply dispatched rows there too" would otherwise be claimed for rows a
+/// previous run wrote (code-review follow-up to #864).
+Future<PostImportResolution> resolvePostImportTarget(
   WidgetRef ref, {
   required String jobId,
   required ApplyAiImportResponse outcome,
   String? requestEpisodeId,
 }) async {
+  final wire = outcome.appliedEpisodes ?? const <AppliedEpisode>[];
+  final persisted = wire.isEmpty
+      ? await ref.read(aiJobAppliedEpisodesProvider(jobId).future)
+      : const <AppliedEpisode>[];
+  final candidates = wire.isNotEmpty ? wire : persisted;
   final choice = pickAppliedTargetEpisode(
-    outcome.appliedEpisodes ?? const <AppliedEpisode>[],
+    candidates,
     requestEpisodeId: requestEpisodeId,
   );
-  if (choice == null) return null;
+  if (choice == null) return (target: null, hadCandidates: false);
 
   final info = await ref.read(aiJobBlockInfoProvider(jobId).future);
   final blockId = info?.blockId;
-  if (blockId == null || blockId.isEmpty) return null;
+  if (blockId == null || blockId.isEmpty) {
+    return (target: null, hadCandidates: true);
+  }
 
   final seasonId = await ref.read(aiApplyJobSeasonIdProvider(jobId).future);
-  if (seasonId == null || seasonId.isEmpty) return null;
+  if (seasonId == null || seasonId.isEmpty) {
+    return (target: null, hadCandidates: true);
+  }
 
   final season = await _cachedSeason(ref, seasonId);
-  if (season == null) return null;
+  if (season == null) return (target: null, hadCandidates: true);
 
   var number = choice.target.number;
   var name = choice.target.name;
@@ -255,19 +294,23 @@ Future<AiPostImportTarget?> resolvePostImportTarget(
       }
     }
   }
-  if (number == null) return null;
+  if (number == null) return (target: null, hadCandidates: true);
 
   final block = await BlockCacheDao(ref.read(cacheDatabaseProvider))
       .readById(blockId);
 
-  return AiPostImportTarget(
-    season: season,
-    blockId: blockId,
-    blockNumber: block?.number,
-    episodeId: choice.target.id,
-    episodeNumber: number,
-    episodeName: name,
-    others: choice.others,
+  return (
+    target: AiPostImportTarget(
+      season: season,
+      blockId: blockId,
+      blockNumber: block?.number,
+      episodeId: choice.target.id,
+      episodeNumber: number,
+      episodeName: name,
+      // Only what THIS request dispatched is reported as its further episodes.
+      others: wire.isEmpty ? const <AppliedEpisode>[] : choice.others,
+    ),
+    hadCandidates: true,
   );
 }
 

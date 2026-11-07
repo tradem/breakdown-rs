@@ -505,17 +505,38 @@ pub struct AiImportJob {
     /// only its date. Additive with `serde(default)`: empty for a job no apply
     /// has run for yet, and for a schedule apply (which merges onto the
     /// project's existing scenes and days and therefore has no single target
-    /// episode). Written by the apply path from the plan and target data it
-    /// already holds.
+    /// episode).
     ///
-    /// The summary is written by the applies that actually dispatched rows, and
-    /// merged per episode: a re-apply of an already-applied preview contributes
-    /// nothing (a confirmed row is not re-attributed to the retry's target), so
-    /// the earlier entries survive. It is best-effort by design (the scene rows
-    /// are already committed), so an empty list also means "no apply has written
-    /// a summary" — a client renders its kind/date copy either way. An entry
-    /// only carries `number`/`name` when they are authoritative for that
-    /// episode's persisted location.
+    /// **Derived at the read edge from the durable apply mappings** (issue
+    /// #864), never written by the apply path: every applied scene row owns a
+    /// `projection_ai_import_mapping` row whose `aggregate_kind` is `scene`, and
+    /// the scene's own `episode_id` says where it landed. An apply that commits
+    /// rows therefore leaves the summary resolvable **even when the client
+    /// disconnected mid-run** and no handler code ever ran to completion — the
+    /// property the previous best-effort column could not offer, because a
+    /// cancelled handler future simply never reached its post-apply write.
+    ///
+    /// Consequences of deriving instead of recording:
+    ///
+    /// * the `number`/`name` labels are the persisted episode's own, i.e.
+    ///   authoritative rather than the request's target. A row reconciled onto
+    ///   an existing scene is attributed to **that** scene's episode, not to the
+    ///   episode the request named;
+    /// * the list is ordered by episode number (id as the tiebreak), so two
+    ///   reads of an unchanged job agree;
+    /// * empty means "no **scene** row of this job is mapped to a projected
+    ///   scene" — NOT "this job applied nothing". A schedule apply is the
+    ///   standing example of the difference: it does commit work (shooting days,
+    ///   scene-shoot links) while naming no episode, so its list is empty by
+    ///   design. An empty list is also what a job no apply has run for answers,
+    ///   and what an apply cancelled before its first scene commit leaves
+    ///   behind.
+    ///
+    /// The derivation is display metadata: a failure to read it degrades to an
+    /// empty list (the client renders its kind/date copy) and never makes the
+    /// job unreachable — so an empty list can also mean "the derivation could
+    /// not be read just now". A client therefore never treats empty as proof
+    /// that no work happened, only as "no target to name".
     #[serde(default)]
     pub applied_episodes: Vec<AppliedEpisode>,
     /// What the optional Decision Model scoring pass actually did for this job
@@ -570,15 +591,15 @@ pub struct AiImportJob {
 ///
 /// Coarse on purpose: the per-row counter is the progress signal, and these
 /// stages only say whether rows are still being dispatched or the run is
-/// closing out (shooting-day links, the applied-episode summary).
+/// closing out (the shooting-day and scene-shoot links).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ApplyStage {
     /// Rows are being dispatched (`SceneApplyPlan` order).
     #[default]
     Applying,
-    /// Every row is done; the trailing work (day/scene-shoot links, summary,
-    /// telemetry) is running.
+    /// Every row is done; the trailing work (day/scene-shoot links, telemetry)
+    /// is running.
     Finalizing,
 }
 
@@ -716,7 +737,7 @@ pub struct ApplyRunState {
     ///
     /// Deliberately **not** the job row's `updated_at`, which is the tempting
     /// shortcut: that column is bumped by every run-scoped write, including a
-    /// PREVIOUS apply's post-apply summary, which can land after the next claim
+    /// PREVIOUS apply's post-apply write, which can land after the next claim
     /// and would then describe the new owner as fresher than it is — understating
     /// a dead run's silence by that gap and delaying the steal by the same
     /// amount (issue #863 review). An owner-scoped column cannot be moved by
@@ -831,9 +852,10 @@ pub struct AiImportTargetRequest {
 pub struct AppliedEpisode {
     /// The episode the rows were applied into.
     pub id: Uuid,
-    /// Its production-global number (the identity a user speaks in), when the
-    /// apply path knew it. `None` is honest absence — never `0`, never a number
-    /// read back from a projection the write path must not consult.
+    /// Its production-global number (the identity a user speaks in). `None` is
+    /// honest absence — never `0`. Since issue #864 the entry is derived from the
+    /// read model, so the number is the persisted episode's own when the episode
+    /// row is known to the projection.
     pub number: Option<i32>,
     /// Its title, when the episode has one. `None` is honest absence — an
     /// untitled episode renders by number alone.

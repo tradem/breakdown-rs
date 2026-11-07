@@ -1,0 +1,101 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+
+# Tasks — 864
+
+## 1. Core — the write port goes away
+
+- [x] 1.1 `AiImportQueue::record_applied_episodes` removed (trait method + its
+      merge/accumulate contract doc): the summary is no longer written.
+- [x] 1.2 `AiImportJob::applied_episodes` documents the new provenance —
+      derived at the read edge, empty exactly when no row of the job is mapped
+      to a projected scene, labels owned by the persisted episode.
+- [x] 1.3 `ApplyStage`'s stage docs stop listing "the summary" as trailing work
+      of the run (it no longer is).
+
+## 2. Infra — derivation at the read edge
+
+- [x] 2.1 `PgAiImportQueue::derived_applied_episodes(&[AiImportJobId])`: one
+      batch query — `projection_ai_import_mapping` (kind `scene`) joined to
+      `projection_scene` and `projection_episode`, `count(*)` per episode,
+      ordered by episode number (id as tiebreak). Reserved mappings drop out
+      because their scene is not projected.
+- [x] 2.2 `get` fills the single job's summary from it; `list_for_user` fills the
+      whole page from ONE query (no N+1).
+- [x] 2.3 A failed derivation warms nothing and fails nothing: it logs and
+      serves an empty list, like the undecodable JSONB it replaces.
+- [x] 2.4 `map_job_row` no longer decodes the column; claim contexts leave the
+      field empty by construction.
+- [x] 2.5 Migration `20261106000003_drop_applied_episodes` drops the column
+      (with a down migration that re-adds it nullable, no backfill).
+
+## 3. API — the handler stops writing
+
+- [x] 3.1 `apply_ai_import`'s post-apply `record_applied_episodes` call removed;
+      the comment now states why the response is not a persisted summary.
+- [x] 3.2 The response keeps reporting what the request dispatched
+      (`ScriptApplyResult::applied_episodes`), documented as a different
+      question ("what did this request do") than the job read ("where are this
+      job's rows").
+
+## 4. Backend tests
+
+- [x] 4.1 Fakes lose the removed port method (core, infra, api harnesses).
+- [x] 4.2 API handler tests keep the response assertions and drop the
+      sink/`stored` assertions; the cross-block test still proves no mapping was
+      written.
+- [x] 4.3 Integration (`ai_import_job_identity`): the summary is derived from
+      seeded `scene` mappings + scenes + episodes — two rows in episode 299
+      ("Erlösung"), one in an untitled 300, so counts and labels are both
+      asserted. No summary write happens anywhere in the test — that IS the
+      cancelled-client criterion.
+- [x] 4.4 Integration: a reserved mapping and a schedule mapping
+      (`scene_shoot`/`shooting_day`) derive no target.
+- [x] 4.5 Integration: `list_for_user` derives the same summary as `get`, and a
+      never-applied job on the same page still answers empty.
+- [x] 4.8 API HTTP layer (fake harness): the apply request is dispatched through
+      a real `axum::Router` (production path, handler, real auth middleware) and
+      its **response future is dropped** mid-apply — what hyper does when the
+      connection goes away. The confirmed mapping survives; the handler writes NO
+      summary. The derivation assertion stays in 4.7 because this harness has no
+      projection to derive from; a request that answers before the drop fails the
+      test instead of passing it.
+- [x] 4.6 Integration: a mapped scene whose episode has NO projection row keeps
+      its entry with honest-absent labels (a LEFT join, not an inner one) and
+      sorts last — the assertion that would otherwise pass with an inner join.
+- [x] 4.7 Integration (Tier 4, real worker + SierraDB + projectors): the mapping
+      repository is gated — the first `scene` mapping is committed, then `insert`
+      never returns, parking the worker mid-run. The test waits for the gate's
+      own signal, aborts the future, asserts the join reports CANCELLED (a
+      completed run is a failure, never a vacuous pass), then asserts the job
+      read derives exactly that one row. This is the criterion-5 test — a
+      regression that moves the summary back onto the write path leaves it empty
+      while the seeded-fixture tests still pass.
+
+## 5. Client — the hop reads the durable source
+
+- [x] 5.1 `aiJobAppliedEpisodesProvider` reads the persisted summary from the
+      cached job row (`appliedEpisodesFromWire`), cache-only like
+      `aiJobAppliedProvider` (#800).
+- [x] 5.2 `resolvePostImportTarget` falls back to it when the response names no
+      episode — the re-apply case — instead of dropping to the request's episode.
+- [x] 5.3 Widget test: a re-apply whose response carries an empty list still
+      lands on the persisted episode (id, number, name) and publishes the report.
+- [x] 5.4 The persisted summary may only name the PLACE: the published report
+      carries `others` from the response alone, so earlier row counts are never
+      attributed to this request (review follow-up).
+- [x] 5.5 The resolution reports `hadCandidates`, so a known-but-unresolvable
+      target shows the explicit hint while a schedule merge keeps the card
+      without it (review follow-up).
+- [x] 5.6 A successful apply invalidates the jobs list and the job-scoped summary
+      provider, so the derived summary reaches the cache for a later hop (review
+      follow-up).
+
+## 6. Housekeeping
+
+- [x] 6.1 `backend/openapi.yaml` regenerated (`UPDATE_OPENAPI=1 cargo test -p api
+      --test contract openapi_drift`) — the wire field is unchanged, its
+      description moved.
+- [x] 6.2 Version bumps `core 0.62.0 → 0.63.0`, `infra 0.72.0 → 0.73.0`,
+      `api 0.60.0 → 0.61.0` (+ dependency pins, `Cargo.lock`), CHANGELOG entry.
