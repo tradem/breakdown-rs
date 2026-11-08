@@ -180,12 +180,19 @@ class _SceneEditSheetState extends State<SceneEditSheet> {
       _error = null;
       _numberError = null;
     });
-    final error = await widget.onSubmit(
-      SceneEditResult(details: _buildDetails()),
-    );
+    String? error;
+    // try/finally: a submission that THROWS (transport layer contract
+    // breach) must still release the save button — a stuck `_submitting`
+    // would lock the sheet forever (CodeRabbit #868 re-review).
+    try {
+      error = await widget.onSubmit(SceneEditResult(details: _buildDetails()));
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
     if (!mounted) return;
     setState(() {
-      _submitting = false;
       // Success closes the sheet; failure keeps it open with the DRAFT
       // intact and the localized error inside (CodeRabbit #868).
       _error = error;

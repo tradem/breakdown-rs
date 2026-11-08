@@ -168,28 +168,30 @@ class SceneDetailScreen extends ConsumerWidget {
     WidgetRef ref,
     SceneView scene,
   ) async {
+    // The l10n object is captured BEFORE the await: the screen can unmount
+    // while the dispatch is in flight (sign-out pops to the first route)
+    // and a post-await `l10nOf(context)` would touch a defunct context
+    // (CodeRabbit #868 re-review).
+    final l10n = l10nOf(context);
     // The sheet dispatches THROUGH this callback and stays open on failure
     // (the draft survives, the localized error renders inside — CodeRabbit
-    // #868). The version echo resolves from the CURRENT projected row at
-    // dispatch time, not the snapshot the sheet was opened from: a retry
-    // after a conflict (the conflict refreshes the projection) must echo
-    // the fresh version (optimistic locking, #473). The controller runs
+    // #868). The version echo MUST come from the SNAPSHOT THE DRAFT WAS
+    // BUILT FROM: resolving a newer cached row at submission time would
+    // attach a version the user never saw to a stale draft — the classic
+    // lost-update path (CodeRabbit #868 re-review). A version mismatch
+    // surfaces as the localized conflict narrative instead; the user then
+    // reopens the sheet on the refreshed projection. The controller runs
     // the client-side AUTHZ-GATE, the details overlay and the bounded
     // refetch.
     await showSceneEditSheet(
       context,
       scene,
       onSubmit: (result) async {
-        final current = ref
-            .read(scenesControllerProvider(episodeId))
-            .cachedRows
-            .where((s) => s.id == scene.id)
-            .firstOrNull;
         final err = await ref
             .read(scenesControllerProvider(episodeId).notifier)
-            .updateDetails(scene: current ?? scene, details: result.details);
+            .updateDetails(scene: scene, details: result.details);
         return err.fold(
-          (problem) => sceneUpdateErrorCopy(l10nOf(context), problem),
+          (problem) => sceneUpdateErrorCopy(l10n, problem),
           (_) => null,
         );
       },
