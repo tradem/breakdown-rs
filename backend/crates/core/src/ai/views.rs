@@ -496,8 +496,12 @@ pub struct AiImportJob {
     /// `last_error` is overwritten by every `mark_failed`, so the reason an
     /// *earlier* attempt failed is lost. This list keeps each attempt's
     /// outcome retrievable. Populated on the single-job read
-    /// (`GET /ai-import/jobs/{id}`); empty in list/claim contexts where the
-    /// history is not fetched, so it is additive on the wire.
+    /// (`GET /ai-import/jobs/{id}`) with the full history limit, and — since
+    /// issue #822 — on the list read (`GET /ai-import/jobs`) with each job's
+    /// newest few attempts, so a client can derive the same aggregate
+    /// (repeated provider failures, keyed on `AiImportAttempt::code`) without
+    /// opening a job. Empty in claim contexts, and empty for a job no attempt
+    /// was recorded for, so it stays additive on the wire.
     #[serde(default)]
     pub attempts: Vec<AiImportAttempt>,
     /// The episodes a successful **script** apply landed this job's rows in
@@ -877,7 +881,13 @@ pub struct AiImportAttempt {
     /// Stable problem `code` of the failure (ADR-031 D2), e.g.
     /// `dependency.auth-failed`; `None` when the writer recorded no typed
     /// error. Lets a client localize the reason without parsing
-    /// `error_summary` (issue #639).
+    /// `error_summary` (issue #639) — and, since issue #822, attribute the
+    /// failure to its dependency: `ai-import.llm-provider-unavailable` is
+    /// emitted only by the LLM provider path, while
+    /// `domain.service-unavailable` (mapping DB, pricing read model, payload
+    /// storage) deliberately names no specific dependency. A consecutive run
+    /// of the provider code is what a client aggregates into a degraded state;
+    /// the free-form `error_summary` never participates.
     #[serde(default)]
     pub code: Option<String>,
     /// Whether the attempt was classified as retryable.

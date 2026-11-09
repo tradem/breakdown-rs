@@ -15,7 +15,7 @@ part 'ai_import_attempt.g.dart';
 ///
 /// Properties:
 /// * [attemptNo] - 1-based attempt number, matching the job's `retries` after the attempt.
-/// * [code] - Stable problem `code` of the failure (ADR-031 D2), e.g. `dependency.auth-failed`; `None` when the writer recorded no typed error. Lets a client localize the reason without parsing `error_summary` (issue #639).
+/// * [code] - Stable problem `code` of the failure (ADR-031 D2), e.g. `dependency.auth-failed`; `None` when the writer recorded no typed error. Lets a client localize the reason without parsing `error_summary` (issue #639) — and, since issue #822, attribute the failure to its dependency: `ai-import.llm-provider-unavailable` is emitted only by the LLM provider path, while `domain.service-unavailable` (mapping DB, pricing read model, payload storage) deliberately names no specific dependency. A consecutive run of the provider code is what a client aggregates into a degraded state; the free-form `error_summary` never participates.
 /// * [createdAt] - When the attempt was recorded.
 /// * [errorSummary] - Failure summary, same text `last_error` carried for that attempt.
 /// * [retryable] - Whether the attempt was classified as retryable.
@@ -27,7 +27,7 @@ abstract class AiImportAttempt
   @BuiltValueField(wireName: r'attempt_no')
   int get attemptNo;
 
-  /// Stable problem `code` of the failure (ADR-031 D2), e.g. `dependency.auth-failed`; `None` when the writer recorded no typed error. Lets a client localize the reason without parsing `error_summary` (issue #639).
+  /// Stable problem `code` of the failure (ADR-031 D2), e.g. `dependency.auth-failed`; `None` when the writer recorded no typed error. Lets a client localize the reason without parsing `error_summary` (issue #639) — and, since issue #822, attribute the failure to its dependency: `ai-import.llm-provider-unavailable` is emitted only by the LLM provider path, while `domain.service-unavailable` (mapping DB, pricing read model, payload storage) deliberately names no specific dependency. A consecutive run of the provider code is what a client aggregates into a degraded state; the free-form `error_summary` never participates.
   @BuiltValueField(wireName: r'code')
   String? get code;
 

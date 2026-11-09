@@ -350,6 +350,7 @@ class AiImportJobRowView {
     this.scenesSynthesized,
     this.decisionTelemetry,
     this.applied = false,
+    this.providerDegradation,
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -446,6 +447,17 @@ class AiImportJobRowView {
   /// first one.
   bool get isAlreadyImported => applied;
 
+  /// The aggregated "AI provider degraded" state of this row (issue #822), or
+  /// `null` when it does not apply.
+  ///
+  /// Derived by the SAME function the job-status card uses
+  /// (`aiProviderDegradationOf`), from the attempt history the list read now
+  /// carries, so the compact row and the status screen can never disagree.
+  /// `null` for a cached-first paint: the Drift cache persists no attempt
+  /// history, so the line appears with the authoritative list read instead of
+  /// being guessed from `last_error` (which is never an error identity).
+  final AiProviderDegradation? providerDegradation;
+
   /// True when the row carries a server-side error detail (the
   /// `last_error` presence indicator).
   bool get hasLastError => lastError != null && lastError!.isNotEmpty;
@@ -513,6 +525,7 @@ class AiImportJobRowView {
           other.scenesSynthesized == scenesSynthesized &&
           other.decisionTelemetry == decisionTelemetry &&
           other.applied == applied &&
+          other.providerDegradation == providerDegradation &&
           _sameEpisodes(other.appliedEpisodes, appliedEpisodes);
 
   @override
@@ -532,6 +545,7 @@ class AiImportJobRowView {
     scenesSynthesized,
     decisionTelemetry,
     applied,
+    providerDegradation,
     Object.hashAll(appliedEpisodes),
   );
 
@@ -564,6 +578,9 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   // Whether the preview has ever been applied (issue #800). Additive on the
   // wire, so an older server reports `null` — read as "no apply recorded".
   applied: job.applied ?? false,
+  // The degraded-provider aggregate (issue #822) — derived from the attempt
+  // history the list read populates, by the same function the status card uses.
+  providerDegradation: aiProviderDegradation(job),
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).

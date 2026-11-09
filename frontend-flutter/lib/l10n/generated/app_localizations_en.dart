@@ -873,6 +873,40 @@ class AppLocalizationsEn extends AppLocalizations {
       'An upstream service was temporarily unavailable — the next attempt may succeed.';
 
   @override
+  String get aiJobReasonServiceUnavailableTerminal =>
+      'An upstream service was unreachable; the retry budget is spent.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailable =>
+      'The AI provider was temporarily unreachable — the next attempt may succeed.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailableTerminal =>
+      'The AI provider was unreachable; the retry budget is spent.';
+
+  @override
+  String get aiJobProviderDegradedTitle => 'AI provider currently degraded';
+
+  @override
+  String aiJobProviderDegradedBody(Object count, Object first, Object last) {
+    return '$count attempts since $first failed at the AI provider, most recently $last. This is on the provider — not on your document and not on your configuration; waiting is the right move.';
+  }
+
+  @override
+  String aiJobProviderDegradedBudgetSpent(
+    Object count,
+    Object first,
+    Object last,
+  ) {
+    return '$count attempts since $first failed at the AI provider, most recently $last. The retry budget is spent — start a new import once the provider answers again.';
+  }
+
+  @override
+  String aiJobsRowProviderDegraded(Object count) {
+    return 'AI provider degraded · $count attempts';
+  }
+
+  @override
   String get aiJobReasonInternal => 'A server-side error occurred.';
 
   @override

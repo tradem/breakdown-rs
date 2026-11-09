@@ -16,6 +16,33 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.65.0] - Unreleased
+
+### Added — a failed attempt can name the LLM provider (issue #822)
+
+- `problem_codes!` entry `AI_IMPORT_LLM_PROVIDER_UNAVAILABLE`
+  (`ai-import.llm-provider-unavailable`, HTTP 503, no extension fields). The
+  context segment follows the thirteen existing AI-import codes (`ai-import.*`)
+  rather than the issue text's `ai_import.*` spelling: published codes are never
+  renamed (ADR-021), and a second spelling for one context would make the
+  registry's `{context}.{reason}` rule unenforceable. `PROBLEM_CODE_COUNT`
+  112 → 113.
+- `DomainError::llm_provider_unavailable` — the retryable
+  `ServiceUnavailable` shape carrying the provider's registry entry. Reusing the
+  variant is the point: `is_retryable()`, the 503 status and the
+  backoff/attempt-persistence path are unchanged, while the attempt row's `code`
+  (written from `error.code().code`) becomes an **attribution** signal the client
+  can aggregate. `domain.service-unavailable` stays for the mapping DB, the
+  pricing read model, payload storage and the model catalog — none of them is the
+  provider, and a client that refuses to parse the free-form `error_summary`
+  could not tell them apart before.
+- `AiImportAttempt::code` and `AiImportJob::attempts` document the attribution
+  and the list read: a consecutive run of the provider code is what a
+  degraded-provider state is derived from, and the free-form summary never
+  participates.
+- Tests: the constructor's registry code, 503 status and retryability (and that
+  it is not the generic code), plus the existing retry-classification set.
+
 ## [0.62.0] - Unreleased
 
 ### Added — the age of a claim that never published (issue #863)

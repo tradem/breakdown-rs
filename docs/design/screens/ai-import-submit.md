@@ -154,6 +154,24 @@ Semantics of the state:
 - The submit action is enabled by a resolved block **or** by this choice; both
   are visible on the card, so the button's state always has a visible cause.
 
+## Deliberately NO provider-degraded pre-warn (issue #822, recorded decision)
+
+A degraded AI provider is surfaced on the job status card and, compactly, on the
+jobs list — **not** here. The submit screen does not warn before a large upload is
+handed to a provider that is currently answering with errors, and that is a
+decision rather than an omission:
+
+- there is no provider-health probe to read (`backendHealthProbeProvider` answers
+  whether *our* backend is reachable; #816's `GET /v1/me/capabilities` is a
+  different concern), and
+- a warning derived from the client's own job cache would only see jobs this
+  device has listed — silent exactly on a cold start, which is the case the
+  warning exists for.
+
+The honest pre-warn is a provider-health endpoint with its own caching contract;
+it belongs to a separate change. Until then the jobs list carries the signal, and
+a provider outage that bites an upload is named by the job status screen.
+
 ## Input & Validation
 
 No free-text fields. The dispatch guards, in order: no document → `aiImportDocMissing`

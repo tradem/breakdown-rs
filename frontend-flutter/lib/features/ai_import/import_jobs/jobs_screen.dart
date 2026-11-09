@@ -11,6 +11,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../design/material_icons.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../clippy/clippy_trigger.dart';
@@ -359,6 +360,31 @@ class _JobRow extends ConsumerWidget {
               l10n.aiJobsRowScenesRebuilt('${job.scenesSynthesized}'),
               key: Key('ai-jobs-row-scenes-rebuilt-${job.id}'),
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          // Provider-degraded line (issue #822): the compact form of the
+          // state the status screen renders in full — same derivation, so the
+          // row never contradicts the card. Drawn from the attempt codes the
+          // list read carries, never from `last_error`.
+          if (job.providerDegradation != null)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  BreakdownMaterialIcons.aiJobProviderDegraded,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppSpacing.space8),
+                Expanded(
+                  child: Text(
+                    l10n.aiJobsRowProviderDegraded(
+                      '${job.providerDegradation!.failedAttempts}',
+                    ),
+                    key: Key('ai-jobs-row-provider-degraded-${job.id}'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
             ),
           if (job.status == JobStatus.failed)
             Text(

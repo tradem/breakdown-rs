@@ -107,34 +107,36 @@ fn hosted_origin_host_never_returns_empty_or_xyzzy() {
 // classify_http_status
 // ===========================================================================
 
+/// The retryable classification keeps its variant (`ServiceUnavailable` — so
+/// `is_retryable()` and the backoff path are untouched) but is attributed to
+/// the LLM PROVIDER (issue #822). The recorded attempt's `code` is the signal
+/// the client aggregates repeated failures on, so it is pinned here for every
+/// retryable status: a regression back to the generic
+/// `domain.service-unavailable` would silently disable the degraded-provider
+/// surface.
 #[test]
-fn classify_http_429_is_service_unavailable() {
-    let err = classify_http_status(StatusCode::TOO_MANY_REQUESTS);
-    assert!(
-        matches!(
-            err,
-            breakdown_core::error::DomainError::ServiceUnavailable { .. }
-        ),
-        "429 should be ServiceUnavailable"
-    );
-}
-
-#[test]
-fn classify_http_500_is_service_unavailable() {
-    let err = classify_http_status(StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(matches!(
-        err,
-        breakdown_core::error::DomainError::ServiceUnavailable { .. }
-    ));
-}
-
-#[test]
-fn classify_http_503_is_service_unavailable() {
-    let err = classify_http_status(StatusCode::SERVICE_UNAVAILABLE);
-    assert!(matches!(
-        err,
-        breakdown_core::error::DomainError::ServiceUnavailable { .. }
-    ));
+fn classify_retryable_statuses_are_provider_attributed() {
+    for status in [
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        StatusCode::SERVICE_UNAVAILABLE,
+        StatusCode::BAD_GATEWAY,
+    ] {
+        let err = classify_http_status(status);
+        assert!(
+            matches!(
+                err,
+                breakdown_core::error::DomainError::ServiceUnavailable { .. }
+            ),
+            "{status} must stay retryable"
+        );
+        assert_eq!(
+            err.code().code,
+            "ai-import.llm-provider-unavailable",
+            "{status} must name the provider, not a generic service"
+        );
+        assert!(err.is_retryable(), "{status} must stay retryable");
+    }
 }
 
 #[test]
@@ -201,6 +203,11 @@ fn classify_http_status_with_detail_keeps_the_class_and_appends_the_body() {
         err,
         breakdown_core::error::DomainError::ServiceUnavailable { .. }
     ));
+    assert_eq!(
+        err.code().code,
+        "ai-import.llm-provider-unavailable",
+        "the provider attribution is stable with a body"
+    );
     // An empty body degrades to exactly the plain classification.
     let err = classify_http_status_with_detail(StatusCode::BAD_REQUEST, "   ");
     match err {
@@ -237,7 +244,7 @@ fn classify_http_status_with_detail_keeps_the_class_and_appends_the_body() {
 // ===========================================================================
 
 #[tokio::test]
-async fn classify_timeout_is_service_unavailable() {
+async fn classify_timeout_is_provider_attributed() {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(1))
         .build()
@@ -251,6 +258,11 @@ async fn classify_timeout_is_service_unavailable() {
                 breakdown_core::error::DomainError::ServiceUnavailable { .. }
             ),
             "transport error should be ServiceUnavailable: {classified:?}"
+        );
+        assert_eq!(
+            classified.code().code,
+            "ai-import.llm-provider-unavailable",
+            "a provider transport fault must name the provider"
         );
     }
 }

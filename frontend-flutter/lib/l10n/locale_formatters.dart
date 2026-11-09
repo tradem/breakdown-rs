@@ -39,6 +39,22 @@ String formatWireDate(BuildContext context, String raw) {
   );
 }
 
+/// Formats a timestamp's time of day (e.g. `07:10`) in the active locale.
+///
+/// Used where the *window* of a repeated condition matters and the date alone
+/// would hide it (issue #822: three provider failures over 17 minutes). The
+/// date is still shown by the caller when the window spans days; this helper
+/// only ever answers "at what time".
+String formatClock(BuildContext context, DateTime value) {
+  final locale = l10nOf(context).localeName;
+  try {
+    return DateFormat.Hm(locale).format(value.toLocal());
+  } catch (_) {
+    return MaterialLocalizations.of(context)
+        .formatTimeOfDay(TimeOfDay.fromDateTime(value.toLocal()));
+  }
+}
+
 String formatDecimal(BuildContext context, num value) {
   final locale = l10nOf(context).localeName;
   try {

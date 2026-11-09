@@ -58,6 +58,12 @@ abstract final class BreakdownMaterialIcons {
   static const aiJobCostModel = Icons.smart_toy_outlined;
   static const aiJobCostProvider = Icons.cloud_outlined;
 
+  /// The provider-degraded state (issue #822): the aggregated "the AI provider
+  /// is currently failing" banner and its compact row form. The same glyph the
+  /// glossary uses for an unreachable dependency — never colour-only, the
+  /// visible label carries the meaning.
+  static const aiJobProviderDegraded = Icons.cloud_off;
+
   /// The snapshot rate rows (`Eingabepreis` / `Ausgabepreis`).
   static const aiJobCostRate = Icons.price_change_outlined;
 

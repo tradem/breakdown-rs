@@ -23,6 +23,40 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A failing AI provider now says so — once, not three times** (issue #822,
+  `0.4.0-beta.44+136 → 0.4.0-beta.45+137`). A provider outage used to read
+  exactly like a one-off hiccup: every failed attempt rendered "a service was
+  temporarily unreachable — the next attempt may succeed"
+  (`aiJobReasonServiceUnavailable`), once per history row, and nothing named
+  *which* dependency had failed. The observed shape was three consecutive
+  provider 503s over ~17 minutes on a 42-chunk import, i.e. three identical,
+  non-actionable rows plus a retry counter.
+  - **Attribution from a stable signal.** The backend now records
+    `ai-import.llm-provider-unavailable` on an attempt the LLM provider answered
+    with 429/5xx or a transport fault, so the dependency is named by the attempt's
+    `code` — never by `last_error`, which stays free-form log text. The generic
+    `domain.service-unavailable` keeps covering the mapping DB, the pricing read
+    model and storage, so no copy ever calls those "the AI provider".
+  - **One degraded state instead of N rows.** `aiProviderDegradation` aggregates
+    the *consecutive newest* provider-attributed attempts (fires at two or more,
+    stops at the first foreign code) and yields the count, the failure window and
+    whether the retry budget is spent. The job-status card renders it as a
+    banner naming the AI provider and the window, next to the existing live
+    "next retry in …" (no second countdown); the jobs row renders the compact
+    form from the SAME derivation, so the two surfaces cannot disagree. The list
+    read now carries each job's newest attempts for exactly that reason.
+  - **A single failure stays a blip.** One provider failure keeps the transient
+    per-attempt narrative; the aggregate does not fire.
+  - **Terminal honesty.** At `dead_letter` the provider narrative states that the
+    retry budget is spent and what the user can do, and no attempt row on a
+    terminal card renders "the next attempt may succeed" — keyed on the code AND
+    the terminal status, not on the code alone.
+  - Decided and recorded: a distinct registered code rather than a `dependency`
+    field (the code is already the client's only permitted error identity), and
+    no upload-screen pre-warn (there is no provider-health probe; a cache-derived
+    warning would be blind exactly on cold start). The jobs list carries the
+    signal instead.
+
 - **The scene detail screen got its redesign** (issue #834,
   `0.4.0-beta.43+135 → 0.4.0-beta.44+136`, stacked on the backend score PR).
   The most-used detail surface stopped wearing the foundation layout:

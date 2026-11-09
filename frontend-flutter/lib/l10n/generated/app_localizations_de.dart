@@ -888,6 +888,40 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ein Dienst war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.';
 
   @override
+  String get aiJobReasonServiceUnavailableTerminal =>
+      'Ein Dienst war nicht erreichbar; das Wiederholungsbudget ist aufgebraucht.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailable =>
+      'Der KI-Anbieter war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailableTerminal =>
+      'Der KI-Anbieter war nicht erreichbar; das Wiederholungsbudget ist aufgebraucht.';
+
+  @override
+  String get aiJobProviderDegradedTitle => 'KI-Anbieter derzeit eingeschränkt';
+
+  @override
+  String aiJobProviderDegradedBody(Object count, Object first, Object last) {
+    return '$count Versuche seit $first sind am KI-Anbieter gescheitert, zuletzt $last. Das liegt am Anbieter – nicht an Ihrem Dokument und nicht an Ihrer Konfiguration; Abwarten ist hier richtig.';
+  }
+
+  @override
+  String aiJobProviderDegradedBudgetSpent(
+    Object count,
+    Object first,
+    Object last,
+  ) {
+    return '$count Versuche seit $first sind am KI-Anbieter gescheitert, zuletzt $last. Das Wiederholungsbudget ist aufgebraucht – starten Sie einen neuen Import, sobald der Anbieter wieder antwortet.';
+  }
+
+  @override
+  String aiJobsRowProviderDegraded(Object count) {
+    return 'KI-Anbieter eingeschränkt · $count Versuche';
+  }
+
+  @override
   String get aiJobReasonInternal => 'Ein Serverfehler ist aufgetreten.';
 
   @override

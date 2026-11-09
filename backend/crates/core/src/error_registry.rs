@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 112;
+const PROBLEM_CODE_COUNT: usize = 113;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1030,6 +1030,23 @@ problem_codes! {
         code: "ai-import.not-found",
         status: 404,
         title: "AI import job not found",
+        extensions: &[],
+    },
+
+    /// 503 — the **LLM provider** answered a transient failure (HTTP 429/5xx,
+    /// or a transport timeout/connect failure). Deliberately distinct from
+    /// `domain.service-unavailable` (issue #822): that code is also emitted by
+    /// the mapping DB, the pricing read model, payload storage and the model
+    /// catalog, so a client that refuses to parse the free-form
+    /// `error_summary` (AGENTS.md §5) could not name the failing dependency.
+    /// The attempt row's `code` is the attribution signal, and it is what lets
+    /// the client aggregate repeated provider failures into one degraded state.
+    /// Retryability is unchanged — the error reuses the retryable
+    /// service-unavailable shape.
+    AI_IMPORT_LLM_PROVIDER_UNAVAILABLE {
+        code: "ai-import.llm-provider-unavailable",
+        status: 503,
+        title: "AI provider unavailable",
         extensions: &[],
     },
 

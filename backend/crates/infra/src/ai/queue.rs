@@ -61,6 +61,16 @@ const _LEASE_BOUNDS_INVARIANT: () = assert!(
 /// only needs enough to explain the failure sequence.
 const ATTEMPT_HISTORY_LIMIT: i64 = 20;
 
+/// Per-job attempt history carried by the LIST read (issue #822).
+///
+/// The list surface needs enough history to derive the SAME provider-degraded
+/// aggregate the single-job read derives — a consecutive run of at least two
+/// provider-attributed attempts, judged from the newest backwards — without
+/// turning every row into the full history surface. Three is the smallest
+/// window that still proves a run of two after one intervening blip-free
+/// attempt, and it keeps the page's payload bounded.
+const LIST_ATTEMPT_HISTORY_LIMIT: i64 = 3;
+
 #[derive(Clone, Debug)]
 pub struct PgAiImportQueue {
     pool: PgPool,
@@ -204,6 +214,70 @@ impl PgAiImportQueue {
 
     fn lease_secs(&self) -> f64 {
         self.lease.as_secs_f64()
+    }
+
+    /// Newest attempts of a page of jobs, in ONE query (issue #822).
+    ///
+    /// The list read carries [`LIST_ATTEMPT_HISTORY_LIMIT`] attempts per job so
+    /// a client can derive the same provider-degraded aggregate it derives from
+    /// the single-job read: the consecutive run of provider-attributed attempt
+    /// codes is the only honest attribution signal (the free-form
+    /// `error_summary`/`last_error` is never parsed).
+    ///
+    /// A read failure serves an empty attempt list per job and logs — history
+    /// is explanatory metadata, exactly like the #864 applied-episode summary:
+    /// a degraded provider must never be able to fail the whole jobs list, and
+    /// an empty list is reported as "no history read", never as "no failures".
+    async fn newest_attempts(&self, ids: &[AiImportJobId]) -> HashMap<Uuid, Vec<AiImportAttempt>> {
+        if ids.is_empty() {
+            return HashMap::new();
+        }
+        let jobs: Vec<Uuid> = ids.iter().map(|id| id.as_uuid()).collect();
+        let rows = sqlx::query(
+            r#"
+            SELECT job_id, attempt_no, status, error_summary, error_code,
+                   retryable, created_at
+            FROM (
+                SELECT attempt.*,
+                       row_number() OVER (
+                           PARTITION BY attempt.job_id
+                           ORDER BY attempt.attempt_no DESC
+                       ) AS rank_in_job
+                FROM ai_import.ai_import_job_attempt AS attempt
+                WHERE attempt.job_id = ANY($1)
+            ) AS ranked
+            WHERE ranked.rank_in_job <= $2
+            ORDER BY ranked.job_id, ranked.attempt_no DESC
+            "#,
+        )
+        .bind(&jobs)
+        .bind(LIST_ATTEMPT_HISTORY_LIMIT)
+        .fetch_all(&self.pool)
+        .await;
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to read the AI import attempt history for the jobs list;                      serving no history"
+                );
+                return HashMap::new();
+            }
+        };
+        let mut history: HashMap<Uuid, Vec<AiImportAttempt>> = HashMap::new();
+        for row in rows {
+            let Ok(job_id) = row.try_get::<Uuid, _>("job_id") else {
+                continue;
+            };
+            match map_attempt_row(row) {
+                Ok(attempt) => history.entry(job_id).or_default().push(attempt),
+                Err(error) => tracing::warn!(
+                    %error,
+                    "failed to decode an AI import attempt row for the jobs list; skipping it"
+                ),
+            }
+        }
+        history
     }
 }
 
@@ -662,8 +736,14 @@ impl AiImportQueue for PgAiImportQueue {
         // metadata every row on the page wants.
         let ids: Vec<AiImportJobId> = jobs.iter().map(|job| job.id).collect();
         let mut derived = self.derived_applied_episodes(&ids).await;
+        // Same reasoning for the attempt history (issue #822): a client
+        // deriving a degraded-provider state from the list must read the same
+        // stable codes the single-job read carries, so the page is filled from
+        // ONE windowed query instead of one read per row.
+        let mut attempts = self.newest_attempts(&ids).await;
         for job in &mut jobs {
             job.applied_episodes = derived.remove(&job.id.as_uuid()).unwrap_or_default();
+            job.attempts = attempts.remove(&job.id.as_uuid()).unwrap_or_default();
         }
         Ok(jobs)
     }

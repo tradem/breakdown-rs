@@ -1514,6 +1514,52 @@ abstract class AppLocalizations {
   /// **'Ein Dienst war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.'**
   String get aiJobReasonServiceUnavailable;
 
+  /// No description provided for @aiJobReasonServiceUnavailableTerminal.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Dienst war nicht erreichbar; das Wiederholungsbudget ist aufgebraucht.'**
+  String get aiJobReasonServiceUnavailableTerminal;
+
+  /// No description provided for @aiJobReasonLlmProviderUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Der KI-Anbieter war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.'**
+  String get aiJobReasonLlmProviderUnavailable;
+
+  /// No description provided for @aiJobReasonLlmProviderUnavailableTerminal.
+  ///
+  /// In de, this message translates to:
+  /// **'Der KI-Anbieter war nicht erreichbar; das Wiederholungsbudget ist aufgebraucht.'**
+  String get aiJobReasonLlmProviderUnavailableTerminal;
+
+  /// No description provided for @aiJobProviderDegradedTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Anbieter derzeit eingeschränkt'**
+  String get aiJobProviderDegradedTitle;
+
+  /// No description provided for @aiJobProviderDegradedBody.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} Versuche seit {first} sind am KI-Anbieter gescheitert, zuletzt {last}. Das liegt am Anbieter – nicht an Ihrem Dokument und nicht an Ihrer Konfiguration; Abwarten ist hier richtig.'**
+  String aiJobProviderDegradedBody(Object count, Object first, Object last);
+
+  /// No description provided for @aiJobProviderDegradedBudgetSpent.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} Versuche seit {first} sind am KI-Anbieter gescheitert, zuletzt {last}. Das Wiederholungsbudget ist aufgebraucht – starten Sie einen neuen Import, sobald der Anbieter wieder antwortet.'**
+  String aiJobProviderDegradedBudgetSpent(
+    Object count,
+    Object first,
+    Object last,
+  );
+
+  /// No description provided for @aiJobsRowProviderDegraded.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Anbieter eingeschränkt · {count} Versuche'**
+  String aiJobsRowProviderDegraded(Object count);
+
   /// No description provided for @aiJobReasonInternal.
   ///
   /// In de, this message translates to:
