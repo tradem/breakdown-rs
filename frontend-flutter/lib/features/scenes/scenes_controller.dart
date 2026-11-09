@@ -369,13 +369,9 @@ class ScenesController extends _$ScenesController {
     final detailsOverlays = ref.watch(sceneDetailsOverlaysProvider(episodeId));
     return ScenesScreenState(
       projected: projected,
-      // Details overlays merge FIRST (field-level replace), beat overlays
-      // merge second (they rebuild the beat list against the resulting
-      // row); both are version-fenced against the acked aggregate version.
-      cachedRows: _applyDetailsOverlays(
-        _applyBeatOverlays(view.rows, beatOverlays),
-        detailsOverlays,
-      ),
+      // Both overlay kinds merge in ONE pass, each fenced against the
+      // PROJECTED row version (see _applyOverlays).
+      cachedRows: _applyOverlays(view.rows, beatOverlays, detailsOverlays),
       isStale: view.isStale,
       overlays: ref.watch(scenesOverlaysProvider(episodeId)),
       beatOverlays: beatOverlays,
@@ -384,49 +380,49 @@ class ScenesController extends _$ScenesController {
     );
   }
 
-  /// Merges optimistic DETAILS overlays into the served scene rows (issue
-  /// #834): while the projection row lags the ack (`row.version <
-  /// overlay.version`), the row renders the overlay's edited fields at the
-  /// acked version — the editor's saved state stays visible until the
-  /// projection catches up, so no flash-back and no stale-version conflict
-  /// for a follow-up edit. Once the projection catches up, the
-  /// version-fenced reconciliation drop removes the overlay.
-  List<SceneView> _applyDetailsOverlays(
+  /// Merges optimistic beat AND details overlays into the served scene
+  /// rows (issue #834): while the projection row lags an ack
+  /// (`row.version < overlay.version`), the row renders that overlay's
+  /// optimistic state until the projection catches up — no flash-back, no
+  /// stale-version conflict for a follow-up edit; the version-fenced
+  /// reconciliation drop removes the overlay at catch-up.
+  ///
+  /// Both fences compare against the PROJECTED row's version, never a
+  /// merged one: a newer beat ack (v3) must not hide a still-pending
+  /// details ack (v2) — chaining the merges would bump the row version to
+  /// 3 and skip the details overlay although the projection is still at
+  /// version 1 (CodeRabbit #868 review). The served row carries the
+  /// HIGHEST acknowledged version of the applied overlays, so a follow-up
+  /// command echoes the freshest known version.
+  List<SceneView> _applyOverlays(
     List<SceneView> rows,
-    List<SceneDetailsOverlay> overlays,
+    List<SceneBeatOverlay> beatOverlays,
+    List<SceneDetailsOverlay> detailsOverlays,
   ) {
-    if (overlays.isEmpty) return rows;
-    final bySceneId = {for (final o in overlays) o.id: o};
+    if (beatOverlays.isEmpty && detailsOverlays.isEmpty) return rows;
+    final beatsById = {for (final o in beatOverlays) o.id: o};
+    final detailsById = {for (final o in detailsOverlays) o.id: o};
     return [
       for (final row in rows)
-        switch (bySceneId[row.id]) {
-          final overlay? when row.version < overlay.version => overlay.applyTo(
-            row,
-          ),
-          _ => row,
-        },
-    ];
-  }
-
-  /// Merges optimistic beat overlays into the served scene rows: while the
-  /// projection row lags the ack (`row.version < overlay.version`), the
-  /// row renders the overlay's beat list at the acked version. Once the
-  /// projection catches up, the overlay is dropped by the reconciliation
-  /// pass and the projected row wins.
-  List<SceneView> _applyBeatOverlays(
-    List<SceneView> rows,
-    List<SceneBeatOverlay> overlays,
-  ) {
-    if (overlays.isEmpty) return rows;
-    final bySceneId = {for (final o in overlays) o.id: o};
-    return [
-      for (final row in rows)
-        switch (bySceneId[row.id]) {
-          final overlay? when row.version < overlay.version => overlay.applyTo(
-            row,
-          ),
-          _ => row,
-        },
+        () {
+          final beats = beatsById[row.id];
+          final details = detailsById[row.id];
+          if (beats == null && details == null) return row;
+          var merged = row;
+          var version = row.version;
+          // The two overlay kinds touch DISJOINT fields (outfit beats vs.
+          // the flat details), so the apply order is irrelevant.
+          if (beats != null && row.version < beats.version) {
+            merged = beats.applyTo(merged);
+            version = beats.version;
+          }
+          if (details != null && row.version < details.version) {
+            merged = details.applyTo(merged);
+            if (details.version > version) version = details.version;
+          }
+          if (identical(merged, row)) return row;
+          return merged.rebuild((b) => b..version = version);
+        }(),
     ];
   }
 

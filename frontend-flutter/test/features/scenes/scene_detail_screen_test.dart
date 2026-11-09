@@ -1612,6 +1612,53 @@ void main() {
       expect(sceneRepo.lastUpdateDetails!.details.mood, isNull);
     });
 
+    testWidgets('both overlays stay visible during projection lag', (
+      tester,
+    ) async {
+      // The CodeRabbit #868 follow-up: a beat ack (v3) AFTER a details ack
+      // (v2) while the projection is still at v1 must not hide the saved
+      // details — the chained merge bumped the row version to 3 and the
+      // details fence skipped a still-pending overlay.
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      if (find
+          .byKey(const Key('scene-piece-add-change-ch-1'))
+          .evaluate()
+          .isEmpty) {
+        await expandSection(tester, 'scene-pieces-scene-1');
+      }
+
+      // 1) Details ack (v2): the fake echoes request.version + 1.
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('scene-edit-summary')),
+        'Geänderte Synopsis',
+      );
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(find.text('Geänderte Synopsis'), findsOneWidget);
+
+      // 2) Beat ack (v3, newer than the details overlay).
+      sceneRepo.nextWrite = const Right(3);
+      await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // The projection STILL serves the pre-edit v1 row (the fetch override
+      // never changes) — both optimistic overlays must render: the new beat
+      // AND the saved synopsis. The old chained merge bumped the row version
+      // to 3 and flashed the OLD synopsis back.
+      expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
+      expect(find.text('Geänderte Synopsis'), findsOneWidget);
+    });
+
     testWidgets(
       'a stored mood with surrounding whitespace is echoed verbatim',
       (tester) async {
