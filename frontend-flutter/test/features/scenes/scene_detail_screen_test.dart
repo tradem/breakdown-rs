@@ -1657,6 +1657,18 @@ void main() {
       // to 3 and flashed the OLD synopsis back.
       expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
       expect(find.text('Geänderte Synopsis'), findsOneWidget);
+      // And the served row carries the HIGHEST acknowledged version (3) —
+      // a merge that leaves the details ack's 2 in place would still pass
+      // the content assertions above, but a follow-up edit would echo the
+      // wrong version (CodeRabbit #868 review round 2).
+      expect(
+        container
+            .read(scenesControllerProvider('episode-1'))
+            .cachedRows
+            .first
+            .version,
+        3,
+      );
     });
 
     testWidgets(
