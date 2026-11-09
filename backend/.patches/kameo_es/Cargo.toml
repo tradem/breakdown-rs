@@ -55,4 +55,12 @@ tokio = { version = "1.37", features = ["sync", "rt-multi-thread"] }
 default = []
 mongodb = ["dep:bson", "dep:mongodb"]
 postgres = ["dep:backon", "dep:sqlx", "sqlx/postgres", "sqlx/uuid"]
-sqlite = ["dep:sqlx", "sqlx/sqlite"]
+# The upstream `sqlite` feature is deliberately NOT declared here: it maps to
+# `sqlx/sqlite`, nothing in this vendored `src/` implements a sqlite backend
+# (grep for `feature = "sqlite"` finds no code), and no workspace crate
+# enables it — but `deny.toml` resolves with `[graph] all-features = true`,
+# so keeping the flag kept an unreachable C-SQLite copy (`libsqlite3-sys`
+# 0.37 -> sqlx-sqlite 0.9) in the advisory graph and failed the gate with
+# RUSTSEC-2026-0459. There is no upgrade path (sqlx-sqlite 0.9 pins
+# `libsqlite3-sys >=0.30.1, <0.38.0`); re-add the flag together with a real
+# backend and a sqlx release that bundles SQLite >= 3.54.0 (issue #874).
