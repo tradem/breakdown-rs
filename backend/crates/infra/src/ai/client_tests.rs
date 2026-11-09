@@ -262,13 +262,30 @@ impl SilentServer {
     fn start() -> Self {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        // Non-blocking so the accept wait can observe the stop signal: a
+        // blocking `accept()` would make `Drop` join a thread no client ever
+        // wakes, stalling CI instead of reporting the test failure.
+        listener.set_nonblocking(true).unwrap();
         let (stop, stopped) = std::sync::mpsc::channel::<()>();
         let handle = std::thread::spawn(move || {
-            if let Ok((_socket, _peer)) = listener.accept() {
-                // Hold the request open: `recv_timeout` returns only when the
-                // test is done, and the socket closes with this thread.
-                let _ = stopped.recv_timeout(Duration::from_secs(30));
-            }
+            // Phase 1: wait for the connection, but always yield to a stop.
+            let accepted = loop {
+                match stopped.recv_timeout(Duration::from_millis(10)) {
+                    // The test finished (or failed) before a client arrived.
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                }
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                    // The listener is gone: nothing left to hold open.
+                    Err(_) => return,
+                }
+            };
+            // Phase 2: hold the request open without answering. Same stop
+            // discipline, so the thread never outlives the test.
+            let _ = stopped.recv_timeout(Duration::from_secs(30));
+            drop(accepted);
         });
         Self {
             address,
@@ -280,11 +297,31 @@ impl SilentServer {
 
 impl Drop for SilentServer {
     fn drop(&mut self) {
+        // The signal is honoured in BOTH phases, so this join is bounded no
+        // matter how far the test got — including "the client never connected".
         let _ = self.stop.send(());
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
     }
+}
+
+/// The teardown must not depend on a client ever arriving: a test that fails
+/// before connecting (a client-build panic, a refused connect) still has to
+/// finish, or the suite stalls in `join()` instead of reporting the failure.
+#[test]
+fn silent_server_teardown_is_bounded_without_a_connection() {
+    let started = std::time::Instant::now();
+    {
+        let server = SilentServer::start();
+        assert!(server.address.port() > 0, "the listener is bound");
+        // No client: exactly the path that used to block in `accept()`.
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "drop must not wait for a connection, took {:?}",
+        started.elapsed()
+    );
 }
 
 #[tokio::test]
