@@ -549,6 +549,13 @@ class _ProviderDegradedBanner extends StatelessWidget {
       degradation.firstFailureAt,
     );
     final count = '${degradation.failedAttempts}';
+    // The exhaustion claim is rendered ONLY where it is provable (a
+    // `dead_letter` whose newest attempt carries the retryable provider code —
+    // see `AiProviderDegradation.retryBudgetSpent`). The per-attempt history
+    // rows below the banner use the terminal reason variants, which promise no
+    // retry and claim no exhaustion, because `dead_letter` also happens on a
+    // non-retryable failure and `payload_unavailable` is terminal for a
+    // different reason entirely.
     final body = degradation.retryBudgetSpent
         ? l10n.aiJobProviderDegradedBudgetSpent(count, first, last)
         : l10n.aiJobProviderDegradedBody(count, first, last);

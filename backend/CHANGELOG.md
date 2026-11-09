@@ -42,7 +42,8 @@ tag. Never edit a released entry afterwards.
   and Ollama's provider HTTP/transport faults inherit the new code because they
   genuinely are provider failures. `GET /v1/ai-import/jobs` additionally
   populates each row's `attempts` (newest first) for the whole page from ONE
-  windowed query (three per job, no N+1), so the client derives the same
+  windowed query (the SAME per-job bound the single-job read uses, no N+1), so
+  the client derives the same
   degraded-provider state from a list row as from the single-job read instead of
   guessing from `last_error` — the field itself is unchanged and additive. A
   distinct code was chosen over a `dependency` field because the code already is

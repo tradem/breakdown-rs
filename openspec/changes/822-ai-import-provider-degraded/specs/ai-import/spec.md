@@ -53,8 +53,12 @@ summary is log text and stays secondary detail.
 ### Requirement: The jobs list read carries attempt history
 
 `GET /v1/ai-import/jobs` SHALL populate every returned job's `attempts` with its
-newest attempts (at least the two most recent, bounded by the existing history
-limit) in one batch read for the page — never one query per job. The list
+newest attempts, using **the same per-job bound the single-job read uses**, in
+one batch read for the page — never one query per job. The shared bound is a
+correctness requirement: a client aggregates the consecutive newest
+provider-attributed attempts into a count, so a shorter window on one surface
+would make the compact list row report fewer failures than the status card for
+the same job. The list
 surface exists before the user opens any job, so a client that derives a
 degraded-provider state from attempt history SHALL be able to derive the **same**
 state from a list row as from the single-job read; publishing only `last_error`

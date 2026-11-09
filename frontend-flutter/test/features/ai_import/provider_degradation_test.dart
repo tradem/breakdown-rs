@@ -12,6 +12,7 @@
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_state.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 
 AiImportAttempt _attempt(
   int attemptNo, {
@@ -213,11 +214,73 @@ void main() {
     );
   });
 
-  test('the failure reason names the provider, and drops the retry promise at '
-      'a terminal status (issue #822)', () {
-    // The copy functions are exercised through the widget tests for the
-    // rendered strings; this pins the code the derivation keys on.
+  test('the constants the wire contract rests on', () {
     expect(aiLlmProviderUnavailableCode, 'ai-import.llm-provider-unavailable');
     expect(aiProviderDegradationThreshold, 2);
+  });
+
+  // The reason function is where the terminal rule actually lives, so it is
+  // asserted here rather than only through the widgets: `retryPossible: false`
+  // must remove the retry promise AND stay free of an exhaustion claim.
+  group('aiJobFailureReason (issue #822 terminal rule)', () {
+    final l10n = AppLocalizationsEn();
+
+    test('a retryable provider failure still promises the next attempt', () {
+      final copy = aiJobFailureReason(l10n, aiLlmProviderUnavailableCode);
+      expect(copy, contains('AI provider'));
+      expect(copy, contains('may succeed'));
+    });
+
+    test('a terminal provider failure never promises a retry', () {
+      final copy = aiJobFailureReason(
+        l10n,
+        aiLlmProviderUnavailableCode,
+        retryPossible: false,
+      );
+      expect(copy, contains('AI provider'));
+      expect(copy, isNot(contains('may succeed')));
+      expect(copy, contains('no further attempt is scheduled'));
+    });
+
+    test('the generic transient code follows the same rule (both arms)', () {
+      final transient = aiJobFailureReason(l10n, 'domain.service-unavailable');
+      expect(transient, contains('may succeed'));
+
+      final terminal = aiJobFailureReason(
+        l10n,
+        'domain.service-unavailable',
+        retryPossible: false,
+      );
+      expect(terminal, isNot(contains('may succeed')));
+      expect(terminal, contains('no further attempt is scheduled'));
+      // A terminal card must not claim the budget was spent either: a
+      // `payload_unavailable` job is terminal for another reason, and the one
+      // provable exhaustion claim belongs to the provider banner.
+      expect(terminal, isNot(contains('budget is spent')));
+    });
+
+    test(
+      'a rejected credential never describes retries that cannot happen',
+      () {
+        final transient = aiJobFailureReason(l10n, 'dependency.auth-failed');
+        expect(transient, isNot(contains('retries continue')));
+
+        final terminal = aiJobFailureReason(
+          l10n,
+          'dependency.auth-failed',
+          retryPossible: false,
+        );
+        expect(terminal, isNot(contains('may succeed')));
+        expect(terminal, contains('no further attempt is scheduled'));
+      },
+    );
+
+    test('an unknown code keeps the generic arm with no retry vocabulary', () {
+      expect(
+        aiJobFailureReason(l10n, 'some.future-code', retryPossible: false),
+        contains('some.future-code'),
+      );
+      expect(aiJobFailureReason(l10n, null), contains('unknown reason'));
+    });
   });
 }

@@ -860,7 +860,10 @@ void main() {
     // The dependency is NAMED — "a service" would be the unattributed code's
     // copy, which this state must not reuse.
     expect(find.textContaining('3 attempts since'), findsOneWidget);
-    expect(find.textContaining('This is on the provider'), findsOneWidget);
+    expect(
+      find.textContaining('Your document is not the cause'),
+      findsOneWidget,
+    );
     // The window is two clock boundaries (rendered in the device's zone, so
     // the assertion counts them instead of pinning a machine-dependent time).
     final body = tester
@@ -959,9 +962,19 @@ void main() {
 
     expect(find.byKey(const Key('ai-job-terminal-error')), findsOneWidget);
     expect(find.byKey(const Key('ai-job-provider-degraded')), findsOneWidget);
-    expect(find.textContaining('The retry budget is spent'), findsWidgets);
+    // Exactly ONE exhaustion claim: the aggregate banner. The per-attempt
+    // history below it must not claim a spent budget (a `dead_letter` can also
+    // come from a non-retryable failure), it may only say that no further
+    // attempt is scheduled.
+    expect(find.textContaining('The retry budget is spent'), findsOneWidget);
     expect(
-      find.textContaining('start a new import once the provider answers again'),
+      find.textContaining('no further attempt is scheduled'),
+      findsNWidgets(3),
+    );
+    // Re-uploading the same bytes deduplicates onto THIS job, so the copy must
+    // name the step that makes a fresh import possible.
+    expect(
+      find.textContaining('Delete this job from the list before re-uploading'),
       findsOneWidget,
     );
     // The terminal card can no longer keep a retry promise — not in the

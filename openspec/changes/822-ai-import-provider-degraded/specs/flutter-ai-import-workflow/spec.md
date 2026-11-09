@@ -64,11 +64,19 @@ SHALL render exactly as before.
 ### Requirement: Terminal copy after provider failures never promises a retry
 
 A job in a terminal failure state (`dead_letter`, `payload_unavailable`) whose
-history is provider-attributed SHALL render terminal copy stating that the retry
-budget is spent and what the user can do (start a new import once the provider
-answers again) — keyed on the **code AND the terminal status**, never on the code
-alone. It SHALL NOT render "the next attempt may succeed" (or any other promise
-the state cannot keep) on a terminal card.
+history is provider-attributed SHALL render terminal copy that
+
+- states that the retry budget is spent, **only where that is derivable** — a
+  `dead_letter` whose newest attempt carries the retryable provider code — and
+- names what the user can do: delete the failed job from the list (uploading the
+  same bytes deduplicates onto it) and start again once the provider answers.
+
+It SHALL NOT render "the next attempt may succeed" (or any other promise the
+state cannot keep) on a terminal card, and the per-attempt terminal reasons SHALL
+make no **exhaustion** claim: `dead_letter` also happens on a non-retryable
+failure and `payload_unavailable` is terminal for a different reason. A
+`dependency.auth-failed` history likewise SHALL NOT describe retries that cannot
+happen (that failure is permanent).
 
 #### Scenario: Dead-lettered provider outage reads as spent, not retryable
 

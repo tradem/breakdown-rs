@@ -414,16 +414,19 @@ async fn the_jobs_list_carries_the_attempt_codes() -> Result<()> {
             .cloned()
             .expect("the enqueued job is listed")
     };
-    let provider_codes: Vec<Option<String>> = listed(provider_id)
+    // Attempt NUMBER *and* code: both rows carry the same code, so a list that
+    // reversed the order would pass a codes-only assertion while handing the
+    // client a run it reads backwards (the aggregate walks newest-first).
+    let provider_history: Vec<(u32, Option<String>)> = listed(provider_id)
         .attempts
         .iter()
-        .map(|attempt| attempt.code.clone())
+        .map(|attempt| (attempt.attempt_no, attempt.code.clone()))
         .collect();
     assert_eq!(
-        provider_codes,
+        provider_history,
         vec![
-            Some("ai-import.llm-provider-unavailable".to_owned()),
-            Some("ai-import.llm-provider-unavailable".to_owned()),
+            (2, Some("ai-import.llm-provider-unavailable".to_owned())),
+            (1, Some("ai-import.llm-provider-unavailable".to_owned())),
         ],
         "the list read must carry every attempt of the provider run, newest first"
     );

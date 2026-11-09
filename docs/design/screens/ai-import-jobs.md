@@ -446,8 +446,9 @@ own attempt history and render it as a conclusion.
     --
     { (cloud_off) **KI-Anbieter derzeit eingeschränkt** }
     { "3 Versuche seit 06:54 sind am KI-Anbieter gescheitert, zuletzt 07:06.
-      Das liegt am Anbieter – nicht an Ihrem Dokument und nicht an Ihrer
-      Konfiguration; Abwarten ist hier richtig." }
+      Ihr Dokument ist nicht die Ursache – meist hilft Abwarten bis zum
+      nächsten Versuch. Antwortet der Anbieter weiterhin mit Fehlern, prüfen
+      Sie dessen Limits bzw. Ihr Guthaben." }
     --
     "Versuch 4 von 6"
     "Nächster Versuch in ~3 Min."
@@ -478,13 +479,26 @@ free-form log text, not an error identity.
   "Ein Dienst …".
 
 **Terminal honesty.** At `dead_letter` the aggregated copy states that the retry
-budget is spent and what the user can do (start a new import once the provider
-answers again). No attempt row on a terminal card renders "the next attempt may
-succeed" — the terminal variants
-(`aiJobReasonLlmProviderUnavailableTerminal`,
-`aiJobReasonServiceUnavailableTerminal`) are keyed on the code **and** the
-terminal status, not on the code alone: the card can no longer keep that
-promise.
+budget is spent, and it names the step that makes a fresh import possible:
+deleting the failed job from the list, because uploading the same bytes
+deduplicates onto the existing job (`(user_id, dedup_key)`) and would otherwise
+reopen exactly this row.
+
+No attempt row on a terminal card renders "the next attempt may succeed": the
+terminal variants (`aiJobReasonLlmProviderUnavailableTerminal`,
+`aiJobReasonServiceUnavailableTerminal`, `aiJobReasonDependencyAuthTerminal`)
+are keyed on the code **and** the terminal status, and they deliberately make no
+**exhaustion** claim either — a `dead_letter` also happens on a non-retryable
+failure and `payload_unavailable` is terminal for a different reason. The one
+provable exhaustion claim is the banner's, and it is provable because the run's
+newest attempt carries the retryable provider code while the job is
+`dead_letter` (a retryable failure reaches `dead_letter` only when the budget is
+gone).
+
+**429 is not always a rate limit.** A provider answers `429` both for a throttled
+request and for an exhausted prepaid balance, so the aggregate copy must not rule
+out an account/limit cause: it says the document is not the cause, recommends
+waiting, and points at the provider's limits/billing when the errors persist.
 
 **Recorded decisions.** A distinct registered code was chosen over a `dependency`
 field on the attempt view (the code already is the client's only permitted error

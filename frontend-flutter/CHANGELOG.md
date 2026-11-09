@@ -56,6 +56,15 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     no upload-screen pre-warn (there is no provider-health probe; a cache-derived
     warning would be blind exactly on cold start). The jobs list carries the
     signal instead.
+  - Review follow-ups hardened the copy semantics: only the banner claims a spent
+    retry budget (that is derivable — a `dead_letter` whose newest attempt carries
+    the retryable provider code), the per-attempt terminal reasons say merely that
+    no further attempt is scheduled (a `dead_letter` also comes from a
+    non-retryable failure), `dependency.auth-failed` no longer describes retries
+    that cannot happen, a `429` no longer rules out an exhausted balance (so the
+    banner suggests checking the provider's limits), and the budget-spent copy
+    names the step that makes a fresh import possible — deleting the failed job,
+    because re-uploading the same bytes deduplicates onto it.
 
 - **The scene detail screen got its redesign** (issue #834,
   `0.4.0-beta.43+135 → 0.4.0-beta.44+136`, stacked on the backend score PR).

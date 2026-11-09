@@ -172,8 +172,15 @@ class AiProviderDegradation {
   /// (or the job is terminal); the caller renders no invented time.
   final DateTime? nextAttemptAt;
 
-  /// True at `dead_letter`: the retry budget is spent and no further attempt is
-  /// planned, so no copy may promise a next attempt.
+  /// True at `dead_letter`: the retry budget is spent, so the banner may say so
+  /// while no copy promises a next attempt.
+  ///
+  /// Provable rather than assumed: the run's newest attempt carries the
+  /// provider-attributed code, which is the RETRYABLE variant, and a retryable
+  /// failure reaches `dead_letter` only when `retries + 1 >= max_retries` (the
+  /// `mark_failed` CASE). A non-retryable failure dead-letters under a
+  /// different code and can never form this run — which is why the per-attempt
+  /// terminal copy makes no exhaustion claim at all.
   final bool retryBudgetSpent;
 
   @override
@@ -257,17 +264,32 @@ AiProviderDegradation? aiProviderDegradationOf({
 /// `detail`), matching `aiUploadGeneric`/`jobWatchGeneric`.
 ///
 /// [retryPossible] is the status guard the issue #822 terminal rule needs: at a
-/// terminal status the same transient code must NOT promise "the next attempt
-/// may succeed" — the card that renders it can no longer keep that promise.
-/// Only the two transient codes have a terminal variant; every other code
-/// already speaks about a finished attempt.
+/// terminal status the same code must NOT promise "the next attempt may
+/// succeed" — the card that renders it can no longer keep that promise.
+///
+/// The terminal variants deliberately say only that **no further attempt is
+/// scheduled**: none claims the retry budget was exhausted, because a
+/// `dead_letter` also happens on a NON-retryable failure (`mark_failed` with
+/// `retryable = false` dead-letters immediately) and a `payload_unavailable`
+/// job is terminal for a completely different reason. The exhaustion claim
+/// lives in exactly one place — the provider-degraded banner
+/// ([`aiProviderDegradation`]) — where it is derivable (see
+/// [AiProviderDegradation.retryBudgetSpent]).
+///
+/// `dependency.auth-failed` gets a terminal variant too: it is a PERMANENT
+/// dependency failure (`is_retryable()` excludes it, #637), so any job carrying
+/// it is dead-lettered on that very attempt and the transient copy's "retries
+/// continue" would describe retries that never happen.
 String aiJobFailureReason(
   AppLocalizations l10n,
   String? code, {
   bool retryPossible = true,
 }) => switch (code) {
   null || '' => l10n.aiJobReasonUnknown,
-  'dependency.auth-failed' => l10n.aiJobReasonDependencyAuth,
+  'dependency.auth-failed' =>
+    retryPossible
+        ? l10n.aiJobReasonDependencyAuth
+        : l10n.aiJobReasonDependencyAuthTerminal,
   aiLlmProviderUnavailableCode =>
     retryPossible
         ? l10n.aiJobReasonLlmProviderUnavailable

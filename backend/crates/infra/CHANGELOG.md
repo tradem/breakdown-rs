@@ -33,9 +33,12 @@ commits (ADR-020 D5).
   Ollama's provider HTTP/transport faults inherit the new code, because they
   genuinely are provider failures — a test pins both sides.
 - `PgAiImportQueue::list_for_user` populates each row's `attempts` (newest first)
-  for the whole page from ONE windowed query — `LIST_ATTEMPT_HISTORY_LIMIT` (3)
-  per job, no N+1 — so a client derives the same degraded-provider state from a
-  list row as from the single-job read. A failed read serves empty histories with
+  for the whole page from ONE windowed query — **the same**
+  `ATTEMPT_HISTORY_LIMIT` the single-job read uses, no N+1 — so a client derives
+  the same degraded-provider state from a list row as from the single-job read.
+  The shared bound is a correctness requirement: a client counts the consecutive
+  newest provider-attributed attempts, so a shorter list window would make the
+  compact row report fewer failures than the status card for the same job. A failed read serves empty histories with
   a warning (explanatory metadata never fails the list), matching the #864
   applied-episode derivation.
 - Tests: the retryable statuses, the transport fault and the detail-carrying

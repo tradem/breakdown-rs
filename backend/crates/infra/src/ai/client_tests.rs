@@ -243,28 +243,83 @@ fn classify_http_status_with_detail_keeps_the_class_and_appends_the_body() {
 // classify_transport_error — kills || → && mutation
 // ===========================================================================
 
+/// A local endpoint that accepts the connection and then holds it open without
+/// answering: the ONLY possible failure is the client's own timeout, so the test
+/// cannot pass on a connect/DNS error that happens to be classified the same way
+/// (both map to the provider code since issue #822 — which is exactly why the
+/// classification alone proves nothing about *which* arm was taken).
+///
+/// A std listener + thread is enough and avoids depending on a tokio `net`
+/// feature; the thread is stopped when the guard drops, so no test leaks a
+/// background task past its assertions.
+struct SilentServer {
+    address: std::net::SocketAddr,
+    stop: std::sync::mpsc::Sender<()>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl SilentServer {
+    fn start() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let handle = std::thread::spawn(move || {
+            if let Ok((_socket, _peer)) = listener.accept() {
+                // Hold the request open: `recv_timeout` returns only when the
+                // test is done, and the socket closes with this thread.
+                let _ = stopped.recv_timeout(Duration::from_secs(30));
+            }
+        });
+        Self {
+            address,
+            stop,
+            handle: Some(handle),
+        }
+    }
+}
+
+impl Drop for SilentServer {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
 #[tokio::test]
 async fn classify_timeout_is_provider_attributed() {
+    let server = SilentServer::start();
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(1))
+        .timeout(Duration::from_millis(200))
+        // A proxy from the environment would answer (or fail) instead of the
+        // silent listener, making the asserted arm depend on the host setup.
+        .no_proxy()
         .build()
         .unwrap();
-    let err = client.get("http://192.0.2.1:1").send().await;
-    if let Err(e) = err {
-        let classified = classify_transport_error(e);
-        assert!(
-            matches!(
-                classified,
-                breakdown_core::error::DomainError::ServiceUnavailable { .. }
-            ),
-            "transport error should be ServiceUnavailable: {classified:?}"
-        );
-        assert_eq!(
-            classified.code().code,
-            "ai-import.llm-provider-unavailable",
-            "a provider transport fault must name the provider"
-        );
-    }
+
+    let error = client
+        .get(format!("http://{}/", server.address))
+        .send()
+        .await
+        .expect_err("a silent listener can only time out");
+    // The arm under test: a TIMEOUT, not a connect failure.
+    assert!(error.is_timeout(), "expected a timeout, got: {error:?}");
+    assert!(!error.is_connect(), "expected no connect error: {error:?}");
+
+    let classified = classify_transport_error(error);
+    assert!(
+        matches!(
+            classified,
+            breakdown_core::error::DomainError::ServiceUnavailable { .. }
+        ),
+        "transport error should be ServiceUnavailable: {classified:?}"
+    );
+    assert_eq!(
+        classified.code().code,
+        "ai-import.llm-provider-unavailable",
+        "a provider transport fault must name the provider"
+    );
 }
 
 // ===========================================================================

@@ -59,17 +59,15 @@ const _LEASE_BOUNDS_INVARIANT: () = assert!(
 /// Upper bound on the per-job attempt history returned to a caller (issue
 /// #637). A job can accumulate many attempts over its life; the read surface
 /// only needs enough to explain the failure sequence.
-const ATTEMPT_HISTORY_LIMIT: i64 = 20;
-
-/// Per-job attempt history carried by the LIST read (issue #822).
 ///
-/// The list surface needs enough history to derive the SAME provider-degraded
-/// aggregate the single-job read derives — a consecutive run of at least two
-/// provider-attributed attempts, judged from the newest backwards — without
-/// turning every row into the full history surface. Three is the smallest
-/// window that still proves a run of two after one intervening blip-free
-/// attempt, and it keeps the page's payload bounded.
-const LIST_ATTEMPT_HISTORY_LIMIT: i64 = 3;
+/// **Both** reads use this one bound (issue #822): the single-job read and the
+/// jobs list. That is a correctness requirement, not a tuning value — a client
+/// aggregates the *consecutive newest* provider-attributed attempts into a
+/// count, so a shorter window on one surface would make the compact list row
+/// report fewer failures than the status card for the same job (observed at a
+/// three-attempt window: four consecutive provider failures read as three on
+/// the list). Two different bounds cannot both be honest about one history.
+const ATTEMPT_HISTORY_LIMIT: i64 = 20;
 
 #[derive(Clone, Debug)]
 pub struct PgAiImportQueue {
@@ -218,11 +216,13 @@ impl PgAiImportQueue {
 
     /// Newest attempts of a page of jobs, in ONE query (issue #822).
     ///
-    /// The list read carries [`LIST_ATTEMPT_HISTORY_LIMIT`] attempts per job so
-    /// a client can derive the same provider-degraded aggregate it derives from
-    /// the single-job read: the consecutive run of provider-attributed attempt
-    /// codes is the only honest attribution signal (the free-form
-    /// `error_summary`/`last_error` is never parsed).
+    /// The list read carries [`ATTEMPT_HISTORY_LIMIT`] attempts per job — the
+    /// SAME bound the single-job read uses — so a client derives an identical
+    /// provider-degraded aggregate from either read: the consecutive run of
+    /// provider-attributed attempt codes is the only honest attribution signal
+    /// (the free-form `error_summary`/`last_error` is never parsed). A shorter
+    /// list window would make the compact row undercount what the status card
+    /// shows for the same job.
     ///
     /// A read failure serves an empty attempt list per job and logs — history
     /// is explanatory metadata, exactly like the #864 applied-episode summary:
@@ -251,7 +251,7 @@ impl PgAiImportQueue {
             "#,
         )
         .bind(&jobs)
-        .bind(LIST_ATTEMPT_HISTORY_LIMIT)
+        .bind(ATTEMPT_HISTORY_LIMIT)
         .fetch_all(&self.pool)
         .await;
         let rows = match rows {
