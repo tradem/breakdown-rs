@@ -180,7 +180,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String charactersGone(Object code) {
-    return 'Die Staffel ist weg ($code).';
+    return 'Die Season ist weg ($code).';
   }
 
   @override
@@ -235,7 +235,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get pieceErrorForbidden =>
-      'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.';
+      'Du benötigst eine aktive Kostüm-Rolle in dieser Season.';
 
   @override
   String get pieceErrorMembership =>
@@ -248,7 +248,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get pieceErrorCategorySeason =>
-      'Diese Kategorie gehört zu einer anderen Staffel – wähle eine Kategorie dieser Staffel.';
+      'Diese Kategorie gehört zu einer anderen Season – wähle eine Kategorie dieser Season.';
 
   @override
   String get pieceErrorCategoryArchived =>
@@ -346,7 +346,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get piecesEmpty => 'Noch keine Kleidungsstücke';
 
   @override
-  String get createSeasonTitle => 'Staffel erstellen';
+  String get createSeasonTitle => 'Season erstellen';
 
   @override
   String get createSeasonTitleLabel => 'Titel';
@@ -1602,7 +1602,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiApplyErrorEpisodeNumberTaken =>
-      'Diese Episoden-Nummer ist in der Staffel bereits vergeben.';
+      'Diese Episoden-Nummer ist in der Season bereits vergeben.';
 
   @override
   String get aiApplyErrorEpisodeNumberOtherBlock =>
@@ -1723,11 +1723,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiImportTargetNoSeason =>
-      'Wähle zuerst eine Staffel aus – ohne Staffel hat der Import kein Ziel.';
+      'Wähle zuerst eine Season aus – ohne Season hat der Import kein Ziel.';
 
   @override
   String get aiImportTargetNoBlocks =>
-      'Diese Staffel hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.';
+      'Diese Season hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.';
 
   @override
   String get aiImportTargetPickBlock => 'Ziel-Block wählen';
@@ -1740,21 +1740,21 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiImportTargetSeasonUnavailable =>
-      'Die Staffel konnte nicht geladen werden. Versuch es erneut.';
+      'Die Season konnte nicht geladen werden. Versuch es erneut.';
 
   @override
   String get aiImportTargetBlocksUnavailable =>
-      'Die Blockliste der Staffel konnte nicht geladen werden. Eine leere Liste heißt hier nicht, dass die Staffel keinen Block hat. Versuch es erneut.';
+      'Die Blockliste der Season konnte nicht geladen werden. Eine leere Liste heißt hier nicht, dass die Season keinen Block hat. Versuch es erneut.';
 
   @override
-  String get aiImportTargetUnknownSeason => 'Staffel unbekannt';
+  String get aiImportTargetUnknownSeason => 'Season unbekannt';
 
   @override
   String get aiImportTargetUnknownBlock => 'Block unbekannt';
 
   @override
   String get aiImportScopeMismatch =>
-      'Der aktive Block gehört zu einer anderen Staffel als der Import. Der Upload wurde nicht gesendet.';
+      'Der aktive Block gehört zu einer anderen Season als der Import. Der Upload wurde nicht gesendet.';
 
   @override
   String get commonAdd => 'Hinzufügen';
@@ -1849,44 +1849,42 @@ class AppLocalizationsDe extends AppLocalizations {
   String get pieceDetailRepertoire => 'Repertoire';
 
   @override
-  String get pieceDetailRepertoireEmpty =>
-      'In keiner weiteren Staffel gelistet';
+  String get pieceDetailRepertoireEmpty => 'In keiner weiteren Season gelistet';
 
   @override
-  String get pieceDetailRepertoireAdd => 'Zu Staffel hinzufügen';
+  String get pieceDetailRepertoireAdd => 'Zu Season hinzufügen';
 
   @override
   String get pieceDetailRepertoireAddTooltip =>
-      'Das Kleidungsstück zum Repertoire einer anderen Staffel hinzufügen';
+      'Das Kleidungsstück zum Repertoire einer anderen Season hinzufügen';
 
   @override
-  String get pieceDetailRepertoireRemoveTooltip => 'Aus Staffel entfernen';
+  String get pieceDetailRepertoireRemoveTooltip => 'Aus Season entfernen';
 
   @override
-  String get pieceDetailRepertoireRemoveTitle => 'Aus Staffel entfernen?';
+  String get pieceDetailRepertoireRemoveTitle => 'Aus Season entfernen?';
 
   @override
   String get pieceDetailRepertoireRemoveMessage =>
-      'Das Kleidungsstück verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kleidungsstück.';
+      'Das Kleidungsstück verschwindet aus dem Garderoben-Bestand dieser Season. Details und Fotos bleiben am Kleidungsstück.';
 
   @override
-  String get pieceDetailRepertoirePick => 'Staffel wählen';
+  String get pieceDetailRepertoirePick => 'Season wählen';
 
   @override
-  String get pieceDetailRepertoireSaved =>
-      'Staffel zum Repertoire hinzugefügt.';
+  String get pieceDetailRepertoireSaved => 'Season zum Repertoire hinzugefügt.';
 
   @override
   String get pieceDetailRepertoireRemoved =>
-      'Das Kleidungsstück wurde aus dem Staffel-Repertoire entfernt.';
+      'Das Kleidungsstück wurde aus dem Season-Repertoire entfernt.';
 
   @override
   String get pieceErrorSeasonArchived =>
-      'Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.';
+      'Diese Season ist archiviert – ihr Repertoire kann nicht mehr geändert werden.';
 
   @override
   String get pieceErrorSeasonNotFound =>
-      'Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.';
+      'Diese Season existiert nicht mehr – die Liste wurde aktualisiert.';
 
   @override
   String get pieceDetailNotNow => 'Später';
@@ -2043,7 +2041,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get continuityRoleGate =>
-      'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel, um Kontinuitätsfotos zu verwalten.';
+      'Du benötigst eine aktive Kostüm-Rolle in dieser Season, um Kontinuitätsfotos zu verwalten.';
 
   @override
   String get continuityEmpty => 'Noch keine Kontinuitätsfotos verknüpft.';
@@ -2085,7 +2083,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get castNoSeason =>
-      'Wähle eine Staffel, um Kleidungsstücke und Figuren zu sehen.';
+      'Wähle eine Season, um Kleidungsstücke und Figuren zu sehen.';
 
   @override
   String get castPickSeason => 'Season wählen';
@@ -2484,7 +2482,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String blockSeasonNumber(Object number) {
-    return 'Staffel $number';
+    return 'Season $number';
   }
 
   @override
@@ -2500,7 +2498,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get blocksRoleCostume => 'Kostüm-Rolle';
 
   @override
-  String get blocksRoleNone => 'Keine Rolle in dieser Staffel';
+  String get blocksRoleNone => 'Keine Rolle in dieser Season';
 
   @override
   String blocksRoleUnknown(Object code) {
@@ -2520,11 +2518,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String blocksNotFound(Object code) {
-    return 'Diese Staffel existiert nicht mehr ($code).';
+    return 'Diese Season existiert nicht mehr ($code).';
   }
 
   @override
-  String get blocksBackToSeasons => 'Zurück zu den Staffeln';
+  String get blocksBackToSeasons => 'Zurück zu den Seasons';
 
   @override
   String get blocksTileSyncing => 'Gerade erstellt – wird synchronisiert …';
@@ -3711,18 +3709,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get seasonsArchivedBadge => 'Archiviert';
 
   @override
-  String get seasonsArchiveTooltip => 'Staffel-Aktionen';
+  String get seasonsArchiveTooltip => 'Season-Aktionen';
 
   @override
-  String get seasonsArchiveCta => 'Staffel archivieren';
+  String get seasonsArchiveCta => 'Season archivieren';
 
   @override
   String get seasonsArchivedError =>
-      'Die Staffel ist archiviert und kann nicht mehr geändert werden.';
+      'Die Season ist archiviert und kann nicht mehr geändert werden.';
 
   @override
   String get seasonsArchiveForbidden =>
-      'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.';
+      'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Season.';
 
   @override
   String get omniSearchTitle => 'Suche';
@@ -3732,7 +3730,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get omniSearchHint =>
-      'Suchen: Szenen, Rollen, Kleidungsstücke, Drehtage dieser Staffel';
+      'Suchen: Szenen, Rollen, Kleidungsstücke, Drehtage dieser Season';
 
   @override
   String get omniSearchChipScene => 'Szene';
@@ -3760,7 +3758,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get omniSearchInitialEmpty =>
-      'Tippe, um die Szenen, Rollen, Kleidungsstücke und Drehtage dieser Staffel zu durchsuchen.';
+      'Tippe, um die Szenen, Rollen, Kleidungsstücke und Drehtage dieser Season zu durchsuchen.';
 
   @override
   String omniSearchZeroMatch(String query, String facets) {
@@ -3778,7 +3776,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get omniSearchNoSeason =>
-      'Wähle zuerst eine Staffel, um sie zu durchsuchen.';
+      'Wähle zuerst eine Season, um sie zu durchsuchen.';
 
   @override
   String get omniSearchStaleBanner =>
@@ -3795,7 +3793,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get fundusHint =>
-      'Fundus durchsuchen: Kleidungsstücke über alle Staffeln';
+      'Fundus durchsuchen: Kleidungsstücke über alle Seasons';
 
   @override
   String get fundusEmpty => 'Der Fundus dieses Projekts ist leer.';
@@ -3814,7 +3812,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get fundusNoSeason =>
-      'Wähle zuerst eine Staffel, um den Fundus zu durchsuchen.';
+      'Wähle zuerst eine Season, um den Fundus zu durchsuchen.';
 
   @override
   String get fundusStaleBanner =>
@@ -3822,7 +3820,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String fundusRepertoireSeasons(String seasons) {
-    return 'Staffeln: $seasons';
+    return 'Seasons: $seasons';
   }
 
   @override
@@ -4070,7 +4068,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get outfitErrorForbidden =>
-      'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.';
+      'Du benötigst eine aktive Kostüm-Rolle in dieser Season.';
 
   @override
   String get outfitErrorMembership =>
@@ -4104,7 +4102,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get outfitPickPieceEmpty =>
-      'Kein Kleidungsstück im Repertoire dieser Staffel.';
+      'Kein Kleidungsstück im Repertoire dieser Season.';
 
   @override
   String get outfitVariantCreated => 'Variante erstellt.';

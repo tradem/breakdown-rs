@@ -38,19 +38,45 @@ its icons), the costume-department role (**Kostüm-Rolle**, the
 the AI-import draft vocabulary (`DraftCostume`/`PreviewCostume`, owned by the
 sibling AI-import changes).
 
-## Known terminology drift — Season vs. Staffel (issue #825)
+## Terminology decision — the level is called **Season** (issues #825, #840)
 
-The German catalog uses both words for the same level today: the shell
-surface says **Season** (`seasonsDefaultTitle` = „Season {number}",
-`scopeChipSeasonUnset` = „Season wählen", „Aktive Season wählen",
-„Season-Setup"), while `blockSeasonNumber` says **Staffel {number}** on the
-blocks AppBar and the rest of the hierarchy prose follows it („Zurück zu den
-Staffeln", „Kostüm-Rolle in dieser Staffel").
+The German catalog used to carry both words for the same level: the shell
+surface said **Season** (`seasonsDefaultTitle` = „Season {number}",
+`scopeChipSeasonUnset` = „Season wählen", „Season-Setup"), while
+`blockSeasonNumber` said **Staffel {number}** on the blocks AppBar and the
+hierarchy prose followed it („Zurück zu den Staffeln", „Kostüm-Rolle in
+dieser Staffel").
 
-Issue #825 deliberately did **not** flip either side: the season pill lives on
-the shell surface, so it keeps the **Season** wording and gains no fifth
-variant. App-wide unification (one word for the level, `Staffel` or `Season`)
-is a separate copy decision, not a side effect of a pill fix.
+Issue #825 left the drift alone on purpose (the pill lives on the shell
+surface, so it kept **Season** and gained no fifth variant) and recorded it
+here. Issue #840 then decided it:
+
+> **The level is called „Season" in both catalogs.** `Staffel` is retired
+> from the German catalog; the English catalog already said `Season`
+> everywhere and is unchanged.
+
+Why `Season` and not `Staffel`: it is the word the shell — the surface the
+user picks and manages a season on — already used, it matches the English
+catalog one-to-one, and the `Season`/`seasons*` key and type names
+(`seasonsDefaultTitle`, `SeasonView`, `scopeChipSeason*`) never had a
+`Staffel` spelling to begin with. The anglicism is accepted as the cost of a
+single word for the level.
+
+Applied consistently since #840:
+
+- **One composition rule.** `seasonDisplayLabel(l10n, number:, title:)`
+  (`frontend-flutter/lib/features/seasons/season_display_label.dart`) is the
+  only place a season label is composed — the pill and its picker, the
+  production overview, the location strip, the seasons cards, the blocks
+  AppBar, the fundus chips/rows and the piece detail's repertoire list all
+  call it, so a blank title can never render an empty label on one surface
+  while another gets it right.
+- **One word in the catalog.** Every German value for the level says
+  „Season" (plural „Seasons"), including the hierarchy prose and the
+  AI-import copy. A value that still says „Staffel" is a regression, not a
+  regional variant.
+- **Both catalogs.** `app_de.arb` and `app_en.arb` stay key-identical (the
+  CI parity gate); only the German values changed in #840.
 
 ## Localization catalog workflow
 
@@ -234,10 +260,10 @@ establishing change).
 | `—` *(no icon)* | **Das Enddatum liegt vor dem Startdatum.** | Create-block form — field message for an inverted span (issue #833). The backend stores both bounds unchecked, so the form is the only guard: the message is visible before any submit and the submit never dispatches the inverted pair | `blocksDateOrderError` |
 | `—` *(no icon)* | **Noch keine Blöcke** | Blocks list empty state | `blocks.empty` |
 | `—` *(no icon)* | **Ersten Block erstellen** | Blocks empty-state create CTA | `blocks.create.first` |
-| `—` *(no icon)* | **Zurück zu den Staffeln** | Deleted-parent (404) back affordance | `blocks.notFound.back` |
-| `—` *(no icon)* | **Staffel {n}** | Season-number fallback title on the blocks AppBar | `blocks.seasonNumber` |
+| `—` *(no icon)* | **Zurück zu den Seasons** | Deleted-parent (404) back affordance | `blocks.notFound.back` |
+| `—` *(no icon)* | **Season {n}** | Season-number fallback title on the blocks AppBar (composed by `seasonDisplayLabel`; the same string as the shell pill's blank-title arm) | `blocks.seasonNumber` |
 | `—` *(no icon)* | **{Start} – {End}** / **ab {Start}** / **bis {End}** | Block tile time-span line (issue #832): locale-formatted dates, never the raw ISO wire value and never a placeholder dash. A block without any date renders **no** line at all; a one-sided span renders a single-ended phrase | `blocks.span` / `blocks.span.from` / `blocks.span.to` |
-| `—` *(no icon)* | **Kostüm-Rolle** / **Keine Rolle in dieser Staffel** / **Rolle unbekannt ({code})** | Blocks AppBar membership chip (issue #832): a display-only role STATEMENT — the DTO's capability vector (`upload_continuity_photos`, …) is a protocol identifier and is never rendered | `blocksRoleCostume` / `blocksRoleNone` / `blocksRoleUnknown` |
+| `—` *(no icon)* | **Kostüm-Rolle** / **Keine Rolle in dieser Season** / **Rolle unbekannt ({code})** | Blocks AppBar membership chip (issue #832): a display-only role STATEMENT — the DTO's capability vector (`upload_continuity_photos`, …) is a protocol identifier and is never rendered | `blocksRoleCostume` / `blocksRoleNone` / `blocksRoleUnknown` |
 | `—` *(no icon)* | **{n} · {name}** | Season label with a name — the season pill in the shell top bar and the rows of its picker (issue #825). The number ALWAYS leads; a season with no name (`null` **or** blank) falls back to **Season {n}** | `seasonNumberName` / `seasonsDefaultTitle` |
 | `—` *(no icon)* | **Einstellungen** | Mehr-tab tile (issue #516: pushes the settings screen — no dialog) and screen app-bar title | `settings.title` |
 | `—` *(no icon)* | **Allgemein** | Settings screen — general app-settings section header (every flavor) | `settings.general` |

@@ -19,6 +19,13 @@ import '../../l10n/generated/app_localizations.dart';
 ///
 /// The season number is never dropped, and no `Season: ` wrapper is applied
 /// here — the pill and the episode pill next to it both lead with the number.
+///
+/// Issue #840: this is the ONLY place a season label is composed. Every
+/// surface that renders a season — the scope pill and its picker, the
+/// production overview, the location strip, the seasons cards, the blocks
+/// AppBar, the fundus chips/rows and the piece detail's repertoire list —
+/// calls this helper, so a blank title can never render an empty label on
+/// one screen while another screen gets it right.
 String seasonDisplayLabel(
   AppLocalizations l10n, {
   required int number,

@@ -395,7 +395,7 @@ abstract class AppLocalizations {
   /// No description provided for @charactersGone.
   ///
   /// In de, this message translates to:
-  /// **'Die Staffel ist weg ({code}).'**
+  /// **'Die Season ist weg ({code}).'**
   String charactersGone(Object code);
 
   /// No description provided for @characterDetailTitleFallback.
@@ -485,7 +485,7 @@ abstract class AppLocalizations {
   /// No description provided for @pieceErrorForbidden.
   ///
   /// In de, this message translates to:
-  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.'**
+  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Season.'**
   String get pieceErrorForbidden;
 
   /// No description provided for @pieceErrorMembership.
@@ -503,7 +503,7 @@ abstract class AppLocalizations {
   /// No description provided for @pieceErrorCategorySeason.
   ///
   /// In de, this message translates to:
-  /// **'Diese Kategorie gehört zu einer anderen Staffel – wähle eine Kategorie dieser Staffel.'**
+  /// **'Diese Kategorie gehört zu einer anderen Season – wähle eine Kategorie dieser Season.'**
   String get pieceErrorCategorySeason;
 
   /// No description provided for @pieceErrorCategoryArchived.
@@ -659,7 +659,7 @@ abstract class AppLocalizations {
   /// No description provided for @createSeasonTitle.
   ///
   /// In de, this message translates to:
-  /// **'Staffel erstellen'**
+  /// **'Season erstellen'**
   String get createSeasonTitle;
 
   /// No description provided for @createSeasonTitleLabel.
@@ -2532,7 +2532,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiApplyErrorEpisodeNumberTaken.
   ///
   /// In de, this message translates to:
-  /// **'Diese Episoden-Nummer ist in der Staffel bereits vergeben.'**
+  /// **'Diese Episoden-Nummer ist in der Season bereits vergeben.'**
   String get aiApplyErrorEpisodeNumberTaken;
 
   /// No description provided for @aiApplyErrorEpisodeNumberOtherBlock.
@@ -2727,13 +2727,13 @@ abstract class AppLocalizations {
   /// No description provided for @aiImportTargetNoSeason.
   ///
   /// In de, this message translates to:
-  /// **'Wähle zuerst eine Staffel aus – ohne Staffel hat der Import kein Ziel.'**
+  /// **'Wähle zuerst eine Season aus – ohne Season hat der Import kein Ziel.'**
   String get aiImportTargetNoSeason;
 
   /// No description provided for @aiImportTargetNoBlocks.
   ///
   /// In de, this message translates to:
-  /// **'Diese Staffel hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.'**
+  /// **'Diese Season hat noch keinen Block. Lege zuerst einen Block an, dann kannst du importieren.'**
   String get aiImportTargetNoBlocks;
 
   /// No description provided for @aiImportTargetPickBlock.
@@ -2757,19 +2757,19 @@ abstract class AppLocalizations {
   /// No description provided for @aiImportTargetSeasonUnavailable.
   ///
   /// In de, this message translates to:
-  /// **'Die Staffel konnte nicht geladen werden. Versuch es erneut.'**
+  /// **'Die Season konnte nicht geladen werden. Versuch es erneut.'**
   String get aiImportTargetSeasonUnavailable;
 
   /// No description provided for @aiImportTargetBlocksUnavailable.
   ///
   /// In de, this message translates to:
-  /// **'Die Blockliste der Staffel konnte nicht geladen werden. Eine leere Liste heißt hier nicht, dass die Staffel keinen Block hat. Versuch es erneut.'**
+  /// **'Die Blockliste der Season konnte nicht geladen werden. Eine leere Liste heißt hier nicht, dass die Season keinen Block hat. Versuch es erneut.'**
   String get aiImportTargetBlocksUnavailable;
 
   /// No description provided for @aiImportTargetUnknownSeason.
   ///
   /// In de, this message translates to:
-  /// **'Staffel unbekannt'**
+  /// **'Season unbekannt'**
   String get aiImportTargetUnknownSeason;
 
   /// No description provided for @aiImportTargetUnknownBlock.
@@ -2781,7 +2781,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiImportScopeMismatch.
   ///
   /// In de, this message translates to:
-  /// **'Der aktive Block gehört zu einer anderen Staffel als der Import. Der Upload wurde nicht gesendet.'**
+  /// **'Der aktive Block gehört zu einer anderen Season als der Import. Der Upload wurde nicht gesendet.'**
   String get aiImportScopeMismatch;
 
   /// No description provided for @commonAdd.
@@ -2955,67 +2955,67 @@ abstract class AppLocalizations {
   /// No description provided for @pieceDetailRepertoireEmpty.
   ///
   /// In de, this message translates to:
-  /// **'In keiner weiteren Staffel gelistet'**
+  /// **'In keiner weiteren Season gelistet'**
   String get pieceDetailRepertoireEmpty;
 
   /// No description provided for @pieceDetailRepertoireAdd.
   ///
   /// In de, this message translates to:
-  /// **'Zu Staffel hinzufügen'**
+  /// **'Zu Season hinzufügen'**
   String get pieceDetailRepertoireAdd;
 
   /// No description provided for @pieceDetailRepertoireAddTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Das Kleidungsstück zum Repertoire einer anderen Staffel hinzufügen'**
+  /// **'Das Kleidungsstück zum Repertoire einer anderen Season hinzufügen'**
   String get pieceDetailRepertoireAddTooltip;
 
   /// No description provided for @pieceDetailRepertoireRemoveTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Aus Staffel entfernen'**
+  /// **'Aus Season entfernen'**
   String get pieceDetailRepertoireRemoveTooltip;
 
   /// No description provided for @pieceDetailRepertoireRemoveTitle.
   ///
   /// In de, this message translates to:
-  /// **'Aus Staffel entfernen?'**
+  /// **'Aus Season entfernen?'**
   String get pieceDetailRepertoireRemoveTitle;
 
   /// No description provided for @pieceDetailRepertoireRemoveMessage.
   ///
   /// In de, this message translates to:
-  /// **'Das Kleidungsstück verschwindet aus dem Garderoben-Bestand dieser Staffel. Details und Fotos bleiben am Kleidungsstück.'**
+  /// **'Das Kleidungsstück verschwindet aus dem Garderoben-Bestand dieser Season. Details und Fotos bleiben am Kleidungsstück.'**
   String get pieceDetailRepertoireRemoveMessage;
 
   /// No description provided for @pieceDetailRepertoirePick.
   ///
   /// In de, this message translates to:
-  /// **'Staffel wählen'**
+  /// **'Season wählen'**
   String get pieceDetailRepertoirePick;
 
   /// No description provided for @pieceDetailRepertoireSaved.
   ///
   /// In de, this message translates to:
-  /// **'Staffel zum Repertoire hinzugefügt.'**
+  /// **'Season zum Repertoire hinzugefügt.'**
   String get pieceDetailRepertoireSaved;
 
   /// No description provided for @pieceDetailRepertoireRemoved.
   ///
   /// In de, this message translates to:
-  /// **'Das Kleidungsstück wurde aus dem Staffel-Repertoire entfernt.'**
+  /// **'Das Kleidungsstück wurde aus dem Season-Repertoire entfernt.'**
   String get pieceDetailRepertoireRemoved;
 
   /// No description provided for @pieceErrorSeasonArchived.
   ///
   /// In de, this message translates to:
-  /// **'Diese Staffel ist archiviert – ihr Repertoire kann nicht mehr geändert werden.'**
+  /// **'Diese Season ist archiviert – ihr Repertoire kann nicht mehr geändert werden.'**
   String get pieceErrorSeasonArchived;
 
   /// No description provided for @pieceErrorSeasonNotFound.
   ///
   /// In de, this message translates to:
-  /// **'Diese Staffel existiert nicht mehr – die Liste wurde aktualisiert.'**
+  /// **'Diese Season existiert nicht mehr – die Liste wurde aktualisiert.'**
   String get pieceErrorSeasonNotFound;
 
   /// No description provided for @pieceDetailNotNow.
@@ -3273,7 +3273,7 @@ abstract class AppLocalizations {
   /// No description provided for @continuityRoleGate.
   ///
   /// In de, this message translates to:
-  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel, um Kontinuitätsfotos zu verwalten.'**
+  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Season, um Kontinuitätsfotos zu verwalten.'**
   String get continuityRoleGate;
 
   /// No description provided for @continuityEmpty.
@@ -3339,7 +3339,7 @@ abstract class AppLocalizations {
   /// No description provided for @castNoSeason.
   ///
   /// In de, this message translates to:
-  /// **'Wähle eine Staffel, um Kleidungsstücke und Figuren zu sehen.'**
+  /// **'Wähle eine Season, um Kleidungsstücke und Figuren zu sehen.'**
   String get castNoSeason;
 
   /// No description provided for @castPickSeason.
@@ -4017,7 +4017,7 @@ abstract class AppLocalizations {
   /// No description provided for @blockSeasonNumber.
   ///
   /// In de, this message translates to:
-  /// **'Staffel {number}'**
+  /// **'Season {number}'**
   String blockSeasonNumber(Object number);
 
   /// No description provided for @blockTileLabel.
@@ -4041,7 +4041,7 @@ abstract class AppLocalizations {
   /// No description provided for @blocksRoleNone.
   ///
   /// In de, this message translates to:
-  /// **'Keine Rolle in dieser Staffel'**
+  /// **'Keine Rolle in dieser Season'**
   String get blocksRoleNone;
 
   /// No description provided for @blocksRoleUnknown.
@@ -4071,13 +4071,13 @@ abstract class AppLocalizations {
   /// No description provided for @blocksNotFound.
   ///
   /// In de, this message translates to:
-  /// **'Diese Staffel existiert nicht mehr ({code}).'**
+  /// **'Diese Season existiert nicht mehr ({code}).'**
   String blocksNotFound(Object code);
 
   /// No description provided for @blocksBackToSeasons.
   ///
   /// In de, this message translates to:
-  /// **'Zurück zu den Staffeln'**
+  /// **'Zurück zu den Seasons'**
   String get blocksBackToSeasons;
 
   /// No description provided for @blocksTileSyncing.
@@ -5991,25 +5991,25 @@ abstract class AppLocalizations {
   /// No description provided for @seasonsArchiveTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Staffel-Aktionen'**
+  /// **'Season-Aktionen'**
   String get seasonsArchiveTooltip;
 
   /// No description provided for @seasonsArchiveCta.
   ///
   /// In de, this message translates to:
-  /// **'Staffel archivieren'**
+  /// **'Season archivieren'**
   String get seasonsArchiveCta;
 
   /// No description provided for @seasonsArchivedError.
   ///
   /// In de, this message translates to:
-  /// **'Die Staffel ist archiviert und kann nicht mehr geändert werden.'**
+  /// **'Die Season ist archiviert und kann nicht mehr geändert werden.'**
   String get seasonsArchivedError;
 
   /// No description provided for @seasonsArchiveForbidden.
   ///
   /// In de, this message translates to:
-  /// **'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Staffel.'**
+  /// **'Dafür fehlt dir die aktive Kostüm-Rolle in dieser Season.'**
   String get seasonsArchiveForbidden;
 
   /// No description provided for @omniSearchTitle.
@@ -6027,7 +6027,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniSearchHint.
   ///
   /// In de, this message translates to:
-  /// **'Suchen: Szenen, Rollen, Kleidungsstücke, Drehtage dieser Staffel'**
+  /// **'Suchen: Szenen, Rollen, Kleidungsstücke, Drehtage dieser Season'**
   String get omniSearchHint;
 
   /// No description provided for @omniSearchChipScene.
@@ -6081,7 +6081,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniSearchInitialEmpty.
   ///
   /// In de, this message translates to:
-  /// **'Tippe, um die Szenen, Rollen, Kleidungsstücke und Drehtage dieser Staffel zu durchsuchen.'**
+  /// **'Tippe, um die Szenen, Rollen, Kleidungsstücke und Drehtage dieser Season zu durchsuchen.'**
   String get omniSearchInitialEmpty;
 
   /// No description provided for @omniSearchZeroMatch.
@@ -6105,7 +6105,7 @@ abstract class AppLocalizations {
   /// No description provided for @omniSearchNoSeason.
   ///
   /// In de, this message translates to:
-  /// **'Wähle zuerst eine Staffel, um sie zu durchsuchen.'**
+  /// **'Wähle zuerst eine Season, um sie zu durchsuchen.'**
   String get omniSearchNoSeason;
 
   /// No description provided for @omniSearchStaleBanner.
@@ -6135,7 +6135,7 @@ abstract class AppLocalizations {
   /// No description provided for @fundusHint.
   ///
   /// In de, this message translates to:
-  /// **'Fundus durchsuchen: Kleidungsstücke über alle Staffeln'**
+  /// **'Fundus durchsuchen: Kleidungsstücke über alle Seasons'**
   String get fundusHint;
 
   /// No description provided for @fundusEmpty.
@@ -6165,7 +6165,7 @@ abstract class AppLocalizations {
   /// No description provided for @fundusNoSeason.
   ///
   /// In de, this message translates to:
-  /// **'Wähle zuerst eine Staffel, um den Fundus zu durchsuchen.'**
+  /// **'Wähle zuerst eine Season, um den Fundus zu durchsuchen.'**
   String get fundusNoSeason;
 
   /// No description provided for @fundusStaleBanner.
@@ -6177,7 +6177,7 @@ abstract class AppLocalizations {
   /// No description provided for @fundusRepertoireSeasons.
   ///
   /// In de, this message translates to:
-  /// **'Staffeln: {seasons}'**
+  /// **'Seasons: {seasons}'**
   String fundusRepertoireSeasons(String seasons);
 
   /// No description provided for @aiPreviewShootingDay.
@@ -6549,7 +6549,7 @@ abstract class AppLocalizations {
   /// Client-side 403 narrative for look commands.
   ///
   /// In de, this message translates to:
-  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Staffel.'**
+  /// **'Du benötigst eine aktive Kostüm-Rolle in dieser Season.'**
   String get outfitErrorForbidden;
 
   /// Membership could not be checked before a look command.
@@ -6603,7 +6603,7 @@ abstract class AppLocalizations {
   /// Empty state of the garment picker.
   ///
   /// In de, this message translates to:
-  /// **'Kein Kleidungsstück im Repertoire dieser Staffel.'**
+  /// **'Kein Kleidungsstück im Repertoire dieser Season.'**
   String get outfitPickPieceEmpty;
 
   /// Confirmation after a variant fork succeeded.

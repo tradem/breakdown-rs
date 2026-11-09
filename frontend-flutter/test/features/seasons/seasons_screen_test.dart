@@ -254,7 +254,7 @@ void main() {
 
       expect(find.text('Seasons'), findsOneWidget);
       expect(find.byKey(const Key('season-a')), findsOneWidget);
-      expect(find.text('Spring'), findsOneWidget);
+      expect(find.text('1 · Spring'), findsOneWidget);
       // AUTHZ-GATE (dev-auth session): the create FAB is visible.
       expect(find.byKey(const Key('season-add-fab')), findsOneWidget);
     });
@@ -294,7 +294,7 @@ void main() {
       // state only — the Drift cache stays empty while unprojected).
       expect(repo.createCalls, 1);
       expect(find.byKey(const Key('overlay-n1')), findsOneWidget);
-      expect(find.text('Summer'), findsOneWidget);
+      expect(find.text('2 · Summer'), findsOneWidget);
       // The sheet closed.
       expect(find.byKey(const Key('create-submit')), findsNothing);
     });
@@ -453,7 +453,7 @@ void main() {
 
       expect(find.byKey(const Key('overlay-n1')), findsNothing);
       expect(find.byKey(const Key('season-n1')), findsOneWidget);
-      expect(find.text('Later'), findsOneWidget);
+      expect(find.text('2 · Later'), findsOneWidget);
     });
   });
 
@@ -510,7 +510,7 @@ void main() {
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('season-a')), findsOneWidget);
-      expect(find.text('Spring'), findsOneWidget);
+      expect(find.text('1 · Spring'), findsOneWidget);
       // Metadata line: cached counts joined (glossary seasons.meta.*).
       expect(find.textContaining('2 Blöcke'), findsOneWidget);
       expect(find.textContaining('1 Kleidungsstück'), findsOneWidget);
@@ -526,7 +526,7 @@ void main() {
       await pumpScreen(tester);
 
       expect(find.byKey(const Key('season-a')), findsOneWidget);
-      expect(find.text('Spring'), findsOneWidget);
+      expect(find.text('1 · Spring'), findsOneWidget);
       // No counts anywhere (never fabricated).
       expect(find.textContaining('Blöcke'), findsNothing);
       // Fresh metadata → no stale indicator.
@@ -559,7 +559,7 @@ void main() {
 
       // Keys/semantics unchanged from the tile era.
       expect(find.byKey(const Key('overlay-n1')), findsOneWidget);
-      expect(find.text('Autumn'), findsOneWidget);
+      expect(find.text('2 · Autumn'), findsOneWidget);
       expect(
         find.text('Wird erstellt — Synchronisierung läuft…'),
         findsOneWidget,

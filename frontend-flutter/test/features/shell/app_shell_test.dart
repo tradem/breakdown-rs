@@ -653,7 +653,7 @@ void main() {
         PlanningLocation.season(seasonDto),
       );
       expect(find.byKey(const Key('shell-context-bar')), findsOneWidget);
-      expect(find.text('Shell Season'), findsWidgets);
+      expect(find.text('1 · Shell Season'), findsWidgets);
 
       tester
           .state<AppShellState>(find.byType(AppShell))

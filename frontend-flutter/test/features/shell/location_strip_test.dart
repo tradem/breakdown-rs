@@ -86,9 +86,28 @@ void main() {
         tester,
         LocationStrip(location: PlanningLocation.season(season)),
       );
-      expect(find.text('Sommerkomödie'), findsOneWidget);
+      expect(find.text('1 · Sommerkomödie'), findsOneWidget);
       expect(find.byKey(const Key('location-segment-season')), findsOneWidget);
     });
+
+    // Issue #840: the strip composes the season label through
+    // `seasonDisplayLabel`, so a blank title takes the number-only arm — the
+    // old inline `title ?? seasonsDefaultTitle` rendered an empty segment.
+    for (final blank in ['', '   ']) {
+      testWidgets(
+        'blank season title (${blank.isEmpty ? 'empty' : 'whitespace'}) '
+        'renders the number-only label',
+        (tester) async {
+          await pumpStrip(
+            tester,
+            LocationStrip(
+              location: PlanningLocation.season(_season('s9', title: blank)),
+            ),
+          );
+          expect(find.text('Season 1'), findsOneWidget);
+        },
+      );
+    }
 
     testWidgets('scene level renders every segment (medium, max 4)', (
       tester,
@@ -106,7 +125,7 @@ void main() {
         ),
       );
       // Visible text for ALL four levels (icon-only segments forbidden).
-      expect(find.text('Sommerkomödie'), findsOneWidget);
+      expect(find.text('1 · Sommerkomödie'), findsOneWidget);
       expect(find.text('Block 2'), findsOneWidget);
       expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);
@@ -128,7 +147,7 @@ void main() {
       );
       // The CAP (not an overflow) drops the outermost level: compact keeps
       // the three deepest.
-      expect(find.text('Sommerkomödie'), findsNothing);
+      expect(find.text('1 · Sommerkomödie'), findsNothing);
       expect(find.text('Block 2'), findsOneWidget);
       expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);
@@ -151,7 +170,7 @@ void main() {
       );
       // EVERY level survives — the deepest one is no longer reached by
       // dropping its ancestors (the previous behaviour).
-      expect(find.text('Sommerkomödie'), findsOneWidget);
+      expect(find.text('1 · Sommerkomödie'), findsOneWidget);
       expect(find.text('Block 2'), findsOneWidget);
       expect(find.text('Der Diebstahl'), findsOneWidget);
       expect(find.text('Die Küche'), findsOneWidget);
@@ -182,7 +201,7 @@ void main() {
       // independent of how many lines it occupies.
       expect(
         semantics.label,
-        'Position: Sommerkomödie → Block 2 → Der Diebstahl → Die Küche',
+        'Position: 1 · Sommerkomödie → Block 2 → Der Diebstahl → Die Küche',
       );
     });
 
@@ -192,12 +211,12 @@ void main() {
         LocationStrip(location: PlanningLocation.block(season, block)),
         locale: const Locale('en'),
       );
-      expect(find.text('Sommerkomödie'), findsOneWidget);
+      expect(find.text('1 · Sommerkomödie'), findsOneWidget);
       expect(find.text('Block 2'), findsOneWidget);
       final semantics = tester.getSemantics(
         find.byKey(const Key('location-strip')),
       );
-      expect(semantics.label, 'Location: Sommerkomödie → Block 2');
+      expect(semantics.label, 'Location: 1 · Sommerkomödie → Block 2');
     });
   });
 

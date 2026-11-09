@@ -23,14 +23,14 @@ The shell renders the location strip and scope chip above the content (one surfa
 {
   "Fundus"
   --
-  [ "Fundus durchsuchen: Kleidungsstücke über alle Staffeln" ]
-  [ {Staffel Eins} | {Staffel Zwei} | {Staffel Drei} ]
+  [ "Fundus durchsuchen: Kleidungsstücke über alle Seasons" ]
+  [ {Season Eins} | {Season Zwei} | {Season Drei} ]
   --
   [Banner: 'Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.']
   --
-  {^ "Rote Lederjacke"          "Staffeln: Staffel Eins · Staffel Zwei"
+  {^ "Rote Lederjacke"          "Seasons: Season Eins · Season Zwei"
      " [thumbnail]               [chevron_right]"
-     "Abendkleid"                "Staffeln: Staffel Eins"
+     "Abendkleid"                "Seasons: Season Eins"
      " [thumbnail]               [chevron_right]"}
 }
 @endsalt

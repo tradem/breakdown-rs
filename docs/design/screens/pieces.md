@@ -56,8 +56,8 @@ another season.
   {^ "Kleidungsstück"
      "Kategorie (Kategorie-Icon + Name)" [Kategorie wählen]
      "Repertoire"
-     "Staffel 1                [x]"
-     "Staffel 2                [+]"
+     "Season 1                 [x]"
+     "Season 2                 [+]"
      "Details"
      "Rote Lederjacke                [✎] [🗑]"
      "  Betreff [Rote Lederjacke              ]"

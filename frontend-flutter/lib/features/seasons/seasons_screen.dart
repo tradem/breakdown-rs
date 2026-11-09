@@ -27,6 +27,7 @@ import '../shell/production_overview_screen.dart';
 import '../shell/shell_controller.dart';
 import 'create_season_sheet.dart';
 import '../easter_eggs/dejavu_cat.dart';
+import 'season_display_label.dart';
 import 'seasons_controller.dart';
 import 'seasons_metrics_provider.dart';
 import 'seasons_state.dart';
@@ -276,7 +277,11 @@ class _SeasonCard extends ConsumerWidget {
         // never a denial narrative, D3) and only on a non-locked season.
 
         key: Key('season-${season.id}'),
-        title: season.title ?? l10n.seasonsDefaultTitle(season.number),
+        title: seasonDisplayLabel(
+          l10n,
+          number: season.number,
+          title: season.title,
+        ),
         metadata: _metadataLine(metrics, l10n),
         staleLabel: _staleLabel(ref, metrics, l10n),
         // Issue #533: archived seasons keep the read affordance (inventory
@@ -300,9 +305,16 @@ class _SeasonCard extends ConsumerWidget {
       ),
       OptimisticSeasonRow(:final overlay) => SeasonCard(
         key: Key('overlay-${overlay.id}'),
-        title: overlay.name?.isNotEmpty == true
-            ? overlay.name!
-            : l10n.seasonsDefaultTitle(overlay.number ?? ''),
+        // The overlay's number is display-only and set by every creation
+        // path (create sheet, setup wizard). A missing one renders the name
+        // alone — never the blank „Season " the old `?? ''` produced.
+        title: overlay.number == null
+            ? (overlay.name?.trim() ?? '')
+            : seasonDisplayLabel(
+                l10n,
+                number: overlay.number!,
+                title: overlay.name,
+              ),
         // The overlay's status copy (keys/semantics unchanged from the
         // tile era): the syncing line, or the retained stale warning.
         metadata: overlay.status == OverlayStatus.stale
