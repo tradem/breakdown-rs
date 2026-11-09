@@ -42,7 +42,10 @@
 //! and dies at teardown — while staying in the shared pool. The next test then
 //! reads it and fails with `A Tokio 1.x context was found, but it is being
 //! shutdown` (the observed flake in 6.1 after 6.4). A plain `#[test]` + this
-//! helper removes the second runtime from the process entirely.
+//! helper removes the second runtime from the process entirely, and
+//! [`assert_shared_runtime`] — called from [`init_containers`], i.e. on **every**
+//! path to the shared pools — turns a regression into an immediate failure with
+//! the reason, instead of a flake one test later.
 //!
 //! **Concurrency:** the bodies are safe to run in parallel — `Runtime::block_on`
 //! may be called from several test threads at once, and every test uses its own
@@ -167,7 +170,7 @@ struct InitStage {
 }
 
 fn init_containers() -> &'static SharedContainers {
-    CONTAINERS.get_or_init(|| {
+    let containers = CONTAINERS.get_or_init(|| {
         // Spawn containers on a background thread to avoid nested runtime errors.
         std::thread::spawn(|| {
             // Must be a **full** runtime (not `new_current_thread`) because
@@ -259,7 +262,36 @@ fn init_containers() -> &'static SharedContainers {
         })
         .join()
         .expect("Container setup thread panicked")
-    })
+    });
+
+    // Guard every path to the shared state, not only [`run_on_shared_runtime`]:
+    // a future `#[tokio::test]` that calls this function directly would
+    // otherwise reach the pools on a foreign runtime without any complaint.
+    assert_shared_runtime(containers);
+    containers
+}
+
+/// Fail loudly if the caller is inside a tokio runtime that is **not** the
+/// shared one (issue #820).
+///
+/// `sqlx`/`redis-rs` bind a connection to the runtime that established it, so a
+/// connection created (or lazily re-established) on a per-test runtime dies with
+/// that runtime while staying in the shared pool — the next test then reads it
+/// and fails with `A Tokio 1.x context was found, but it is being shutdown`.
+///
+/// Outside any runtime there is nothing to compare and nothing to fear: that is
+/// the legitimate case of the synchronous `#[test]` wrapper thread calling
+/// [`init_containers`] / `block_on`, so the check is a no-op there.
+fn assert_shared_runtime(containers: &SharedContainers) {
+    let Ok(current) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    assert_eq!(
+        current.id(),
+        containers.runtime.handle().id(),
+        "test bodies must run on the shared runtime (issue #820) — \
+         a per-test runtime leaves pool connections bound to a dead runtime"
+    );
 }
 
 /// Drive an async test body on the **shared** runtime.
@@ -272,21 +304,16 @@ fn init_containers() -> &'static SharedContainers {
 /// shutdown`.  `block_on` on the shared runtime makes that impossible: this
 /// process has exactly one runtime.
 ///
-/// The runtime identity assertion keeps it that way.  A body that somehow ends
-/// up on a foreign runtime fails immediately, with the reason, instead of
-/// flaking one test later on a connection it never touched.
+/// The identity assertion ([`assert_shared_runtime`]) keeps it that way.  A body
+/// that somehow ends up on a foreign runtime fails immediately, with the reason,
+/// instead of flaking one test later on a connection it never touched.
 fn run_on_shared_runtime<F>(body: F) -> Result<()>
 where
     F: std::future::Future<Output = Result<()>>,
 {
     let containers = init_containers();
     containers.runtime.block_on(async {
-        assert_eq!(
-            tokio::runtime::Handle::current().id(),
-            containers.runtime.handle().id(),
-            "test bodies must run on the shared runtime (issue #820) — \
-             a per-test runtime leaves pool connections bound to a dead runtime"
-        );
+        assert_shared_runtime(containers);
         body.await
     })
 }
