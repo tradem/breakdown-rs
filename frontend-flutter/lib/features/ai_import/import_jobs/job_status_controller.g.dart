@@ -652,7 +652,7 @@ final class AiJobAppliedEpisodesProvider
 }
 
 String _$aiJobAppliedEpisodesHash() =>
-    r'd17d7aba47e0899b6faf0c84a5fc8e5231cccf28';
+    r'2f57bad192ebf9509c20466eb7af170a59b91a7c';
 
 /// The applied-episode summary a job's applies left **persisted** (issue #864),
 /// read from the cached job row.

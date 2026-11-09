@@ -57,3 +57,26 @@ class SceneMoodLabel extends StatelessWidget {
     );
   }
 }
+
+/// The canonical set-shorthand moods the scene editor offers as chips
+/// (issue #834): the set-shorthand grammar the mood resolver already parses
+/// (`<I|A|I/A>/<T|N|D|M|AB>`), enumerated in stable display order. A stored
+/// value OUTSIDE this set stays selectable in the editor as its own chip and
+/// is never destroyed by a save — the resolver renders it as plain text.
+const canonicalSceneMoods = <String>[
+  'I/T',
+  'I/N',
+  'I/D',
+  'I/M',
+  'I/AB',
+  'A/T',
+  'A/N',
+  'A/D',
+  'A/M',
+  'A/AB',
+  'I/A/T',
+  'I/A/N',
+  'I/A/D',
+  'I/A/M',
+  'I/A/AB',
+];

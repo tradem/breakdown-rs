@@ -1309,5 +1309,28 @@
   "aiImportTargetFrozen": "Target locked: the preview's episode target is already chosen and is bound to the target block. Start a new import for a different block.",
   "@aiImportTargetFrozen": {},
   "aiImportTargetBlockLess": "No target block yet: after the upload the block is taken from the script or chosen by hand.",
-  "@aiImportTargetBlockLess": {}
+  "@aiImportTargetBlockLess": {},
+  "sceneDetailTitle": "Scene {number}",
+  "@sceneDetailTitle": {
+    "placeholders": {
+      "number": {}
+    }
+  },
+  "sceneDetailSynopsisTitle": "Synopsis",
+  "sceneDetailNoSynopsis": "No synopsis",
+  "sceneDetailRatingScene": "Scene",
+  "sceneDetailRatingSynopsis": "Synopsis",
+  "sceneDetailEditTooltip": "Edit scene",
+  "sceneDetailEditNumber": "Scene number",
+  "sceneDetailEditNumberHint": "The number only drives ordering — duplicate numbers are not (yet) checked.",
+  "sceneDetailEditNumberError": "Enter a valid whole number — the stored number was not changed.",
+  "sceneDetailEditLocation": "Location",
+  "sceneDetailEditMood": "Mood",
+  "sceneDetailEditMoodCustom": "Custom mood",
+  "sceneDetailEditScriptDay": "Script day",
+  "sceneDetailEditSummary": "Synopsis",
+  "sceneUpdateErrorValidation": "The change was rejected — check the number and the texts.",
+  "sceneUpdateErrorConflict": "The scene changed in the meantime. Refresh the view and try again.",
+  "sceneUpdateErrorNetwork": "Network problem — the change was not saved. Try again.",
+  "sceneUpdateErrorGeneric": "The scene could not be saved ({code})."
 }

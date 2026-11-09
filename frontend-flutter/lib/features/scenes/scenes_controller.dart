@@ -217,6 +217,30 @@ class SceneBeatOverlays extends _$SceneBeatOverlays {
   ];
 }
 
+/// Controller-state optimistic DETAILS-overlay store per episode (issue
+/// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
+/// against the projected row version, because an EXISTING scene's
+/// projection row is present from the start and an id-presence drop would
+/// flash the old values back while the projection lags.
+@Riverpod(keepAlive: true)
+class SceneDetailsOverlays extends _$SceneDetailsOverlays {
+  @override
+  List<SceneDetailsOverlay> build(String episodeId) => const [];
+
+  void add(SceneDetailsOverlay overlay) => state = overlayAdd(state, overlay);
+
+  void markAllReconciling() => state = overlayMarkAllReconciling(state);
+
+  void markAllStale(String warning) =>
+      state = overlayMarkAllStale(state, warning);
+
+  /// Version-fence drop: identical contract to [SceneBeatOverlays].
+  void dropProjected(Map<String, int> projectedVersions) => state = [
+    for (final o in state)
+      if ((projectedVersions[o.id] ?? -1) < o.version) o,
+  ];
+}
+
 /// Last command failure per episode, surfaced to the screen keyed on `code`.
 @Riverpod(keepAlive: true)
 class ScenesCommandError extends _$ScenesCommandError {
@@ -245,6 +269,26 @@ String sceneCreateErrorCopy(AppLocalizations l10n, ProblemError error) =>
       _ => l10n.scenesCreateErrorGeneric(error.code),
     };
 
+/// Localized client-side copy for a scene-detail update failure (issue
+/// #834), keyed on the stable problem `code` (never the server's localized
+/// `detail`). The 409 `concurrency.version-mismatch` arm renders the
+/// localized retry narrative: the scene changed elsewhere, refresh and
+/// re-try — the command itself is never re-dispatched automatically.
+String sceneUpdateErrorCopy(AppLocalizations l10n, ProblemError error) =>
+    switch (error.code) {
+      'scene.validation' => l10n.sceneUpdateErrorValidation,
+      'concurrency.version-mismatch' => l10n.sceneUpdateErrorConflict,
+      // Session expired while the screen stayed open, or the client-side
+      // AUTHZ-GATE denied before any network call: the SIGN-IN guidance,
+      // never a generic failure with a machine code (CodeRabbit #868).
+      'auth.unauthenticated' ||
+      'authz.denied' ||
+      'auth.session_required' => l10n.blocksCreateErrorSignIn,
+      _ when error.code.startsWith('transport.') =>
+        l10n.sceneUpdateErrorNetwork,
+      _ => l10n.sceneUpdateErrorGeneric(error.code),
+    };
+
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
 class ScenesController extends _$ScenesController {
@@ -264,7 +308,8 @@ class ScenesController extends _$ScenesController {
         },
         hasOverlays: () =>
             ref.read(scenesOverlaysProvider(episodeId)).isNotEmpty ||
-            ref.read(sceneBeatOverlaysProvider(episodeId)).isNotEmpty,
+            ref.read(sceneBeatOverlaysProvider(episodeId)).isNotEmpty ||
+            ref.read(sceneDetailsOverlaysProvider(episodeId)).isNotEmpty,
         markAllReconciling: () {
           ref
               .read(scenesOverlaysProvider(episodeId).notifier)
@@ -272,17 +317,28 @@ class ScenesController extends _$ScenesController {
           ref
               .read(sceneBeatOverlaysProvider(episodeId).notifier)
               .markAllReconciling();
+          ref
+              .read(sceneDetailsOverlaysProvider(episodeId).notifier)
+              .markAllReconciling();
         },
         dropProjectedIds: (ids) {
           ref
               .read(scenesOverlaysProvider(episodeId).notifier)
               .dropProjectedIds(ids);
-          // Beat overlays drop ONLY on a version-fenced projection row: an
-          // id-presence drop would discard the optimistic beats on a lagging
-          // row (pre-ack aggregate version).
-          ref.read(sceneBeatOverlaysProvider(episodeId).notifier).dropProjected(
-            {for (final s in _lastProjectedRows) s.id: s.version},
-          );
+          // Beat and DETAILS overlays drop ONLY on a version-fenced
+          // projection row: an id-presence drop would discard the optimistic
+          // render on a lagging row (pre-ack aggregate version) — and for
+          // details updates the scene row EXISTS from the start, so an
+          // id-presence drop would fire immediately (issue #834).
+          final projectedVersions = {
+            for (final s in _lastProjectedRows) s.id: s.version,
+          };
+          ref
+              .read(sceneBeatOverlaysProvider(episodeId).notifier)
+              .dropProjected(projectedVersions);
+          ref
+              .read(sceneDetailsOverlaysProvider(episodeId).notifier)
+              .dropProjected(projectedVersions);
         },
         markAllStale: (warning) {
           ref
@@ -290,6 +346,9 @@ class ScenesController extends _$ScenesController {
               .markAllStale(warning);
           ref
               .read(sceneBeatOverlaysProvider(episodeId).notifier)
+              .markAllStale(warning);
+          ref
+              .read(sceneDetailsOverlaysProvider(episodeId).notifier)
               .markAllStale(warning);
         },
         scheduler: () => ref.read(reconciliationSchedulerProvider),
@@ -307,35 +366,63 @@ class ScenesController extends _$ScenesController {
       _ => const AsyncValue<List<SceneView>>.loading(),
     };
     final beatOverlays = ref.watch(sceneBeatOverlaysProvider(episodeId));
+    final detailsOverlays = ref.watch(sceneDetailsOverlaysProvider(episodeId));
     return ScenesScreenState(
       projected: projected,
-      cachedRows: _applyBeatOverlays(view.rows, beatOverlays),
+      // Both overlay kinds merge in ONE pass, each fenced against the
+      // PROJECTED row version (see _applyOverlays).
+      cachedRows: _applyOverlays(view.rows, beatOverlays, detailsOverlays),
       isStale: view.isStale,
       overlays: ref.watch(scenesOverlaysProvider(episodeId)),
       beatOverlays: beatOverlays,
+      detailsOverlays: detailsOverlays,
       commandError: ref.watch(scenesCommandErrorProvider(episodeId)),
     );
   }
 
-  /// Merges optimistic beat overlays into the served scene rows: while the
-  /// projection row lags the ack (`row.version < overlay.version`), the
-  /// row renders the overlay's beat list at the acked version. Once the
-  /// projection catches up, the overlay is dropped by the reconciliation
-  /// pass and the projected row wins.
-  List<SceneView> _applyBeatOverlays(
+  /// Merges optimistic beat AND details overlays into the served scene
+  /// rows (issue #834): while the projection row lags an ack
+  /// (`row.version < overlay.version`), the row renders that overlay's
+  /// optimistic state until the projection catches up — no flash-back, no
+  /// stale-version conflict for a follow-up edit; the version-fenced
+  /// reconciliation drop removes the overlay at catch-up.
+  ///
+  /// Both fences compare against the PROJECTED row's version, never a
+  /// merged one: a newer beat ack (v3) must not hide a still-pending
+  /// details ack (v2) — chaining the merges would bump the row version to
+  /// 3 and skip the details overlay although the projection is still at
+  /// version 1 (CodeRabbit #868 review). The served row carries the
+  /// HIGHEST acknowledged version of the applied overlays, so a follow-up
+  /// command echoes the freshest known version.
+  List<SceneView> _applyOverlays(
     List<SceneView> rows,
-    List<SceneBeatOverlay> overlays,
+    List<SceneBeatOverlay> beatOverlays,
+    List<SceneDetailsOverlay> detailsOverlays,
   ) {
-    if (overlays.isEmpty) return rows;
-    final bySceneId = {for (final o in overlays) o.id: o};
+    if (beatOverlays.isEmpty && detailsOverlays.isEmpty) return rows;
+    final beatsById = {for (final o in beatOverlays) o.id: o};
+    final detailsById = {for (final o in detailsOverlays) o.id: o};
     return [
       for (final row in rows)
-        switch (bySceneId[row.id]) {
-          final overlay? when row.version < overlay.version => overlay.applyTo(
-            row,
-          ),
-          _ => row,
-        },
+        () {
+          final beats = beatsById[row.id];
+          final details = detailsById[row.id];
+          if (beats == null && details == null) return row;
+          var merged = row;
+          var version = row.version;
+          // The two overlay kinds touch DISJOINT fields (outfit beats vs.
+          // the flat details), so the apply order is irrelevant.
+          if (beats != null && row.version < beats.version) {
+            merged = beats.applyTo(merged);
+            version = beats.version;
+          }
+          if (details != null && row.version < details.version) {
+            merged = details.applyTo(merged);
+            if (details.version > version) version = details.version;
+          }
+          if (identical(merged, row)) return row;
+          return merged.rebuild((b) => b..version = version);
+        }(),
     ];
   }
 
@@ -392,6 +479,91 @@ class ScenesController extends _$ScenesController {
         // Fire-and-forget: the UI must not block on projector lag.
         unawaited(reconcile());
         return Right<ProblemError, IdVersionResponse>(res);
+      },
+    );
+  }
+
+  /// Submits the Update Scene Details command (issue #834): all fields of
+  /// the edit sheet, the `version` ECHOED from the acted-on `SceneView`
+  /// (optimistic locking, #473 doctrine — the version comes from the read
+  /// DTO the user is acting on, never a second lookup).
+  ///
+  /// AUTHZ-GATE: the backend update handler is `CurrentUser`-gated
+  /// (auth-only). The client mirrors that gate — no network call is issued
+  /// without an authenticated session.
+  Future<Result<int>> updateDetails({
+    required SceneView scene,
+    required SceneDetails details,
+  }) async {
+    // AUTHZ-GATE: authenticated session required; deny before any network
+    // call. Awaited (not read): a pending restore must resolve first.
+    final resolved = await _resolveSession();
+    if (resolved == null) {
+      const error = ProblemError(
+        code: 'authz.denied',
+        title: 'An authenticated session is required to update scenes',
+        status: 403,
+      );
+      ref.read(scenesCommandErrorProvider(episodeId).notifier).set(error);
+      return Left(error);
+    }
+
+    final repo = ref.read(sceneRepositoryProvider);
+    final ack = await repo.updateDetails(
+      scene.id,
+      UpdateSceneDetailsRequest(
+        (b) => b
+          ..details.replace(details)
+          ..version = scene.version,
+      ),
+    );
+
+    // A sign-out mid-flight disposes this keepAlive controller: touching
+    // `ref` afterwards throws instead of returning a `Result` (CodeRabbit
+    // #868). Degrade to the bare result — the session redirect owns the UI.
+    if (!ref.mounted) {
+      return ack.match(
+        (err) => Left<ProblemError, int>(err),
+        (res) => Right<ProblemError, int>(res),
+      );
+    }
+
+    return ack.match(
+      (err) {
+        ref.read(scenesCommandErrorProvider(episodeId).notifier).set(err);
+        // 409 `concurrency.version-mismatch`: the scene changed elsewhere —
+        // refresh the projection WITHOUT resubmitting, so the next edit
+        // echoes the current version and the screen never shows the
+        // rejected state (CodeRabbit #868; same contract as the beat
+        // commands).
+        if (err.code == 'concurrency.version-mismatch') {
+          _reconcile.ackReceived();
+          unawaited(reconcile());
+        }
+        return Left<ProblemError, int>(err);
+      },
+      (res) {
+        ref.read(scenesCommandErrorProvider(episodeId).notifier).clear();
+        // Optimistic-after-2xx on the edited row: the DETAILS overlay
+        // carries the submitted fields at the acked version until the
+        // projection catches up (version-fenced drop — issue #834). The
+        // editor's saved state stays visible; a lagging projection never
+        // flashes the old values back and a follow-up edit echoes the
+        // acked version instead of a stale one.
+        ref
+            .read(sceneDetailsOverlaysProvider(episodeId).notifier)
+            .add(
+              SceneDetailsOverlay(
+                id: scene.id,
+                version: res,
+                details: details,
+                status: OverlayStatus.acknowledged,
+              ),
+            );
+        _reconcile.ackReceived();
+        // Fire-and-forget: the UI must not block on projector lag.
+        unawaited(reconcile());
+        return Right<ProblemError, int>(res);
       },
     );
   }

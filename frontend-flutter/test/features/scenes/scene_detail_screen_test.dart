@@ -25,6 +25,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/design/components/ai_score_stars.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
@@ -56,6 +57,7 @@ SceneView _scene({
   List<String> days = const [],
   int version = 1,
   List<SceneOutfitBeatView> beats = const [],
+  String? mood,
 }) => SceneView(
   (b) => b
     ..id = id
@@ -63,6 +65,7 @@ SceneView _scene({
     ..assignedCharacters.replace(characters)
     ..isScheduleSet = days.isNotEmpty
     ..location = 'Studio A'
+    ..mood = mood
     ..sceneNumber = 7
     ..shootingDayIds.replace(days)
     ..outfitBeats.replace(beats)
@@ -84,6 +87,72 @@ SceneOutfitBeatView _beat(
     ..outfitName = categoryName
     ..order = order
     ..note = note,
+);
+
+/// AI-extracted provenance (issue #834): the badge source discriminator.
+SceneSourceBuilder _aiSource() => SceneSource(
+  (s) => s
+    ..oneOf = OneOf.fromValue2<String, SceneSourceOneOf>(
+      value: SceneSourceOneOf(
+        (d) => d
+          ..aiExtracted = SceneSourceOneOfAiExtracted(
+            (d2) => d2..documentId = 'job-1',
+          ).toBuilder(),
+      ),
+    ),
+).toBuilder();
+
+SceneView _sceneAi() => SceneView(
+  (b) => b
+    ..id = 'scene-1'
+    ..episodeId = 'episode-1'
+    ..isScheduleSet = false
+    ..location = 'Studio A'
+    ..sceneNumber = 7
+    ..summary = 'Night shoot'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1
+    ..source_ = _aiSource(),
+);
+
+SceneView _sceneNoSummary() => SceneView(
+  (b) => b
+    ..id = 'scene-1'
+    ..episodeId = 'episode-1'
+    ..isScheduleSet = false
+    ..location = 'Studio A'
+    ..sceneNumber = 7
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+SceneView _sceneScored() => SceneView(
+  (b) => b
+    ..id = 'scene-1'
+    ..episodeId = 'episode-1'
+    ..isScheduleSet = false
+    ..location = 'Studio A'
+    ..sceneNumber = 7
+    ..summary = 'Night shoot'
+    ..sceneScore = 0.55
+    ..synopsisScore = 0.82
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+/// A mood OUTSIDE the canonical set (issue #834): the editor must keep it
+/// selectable and echo it verbatim.
+SceneView _sceneCustomMood() => SceneView(
+  (b) => b
+    ..id = 'scene-1'
+    ..episodeId = 'episode-1'
+    ..isScheduleSet = false
+    ..location = 'Studio A'
+    ..mood = 'X/Y'
+    ..sceneNumber = 7
+    ..summary = 'Night shoot'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 4,
 );
 
 OutfitView _outfit(String id, {String name = 'Alltagslook'}) => OutfitView(
@@ -191,6 +260,24 @@ class _FakeSceneRepository extends SceneRepository {
   int removeCalls = 0;
   int clearCalls = 0;
   int? lastVersion;
+
+  /// Issue #834: the update-details dispatch log — the LAST request the
+  /// controller sent, for the version-echo and mood-preservation asserts.
+  UpdateSceneDetailsRequest? lastUpdateDetails;
+
+  @override
+  Future<Result<int>> updateDetails(
+    String id,
+    UpdateSceneDetailsRequest request,
+  ) {
+    updateCalls++;
+    lastVersion = request.version;
+    lastUpdateDetails = request;
+    // Realistic ack: the NEXT aggregate version after the echoed one — the
+    // details overlay's optimistic fence (`row.version < overlay.version`)
+    // only holds when the ack advances the version (CodeRabbit #868 flow).
+    return Future.value(nextWrite ?? Right((request.version) + 1));
+  }
 
   @override
   Future<Result<int>> addOutfitBeat(
@@ -395,6 +482,18 @@ void main() {
     await _pumpFrames(tester, n: 30);
   }
 
+  /// Issue #834: every section is COLLAPSED by default — a test asserting
+  /// section content expands the section first (one tap on the section
+  /// header card).
+  Future<void> expandSection(WidgetTester tester, String sectionKey) async {
+    // A scene that never resolved renders no sections at all — a tap would
+    // throw on the empty finder.
+    final header = find.byKey(Key(sectionKey));
+    if (header.evaluate().isEmpty) return;
+    await tester.tap(header.first);
+    await tester.pumpAndSettle();
+  }
+
   group('SceneDetailScreen characters (5.2)', () {
     testWidgets('assigned list resolves names via read-DTO join', (
       tester,
@@ -404,6 +503,8 @@ void main() {
         characterRows: [_character('ch-1')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
       expect(find.text('Ada'), findsOneWidget);
       expect(find.byKey(const Key('scene-character-ch-1')), findsOneWidget);
     });
@@ -413,6 +514,8 @@ void main() {
     ) async {
       await setupContainer(scene: _scene());
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
       expect(find.byKey(const Key('scene-characters-empty')), findsOneWidget);
     });
 
@@ -422,6 +525,8 @@ void main() {
         characterRows: [_character('ch-9', name: 'Bea')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
       await tester.tap(find.byKey(const Key('scene-character-assign-scene-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('assign-character-ch-9')));
@@ -437,6 +542,8 @@ void main() {
         characterRows: [_character('ch-1')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
       characters.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
       await tester.pumpAndSettle();
@@ -460,6 +567,8 @@ void main() {
     testWidgets('settled-missing scene renders gone view', (tester) async {
       await setupContainer(scene: null, characterRows: const []);
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
       expect(find.byKey(const Key('scene-detail-gone')), findsOneWidget);
       expect(find.byKey(const Key('scene-detail-loading')), findsNothing);
     });
@@ -472,6 +581,8 @@ void main() {
         scenesFetchLog: fetchLog,
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
       final baseline = fetchLog.length;
       characters.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
@@ -495,6 +606,8 @@ void main() {
         characterRows: [_character('ch-1')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
       final button = tester.widget<FilledButton>(
         find.byKey(const Key('scene-character-assign-scene-1')),
       );
@@ -511,6 +624,8 @@ void main() {
         dayRows: [_day('d-1', label: '1. Tag')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-shooting-days-scene-1');
       expect(find.text('1. Tag'), findsOneWidget);
       expect(find.byKey(const Key('scene-shooting-day-d-1')), findsOneWidget);
     });
@@ -526,6 +641,8 @@ void main() {
         ],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-shooting-days-scene-1');
       await tester.tap(
         find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
       );
@@ -545,6 +662,8 @@ void main() {
         dayRows: [_day('d-1', label: '1. Tag')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-shooting-days-scene-1');
       days.nextWrite = const Left(_conflict);
       await tester.tap(
         find.byKey(const Key('scene-shooting-day-unschedule-d-1')),
@@ -577,6 +696,8 @@ void main() {
           dayRows: [_day('d-1', label: '1. Tag')],
         );
         await pumpDetail(tester);
+        // Issue #834: the section is collapsed by default — expand first.
+        await expandSection(tester, 'scene-shooting-days-scene-1');
 
         final button = tester.widget<FilledButton>(
           find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
@@ -603,6 +724,8 @@ void main() {
       (tester) async {
         await setupContainer(scene: _scene(), dayRows: const []);
         await pumpDetail(tester);
+        // Issue #834: the section is collapsed by default — expand first.
+        await expandSection(tester, 'scene-shooting-days-scene-1');
 
         // The schedule button stays disabled (nothing to pick).
         final button = tester.widget<FilledButton>(
@@ -634,6 +757,8 @@ void main() {
         addTearDown(dayRowsLive.dispose);
         await setupContainer(scene: _scene(), dayRowsLive: dayRowsLive);
         await pumpDetail(tester);
+        // Issue #834: the section is collapsed by default — expand first.
+        await expandSection(tester, 'scene-shooting-days-scene-1');
         expect(
           find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
           findsOneWidget,
@@ -678,6 +803,8 @@ void main() {
     ) async {
       await setupContainer(scene: _scene(), dayRows: [_day('d-1')]);
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-shooting-days-scene-1');
 
       final button = tester.widget<FilledButton>(
         find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
@@ -706,6 +833,8 @@ void main() {
     ) async {
       await setupContainer(scene: _scene(), dayRows: []);
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-shooting-days-scene-1');
 
       expect(
         find.byKey(const Key('scene-shooting-days-empty')),
@@ -729,6 +858,8 @@ void main() {
         dayRows: [_day('d-1', label: '1. Tag')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-shooting-days-scene-1');
 
       expect(find.byKey(const Key('scene-shooting-days-empty')), findsNothing);
       expect(
@@ -755,6 +886,8 @@ void main() {
         ],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-shooting-days-scene-1');
 
       // Count reflects the distinct days, not the fan-out length.
       expect(find.text('Shooting days (1)'), findsOneWidget);
@@ -782,6 +915,8 @@ void main() {
         ],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-characters-scene-1');
 
       expect(find.text('Characters (1)'), findsOneWidget);
       expect(find.byKey(const Key('scene-character-c-1')), findsOneWidget);
@@ -811,6 +946,8 @@ void main() {
         pieceRows: [_piece('piece-1', subject: 'Mantel')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-pieces-scene-1');
       expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
       // The beat casts an OUTFIT, so its label is the look's joined name.
       expect(find.text('Hut'), findsOneWidget);
@@ -842,6 +979,8 @@ void main() {
         ],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-pieces-scene-1');
       expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
       expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
       // The `→` prefix marks the change from the previous beat of the
@@ -860,6 +999,8 @@ void main() {
         pieceRows: [_piece('piece-1', subject: 'Mantel')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-pieces-scene-1');
       expect(find.byKey(const Key('scene-piece-empty-ch-1')), findsOneWidget);
       expect(find.byKey(const Key('scene-piece-assign-ch-1')), findsOneWidget);
       // No add-change affordance without an existing beat.
@@ -881,6 +1022,8 @@ void main() {
           ],
         );
         await pumpDetail(tester);
+        // Issue #834: the section is collapsed by default — expand first.
+        await expandSection(tester, 'scene-pieces-scene-1');
         await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -915,6 +1058,8 @@ void main() {
         membershipCapabilities: const [],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-pieces-scene-1');
       await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -942,6 +1087,8 @@ void main() {
         scenesFetchLog: fetchLog,
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-pieces-scene-1');
       final baseline = fetchLog.length;
       sceneRepo.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
@@ -966,6 +1113,8 @@ void main() {
         pieceRows: [_piece('piece-1', subject: 'Mantel')],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-pieces-scene-1');
       await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
       await tester.pumpAndSettle();
       // Confirm-first: no dispatch before confirmation.
@@ -1001,6 +1150,8 @@ void main() {
         ],
       );
       await pumpDetail(tester);
+      // Issue #834: the section is collapsed by default — expand first.
+      await expandSection(tester, 'scene-pieces-scene-1');
       await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
       await tester.pumpAndSettle();
       await tester.tap(
@@ -1083,6 +1234,8 @@ void main() {
       ],
     );
     await pumpDetail(tester);
+    // Issue #834: the section is collapsed by default — expand first.
+    await expandSection(tester, 'scene-pieces-scene-1');
     await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -1110,6 +1263,8 @@ void main() {
       ],
     );
     await pumpDetail(tester);
+    // Issue #834: the section is collapsed by default — expand first.
+    await expandSection(tester, 'scene-pieces-scene-1');
     // First beat: acked version 2, optimistic row 0.
     await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
     await tester.pumpAndSettle();
@@ -1134,5 +1289,405 @@ void main() {
     // The version fence echoed the freshest known version (2 from the
     // first ack), not the screen-rendered snapshot's 1.
     expect(sceneRepo.lastVersion, 2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #834 — redesign: compact header, divider-free collapsed sections,
+  // synopsis + ratings, edit sheet.
+  // -------------------------------------------------------------------------
+
+  group('SceneDetailScreen redesign (issue #834) — shell', () {
+    testWidgets('app bar reads Szene {n}, never the summary', (tester) async {
+      await setupContainer(scene: _scene());
+      await pumpDetail(tester);
+      expect(find.text('Scene 7'), findsOneWidget);
+      // The summary is page content (synopsis section), not the title.
+      expect(find.byKey(const Key('scene-synopsis-text')), findsOneWidget);
+    });
+
+    testWidgets('sections are collapsed by default, counts stay visible', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], days: ['d-1']),
+        characterRows: [_character('ch-1')],
+        dayRows: [_day('d-1')],
+      );
+      await pumpDetail(tester);
+      // Collapsed: no character/day rows in the tree…
+      expect(find.byKey(const Key('scene-character-ch-1')), findsNothing);
+      expect(find.byKey(const Key('scene-shooting-day-d-1')), findsNothing);
+      // …but the header counts tell the story. The day section sits below
+      // the fold: the ListView builds slivers lazily, so DRAG it into the
+      // viewport before asserting (skipOffstage cannot find unbuilt
+      // children).
+      expect(find.text('Characters (1)'), findsOneWidget);
+      expect(find.text('Shooting days (1)'), findsOneWidget);
+    });
+
+    testWidgets('no Divider renders in any expansion state', (tester) async {
+      await setupContainer(scene: _scene(characters: ['ch-1']));
+      await pumpDetail(tester);
+      expect(find.byType(Divider), findsNothing);
+      // Expand every section, assert again (the M3 ExpansionTile used to
+      // draw its default top+bottom borders while expanded — issue #834).
+      for (final key in [
+        'scene-characters-scene-1',
+        'scene-pieces-scene-1',
+        'scene-shooting-days-scene-1',
+      ]) {
+        await expandSection(tester, key);
+      }
+      expect(find.byType(Divider), findsNothing);
+      // The M3 ExpansionTile paints its divider LINES from `shape` — not
+      // from `Divider` widgets. If the shape default ever returns, the
+      // lines reappear without any Divider in the tree (CodeRabbit #868):
+      // assert the borderless CONFIG in both states.
+      for (final tile in tester.widgetList<ExpansionTile>(
+        find.byType(ExpansionTile),
+      )) {
+        expect(tile.shape, const Border());
+        expect(tile.collapsedShape, const Border());
+      }
+      // And each section owns a stable, UNIQUE PageStorageKey so an
+      // expanded section survives scroll-out/in of the retained viewport.
+      final storageKeys = tester
+          .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+          .map((t) => t.key)
+          .whereType<PageStorageKey>()
+          .map((k) => k.value)
+          .toSet();
+      expect(storageKeys, hasLength(3));
+    });
+
+    testWidgets('header block: numeral, location, mood + schedule chips', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: const []),
+        // SceneMoodLabel only shows icons next to parseable moods; the
+        // text label renders either way.
+      );
+      await pumpDetail(tester);
+      expect(find.byKey(const Key('scene-detail-header')), findsOneWidget);
+      expect(
+        find.byKey(const Key('scene-detail-header-location')),
+        findsOneWidget,
+      );
+      expect(find.text('Unscheduled'), findsOneWidget);
+      // A manual scene shows NO provenance badge (no false attribution).
+      expect(find.byKey(const Key('scene-ai-badge-scene-1')), findsNothing);
+    });
+
+    testWidgets('AI-extracted scene renders the provenance badge', (
+      tester,
+    ) async {
+      await setupContainer(scene: _sceneAi());
+      await pumpDetail(tester);
+      expect(find.byKey(const Key('scene-ai-badge-scene-1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('scene-synopsis-ai-badge-scene-1')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('SceneDetailScreen redesign (issue #834) — synopsis + ratings', () {
+    testWidgets('synopsis renders in full, empty state stays honest', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene());
+      await pumpDetail(tester);
+      expect(find.byKey(const Key('scene-synopsis-text')), findsOneWidget);
+      expect(find.text('Night shoot'), findsOneWidget);
+    });
+
+    testWidgets('missing synopsis renders the explicit empty state', (
+      tester,
+    ) async {
+      await setupContainer(scene: _sceneNoSummary());
+      await pumpDetail(tester);
+      expect(find.byKey(const Key('scene-synopsis-empty')), findsOneWidget);
+      expect(find.text('No synopsis'), findsOneWidget);
+    });
+
+    testWidgets('scores render as stars', (tester) async {
+      await setupContainer(scene: _sceneScored());
+      await pumpDetail(tester);
+      expect(
+        find.byKey(const Key('scene-synopsis-rating-synopsis')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-synopsis-rating-scene')),
+        findsOneWidget,
+      );
+      // Both score rows render, and the score sits under the KEYED row —
+      // a swap would now fail (CodeRabbit #868; the bucket math itself is
+      // covered by the AiScoreStars unit tests).
+      double? scoreUnderRow(String rowKey) {
+        final row = find.byKey(Key(rowKey));
+        final starsWidgets = tester
+            .widgetList<AiScoreStars>(
+              find.descendant(of: row, matching: find.byType(AiScoreStars)),
+            )
+            .toList();
+        return starsWidgets.isEmpty ? null : starsWidgets.first.score;
+      }
+
+      expect(scoreUnderRow('scene-synopsis-rating-synopsis'), 0.82);
+      expect(scoreUnderRow('scene-synopsis-rating-scene'), 0.55);
+    });
+
+    testWidgets('null scores render no stars at all', (tester) async {
+      await setupContainer(scene: _scene());
+      await pumpDetail(tester);
+      // Honest absence (issue #834): an unscored scene shows no star
+      // widget — never a fabricated rating.
+      expect(find.byKey(const Key('ai-score-stars')), findsNothing);
+      expect(
+        find.byKey(const Key('scene-synopsis-rating-synopsis')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('scene-synopsis-rating-scene')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('SceneDetailScreen redesign (issue #834) — edit sheet', () {
+    testWidgets('the sheet echoes the acted-on version', (tester) async {
+      await setupContainer(scene: _scene(version: 4));
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('scene-edit-location')),
+        'Set C',
+      );
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(sceneRepo.updateCalls, 1);
+      expect(sceneRepo.lastVersion, 4);
+      // Optimistic DETAILS overlay (issue #834): the edited location stays
+      // visible even though the projection still serves the pre-edit row —
+      // the version-fenced overlay holds the saved state until catch-up.
+      expect(find.text('Set C'), findsWidgets);
+    });
+
+    testWidgets('a non-canonical mood survives the editor untouched', (
+      tester,
+    ) async {
+      await setupContainer(scene: _sceneCustomMood());
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      // The stored value renders as its own selected chip next to the
+      // canonical set…
+      expect(find.byKey(const Key('scene-edit-mood-X/Y')), findsOneWidget);
+      // …and a save that touches only the location echoes it verbatim.
+      await tester.enterText(
+        find.byKey(const Key('scene-edit-location')),
+        'Set B',
+      );
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(sceneRepo.lastUpdateDetails, isNotNull);
+      expect(sceneRepo.lastUpdateDetails!.details.mood, 'X/Y');
+    });
+
+    testWidgets('picking a canonical mood chip replaces the custom value', (
+      tester,
+    ) async {
+      await setupContainer(scene: _sceneCustomMood());
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-edit-mood-I/T')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(sceneRepo.lastUpdateDetails!.details.mood, 'I/T');
+    });
+
+    testWidgets('version conflict: sheet stays open, projection refreshes', (
+      tester,
+    ) async {
+      final fetchLog = <int>[];
+      await setupContainer(scene: _scene(), scenesFetchLog: fetchLog);
+      await pumpDetail(tester);
+      final baseline = fetchLog.length;
+      sceneRepo.nextWrite = const Left(_conflict);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      // The localized retry narrative renders INSIDE the sheet — the draft
+      // survives (CodeRabbit #868).
+      expect(find.byKey(const Key('scene-edit-error')), findsOneWidget);
+      expect(
+        find.text(
+          'The scene changed in the meantime. '
+          'Refresh the view and try again.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('scene-edit-sheet')), findsOneWidget);
+      // The conflict refreshed the projection WITHOUT resubmitting.
+      expect(fetchLog.length, greaterThan(baseline));
+      expect(sceneRepo.updateCalls, 1);
+    });
+
+    testWidgets('failed save keeps the draft and a retry succeeds', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene());
+      await pumpDetail(tester);
+      // First save fails (network), then succeeds on retry.
+      sceneRepo.nextWrite = const Left(
+        ProblemError(code: 'transport.timeout', status: 0),
+      );
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('scene-edit-location')),
+        'Set D',
+      );
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      // The sheet stays open, the error renders inside and the DRAFT
+      // survives — the user does not retype their edit.
+      expect(find.byKey(const Key('scene-edit-error')), findsOneWidget);
+      expect(find.text('Set D'), findsWidgets);
+      sceneRepo.nextWrite = null;
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(sceneRepo.updateCalls, 2);
+      expect(sceneRepo.lastUpdateDetails!.details.location, 'Set D');
+      // Success closes the sheet.
+      expect(find.byKey(const Key('scene-edit-sheet')), findsNothing);
+    });
+
+    testWidgets('an unparseable number is rejected before saving', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene());
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('scene-edit-number')), '7a');
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      // The sheet stays open with the field error; nothing was dispatched
+      // and the stored number is NOT silently cleared.
+      expect(
+        find.text(
+          'Enter a valid whole number — the stored number was not changed.',
+        ),
+        findsOneWidget,
+      );
+      expect(sceneRepo.updateCalls, 0);
+      // Fixing the input saves successfully.
+      await tester.enterText(find.byKey(const Key('scene-edit-number')), '12');
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(sceneRepo.updateCalls, 1);
+      expect(sceneRepo.lastUpdateDetails!.details.sceneNumber, 12);
+    });
+
+    testWidgets('deselecting a mood chip clears the field value', (
+      tester,
+    ) async {
+      await setupContainer(scene: _scene(mood: 'I/T'));
+      await pumpDetail(tester);
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-edit-mood-I/T')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      // The deselected chip's value must not be secretly submitted
+      // (CodeRabbit #868): no mood left.
+      expect(sceneRepo.lastUpdateDetails!.details.mood, isNull);
+    });
+
+    testWidgets('both overlays stay visible during projection lag', (
+      tester,
+    ) async {
+      // The CodeRabbit #868 follow-up: a beat ack (v3) AFTER a details ack
+      // (v2) while the projection is still at v1 must not hide the saved
+      // details — the chained merge bumped the row version to 3 and the
+      // details fence skipped a still-pending overlay.
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      if (find
+          .byKey(const Key('scene-piece-add-change-ch-1'))
+          .evaluate()
+          .isEmpty) {
+        await expandSection(tester, 'scene-pieces-scene-1');
+      }
+
+      // 1) Details ack (v2): the fake echoes request.version + 1.
+      await tester.tap(find.byKey(const Key('scene-detail-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('scene-edit-summary')),
+        'Geänderte Synopsis',
+      );
+      await tester.tap(find.byKey(const Key('scene-edit-save')));
+      await tester.pumpAndSettle();
+      expect(find.text('Geänderte Synopsis'), findsOneWidget);
+
+      // 2) Beat ack (v3, newer than the details overlay).
+      sceneRepo.nextWrite = const Right(3);
+      await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // The projection STILL serves the pre-edit v1 row (the fetch override
+      // never changes) — both optimistic overlays must render: the new beat
+      // AND the saved synopsis. The old chained merge bumped the row version
+      // to 3 and flashed the OLD synopsis back.
+      expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
+      expect(find.text('Geänderte Synopsis'), findsOneWidget);
+      // And the served row carries the HIGHEST acknowledged version (3) —
+      // a merge that leaves the details ack's 2 in place would still pass
+      // the content assertions above, but a follow-up edit would echo the
+      // wrong version (CodeRabbit #868 review round 2).
+      expect(
+        container
+            .read(scenesControllerProvider('episode-1'))
+            .cachedRows
+            .first
+            .version,
+        3,
+      );
+    });
+
+    testWidgets(
+      'a stored mood with surrounding whitespace is echoed verbatim',
+      (tester) async {
+        await setupContainer(scene: _scene(mood: ' X/Y '));
+        await pumpDetail(tester);
+        await tester.tap(find.byKey(const Key('scene-detail-edit')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('scene-edit-location')),
+          'Set E',
+        );
+        await tester.tap(find.byKey(const Key('scene-edit-save')));
+        await tester.pumpAndSettle();
+        // The editor never trims a stored value it did not touch
+        // (CodeRabbit #868).
+        expect(sceneRepo.lastUpdateDetails!.details.mood, ' X/Y ');
+      },
+    );
   });
 }

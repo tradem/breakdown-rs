@@ -23,6 +23,40 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The scene detail screen got its redesign** (issue #834,
+  `0.4.0-beta.43+135 → 0.4.0-beta.44+136`, stacked on the backend score PR).
+  The most-used detail surface stopped wearing the foundation layout:
+  - **Compact header** — the app bar reads „Szene {n}" (`sceneDetailTitle`); the
+    whole summary sentence left the bar. The identity block (number as a large
+    numeral, location as the title line, metadata chip row: mood with the #721
+    icons, script day, geplant/ungeplant, `AiProvenanceBadge` from
+    `SceneView.source`) reads as page identity — no card border, no
+    `SliverAppBar`.
+  - **Divider-free, collapsed-by-default sections** — the three
+    `ExpansionTile`s became the shared `SectionCard`
+    (`lib/design/components/`): no shape borders in any expansion state (the
+    M3 default drew "hässliche horizontale Linien" while expanded), every
+    section starts collapsed, counts stay in the headers. No `Divider` renders
+    on the screen (widget-tested in both states).
+  - **A dedicated synopsis** — the full summary in its own card with the
+    „KI-extrahiert" badge (only for `AiExtracted`) and the persisted
+    Decision-Model ratings as `AiScoreStars` rows (backend PR 1 made the
+    scores survive the apply); `null` renders nothing, never a fabricated
+    star; a missing synopsis renders the honest „Keine Synopsis" empty state.
+  - **One edit sheet** — „Szene bearbeiten" (app bar) covers number (with the
+    honest no-uniqueness hint), location, mood (canonical shorthand chips +
+    free-text fallback; a stored value outside the canonical set renders as
+    its own selected chip and is echoed verbatim — never destroyed), script
+    day and synopsis. Save dispatches with the acted-on `SceneView` `version`
+    echoed (#473), optimistic-after-2xx + bounded refetch, error copy keyed on
+    `code` with `concurrency.version-mismatch` as the localized retry
+    narrative.
+  Regenerated `vendor/breakdown_api` rides on the backend PR (`breakdown_api`
+  1.3.0 → 1.4.0: additive `SceneDetails`/`SceneView` score fields). Docs:
+  `docs/design/screens/scenes.md` rewritten (Salt wireframe compiles),
+  glossary entries for the editor/synopsis/rating affordances, and the
+  divider-free `SectionCard` rule in the screen-spec README.
+
 - **The post-apply hop no longer needs the apply response to know where the
   import landed** (issue #864, `0.4.0-beta.42+134 → 0.4.0-beta.43+135`). A
   second apply of an already-applied preview dispatches nothing — every row is
