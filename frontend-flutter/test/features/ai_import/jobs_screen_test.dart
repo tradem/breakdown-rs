@@ -96,6 +96,8 @@ AiImportJob _job(
   List<AppliedEpisode> appliedEpisodes = const [],
   JobTelemetrySummary? telemetry,
   bool applied = false,
+  List<AiImportAttempt> attempts = const [],
+  DateTime? nextAttemptAt,
 }) => AiImportJob(
   (b) => b
     ..id = id
@@ -114,10 +116,23 @@ AiImportJob _job(
     ..sourceFileName = sourceFileName
     ..appliedEpisodes.replace(appliedEpisodes)
     ..applied = applied
+    ..attempts.addAll(attempts)
+    ..nextAttemptAt = nextAttemptAt
     ..telemetry = telemetry?.toBuilder()
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
+
+/// One provider-attributed attempt (issue #822) with a controllable stamp.
+AiImportAttempt _providerAttempt(int attemptNo, DateTime createdAt) =>
+    AiImportAttempt(
+      (b) => b
+        ..attemptNo = attemptNo
+        ..code = 'ai-import.llm-provider-unavailable'
+        ..retryable = true
+        ..status = JobStatus.failed
+        ..createdAt = createdAt,
+    );
 
 /// A `known` cost snapshot fixture (issue #675): token total $0.0235 and —
 /// when [withEnergy] — a Neuralwatt-style energy cost of $0.00005 (uncapped
@@ -992,6 +1007,61 @@ void main() {
         debugDefaultTargetPlatformOverride = previousOverride;
       }
     }
+
+    testWidgets('a row whose attempts repeat the provider code carries the '
+        'compact degraded line — the same derivation the status card uses '
+        '(issue #822)', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-p',
+            status: JobStatus.failed,
+            retries: 2,
+            maxRetries: 5,
+            attempts: [
+              _providerAttempt(2, DateTime.utc(2026, 11, 4, 7, 6)),
+              _providerAttempt(1, DateTime.utc(2026, 11, 4, 6, 54)),
+            ],
+          ),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-jobs-row-provider-degraded-job-p')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('AI provider degraded · 2 attempts'),
+        findsOneWidget,
+      );
+      // The retry budget line keeps rendering next to it (no replacement).
+      expect(
+        find.byKey(const Key('ai-jobs-row-retry-budget-job-p')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a single provider failure leaves the row unchanged — the '
+        'aggregation never fires on one attempt (issue #822)', (tester) async {
+      await setupContainer(
+        listResult: Right([
+          _job(
+            'job-single',
+            status: JobStatus.failed,
+            retries: 1,
+            attempts: [_providerAttempt(1, DateTime.utc(2026, 11, 4, 6, 54))],
+          ),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-jobs-row-provider-degraded-job-single')),
+        findsNothing,
+      );
+      expect(find.textContaining('AI provider degraded'), findsNothing);
+    });
 
     testWidgets('rows render kind + date + status text + status icon; '
         'failed rows carry the retry budget; last_error gets a presence '

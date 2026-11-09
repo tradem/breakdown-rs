@@ -124,6 +124,137 @@ String aiJobStageCopy(AppLocalizations l10n, AiImportStage? stage) =>
       _ => l10n.aiJobStageUnknown(stage?.name ?? ''),
     };
 
+/// The LLM provider's own transient failure (issue #822): the ONLY code the
+/// LLM chat client emits for HTTP 429/5xx and transport timeout/connect, so it
+/// is the single stable signal that attributes a failed attempt to the
+/// provider.
+///
+/// It replaces nothing: `domain.service-unavailable` still covers the mapping
+/// DB, the pricing read model, payload storage and the catalog, so folding that
+/// generic code into a provider narrative would name the wrong dependency.
+const String aiLlmProviderUnavailableCode =
+    'ai-import.llm-provider-unavailable';
+
+/// How many CONSECUTIVE provider-attributed attempts make the provider
+/// "degraded" rather than merely blipping (issue #822).
+///
+/// One provider failure is a transient defect of a single attempt and keeps the
+/// per-attempt narrative; two in a row is the observed outage shape (three 503s
+/// over 17 minutes) and is what the reviewer needs to read as an upstream
+/// condition instead of counting identical rows.
+const int aiProviderDegradationThreshold = 2;
+
+/// One contiguous run of provider-attributed failures at the head of a job's
+/// attempt history (issue #822).
+///
+/// Derived from the job's OWN history — never from `last_error`, which is
+/// free-form log text and not an error identity (AGENTS.md §5). The run is
+/// judged newest-first and stops at the first attempt with any other code, so
+/// an intervening storage/database failure ends it instead of being absorbed.
+class AiProviderDegradation {
+  const AiProviderDegradation({
+    required this.failedAttempts,
+    required this.firstFailureAt,
+    required this.lastFailureAt,
+    required this.nextAttemptAt,
+    required this.retryBudgetSpent,
+  });
+
+  /// Attempts in the contiguous provider-attributed run (`>= 2`).
+  final int failedAttempts;
+
+  /// The window: when the first and the newest failure of that run were
+  /// recorded (server clock, as the attempt rows carry it).
+  final DateTime firstFailureAt;
+  final DateTime lastFailureAt;
+
+  /// The job's `next_attempt_at` — `null` when the backend schedules none
+  /// (or the job is terminal); the caller renders no invented time.
+  final DateTime? nextAttemptAt;
+
+  /// True at `dead_letter`: the retry budget is spent, so the banner may say so
+  /// while no copy promises a next attempt.
+  ///
+  /// Provable rather than assumed: the run's newest attempt carries the
+  /// provider-attributed code, which is the RETRYABLE variant, and a retryable
+  /// failure reaches `dead_letter` only when `retries + 1 >= max_retries` (the
+  /// `mark_failed` CASE). A non-retryable failure dead-letters under a
+  /// different code and can never form this run — which is why the per-attempt
+  /// terminal copy makes no exhaustion claim at all.
+  final bool retryBudgetSpent;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AiProviderDegradation &&
+          other.failedAttempts == failedAttempts &&
+          other.firstFailureAt == firstFailureAt &&
+          other.lastFailureAt == lastFailureAt &&
+          other.nextAttemptAt == nextAttemptAt &&
+          other.retryBudgetSpent == retryBudgetSpent;
+
+  @override
+  int get hashCode => Object.hash(
+    failedAttempts,
+    firstFailureAt,
+    lastFailureAt,
+    nextAttemptAt,
+    retryBudgetSpent,
+  );
+}
+
+/// The provider-degraded state of [job], or `null` when it does not apply
+/// (issue #822).
+///
+/// Fires only for a job that can still retry (`failed`) or has spent its budget
+/// (`dead_letter`) — a `succeeded` job with past provider failures carries no
+/// degraded state, and a `payload_unavailable` job cannot be produced by a
+/// provider-attributed run (that status comes from a missing durable payload,
+/// which is a storage/not-found classification).
+AiProviderDegradation? aiProviderDegradation(AiImportJob job) =>
+    aiProviderDegradationOf(
+      attempts: job.attempts,
+      status: job.status,
+      nextAttemptAt: job.nextAttemptAt,
+    );
+
+/// The primitive form of [aiProviderDegradation], for the surfaces that read a
+/// projected row instead of the wire DTO (the jobs list, issue #822).
+///
+/// Keeping ONE implementation is the point: a compact row and a status card
+/// must never disagree about whether the provider is degraded.
+AiProviderDegradation? aiProviderDegradationOf({
+  required Iterable<AiImportAttempt>? attempts,
+  required JobStatus? status,
+  required DateTime? nextAttemptAt,
+}) {
+  final retryBudgetSpent = status == JobStatus.deadLetter;
+  if (status != JobStatus.failed && !retryBudgetSpent) return null;
+  final history = attempts?.toList();
+  if (history == null || history.length < aiProviderDegradationThreshold) {
+    return null;
+  }
+  var failedAttempts = 0;
+  DateTime? newestFailureAt;
+  DateTime? oldestFailureAt;
+  // Newest first (the wire contract), so a `break` at the first foreign code
+  // is exactly "the contiguous run at the head".
+  for (final attempt in history) {
+    if (attempt.code != aiLlmProviderUnavailableCode) break;
+    newestFailureAt ??= attempt.createdAt;
+    oldestFailureAt = attempt.createdAt;
+    failedAttempts += 1;
+  }
+  if (failedAttempts < aiProviderDegradationThreshold) return null;
+  return AiProviderDegradation(
+    failedAttempts: failedAttempts,
+    firstFailureAt: oldestFailureAt!,
+    lastFailureAt: newestFailureAt!,
+    nextAttemptAt: nextAttemptAt,
+    retryBudgetSpent: retryBudgetSpent,
+  );
+}
+
 /// Localized client-side copy for the failure of an AI-import attempt, keyed
 /// on the attempt's stable problem `code` (issue #639). The backend
 /// `error_summary` is free-form `DomainError` log text and is NEVER used as
@@ -131,11 +262,42 @@ String aiJobStageCopy(AppLocalizations l10n, AiImportStage? stage) =>
 /// narrative. An absent or unrecognized code degrades to a generic localized
 /// message — the generic arm may echo the stable `code` (an identifier, not
 /// `detail`), matching `aiUploadGeneric`/`jobWatchGeneric`.
-String aiJobFailureReason(AppLocalizations l10n, String? code) =>
-    switch (code) {
-      null || '' => l10n.aiJobReasonUnknown,
-      'dependency.auth-failed' => l10n.aiJobReasonDependencyAuth,
-      'domain.service-unavailable' => l10n.aiJobReasonServiceUnavailable,
-      'http.internal-error' => l10n.aiJobReasonInternal,
-      _ => l10n.aiJobReasonGeneric(code),
-    };
+///
+/// [retryPossible] is the status guard the issue #822 terminal rule needs: at a
+/// terminal status the same code must NOT promise "the next attempt may
+/// succeed" — the card that renders it can no longer keep that promise.
+///
+/// The terminal variants deliberately say only that **no further attempt is
+/// scheduled**: none claims the retry budget was exhausted, because a
+/// `dead_letter` also happens on a NON-retryable failure (`mark_failed` with
+/// `retryable = false` dead-letters immediately) and a `payload_unavailable`
+/// job is terminal for a completely different reason. The exhaustion claim
+/// lives in exactly one place — the provider-degraded banner
+/// ([`aiProviderDegradation`]) — where it is derivable (see
+/// [AiProviderDegradation.retryBudgetSpent]).
+///
+/// `dependency.auth-failed` gets a terminal variant too: it is a PERMANENT
+/// dependency failure (`is_retryable()` excludes it, #637), so any job carrying
+/// it is dead-lettered on that very attempt and the transient copy's "retries
+/// continue" would describe retries that never happen.
+String aiJobFailureReason(
+  AppLocalizations l10n,
+  String? code, {
+  bool retryPossible = true,
+}) => switch (code) {
+  null || '' => l10n.aiJobReasonUnknown,
+  'dependency.auth-failed' =>
+    retryPossible
+        ? l10n.aiJobReasonDependencyAuth
+        : l10n.aiJobReasonDependencyAuthTerminal,
+  aiLlmProviderUnavailableCode =>
+    retryPossible
+        ? l10n.aiJobReasonLlmProviderUnavailable
+        : l10n.aiJobReasonLlmProviderUnavailableTerminal,
+  'domain.service-unavailable' =>
+    retryPossible
+        ? l10n.aiJobReasonServiceUnavailable
+        : l10n.aiJobReasonServiceUnavailableTerminal,
+  'http.internal-error' => l10n.aiJobReasonInternal,
+  _ => l10n.aiJobReasonGeneric(code),
+};

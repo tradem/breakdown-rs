@@ -866,11 +866,49 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiJobReasonDependencyAuth =>
-      'A service credential was rejected — retries continue, but it may need attention.';
+      'A service credential was rejected — this needs attention before the import can work again.';
+
+  @override
+  String get aiJobReasonDependencyAuthTerminal =>
+      'A service credential was rejected and no further attempt is scheduled. The import cannot work until that credential is fixed.';
 
   @override
   String get aiJobReasonServiceUnavailable =>
       'An upstream service was temporarily unavailable — the next attempt may succeed.';
+
+  @override
+  String get aiJobReasonServiceUnavailableTerminal =>
+      'An upstream service was unreachable; no further attempt is scheduled.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailable =>
+      'The AI provider was temporarily unreachable — the next attempt may succeed.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailableTerminal =>
+      'The AI provider was unreachable; no further attempt is scheduled.';
+
+  @override
+  String get aiJobProviderDegradedTitle => 'AI provider currently degraded';
+
+  @override
+  String aiJobProviderDegradedBody(Object count, Object first, Object last) {
+    return '$count attempts since $first failed at the AI provider, most recently $last. Your document is not the cause — waiting for the next attempt usually helps. If the provider keeps answering with errors, check its limits or your account balance.';
+  }
+
+  @override
+  String aiJobProviderDegradedBudgetSpent(
+    Object count,
+    Object first,
+    Object last,
+  ) {
+    return '$count attempts since $first failed at the AI provider, most recently $last. The retry budget is spent. Delete this job from the list before re-uploading the same document — otherwise the upload reopens this job — and start again once the provider answers.';
+  }
+
+  @override
+  String aiJobsRowProviderDegraded(Object count) {
+    return 'AI provider degraded · $count attempts';
+  }
 
   @override
   String get aiJobReasonInternal => 'A server-side error occurred.';

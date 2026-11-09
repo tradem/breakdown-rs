@@ -28,6 +28,36 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **A repeated LLM-provider outage is attributable, and the jobs list can read it (issue #822).**
+  `domain.service-unavailable` is emitted by the LLM chat client (`429`/`5xx`,
+  transport timeout/connect) **and** by the mapping DB, the pricing read model,
+  payload storage and the model catalog, so a client that refuses to parse the
+  free-form `last_error` (AGENTS.md §5) could not say "the AI provider" — three
+  consecutive provider 503s over 17 minutes rendered as three unrelated one-off
+  blips. The chat client's two classifiers now answer the new registered code
+  `ai-import.llm-provider-unavailable` (503, retryable — the `ServiceUnavailable`
+  shape is reused, so `is_retryable()`, the status and the backoff/attempt path
+  are untouched), which makes the attempt row's `code` an attribution signal.
+  Every non-provider dependency keeps `domain.service-unavailable`; the catalog's
+  and Ollama's provider HTTP/transport faults inherit the new code because they
+  genuinely are provider failures. `GET /v1/ai-import/jobs` additionally
+  populates each row's `attempts` (newest first) for the whole page from ONE
+  windowed query (the SAME per-job bound the single-job read uses, no N+1), so
+  the client derives the same
+  degraded-provider state from a list row as from the single-job read instead of
+  guessing from `last_error` — the field itself is unchanged and additive. A
+  distinct code was chosen over a `dependency` field because the code already is
+  the client's only permitted error identity (#639) and a field would have cost a
+  migration, a wire addition and a client regeneration to answer a question the
+  registry already answers (`dependency.auth-failed` set the precedent in #637).
+  Covered by classifier tests pinning the code (retryable statuses, transport
+  fault, detail-carrying classification), the golden problem document, the
+  bundle-coverage bijection, and a real-Postgres case recording two consecutive
+  provider attempts plus one generic failure through `mark_failed` and asserting
+  the list read publishes them. Crates: `core` 0.64.0 → 0.65.0, `infra` 0.74.0
+  → 0.75.0, `api` 0.62.0 → 0.63.0; the generated Dart client is doc-comment-only
+  (no contract shape moved), so `breakdown_api` stays 1.4.0.
+
 - **Decision-Model scene scores are persisted and exposed (issue #834, backend PR).**
   The scene quality scores the import preview already computed (issue #722's
   `DraftScene.scene_score` / `synopsis_score`, `0.0..=1.0`, absent when no

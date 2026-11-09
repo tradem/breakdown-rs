@@ -16,6 +16,36 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.75.0] - Unreleased
+
+### Changed — provider failures are provider-attributed, and the jobs list carries attempt history (issue #822)
+
+- `classify_http_status_with_detail` (HTTP 429/5xx) and
+  `classify_transport_error` (timeout/connect) now answer
+  `llm_provider_unavailable` → `ai-import.llm-provider-unavailable`. Both are
+  provider calls, so the recorded attempt names the dependency instead of "a
+  service". The bounded provider-detail suffix is preserved, and the variants
+  keep `ServiceUnavailable`, so retryability and the backoff schedule are
+  untouched.
+- Every non-provider dependency of the import pipeline keeps
+  `domain.service-unavailable` (mapping DB, pricing read model, payload storage,
+  and the catalog's own parse/client/DNS classifications). The catalog's and
+  Ollama's provider HTTP/transport faults inherit the new code, because they
+  genuinely are provider failures — a test pins both sides.
+- `PgAiImportQueue::list_for_user` populates each row's `attempts` (newest first)
+  for the whole page from ONE windowed query — **the same**
+  `ATTEMPT_HISTORY_LIMIT` the single-job read uses, no N+1 — so a client derives
+  the same degraded-provider state from a list row as from the single-job read.
+  The shared bound is a correctness requirement: a client counts the consecutive
+  newest provider-attributed attempts, so a shorter list window would make the
+  compact row report fewer failures than the status card for the same job. A failed read serves empty histories with
+  a warning (explanatory metadata never fails the list), matching the #864
+  applied-episode derivation.
+- Tests: the retryable statuses, the transport fault and the detail-carrying
+  classification all pin the new code; a real-Postgres case records two
+  consecutive provider attempts and one generic failure through `mark_failed` and
+  asserts the list read publishes exactly those codes.
+
 ## [0.72.0] - Unreleased
 
 ### Changed — the apply claim gets an owner-scoped stamp (issue #863)

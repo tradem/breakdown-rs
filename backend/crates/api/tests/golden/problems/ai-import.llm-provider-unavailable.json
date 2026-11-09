@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.llm-provider-unavailable",
+  "detail": "Der KI-Anbieter ist derzeit nicht erreichbar. Das liegt nicht an Ihrem Dokument und nicht an Ihrer Konfiguration – warten Sie die nächste Wiederholung ab.",
+  "status": 503,
+  "title": "AI provider unavailable",
+  "type": "https://docs.breakdown.example/problems/ai-import.llm-provider-unavailable"
+}

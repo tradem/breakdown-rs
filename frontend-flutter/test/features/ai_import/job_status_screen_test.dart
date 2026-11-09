@@ -35,6 +35,7 @@ import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/design/material_icons.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/import_state.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_screen.dart';
 
 AiImportJob _job(
@@ -225,6 +226,7 @@ AiImportAttempt _attempt(
   String? errorSummary,
   bool retryable = true,
   JobStatus status = JobStatus.failed,
+  DateTime? createdAt,
 }) => AiImportAttempt(
   (b) => b
     ..attemptNo = attemptNo
@@ -232,7 +234,7 @@ AiImportAttempt _attempt(
     ..errorSummary = errorSummary
     ..retryable = retryable
     ..status = status
-    ..createdAt = DateTime.utc(2026, 1, 1),
+    ..createdAt = createdAt ?? DateTime.utc(2026, 1, 1),
 );
 
 const devAuthConfig = AppConfig(
@@ -816,6 +818,168 @@ void main() {
     expect(find.textContaining('credential was rejected'), findsOneWidget);
     // The raw backend summary never renders as identity on the retryable card.
     expect(find.textContaining('KV read returned 403'), findsNothing);
+    await tester.pump();
+  });
+
+  testWidgets('repeated provider failures render ONE degraded state carrying '
+      'the count, the window and the next attempt time (issue #822)', (
+    tester,
+  ) async {
+    now = DateTime.utc(2026, 11, 4, 7, 7);
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          retries: 3,
+          maxRetries: 5,
+          nextAttemptAt: DateTime.utc(2026, 11, 4, 7, 10),
+          attempts: [
+            _attempt(
+              3,
+              code: aiLlmProviderUnavailableCode,
+              createdAt: DateTime.utc(2026, 11, 4, 7, 6),
+            ),
+            _attempt(
+              2,
+              code: aiLlmProviderUnavailableCode,
+              createdAt: DateTime.utc(2026, 11, 4, 6, 58),
+            ),
+            _attempt(
+              1,
+              code: aiLlmProviderUnavailableCode,
+              createdAt: DateTime.utc(2026, 11, 4, 6, 54),
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-job-provider-degraded')), findsOneWidget);
+    expect(find.text('AI provider currently degraded'), findsOneWidget);
+    // The dependency is NAMED — "a service" would be the unattributed code's
+    // copy, which this state must not reuse.
+    expect(find.textContaining('3 attempts since'), findsOneWidget);
+    expect(
+      find.textContaining('Your document is not the cause'),
+      findsOneWidget,
+    );
+    // The window is two clock boundaries (rendered in the device's zone, so
+    // the assertion counts them instead of pinning a machine-dependent time).
+    final body = tester
+        .widget<Text>(find.byKey(const Key('ai-job-provider-degraded-body')))
+        .data!;
+    expect(RegExp(r'\d{1,2}:\d{2}').allMatches(body).length, 2);
+    // The next attempt time is the card's own live countdown, not a second
+    // clock that could disagree with it.
+    expect(find.textContaining('Retry in ~3 min'), findsOneWidget);
+    // A retryable card may still promise the next attempt — that is true here.
+    expect(find.textContaining('may succeed'), findsWidgets);
+    await tester.pump();
+  });
+
+  testWidgets('a SINGLE provider failure keeps the transient per-attempt '
+      'narrative and renders no degraded state (issue #822)', (tester) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          attempts: [
+            _attempt(
+              1,
+              code: aiLlmProviderUnavailableCode,
+              errorSummary:
+                  'LLM provider returned HTTP 503 Service Unavailable',
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-job-provider-degraded')), findsNothing);
+    // ...but the one failure IS attributed to the provider, not to "a service".
+    expect(
+      find.textContaining('The AI provider was temporarily unreachable'),
+      findsOneWidget,
+    );
+    // The raw summary is never the identity.
+    expect(find.textContaining('HTTP 503'), findsNothing);
+    await tester.pump();
+  });
+
+  testWidgets('a non-provider failure between provider failures ends the '
+      'window — no degraded state (issue #822)', (tester) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          attempts: [
+            _attempt(2, code: aiLlmProviderUnavailableCode),
+            _attempt(1, code: 'domain.service-unavailable'),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+    expect(find.byKey(const Key('ai-job-provider-degraded')), findsNothing);
+    await tester.pump();
+  });
+
+  testWidgets('dead_letter after provider failures states the spent budget and '
+      'NEVER promises "the next attempt may succeed" (issue #822)', (
+    tester,
+  ) async {
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.deadLetter,
+          retries: 5,
+          maxRetries: 5,
+          lastError: 'service unavailable: LLM provider returned HTTP 503',
+          attempts: [
+            _attempt(
+              3,
+              code: aiLlmProviderUnavailableCode,
+              createdAt: DateTime.utc(2026, 11, 4, 7, 6),
+              status: JobStatus.deadLetter,
+            ),
+            _attempt(
+              2,
+              code: aiLlmProviderUnavailableCode,
+              createdAt: DateTime.utc(2026, 11, 4, 6, 58),
+            ),
+            _attempt(
+              1,
+              code: aiLlmProviderUnavailableCode,
+              createdAt: DateTime.utc(2026, 11, 4, 6, 54),
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-job-terminal-error')), findsOneWidget);
+    expect(find.byKey(const Key('ai-job-provider-degraded')), findsOneWidget);
+    // Exactly ONE exhaustion claim: the aggregate banner. The per-attempt
+    // history below it must not claim a spent budget (a `dead_letter` can also
+    // come from a non-retryable failure), it may only say that no further
+    // attempt is scheduled.
+    expect(find.textContaining('The retry budget is spent'), findsOneWidget);
+    expect(
+      find.textContaining('no further attempt is scheduled'),
+      findsNWidgets(3),
+    );
+    // Re-uploading the same bytes deduplicates onto THIS job, so the copy must
+    // name the step that makes a fresh import possible.
+    expect(
+      find.textContaining('Delete this job from the list before re-uploading'),
+      findsOneWidget,
+    );
+    // The terminal card can no longer keep a retry promise — not in the
+    // aggregate, not in the per-attempt history.
+    expect(find.textContaining('may succeed'), findsNothing);
     await tester.pump();
   });
 

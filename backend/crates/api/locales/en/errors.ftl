@@ -60,6 +60,9 @@ problem-ai-import-disabled =
 problem-ai-import-forbidden =
     You are not authorized to use this AI import job.
 
+problem-ai-import-llm-provider-unavailable =
+    The AI provider is currently unreachable. This is neither your document nor your configuration — wait for the next retry.
+
 problem-ai-import-not-found =
     This AI import job does not exist.
 

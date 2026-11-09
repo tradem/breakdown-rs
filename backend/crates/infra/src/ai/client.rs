@@ -730,7 +730,13 @@ pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> Dom
         }
     };
     if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
-        DomainError::service_unavailable(format!("LLM provider returned HTTP {status}{suffix}"))
+        // Issue #822: attributed to the PROVIDER, not "a service". The
+        // generic `domain.service-unavailable` is shared with the mapping DB,
+        // the pricing read model and payload storage, so a client could not
+        // name this dependency from the attempt's stable code.
+        DomainError::llm_provider_unavailable(format!(
+            "LLM provider returned HTTP {status}{suffix}"
+        ))
     } else if status.is_client_error() {
         DomainError::validation(format!(
             "LLM provider rejected request with HTTP {status}{suffix}"
@@ -744,7 +750,10 @@ pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> Dom
 
 pub fn classify_transport_error(error: reqwest::Error) -> DomainError {
     if error.is_timeout() || error.is_connect() {
-        DomainError::service_unavailable(format!("LLM provider transport unavailable: {error}"))
+        // Issue #822: provider-attributed (see `classify_http_status_with_detail`).
+        DomainError::llm_provider_unavailable(format!(
+            "LLM provider transport unavailable: {error}"
+        ))
     } else if error.is_redirect() {
         // Deterministic policy rejection (issue #170): retrying cannot change
         // the outcome, so it is a permanent validation failure.

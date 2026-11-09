@@ -107,34 +107,36 @@ fn hosted_origin_host_never_returns_empty_or_xyzzy() {
 // classify_http_status
 // ===========================================================================
 
+/// The retryable classification keeps its variant (`ServiceUnavailable` — so
+/// `is_retryable()` and the backoff path are untouched) but is attributed to
+/// the LLM PROVIDER (issue #822). The recorded attempt's `code` is the signal
+/// the client aggregates repeated failures on, so it is pinned here for every
+/// retryable status: a regression back to the generic
+/// `domain.service-unavailable` would silently disable the degraded-provider
+/// surface.
 #[test]
-fn classify_http_429_is_service_unavailable() {
-    let err = classify_http_status(StatusCode::TOO_MANY_REQUESTS);
-    assert!(
-        matches!(
-            err,
-            breakdown_core::error::DomainError::ServiceUnavailable { .. }
-        ),
-        "429 should be ServiceUnavailable"
-    );
-}
-
-#[test]
-fn classify_http_500_is_service_unavailable() {
-    let err = classify_http_status(StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(matches!(
-        err,
-        breakdown_core::error::DomainError::ServiceUnavailable { .. }
-    ));
-}
-
-#[test]
-fn classify_http_503_is_service_unavailable() {
-    let err = classify_http_status(StatusCode::SERVICE_UNAVAILABLE);
-    assert!(matches!(
-        err,
-        breakdown_core::error::DomainError::ServiceUnavailable { .. }
-    ));
+fn classify_retryable_statuses_are_provider_attributed() {
+    for status in [
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        StatusCode::SERVICE_UNAVAILABLE,
+        StatusCode::BAD_GATEWAY,
+    ] {
+        let err = classify_http_status(status);
+        assert!(
+            matches!(
+                err,
+                breakdown_core::error::DomainError::ServiceUnavailable { .. }
+            ),
+            "{status} must stay retryable"
+        );
+        assert_eq!(
+            err.code().code,
+            "ai-import.llm-provider-unavailable",
+            "{status} must name the provider, not a generic service"
+        );
+        assert!(err.is_retryable(), "{status} must stay retryable");
+    }
 }
 
 #[test]
@@ -201,6 +203,11 @@ fn classify_http_status_with_detail_keeps_the_class_and_appends_the_body() {
         err,
         breakdown_core::error::DomainError::ServiceUnavailable { .. }
     ));
+    assert_eq!(
+        err.code().code,
+        "ai-import.llm-provider-unavailable",
+        "the provider attribution is stable with a body"
+    );
     // An empty body degrades to exactly the plain classification.
     let err = classify_http_status_with_detail(StatusCode::BAD_REQUEST, "   ");
     match err {
@@ -236,23 +243,120 @@ fn classify_http_status_with_detail_keeps_the_class_and_appends_the_body() {
 // classify_transport_error — kills || → && mutation
 // ===========================================================================
 
+/// A local endpoint that accepts the connection and then holds it open without
+/// answering: the ONLY possible failure is the client's own timeout, so the test
+/// cannot pass on a connect/DNS error that happens to be classified the same way
+/// (both map to the provider code since issue #822 — which is exactly why the
+/// classification alone proves nothing about *which* arm was taken).
+///
+/// A std listener + thread is enough and avoids depending on a tokio `net`
+/// feature; the thread is stopped when the guard drops, so no test leaks a
+/// background task past its assertions.
+struct SilentServer {
+    address: std::net::SocketAddr,
+    stop: std::sync::mpsc::Sender<()>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl SilentServer {
+    fn start() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        // Non-blocking so the accept wait can observe the stop signal: a
+        // blocking `accept()` would make `Drop` join a thread no client ever
+        // wakes, stalling CI instead of reporting the test failure.
+        listener.set_nonblocking(true).unwrap();
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let handle = std::thread::spawn(move || {
+            // Phase 1: wait for the connection, but always yield to a stop.
+            let accepted = loop {
+                match stopped.recv_timeout(Duration::from_millis(10)) {
+                    // The test finished (or failed) before a client arrived.
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                }
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                    // The listener is gone: nothing left to hold open.
+                    Err(_) => return,
+                }
+            };
+            // Phase 2: hold the request open without answering. Same stop
+            // discipline, so the thread never outlives the test.
+            let _ = stopped.recv_timeout(Duration::from_secs(30));
+            drop(accepted);
+        });
+        Self {
+            address,
+            stop,
+            handle: Some(handle),
+        }
+    }
+}
+
+impl Drop for SilentServer {
+    fn drop(&mut self) {
+        // The signal is honoured in BOTH phases, so this join is bounded no
+        // matter how far the test got — including "the client never connected".
+        let _ = self.stop.send(());
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// The teardown must not depend on a client ever arriving: a test that fails
+/// before connecting (a client-build panic, a refused connect) still has to
+/// finish, or the suite stalls in `join()` instead of reporting the failure.
+#[test]
+fn silent_server_teardown_is_bounded_without_a_connection() {
+    let started = std::time::Instant::now();
+    {
+        let server = SilentServer::start();
+        assert!(server.address.port() > 0, "the listener is bound");
+        // No client: exactly the path that used to block in `accept()`.
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "drop must not wait for a connection, took {:?}",
+        started.elapsed()
+    );
+}
+
 #[tokio::test]
-async fn classify_timeout_is_service_unavailable() {
+async fn classify_timeout_is_provider_attributed() {
+    let server = SilentServer::start();
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_millis(1))
+        .timeout(Duration::from_millis(200))
+        // A proxy from the environment would answer (or fail) instead of the
+        // silent listener, making the asserted arm depend on the host setup.
+        .no_proxy()
         .build()
         .unwrap();
-    let err = client.get("http://192.0.2.1:1").send().await;
-    if let Err(e) = err {
-        let classified = classify_transport_error(e);
-        assert!(
-            matches!(
-                classified,
-                breakdown_core::error::DomainError::ServiceUnavailable { .. }
-            ),
-            "transport error should be ServiceUnavailable: {classified:?}"
-        );
-    }
+
+    let error = client
+        .get(format!("http://{}/", server.address))
+        .send()
+        .await
+        .expect_err("a silent listener can only time out");
+    // The arm under test: a TIMEOUT, not a connect failure.
+    assert!(error.is_timeout(), "expected a timeout, got: {error:?}");
+    assert!(!error.is_connect(), "expected no connect error: {error:?}");
+
+    let classified = classify_transport_error(error);
+    assert!(
+        matches!(
+            classified,
+            breakdown_core::error::DomainError::ServiceUnavailable { .. }
+        ),
+        "transport error should be ServiceUnavailable: {classified:?}"
+    );
+    assert_eq!(
+        classified.code().code,
+        "ai-import.llm-provider-unavailable",
+        "a provider transport fault must name the provider"
+    );
 }
 
 // ===========================================================================

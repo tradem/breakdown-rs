@@ -3,8 +3,10 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Postgres round-trip for the AI-import job identity surface: the sanitized
-//! source file name captured at upload (issue #763) and the applied-episode
-//! summary **derived from the durable apply mappings** (issue #864).
+//! source file name captured at upload (issue #763), the applied-episode
+//! summary **derived from the durable apply mappings** (issue #864) and the
+//! attempt history the jobs list carries so a degraded provider can be derived
+//! without opening a job (issue #822).
 //!
 //! What is worth a database here is exactly what a fake cannot prove — the
 //! `ON CONFLICT` behaviour of the dedup path (a duplicate re-upload must not
@@ -333,6 +335,108 @@ async fn the_jobs_list_derives_the_same_summary() -> Result<()> {
     assert!(
         listed(untouched_id).applied_episodes.is_empty(),
         "a job that was never applied keeps answering 'no target'"
+    );
+    Ok(())
+}
+
+/// The jobs **list** carries the attempt history the degraded-provider
+/// aggregate is derived from (issue #822).
+///
+/// The stored codes are what a client is allowed to branch on (the free-form
+/// `error_summary` never is), and the list read must publish the SAME codes the
+/// single-job read publishes — otherwise the compact row and the status screen
+/// could disagree about whether the provider is degraded. This asserts the
+/// provider-attributed code and the unattributed one side by side, because the
+/// whole point of the new code is that they are distinguishable.
+#[tokio::test]
+async fn the_jobs_list_carries_the_attempt_codes() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+
+    let user = "user-identity-attempts";
+    let provider = make_request(user, None);
+    let provider_id = provider.id;
+    queue.enqueue(provider).await?;
+
+    // Two consecutive provider-attributed attempts on ONE job — the run the
+    // client aggregates — recorded through the same mark_failed path the
+    // worker uses. The backoff is made due between the two attempts because
+    // this test asserts the READ, not the schedule.
+    for _ in 0..2 {
+        let claimed = queue.claim_next("worker-1").await?.expect("claimable");
+        assert_eq!(claimed.id, provider_id, "the provider job is the only one");
+        queue
+            .mark_failed(
+                provider_id,
+                "worker-1",
+                "service unavailable: LLM provider returned HTTP 503 Service Unavailable",
+                Some("ai-import.llm-provider-unavailable"),
+                true,
+            )
+            .await?;
+        sqlx::query("UPDATE ai_import.ai_import_job SET next_attempt_at = now() WHERE id = $1")
+            .bind(provider_id.as_uuid())
+            .execute(&pool)
+            .await?;
+    }
+    // Park the provider job so the next claim can only pick the new one.
+    sqlx::query(
+        "UPDATE ai_import.ai_import_job \
+         SET next_attempt_at = now() + interval '1 hour' WHERE id = $1",
+    )
+    .bind(provider_id.as_uuid())
+    .execute(&pool)
+    .await?;
+
+    // The OTHER job fails on a non-provider dependency and keeps the generic
+    // code — the attribution must not swallow it.
+    let storage = make_request(user, None);
+    let storage_id = storage.id;
+    queue.enqueue(storage).await?;
+    let claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    assert_eq!(claimed.id, storage_id);
+    queue
+        .mark_failed(
+            storage_id,
+            "worker-1",
+            "service unavailable: AI mapping database error",
+            Some("domain.service-unavailable"),
+            true,
+        )
+        .await?;
+
+    let jobs = queue
+        .list_for_user(&breakdown_core::shared::UserId::from_sub(user), 10, 0)
+        .await?;
+    let listed = |wanted: AiImportJobId| {
+        jobs.iter()
+            .find(|job| job.id == wanted)
+            .cloned()
+            .expect("the enqueued job is listed")
+    };
+    // Attempt NUMBER *and* code: both rows carry the same code, so a list that
+    // reversed the order would pass a codes-only assertion while handing the
+    // client a run it reads backwards (the aggregate walks newest-first).
+    let provider_history: Vec<(u32, Option<String>)> = listed(provider_id)
+        .attempts
+        .iter()
+        .map(|attempt| (attempt.attempt_no, attempt.code.clone()))
+        .collect();
+    assert_eq!(
+        provider_history,
+        vec![
+            (2, Some("ai-import.llm-provider-unavailable".to_owned())),
+            (1, Some("ai-import.llm-provider-unavailable".to_owned())),
+        ],
+        "the list read must carry every attempt of the provider run, newest first"
+    );
+    assert_eq!(
+        listed(storage_id)
+            .attempts
+            .first()
+            .and_then(|attempt| attempt.code.as_deref()),
+        Some("domain.service-unavailable"),
+        "a non-provider dependency keeps the generic code"
     );
     Ok(())
 }

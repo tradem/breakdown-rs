@@ -17,6 +17,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.63.0] - Unreleased
+
+### Added — `ai-import.llm-provider-unavailable` reaches the wire (issue #822)
+
+- Fluent messages `de`/`en` for the new code's localized `detail` (the bundle
+  coverage test enforces the registry bijection).
+- Golden problem document
+  `tests/golden/problems/ai-import.llm-provider-unavailable.json`.
+- `backend/openapi.yaml` regenerated: the `x-code-registry` entry plus the two
+  view doc comments (attribution on `AiImportAttempt.code`, the list read on
+  `AiImportJob.attempts`). Doc-only for the Dart client — no schema/property
+  moved, so `breakdown_api` keeps its version.
+
 ## [0.60.0] - Unreleased
 
 ### Changed — the in-flight age now covers a run that published no frame (issue #863)

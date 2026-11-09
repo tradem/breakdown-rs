@@ -60,6 +60,9 @@ problem-ai-import-disabled =
 problem-ai-import-forbidden =
     Sie sind nicht berechtigt, diesen KI-Importauftrag zu verwenden.
 
+problem-ai-import-llm-provider-unavailable =
+    Der KI-Anbieter ist derzeit nicht erreichbar. Das liegt nicht an Ihrem Dokument und nicht an Ihrer Konfiguration – warten Sie die nächste Wiederholung ab.
+
 problem-ai-import-not-found =
     Dieser KI-Importauftrag existiert nicht.
 

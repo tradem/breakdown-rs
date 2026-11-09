@@ -881,11 +881,49 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiJobReasonDependencyAuth =>
-      'Eine Dienst-Anmeldung wurde abgelehnt – die Wiederholungen laufen weiter, aber sie braucht eventuell Aufmerksamkeit.';
+      'Eine Dienst-Anmeldung wurde abgelehnt – das braucht Aufmerksamkeit, bevor der Import wieder funktionieren kann.';
+
+  @override
+  String get aiJobReasonDependencyAuthTerminal =>
+      'Eine Dienst-Anmeldung wurde abgelehnt; es wird kein weiterer Versuch gestartet. Der Import kann erst wieder laufen, wenn diese Anmeldung in Ordnung ist.';
 
   @override
   String get aiJobReasonServiceUnavailable =>
       'Ein Dienst war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.';
+
+  @override
+  String get aiJobReasonServiceUnavailableTerminal =>
+      'Ein Dienst war nicht erreichbar; es wird kein weiterer Versuch gestartet.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailable =>
+      'Der KI-Anbieter war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.';
+
+  @override
+  String get aiJobReasonLlmProviderUnavailableTerminal =>
+      'Der KI-Anbieter war nicht erreichbar; es wird kein weiterer Versuch gestartet.';
+
+  @override
+  String get aiJobProviderDegradedTitle => 'KI-Anbieter derzeit eingeschränkt';
+
+  @override
+  String aiJobProviderDegradedBody(Object count, Object first, Object last) {
+    return '$count Versuche seit $first sind am KI-Anbieter gescheitert, zuletzt $last. Ihr Dokument ist nicht die Ursache – meist hilft Abwarten bis zum nächsten Versuch. Antwortet der Anbieter weiterhin mit Fehlern, prüfen Sie dessen Limits bzw. Ihr Guthaben.';
+  }
+
+  @override
+  String aiJobProviderDegradedBudgetSpent(
+    Object count,
+    Object first,
+    Object last,
+  ) {
+    return '$count Versuche seit $first sind am KI-Anbieter gescheitert, zuletzt $last. Das Wiederholungsbudget ist aufgebraucht. Löschen Sie diesen Auftrag in der Liste, bevor Sie dasselbe Dokument erneut hochladen – sonst öffnet der Upload wieder diesen Auftrag – und starten Sie danach neu, sobald der Anbieter antwortet.';
+  }
+
+  @override
+  String aiJobsRowProviderDegraded(Object count) {
+    return 'KI-Anbieter eingeschränkt · $count Versuche';
+  }
 
   @override
   String get aiJobReasonInternal => 'Ein Serverfehler ist aufgetreten.';

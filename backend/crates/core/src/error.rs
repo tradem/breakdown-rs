@@ -19,15 +19,16 @@ use crate::error_registry::{
     AI_CONFIG_DECISION_MODEL_UNKNOWN, AI_CONFIG_DECISION_PROVIDER_UNSUPPORTED,
     AI_CONFIG_DECISION_VAULT_KEY_EMPTY, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
-    AI_CONFIG_PROVIDER_MISMATCH, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
-    CONCURRENCY_VERSION_MISMATCH, COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_SEASON_MISMATCH,
-    COSTUME_CATEGORY_VALIDATION, DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
-    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND,
-    HTTP_INTERNAL_ERROR, MEMBERSHIP_ALREADY_INVITED, MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
-    MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION, MEMBERSHIP_NOT_ACTIVE_MEMBER,
-    MEMBERSHIP_NOT_FOUND, OUTFIT_NOT_FOUND, OUTFIT_VALIDATION, PHOTO_ALREADY_DELETED,
-    PHOTO_NOT_FOUND, PHOTO_VALIDATION, PIECE_DETAIL_NOT_FOUND, PIECE_NOT_FOUND, PIECE_VALIDATION,
-    ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED,
+    AI_CONFIG_PROVIDER_MISMATCH, AI_IMPORT_LLM_PROVIDER_UNAVAILABLE, BLOCK_NOT_FOUND,
+    CHARACTER_NOT_FOUND, CHARACTER_VALIDATION, CONCURRENCY_VERSION_MISMATCH,
+    COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_SEASON_MISMATCH, COSTUME_CATEGORY_VALIDATION,
+    DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
+    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND, HTTP_INTERNAL_ERROR,
+    MEMBERSHIP_ALREADY_INVITED, MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR,
+    MEMBERSHIP_NO_PENDING_INVITATION, MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND,
+    OUTFIT_NOT_FOUND, OUTFIT_VALIDATION, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND, PHOTO_VALIDATION,
+    PIECE_DETAIL_NOT_FOUND, PIECE_NOT_FOUND, PIECE_VALIDATION, ProblemCode,
+    SCENE_ALREADY_SCHEDULED, SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED,
     SCENE_CHARACTER_NOT_FOUND, SCENE_CHARACTER_NOT_IN_SCENE, SCENE_NOT_FOUND, SCENE_NOT_SCHEDULED,
     SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_ALREADY_STARTED, SCENE_SHOOT_NOT_FOUND,
     SCENE_SHOOT_NOTE_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SCENE_SHOOT_PLANNED_ORDER_FROZEN,
@@ -685,6 +686,28 @@ impl DomainError {
         }
     }
 
+    /// 503 — the **LLM provider** answered a transient failure (HTTP 429/5xx,
+    /// or a transport timeout/connect failure); issue #822.
+    ///
+    /// Deliberately distinct from [`Self::service_unavailable`]: that generic
+    /// code is also emitted by the mapping DB, the pricing read model, payload
+    /// storage and the model catalog, so a client that refuses to name a
+    /// dependency from `error_summary` (AGENTS.md §5) could not say "the AI
+    /// provider". The recorded attempt's `code` is the attribution signal an
+    /// aggregate over the attempt history keys on.
+    ///
+    /// The error keeps the retryable [`Self::ServiceUnavailable`] shape — same
+    /// variant, different registry entry — so `is_retryable()`, the 503 status
+    /// and the backoff/attempt persistence path are unchanged. Not
+    /// [`Self::dependency_auth_failed`]: that one is a permanent
+    /// misconfiguration and must not consume the retry budget.
+    pub fn llm_provider_unavailable(reason: impl Into<String>) -> Self {
+        DomainError::ServiceUnavailable {
+            code: &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
+            reason: reason.into(),
+        }
+    }
+
     /// 503 — an upstream dependency rejected our credentials (issue #637).
     ///
     /// Use for 401/403/invalid-token responses from Vault (or a future
@@ -773,6 +796,23 @@ mod retry_classification_tests {
         assert!(!DomainError::dependency_auth_failed("invalid token").is_retryable());
         assert!(!DomainError::conflict("lost claim").is_retryable());
         assert!(!DomainError::validation("bad input").is_retryable());
+    }
+
+    #[test]
+    fn llm_provider_unavailable_names_the_provider_and_stays_retryable() {
+        let error = DomainError::llm_provider_unavailable("LLM provider returned HTTP 503");
+        let DomainError::ServiceUnavailable { code, .. } = error.clone() else {
+            panic!("expected ServiceUnavailable");
+        };
+        assert_eq!(code.code, "ai-import.llm-provider-unavailable");
+        assert_eq!(code.status, 503);
+        assert!(error.is_retryable());
+        // The generic code keeps its own entry — the two are not the same
+        // failure (`domain.service-unavailable` also covers storage/DB).
+        assert_ne!(
+            error.code().code,
+            DomainError::service_unavailable("db").code().code
+        );
     }
 
     #[test]

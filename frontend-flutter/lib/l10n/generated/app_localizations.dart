@@ -1505,14 +1505,66 @@ abstract class AppLocalizations {
   /// No description provided for @aiJobReasonDependencyAuth.
   ///
   /// In de, this message translates to:
-  /// **'Eine Dienst-Anmeldung wurde abgelehnt – die Wiederholungen laufen weiter, aber sie braucht eventuell Aufmerksamkeit.'**
+  /// **'Eine Dienst-Anmeldung wurde abgelehnt – das braucht Aufmerksamkeit, bevor der Import wieder funktionieren kann.'**
   String get aiJobReasonDependencyAuth;
+
+  /// No description provided for @aiJobReasonDependencyAuthTerminal.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Dienst-Anmeldung wurde abgelehnt; es wird kein weiterer Versuch gestartet. Der Import kann erst wieder laufen, wenn diese Anmeldung in Ordnung ist.'**
+  String get aiJobReasonDependencyAuthTerminal;
 
   /// No description provided for @aiJobReasonServiceUnavailable.
   ///
   /// In de, this message translates to:
   /// **'Ein Dienst war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.'**
   String get aiJobReasonServiceUnavailable;
+
+  /// No description provided for @aiJobReasonServiceUnavailableTerminal.
+  ///
+  /// In de, this message translates to:
+  /// **'Ein Dienst war nicht erreichbar; es wird kein weiterer Versuch gestartet.'**
+  String get aiJobReasonServiceUnavailableTerminal;
+
+  /// No description provided for @aiJobReasonLlmProviderUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Der KI-Anbieter war vorübergehend nicht erreichbar – der nächste Versuch kann gelingen.'**
+  String get aiJobReasonLlmProviderUnavailable;
+
+  /// No description provided for @aiJobReasonLlmProviderUnavailableTerminal.
+  ///
+  /// In de, this message translates to:
+  /// **'Der KI-Anbieter war nicht erreichbar; es wird kein weiterer Versuch gestartet.'**
+  String get aiJobReasonLlmProviderUnavailableTerminal;
+
+  /// No description provided for @aiJobProviderDegradedTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Anbieter derzeit eingeschränkt'**
+  String get aiJobProviderDegradedTitle;
+
+  /// No description provided for @aiJobProviderDegradedBody.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} Versuche seit {first} sind am KI-Anbieter gescheitert, zuletzt {last}. Ihr Dokument ist nicht die Ursache – meist hilft Abwarten bis zum nächsten Versuch. Antwortet der Anbieter weiterhin mit Fehlern, prüfen Sie dessen Limits bzw. Ihr Guthaben.'**
+  String aiJobProviderDegradedBody(Object count, Object first, Object last);
+
+  /// No description provided for @aiJobProviderDegradedBudgetSpent.
+  ///
+  /// In de, this message translates to:
+  /// **'{count} Versuche seit {first} sind am KI-Anbieter gescheitert, zuletzt {last}. Das Wiederholungsbudget ist aufgebraucht. Löschen Sie diesen Auftrag in der Liste, bevor Sie dasselbe Dokument erneut hochladen – sonst öffnet der Upload wieder diesen Auftrag – und starten Sie danach neu, sobald der Anbieter antwortet.'**
+  String aiJobProviderDegradedBudgetSpent(
+    Object count,
+    Object first,
+    Object last,
+  );
+
+  /// No description provided for @aiJobsRowProviderDegraded.
+  ///
+  /// In de, this message translates to:
+  /// **'KI-Anbieter eingeschränkt · {count} Versuche'**
+  String aiJobsRowProviderDegraded(Object count);
 
   /// No description provided for @aiJobReasonInternal.
   ///

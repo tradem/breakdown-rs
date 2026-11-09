@@ -100,6 +100,7 @@ screen, on every window size.
 | Retry budget | Text | Retryable `failed` rows show `Versuch {retries} von {maxRetries}` | `aiJobRetryBudget` |
 | Row stage | Text | **In-progress** rows (`pending`/`running`) with a published `progress` show the localized extraction stage (issues #664, #763) — a terminal row never does, whatever the fetched row still carries | `aiJobStage*` |
 | Row episodes | Text | In-progress rows with discovered episodes show the summary line **with its values** (`Gefundene Episoden: Ep. 299, Ep. 300`) — a label without values never renders (issue #763) | `aiJobEpisodesSeenValues` |
+| Row provider degraded | Icon + text | Compact form of the aggregated provider outage (issue #822): shown only when the *consecutive newest* attempts carry `ai-import.llm-provider-unavailable` at least twice. Derived by the SAME function the status card uses (`aiProviderDegradationOf`), so the row and the card cannot disagree; a cached-first paint carries no attempt history and therefore shows nothing until the authoritative read | `aiJobsRowProviderDegraded` |
 | Row scenes rebuilt | Text | A job whose extraction had to rebuild rows from the document headings states it (`53 Szene(n) nur aus Dokument-Metadaten`, issue #758) — the count comes from `telemetry.scenes_synthesized`, which the Drift cache does not persist, so the line appears with the authoritative read. `0`/absent renders nothing: a clean import is never labelled | `aiJobsRowScenesRebuilt` |
 | Last-error indicator | Icon | Presence indicator on rows carrying a server error detail; the raw text renders only on the status screen, as secondary detail | status glyph |
 | Stale banner | Banner | Failed refetch serving retained cached rows | `seasonsStaleBanner` |
@@ -428,6 +429,86 @@ back to the row that dresses that figure — never by parsing the server's note
 prose. A picked candidate counts as a review edit, so `accept_as_is` stays a
 truthful statement about the review.
 
+## Provider degraded — repeated LLM-provider failures (issue #822)
+
+A provider outage used to read exactly like a one-off hiccup: every failed
+attempt rendered its own row with the generic "a service was temporarily
+unreachable — the next attempt may succeed" copy, and nothing named the
+dependency. Three consecutive provider 503s over ~17 minutes therefore looked
+like three unrelated blips. The screens now derive **one** state from the job's
+own attempt history and render it as a conclusion.
+
+```plantuml
+@startsalt
+{
+  {/ <b>Auftrag № 12 · Skript} |
+    { "Status" | "Fehlgeschlagen — Wiederholung geplant" }
+    --
+    { (cloud_off) **KI-Anbieter derzeit eingeschränkt** }
+    { "3 Versuche seit 06:54 sind am KI-Anbieter gescheitert, zuletzt 07:06.
+      Ihr Dokument ist nicht die Ursache – meist hilft Abwarten bis zum
+      nächsten Versuch. Antwortet der Anbieter weiterhin mit Fehlern, prüfen
+      Sie dessen Limits bzw. Ihr Guthaben." }
+    --
+    "Versuch 4 von 6"
+    "Nächster Versuch in ~3 Min."
+    "Der KI-Anbieter war vorübergehend nicht erreichbar – der nächste Versuch
+     kann gelingen."
+  }
+}
+@endsalt
+```
+
+The rule: count the **consecutive newest** attempts whose stable `code` is
+`ai-import.llm-provider-unavailable` (the only code the LLM chat client emits for
+`429`/`5xx` and transport timeout/connect), stop at the first attempt with any
+other code, and fire at `>= 2`. So a single provider failure keeps the transient
+per-attempt narrative, and a storage/database failure in between ends the window
+instead of being absorbed into it. `last_error` never participates — it is
+free-form log text, not an error identity.
+
+- The **status card** renders the banner with the attempt count and the window
+  (time of day, date added only when the two boundaries are on different days);
+  the next attempt time is the card's own live `ai-job-next-retry` affordance
+  directly below, never a second countdown that could disagree with it.
+- The **list row** renders the compact line (`KI-Anbieter eingeschränkt · 3
+  Versuche`) from the same derivation. The list read carries each job's newest
+  attempts for exactly this reason.
+- Every attempt row keeps rendering the reason keyed on its stable `code`, and a
+  single provider failure is now attributed: it reads "Der KI-Anbieter …", never
+  "Ein Dienst …".
+
+**Terminal honesty.** At `dead_letter` the aggregated copy states that the retry
+budget is spent, and it names the step that makes a fresh import possible:
+deleting the failed job from the list, because uploading the same bytes
+deduplicates onto the existing job (`(user_id, dedup_key)`) and would otherwise
+reopen exactly this row.
+
+No attempt row on a terminal card renders "the next attempt may succeed": the
+terminal variants (`aiJobReasonLlmProviderUnavailableTerminal`,
+`aiJobReasonServiceUnavailableTerminal`, `aiJobReasonDependencyAuthTerminal`)
+are keyed on the code **and** the terminal status, and they deliberately make no
+**exhaustion** claim either — a `dead_letter` also happens on a non-retryable
+failure and `payload_unavailable` is terminal for a different reason. The one
+provable exhaustion claim is the banner's, and it is provable because the run's
+newest attempt carries the retryable provider code while the job is
+`dead_letter` (a retryable failure reaches `dead_letter` only when the budget is
+gone).
+
+**429 is not always a rate limit.** A provider answers `429` both for a throttled
+request and for an exhausted prepaid balance, so the aggregate copy must not rule
+out an account/limit cause: it says the document is not the cause, recommends
+waiting, and points at the provider's limits/billing when the errors persist.
+
+**Recorded decisions.** A distinct registered code was chosen over a `dependency`
+field on the attempt view (the code already is the client's only permitted error
+identity, and a field would need a migration, a wire addition and a client
+regeneration to answer a question the registry answers). The submit/upload screen
+does **not** pre-warn: there is no provider-health probe, and a warning derived
+from the client's job cache would be silent exactly on the cold start it exists
+for — the jobs list carries the compact line instead. A circuit breaker and
+chunk-level resume (the cost multiplier the issue names) are out of scope.
+
 ## Post-apply routing and refresh (issue #759)
 
 Applying a preview used to end the flow in place: the outcome card rendered on
@@ -498,6 +579,18 @@ that sends no window (pre-#805) keeps the exact previous wait behaviour: the
 client never guesses a policy it was not told.
 
 ## Tests
+
+Widget tests (issue #822): three consecutive provider-attributed attempts
+render ONE degraded banner naming the AI provider with the count and the window
+(two clock boundaries), the card's live next-retry affordance keeps carrying the
+next attempt time, a single provider failure renders no banner but IS attributed
+("The AI provider was temporarily unreachable"), an intervening
+`domain.service-unavailable` ends the window, `dead_letter` after provider
+failures states the spent budget and renders no "may succeed" copy anywhere, and
+the list row renders the compact line for the same job while a single-failure row
+stays unchanged. Unit tests cover the derivation itself (fires at 2, not at 1,
+stops at a foreign or absent code, window boundaries newest/oldest, budget-spent
+flag, `succeeded`/`payload_unavailable`/`running` excluded).
 
 Widget tests (issue #823): the screen's plus action renders for a resolved
 session (button role, visible „Import" label), opens a sheet with exactly

@@ -16,6 +16,7 @@ import '../../../core/problem_error.dart';
 import '../../../data/cache/relative_time.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../../l10n/app_localizations_provider.dart';
+import '../../../l10n/locale_formatters.dart';
 import '../clippy/clippy_trigger.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
 import 'import_state.dart';
@@ -23,6 +24,7 @@ import 'job_cost_card.dart';
 import 'job_eta.dart';
 import 'job_status_controller.dart';
 import 'preview_screen.dart';
+import '../../../design/material_icons.dart';
 import '../../../design/components/breakdown_app_bar.dart';
 
 /// The job-status screen (`flutter-ai-import-workflow` task 3.2).
@@ -181,6 +183,9 @@ class _JobCard extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final lastError = job.lastError;
     final attempts = job.attempts;
+    // Issue #822: one derivation, rendered by both the retryable and the
+    // terminal card (and, compactly, by the jobs row).
+    final degradation = aiProviderDegradation(job);
 
     if (jobStatusTerminalError(job.status)) {
       return Card(
@@ -219,6 +224,16 @@ class _JobCard extends ConsumerWidget {
                   ),
                 ),
               ],
+              // Issue #822: an aggregated provider outage is its own state on
+              // the terminal card too — with the spent-budget copy, because
+              // this card can no longer keep a retry promise.
+              if (degradation != null) ...[
+                const SizedBox(height: 12),
+                _ProviderDegradedBanner(
+                  degradation: degradation,
+                  onErrorContainer: true,
+                ),
+              ],
               // The per-attempt history (issue #637) survives the
               // `last_error` overwrite; each row's reason is keyed on its
               // stable problem `code` (issue #639), never the raw summary.
@@ -240,7 +255,13 @@ class _JobCard extends ConsumerWidget {
                       key: Key('ai-job-attempt-${attempt.attemptNo}'),
                       l10nOf(context).aiJobAttemptRow(
                         '${attempt.attemptNo}',
-                        aiJobFailureReason(l10nOf(context), attempt.code),
+                        aiJobFailureReason(
+                          l10nOf(context),
+                          attempt.code,
+                          // Issue #822: a terminal card never renders the
+                          // "the next attempt may succeed" promise.
+                          retryPossible: false,
+                        ),
                       ),
                       style: TextStyle(
                         color: scheme.onErrorContainer.withValues(alpha: 0.75),
@@ -395,6 +416,10 @@ class _JobCard extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(jobStatusCopy(l10nOf(context), job.status)),
+              if (degradation != null) ...[
+                const SizedBox(height: 8),
+                _ProviderDegradedBanner(degradation: degradation),
+              ],
               const SizedBox(height: 4),
               Text(
                 key: const Key('ai-job-retry-budget'),
@@ -460,6 +485,130 @@ class _JobCard extends ConsumerWidget {
 }
 
 /// Watch failure card (transport/exhaustion) with the re-arm affordance.
+/// One window label per failure boundary (issue #822).
+///
+/// A provider outage is usually measured in minutes, so the time of day is the
+/// useful value — but a run can straddle days, and a bare clock would then read
+/// as an impossible window. The date is therefore added only when the two
+/// boundaries are not on the same calendar day.
+String _degradationBoundaryLabel(
+  BuildContext context,
+  DateTime value,
+  DateTime? peer,
+) {
+  final clock = formatClock(context, value);
+  if (peer == null) return clock;
+  final sameDay =
+      value.toLocal().year == peer.toLocal().year &&
+      value.toLocal().month == peer.toLocal().month &&
+      value.toLocal().day == peer.toLocal().day;
+  if (sameDay) return clock;
+  return '${formatMediumDate(context, value.toLocal())} $clock';
+}
+
+/// The aggregated "AI provider degraded" state (issue #822).
+///
+/// Renders ONE conclusion for a contiguous run of provider-attributed attempts
+/// — how many failed and over which window — instead of leaving the reviewer to
+/// count identical history rows. The copy names the dependency (the AI
+/// provider), never "a service": the attribution comes from the stable attempt
+/// `code`, never from the free-form `error_summary` (AGENTS.md §5).
+///
+/// The next attempt time is NOT duplicated here: the retryable card renders the
+/// live "next retry in …" affordance (`_NextRetryEta`) directly below, so the
+/// card as a whole carries count, window and next attempt without two
+/// countdowns disagreeing. A terminal card spends no countdown at all and says
+/// the budget is spent instead.
+class _ProviderDegradedBanner extends StatelessWidget {
+  const _ProviderDegradedBanner({
+    required this.degradation,
+    this.onErrorContainer = false,
+  });
+
+  final AiProviderDegradation degradation;
+
+  /// The terminal card's palette (`errorContainer`); the retryable card keeps
+  /// the default surface colours with a tonal container.
+  final bool onErrorContainer;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = onErrorContainer
+        ? scheme.onErrorContainer
+        : scheme.onSurfaceVariant;
+    final first = _degradationBoundaryLabel(
+      context,
+      degradation.firstFailureAt,
+      degradation.lastFailureAt,
+    );
+    final last = _degradationBoundaryLabel(
+      context,
+      degradation.lastFailureAt,
+      degradation.firstFailureAt,
+    );
+    final count = '${degradation.failedAttempts}';
+    // The exhaustion claim is rendered ONLY where it is provable (a
+    // `dead_letter` whose newest attempt carries the retryable provider code —
+    // see `AiProviderDegradation.retryBudgetSpent`). The per-attempt history
+    // rows below the banner use the terminal reason variants, which promise no
+    // retry and claim no exhaustion, because `dead_letter` also happens on a
+    // non-retryable failure and `payload_unavailable` is terminal for a
+    // different reason entirely.
+    final body = degradation.retryBudgetSpent
+        ? l10n.aiJobProviderDegradedBudgetSpent(count, first, last)
+        : l10n.aiJobProviderDegradedBody(count, first, last);
+    return Container(
+      key: const Key('ai-job-provider-degraded'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: onErrorContainer
+            ? scheme.onErrorContainer.withValues(alpha: 0.08)
+            : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: onErrorContainer
+              ? scheme.onErrorContainer.withValues(alpha: 0.24)
+              : scheme.outlineVariant,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                BreakdownMaterialIcons.aiJobProviderDegraded,
+                size: 18,
+                color: foreground,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l10n.aiJobProviderDegradedTitle,
+                  key: const Key('ai-job-provider-degraded-title'),
+                  style: TextStyle(
+                    color: foreground,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            body,
+            key: const Key('ai-job-provider-degraded-body'),
+            style: TextStyle(color: foreground, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _WatchErrorCard extends ConsumerWidget {
   const _WatchErrorCard({required this.jobId, required this.error});
 
