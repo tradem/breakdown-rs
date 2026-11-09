@@ -44,6 +44,13 @@
 //! shutdown` (the observed flake in 6.1 after 6.4). A plain `#[test]` + this
 //! helper removes the second runtime from the process entirely.
 //!
+//! **Concurrency:** the bodies are safe to run in parallel — `Runtime::block_on`
+//! may be called from several test threads at once, and every test uses its own
+//! `project_id` and entity ids. CI still runs this file with
+//! `--test-threads=1` (`.github/workflows/integration-tests.yml`) to keep the
+//! load on SierraDB and the two pools predictable; under the default threading
+//! a projection-lag deadline failure is a load symptom, not a correctness one.
+//!
 //! **Coverage:**
 //! - 6.1: Non-membership events produce correctly-attributed audit rows
 //! - 6.2: Saga-dispatched commands record `Provenance::Saga` + `actor = NULL`
@@ -587,6 +594,8 @@ fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
     run_on_shared_runtime(non_membership_events_produce_attributed_audit_rows_body())
 }
 
+/// Body of [`non_membership_events_produce_attributed_audit_rows`] — driven on
+/// the shared runtime by that test's `#[test]` wrapper.
 async fn non_membership_events_produce_attributed_audit_rows_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
@@ -718,6 +727,8 @@ fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
     run_on_shared_runtime(costume_category_create_produces_attributed_audit_row_body())
 }
 
+/// Body of [`costume_category_create_produces_attributed_audit_row`] — driven on
+/// the shared runtime by that test's `#[test]` wrapper.
 async fn costume_category_create_produces_attributed_audit_row_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
@@ -818,6 +829,8 @@ fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
     run_on_shared_runtime(saga_dispatched_costume_category_shows_saga_provenance_body())
 }
 
+/// Body of [`saga_dispatched_costume_category_shows_saga_provenance`] — driven
+/// on the shared runtime by that test's `#[test]` wrapper.
 async fn saga_dispatched_costume_category_shows_saga_provenance_body() -> Result<()> {
     let containers = init_containers();
 
@@ -968,6 +981,8 @@ fn list_by_project_returns_tenant_scoped_rows() -> Result<()> {
     run_on_shared_runtime(list_by_project_returns_tenant_scoped_rows_body())
 }
 
+/// Body of [`list_by_project_returns_tenant_scoped_rows`] — driven on the shared
+/// runtime by that test's `#[test]` wrapper.
 async fn list_by_project_returns_tenant_scoped_rows_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
@@ -1078,6 +1093,8 @@ fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()>
     run_on_shared_runtime(non_membership_audit_projector_is_idempotent_under_redelivery_body())
 }
 
+/// Body of [`non_membership_audit_projector_is_idempotent_under_redelivery`] —
+/// driven on the shared runtime by that test's `#[test]` wrapper.
 async fn non_membership_audit_projector_is_idempotent_under_redelivery_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
