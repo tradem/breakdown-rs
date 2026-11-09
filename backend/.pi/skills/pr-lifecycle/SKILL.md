@@ -8,6 +8,9 @@ metadata:
   version: "1.1"
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # PR Lifecycle Management
 
 Manage PRs from creation through review to merge, including issue linking, follow-up tracking, and reviewer coordination.

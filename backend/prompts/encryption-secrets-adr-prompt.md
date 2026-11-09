@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Prompt: Encryption & Secrets-Management ADR Set for `breakdown-rs`
 
 > **Role**

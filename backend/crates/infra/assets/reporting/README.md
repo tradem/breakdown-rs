@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Font Assets for Report Rendering
 
 This directory will contain a reviewed OFL-1.1 font bundle for deterministic

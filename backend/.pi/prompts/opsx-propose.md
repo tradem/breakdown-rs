@@ -2,6 +2,9 @@
 description: Propose a new change - create it and generate all artifacts in one step
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 Propose a new change - create the change and generate all artifacts in one step.
 
 I'll create a change with artifacts:

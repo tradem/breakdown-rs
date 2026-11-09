@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # ADR-021: HTTP API Path Versioning & Deprecation Lifecycle
 
 **Status**: Accepted
