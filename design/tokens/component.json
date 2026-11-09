@@ -1,0 +1,31 @@
+{
+  "component": {
+    "$description": "Component-level tokens. The design-token foundation declared component tokens a non-goal (add-dtcg-design-tokens, Non-Goals); issue #838 relaxes that for the one component that genuinely needs its own value: the pushed-screen header. Rules for a future addition: (1) a component group may only reference primitive/semantic tokens via aliases where a primitive already owns the value, (2) it states only the decision no primitive can state (e.g. a clamp), (3) every value here is read from the generated artifact by hand-authored code, never re-derived at a call site. OpenSpec change 838-appbar-component-token.",
+    "appBar": {
+      "$description": "The header of every pushed screen (issue #824's BreakdownAppBar, themed once in lib/design/theme.dart). Height is the design decision; the type and padding values alias the primitives they are built from, so retuning the type scale or spacing scale flows into the header token without a second edit here.",
+      "height": {
+        "$type": "dimension",
+        "$value": {
+          "value": 48,
+          "unit": "px"
+        },
+        "$description": "The header's height: 48 dp. This is the decision the primitives cannot state — it is the Material 48 dp interactive floor, which the derived content height (titleLineHeight 28 + 2 × verticalPadding 8 = 44) does NOT reach, and the leading back button's touch target lives inside the bar. Retuning the type scale or the padding must keep titleLineHeight + 2 × verticalPadding below this value; test/design/header_metrics_test.dart asserts that invariant. HeaderMetrics.toolbarHeight reads this token; no arithmetic constant remains in code."
+      },
+      "titleFontSize": {
+        "$type": "dimension",
+        "$value": "{typography.fontSize.titleLarge}",
+        "$description": "Header title font size — alias of typography.fontSize.titleLarge (22 sp)."
+      },
+      "titleLineHeight": {
+        "$type": "dimension",
+        "$value": "{typography.lineHeight.titleLarge}",
+        "$description": "Header title line height — alias of typography.lineHeight.titleLarge (28 dp)."
+      },
+      "verticalPadding": {
+        "$type": "dimension",
+        "$value": "{size.space.8}",
+        "$description": "Breathing room above and below the title line — alias of size.space.8 (8 dp)."
+      }
+    }
+  }
+}

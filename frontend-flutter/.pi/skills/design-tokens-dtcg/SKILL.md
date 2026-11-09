@@ -21,7 +21,8 @@ Flutter app through the pinned build pipeline.
   (source location, Style Dictionary, data-only Dart output, seed strategy,
   determinism/drift, pinned toolchain).
 - Existing token files (`color.json`, `size.json`, `typography.json`,
-  `elevation.json`) — match their structure; never fork the format.
+  `elevation.json`, `component.json`) — match their structure; never fork the
+  format.
 
 ## Format rules
 
@@ -34,6 +35,10 @@ Flutter app through the pinned build pipeline.
      must agree exactly with `components`.
    - `dimension` → `{value: <number>, unit: "px"}` — unit mandatory even for
      0; this pipeline implements only `"px"` (logical px → Dart double 1:1).
+     A `{alias.reference}` string is also accepted (a component token aliasing
+     a primitive) and must resolve to another `dimension` token — the
+     validator checks the referenced type, so a dimension cannot alias a
+     color.
    - `fontWeight` → number 100–900.
 3. **Aliases** reference other tokens as `{path.to.token}` (e.g.
    `{color.brand.seed}`); every alias must resolve (validator enforces).
@@ -43,8 +48,14 @@ Flutter app through the pinned build pipeline.
    (`primary`, `surface`, …) are NOT tokens — `ColorScheme.fromSeed`
    derives them from `color.brand.seed`. Do not add scheme-role tokens
    until a real brand palette exists (then via a scheme snapshot change).
-6. **Component tokens** (per-widget colors/spacing) are a non-goal in the
-   foundation; propose an OpenSpec change before adding them.
+6. **Component tokens** (`component.*`, today `component.appBar.*` in
+   `component.json`) are an **explicitly relaxed** non-goal since issue #838:
+   they are allowed only when a component needs a decision no primitive can
+   state (a clamp such as the header's 48 dp interactive floor), the rest of
+   the group aliases the primitives (`{typography.lineHeight.titleLarge}`), a
+   single hand-written consumer reads the generated value, and an OpenSpec
+   change records the relaxation. Do not grow a component group "because it is
+   convenient" — see `design/tokens/README.md` → "Component tokens".
 
 ## Workflow (never commit a JSON change without the generated diff)
 
