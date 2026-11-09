@@ -17,9 +17,9 @@ import '../header_metrics.dart';
 ///
 /// This widget is that place:
 ///
-/// * **height** comes from the theme (`appBarTheme.toolbarHeight`, derived in
-///   [HeaderMetrics] from the typography and spacing tokens) — the call site
-///   never passes one;
+/// * **height** comes from the theme (`appBarTheme.toolbarHeight`, the
+///   `component.appBar.height` design token read by [HeaderMetrics]) — the call
+///   site never passes one;
 /// * **title style** comes from the theme (`appBarTheme.titleTextStyle`);
 /// * **text titles are single-line with an ellipsis** ([BreakdownAppBar]) so a
 ///   header can never be taller than its spec and long text is truncated

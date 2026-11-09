@@ -20,7 +20,9 @@
 //        * `dimension` → `{value: number, unit: "px"|"rem"}` (unit
 //          mandatory even for 0); the Flutter pipeline only implements
 //          `"px"` (logical px → Dart double 1:1), so the validator
-//          requires it.
+//          requires it. A `{alias.reference}` string is accepted in place
+//          of the object (a component token aliasing a primitive), and it
+//          must resolve to another *dimension* token.
 //        * `fontWeight` → number 100–900.
 //   3. Every `{alias.reference}` in a `$value` resolves to an existing
 //      token path in the merged token tree.
@@ -54,15 +56,25 @@ function collectFiles(dir) {
   });
 }
 
-/** Every group → leaf path in the merged tree, e.g. `color.brand.seed`. */
-function allPaths(node, prefix = '', acc = new Set()) {
+/**
+ * Every group → leaf path in the merged tree, e.g. `color.brand.seed`.
+ *
+ * `types` is filled alongside: path → the leaf's `$type`, so an alias can be
+ * checked against the type it points at (a dimension token must not alias a
+ * color).
+ */
+function allPaths(node, prefix = '', acc = new Set(), types = new Map()) {
   if (typeof node !== 'object' || node === null) return acc;
   for (const [key, value] of Object.entries(node)) {
     if (key.startsWith('$')) continue; // reserved attributes are not paths
     if (typeof value === 'object' && value !== null && !('$value' in value)) {
-      allPaths(value, prefix ? `${prefix}.${key}` : key, acc);
+      allPaths(value, prefix ? `${prefix}.${key}` : key, acc, types);
     } else {
-      acc.add(prefix ? `${prefix}.${key}` : key);
+      const path = prefix ? `${prefix}.${key}` : key;
+      acc.add(path);
+      if (typeof value === 'object' && value !== null && '$type' in value) {
+        types.set(path, value.$type);
+      }
     }
   }
   return acc;
@@ -147,7 +159,30 @@ function checkColorValue(relFile, path, value) {
   }
 }
 
-function checkDimensionValue(relFile, path, value) {
+function checkDimensionValue(relFile, path, value, tokenTypes) {
+  if (typeof value === 'string') {
+    // An alias is a valid dimension `$value` (same allowance as for color).
+    // Existence is checked by checkAliasRefs; here only the referenced type.
+    if (!ALIAS_TEST_RE.test(value)) {
+      violations.push(
+        `${relFile}: dimension token "${path}" "$value" must be ` +
+          `{value: number, unit: "px"|"rem"} per DTCG 2025.10 (unit mandatory even for 0) ` +
+          `or an {alias.reference}`,
+      );
+      return;
+    }
+    for (const alias of value.matchAll(ALIAS_RE)) {
+      const ref = alias[1].replace(/\.value$/, '');
+      const refType = tokenTypes.get(ref);
+      if (refType !== undefined && refType !== 'dimension') {
+        violations.push(
+          `${relFile}: dimension token "${path}" aliases "{${ref}}", ` +
+            `which is a ${refType} token, not a dimension`,
+        );
+      }
+    }
+    return;
+  }
   if (
     typeof value !== 'object' ||
     value === null ||
@@ -168,7 +203,7 @@ function checkDimensionValue(relFile, path, value) {
   }
 }
 
-function checkLeaf(relFile, path, node, allTokenPaths) {
+function checkLeaf(relFile, path, node, allTokenPaths, tokenTypes) {
   if (!('$value' in node)) {
     violations.push(`${relFile}: token "${path}" is missing "$value"`);
     return;
@@ -186,7 +221,8 @@ function checkLeaf(relFile, path, node, allTokenPaths) {
   }
   const value = node.$value;
   if (node.$type === 'color') checkColorValue(relFile, path, value);
-  else if (node.$type === 'dimension') checkDimensionValue(relFile, path, value);
+  else if (node.$type === 'dimension')
+    checkDimensionValue(relFile, path, value, tokenTypes);
   else if (
     typeof value !== 'number' ||
     !Number.isInteger(value) ||
@@ -200,7 +236,7 @@ function checkLeaf(relFile, path, node, allTokenPaths) {
   checkAliasRefs(relFile, path, typeof value === 'string' ? value : undefined, allTokenPaths);
 }
 
-function walk(relFile, node, prefix, allTokenPaths) {
+function walk(relFile, node, prefix, allTokenPaths, tokenTypes) {
   for (const [key, value] of Object.entries(node)) {
     if (key.startsWith('$')) {
       if (!RESERVED_KEYS.has(key)) {
@@ -213,9 +249,9 @@ function walk(relFile, node, prefix, allTokenPaths) {
     }
     const path = prefix ? `${prefix}.${key}` : key;
     if (typeof value === 'object' && value !== null && !('$value' in value)) {
-      walk(relFile, value, path, allTokenPaths);
+      walk(relFile, value, path, allTokenPaths, tokenTypes);
     } else {
-      checkLeaf(relFile, path, value, allTokenPaths);
+      checkLeaf(relFile, path, value, allTokenPaths, tokenTypes);
     }
   }
 }
@@ -239,11 +275,13 @@ for (const file of collectFiles(tokensDir)) {
 
 // 2. Build the merged alias-resolution universe (before checking refs).
 const allTokenPaths = new Set();
-for (const [, tree] of trees) allPaths(tree, '', allTokenPaths);
+/** @type {Map<string, string>} alias target path → its `$type`. */
+const tokenTypes = new Map();
+for (const [, tree] of trees) allPaths(tree, '', allTokenPaths, tokenTypes);
 
 // 3. Walk and check.
 for (const [rel, tree] of trees) {
-  walk(rel, tree, '', allTokenPaths);
+  walk(rel, tree, '', allTokenPaths, tokenTypes);
 }
 
 if (violations.length > 0) {

@@ -33,12 +33,45 @@ aliases. Values use the 2025.10 structured forms:
 - `typography.json` — M3 2021 type scale as scalar dimension tokens
   (composite typography values are not emitted to Dart — Decision D3).
 - `elevation.json` — M3 elevation levels.
+- `component.json` — **component token** groups (today: `component.appBar.*`,
+  the pushed-screen header). See "Component tokens" below for the rules that
+  keep this group small.
 
 **Rules:** no Flutter-specific semantics in the JSON (exact
 `ColorScheme` composition stays Flutter-side, Decision D4 — the seed IS the
 token, scheme roles derive from it); every change must run through the build
 below and commit the regenerated output together with the JSON change; hand
 edits to any generated artifact are forbidden.
+
+## Component tokens
+
+The `add-dtcg-design-tokens` foundation listed component tokens as a
+**non-goal** ("component tokens follow when the design system grows"). Issue
+#838 relaxes that non-goal for the first component that genuinely needs its own
+value: the pushed-screen header (issue #824), whose 48 dp height used to be
+derived by `max(...)` in `lib/design/header_metrics.dart`.
+
+Adding a group to `component.json` is allowed **only** under these rules:
+
+1. **State only the decision no primitive can state.** `component.appBar.height`
+   is 48 dp because that is the Material interactive floor the back button's
+   touch target needs — no type or spacing token can express that clamp.
+   Where a primitive already owns a value, **alias it** instead of retyping it:
+   `component.appBar.titleFontSize` is `{typography.fontSize.titleLarge}`,
+   `component.appBar.titleLineHeight` is `{typography.lineHeight.titleLarge}`,
+   `component.appBar.verticalPadding` is `{size.space.8}`. A dimension `$value`
+   may therefore be a `{alias.reference}` string (the validator checks that the
+   reference points at another `dimension` token), exactly as a color already
+   could.
+2. **One consumer, read from the generated artifact.** The value is consumed by
+   hand-written code through `design_tokens.g.dart` (today:
+   `HeaderMetrics`), never re-derived at a call site.
+3. **A relaxation needs its own change.** Propose it (OpenSpec) and record the
+   relaxation there, as this group's change
+   (`838-appbar-component-token`) does.
+
+Component tokens stay data: no Flutter semantics, no scheme roles, no widget
+structure — those remain hand-authored (Decision D4).
 
 ## Build
 

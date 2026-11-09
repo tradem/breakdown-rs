@@ -24,6 +24,10 @@ abstract final class DesignTokens {
   static const Color colorSemanticSuccessLight = Color(0xFF2E7D32);
   static const Color colorSemanticWarningDark = Color(0xFFFFD54F);
   static const Color colorSemanticWarningLight = Color(0xFFF9A825);
+  static const double componentAppBarHeight = 48.0;
+  static const double componentAppBarTitleFontSize = 22.0;
+  static const double componentAppBarTitleLineHeight = 28.0;
+  static const double componentAppBarVerticalPadding = 8.0;
   static const double elevationLevel0 = 0.0;
   static const double elevationLevel1 = 1.0;
   static const double elevationLevel2 = 3.0;
