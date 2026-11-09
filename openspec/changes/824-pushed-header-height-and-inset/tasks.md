@@ -70,5 +70,5 @@
       the derived height moves from `HeaderMetrics` into the token source.
 - [ ] Review the two stacked chrome bands (shell bar + pushed header) as a
       navigation design question (#638).
-- [ ] Untrack the stale `**/failures/` golden-diff artifacts that `.gitignore`
-      already covers.
+- [x] Untrack the stale `**/failures/` golden-diff artifacts that `.gitignore`
+      already covers (issue #839).
