@@ -2,6 +2,9 @@
 description: Run cargo mutants and integration-tests, report results and surviving mutants (Experimental)
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 Run mutation testing and integration tests for the breakdown-rs workspace.
 
 **Input**: Optionally specify a crate or scope (e.g., `/quality-check infra`). If omitted, run on the workspace root.

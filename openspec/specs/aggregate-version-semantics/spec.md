@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Aggregate Version Semantics
 
 Define the canonical `AggregateVersion` contract used across the domain, the `*Commands` ports, projection rows, and optimistic concurrency: 1-based domain version with `INITIAL = 1`, with `±1` translation to/from the SierraDB stream version performed exclusively in `crates/infra`.

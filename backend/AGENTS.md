@@ -118,7 +118,7 @@ Further references: `docs/security/security-architecture.md` (threat model),
 
 ## 7. Licensing & Headers
 - **License:** AGPL-3.0 (see `LICENSE`)
-- **SPDX Headers:** Run `./scripts/add-spdx-headers.sh [dir]` to add headers to `.rs`, `.typ`, `.sh` files
+- **SPDX Headers:** Run `./scripts/add-spdx-headers.sh [dir]` to add headers to `.rs`, `.typ`, `.sh`, `.dart`, `.feature`, `.yaml`/`.yml` and `.md` files. Verify without writing via `./scripts/add-spdx-headers.sh --check` (exit 1 + offender list) or list pending work via `--dry-run`; the `spdx-headers` CI job runs `--check` over the whole tree on every PR, and `backend/git-hooks/pre-commit` runs it on staged files only. Regenerated and frozen artifacts are exempt by design (`frontend-flutter/vendor/**`, `frontend-flutter/lib/l10n/generated/**`, `backend/rules-tests/__snapshots__/**`, `openspec/changes/archive/**`, `backend/openapi.yaml`, `*.g.dart` / `*.freezed.dart` / `*.mocks.dart`, any first line matching `GENERATED`) — the skip list lives in the script, issue #814.)
 - **Format:** `// SPDX-License-Identifier: AGPL-3.0` + `// Copyright (C) 2024 Breakdown RS Contributors`
 - **Co-authors:** Add one `// Co-authored-by: <model> (<provider|tool>)` line per contributor, directly under the Copyright line. Use a **separate line per author** (not a comma-separated list) — this matches the git `Co-authored-by` trailer convention, is greppable (`grep "Co-authored-by: <model>"`), and keeps diff-based attribution stable. Values come from `$PI_MODEL` and `$PI_PROVIDER` (e.g. `// Co-authored-by: glm-5.2 (neuralwatt)`). Append, don't duplicate — if an author line already exists, don't re-add it.
 

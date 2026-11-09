@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Purpose
 
 Define the supervised lifecycle for projector subscription loops — backoff restart on error/panic, bounded retry budget, and restart/health observability.

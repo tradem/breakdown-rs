@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # ADR-024: Database Encryption in Transit (TLS for Postgres & SierraDB)
 
 **Status**: Proposed

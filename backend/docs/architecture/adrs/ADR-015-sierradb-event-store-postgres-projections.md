@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # ADR-015: SierraDB event store + PostgreSQL projections (CQRS split)
 
 **Status**: Accepted (the "container image unknown" note is superseded by ADR-016)

@@ -150,6 +150,27 @@ jobs:
       - run: bash scripts/test-patch-cbmem-extension.sh
         working-directory: .
 
+  # SPDX header discipline (AGENTS.md §2, backend/AGENTS.md §7,
+  # frontend-flutter/AGENTS.md §10 / issue #814). The rule was prose-only until
+  # #814: nothing enforced it, and 138 tracked files had drifted. This job runs
+  # the script's read-only `--check` mode over the tree plus its own guard test
+  # (skip list, shebang/frontmatter preservation, `--check`/`--dry-run` never
+  # write). Daemon-free — bash + coreutils only, no toolchain, no network; the
+  # script is a monorepo-root asset, hence the working-directory override.
+  spdx-headers:
+    name: SPDX headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify every non-exempt file carries an SPDX header
+        run: bash scripts/add-spdx-headers.sh --check
+        working-directory: .
+      - name: Guard the script's skip list and read-only modes
+        run: bash scripts/test-add-spdx-headers.sh
+        working-directory: .
+
   # ADR-020 D2/D5: the declared MSRV floor (workspace rust-version = 1.99,
   # matching the Dockerfile builder) is verified on every PR with the pinned
   # 1.99.0 toolchain. A future MSRV bump is a MAJOR change per crate (D2).

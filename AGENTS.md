@@ -30,7 +30,11 @@ the authoritative copy and is edited in place.
 ## 2. Cross-cutting rules
 - **License:** AGPL-3.0. SPDX headers and `Co-authored-by:` attribution lines apply
   monorepo-wide — conventions and tooling (`scripts/add-spdx-headers.sh` at the repo root)
-  are described in `backend/AGENTS.md` §7 (the Flutter file mirrors them).
+  are described in `backend/AGENTS.md` §7 (the Flutter file mirrors them). The rule is
+  enforced, not just stated, since issue #814: `scripts/add-spdx-headers.sh --check`
+  (wired into `ci.yml`'s `spdx-headers` job and the pre-commit hook, staged files only)
+  fails with the offender list, and regenerated/frozen artifacts are exempt by design
+  (skip list in the script).
 - **API contract:** `backend/openapi.yaml` is the single wire-contract review
   artifact (authored code-first via `utoipa` in `backend/`); CI fails on drift.
 - **Secrets:** never commit secrets anywhere in the monorepo — `gitleaks` enforces.

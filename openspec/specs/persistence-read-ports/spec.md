@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Purpose
 
 Define the read-side port contract: per-aggregate `*Repository` ports returning flat `*View` DTOs with projection metadata, cross-context convenience reads, and infra-backed implementations.

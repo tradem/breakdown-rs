@@ -3,6 +3,9 @@ title: Fix remaining 6 surviving mutants in CachingJwksProvider
 labels: security, testing, mutation-testing
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 ## Problem
 
 The weekly mutation-testing CI run [30189219445](https://github.com/tradem/breakdown-rs/actions/runs/30189219445)

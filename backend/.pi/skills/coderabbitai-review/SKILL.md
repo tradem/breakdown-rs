@@ -8,6 +8,9 @@ metadata:
   version: "1.3"
 ---
 
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # CodeRabbitAI Review Response
 
 Systematically process CodeRabbitAI review comments, evaluate their validity,

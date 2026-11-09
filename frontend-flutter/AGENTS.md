@@ -586,7 +586,19 @@ CI runs:
 - **SPDX headers:** `// SPDX-License-Identifier: AGPL-3.0` +
   `// Copyright (C) 2024-2026 Breakdown RS Contributors` on every `.dart`,
   `.feature`, `.yaml` file. Run the backend's `./scripts/add-spdx-headers.sh`
-  (extended to cover `frontend-flutter/`) to add headers.
+  (extended to cover `frontend-flutter/`) to add headers; `--check` verifies
+  without writing and is what the `spdx-headers` CI job runs. Never hand-edit
+  the tree to satisfy the check.
+- **Header-exempt trees (by design, issue #814):**
+  `lib/l10n/generated/**` is `flutter gen-l10n` output — the generator cannot
+  emit a header, so adding one by hand breaks the gen-l10n drift gate; the
+  script skips it. Same class: `vendor/breakdown_api/**` (`regen-client.sh`),
+  `*.g.dart` / `*.freezed.dart` / `*.mocks.dart` (`build_runner`), and any file
+  whose first line carries a `GENERATED` banner. "Fixing" a missing header in
+  one of these is a regression, not a cleanup — if you believe a non-generated
+  file is wrongly exempt, change the skip list in
+  `scripts/add-spdx-headers.sh` and extend its guard test
+  (`scripts/test-add-spdx-headers.sh`) in the same PR.
 - **Co-authors:** Same convention as backend — one
   `// Co-authored-by: <model> (<provider|tool>)` line per contributor
   (values from `$PI_MODEL` / `$PI_PROVIDER`), directly under the Copyright

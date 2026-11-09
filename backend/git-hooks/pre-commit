@@ -5,7 +5,7 @@
 # Co-authored-by: gpt-5.6-luna (opencode-go)
 
 # Pre-commit hook for Breakdown RS Backend
-# Runs: gitleaks, rustfmt, clippy, cargo check, ast-grep guardrails
+# Runs: gitleaks, SPDX headers, rustfmt, clippy, cargo check, ast-grep guardrails
 # To install: cd backend && ln -sf ../../git-hooks/pre-commit .git/hooks/pre-commit
 #
 # The ast-grep steps mirror the cqrs-boundary / test-shim-leak / error-hygiene
@@ -37,6 +37,25 @@ if command -v gitleaks &> /dev/null; then
 else
     echo "⚠️  Warning: gitleaks not installed. Install with: cargo install gitleaks"
     echo "   Or download from: https://github.com/gitleaks/gitleaks/releases"
+fi
+echo ""
+
+# 1b. SPDX header on staged files (AGENTS.md §2 / backend AGENTS §7, issue #814)
+# Read-only: `--check` never writes, it only fails the commit with the offender
+# list. Staged files only — the whole-tree check is the `spdx-headers` CI job.
+# Paths here must be repo-root relative, so no `--relative` (the hook has
+# cd'ed into backend/, and the script resolves its skip list from the root).
+echo "🏷️  Checking SPDX headers on staged files..."
+REPO_ROOT=$(git rev-parse --show-toplevel)
+STAGED_HEADER_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(rs|typ|sh|dart|feature|yaml|yml|md)$' || true)
+if [ -n "$STAGED_HEADER_FILES" ]; then
+    mapfile -t SPDX_PATHS <<< "$STAGED_HEADER_FILES"
+    # Run from the repo root: the paths above are root-relative while this hook
+    # has cd'ed into backend/, and since #814 the script also rejects a path it
+    # cannot stat (so a mis-rooted call fails instead of passing vacuously).
+    ( cd "$REPO_ROOT" && bash scripts/add-spdx-headers.sh --check "${SPDX_PATHS[@]}" )
+else
+    echo "⏭️  No header-bearing files staged"
 fi
 echo ""
 
