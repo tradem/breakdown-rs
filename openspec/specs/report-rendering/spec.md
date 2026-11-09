@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 <!--
   Authors: Tobias Rademacher (@tradem) — domain stakeholder & spec author
            glm-5.2 (neuralwatt) — coding agent / co-author

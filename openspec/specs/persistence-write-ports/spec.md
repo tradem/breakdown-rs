@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Purpose
 
 Define the write-side port contract: per-aggregate `*Commands` ports that translate command structs into aggregate replies, with mockable seams, optimistic concurrency, and infra wiring.

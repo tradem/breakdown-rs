@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Purpose
 
 Define the OpenTelemetry tracing integration for the Breakdown RS API binary: OTLP trace export driven by `OTEL_*` environment variables, composable with the existing `tracing_subscriber::fmt` layer, and HTTP request-level tracing via `tower-http`. Metrics and log export are out of scope.

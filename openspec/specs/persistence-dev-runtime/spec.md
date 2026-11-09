@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+
 # Purpose
 
 Define the scope and boundary of the `persistence-layer-v1` change: Postgres-only dev runtime, projection schema, and read/write port contracts. Production-grade SierraDB runtime and end-to-end round-trip are deferred to the `sierradb-runtime-and-round-trip` follow-up.
