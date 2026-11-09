@@ -31,6 +31,29 @@
 //! initialized on a **background thread** to avoid nested tokio runtime errors
 //! when the cargo test runner spawns containers concurrently.
 //!
+//! **One runtime rule (issue #820):** the containers, both `PgPool`s, the
+//! Redis client and the audit projectors are all created on ONE long-lived
+//! runtime ([`SharedContainers::runtime`]), and **every** async test body is
+//! driven on that same runtime through [`run_on_shared_runtime`] — never on a
+//! runtime the test built itself. `sqlx` (and `redis-rs`) bind a connection's
+//! background task to the runtime the connection was *established* on: a
+//! `#[tokio::test]` builds and drops its own runtime, so a connection sqlx
+//! lazily re-establishes inside such a test is owned by that test's runtime
+//! and dies at teardown — while staying in the shared pool. The next test then
+//! reads it and fails with `A Tokio 1.x context was found, but it is being
+//! shutdown` (the observed flake in 6.1 after 6.4). A plain `#[test]` + this
+//! helper removes the second runtime from the process entirely, and
+//! [`assert_shared_runtime`] — called from [`init_containers`], i.e. on **every**
+//! path to the shared pools — turns a regression into an immediate failure with
+//! the reason, instead of a flake one test later.
+//!
+//! **Concurrency:** the bodies are safe to run in parallel — `Runtime::block_on`
+//! may be called from several test threads at once, and every test uses its own
+//! `project_id` and entity ids. CI still runs this file with
+//! `--test-threads=1` (`.github/workflows/integration-tests.yml`) to keep the
+//! load on SierraDB and the two pools predictable; under the default threading
+//! a projection-lag deadline failure is a load symptom, not a correctness one.
+//!
 //! **Coverage:**
 //! - 6.1: Non-membership events produce correctly-attributed audit rows
 //! - 6.2: Saga-dispatched commands record `Provenance::Saga` + `actor = NULL`
@@ -117,9 +140,15 @@ struct SharedContainers {
     /// for pool slots — a proven production pattern (ADR-016).
     query_pool: PgPool,
     redis_client: Arc<RedisClient>,
-    // The runtime MUST be kept alive.  Dropping the Runtime cancels all
-    // spawned supervisor tasks — the JoinHandle alone is not sufficient.
-    _runtime: tokio::runtime::Runtime,
+    /// The ONE runtime this file runs on (issue #820).
+    ///
+    /// Everything that outlives a single test — the containers, both pools,
+    /// the Redis client, the projector supervisors — is created inside it, and
+    /// every test body is driven on it via [`run_on_shared_runtime`].  It MUST
+    /// be kept alive: dropping the `Runtime` cancels all spawned supervisor
+    /// tasks (the `JoinHandle` alone is not sufficient), and it would also
+    /// invalidate every pool connection established on it.
+    runtime: tokio::runtime::Runtime,
     _handles: AuditProjectorHandles,
     _pg: ContainerAsync<testcontainers_modules::postgres::Postgres>,
     _sierra: ContainerAsync<fixtures::SierraDbImage>,
@@ -141,7 +170,7 @@ struct InitStage {
 }
 
 fn init_containers() -> &'static SharedContainers {
-    CONTAINERS.get_or_init(|| {
+    let containers = CONTAINERS.get_or_init(|| {
         // Spawn containers on a background thread to avoid nested runtime errors.
         std::thread::spawn(|| {
             // Must be a **full** runtime (not `new_current_thread`) because
@@ -228,11 +257,64 @@ fn init_containers() -> &'static SharedContainers {
                 _handles: stage.handles,
                 _pg: stage.pg,
                 _sierra: stage.sierra,
-                _runtime: rt,
+                runtime: rt,
             }
         })
         .join()
         .expect("Container setup thread panicked")
+    });
+
+    // Guard every path to the shared state, not only [`run_on_shared_runtime`]:
+    // a future `#[tokio::test]` that calls this function directly would
+    // otherwise reach the pools on a foreign runtime without any complaint.
+    assert_shared_runtime(containers);
+    containers
+}
+
+/// Fail loudly if the caller is inside a tokio runtime that is **not** the
+/// shared one (issue #820).
+///
+/// `sqlx`/`redis-rs` bind a connection to the runtime that established it, so a
+/// connection created (or lazily re-established) on a per-test runtime dies with
+/// that runtime while staying in the shared pool — the next test then reads it
+/// and fails with `A Tokio 1.x context was found, but it is being shutdown`.
+///
+/// Outside any runtime there is nothing to compare and nothing to fear: that is
+/// the legitimate case of the synchronous `#[test]` wrapper thread calling
+/// [`init_containers`] / `block_on`, so the check is a no-op there.
+fn assert_shared_runtime(containers: &SharedContainers) {
+    let Ok(current) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    assert_eq!(
+        current.id(),
+        containers.runtime.handle().id(),
+        "test bodies must run on the shared runtime (issue #820) — \
+         a per-test runtime leaves pool connections bound to a dead runtime"
+    );
+}
+
+/// Drive an async test body on the **shared** runtime.
+///
+/// Every async test in this file goes through this helper (issue #820).  See
+/// the module docs: `sqlx`/`redis-rs` bind a connection to the runtime it was
+/// established on, so a body run on a runtime of its own (a `#[tokio::test]`)
+/// can leave a pool connection owned by a *dead* runtime behind — the next
+/// test then fails with `A Tokio 1.x context was found, but it is being
+/// shutdown`.  `block_on` on the shared runtime makes that impossible: this
+/// process has exactly one runtime.
+///
+/// The identity assertion ([`assert_shared_runtime`]) keeps it that way.  A body
+/// that somehow ends up on a foreign runtime fails immediately, with the reason,
+/// instead of flaking one test later on a connection it never touched.
+fn run_on_shared_runtime<F>(body: F) -> Result<()>
+where
+    F: std::future::Future<Output = Result<()>>,
+{
+    let containers = init_containers();
+    containers.runtime.block_on(async {
+        assert_shared_runtime(containers);
+        body.await
     })
 }
 
@@ -393,6 +475,13 @@ fn human_metadata(actor: UserId, project_id: Option<ProjectId>) -> Result<Vec<u8
 /// a test-side query is acquiring one. The query should remain within the
 /// projection deadline instead of turning that transient condition into a test
 /// failure.
+///
+/// Issue #820 deliberately does NOT add the `A Tokio 1.x context was found, but
+/// it is being shutdown` class here.  Retrying it would not help (the offending
+/// connections live in the shared pool and would be handed out again), so the
+/// cause was removed instead of masked: every test body now runs on the shared
+/// runtime ([`run_on_shared_runtime`]), which leaves no per-test runtime that a
+/// pool connection could be bound to and die with.
 fn is_retryable_pool_error(message: &str) -> bool {
     message.contains("pool timed out") || message.contains("PoolTimedOut")
 }
@@ -527,8 +616,14 @@ async fn await_audit_by_project(
 /// Create a season + character directly via EAPPEND and verify that the
 /// `projection_audit` rows carry the correct actor, provenance = Human,
 /// and project_id.
-#[tokio::test]
-async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
+#[test]
+fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
+    run_on_shared_runtime(non_membership_events_produce_attributed_audit_rows_body())
+}
+
+/// Body of [`non_membership_events_produce_attributed_audit_rows`] — driven on
+/// the shared runtime by that test's `#[test]` wrapper.
+async fn non_membership_events_produce_attributed_audit_rows_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
@@ -654,8 +749,14 @@ async fn non_membership_events_produce_attributed_audit_rows() -> Result<()> {
 
 /// Create a piece category via EAPPEND and verify audit row attribution.
 /// (Requires a season to exist for project_id resolution.)
-#[tokio::test]
-async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
+#[test]
+fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
+    run_on_shared_runtime(costume_category_create_produces_attributed_audit_row_body())
+}
+
+/// Body of [`costume_category_create_produces_attributed_audit_row`] — driven on
+/// the shared runtime by that test's `#[test]` wrapper.
+async fn costume_category_create_produces_attributed_audit_row_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
@@ -750,8 +851,14 @@ async fn costume_category_create_produces_attributed_audit_row() -> Result<()> {
 /// EAPPEND a saga-dispatched CostumeCategoryCreated (simulating the
 /// SeasonSeedingSaga path) and verify the audit row records
 /// `provenance = "SeasonSeedingSaga"` and `actor = NULL`.
-#[tokio::test]
-async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
+#[test]
+fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> {
+    run_on_shared_runtime(saga_dispatched_costume_category_shows_saga_provenance_body())
+}
+
+/// Body of [`saga_dispatched_costume_category_shows_saga_provenance`] — driven
+/// on the shared runtime by that test's `#[test]` wrapper.
+async fn saga_dispatched_costume_category_shows_saga_provenance_body() -> Result<()> {
     let containers = init_containers();
 
     // Spawn the piece category read-model projector on the projector pool so
@@ -759,6 +866,12 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
     // Bounded like RESP_ATTEMPT_TIMEOUT above: the spawn opens its own
     // multiplexed Redis connection (no redis-rs default timeout) and a wedged
     // container must surface as an error instead of stalling the run.
+    //
+    // Since the body runs on the shared runtime (issue #820), this projector
+    // keeps running for the rest of the process instead of being cancelled when
+    // a per-test runtime was dropped.  That is harmless: it owns no per-test
+    // state, its writes are upserts on `projection_costume_category`, and the
+    // later tests assert `projection_audit` rows only.
     tokio::time::timeout(
         Duration::from_secs(30),
         infra::projectors::spawn_costume_category_projector(
@@ -890,8 +1003,14 @@ async fn saga_dispatched_costume_category_shows_saga_provenance() -> Result<()> 
 
 /// Create seasons in two different projects via direct EAPPEND, then verify
 /// that `list_by_project` returns only rows for the requested project_id.
-#[tokio::test]
-async fn list_by_project_returns_tenant_scoped_rows() -> Result<()> {
+#[test]
+fn list_by_project_returns_tenant_scoped_rows() -> Result<()> {
+    run_on_shared_runtime(list_by_project_returns_tenant_scoped_rows_body())
+}
+
+/// Body of [`list_by_project_returns_tenant_scoped_rows`] — driven on the shared
+/// runtime by that test's `#[test]` wrapper.
+async fn list_by_project_returns_tenant_scoped_rows_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
@@ -996,8 +1115,14 @@ async fn list_by_project_returns_tenant_scoped_rows() -> Result<()> {
 /// This tests the non-membership idempotency path: the `event_key`
 /// deterministically depends on (entity_type, entity_id, event_type, payload),
 /// so even a fresh SierraDB append gets deduped by the audit projector.
-#[tokio::test]
-async fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
+#[test]
+fn non_membership_audit_projector_is_idempotent_under_redelivery() -> Result<()> {
+    run_on_shared_runtime(non_membership_audit_projector_is_idempotent_under_redelivery_body())
+}
+
+/// Body of [`non_membership_audit_projector_is_idempotent_under_redelivery`] —
+/// driven on the shared runtime by that test's `#[test]` wrapper.
+async fn non_membership_audit_projector_is_idempotent_under_redelivery_body() -> Result<()> {
     let containers = init_containers();
     let pool = &containers.query_pool;
     let redis_client = &containers.redis_client;
