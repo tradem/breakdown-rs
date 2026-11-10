@@ -729,6 +729,32 @@ async fn main() -> Result<()> {
         let worker_pricing: std::sync::Arc<dyn breakdown_core::ai::AiModelPricingRepository> =
             std::sync::Arc::new(infra::ai::PgAiModelPricingRepository::new(pool.clone()));
 
+        // Provider breaker (issue #871, workstream A): the durable verdict, its
+        // recovery probe and the hold sweeper. Wired before the workers take
+        // their own clones of the config repo and the vault.
+        let provider_health: std::sync::Arc<dyn breakdown_core::ai::ProviderHealth> =
+            std::sync::Arc::new(infra::ai::provider_health::PgProviderHealth::new(
+                pool.clone(),
+            ));
+        let probe_http = infra::ai::provider_probe::CatalogProviderProbe::local_http_client(
+            infra::ai::provider_probe::probe_timeout(),
+        )?;
+        let provider_probe: std::sync::Arc<dyn infra::ai::provider_probe::ProviderProbe> =
+            std::sync::Arc::new(infra::ai::provider_probe::CatalogProviderProbe::new(
+                infra::ai::catalog::OpenAiCompatibleModelCatalog::new()?,
+                worker_ai_config_repo.clone(),
+                worker_credential_vault.clone(),
+                probe_http,
+            ));
+        // One periodic task hosts the probe and the hold sweeper (design
+        // D-C4/2.10b): both are claim-free and share one advisory lock.
+        infra::ai::provider_watch::spawn_provider_watch(
+            pool.clone(),
+            std::sync::Arc::clone(&provider_health),
+            provider_probe,
+        );
+        info!("AI provider breaker watch spawned (issue #871)");
+
         ai_worker_handles.push(spawn_script_import_worker(
             WorkerDeps {
                 runtime: Arc::clone(&runtime),
