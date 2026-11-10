@@ -225,6 +225,19 @@ predicate does not filter it, which is the honest degradation.
   `resolve_config` + vault fetch for that user). No permit, no chunk, no paid
   call, no synthetic credential — and a pair with no held job has nobody to probe
   for, which is correct: nothing is waiting on it.
+- **A dead credential is not a provider verdict, and it must not pin the probe.**
+  The selected job's key may have been revoked during the outage; if that counted
+  as a failed probe, one user's revoked key would keep the breaker open for every
+  other user on the pair until the holds expired. So a probe outcome is classified:
+  *transport / 5xx / 429 / timeout* ⇒ the provider verdict (re-open + advance
+  `retry_at`); *authentication / entitlement / bad model* ⇒ **not** a verdict —
+  that job is terminalized through the existing permanent path
+  (`mark_failed(..., retryable = false)`, the #637 precedent, because the job itself
+  can never succeed with that credential), which removes it from the held-job
+  candidate set, and the next tick probes the next candidate. A permanently failing
+  credential therefore costs one probe per tick per affected user, never an
+  unbounded open. A credentials-only probe does **not** increment `flap_count`:
+  it says nothing about the provider's stability.
 
 ### D-A4 — A held job stays `failed`; the wait is an additive field, not a status
 
@@ -248,7 +261,10 @@ pub struct ProviderHold {
     /// The registered code that opened the hold — today always
     /// `ai-import.llm-provider-unavailable` (no new code, D-X1).
     pub reason_code: String,
-    pub state: ProviderBreakerState,   // Open | HalfOpen
+    /// `Open | HalfOpen` while waiting, `Expired` on the terminal expiry write
+    /// (D-C4) — the state that lets a client tell "the provider did not come
+    /// back" from "your retries are used up".
+    pub state: ProviderBreakerState,
     /// Breaker's next probe time — also this job's `next_attempt_at`.
     pub until: DateTime<Utc>,
     /// Absolute deadline of the whole hold series (D-C4).
@@ -271,9 +287,12 @@ deadline, which is exactly the invisibility #822 removed. So:
 2. **Hold materialization on open** — the `closed → open` transition (D-A6)
    stamps **every runnable job of that pair** (`status IN ('pending')` or `failed`
    with a due `next_attempt_at`) in one statement: `status = 'failed'`,
-   `next_attempt_at = retry_at`, `provider_hold = …` with
-   `hold_deadline = now() + AI_IMPORT_MAX_PROVIDER_HOLD_SECS`. No claim, no owner, no
-   provider call — and it notifies each returned id through the existing hub.
+   `next_attempt_at = retry_at`, `provider_hold = …`, and the **series clock**
+   `provider_hold_series_started_at = COALESCE(provider_hold_series_started_at,
+   now())` — a *separate* column on the job, because `provider_hold` itself is
+   cleared on every close and a deadline stored inside it would restart at 6 h on
+   each short recovery (D-C4). No claim, no owner, no provider call — and it
+   notifies each returned id through the existing hub.
 
 The claim-time SQL filter (D-A2) then covers only the race the materialization
 cannot: a job **enqueued** while the breaker is already open.
@@ -325,8 +344,17 @@ the same outage still failing to clear. The breaker therefore also records
 |---|---|---|
 | `closed → open` | Nth consecutive failure | `opened_at = now()`; `flap_count` = `CASE WHEN closed_at IS NOT NULL AND now() - closed_at < STABLE_WINDOW THEN flap_count + 1 ELSE 0 END`; `retry_at = now() + min_open(flap_count)`; **materialize the hold** on every runnable job of the pair (D-A4) |
 | `open → half_open` | `retry_at <= now()` and the **probe task** CASes `probe_owner` | exactly one prober per window; a stale `probe_started_at` (older than the probe lease) lets the next tick take over; no claim is admitted in this state (D-A2) |
-| `half_open → closed` | probe (or any paid call) succeeded | `consecutive_failures = 0`, `retry_at = NULL`, `closed_at = now()`, `probe_owner = NULL`; **release** the pair's held jobs (`provider_hold = NULL`) — they are claimable again through their own `next_attempt_at`, which is now in the past |
+| `half_open → closed` | probe (or any paid call) succeeded | `consecutive_failures = 0`, `retry_at = NULL`, `closed_at = now()`, `probe_owner = NULL`; **release** the pair's held jobs (`provider_hold = NULL`) — they are claimable again through their own `next_attempt_at`, which is now in the past; the **hold series clock survives** (D-C4) |
 | `half_open → open` | probe failed | `flap_count` **unchanged** (same outage); `retry_at = now() + min_open(flap_count)`; **refresh** every held job of the pair to the new `retry_at` |
+
+**Every probe result is fenced to the probe it belongs to.** A probe can outlive its
+lease (a hung `GET /models`), and by then another task may own the state; an
+unfenced write would let the stale result close or re-open a state it never
+observed. Both result writes are therefore conditional on the owner and the state:
+`... WHERE provider = $1 AND model = $2 AND state = 'half_open' AND probe_owner = $3`.
+Zero rows ⇒ the result is discarded (debug log, no state change) — the same
+`ensure_claim_owned` discipline every other owner-fenced write in this codebase
+uses.
 
 `min_open(n) = min(BASE_OPEN · 2^n, MAX_OPEN)` with `BASE_OPEN` 60 s and
 `MAX_OPEN` 30 min. The stable-window test lives on `closed → open` because that
@@ -598,12 +626,21 @@ rejecting an operator's choice.
 - In-attempt retries keep the permit. Releasing and re-acquiring per retry would
   let another job interleave between two calls of the same chunk and double the
   acquire/reclaim traffic, for a benefit that the breaker already provides. What
-  matters is that the hold is **bounded and computed**, not guessed:
-  `(1 + max_attempt_retries) × request_timeout_secs` = `3 × 120 s = 6 min` in the
-  worst case (before #871: `6 × 120 s = 12 min`), and the loop short-circuits the
-  moment the breaker is open instead of sleeping through the backoff.
-  `retry_bounded` gains that short-circuit: check the guard before *sleeping*, so
-  an open breaker never costs a sleep either.
+  matters is that the hold is **bounded and computed**, not guessed. The bound must
+  include the **backoff sleeps**, because `retry_bounded` sleeps while still
+  holding the permit (`workers.rs:3989`, `compute_backoff` capped at 30 s):
+
+  ```
+  (1 + max_attempt_retries) × request_timeout_secs
+    + max_attempt_retries × MAX_ATTEMPT_BACKOFF        // 30 s, jitter ≤ 25 % is clamped into it
+  = 3 × 120 s + 2 × 30 s = 420 s = 7 min              // defaults
+  ```
+
+  Before #871 the same quantity was `6 × 120 s + 5 × 30 s = 870 s = 14.5 min`.
+  The loop short-circuits the moment the breaker is open instead of sleeping
+  through the backoff, so `retry_bounded` gains that check **before** the sleep u2014
+  an open breaker then costs neither a call nor a delay. The bound is asserted as a
+  computed constant in a test, never as a sleep.
 
 ### D-C3 — A provider failure takes the hold, not the job backoff
 
@@ -634,7 +671,13 @@ default 60 s):
 ```sql
 UPDATE ai_import.ai_import_job
 SET status = 'dead_letter', last_error = LEFT($1, 1000),
-    next_attempt_at = NULL, progress = NULL, provider_hold = NULL,
+    next_attempt_at = NULL, progress = NULL,
+    -- Kept, NOT nulled: `state = 'expired'` is the durable marker that lets the
+    -- client distinguish "the provider never came back" from "the retry budget
+    -- is spent" (the #822 derivation would otherwise render the budget copy,
+    -- although `retries` was deliberately never charged).
+    provider_hold = jsonb_set(provider_hold, '{state}', '"expired"'),
+    provider_hold_series_started_at = NULL,
     worker_id = NULL, lease_expires_at = NULL, permit_id = NULL, updated_at = now()
 WHERE status = 'failed'
   AND provider_hold IS NOT NULL
@@ -647,9 +690,19 @@ pre-claim held jobs too; `retries` stays untouched, and it notifies every affect
 id through the existing hub. An advisory lock keeps concurrent replicas from
 double-sweeping (the payload-GC precedent).
 
-**The deadline is the series clock, not the wait's clock.** `hold_deadline` is
-written only when a job gains a hold it did not have; a re-hold after another
-failed probe refreshes `until` and keeps the existing deadline, so a flapping
+**The deadline is the series clock, not the wait's clock.** The series start lives
+in its own column, `provider_hold_series_started_at` (`COALESCE(...)`d on every
+hold write), **not** in `provider_hold` — because `provider_hold` is cleared on
+every close (D-A6) and a deadline stored inside it would restart at 6 h on each
+short recovery. A job that flaps closed → open every few minutes would then never
+expire, which is exactly the unbounded hold this decision exists to prevent. A
+re-hold refreshes `until` and keeps the series start, so `hold_deadline =
+provider_hold_series_started_at + AI_IMPORT_MAX_PROVIDER_HOLD_SECS` only moves when
+the series ends. The series ends when (a) the job is **claimed** (it actually ran,
+so the next hold is a new episode), or (b) the job has been un-held for
+`STABLE_WINDOW` — the same sustained-recovery horizon the flap rule uses (D-A6);
+the sweeper clears the column for such rows as hygiene. It is also cleared by every
+terminal transition.
 provider cannot reset the 6 h budget one probe at a time. It is cleared together
 with `provider_hold` — on a successful close (D-A6), on expiry, and on every other
 lifecycle write.

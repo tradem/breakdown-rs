@@ -60,6 +60,11 @@ clock (AGENTS.md §4).
       credential from a **held** job of that pair (oldest by `created_at`), runs the
       existing `catalog.rs` `GET {base}/models` probe and closes or re-opens the
       breaker. It must not claim a job and must not issue a paid call.
+      A *credentials* outcome (401/403/entitlement/bad model) is **not** a provider
+      verdict: terminalize that job via `mark_failed(…, retryable = false)` so it
+      leaves the candidate set, do not re-open via the flap rule, and let the next
+      tick probe the next candidate — `PROBE_CANDIDATE_LIMIT` per tick (3).
+      Every result write is CAS-fenced (`state = 'half_open' AND probe_owner = $3`).
 - [ ] 2.3 Every transition logs `tracing::warn!` with the literal marker
       `#871 provider breaker` and the fields from **D-X2** (never a new health
       check on `/v1/health`).
@@ -79,8 +84,13 @@ clock (AGENTS.md §4).
 - [ ] 2.5b `queue.rs`: `hold_runnable_jobs(provider, model, retry_at)`, the
       claim-free materialization run by the `closed→open` transition
       (`status='pending'` or due `failed`, one statement, notify each returned id),
+      carrying `provider_hold_series_started_at =
+      COALESCE(provider_hold_series_started_at, now())` — the series clock lives in
+      its own column because `provider_hold` is cleared on every close, and a
+      deadline inside it would restart at 6 h on each short recovery (**D-C4**) —
       and `refresh_held_jobs(provider, model, retry_at)` for `half_open→open`
-      (**D-A4**, **D-A6**).
+      (**D-A4**, **D-A6**). The series column is cleared on **claim** and after a
+      `STABLE_WINDOW` of un-held state.
 - [ ] 2.6 `enqueue`: persist `provider`/`model`; the API edge resolves them from
       the user's active AI config (same edge as the #771 target snapshot). The
       config-**change** edge stamps the new pair onto that user's runnable jobs in
@@ -101,19 +111,24 @@ clock (AGENTS.md §4).
       (`AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS`, default 60 s) that dead-letters a
       held job whose own `hold_deadline` passed, under an advisory lock, notifying
       each affected id — the only path that can reach a held job, because the
-      claim predicate excludes it and `mark_held` needs an owner (**D-C4**).
-      Registered and joined like the payload-GC sweeper.
+      claim predicate excludes it and `mark_held` needs an owner (**D-C4**). It
+      keeps `provider_hold` with `state = expired` instead of nulling it (the
+      durable expiry marker the client branches on) and is the same task family
+      that hosts the probe (2.2b). Registered and joined like the payload-GC
+      sweeper.
 - [ ] 2.11 Unit tests with a fake `LlmClient` that fails N times then succeeds:
       **zero** provider calls while the breaker is open, the threshold opens it,
       a permanent failure never does, `mark_held` leaves `retries` AND the attempt
       rows untouched, the flap escalation table (**D-X4**).
 - [ ] 2.12 Postgres test: the claim predicate skips a held job for an open pair
-      and claims it again once `retry_at` has passed and the breaker closed; a job
-      is **not** claimable while the breaker is `half_open` (the drain regression);
-      the `closed→open` transition holds a queued (never-claimed) job with
-      `hold_deadline` set; a failed probe refreshes the held rows' `until`; a
-      successful close clears `provider_hold`; the sweeper dead-letters an expired
-      hold whose breaker is still open, with `retries` unchanged.
+      and claims it again once the breaker closed; a job is **not** claimable while
+      the breaker is `half_open` (the drain regression); the `closed→open`
+      transition holds a queued (never-claimed) job with the series clock set; a
+      failed probe refreshes the held rows' `until`; a successful close clears
+      `provider_hold` **but not** the series clock; a flap cycle does not reset
+      `hold_deadline`; a stale probe result writes nothing; a credentials-only
+      probe terminalizes that job without touching `flap_count`; the sweeper
+      dead-letters an expired hold with `state = expired` and `retries` unchanged.
 
 ## 3. [A] API, client and docs
 
@@ -180,9 +195,13 @@ clock (AGENTS.md §4).
 
 ## 6. [B] Client and docs
 
-- [ ] 6.1 `job_eta.dart`: derive the attempt's rate from `chunk − resumed_from`
-      while the remaining count stays `chunks_total − chunk`; unit test with
-      `resumed_from = 25` (**D-B5**).
+- [ ] 6.1 `job_eta.dart`: every quantity the estimator derives from the attempt is
+      computed from `chunk − resumed_from` — the **rate**, the sample floor
+      (`aiJobEtaMinUnits`) and the **stall watchdog** (`chunkCadence` →
+      `aiJobEtaStallCadenceFactor`). Using the absolute `chunk` would make a resumed
+      attempt read 25 chunks in one second and declare a healthy successor chunk
+      stalled after two minutes. Unit tests for `resumed_from = 25` covering rate,
+      sample floor and stall window (**D-B5**).
 - [ ] 6.2 Stage line copy `Fortsetzung ab Abschnitt {n} von {total}` (ARB
       `de`/`en`) only when `resumed_from > 0` — `Abschnitt`, not `Szene`, because
       `resumed_from` counts chunks and one chunk can yield several scene rows;
@@ -196,9 +215,11 @@ clock (AGENTS.md §4).
 
 - [ ] 7.1 In-attempt retries read `bounds.max_attempt_retries` (not
       `max_retries`) in `retry_chat`/`retry_schedule` (**D-C1**).
-- [ ] 7.2 Held jobs release the permit with the attempt; document the computed
-      in-attempt worst-case window `(1 + max_attempt_retries) ×
-      request_timeout_secs` and assert it as a constant in a test (**D-C2**).
+- [ ] 7.2 Held jobs release the permit with the attempt; document and assert the
+      computed in-attempt worst-case window `(1 + max_attempt_retries) ×
+      request_timeout_secs + max_attempt_retries × 30 s` (= 7 min at the defaults)
+      — the **backoff sleeps count**, because `retry_bounded` sleeps while holding
+      the permit (**D-C2**).
 - [ ] 7.3 `next_attempt_at` for a held job = the breaker's `retry_at`; the job
       curve stays for the `≤ threshold − 1` pre-breaker failures (**D-C3**).
 - [ ] 7.4 Hold expiry → `dead_letter` with the provider narrative, `retries`

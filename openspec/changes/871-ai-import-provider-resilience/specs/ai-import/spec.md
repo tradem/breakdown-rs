@@ -41,10 +41,15 @@ The hold SHALL expire without requiring a claim: a periodic claim-free sweeper
 SHALL dead-letter a held job whose own `hold_deadline` has passed, because the
 claim predicate keeps such a job unclaimable and an owner-fenced write could never
 reach it. On expiry the job SHALL transition to `dead_letter` with the provider
-narrative, with `retries` still unchanged and exactly one attempt row recorded;
-the deadline SHALL be measured from the first hold of the series, so a flapping
-provider cannot reset it one probe at a time, and it SHALL be cleared together
-with the hold when the breaker closes.
+narrative, with `retries` still unchanged and exactly one attempt row recorded.
+
+The deadline SHALL be a **series** clock that survives short recoveries: it is
+derived from a durable series-start column that a breaker close does NOT clear, so
+a provider that flaps closed → open every few minutes cannot keep resetting the
+deadline and thereby prevent the expiry. The series ends when the job is claimed
+(it actually ran) or after a sustained recovery, and `provider_hold` SHALL be kept
+on the expiry write with `state = expired` — the durable marker that separates
+"the provider never came back" from "the retry budget is spent".
 
 #### Scenario: Three consecutive provider failures hold the queue instead of burning the budget
 - **WHEN** three consecutive chunk calls of one `(provider, model)` fail with
@@ -90,8 +95,21 @@ is a task of its own, not a claimed job, so a due probe cannot turn into a queue
 drain of paid calls.
 
 The probe SHALL be the existing cheap model-catalog read (`GET {base}/models`),
-authenticated with the credential of one **held** job of that pair. No paid
-completion SHALL be spent to learn that an endpoint recovered.
+authenticated with the credential of one **held** job of that pair. Two outcomes
+SHALL be distinguished, because a dead credential is not a provider verdict: a
+*transport / 5xx / 429 / timeout* outcome re-opens the breaker and advances its
+probe time (and counts as a flap only under the stable-window rule), while an
+*authentication / entitlement / bad model* outcome SHALL NOT re-open the breaker —
+that job is terminalized through the existing permanent path and drops out of the
+held-job candidate set, so the next probe uses the next candidate and one user's
+revoked key cannot hold the breaker open for everybody else. A credentials-only
+probe SHALL NOT increment the flap count.
+
+Every probe **result** SHALL be fenced to the probe that produced it (the probe
+owner and the `half_open` state), so a probe that outlives its lease cannot close
+or re-open a state another prober now owns.
+
+No paid completion SHALL be spent to learn that an endpoint recovered.
 
 The minimum open duration SHALL escalate with the flap count
 (`min(BASE_OPEN · 2^flaps, MAX_OPEN)`, 60 s base, 30 min cap), and a flap SHALL
@@ -112,10 +130,26 @@ through open/closed at a fixed rate.
 - **AND** the resumed attempt continues at the job's stored chunk cursor
 
 #### Scenario: A flapping provider is damped, not looped
+
 - **WHEN** a provider closes the breaker and re-opens it again within
   `STABLE_WINDOW`, repeatedly
 - **THEN** each re-open doubles the minimum open duration up to `MAX_OPEN`
 - **AND** the probe frequency decays instead of oscillating
+
+#### Scenario: A dead probe credential does not pin the breaker
+
+- **WHEN** the oldest held job's credential is revoked and the probe answers 401
+- **THEN** the breaker stays `open` but the flap count is unchanged, and that job
+  is terminalized through the permanent path
+- **AND** the next probe runs with the next held job's credential, so a user with
+  a valid key is not blocked behind a revoked one
+
+#### Scenario: A stale probe result is discarded
+
+- **WHEN** a probe returns after its lease expired and another task holds
+  `probe_owner`
+- **THEN** its result rewrites nothing (zero rows) and the current prober's state
+  stands
 
 ### Requirement: A retried attempt resumes at the first uncompleted chunk
 
@@ -255,9 +289,11 @@ The two retry layers SHALL be separately bounded: `AI_IMPORT_MAX_RETRIES`
 have to line up for the breaker ever to open — a lower in-attempt budget only
 makes it open more slowly, and a configured mismatch SHALL be logged rather than
 rejected. A held job SHALL release its concurrency permit (the hold ends the
-attempt), while an in-attempt retry keeps it for an analytically bounded window of
-`(1 + max_attempt_retries) × request_timeout_secs`, and a retry SHALL short-
-circuit instead of sleeping when the breaker is open.
+attempt), while an in-attempt retry keeps it for an analytically bounded window
+that includes the **backoff sleeps** as well as the request timeouts —
+`(1 + max_attempt_retries) × request_timeout_secs + max_attempt_retries × 30 s`,
+7 min at the defaults — and a retry SHALL short-circuit instead of sleeping when
+the breaker is open.
 
 Dollar/token spend SHALL still be enforced at the provider side; local caps are
 defense in depth.
@@ -277,6 +313,12 @@ defense in depth.
   attempt
 - **THEN** it stops immediately without issuing a call and without sleeping the
   backoff
+
+#### Scenario: The permit bound counts the waits, not only the calls
+- **WHEN** the in-attempt worst case is computed from `max_attempt_retries = 2`,
+  `request_timeout_secs = 120` and the 30 s backoff cap
+- **THEN** the bound is `3 × 120 s + 2 × 30 s = 7 min`, and a test asserts that
+  arithmetic rather than sleeping it
 
 #### Scenario: A waiting job occupies no capacity
 - **WHEN** a job is held for an open breaker
