@@ -67,10 +67,16 @@ clock (AGENTS.md §4).
       existing `catalog.rs` `GET {base}/models` probe and closes or re-opens the
       breaker. It must not claim a job and must not issue a paid call.
       A *credentials* outcome (401/403/entitlement/bad model) is **not** a provider
-      verdict: terminalize that job via `mark_failed(…, retryable = false)` so it
-      leaves the candidate set, do not re-open via the flap rule, and let the next
-      tick probe the next candidate — `PROBE_CANDIDATE_LIMIT` per tick (3).
-      Every result write is CAS-fenced (`state = 'half_open' AND probe_owner = $3`).
+      verdict: **retire** the probed job with a claim-free, probe-fenced write
+      executed inside the probe's transaction after its lease CAS (`dead_letter`,
+      `retries` unchanged, one `dependency.auth-failed` attempt row with
+      `attempt_no = retries + 1`, `provider_hold` + series clock cleared — the
+      accounting table is in **D-A3**; `mark_failed` cannot do it, it is fenced on
+      `status='running' AND worker_id=$2`), do not re-open via the flap rule, and
+      let the next tick probe the next candidate — `PROBE_CANDIDATE_LIMIT` per tick
+      (3). Every result write is CAS-fenced on the **probe lease token**
+      (`state = 'half_open' AND probe_lease_id = $3`), never on `probe_owner`,
+      which the same task can reacquire.
 - [ ] 2.3 Every transition logs `tracing::warn!` with the literal marker
       `#871 provider breaker` and the fields from **D-X2** (never a new health
       check on `/v1/health`).
@@ -85,8 +91,10 @@ clock (AGENTS.md §4).
       `next_attempt_at = hold.until` + `provider_hold`, **without** touching
       `retries` and **without** inserting an `ai_import_job_attempt` row; plus
       clearing `provider_hold` in `claim_next*`, `mark_succeeded`, `mark_failed`,
-      `mark_payload_unavailable`, the dead-letter path **and on a successful
-      breaker close** (**D-A4**, **D-A6**).
+      `mark_payload_unavailable`, the ordinary dead-letter path **and on a
+      successful breaker close** (**D-A4**, **D-A6**) — with two documented
+      exceptions: the **hold-expiry** write keeps it with `state = expired`, and the
+      credential **retirement** (2.2b) clears it as a terminal write.
 - [ ] 2.5b `queue.rs`: `hold_runnable_jobs(provider, model, retry_at)`, the
       claim-free materialization run by the `closed→open` transition
       (`status='pending'` or due `failed`, one statement, notify each returned id),
@@ -97,6 +105,14 @@ clock (AGENTS.md §4).
       and `refresh_held_jobs(provider, model, retry_at)` for `half_open→open`
       (**D-A4**, **D-A6**). The series column is cleared on **claim** and after a
       `STABLE_WINDOW` of un-held state.
+- [ ] 2.5c `queue.rs`: `hold_owed_jobs(...)` — the **sweeper** materialization. The
+      open-time write cannot reach a job enqueued while the breaker is already open,
+      nor a `failed` job whose `next_attempt_at` became due afterwards; both are
+      excluded by the claim predicate and would stay `pending`/`failed` with no
+      `provider_hold`, i.e. invisible **and unexpirable** (the expiry precondition
+      is the hold). One idempotent statement per non-`closed` pair, guarded by
+      `provider_hold IS NULL`, setting the hold + series clock; test the
+      enqueue/open race explicitly (**D-A4**).
 - [ ] 2.6 `enqueue`: persist `provider`/`model`; the API edge resolves them from
       the user's active AI config (same edge as the #771 target snapshot). The
       config-**change** edge stamps the new pair onto that user's runnable jobs in
@@ -114,13 +130,14 @@ clock (AGENTS.md §4).
 - [ ] 2.10 Payload GC + `dev_reset/business.rs` + `dev_reset/plan.rs`: register
       `ai_import.provider_health` (before the job delete) (**D-X3**).
 - [ ] 2.10b Provider-hold sweeper: a periodic claim-free task
-      (`AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS`, default 60 s) that dead-letters a
-      held job whose own `hold_deadline` passed, under an advisory lock, notifying
-      each affected id — the only path that can reach a held job, because the
-      claim predicate excludes it and `mark_held` needs an owner (**D-C4**). It
-      keeps `provider_hold` with `state = expired` instead of nulling it (the
-      durable expiry marker the client branches on) and is the same task family
-      that hosts the probe (2.2b). Registered and joined like the payload-GC
+      (`AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS`, default 60 s) that does two things
+      under one advisory lock, notifying each affected id — (a) **materialize** the
+      holds the open-time transition could not reach (2.5c), (b) dead-letter a held
+      job whose own `hold_deadline` passed. It is the only path that can reach such
+      a job, because the claim predicate excludes it and `mark_held` needs an owner
+      (**D-C4**). It keeps `provider_hold` with `state = expired` instead of nulling
+      it (the durable expiry marker the client branches on) and is the same task
+      family that hosts the probe (2.2b). Registered and joined like the payload-GC
       sweeper.
 - [ ] 2.11 Unit tests with a fake `LlmClient` that fails N times then succeeds:
       **zero** provider calls while the breaker is open, the threshold opens it,
@@ -143,7 +160,9 @@ clock (AGENTS.md §4).
 - [ ] 3.2 Regenerate `backend/openapi.yaml` (`UPDATE_OPENAPI=1 cargo test -p api
       --test contract openapi_drift`) and the Dart client.
 - [ ] 3.3 Flutter: held banner + compact list line extending #822's
-      `aiProviderDegradation` derivation; ARB `de`/`en` keys; widget test
+      `aiProviderDegradation` derivation; ARB `de`/`en` keys; widget test covering
+      **both terminal causes** — hold expiry (`provider_hold.state = expired`) and
+      genuine retry exhaustion — so the two never share copy
       (**flutter spec: "A held job renders why it is waiting"**).
 - [ ] 3.4 `docs/operations/runbooks.md`: "AI provider breaker health (issue
       #871)" with the three operator queries (**D-X2**).
@@ -172,13 +191,18 @@ clock (AGENTS.md §4).
 - [ ] 5.1 Migration `…_ai_import_chunk_resume.up/down.sql`: the
       `ai_import.ai_import_job_chunk` table from **D-B1** + `ai_import_job
       .extraction_key text` (**D-X3**).
-- [ ] 5.2 `infra::ai::chunk_store`: claim-fenced `INSERT … SELECT … FROM
-      ai_import.ai_import_job WHERE id = $1 AND status = 'running' AND worker_id =
-      $2 AND extraction_key = $6` with `ON CONFLICT (job_id, chunk_index) DO
-      UPDATE` (zero rows ⇒ `DomainError::Conflict`), the ordered load whose
-      **contiguous prefix** is the cursor (**D-B2**, and the tail beyond a hole is
-      deleted with a `#871 chunk resume hole at <index>` warn), `clear`, and the
-      summed-usage read (**D-B4**).
+- [ ] 5.2 `infra::ai::chunk_store`: the write runs in a transaction that takes the
+      **job row `FOR UPDATE`** first, verifies `status='running'`, `worker_id` and
+      `extraction_key` against the locked row, and then `INSERT … ON CONFLICT
+      (job_id, chunk_index) DO UPDATE` (refused ⇒ `DomainError::Conflict`); the
+      **invalidation** path takes the same lock on the same row, in the same order,
+      in one transaction (fingerprint rewrite + chunk-row delete). A bare
+      `INSERT … SELECT … WHERE …` is not enough under READ COMMITTED — it can read
+      the old owner and commit after another worker reclaimed and invalidated the
+      job (**D-B3**). Also: the ordered load whose **contiguous prefix** is the
+      cursor (**D-B2**, the tail beyond a hole is deleted with a
+      `#871 chunk resume hole at <index>` warn), `clear`, and the summed-usage read
+      (**D-B4**).
 - [ ] 5.3 Fingerprint helper (`document_digest | provider | model | sha256
       (effective prompt) | chunker version`), compare-and-set write, and the
       drop-and-restart path with the `#871 chunk resume invalidated: <component>`
@@ -197,7 +221,10 @@ clock (AGENTS.md §4).
       (call count, not wall clock) (**D-B6**).
 - [ ] 5.7 Postgres test: a simulated kill after `put(25)` resumes at 26; the
       cursor survives a process restart; a fingerprint mismatch clears the rows
-      and restarts at 0; a re-run chunk is counted once in the usage sum.
+      and restarts at 0; a re-run chunk is counted once in the usage sum; and a
+      **deterministic two-session test** of the write fence in both submission
+      orders (chunk write vs. reclaim + fingerprint rewrite) — serialized by the
+      job-row lock, never a stale chunk in the new set.
 
 ## 6. [B] Client and docs
 

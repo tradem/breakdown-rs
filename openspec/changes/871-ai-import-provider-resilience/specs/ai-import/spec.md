@@ -23,10 +23,14 @@ NEVER open it, and neither SHALL a non-provider `domain.service-unavailable`
 failure (mapping DB, pricing read model, payload storage, catalog parse).
 
 A job that hits an open breaker — before the claim or at a chunk boundary during
-a run — SHALL be **held**, not failed. Opening a breaker SHALL materialize the hold
-on every runnable job of that pair in one statement (no claim, no owner, no
-provider call), and a job that is already `running` SHALL be held by its owner.
-In both cases:
+a run — SHALL be **held**, not failed, and **every** owed job of an open pair SHALL
+carry a hold regardless of how it reached that state: opening a breaker SHALL
+materialize the hold on the runnable jobs of that pair in one statement (no claim,
+no owner, no provider call), a running job SHALL be held by its owner, and a
+periodic claim-free sweep SHALL hold the remainder — a job **enqueued while the
+breaker is already open** and a `failed` job whose retry becomes due **after** the
+opening transition. Without the sweep those two are neither visible nor
+expirable, because the expiry precondition is the hold itself. In every case:
 
 - `retries` SHALL NOT be incremented;
 - NO `ai_import.ai_import_job_attempt` row SHALL be appended;
@@ -47,9 +51,13 @@ The deadline SHALL be a **series** clock that survives short recoveries: it is
 derived from a durable series-start column that a breaker close does NOT clear, so
 a provider that flaps closed → open every few minutes cannot keep resetting the
 deadline and thereby prevent the expiry. The series ends when the job is claimed
-(it actually ran) or after a sustained recovery, and `provider_hold` SHALL be kept
-on the expiry write with `state = expired` — the durable marker that separates
-"the provider never came back" from "the retry budget is spent".
+(it actually ran), after a sustained recovery, or on any terminal write.
+
+`provider_hold` SHALL be kept on the expiry write with `state = expired` — the
+durable marker that separates "the provider never came back" from "the retry budget
+is spent" — and that write is the **only** terminal path that does not clear the
+field. Every other terminal transition (success, `payload_unavailable`, credential
+retirement, ordinary failure/dead-letter) clears it as before.
 
 #### Scenario: Three consecutive provider failures hold the queue instead of burning the budget
 - **WHEN** three consecutive chunk calls of one `(provider, model)` fail with
@@ -78,6 +86,15 @@ on the expiry write with `state = expired` — the durable marker that separates
   `next_attempt_at` = probe time, `provider_hold` populated)
 - **AND** no provider call is issued and no retry is charged
 
+#### Scenario: A job enqueued after the breaker opened is held, not stranded
+- **WHEN** a job is enqueued for a pair whose breaker is already `open`
+- **AND** its retry, or a job whose `next_attempt_at` fell due after the opening
+  transition, is excluded by the claim predicate
+- **THEN** the sweep writes the same hold on it (status `failed`,
+  `next_attempt_at` = probe time, `provider_hold` populated, series clock set)
+- **AND** the job is therefore both visible and expirable, and no provider call was
+  made to discover that
+
 #### Scenario: A held job expires into the provider narrative
 - **WHEN** a job has been held past its `hold_deadline`
 - **THEN** the claim-free sweeper transitions it to `dead_letter` naming the
@@ -99,15 +116,20 @@ authenticated with the credential of one **held** job of that pair. Two outcomes
 SHALL be distinguished, because a dead credential is not a provider verdict: a
 *transport / 5xx / 429 / timeout* outcome re-opens the breaker and advances its
 probe time (and counts as a flap only under the stable-window rule), while an
-*authentication / entitlement / bad model* outcome SHALL NOT re-open the breaker —
-that job is terminalized through the existing permanent path and drops out of the
+*authentication / entitlement / bad model* outcome SHALL NOT re-open the breaker.
+For the latter the probed job SHALL be **retired** by a claim-free, probe-fenced
+write executed inside the probe's own transaction after its lease CAS succeeded —
+`dead_letter`, `retries` unchanged, exactly one attempt row
+(`dependency.auth-failed`, `retryable = false`, `attempt_no = retries + 1`),
+`provider_hold` and the series clock cleared. Retirement removes it from the
 held-job candidate set, so the next probe uses the next candidate and one user's
 revoked key cannot hold the breaker open for everybody else. A credentials-only
 probe SHALL NOT increment the flap count.
 
-Every probe **result** SHALL be fenced to the probe that produced it (the probe
-owner and the `half_open` state), so a probe that outlives its lease cannot close
-or re-open a state another prober now owns.
+Every probe **result** SHALL be fenced to the **lease that produced it**, not to the
+owner: a fresh lease token per probe attempt, matched by both result writes
+together with the `half_open` state, so neither a probe that outlives its lease nor
+the same owner reacquiring it can close or re-open a state it no longer owns.
 
 No paid completion SHALL be spent to learn that an endpoint recovered.
 
@@ -140,16 +162,24 @@ through open/closed at a fixed rate.
 
 - **WHEN** the oldest held job's credential is revoked and the probe answers 401
 - **THEN** the breaker stays `open` but the flap count is unchanged, and that job
-  is terminalized through the permanent path
+  is retired to `dead_letter` with one `dependency.auth-failed` attempt row and an
+  untouched `retries`
 - **AND** the next probe runs with the next held job's credential, so a user with
   a valid key is not blocked behind a revoked one
 
 #### Scenario: A stale probe result is discarded
 
-- **WHEN** a probe returns after its lease expired and another task holds
-  `probe_owner`
-- **THEN** its result rewrites nothing (zero rows) and the current prober's state
+- **WHEN** a probe returns after its lease expired and another probe lease now owns
+  the state
+- **THEN** its result rewrites nothing (zero rows) and the current probe's state
   stands
+
+#### Scenario: The same owner reacquiring the lease is still fenced
+
+- **WHEN** a probe task instance abandons a result and later acquires a new probe
+  lease for the same pair
+- **THEN** the abandoned result matches no lease token and rewrites nothing, for a
+  successful and for a failed probe alike
 
 ### Requirement: A retried attempt resumes at the first uncompleted chunk
 
@@ -168,9 +198,15 @@ the last completed chunk of the current attempt) and the additive
 (`n` means chunks `1..=n` are stored).
 
 Every chunk write SHALL be fenced to the claim that produced it (job id, owning
-worker, extraction fingerprint), so a worker that lost its claim during an
-in-flight call cannot insert a result produced under the old configuration into a
-chunk set another worker has since invalidated.
+worker, extraction fingerprint) **by a row lock, not a predicate alone**: the write
+takes the job row `FOR UPDATE` in its own transaction, verifies owner and
+fingerprint against the locked row, and holds the lock through the chunk insert;
+the invalidation path (fingerprint rewrite + chunk-row delete) takes the same lock
+on the same row in the same order, in one transaction. Under READ COMMITTED a bare
+`INSERT … SELECT … WHERE …` can read the old owner and commit after another worker
+has reclaimed and invalidated the job, so a worker that lost its claim during an
+in-flight call SHALL NOT be able to insert a result produced under the old
+configuration into a chunk set that has since been invalidated.
 
 #### Scenario: A run that died at chunk 25 of 42 resumes at chunk 26
 - **WHEN** a job whose chunk rows cover `1..=25` is re-claimed
@@ -198,6 +234,14 @@ chunk set another worker has since invalidated.
   reclaimed with a different extraction fingerprint
 - **THEN** its chunk write affects zero rows and returns `DomainError::Conflict`
 - **AND** the new owner's chunk set is unchanged
+
+#### Scenario: The write fence survives a concurrent invalidation
+- **WHEN** two sessions race — one writing a chunk under an old fingerprint, one
+  reclaiming the job and rewriting the fingerprint — in either submission order
+- **THEN** the outcome is serialized by the job-row lock: either the chunk lands
+  before the fingerprint changes, or it is refused
+- **AND** a chunk produced under the old configuration is never present in the new
+  set
 
 ### Requirement: Resume is invalidated by any change that determines the output
 

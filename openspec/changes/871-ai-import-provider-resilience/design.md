@@ -127,6 +127,11 @@ CREATE TABLE ai_import.provider_health (
     -- When the breaker last closed (D-A6): the stable-window test on the next
     -- `closed → open` reads it, so a flap is counted where a new outage starts.
     closed_at             timestamptz,
+    -- Fence of the *current* probe lease (D-A6). A fresh UUIDv7 per probe
+    -- attempt, because `probe_owner` alone is not unique: the same worker (or
+    -- task instance) can reacquire the lease, and a stale result would then pass
+    -- an owner check. Both result writes match on `probe_lease_id`.
+    probe_lease_id        uuid,
     updated_at            timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (provider, model)
 );
@@ -232,14 +237,28 @@ predicate does not filter it, which is the honest degradation.
   as a failed probe, one user's revoked key would keep the breaker open for every
   other user on the pair until the holds expired. So a probe outcome is classified:
   *transport / 5xx / 429 / timeout* ⇒ the provider verdict (re-open + advance
-  `retry_at`); *authentication / entitlement / bad model* ⇒ **not** a verdict —
-  that job is terminalized through the existing permanent path
-  (`mark_failed(..., retryable = false)`, the #637 precedent, because the job itself
-  can never succeed with that credential), which removes it from the held-job
-  candidate set, and the next tick probes the next candidate. A permanently failing
-  credential therefore costs one probe per tick per affected user, never an
-  unbounded open. A credentials-only probe does **not** increment `flap_count`:
-  it says nothing about the provider's stability.
+  `retry_at`); *authentication / entitlement / bad model* ⇒ **not** a verdict, and
+  the affected job is **retired**. `mark_failed` cannot do that — it is
+  owner-fenced on `status = 'running' AND worker_id = $2`
+  (`queue.rs:929`) and a held job is `failed` with no owner — so the retirement is
+  its own **claim-free, probe-fenced** write, executed **inside the probe's
+transaction after its lease CAS succeeded** (that is its fence: no probe lease, no
+  retirement). Accounting, all explicit:
+
+  | field | value |
+  |---|---|
+  | `status` | `dead_letter` — the credential is permanent, so there is nothing to retry |
+  | `retries` | **unchanged** (the document did not fail) |
+  | attempt row | exactly **one**, `attempt_no = retries + 1`, code `dependency.auth-failed`, `retryable = false` — same numbering `mark_payload_unavailable` uses |
+  | `last_error` | the auth summary; the client's #637 narrative already covers that code |
+  | `next_attempt_at`, `provider_hold` | cleared (this is *not* a hold expiry, so no `Expired` marker) |
+  | `provider_hold_series_started_at` | cleared (terminal) |
+
+  Retiring it removes it from the held-job candidate set
+  (`provider_hold IS NOT NULL`), so the next tick probes the next candidate. A
+  credentials-only probe does **not** increment `flap_count`: it says nothing
+  about the provider's stability. Bounded to `PROBE_CANDIDATE_LIMIT` per tick
+  (task 2.2b).
 
 ### D-A4 — A held job stays `failed`; the wait is an additive field, not a status
 
@@ -279,7 +298,7 @@ pub struct ProviderHold {
 
 `AiImportJob.provider_hold: Option<ProviderHold>`.
 
-**Two writers produce a hold, because a job can be excluded before it is ever
+**Three writers produce a hold, because a job can be excluded before it is ever
 claimed.** An owner-fenced write needs a `running` row, and a job whose pair is
 already open is never claimed — it would sit `pending` with no reason and no
 deadline, which is exactly the invisibility #822 removed. So:
@@ -296,9 +315,19 @@ deadline, which is exactly the invisibility #822 removed. So:
    cleared on every close and a deadline stored inside it would restart at 6 h on
    each short recovery (D-C4). No claim, no owner, no provider call — and it
    notifies each returned id through the existing hub.
+3. **Hold materialization in the sweeper** (every `AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS`) — the same statement, re-run for every pair whose breaker is not
+   `closed` and every owed job of that pair whose `provider_hold IS NULL`. The
+   open-time write cannot cover two cases, and both would otherwise be **invisible
+   and unexpirable**: a job **enqueued while the breaker is already open** (the
+   claim predicate excludes it but writes nothing), and a `failed` job whose
+   `next_attempt_at` becomes due **after** the opening transition (it was not
+   runnable when the transition ran). Idempotent by the `provider_hold IS NULL`
+   guard; the sweeper is also what expires these holds (D-C4), so without this
+   writer the expiry precondition `provider_hold IS NOT NULL` could never be met.
 
-The claim-time SQL filter (D-A2) then covers only the race the materialization
-cannot: a job **enqueued** while the breaker is already open.
+Only the sweep is a *guarantee*; the transition write is the fast path that makes
+an outage visible in the same instant it is detected. The claim-time SQL filter
+(D-A2) is neither — it is purely the money-saver that stops the paid call.
 
 The held transition is a **new queue write**, `AiImportQueue::mark_held`,
 deliberately *not* `mark_failed`:
@@ -315,8 +344,12 @@ deliberately *not* `mark_failed`:
 | attempt history | +1 row per failure | **no identical rows** |
 
 `provider_hold` is cleared by every other lifecycle write (claim, `mark_succeeded`,
-`mark_failed`, `mark_payload_unavailable`, dead-letter) — the same discipline
-`progress` (#763) and `decision_telemetry` (#767) already follow.
+`mark_failed`, `mark_payload_unavailable`, ordinary dead-letter). The **one
+exception** is the hold-expiry write, which keeps the field with
+`state = Expired` (D-C4): that marker is the only durable signal separating "the
+provider never came back" from "the retry budget is spent", so it must survive
+the very terminal transition it records. Every other terminal path clears the
+field as before.
 
 ### D-A5 — Both pre-claim and mid-run abort, at the chunk boundary
 
@@ -346,18 +379,27 @@ the same outage still failing to clear. The breaker therefore also records
 | From → To | Trigger | Effect |
 |---|---|---|
 | `closed → open` | Nth consecutive failure | `opened_at = now()`; `flap_count` = `CASE WHEN closed_at IS NOT NULL AND now() - closed_at < STABLE_WINDOW THEN flap_count + 1 ELSE 0 END`; `retry_at = now() + min_open(flap_count)`; **materialize the hold** on every runnable job of the pair (D-A4) |
-| `open → half_open` | `retry_at <= now()` and the **probe task** CASes `probe_owner` | exactly one prober per window; a stale `probe_started_at` (older than the probe lease) lets the next tick take over; no claim is admitted in this state (D-A2) |
+| `open → half_open` | `retry_at <= now()` and the **probe task** CASes a fresh `probe_lease_id` (a new UUIDv7 per attempt, with `probe_owner` + `probe_started_at`) | exactly one prober per window; a stale `probe_started_at` (older than the probe lease) lets the next tick take over; no claim is admitted in this state (D-A2) |
 | `half_open → closed` | probe (or any paid call) succeeded | `consecutive_failures = 0`, `retry_at = NULL`, `closed_at = now()`, `probe_owner = NULL`; **release** the pair's held jobs (`provider_hold = NULL`) — they are claimable again through their own `next_attempt_at`, which is now in the past; the **hold series clock survives** (D-C4) |
 | `half_open → open` | probe failed | `flap_count` **unchanged** (same outage); `retry_at = now() + min_open(flap_count)`; **refresh** every held job of the pair to the new `retry_at` |
 
-**Every probe result is fenced to the probe it belongs to.** A probe can outlive its
-lease (a hung `GET /models`), and by then another task may own the state; an
+**Every probe result is fenced to the lease it belongs to.** A probe can outlive
+its lease (a hung `GET /models`), and by then another task may own the state; an
 unfenced write would let the stale result close or re-open a state it never
-observed. Both result writes are therefore conditional on the owner and the state:
-`... WHERE provider = $1 AND model = $2 AND state = 'half_open' AND probe_owner = $3`.
+observed. `probe_owner` is therefore **not** the fence — the same owner can
+reacquire the lease, and its earlier result would still match. The fence is the
+**lease token**: a fresh `probe_lease_id` (UUIDv7) written by the
+`open → half_open` CAS and matched by both result writes:
+
+```sql
+... WHERE provider = $1 AND model = $2 AND state = 'half_open'
+      AND probe_lease_id = $3
+```
+
 Zero rows ⇒ the result is discarded (debug log, no state change) — the same
 `ensure_claim_owned` discipline every other owner-fenced write in this codebase
-uses.
+uses. `probe_owner` stays for operator readability only. Same-owner reacquisition
+is a test case for both outcomes, not an assumption.
 
 `min_open(n) = min(BASE_OPEN · 2^n, MAX_OPEN)` with `BASE_OPEN` 60 s and
 `MAX_OPEN` 30 min. The stable-window test lives on `closed → open` because that
@@ -468,16 +510,34 @@ the applied scene rows. Insert on completion with
 - the resume unit equals the **paid call**, which is the only unit that matters
   for cost.
 
-**Every chunk write is claim-fenced, like every other worker-originated write.**
-A worker that lost its claim during an in-flight call must not be able to add a
-result produced under the *old* configuration into a chunk set another worker has
-since invalidated (D-B7). So the write carries the owner and the fingerprint and
-is executed as an `INSERT … SELECT … FROM ai_import.ai_import_job WHERE id = $1
-AND status = 'running' AND worker_id = $2 AND extraction_key = $6`: zero rows
-means `DomainError::Conflict` through the same `ensure_claim_owned` discipline as
-`mark_progress`/`mark_failed`, and the worker aborts the attempt instead of
-writing. The loop also re-checks `heartbeat::claim_lost` before each write, so a
-lost claim costs at most one already-paid chunk — it never corrupts the set.
+**Every chunk write is claim-fenced, like every other worker-originated write — and
+the fence is a row lock, not a predicate.** A worker that lost its claim during an
+in-flight call must not be able to add a result produced under the *old*
+configuration into a chunk set another worker has since invalidated (D-B7). A bare
+`INSERT … SELECT … WHERE status = 'running' AND worker_id = $2 AND extraction_key =
+$6` would not be enough: under READ COMMITTED that sub-select reads the job row
+without a lock, so another session can reclaim the job and rewrite `extraction_key`
+between the read and the commit, and the stale write lands anyway. The
+`claim_lost` heartbeat check does not close that window either — it is a check, not
+a lock.
+
+The write therefore runs in one transaction that **takes the job row first**:
+
+```sql
+SELECT status, worker_id, extraction_key FROM ai_import.ai_import_job
+ WHERE id = $1 FOR UPDATE;                       -- lock, held to commit
+-- verify the row still says running / $2 / $6, else Conflict
+INSERT INTO ai_import.ai_import_job_chunk …  ON CONFLICT (job_id, chunk_index) DO UPDATE …;
+```
+
+`FOR UPDATE` (not `FOR SHARE`) because the **invalidation path takes the same lock
+on the same row**: `provider_hold`-style fingerprint rewrite plus the `DELETE` of
+the job's chunk rows also run under `FOR UPDATE` on that job row, in one
+transaction. Both writers therefore serialize on one row in one order — job row
+first, chunk rows second — which removes the lock-ordering ambiguity instead of
+relying on it. A lost claim costs at most one already-paid chunk and can never mix
+configurations. Zero rows from the guarded insert means `DomainError::Conflict`,
+the same `ensure_claim_owned` discipline as `mark_progress`/`mark_failed`.
 
 The preview is still assembled and applied **once** at the end (today's
 behaviour: `context.scenes` accumulate in memory; the preview is written at
@@ -641,7 +701,7 @@ rejecting an operator's choice.
 
   Before #871 the same quantity was `6 × 120 s + 5 × 30 s = 870 s = 14.5 min`.
   The loop short-circuits the moment the breaker is open instead of sleeping
-  through the backoff, so `retry_bounded` gains that check **before** the sleep u2014
+  through the backoff, so `retry_bounded` gains that check **before** the sleep —
   an open breaker then costs neither a call nor a delay. The bound is asserted as a
   computed constant in a test, never as a sleep.
 
@@ -704,11 +764,11 @@ provider_hold_series_started_at + AI_IMPORT_MAX_PROVIDER_HOLD_SECS` only moves w
 the series ends. The series ends when (a) the job is **claimed** (it actually ran,
 so the next hold is a new episode), or (b) the job has been un-held for
 `STABLE_WINDOW` — the same sustained-recovery horizon the flap rule uses (D-A6);
-the sweeper clears the column for such rows as hygiene. It is also cleared by every
-terminal transition.
-provider cannot reset the 6 h budget one probe at a time. It is cleared together
-with `provider_hold` — on a successful close (D-A6), on expiry, and on every other
-lifecycle write.
+the sweeper clears the column for such rows as hygiene. The series clock is
+**never** cleared by a breaker close (that is the whole point), and terminal
+writes clear it: `mark_succeeded`, `mark_payload_unavailable`, the credential
+retirement (D-A3) and the expiry itself. A re-hold keeps it, so a flapping
+provider cannot reset the 6 h budget one probe at a time.
 
 On expiry:
 
