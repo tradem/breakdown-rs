@@ -56,8 +56,8 @@ deadline and thereby prevent the expiry. The series ends when the job is claimed
 `provider_hold` SHALL be kept on the expiry write with `state = expired` — the
 durable marker that separates "the provider never came back" from "the retry budget
 is spent" — and that write is the **only** terminal path that does not clear the
-field. Every other terminal transition (success, `payload_unavailable`, credential
-retirement, ordinary failure/dead-letter) clears it as before.
+field. Every other terminal transition (success, `payload_unavailable`, ordinary
+failure/dead-letter) clears it as before.
 
 #### Scenario: Three consecutive provider failures hold the queue instead of burning the budget
 - **WHEN** three consecutive chunk calls of one `(provider, model)` fail with
@@ -111,37 +111,41 @@ alone. **No claim SHALL be admitted while the breaker is not `closed`**: the pro
 is a task of its own, not a claimed job, so a due probe cannot turn into a queue
 drain of paid calls.
 
-The probe SHALL be the existing cheap model-catalog read (`GET {base}/models`),
-authenticated with the credential of one **active held** job of that pair —
-`status = 'failed'` with `provider_hold.state` in `open`/`half_open`, so a job
-carrying the retained terminal expiry marker is never selected as a credential
-donor. The probe SHALL run in **three short steps** — commit the lease CAS, perform
-the request outside any transaction, then commit the fenced result (and any
-retirement) — so a hung request cannot hold the breaker row lock and thereby block
-the lease takeover it depends on.
+The probe SHALL be a **reachability** read of the same endpoint the jobs use, and it
+SHALL judge reachability only:
 
-Two outcomes
-SHALL be distinguished, because a dead credential is not a provider verdict: a
-*transport / 5xx / 429 / timeout* outcome re-opens the breaker and advances its
-probe time (and counts as a flap only under the stable-window rule), while an
-*authentication / entitlement / bad model* outcome SHALL NOT re-open the breaker.
-For the latter the probed job SHALL be **retired** by a claim-free, probe-fenced
-write executed in the probe's final step, inside the same short transaction as the
-fenced result (that is its fence) — `dead_letter`, `retries` unchanged, exactly one
-attempt row (`dependency.auth-failed`, `retryable = false`,
-`attempt_no = retries + 1`), `provider_hold` and the series clock cleared — and the
-retirement SHALL re-check that the job is still an active hold
-(`status = 'failed'` and `provider_hold.state` in `open`/`half_open`), so a job that
-expired in between is left untouched instead of losing its expiry marker.
-Retirement removes it from the
-held-job candidate set, so the next probe uses the next candidate and one user's
-revoked key cannot hold the breaker open for everybody else. A credentials-only
-probe SHALL NOT increment the flap count.
+- the hosted path uses the existing cheap model-catalog read (`GET {base}/models`);
+- the **Ollama** path SHALL probe **unauthenticated** (the curated `/api/tags`
+  endpoint through the local-only redirect policy), because Ollama has no API key at
+  all and the catalog client rejects an empty key while always sending a bearer
+  token — which would also leak a credential to a plain-HTTP local origin
+  (CWE-319). An Ollama breaker MUST be able to close.
+
+A probe result SHALL NEVER retire, fail or otherwise terminalize a job: it is a
+verdict about the endpoint. A 2xx closes the breaker; a transport error, timeout,
+429 or 5xx keeps it open and advances its probe time (flap rule applies); a 401 or
+403 **closes** it as well — the endpoint answered, and a catalog denial does not
+establish that the credential cannot run a completion (a restricted key may allow
+chat without model listing, and a key may be replaced while the request is in
+flight). A job whose own credential is unusable is terminalized by its **own**
+attempt through the existing permanent path, never by a probe.
+
+The donor job's identity SHALL be captured with the credential selection (job id,
+user id, document kind) and used for the log line and candidate rotation, never
+re-derived later: re-selecting "a job of that user" would pick a different job as
+soon as the first one expires.
+
+The probe SHALL run in **three short steps** — commit the lease CAS, perform the
+request outside any transaction, then commit the fenced result — so a hung request
+cannot hold the breaker row lock and thereby block the lease takeover it depends
+on.
 
 Every probe **result** SHALL be fenced to the **lease that produced it**, not to the
 owner: a fresh lease token per probe attempt, matched by both result writes
 together with the `half_open` state, so neither a probe that outlives its lease nor
 the same owner reacquiring it can close or re-open a state it no longer owns.
+
+A rejected-credential probe SHALL NOT increment the flap count.
 
 No paid completion SHALL be spent to learn that an endpoint recovered.
 
@@ -172,12 +176,25 @@ through open/closed at a fixed rate.
 
 #### Scenario: A dead probe credential does not pin the breaker
 
-- **WHEN** the oldest held job's credential is revoked and the probe answers 401
-- **THEN** the breaker stays `open` but the flap count is unchanged, and that job
-  is retired to `dead_letter` with one `dependency.auth-failed` attempt row and an
-  untouched `retries`
-- **AND** the next probe runs with the next held job's credential, so a user with
-  a valid key is not blocked behind a revoked one
+- **WHEN** the donor job's credential is revoked and the probe answers 401
+- **THEN** the breaker closes (the endpoint answered) and the flap count is
+  unchanged, and **no** job is terminalized by the probe
+- **AND** that job's own attempt fails with `dependency.auth-failed` through the
+  existing permanent path and terminalizes itself
+
+#### Scenario: A catalog-only denial does not kill a job
+
+- **WHEN** the probe answers 403 because the key may run chat completions but may
+  not list models
+- **THEN** the breaker closes and the outcome is logged, and the job stays queued
+- **AND** the job can complete once the hold is released
+
+#### Scenario: An Ollama breaker can recover
+
+- **WHEN** the provider is Ollama
+- **THEN** the probe is issued unauthenticated (no vault read, no bearer token) and
+  a 2xx closes the breaker
+- **AND** the plain-HTTP curated origin never receives a credential
 
 #### Scenario: The probe never holds the breaker lock across the request
 
@@ -391,11 +408,20 @@ defense in depth.
   no call
 - **AND** the guard is consulted before every attempt, not only before a sleep
 
+#### Scenario: A parse retry inside one attempt is guarded too
+- **WHEN** the first billed request of an attempt returns a truncated response and
+  the client is about to re-request at a doubled budget, while the breaker has been
+  opened by another worker
+- **THEN** that second request is not issued and the attempt ends on the hold path
+- **AND** the internal breaker sentinel is never serialized as a wire error
+
 #### Scenario: The permit bound counts the waits, not only the calls
 - **WHEN** the in-attempt worst case is computed from `max_attempt_retries = 2`,
-  `request_timeout_secs = 120` and the 30 s backoff cap
-- **THEN** the bound is `3 × 120 s + 2 × 30 s = 7 min`, and a test asserts that
-  arithmetic rather than sleeping it
+  `request_timeout_secs = 120`, the 30 s backoff cap and the client-internal
+  truncation retries (`MAX_TRUNCATION_RETRIES = 2`, Ollama up to 3)
+- **THEN** the bound is `3 × 3 × 120 s + 2 × 30 s = 19 min` on the hosted path and
+  `3 × 4 × 120 s + 2 × 30 s = 25 min` on Ollama
+- **AND** a fake transport counting requests asserts both, instead of sleeping them
 
 #### Scenario: A waiting job occupies no capacity
 - **WHEN** a job is held for an open breaker

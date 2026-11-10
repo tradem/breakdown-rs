@@ -64,24 +64,26 @@ clock (AGENTS.md §4).
       registration/join as 2.10b) that, for every breaker with
       `state <> 'closed' AND retry_at <= now()`, runs the probe in **three short
       steps** — (1) commit the `open → half_open` CAS with a fresh `probe_lease_id`,
-      (2) perform `catalog.rs` `GET {base}/models` **outside any transaction** so a
-      hung request cannot hold the row lock and block the lease takeover, (3) commit
-      the fenced result (and any retirement) — never one transaction across the
-      network call. Candidate selection uses an **active** hold only (`status =
-      'failed'` and `provider_hold.state` in `open`/`half_open`), so an expired
-      terminal marker is never a credential donor. It must not claim a job and must
-      not issue a paid call.
-      A *credentials* outcome (401/403/entitlement/bad model) is **not** a provider
-      verdict: **retire** the probed job with a claim-free, probe-fenced write
-      executed inside the probe's transaction after its lease CAS (`dead_letter`,
-      `retries` unchanged, one `dependency.auth-failed` attempt row with
-      `attempt_no = retries + 1`, `provider_hold` + series clock cleared — the
-      accounting table is in **D-A3**; `mark_failed` cannot do it, it is fenced on
-      `status='running' AND worker_id=$2`), do not re-open via the flap rule, and
-      let the next tick probe the next candidate — `PROBE_CANDIDATE_LIMIT` per tick
-      (3). The retirement re-checks the active-hold state (`status = 'failed'`,
-      `provider_hold.state` in `open`/`half_open`) so it never overwrites an expiry
-      marker, and it runs inside step 3. Every result write is CAS-fenced on the
+      (2) perform the provider request **outside any transaction** so a hung request
+      cannot hold the row lock and block the lease takeover, (3) commit the fenced
+      result — never one transaction across the network call. Candidate selection
+      returns the **job identity** (`id, user_id, document_kind`), restricted to an
+      **active** hold (`status = 'failed'` and `provider_hold.state` in
+      `open`/`half_open`), so an expired terminal marker is never a donor and the id
+      is never re-derived. **Provider dispatch**: hosted → `catalog.list(provider,
+      vaulted_key)`; **Ollama → unauthenticated `GET {curated ollama base}/api/tags`**
+      (no vault read, no bearer — `catalog.rs:140` rejects an empty key and would
+      leak a token to a plain-HTTP origin). **Outcome classification is
+      reachability-only**: 2xx → close; transport/timeout/429/5xx → stay open +
+      advance `retry_at`; **401/403 → close** and log the rejection. The probe
+      **never** retires or terminalizes a job — that is the job's own attempt's job
+      (#637 permanent path). It must not claim a job and must not issue a paid call.
+      A *credentials* outcome (401/403) is **not** a provider verdict either — and it
+      is **not** grounds to retire a job: the endpoint answered, so the breaker
+      closes, and the job's own attempt later produces the honest
+      `dependency.auth-failed` through the existing permanent path (#637). Rotation
+      is bounded to `PROBE_CANDIDATE_LIMIT` per tick (3). Every result write is
+      CAS-fenced on the
       **probe lease token** (`state = 'half_open' AND probe_lease_id = $3`), never on
       `probe_owner`, which the same task can reacquire.
 - [ ] 2.3 Every transition logs `tracing::warn!` with the literal marker
@@ -99,9 +101,9 @@ clock (AGENTS.md §4).
       `retries` and **without** inserting an `ai_import_job_attempt` row; plus
       clearing `provider_hold` in `claim_next*`, `mark_succeeded`, `mark_failed`,
       `mark_payload_unavailable`, the ordinary dead-letter path **and on a
-      successful breaker close** (**D-A4**, **D-A6**) — with two documented
-      exceptions: the **hold-expiry** write keeps it with `state = expired`, and the
-      credential **retirement** (2.2b) clears it as a terminal write.
+      successful breaker close** (**D-A4**, **D-A6**) — with **one** documented
+      exception: the **hold-expiry** write keeps it with `state = expired`, because
+      that marker is what separates an expiry from a spent retry budget.
 - [ ] 2.5b `queue.rs`: `hold_runnable_jobs(provider, model, retry_at)`, the
       claim-free materialization run by the `closed→open` transition
       (`status='pending'` or due `failed`, one statement, notify each returned id),
@@ -138,6 +140,14 @@ clock (AGENTS.md §4).
       by another worker opening the breaker *during* that sleep, and the loop would
       then still call. Short-circuit: no call, no sleep (the call-count half of
       **D-C2**).
+- [ ] 2.9b `client.rs` + `ollama.rs`: the guard also goes **inside** the clients,
+      because one attempt is not one request — `request_decoded` issues up to
+      `1 + MAX_TRUNCATION_RETRIES = 3` billed requests (Ollama: up to
+      `1 + max_parse_retries ≤ 4`) while re-requesting a truncated/malformed answer.
+      Check the guard before **every** billable request, parse retries included, and
+      return an internal `ProviderBreakerOpen` sentinel that `retry_bounded` and the
+      chunk loop treat as terminal-and-hold (never a retryable `ServiceUnavailable`,
+      which would be retried, and never a serialized wire error — D-X1).
 - [ ] 2.10 Payload GC + `dev_reset/business.rs` + `dev_reset/plan.rs`: register
       `ai_import.provider_health` (before the job delete) (**D-X3**).
 - [ ] 2.10b Provider-hold sweeper: a periodic claim-free task
@@ -160,11 +170,10 @@ clock (AGENTS.md §4).
       transition holds a queued (never-claimed) job with the series clock set; a
       failed probe refreshes the held rows' `until`; a successful close clears
       `provider_hold` **but not** the series clock; a flap cycle does not reset
-      `hold_deadline`; a stale probe result writes nothing; a credentials-only
-      probe retires the candidate without touching `flap_count` or overwriting an
-      expiry marker; the sweeper dead-letters an expired hold with `state =
-      expired` and `retries` unchanged; a **hung probe** leaves the breaker row
-      unlocked so the next tick takes over the lease.
+      `hold_deadline`; a stale probe result writes nothing; a 401/403 probe
+      **closes** the breaker and terminalizes **no** job; the sweeper dead-letters an
+      expired hold with `state = expired` and `retries` unchanged; a **hung probe**
+      leaves the breaker row unlocked so the next tick takes over the lease.
 
 ## 3. [A] API, client and docs
 
@@ -262,10 +271,11 @@ clock (AGENTS.md §4).
 - [ ] 7.1 In-attempt retries read `bounds.max_attempt_retries` (not
       `max_retries`) in `retry_chat`/`retry_schedule` (**D-C1**).
 - [ ] 7.2 Held jobs release the permit with the attempt; document and assert the
-      computed in-attempt worst-case window `(1 + max_attempt_retries) ×
-      request_timeout_secs + max_attempt_retries × 30 s` (= 7 min at the defaults)
-      — the **backoff sleeps count**, because `retry_bounded` sleeps while holding
-      the permit (**D-C2**).
+      computed in-attempt worst-case window **across both nested layers** —
+      `(1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs +
+      max_attempt_retries × 30 s` = **19 min** hosted (`inner = 2`) / **25 min**
+      Ollama (`inner ≤ 3`) — because `retry_bounded` sleeps while holding the permit
+      and the clients re-request inside one attempt (**D-C2**).
 - [ ] 7.3 `next_attempt_at` for a held job = the breaker's `retry_at`; the job
       curve stays for the `≤ threshold − 1` pre-breaker failures (**D-C3**).
 - [ ] 7.4 Hold expiry → `dead_letter` with the provider narrative, `retries`

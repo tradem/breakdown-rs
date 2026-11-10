@@ -226,62 +226,65 @@ predicate does not filter it, which is the honest degradation.
 - **The probe is its own task, not a claimed job.** Because only `closed` admits a
   claim (D-A2), no worker is running for that pair when the probe becomes due, so
   the probe cannot ride on a claim: it is a CAS'd task in the sweeper family
-  (D-C4/D-X2), and its credential comes from **one active held job of the pair**
-  (`SELECT user_id FROM ai_import.ai_import_job
+  (D-C4/D-X2), and its credential comes from **one active held job of the pair** —
+  the query returns the *job's identity*, not just its user
+  (`SELECT id, user_id, document_kind FROM ai_import.ai_import_job
   WHERE provider = $1 AND model = $2 AND status = 'failed'
     AND provider_hold IS NOT NULL
     AND provider_hold ->> 'state' IN ('open', 'half_open')
-  ORDER BY created_at LIMIT 1`, then the existing `resolve_config` + vault fetch for
-  that user). No permit, no chunk, no paid call, no synthetic credential — and a
-  pair with no active held job has nobody to probe for, which is correct: nothing
-  is waiting on it. The `state` predicate matters: the terminal expiry marker
-  (D-C4) also leaves `provider_hold` non-null, and an expired job must never be
-  picked as a credential donor.
+  ORDER BY created_at LIMIT 1`). The id is kept for the log line (`#871 provider
+  breaker` names the donor job) and never re-derived later: re-selecting "a job of
+  that user" would be a different job as soon as the first one expires. No permit,
+  no chunk, no paid call, no synthetic credential. A pair with no active held job
+  has nobody to probe for, which is correct: nothing is waiting on it. The `state`
+  predicate matters: the terminal expiry marker (D-C4) also leaves `provider_hold`
+  non-null, and an expired job must never be picked as a credential donor.
+- **The probe dispatches on provider, because Ollama has no credential at all.**
+  `OpenAiCompatibleModelCatalog::list` rejects an empty key
+  (`AI_CONFIG_EMPTY_VAULT_KEY`, `catalog.rs:140`) and always sends
+  `bearer_auth` — so it cannot probe a local Ollama endpoint, and forcing it to
+  would send a bearer token to a plain-HTTP curated origin (CWE-319; the same
+  reason `OllamaChatClient` holds no key). An Ollama breaker therefore probes
+  **unauthenticated** (`GET {curated ollama base}/api/tags` through the same
+  local-only redirect policy), and no vault read happens on that path at all. The
+  hosted path keeps `catalog.list(provider, vaulted_key)`. Without this split an
+  Ollama breaker could never close.
 - **The probe runs in three short steps, never one transaction across the network
-  call.** A single transaction containing the lease CAS *and* the `GET /models`
-  request would hold the row lock for the whole request (up to
-  `request_timeout_secs`), so a hung probe would lock out the very takeover that
-  the lease exists to allow:
+  call.** A single transaction containing the lease CAS *and* the request would hold
+  the row lock for the whole request (up to `request_timeout_secs`), so a hung probe
+  would lock out the very takeover that the lease exists to allow:
 
   | step | transaction | content |
   |---|---|---|
   | 1 | short, committed | `open → half_open` CAS: `probe_lease_id` (fresh UUIDv7), `probe_owner`, `probe_started_at` |
-  | 2 | **none** | the catalog request, outside any transaction |
-  | 3 | short, committed | the fenced result write (`state = 'half_open' AND probe_lease_id = $3`) plus, on a credentials outcome, the job retirement |
+  | 2 | **none** | the provider request, outside any transaction |
+  | 3 | short, committed | the fenced result write (`state = 'half_open' AND probe_lease_id = $3`) |
 
   Between the steps the breaker row is unlocked, so another tick can take over an
   expired lease — which is exactly why the result write must be fenced by the
   lease token (D-A6) instead of by "I hold the lock".
-- **A dead credential is not a provider verdict, and it must not pin the probe.**
-  The selected job's key may have been revoked during the outage; if that counted
-  as a failed probe, one user's revoked key would keep the breaker open for every
-  other user on the pair until the holds expired. So a probe outcome is classified:
-  *transport / 5xx / 429 / timeout* ⇒ the provider verdict (re-open + advance
-  `retry_at`); *authentication / entitlement / bad model* ⇒ **not** a verdict, and
-  the affected job is **retired**. `mark_failed` cannot do that — it is
-  owner-fenced on `status = 'running' AND worker_id = $2`
-  (`queue.rs:929`) and a held job is `failed` with no owner — so the retirement is
-  its own **claim-free, probe-fenced** write, executed in **step 3** of the probe
-  (D-A3) inside the same short transaction as the result write: that is its fence
-  (no current lease, no retirement). It re-checks the candidate state rather than
-  trusting the pick from step 1 — `status = 'failed' AND provider_hold ->> 'state'
-  IN ('open', 'half_open')` — so a job that expired in between is left alone
-  instead of having its expiry marker overwritten. Accounting, all explicit:
+- **The probe judges reachability only, and it never retires a job.** A probe result
+  is a verdict about the endpoint, not about a document:
 
-  | field | value |
-  |---|---|
-  | `status` | `dead_letter` — the credential is permanent, so there is nothing to retry |
-  | `retries` | **unchanged** (the document did not fail) |
-  | attempt row | exactly **one**, `attempt_no = retries + 1`, code `dependency.auth-failed`, `retryable = false` — same numbering `mark_payload_unavailable` uses |
-  | `last_error` | the auth summary; the client's #637 narrative already covers that code |
-  | `next_attempt_at`, `provider_hold` | cleared (this is *not* a hold expiry, so no `Expired` marker) |
-  | `provider_hold_series_started_at` | cleared (terminal) |
+  | probe outcome | breaker | why |
+  |---|---|---|
+  | 2xx | **close** | the endpoint answers |
+  | transport error / timeout / 429 / 5xx | **stay open**, `retry_at` advanced, flap rule applies | the outage this breaker exists for |
+  | 401 / 403 | **close**, log `#871 probe: catalog credential rejected (401/403)` | the endpoint answered — that is what the probe measures. A catalog denial does **not** establish that the credential cannot run a completion: a restricted key may hold `chat.completions` without `models.read`, and a key may even be replaced while the request is in flight |
 
-  Retiring it removes it from the held-job candidate set
-  (`provider_hold IS NOT NULL`), so the next tick probes the next candidate. A
-  credentials-only probe does **not** increment `flap_count`: it says nothing
-  about the provider's stability. Bounded to `PROBE_CANDIDATE_LIMIT` per tick
-  (task 2.2b).
+  So the earlier draft's **retirement** write is **dropped entirely**. It answered a
+  problem that the existing machinery already solves correctly: a job whose own
+  credential is dead is claimed, fails with `dependency.auth-failed` through the
+  existing permanent path (#637, no retry) and terminalizes itself — one request
+  per affected job, no new write, and the honest code the client already localizes.
+  That also removes the need to fence a retirement against a mid-flight credential
+  change: nothing kills a job from a probe, so a key replaced while the probe runs
+  can never dead-letter a job that would have worked. The candidate set drains the
+  same way (a terminal job leaves `provider_hold IS NOT NULL`).
+
+  A rejected-credential probe does **not** increment `flap_count` — it says nothing
+  about the provider's stability — and `PROBE_CANDIDATE_LIMIT` (3) bounds how many
+  donor jobs one tick may try.
 
 ### D-A4 — A held job stays `failed`; the wait is an additive field, not a status
 
@@ -712,25 +715,51 @@ rejecting an operator's choice.
 - In-attempt retries keep the permit. Releasing and re-acquiring per retry would
   let another job interleave between two calls of the same chunk and double the
   acquire/reclaim traffic, for a benefit that the breaker already provides. What
-  matters is that the hold is **bounded and computed**, not guessed. The bound must
-  include the **backoff sleeps**, because `retry_bounded` sleeps while still
-  holding the permit (`workers.rs:3989`, `compute_backoff` capped at 30 s):
+  matters is that the hold is **bounded and computed**, not guessed — and the bound
+  has to cover everything one attempt can spend: the **request timeouts** (both
+  nested loops), the **backoff sleeps** (`retry_bounded` sleeps while still holding
+  the permit, `workers.rs:3989`, `compute_backoff` capped at 30 s) and the
+  client-internal parse retries (see the next bullet, which is what turns 7 min
+  into 19 min):
 
   ```
   (1 + max_attempt_retries) × request_timeout_secs
     + max_attempt_retries × MAX_ATTEMPT_BACKOFF        // 30 s, jitter ≤ 25 % is clamped into it
-  = 3 × 120 s + 2 × 30 s = 420 s = 7 min              // defaults
+  = 3 × 120 s + 2 × 30 s = 420 s = 7 min              // outer layer alone
   ```
 
-  Before #871 the same quantity was `6 × 120 s + 5 × 30 s = 870 s = 14.5 min`.
-  The loop short-circuits the moment the breaker is open instead of sleeping
-  through the backoff. **The check belongs at the top of every iteration, not only
-  before the sleep:** another worker can open the breaker *during* the backoff, and
-  a check that has already passed would then send the next attempt into a provider
-  everyone else has stopped calling — the exact waste the breaker exists to stop.
-  So the guard is consulted immediately before **each** attempt (the first one
-  included) and again before each sleep; an open breaker costs neither a call nor a
-  delay. The bound is asserted as a computed constant in a test, never as a sleep.
+  Before #871 the outer layer alone was `6 × 120 s + 5 × 30 s = 870 s = 14.5 min`.
+- **The guard is read before every attempt, not only before a sleep.** Another
+  worker can open the breaker *during* the backoff, and a check that has already
+  passed would then send the next attempt into a provider everyone else has stopped
+  calling — the exact waste the breaker exists to stop. The guard is therefore
+  consulted immediately before **each** attempt (the first one included) and again
+  before each sleep; an open breaker costs neither a call nor a delay.
+- **The guard also has to live inside the client, because one attempt is not one
+  request.** `OpenAiCompatibleChatClient::request_decoded` loops over
+  `MAX_TRUNCATION_RETRIES = 2` (`client.rs:54,172`), i.e. up to **three** billed HTTP
+  requests per outer attempt while a malformed/truncated response is re-requested at
+  a doubled budget; `OllamaChatClient` has the same shape with `max_parse_retries ≤ 3`
+  (up to four). A guard consulted only at the `retry_chat` boundary would let the
+  second and third request of an attempt go out after another worker had already
+  opened the breaker. Both clients therefore take the same
+  `ProviderHealthGuard` and consult it **before every billable request**, parse
+  retries included; on open the client returns an internal `ProviderBreakerOpen`
+  sentinel (never serialized, no new problem code — D-X1) that the outer loop and
+  the chunk loop treat as terminal-and-hold, not as a retryable error (a
+  `ServiceUnavailable` would be retried, which is the bug).
+- **The permit bound therefore multiplies the two layers:**
+
+  ```
+  (1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs
+    + max_attempt_retries × MAX_ATTEMPT_BACKOFF
+  hosted (inner = 2): 3 × 3 × 120 s + 2 × 30 s = 1140 s = 19 min
+  ollama (inner ≤ 3): 3 × 4 × 120 s + 2 × 30 s = 1500 s = 25 min
+  ```
+
+  The test asserts that arithmetic **and** the client's request count (a fake
+  transport counting calls), so a future retry layer cannot quietly re-open the
+  unbounded window. No wall-clock gating (AGENTS.md §4).
 
 ### D-C3 — A provider failure takes the hold, not the job backoff
 
@@ -793,9 +822,9 @@ so the next hold is a new episode), or (b) the job has been un-held for
 `STABLE_WINDOW` — the same sustained-recovery horizon the flap rule uses (D-A6);
 the sweeper clears the column for such rows as hygiene. The series clock is
 **never** cleared by a breaker close (that is the whole point), and terminal
-writes clear it: `mark_succeeded`, `mark_payload_unavailable`, the credential
-retirement (D-A3) and the expiry itself. A re-hold keeps it, so a flapping
-provider cannot reset the 6 h budget one probe at a time.
+writes clear it: `mark_succeeded`, `mark_payload_unavailable` and the expiry
+itself. A re-hold keeps it, so a flapping provider cannot reset the 6 h budget one
+probe at a time.
 
 On expiry:
 
