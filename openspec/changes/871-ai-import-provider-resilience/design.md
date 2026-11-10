@@ -156,13 +156,16 @@ AND NOT EXISTS (
     WHERE ph.provider = job.provider
       AND ph.model    = job.model
       AND ph.state <> 'closed'
-      AND ph.retry_at > now()
 )
 ```
 
-A `half_open` breaker therefore also blocks claims except for the one job whose
-worker wins the probe CAS (D-A6) — the probe is not a claim, it happens inside
-the attempt that already holds the job.
+**Only `closed` admits a claim — `retry_at` is the probe schedule, not a claim
+gate.** An earlier draft also required `ph.retry_at > now()`, which would have
+lifted the filter the moment the probe became due: at that instant the breaker is
+`half_open`, so every queued job of the pair would have been claimed and would
+have issued its paid first chunk — a queue drain instead of one probe, re-paying
+the outage the breaker just proved. Only the probe (D-A6) may end a non-`closed`
+state.
 
 ### D-A2b — The job snapshots `(provider, model)` at enqueue
 
@@ -213,6 +216,15 @@ predicate does not filter it, which is the honest degradation.
   screen (#809), and it costs no tokens. Reactive-only detection (option a) would
   need a canary job that pays to learn the endpoint recovered — exactly what the
   breaker exists to stop.
+- **The probe is its own task, not a claimed job.** Because only `closed` admits a
+  claim (D-A2), no worker is running for that pair when the probe becomes due, so
+  the probe cannot ride on a claim: it is a CAS'd task in the sweeper family
+  (D-C4/D-X2), and its credential comes from **one held job of the pair**
+  (`SELECT user_id FROM ai_import.ai_import_job WHERE provider = $1 AND model = $2
+  AND provider_hold IS NOT NULL ORDER BY created_at LIMIT 1`, then the existing
+  `resolve_config` + vault fetch for that user). No permit, no chunk, no paid
+  call, no synthetic credential — and a pair with no held job has nobody to probe
+  for, which is correct: nothing is waiting on it.
 
 ### D-A4 — A held job stays `failed`; the wait is an additive field, not a status
 
@@ -259,7 +271,8 @@ deadline, which is exactly the invisibility #822 removed. So:
 2. **Hold materialization on open** — the `closed → open` transition (D-A6)
    stamps **every runnable job of that pair** (`status IN ('pending')` or `failed`
    with a due `next_attempt_at`) in one statement: `status = 'failed'`,
-   `next_attempt_at = retry_at`, `provider_hold = …`. No claim, no owner, no
+   `next_attempt_at = retry_at`, `provider_hold = …` with
+   `hold_deadline = now() + AI_IMPORT_MAX_PROVIDER_HOLD_SECS`. No claim, no owner, no
    provider call — and it notifies each returned id through the existing hub.
 
 The claim-time SQL filter (D-A2) then covers only the race the materialization
@@ -311,7 +324,7 @@ the same outage still failing to clear. The breaker therefore also records
 | From → To | Trigger | Effect |
 |---|---|---|
 | `closed → open` | Nth consecutive failure | `opened_at = now()`; `flap_count` = `CASE WHEN closed_at IS NOT NULL AND now() - closed_at < STABLE_WINDOW THEN flap_count + 1 ELSE 0 END`; `retry_at = now() + min_open(flap_count)`; **materialize the hold** on every runnable job of the pair (D-A4) |
-| `open → half_open` | `retry_at <= now()` and a worker CASes `probe_owner` | exactly one prober per window; a stale `probe_started_at` (older than the probe lease) lets the next worker take over |
+| `open → half_open` | `retry_at <= now()` and the **probe task** CASes `probe_owner` | exactly one prober per window; a stale `probe_started_at` (older than the probe lease) lets the next tick take over; no claim is admitted in this state (D-A2) |
 | `half_open → closed` | probe (or any paid call) succeeded | `consecutive_failures = 0`, `retry_at = NULL`, `closed_at = now()`, `probe_owner = NULL`; **release** the pair's held jobs (`provider_hold = NULL`) — they are claimable again through their own `next_attempt_at`, which is now in the past |
 | `half_open → open` | probe failed | `flap_count` **unchanged** (same outage); `retry_at = now() + min_open(flap_count)`; **refresh** every held job of the pair to the new `retry_at` |
 

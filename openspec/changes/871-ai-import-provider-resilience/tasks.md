@@ -54,13 +54,21 @@ clock (AGENTS.md §4).
       refresh of the pair's held jobs); `min_open(n) = min(60 s · 2^n, 30 min)`;
       the `closed_at` column in the migration; pure `next_state(...)` function for
       the table-driven test.
+- [ ] 2.2b **Probe task** (D-A3): a periodic task in the sweeper family (same
+      registration/join as 2.10b) that, for every breaker with
+      `state <> 'closed' AND retry_at <= now()`, CASes `probe_owner`, resolves one
+      credential from a **held** job of that pair (oldest by `created_at`), runs the
+      existing `catalog.rs` `GET {base}/models` probe and closes or re-opens the
+      breaker. It must not claim a job and must not issue a paid call.
 - [ ] 2.3 Every transition logs `tracing::warn!` with the literal marker
       `#871 provider breaker` and the fields from **D-X2** (never a new health
       check on `/v1/health`).
-- [ ] 2.4 `queue.rs`: add the `NOT EXISTS (… provider_health …)` predicate to
-      **all four** claim paths (`claim_next`, `claim_next_kind`,
-      `claim_next_reconciling`, `claim_next_kind_reconciling`) — one semantics,
-      four copies (**D-A2**).
+- [ ] 2.4 `queue.rs`: add the `NOT EXISTS (… provider_health … ph.state <>
+      'closed')` predicate to **all four** claim paths (`claim_next`,
+      `claim_next_kind`, `claim_next_reconciling`,
+      `claim_next_kind_reconciling`) — one semantics, four copies. Only `closed`
+      admits a claim: `retry_at` must NOT appear in the predicate, or the due
+      probe would open a queue drain instead of a single probe (**D-A2**).
 - [ ] 2.5 `queue.rs`: `mark_held` (owner-fenced like `mark_failed`: `WHERE id = $1
       AND status = 'running' AND worker_id = $2`), writing `failed` +
       `next_attempt_at = hold.until` + `provider_hold`, **without** touching
@@ -100,11 +108,12 @@ clock (AGENTS.md §4).
       a permanent failure never does, `mark_held` leaves `retries` AND the attempt
       rows untouched, the flap escalation table (**D-X4**).
 - [ ] 2.12 Postgres test: the claim predicate skips a held job for an open pair
-      and claims it again once `retry_at` has passed and the breaker closed; the
-      `closed→open` transition holds a queued (never-claimed) job; a failed probe
-      refreshes the held rows' `until`; a successful close clears `provider_hold`;
-      the sweeper dead-letters an expired hold whose breaker is still open, with
-      `retries` unchanged.
+      and claims it again once `retry_at` has passed and the breaker closed; a job
+      is **not** claimable while the breaker is `half_open` (the drain regression);
+      the `closed→open` transition holds a queued (never-claimed) job with
+      `hold_deadline` set; a failed probe refreshes the held rows' `until`; a
+      successful close clears `provider_hold`; the sweeper dead-letters an expired
+      hold whose breaker is still open, with `retries` unchanged.
 
 ## 3. [A] API, client and docs
 

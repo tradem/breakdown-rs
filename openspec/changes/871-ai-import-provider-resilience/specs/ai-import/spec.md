@@ -82,20 +82,28 @@ with the hold when the breaker closes.
 ### Requirement: Breaker recovery is half-open, single-prober and flap-bounded
 
 The breaker SHALL recover through a `half_open` state: at its probe time exactly
-one worker SHALL be admitted to probe (a compare-and-set on the probe owner plus a
-probe lease, so a crashed prober cannot wedge the state), and the breaker SHALL
-close only on a successful probe or a successful paid call — never on elapsed
-time alone.
+one probe SHALL be admitted (a compare-and-set on the probe owner plus a probe
+lease, so a crashed prober cannot wedge the state), and the breaker SHALL close
+only on a successful probe or a successful paid call — never on elapsed time
+alone. **No claim SHALL be admitted while the breaker is not `closed`**: the probe
+is a task of its own, not a claimed job, so a due probe cannot turn into a queue
+drain of paid calls.
 
 The probe SHALL be the existing cheap model-catalog read (`GET {base}/models`),
-authenticated with the credential of the job whose observation opened the
-breaker. No paid completion SHALL be spent to learn that an endpoint recovered.
+authenticated with the credential of one **held** job of that pair. No paid
+completion SHALL be spent to learn that an endpoint recovered.
 
 The minimum open duration SHALL escalate with the flap count
 (`min(BASE_OPEN · 2^flaps, MAX_OPEN)`, 60 s base, 30 min cap), and a flap SHALL
 only be counted when the breaker re-opens inside `STABLE_WINDOW` (5 min) after
 closing, so a provider that answers once and fails again cannot loop the queue
 through open/closed at a fixed rate.
+
+#### Scenario: A due probe does not become a queue drain
+- **WHEN** a breaker reaches its probe time with five jobs of that pair queued
+- **THEN** only the single probe is admitted (one CAS winner) and no job is
+  claimed
+- **AND** the jobs stay held until the probe closes the breaker
 
 #### Scenario: Recovery closes the breaker and the held job completes
 - **WHEN** the probe at `retry_at` succeeds
