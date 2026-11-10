@@ -226,12 +226,32 @@ predicate does not filter it, which is the honest degradation.
 - **The probe is its own task, not a claimed job.** Because only `closed` admits a
   claim (D-A2), no worker is running for that pair when the probe becomes due, so
   the probe cannot ride on a claim: it is a CAS'd task in the sweeper family
-  (D-C4/D-X2), and its credential comes from **one held job of the pair**
-  (`SELECT user_id FROM ai_import.ai_import_job WHERE provider = $1 AND model = $2
-  AND provider_hold IS NOT NULL ORDER BY created_at LIMIT 1`, then the existing
-  `resolve_config` + vault fetch for that user). No permit, no chunk, no paid
-  call, no synthetic credential — and a pair with no held job has nobody to probe
-  for, which is correct: nothing is waiting on it.
+  (D-C4/D-X2), and its credential comes from **one active held job of the pair**
+  (`SELECT user_id FROM ai_import.ai_import_job
+  WHERE provider = $1 AND model = $2 AND status = 'failed'
+    AND provider_hold IS NOT NULL
+    AND provider_hold ->> 'state' IN ('open', 'half_open')
+  ORDER BY created_at LIMIT 1`, then the existing `resolve_config` + vault fetch for
+  that user). No permit, no chunk, no paid call, no synthetic credential — and a
+  pair with no active held job has nobody to probe for, which is correct: nothing
+  is waiting on it. The `state` predicate matters: the terminal expiry marker
+  (D-C4) also leaves `provider_hold` non-null, and an expired job must never be
+  picked as a credential donor.
+- **The probe runs in three short steps, never one transaction across the network
+  call.** A single transaction containing the lease CAS *and* the `GET /models`
+  request would hold the row lock for the whole request (up to
+  `request_timeout_secs`), so a hung probe would lock out the very takeover that
+  the lease exists to allow:
+
+  | step | transaction | content |
+  |---|---|---|
+  | 1 | short, committed | `open → half_open` CAS: `probe_lease_id` (fresh UUIDv7), `probe_owner`, `probe_started_at` |
+  | 2 | **none** | the catalog request, outside any transaction |
+  | 3 | short, committed | the fenced result write (`state = 'half_open' AND probe_lease_id = $3`) plus, on a credentials outcome, the job retirement |
+
+  Between the steps the breaker row is unlocked, so another tick can take over an
+  expired lease — which is exactly why the result write must be fenced by the
+  lease token (D-A6) instead of by "I hold the lock".
 - **A dead credential is not a provider verdict, and it must not pin the probe.**
   The selected job's key may have been revoked during the outage; if that counted
   as a failed probe, one user's revoked key would keep the breaker open for every
@@ -241,9 +261,12 @@ predicate does not filter it, which is the honest degradation.
   the affected job is **retired**. `mark_failed` cannot do that — it is
   owner-fenced on `status = 'running' AND worker_id = $2`
   (`queue.rs:929`) and a held job is `failed` with no owner — so the retirement is
-  its own **claim-free, probe-fenced** write, executed **inside the probe's
-transaction after its lease CAS succeeded** (that is its fence: no probe lease, no
-  retirement). Accounting, all explicit:
+  its own **claim-free, probe-fenced** write, executed in **step 3** of the probe
+  (D-A3) inside the same short transaction as the result write: that is its fence
+  (no current lease, no retirement). It re-checks the candidate state rather than
+  trusting the pick from step 1 — `status = 'failed' AND provider_hold ->> 'state'
+  IN ('open', 'half_open')` — so a job that expired in between is left alone
+  instead of having its expiry marker overwritten. Accounting, all explicit:
 
   | field | value |
   |---|---|
@@ -701,9 +724,13 @@ rejecting an operator's choice.
 
   Before #871 the same quantity was `6 × 120 s + 5 × 30 s = 870 s = 14.5 min`.
   The loop short-circuits the moment the breaker is open instead of sleeping
-  through the backoff, so `retry_bounded` gains that check **before** the sleep —
-  an open breaker then costs neither a call nor a delay. The bound is asserted as a
-  computed constant in a test, never as a sleep.
+  through the backoff. **The check belongs at the top of every iteration, not only
+  before the sleep:** another worker can open the breaker *during* the backoff, and
+  a check that has already passed would then send the next attempt into a provider
+  everyone else has stopped calling — the exact waste the breaker exists to stop.
+  So the guard is consulted immediately before **each** attempt (the first one
+  included) and again before each sleep; an open breaker costs neither a call nor a
+  delay. The bound is asserted as a computed constant in a test, never as a sleep.
 
 ### D-C3 — A provider failure takes the hold, not the job backoff
 

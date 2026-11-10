@@ -112,16 +112,28 @@ is a task of its own, not a claimed job, so a due probe cannot turn into a queue
 drain of paid calls.
 
 The probe SHALL be the existing cheap model-catalog read (`GET {base}/models`),
-authenticated with the credential of one **held** job of that pair. Two outcomes
+authenticated with the credential of one **active held** job of that pair —
+`status = 'failed'` with `provider_hold.state` in `open`/`half_open`, so a job
+carrying the retained terminal expiry marker is never selected as a credential
+donor. The probe SHALL run in **three short steps** — commit the lease CAS, perform
+the request outside any transaction, then commit the fenced result (and any
+retirement) — so a hung request cannot hold the breaker row lock and thereby block
+the lease takeover it depends on.
+
+Two outcomes
 SHALL be distinguished, because a dead credential is not a provider verdict: a
 *transport / 5xx / 429 / timeout* outcome re-opens the breaker and advances its
 probe time (and counts as a flap only under the stable-window rule), while an
 *authentication / entitlement / bad model* outcome SHALL NOT re-open the breaker.
 For the latter the probed job SHALL be **retired** by a claim-free, probe-fenced
-write executed inside the probe's own transaction after its lease CAS succeeded —
-`dead_letter`, `retries` unchanged, exactly one attempt row
-(`dependency.auth-failed`, `retryable = false`, `attempt_no = retries + 1`),
-`provider_hold` and the series clock cleared. Retirement removes it from the
+write executed in the probe's final step, inside the same short transaction as the
+fenced result (that is its fence) — `dead_letter`, `retries` unchanged, exactly one
+attempt row (`dependency.auth-failed`, `retryable = false`,
+`attempt_no = retries + 1`), `provider_hold` and the series clock cleared — and the
+retirement SHALL re-check that the job is still an active hold
+(`status = 'failed'` and `provider_hold.state` in `open`/`half_open`), so a job that
+expired in between is left untouched instead of losing its expiry marker.
+Retirement removes it from the
 held-job candidate set, so the next probe uses the next candidate and one user's
 revoked key cannot hold the breaker open for everybody else. A credentials-only
 probe SHALL NOT increment the flap count.
@@ -166,6 +178,20 @@ through open/closed at a fixed rate.
   untouched `retries`
 - **AND** the next probe runs with the next held job's credential, so a user with
   a valid key is not blocked behind a revoked one
+
+#### Scenario: The probe never holds the breaker lock across the request
+
+- **WHEN** the catalog request hangs until its timeout
+- **THEN** the lease CAS is already committed and the breaker row is unlocked
+- **AND** another tick may take over the expired lease, and the hung probe's late
+  result is discarded because its lease token no longer matches
+
+#### Scenario: An expired job is never a probe credential donor
+
+- **WHEN** the oldest job of the pair carries the retained expiry marker
+  (`provider_hold.state = expired`)
+- **THEN** the probe selects the next active held job instead, and never rewrites
+  the expired marker
 
 #### Scenario: A stale probe result is discarded
 
@@ -353,10 +379,17 @@ defense in depth.
 - **AND** the job-level budget is charged only by attempts that actually ran
 
 #### Scenario: An open breaker costs neither a call nor a sleep
+
 - **WHEN** the in-attempt retry loop finds the breaker open before its next
   attempt
 - **THEN** it stops immediately without issuing a call and without sleeping the
   backoff
+
+#### Scenario: A breaker opened during the backoff stops the next call
+- **WHEN** another worker opens the breaker while the loop sleeps its backoff
+- **THEN** the check at the top of the next iteration sees it and the retry issues
+  no call
+- **AND** the guard is consulted before every attempt, not only before a sleep
 
 #### Scenario: The permit bound counts the waits, not only the calls
 - **WHEN** the in-attempt worst case is computed from `max_attempt_retries = 2`,

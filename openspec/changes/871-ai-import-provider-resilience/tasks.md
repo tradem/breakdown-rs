@@ -62,10 +62,15 @@ clock (AGENTS.md §4).
       the table-driven test.
 - [ ] 2.2b **Probe task** (D-A3): a periodic task in the sweeper family (same
       registration/join as 2.10b) that, for every breaker with
-      `state <> 'closed' AND retry_at <= now()`, CASes `probe_owner`, resolves one
-      credential from a **held** job of that pair (oldest by `created_at`), runs the
-      existing `catalog.rs` `GET {base}/models` probe and closes or re-opens the
-      breaker. It must not claim a job and must not issue a paid call.
+      `state <> 'closed' AND retry_at <= now()`, runs the probe in **three short
+      steps** — (1) commit the `open → half_open` CAS with a fresh `probe_lease_id`,
+      (2) perform `catalog.rs` `GET {base}/models` **outside any transaction** so a
+      hung request cannot hold the row lock and block the lease takeover, (3) commit
+      the fenced result (and any retirement) — never one transaction across the
+      network call. Candidate selection uses an **active** hold only (`status =
+      'failed'` and `provider_hold.state` in `open`/`half_open`), so an expired
+      terminal marker is never a credential donor. It must not claim a job and must
+      not issue a paid call.
       A *credentials* outcome (401/403/entitlement/bad model) is **not** a provider
       verdict: **retire** the probed job with a claim-free, probe-fenced write
       executed inside the probe's transaction after its lease CAS (`dead_letter`,
@@ -74,9 +79,11 @@ clock (AGENTS.md §4).
       accounting table is in **D-A3**; `mark_failed` cannot do it, it is fenced on
       `status='running' AND worker_id=$2`), do not re-open via the flap rule, and
       let the next tick probe the next candidate — `PROBE_CANDIDATE_LIMIT` per tick
-      (3). Every result write is CAS-fenced on the **probe lease token**
-      (`state = 'half_open' AND probe_lease_id = $3`), never on `probe_owner`,
-      which the same task can reacquire.
+      (3). The retirement re-checks the active-hold state (`status = 'failed'`,
+      `provider_hold.state` in `open`/`half_open`) so it never overwrites an expiry
+      marker, and it runs inside step 3. Every result write is CAS-fenced on the
+      **probe lease token** (`state = 'half_open' AND probe_lease_id = $3`), never on
+      `probe_owner`, which the same task can reacquire.
 - [ ] 2.3 Every transition logs `tracing::warn!` with the literal marker
       `#871 provider breaker` and the fields from **D-X2** (never a new health
       check on `/v1/health`).
@@ -125,8 +132,12 @@ clock (AGENTS.md §4).
 - [ ] 2.8 `worker_loop.rs`: post-`resolve_config` authoritative re-check for the
       **resolved** pair + stamp-refresh of the snapshot when it differs
       (**D-A2b**).
-- [ ] 2.9 `retry_bounded`/`retry_chat`/`retry_schedule`: short-circuit on an open
-      breaker instead of sleeping (the call-count half of **D-C2**).
+- [ ] 2.9 `retry_bounded`/`retry_chat`/`retry_schedule`: consult the breaker guard
+      at the **top of every iteration** (the first attempt included) and again before
+      each backoff sleep — a check that runs only before the sleep can be invalidated
+      by another worker opening the breaker *during* that sleep, and the loop would
+      then still call. Short-circuit: no call, no sleep (the call-count half of
+      **D-C2**).
 - [ ] 2.10 Payload GC + `dev_reset/business.rs` + `dev_reset/plan.rs`: register
       `ai_import.provider_health` (before the job delete) (**D-X3**).
 - [ ] 2.10b Provider-hold sweeper: a periodic claim-free task
@@ -150,8 +161,10 @@ clock (AGENTS.md §4).
       failed probe refreshes the held rows' `until`; a successful close clears
       `provider_hold` **but not** the series clock; a flap cycle does not reset
       `hold_deadline`; a stale probe result writes nothing; a credentials-only
-      probe terminalizes that job without touching `flap_count`; the sweeper
-      dead-letters an expired hold with `state = expired` and `retries` unchanged.
+      probe retires the candidate without touching `flap_count` or overwriting an
+      expiry marker; the sweeper dead-letters an expired hold with `state =
+      expired` and `retries` unchanged; a **hung probe** leaves the breaker row
+      unlocked so the next tick takes over the lease.
 
 ## 3. [A] API, client and docs
 
