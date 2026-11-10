@@ -1,0 +1,134 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
+
+# flutter-ai-import-workflow
+
+## ADDED Requirements
+
+### Requirement: A held job renders why it is waiting, not that it failed
+
+The client SHALL render the additive `AiImportJob.provider_hold` state as a
+**waiting** state that extends the #822 degraded-provider banner rather than
+contradicting it. The rendered copy SHALL name:
+
+- the provider (never "a service"),
+- the next probe time (`until`, rendered through the existing live
+  "next retry in …" affordance — never a second countdown),
+- the hold's absolute deadline (`hold_deadline`), and
+- that waiting is the correct action: no retry of the import is consumed while
+  held.
+
+The client SHALL NOT render the held state as a failure, SHALL NOT invent a new
+job status, and SHALL NOT hide the waiting state behind the per-attempt list. A
+job without `provider_hold` SHALL render exactly as today, and a client that does
+not know the field SHALL keep working (it is additive and optional on the wire).
+
+German copy (shipped template locale, quoted as it appears):
+
+- banner: `{provider} ist nicht erreichbar · wartet bis {time} · spätestens
+  {deadline}`
+- second line: `Kein Versuch wird verbraucht — der Import läuft nach der Pause
+  weiter, sobald der Anbieter bis {deadline} zurück ist.`
+
+The second line SHALL be conditional on recovery: a hold expires into
+`dead_letter` when the provider does not come back, so the copy states the
+condition under which the import continues instead of promising it
+unconditionally.
+
+#### Scenario: A held job waits visibly
+
+- **WHEN** a `failed` job carries `provider_hold` with `state = open`,
+  `until` and `hold_deadline`
+- **THEN** the job-status screen renders the waiting banner naming the provider,
+  the probe time and the deadline
+- **AND** the jobs list row shows the compact form of the same state
+- **AND** neither surface presents the job as permanently failed
+
+#### Scenario: A job without a hold is unchanged
+
+- **WHEN** a `failed` job carries no `provider_hold`
+- **THEN** it renders exactly as before this change
+
+## MODIFIED Requirements
+
+### Requirement: Job Status With Terminal Error States
+
+The job-status surface SHALL distinguish, from the job's own persisted state, the
+following conditions and SHALL never promise a retry the state cannot deliver:
+`pending`, `running` (with stage and per-chunk progress), retryable `failed`,
+terminal `dead_letter`, non-resumable `payload_unavailable`, the aggregated
+degraded-provider state, and — since issue #871 — a job **held** for an open
+provider breaker.
+
+For a held job the surface SHALL state that the import waits for the provider, the
+time of the next probe and the hold's deadline, and that no retry budget is being
+consumed. Once the hold expires into `dead_letter`, the surface SHALL render the
+terminal provider narrative — the provider did not return before the deadline —
+never "the next attempt may succeed". The expiry copy SHALL NOT claim the retry
+budget is spent: a hold expires by its own deadline while `retries` is untouched
+by design.
+
+The two terminal causes SHALL be distinguishable from persisted state alone, not
+inferred from `last_error`: a hold expiry keeps its durable marker
+(`provider_hold.state = expired`, D-C4), while a genuine budget exhaustion is the
+`retries + 1 >= max_retries` case of the #822 derivation. The expiry branch SHALL
+win whenever the marker is present, because the budget may well be unexhausted
+then.
+
+For a running job whose progress carries `resumed_from > 0`, the surface SHALL
+say where the attempt resumed (German: `Fortsetzung ab Abschnitt {n} von
+{total}`) instead of presenting the resumed chunks as freshly processed.
+`resumed_from` counts **chunks**, not scenes — one chunk can yield several scene
+rows, so labelling it `Szene` would show a wrong scene number; `Abschnitt` is the
+honest unit. Every quantity the estimator derives from the attempt — the rate,
+the **sample floor** (`aiJobEtaMinUnits`) and the **stall watchdog**
+(`chunkCadence` → `aiJobEtaStallCadenceFactor`) — SHALL be computed from the work
+done in this attempt (`chunk − resumed_from`), never from the absolute `chunk`:
+after resuming at 25, a single 10-minute chunk would otherwise read as ~23 s per
+chunk and a healthy successor chunk would be declared stalled after two minutes.
+
+#### Scenario: Running job shows stage and progress
+
+- **WHEN** a job is `running` with `progress.stage = extracting` and
+  `chunk = 4` of `chunks_total = 12`
+- **THEN** the surface shows the extraction stage and a 4/12 progress indicator
+
+#### Scenario: Retryable failure shows the next attempt
+
+- **WHEN** a `failed` job carries `next_attempt_at`
+- **THEN** the surface shows the localized retryable narrative and the live
+  "next retry in …" affordance
+
+#### Scenario: A resumed attempt reports honestly
+
+- **WHEN** a running job's progress carries `resumed_from = 25` and `chunk = 25`
+  of `chunks_total = 42`
+- **THEN** the surface states that the attempt resumes at section 26 and still
+  shows 25/42 completed
+- **AND** the remaining-time estimate is not derived from 25 chunks processed in
+  the attempt's first second
+
+#### Scenario: An expired hold reads as terminal, not as retryable
+
+- **WHEN** a job that was held is now `dead_letter` with
+  `provider_hold.state = expired`
+- **THEN** the surface states that the provider did not recover within the
+  deadline
+- **AND** it names the provider, not a spent retry budget, as the cause
+- **AND** it does not promise that the next attempt may succeed
+
+#### Scenario: An exhausted budget is not read as a hold expiry
+
+- **WHEN** a job is `dead_letter` with `retries + 1 >= max_retries` because its
+  attempts really failed, and no `expired` hold marker is present
+- **THEN** the surface renders the budget-spent narrative
+- **AND** the two terminal causes never share copy
+
+#### Scenario: A resumed attempt does not look stalled
+
+- **WHEN** a resumed attempt (`resumed_from = 25`) completes one chunk in ten
+  minutes
+- **THEN** the sample floor and the stall window are derived from one completed
+  chunk in this attempt, not from 26
+- **AND** the job is not reported as stalled after two minutes
