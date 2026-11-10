@@ -427,4 +427,42 @@ Landed in slice 7 (PR A complete):
   opens *during* the backoff stops before the next call; and an unreadable
   breaker admits (fail-open, because the consult only ever saves money).
 
-PR A is complete. PRs B (§4–6, chunk resume) and C (§7, retry policy) remain.
+PR A is complete.
+
+### Workstream B (§4–6) — PR #883
+
+- **4.1–4.3** `AiImportProgress.resumed_from`, the `AiImportChunkStore` port,
+  `StoredChunk`/`ChunkSetState`, the pure `resume_cursor` (contiguous prefix, never
+  `MAX + 1`), `ExtractionFingerprint` + `changed_components`,
+  `preview::CHUNKER_VERSION`.
+- **5.1–5.3** migration `20261110000002` (chunk table + `extraction_key` +
+  `extraction_key_components`), `PgAiImportChunkStore` with the row-lock fence and
+  the `ON CONFLICT … DO UPDATE` upsert, hole-tail deletion, fingerprint CAS.
+  *Deviation:* the fingerprint's **components** are stored next to the hash — D-B7
+  asks the operator to know *what* changed, and a bare hash cannot answer that.
+- **5.4–5.5** the script worker opens the set, publishes `resumed_from`, feeds a
+  stored chunk through the **same** merge body, `put`s a fresh chunk before the
+  merge consumes it; terminal writes delete the rows in the same statement; the
+  payload-GC sweep and `dev_reset` register the table.
+- **5.6–5.7** 10 Postgres tests, including the two-session fence in both
+  submission orders. **Two bugs found:** a fresh attempt did not write its
+  fingerprint (its first `put` would have been refused), and the invalidation
+  reported `extraction_key` instead of naming the component.
+- **6.1–6.5** resume-aware stage line (`Fortsetzung ab Abschnitt {n} von {total}`),
+  the ETA rate/stall from `chunk − resumed_from`, the byte basis refused on a
+  resumed attempt, regenerated client, docs, versions.
+
+### Workstream C (§7) — PR #884
+
+- **7.1–7.4** behaviour shipped with A/B (the split knob, `next_attempt_at` =
+  `retry_at`, the expiry, the permit release); **7.2's** bound is now computed:
+  `AiImportBounds::attempt_worst_case_secs` = 19 min hosted / 25 min Ollama, with
+  `HOSTED_INNER_RETRIES`/`OLLAMA_INNER_RETRIES`/`MAX_ATTEMPT_BACKOFF_SECS` declared
+  in `core` and read by the clients.
+- **7.5** the precedence table in `ai-import.instructions.md` and the intentional
+  5 → 2 cost change stated in the core CHANGELOG.
+- **7.6** PR #884 with its version-bump table.
+
+**§8 (acceptance) is satisfied except 8.2/8.3's client-visible half, which ships in
+B, and 8.4's cost half, which ships in B (per-chunk usage).** All three PRs are open
+as a stack: #882 → #883 → #884.
