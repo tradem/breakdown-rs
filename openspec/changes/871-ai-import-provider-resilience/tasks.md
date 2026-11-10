@@ -305,3 +305,65 @@ clock (AGENTS.md §4).
 - [ ] 8.7 Operators answer "is the breaker open, since when, which jobs are
       held" from the runbook SQL and the `#871 provider breaker` marker.
 - [ ] 8.8 Tests as specified in **D-X4** — no wall-clock gating.
+
+## Implementation status (in progress, PR A)
+
+Landed on `feature/871-a-provider-breaker`:
+
+- **1.1** bounds + the D-C1 compile-time assert. *Deviation:* the
+  `threshold > 1 + max_attempt_retries` report is a **pure predicate**
+  (`breaker_threshold_exceeds_attempt_budget`) logged by the composition root,
+  not a `tracing::warn!` inside `from_env` — `core` carries no logging
+  dependency (AGENTS.md §1). Same operator outcome.
+- **1.2 / 1.3** `ProviderBreakerState`, `ProviderHold`, additive
+  `AiImportJob.provider_hold/.provider/.model`.
+- **1.4** `ProviderHealth` port + the pure state machine in
+  `core::ai::provider_health`. *Deviation:* `hold_runnable_jobs` /
+  `refresh_held_jobs` live on `AiImportQueue`, not on `ProviderHealth` — they are
+  job-table writes, and putting them on the breaker port would have made the port
+  depend on the queue. `mark_held` carries an explicit `hold_window_secs`
+  parameter: the deadline is derived from the job's series clock plus the
+  configured window, and inferring it from `hold_deadline - until` would be short
+  by the current open window (up to 30 min at the flap cap).
+- **1.5** `AiImportEnqueueRequest.provider/.model`.
+- **1.6** state-machine, bounds and wire tests (core: 395 passing).
+- **2.1** migration `20261110000001`. *Deviation (drift found against the real
+  schema):* the design's "new `ai_import_job.provider`/`.model` columns" **already
+  exist** as the *telemetry* provenance of the attempt that produced the result
+  (`record_worker_telemetry`, and `has_telemetry` is derived from
+  `provider IS NOT NULL`). Writing an enqueue-time snapshot into them would make
+  a job that recorded nothing report a telemetry summary of zeros. The snapshot
+  therefore gets its own pair, **`breaker_provider` / `breaker_model`**.
+- **2.2** `infra::ai::provider_health` repository (CAS transitions driven by the
+  core state machine). *Deviation:* the transitions are read → pure decision →
+  compare-and-set (bounded retry), not one hand-written `UPDATE` per transition,
+  so the arithmetic has exactly one source of truth. A hung probe in `half_open`
+  is taken over after the lease window — without that branch a single dead HTTP
+  request would wedge the pair forever, because no claim is admitted in
+  `half_open`.
+- **2.3** every committed transition logs `#871 provider breaker` with the D-X2
+  fields.
+- **2.4** the `NOT EXISTS (… provider_health …)` predicate on **all four** claim
+  paths, without `retry_at`.
+- **2.5** `mark_held` (retries untouched, no attempt row, series clock + derived
+  deadline) and `provider_hold` cleared on every other lifecycle write.
+- **2.5b / 2.5c** `hold_runnable_jobs` serves both materialization writers
+  (open-time fast path and the sweeper's guarantee) — one idempotent statement
+  guarded by `provider_hold IS NULL`, so `hold_owed_jobs` is not a second
+  statement.
+- **2.10** `dev_reset` registers `provider_health` before the job delete.
+
+Verified against a throwaway Postgres 16 (full migration chain + the statements
+above, executed as SQL): the claim predicate filters an open pair and admits it
+once closed, `mark_held` leaves `retries` and the attempt history untouched, a
+job enqueued **while** the breaker is open is held, the second materialization is
+a no-op, `refresh_held_jobs` moves `until` but not the deadline, the expiry
+dead-letters once (`state = expired`, `retries` unchanged, exactly one attempt
+row) and is idempotent, and the probe lease refuses a concurrent prober, lets the
+next tick take over a hung one, discards a superseded lease's result and closes
+on the current one.
+
+Remaining for PR A: the worker-side `ProviderHealthGuard` (2.7, 2.8, 2.9, 2.9b),
+the probe + sweeper tasks (2.2b, 2.10b), the config-change stamp (2.6), the
+Postgres test suite (2.11, 2.12), §3 (API/Dart/Flutter/runbook/instructions/
+versions), and then PRs B and C.

@@ -23,9 +23,11 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
+use super::provider_health::BreakerDecision;
 use super::views::{
     AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget, ApplyProgress,
-    ApplyRunId, ApplyRunState, DocumentKind, ModelPricing, SourceFormat, Telemetry,
+    ApplyRunId, ApplyRunState, DocumentKind, ModelPricing, ProviderBreakerState, ProviderHold,
+    SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -346,6 +348,19 @@ pub struct AiImportEnqueueRequest {
     /// edge (issue #763). `None` for an upload that carried no name, which the
     /// job row stores as `NULL` — never a fabricated or handle-derived value.
     pub source_file_name: Option<String>,
+    /// The provider of the user's active AI config, snapshotted at the API edge
+    /// (issue #871, D-A2b).
+    ///
+    /// Source of the value is the API edge — the only legitimate read-model
+    /// consumer, exactly as for the `target` snapshot (#771) and
+    /// `source_file_name` (#763). The claim predicate filters on this pair and
+    /// runs *before* `resolve_config`, so a stale snapshot is refreshed at the
+    /// config-change edge and re-checked (authoritatively) after resolution.
+    /// `None` means "could not be resolved" — such a job is never
+    /// breaker-filtered, which is the honest degradation.
+    pub provider: Option<LlmProvider>,
+    /// The model of the user's active AI config. See [`Self::provider`].
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -534,6 +549,117 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<(), DomainError> {
         self.mark_failed(id, worker_id, error_summary, error_code, false)
             .await
+    }
+
+    /// Park a claimed job on its provider's breaker **without** spending a
+    /// retry (issue #871, D-A4).
+    ///
+    /// Deliberately not `mark_failed`:
+    ///
+    /// | | `mark_failed` | `mark_held` |
+    /// |---|---|---|
+    /// | `retries` | +1 | **unchanged** |
+    /// | attempt row | appended | **none** |
+    /// | `status` | `failed` → maybe `dead_letter` | `failed` |
+    /// | `next_attempt_at` | job backoff (1 min · 2^n) | the breaker's `retry_at` |
+    /// | `last_error` | error summary | provider summary (old clients keep the #822 narrative) |
+    /// | `progress` | kept on the retryable branch | kept |
+    /// | `provider_hold` | cleared | set |
+    ///
+    /// The budget must not be consumed by an attempt that never reached the
+    /// provider, and the attempt history must not fill with identical rows —
+    /// that is the whole point of the separate write.
+    ///
+    /// Owner-fenced like every other worker transition. The implementation also
+    /// owns the hold **series clock** (`COALESCE(provider_hold_series_started_at,
+    /// now())`) and therefore the `hold_deadline`, so a re-hold can never
+    /// restart the expiry budget (D-C4).
+    ///
+    /// The default hands the job back through
+    /// [`release_claim`](Self::release_claim) — the pre-existing "return a
+    /// claimed job to the runnable pool **without** counting an attempt"
+    /// transition. That is the honest fallback for a backend with no durable
+    /// breaker: nothing is charged, and the job stays claimable. Falling back to
+    /// [`mark_failed`](Self::mark_failed) would charge the very budget this
+    /// write exists to protect.
+    ///
+    /// `hold_window_secs` is the configured
+    /// `AI_IMPORT_MAX_PROVIDER_HOLD_SECS`: the deadline is derived from the
+    /// job's own series clock plus this window, so it must be passed in rather
+    /// than inferred from the hold's `hold_deadline - until` (that difference is
+    /// short by the current open window, which grows to 30 min under flapping).
+    async fn mark_held(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        _hold: ProviderHold,
+        _hold_window_secs: u64,
+    ) -> Result<(), DomainError> {
+        self.release_claim(id, worker_id).await
+    }
+
+    /// Materialize a hold on every **runnable** job of a pair (issue #871,
+    /// D-A4 writer 2).
+    ///
+    /// Runs on the `closed → open` transition: a job whose pair is already open
+    /// is never claimed, so an owner-fenced write could not reach it — it would
+    /// sit `pending` with no reason and no deadline, which is exactly the
+    /// invisibility #822 removed. No claim, no owner, no provider call.
+    ///
+    /// Returns the ids it touched so the caller can notify each one through the
+    /// existing hub.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn hold_runnable_jobs(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+        _hold: ProviderHold,
+        _hold_window_secs: u64,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    /// Re-point every held job of a pair at a new probe time (issue #871,
+    /// D-A6 `half_open → open`).
+    ///
+    /// Without it a held job would display a resume time that has already
+    /// passed while the claim predicate — which reads the **breaker**, not the
+    /// job — keeps it unclaimable.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn refresh_held_jobs(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+        _until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    /// Expire held jobs whose own `hold_deadline` passed (issue #871, D-C4).
+    ///
+    /// The **only** path that can reach such a job: it is `failed` while its
+    /// pair is open, so the claim predicate keeps it unclaimable, and
+    /// [`mark_held`](Self::mark_held)'s owner fence needs a `running` row that
+    /// no longer exists. A claim-free sweeper therefore performs it, keyed on
+    /// the job's own deadline rather than on any claim.
+    ///
+    /// `retries` stays untouched — the document did not fail, the provider did,
+    /// so the operator's "documents that failed" count must not be inflated by
+    /// infrastructure — and `provider_hold` is kept with
+    /// `state = expired`, the durable marker that separates an expiry from a
+    /// spent retry budget.
+    ///
+    /// Returns the ids it dead-lettered.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn expire_provider_holds(
+        &self,
+        _error_summary: &str,
+        _error_code: Option<&str>,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
     }
 
     /// Publish live extraction progress for a claimed job (issue #664).
@@ -989,4 +1115,138 @@ pub trait AiImportMappingRepository: Send + Sync {
         &self,
         preview_id: AiImportJobId,
     ) -> Result<Vec<AiImportMapping>, DomainError>;
+}
+
+/// One breaker row as the worker needs to read it (issue #871).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderBreakerSnapshot {
+    pub state: ProviderBreakerState,
+    pub consecutive_failures: u32,
+    pub flap_count: u32,
+    /// The next probe time; `None` while `closed`.
+    pub retry_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl ProviderBreakerSnapshot {
+    /// A pair nobody has observed a failure for yet.
+    #[must_use]
+    pub const fn closed() -> Self {
+        Self {
+            state: ProviderBreakerState::Closed,
+            consecutive_failures: 0,
+            flap_count: 0,
+            retry_at: None,
+        }
+    }
+
+    /// Whether a job of this pair may be claimed. Only `closed` admits a claim:
+    /// `retry_at` is the probe schedule, never a claim gate (D-A2).
+    #[must_use]
+    pub const fn admits_claim(&self) -> bool {
+        matches!(self.state, ProviderBreakerState::Closed)
+    }
+}
+
+/// A breaker row that is **not** closed, as the sweeper/probe task selects it
+/// (issue #871, D-A3/D-C4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenBreaker {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub state: ProviderBreakerState,
+    pub retry_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The fence of one probe attempt (issue #871, D-A6).
+///
+/// `probe_owner` alone is **not** the fence: the same worker (or task instance)
+/// can reacquire the lease, and its earlier result would then still match. The
+/// fence is `lease_id`, a fresh UUIDv7 written by the `open → half_open` CAS and
+/// matched by the result write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeLease {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub owner: String,
+    pub lease_id: Uuid,
+}
+
+/// What a probe observed about the **endpoint** (issue #871, D-A3).
+///
+/// Reachability only: a probe result is a verdict about the endpoint, never
+/// about a document, so it never retires or terminalizes a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeOutcome {
+    /// The endpoint answered (2xx, or a 401/403 credential rejection — the
+    /// endpoint demonstrably answered, which is what the probe measures).
+    Reachable,
+    /// Transport error, timeout, 429 or 5xx: the outage this breaker exists for.
+    Unreachable,
+}
+
+/// Durable provider-health state, one row per `(provider, model)` pair
+/// (issue #871, D-A2).
+///
+/// The worker loop and the probe/sweeper tasks talk to this port instead of to
+/// SQL, so the breaker is unit-testable against a fake and the queue stays
+/// unaware of it — the claim predicate is the only place the two meet, and it
+/// meets in SQL.
+#[async_trait]
+pub trait ProviderHealth: Send + Sync {
+    /// The current verdict. A pair with no row is `closed` — never seen a
+    /// failure, so nothing to hold for.
+    async fn state(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<ProviderBreakerSnapshot, DomainError>;
+
+    /// Count one **retryable** provider failure (D-A1) and open the breaker at
+    /// `threshold` consecutive failures.
+    ///
+    /// Only retryable failures may call this: a revoked key or an entitlement
+    /// 4xx is permanent (#637) and would convert one user's misconfiguration
+    /// into an outage for everyone on the endpoint.
+    ///
+    /// When the returned decision has `opened`, the caller materializes the
+    /// holds through [`AiImportQueue::hold_runnable_jobs`].
+    async fn record_failure(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        threshold: u32,
+    ) -> Result<BreakerDecision, DomainError>;
+
+    /// Record that the endpoint answered a **paid call**: reset the failure
+    /// count and close. When the returned decision has `closed`, the caller
+    /// releases the pair's held jobs through the queue.
+    async fn record_success(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<BreakerDecision, DomainError>;
+
+    /// CAS `open → half_open` with a fresh lease, so exactly one prober runs per
+    /// window. `None` when another task already holds the lease or the breaker
+    /// is not open.
+    async fn try_begin_probe(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        owner: &str,
+    ) -> Result<Option<ProbeLease>, DomainError>;
+
+    /// Write a probe result, **fenced to its lease**. `false` when the lease is
+    /// stale (another task owns the state now) — the result is then discarded,
+    /// which is the same `ensure_claim_owned` discipline every other
+    /// owner-fenced write uses.
+    async fn finish_probe(
+        &self,
+        lease: &ProbeLease,
+        outcome: ProbeOutcome,
+    ) -> Result<BreakerDecision, DomainError>;
+
+    /// Every breaker that is not `closed`, for the probe task and the sweeper
+    /// (bounded by the caller).
+    async fn open_breakers(&self, limit: i64) -> Result<Vec<OpenBreaker>, DomainError>;
 }

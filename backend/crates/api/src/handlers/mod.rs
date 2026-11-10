@@ -6589,6 +6589,10 @@ async fn enqueue_ai_upload<P: Ports>(
         .ports
         .ai_import_queue()
         .enqueue(AiImportEnqueueRequest {
+            // Issue #871: no breaker snapshot in this fixture — the job is
+            // never breaker-filtered, which is the honest degradation.
+            provider: None,
+            model: None,
             id: job_id,
             user_id: current_user.sub.clone(),
             document_kind: kind,

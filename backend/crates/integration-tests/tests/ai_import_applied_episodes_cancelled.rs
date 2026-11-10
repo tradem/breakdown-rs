@@ -251,6 +251,10 @@ async fn a_cancelled_apply_still_leaves_its_summary_resolvable() -> Result<()> {
     queue
         .seed_succeeded(
             AiImportEnqueueRequest {
+                // Issue #871: no breaker snapshot in this fixture — the job is
+                // never breaker-filtered, which is the honest degradation.
+                provider: None,
+                model: None,
                 id: job,
                 user_id: UserId::from_sub("cancelled-apply-user"),
                 document_kind: DocumentKind::Script,

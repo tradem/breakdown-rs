@@ -66,9 +66,20 @@ CREATE INDEX idx_ai_import_provider_health_probe
 -- NULL for every pre-#871 row and for an upload whose config could not be
 -- resolved; such a job is simply never breaker-filtered, which is the honest
 -- degradation (there is nothing to compare a breaker against).
+--
+-- DELIBERATELY NOT the existing `provider`/`model` columns. Those two already
+-- exist as the TELEMETRY provenance of the attempt that produced the result
+-- (`record_worker_telemetry`), and the read side derives `has_telemetry` from
+-- `provider IS NOT NULL`. Writing an enqueue-time snapshot into them would make
+-- a job that has recorded nothing report a telemetry summary of zeros — a
+-- fabricated observation. The breaker key is a different fact with a different
+-- lifecycle, so it gets its own pair.
 ALTER TABLE ai_import.ai_import_job
-    ADD COLUMN provider TEXT,
-    ADD COLUMN model    TEXT;
+    ADD COLUMN breaker_provider TEXT,
+    ADD COLUMN breaker_model    TEXT;
+
+COMMENT ON COLUMN ai_import.ai_import_job.breaker_provider IS
+    'Breaker key snapshot taken at enqueue (issue #871 D-A2b). Distinct from the telemetry `provider` column on purpose: the claim predicate runs before resolve_config, the telemetry columns describe the attempt that finished.';
 
 -- The wire view's column (D-A4): `{provider, model, reason_code, state, until,
 -- hold_deadline, chunks_done}`. Cleared by every other lifecycle write, kept
@@ -93,5 +104,5 @@ COMMENT ON COLUMN ai_import.ai_import_job.provider_hold_series_started_at IS
 -- already filters on status, so this index only has to make the hold sweeper
 -- (status = 'failed' AND provider_hold IS NOT NULL) cheap.
 CREATE INDEX idx_ai_import_job_provider_hold
-    ON ai_import.ai_import_job (provider, model, next_attempt_at)
+    ON ai_import.ai_import_job (breaker_provider, breaker_model, next_attempt_at)
     WHERE provider_hold IS NOT NULL;

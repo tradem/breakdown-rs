@@ -40,6 +40,7 @@ pub mod preview_store;
 pub mod pricing;
 pub mod pricing_refresh;
 pub mod prompts;
+pub mod provider_health;
 pub mod provider_registry;
 pub mod queue;
 pub mod runtime;

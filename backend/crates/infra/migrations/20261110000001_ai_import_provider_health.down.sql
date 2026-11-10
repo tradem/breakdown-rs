@@ -9,7 +9,7 @@ DROP INDEX IF EXISTS ai_import.idx_ai_import_job_provider_hold;
 ALTER TABLE ai_import.ai_import_job
     DROP COLUMN IF EXISTS provider_hold_series_started_at,
     DROP COLUMN IF EXISTS provider_hold,
-    DROP COLUMN IF EXISTS model,
-    DROP COLUMN IF EXISTS provider;
+    DROP COLUMN IF EXISTS breaker_model,
+    DROP COLUMN IF EXISTS breaker_provider;
 
 DROP TABLE IF EXISTS ai_import.provider_health;
