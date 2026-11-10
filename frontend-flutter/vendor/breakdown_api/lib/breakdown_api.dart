@@ -124,6 +124,7 @@ export 'package:breakdown_api/src/model/meta_credits_response.dart';
 export 'package:breakdown_api/src/model/meta_versions_response.dart';
 export 'package:breakdown_api/src/model/model_info.dart';
 export 'package:breakdown_api/src/model/model_pricing.dart';
+export 'package:breakdown_api/src/model/my_capabilities_response.dart';
 export 'package:breakdown_api/src/model/outfit_continuity_candidate.dart';
 export 'package:breakdown_api/src/model/outfit_continuity_selection.dart';
 export 'package:breakdown_api/src/model/outfit_decision.dart';

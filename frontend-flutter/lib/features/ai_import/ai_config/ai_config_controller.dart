@@ -15,6 +15,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../auth/auth_providers.dart';
+import '../../../auth/capabilities.dart';
 import '../../../core/problem_error.dart';
 import '../../../core/result.dart';
 import '../../../data/ai_config_repository.dart';
@@ -29,9 +30,27 @@ part 'ai_config_controller.g.dart';
 /// List-first config discovery (D2): `GET /v1/ai-import/config` (the
 /// caller's configs, newest-first) is authoritative. Tests override this
 /// seam.
+///
+/// AUTHZ-GATE (issue #816): a RESOLVED denial of the global credential
+/// predicate short-circuits here — the single place the read is dispatched —
+/// so no request leaves the device for a caller the server would refuse. This
+/// is the exact mirror that was impossible before the capability route
+/// existed; it is checked at DISPATCH time, `ref.read` rather than
+/// `ref.watch`, because a late capability answer must not rebuild this
+/// provider (that would re-dispatch a read that already went out).
+///
+/// Only a resolved `false` denies. A pending or failed capability read is
+/// UNKNOWN: the request proceeds and the server stays authoritative — an
+/// unknown capability must never be reported as "no permission".
 @riverpod
-Future<Result<List<AiConfigView>>> aiConfigDiscovery(Ref ref) =>
-    ref.watch(aiConfigRepositoryProvider).listConfigs();
+Future<Result<List<AiConfigView>>> aiConfigDiscovery(Ref ref) async {
+  final capabilities = ref.read(myCapabilitiesProvider);
+  final known = capabilities.value;
+  if (known != null && known.isDenied) {
+    return Left(ProblemError(code: kAiConfigCapabilityDeniedCode, status: 403));
+  }
+  return ref.watch(aiConfigRepositoryProvider).listConfigs();
+}
 
 /// The remembered hand-off state for the authenticated subject (task 1.3).
 @riverpod

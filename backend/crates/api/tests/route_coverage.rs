@@ -90,7 +90,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        112,
+        113,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -129,6 +129,14 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // (not Public) — same decision as /meta/versions: no tenant data,
         // no block membership, no version fingerprint for anonymous probes.
         ("/meta/credits", Requirement::Authenticated),
+        // Self surface (issue #816): `GET /me/capabilities` reports the
+        // caller's own deployment-scoped predicates (`has_active_credential_role`,
+        // `has_active_ops_role`). `Authenticated` only — a deployment-scoped
+        // capability says nothing about `X-Active-Block`, and the route carries
+        // no tenant data. The handler resolves both through the injected policy
+        // and reports them (200 with booleans, never a 403): the route exists so
+        // a client can distinguish "denied" from "unknown" before it acts.
+        ("/me/capabilities", Requirement::Authenticated),
         ("/settings/credentials", Requirement::Authenticated),
         ("/settings/gdrive", Requirement::Authenticated),
         ("/settings/{id}/gdrive", Requirement::Authenticated),

@@ -3285,6 +3285,31 @@ components:
       - pricing_source
       - price_as_of
       type: object
+    MyCapabilitiesResponse:
+      description: |-
+        The caller's global (deployment-scoped) capabilities — the wire shape of
+        [`crate::state::AppState::authorization_policy`]'s two global arms.
+
+        Field names are the repository predicates verbatim on purpose: the client
+        consumes them *as* the backend-computed answer (CQRS-boundary rule), so a
+        rename here must be a deliberate wire change, not a cosmetic one.
+      properties:
+        has_active_credential_role:
+          description: |-
+            The caller holds an active credential role (`costume_designer` /
+            `costume_assistant`) in **any** block — the settings / AI-configuration
+            management gate.
+          type: boolean
+        has_active_ops_role:
+          description: |-
+            The caller holds the ops capability: an active `ops_admin` membership in
+            any block **or** a place on the deployment's `OPS_ADMIN_SUBS` bootstrap
+            allowlist (cold start, issue #409).
+          type: boolean
+      required:
+      - has_active_credential_role
+      - has_active_ops_role
+      type: object
     OutfitContinuityCandidate:
       description: The candidate kinds a gap can offer — at most one of each per gap.
       enum:
@@ -7400,6 +7425,46 @@ paths:
                 $ref: '#/components/schemas/HealthReport'
           description: At least one dependency is unhealthy
       summary: '`GET /v1/health` — public, unversioned-by-policy readiness surface.'
+      tags:
+      - handlers
+  /v1/me/capabilities:
+    get:
+      description: |-
+        **200 with booleans, never 403** (decided on issue #816): the route performs
+        no privileged action, and its entire purpose is to let the client
+        distinguish "denied" from "unknown" before it acts. A 403 here would be a
+        second form of the denial the client is trying to pre-empt — and would hide
+        the ops answer from exactly the callers who lack the credential role.
+
+        AUTHZ-GATE (issue #816): `Requirement::Authenticated` at the middleware —
+        this route is deliberately exempt from the block-scoped membership check,
+        because a deployment-scoped capability says nothing about the caller's
+        `X-Active-Block`. Both predicates are therefore resolved **inside this
+        handler** through the injected `AuthorizationPolicy` (never the repository
+        directly, so the report and the enforcement cannot diverge). Unlike the
+        privileged `Authenticated`-only routes, this handler does not answer 403 on
+        denial: it *reports* the decision instead of enforcing one.
+      operationId: get_my_capabilities
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyCapabilitiesResponse'
+          description: The caller's deployment-scoped capabilities (both predicates are resolved through the authorization policy)
+        '401':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Missing or invalid OIDC token
+        '500':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Membership read model failure — a predicate could not be resolved
+      summary: '`GET /v1/me/capabilities` — the caller''s global capability self-report.'
       tags:
       - handlers
   /v1/meta/credits:

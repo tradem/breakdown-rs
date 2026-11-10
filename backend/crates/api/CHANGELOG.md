@@ -17,6 +17,31 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.64.0] - Unreleased
+
+### Added — `GET /v1/me/capabilities` publishes the two global predicates (issue #816)
+
+- New route in the new `/me` namespace: the caller's own deployment-scoped
+  capabilities as booleans — `has_active_credential_role` (settings /
+  AI-configuration management, ADR-027) and `has_active_ops_role` (issue #409).
+  The client needed it to state "Keine Berechtigung" *before* the tap: the
+  credential gate is deployment-scoped and was not on the wire, and the
+  season-scoped membership signal is a superset (`wardrobe_supervisor`) that
+  also reads a stale scope as a denial.
+- **200 with booleans, never 403.** The handler resolves both values through the
+  injected `AuthorizationPolicy` — the same instance the middleware enforces
+  with — so the report cannot drift from enforcement (the ops arm therefore
+  honours `OPS_ADMIN_SUBS`) and a read-model failure surfaces as a server error
+  instead of a fabricated `false`. `// AUTHZ-GATE:` on the resolution documents
+  that the route *reports* a decision rather than enforcing one.
+- Middleware classification: `Authenticated` (equality match on
+  `/me/capabilities`, not a `/me` prefix), because a deployment-scoped
+  capability says nothing about `X-Active-Block`.
+- `backend/openapi.yaml` regenerated: one path + the `MyCapabilitiesResponse`
+  schema. Additive for the Dart client (`breakdown_api` 1.4.0 → 1.5.0). No new
+  problem code (the registry is unchanged) and no migration: the route reads two
+  existing predicates.
+
 ## [0.63.0] - Unreleased
 
 ### Added — `ai-import.llm-provider-unavailable` reaches the wire (issue #822)

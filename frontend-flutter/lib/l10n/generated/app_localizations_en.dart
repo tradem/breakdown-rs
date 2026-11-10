@@ -3624,6 +3624,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsAiConfigUnreachable => 'Backend not reachable yet';
 
   @override
+  String get settingsAiConfigDenied => 'No permission';
+
+  @override
   String get settingsAi => 'AI';
 
   @override

@@ -59,6 +59,7 @@ import 'package:breakdown_api/src/model/membership_view.dart';
 import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
+import 'package:breakdown_api/src/model/my_capabilities_response.dart';
 import 'package:breakdown_api/src/model/outfit_view.dart';
 import 'package:breakdown_api/src/model/photo_view.dart';
 import 'package:breakdown_api/src/model/piece_view.dart';
@@ -4161,6 +4162,80 @@ class HandlersApi {
     }
 
     return Response<MetaVersionsResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// &#x60;GET /v1/me/capabilities&#x60; — the caller&#39;s global capability self-report.
+  /// **200 with booleans, never 403** (decided on issue #816): the route performs no privileged action, and its entire purpose is to let the client distinguish \&quot;denied\&quot; from \&quot;unknown\&quot; before it acts. A 403 here would be a second form of the denial the client is trying to pre-empt — and would hide the ops answer from exactly the callers who lack the credential role.  AUTHZ-GATE (issue #816): &#x60;Requirement::Authenticated&#x60; at the middleware — this route is deliberately exempt from the block-scoped membership check, because a deployment-scoped capability says nothing about the caller&#39;s &#x60;X-Active-Block&#x60;. Both predicates are therefore resolved **inside this handler** through the injected &#x60;AuthorizationPolicy&#x60; (never the repository directly, so the report and the enforcement cannot diverge). Unlike the privileged &#x60;Authenticated&#x60;-only routes, this handler does not answer 403 on denial: it *reports* the decision instead of enforcing one.
+  ///
+  /// Parameters:
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [MyCapabilitiesResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<MyCapabilitiesResponse>> getMyCapabilities({
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/me/capabilities';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    MyCapabilitiesResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(MyCapabilitiesResponse),
+            ) as MyCapabilitiesResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<MyCapabilitiesResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

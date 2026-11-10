@@ -4,6 +4,7 @@
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 import 'dart:io';
@@ -18,11 +19,14 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/active_block.dart';
+import 'package:frontend_flutter/auth/capabilities.dart';
 import 'package:frontend_flutter/auth/active_block_store.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/data/ai_config_repository.dart';
+import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
@@ -47,6 +51,39 @@ Future<void> pumpFrames(WidgetTester tester, {int n = 8}) async {
   for (var i = 0; i < n; i++) {
     await tester.pump(const Duration(milliseconds: 50));
   }
+}
+
+/// The GRANTED global capability answer (issue #816): the credential gate is
+/// open, ops is not — the ordinary Settings entry state.
+const _grantedCapabilities = MyCapabilities(
+  canManageAiConfig: true,
+  canReadOps: false,
+);
+
+/// The RESOLVED DENIAL of the global credential predicate (issue #816): the
+/// caller may not manage the AI configuration — an answer, not an absence.
+const _deniedCapabilities = MyCapabilities(
+  canManageAiConfig: false,
+  canReadOps: false,
+);
+
+/// Counts AI-config discovery dispatches (issue #816): the pre-tap denial must
+/// suppress the read entirely, so a request that never happens is the
+/// assertion — not a rendered state that a 403 could have produced anyway.
+class _CountingAiConfigRepository extends AiConfigRepository {
+  _CountingAiConfigRepository(super.api, this.onDiscovery);
+
+  final void Function() onDiscovery;
+
+  @override
+  Future<Result<List<AiConfigView>>> listConfigs() async {
+    onDiscovery();
+    return const Right(<AiConfigView>[]);
+  }
+
+  @override
+  Future<Result<List<AiProviderInfo>>> listProviders() async =>
+      const Right(<AiProviderInfo>[]);
 }
 
 /// A season membership DTO with an explicit backend-computed costume-role
@@ -149,6 +186,11 @@ void main() {
     // throwing/`BackendHealthUnreachable` one the unreachable state, with no
     // wall-clock gating (AGENTS.md §6).
     BackendHealthProbe? healthProbe,
+    // Exact pre-tap capability seam (issue #816): same discipline as the
+    // health probe. The default reports the GRANTED capability so every
+    // pre-#816 test keeps its ordinary subtitle; the four entry states are
+    // injected explicitly by the tests below.
+    MyCapabilitiesFetch? capabilitiesFetch,
     // Pre-seeded secure-storage documents (issue #809: the stale persisted
     // block scope a dev data reset leaves behind).
     Map<String, String> secureSeed = const {},
@@ -202,6 +244,11 @@ void main() {
         backendHealthProbeProvider.overrideWithValue(
           healthProbe ??
               () async => const BackendHealthReported(HealthStatus.healthy),
+        ),
+        // The exact pre-tap credential predicate (issue #816): granted by
+        // default, injected per state by the tests.
+        myCapabilitiesFetchProvider.overrideWithValue(
+          capabilitiesFetch ?? () async => const Right(_grantedCapabilities),
         ),
         ...extraOverrides,
       ],
@@ -681,6 +728,134 @@ void main() {
       );
     });
 
+    testWidgets('granted capability: the ordinary subtitle, no denial state '
+        'and no Retry (issue #816)', (tester) async {
+      await pumpScreen(
+        tester,
+        capabilitiesFetch: () async => const Right(_grantedCapabilities),
+      );
+
+      expect(
+        find.text('Manage the AI provider and models for AI import.'),
+        findsOneWidget,
+      );
+      expect(find.text('No permission'), findsNothing);
+      expect(find.byKey(const Key('settings-ai-config-denied')), findsNothing);
+      expect(find.byKey(const Key('settings-ai-config-retry')), findsNothing);
+    });
+
+    testWidgets('resolved denial: "No permission" BEFORE the tap — a state, '
+        'never a hidden entry, never a Retry (issue #816)', (tester) async {
+      await pumpScreen(
+        tester,
+        capabilitiesFetch: () async => const Right(_deniedCapabilities),
+      );
+
+      expect(find.text('No permission'), findsOneWidget);
+      expect(
+        find.byKey(const Key('settings-ai-config-denied')),
+        findsOneWidget,
+        reason: 'the state is visible, not just textual',
+      );
+      expect(
+        find.byKey(const Key('settings-ai-config-retry')),
+        findsNothing,
+        reason: 'retrying cannot flip a role',
+      );
+      expect(
+        find.text('Manage the AI provider and models for AI import.'),
+        findsNothing,
+        reason: 'a denial must not read as if the permission existed',
+      );
+      // #809 rule: the entry is a state, never an absence.
+      expect(
+        tester
+            .widget<ListTile>(find.byKey(const Key('settings-ai-config')))
+            .onTap,
+        isNotNull,
+      );
+    });
+
+    testWidgets('pending capability: "Checking backend…" — unknown is not a '
+        'denial (issue #816)', (tester) async {
+      final never = Completer<Result<MyCapabilities>>();
+      await pumpScreen(tester, capabilitiesFetch: () => never.future);
+
+      expect(find.text('Checking backend…'), findsOneWidget);
+      expect(find.text('No permission'), findsNothing);
+      expect(
+        find.byKey(const Key('settings-ai-config-checking')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'failed capability read: UNKNOWN, never a denial — the ordinary '
+      'subtitle and no lock icon (issue #816)',
+      (tester) async {
+        await pumpScreen(
+          tester,
+          capabilitiesFetch: () async => Left<ProblemError, MyCapabilities>(
+            const ProblemError(code: 'transport.connectionError'),
+          ),
+        );
+
+        expect(find.text('No permission'), findsNothing);
+        expect(
+          find.byKey(const Key('settings-ai-config-denied')),
+          findsNothing,
+        );
+        expect(
+          find.text('Manage the AI provider and models for AI import.'),
+          findsOneWidget,
+          reason: 'an unknown capability keeps the server authoritative',
+        );
+      },
+    );
+
+    testWidgets('a resolved denial dispatches ZERO config reads: the screen '
+        'renders the administrator narrative without a request (issue #816)', (
+      tester,
+    ) async {
+      var discoveryCalls = 0;
+      await pumpScreen(
+        tester,
+        capabilitiesFetch: () async => const Right(_deniedCapabilities),
+        extraOverrides: [
+          aiConfigRepositoryProvider.overrideWith(
+            (ref) => _CountingAiConfigRepository(
+              ref.watch(apiClientProvider),
+              () => discoveryCalls++,
+            ),
+          ),
+          aiProvidersProvider.overrideWith(
+            (ref) async => const Right(<AiProviderInfo>[]),
+          ),
+          reconciliationSchedulerProvider.overrideWith(
+            (ref) => const _ImmediateReconciliationScheduler(),
+          ),
+        ],
+      );
+
+      await tester.tap(find.byKey(const Key('settings-ai-config')));
+      await pumpFrames(tester, n: 12);
+
+      expect(
+        find.byKey(const Key('ai-config-discovery-forbidden')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-config-discovery-retry')),
+        findsNothing,
+        reason: 'a denial is not a retryable load error',
+      );
+      expect(
+        discoveryCalls,
+        0,
+        reason: 'a resolved denial must never provoke the read it pre-empts',
+      );
+    });
+
     testWidgets('tap pushes the existing AiConfigScreen (no new screen)', (
       tester,
     ) async {
@@ -859,11 +1034,13 @@ void main() {
       required String golden,
       required Brightness brightness,
       BackendHealthProbe? healthProbe,
+      MyCapabilitiesFetch? capabilitiesFetch,
     }) async {
       await pumpScreen(
         tester,
         brightness: brightness,
         healthProbe: healthProbe,
+        capabilitiesFetch: capabilitiesFetch,
         locale: const Locale('de'),
       );
       expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
@@ -905,6 +1082,27 @@ void main() {
         golden: 'settings_ai_config_checking_dark.png',
         brightness: Brightness.dark,
         healthProbe: () => Completer<BackendHealthOutcome>().future,
+      );
+    });
+
+    // Issue #816: the resolved-denial state is golden-covered as well, so a
+    // later "hide the entry when denied" regression (the #809 defect, one
+    // permission narrower) cannot pass review.
+    testWidgets('ai-config entry denied, light', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_denied_light.png',
+        brightness: Brightness.light,
+        capabilitiesFetch: () async => const Right(_deniedCapabilities),
+      );
+    });
+
+    testWidgets('ai-config entry denied, dark', (tester) async {
+      await pumpEntryGolden(
+        tester,
+        golden: 'settings_ai_config_denied_dark.png',
+        brightness: Brightness.dark,
+        capabilitiesFetch: () async => const Right(_deniedCapabilities),
       );
     });
 

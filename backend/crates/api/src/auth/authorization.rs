@@ -286,6 +286,21 @@ pub fn requirement_for(path: &str) -> Requirement {
     if path.starts_with("/meta") {
         return Requirement::Authenticated;
     }
+    // Self surface (issue #816): `GET /me/capabilities` reports the caller's own
+    // deployment-scoped predicates (`has_active_credential_role`,
+    // `has_active_ops_role`). `Authenticated` only — a deployment-scoped
+    // capability says nothing about the caller's `X-Active-Block`, and the
+    // route carries no tenant data. The handler resolves both predicates
+    // internally through the injected policy (`// AUTHZ-GATE:`) and REPORTS
+    // them: it deliberately answers 200 with booleans instead of 403, because
+    // the whole point is to let a client distinguish "denied" from "unknown"
+    // before it touches a gated surface. The arm is an EQUALITY match, not a
+    // `/me` prefix — a future `/me/*` route must be classified explicitly
+    // rather than inherit this exception (same discipline as `/audit` and
+    // `/series/{id}/membership`).
+    if path == "/me/capabilities" {
+        return Requirement::Authenticated;
+    }
     // Test-support fixture surface (issue #748): the stored AI-import preview
     // fixture is deliberately NOT block-scoped — the job it seeds names no
     // block, so no `X-Active-Block` scope can be derived from it, and a Gherkin

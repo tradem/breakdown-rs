@@ -11,6 +11,7 @@
 use crate::common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Section 6.4: API-layer test asserting authorized / non-authorized
 // dispatch through the real auth + authorization middleware stack.
@@ -42,6 +43,7 @@ fn auth_router(auth: Arc<AuthState>, authz: Arc<AuthorizationState>) -> Router<(
         .route("/seasons", post(|| async { StatusCode::OK }))
         .route("/meta/versions", get(|| async { StatusCode::OK }))
         .route("/meta/credits", get(|| async { StatusCode::OK }))
+        .route("/me/capabilities", get(|| async { StatusCode::OK }))
         .route("/blocks/{id}", get(|| async { StatusCode::OK }))
         .route("/blocks/{id}/members", get(|| async { StatusCode::OK }))
         .route(
@@ -348,6 +350,56 @@ async fn meta_versions_needs_no_block_membership() {
     let req = Request::builder()
         .method("GET")
         .uri("/meta/versions")
+        .body(AxumBody::empty())
+        .unwrap();
+
+    assert_eq!(status_of(&app, req).await, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn me_capabilities_requires_authentication() {
+    // Issue #816: GET /me/capabilities is `Authenticated`, not `Public` — the
+    // caller's own capability report is only meaningful for an identified
+    // caller. Production (non-dev) auth state with an empty JWKS: no valid
+    // bearer token → 401 before authorization.
+    let auth = Arc::new(AuthState::new(
+        OidcConfig {
+            iss: "https://issuer.example".into(),
+            audience: "https://api.example".into(),
+            jwks_url: "https://issuer.example/.well-known/jwks".into(),
+            algorithm: Algorithm::RS256,
+        },
+        Arc::new(StaticJwksProvider::new(HashMap::new())),
+    ));
+    let repo = Arc::new(FakeMembershipRepo::default());
+    let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = auth_router(auth, authz);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/me/capabilities")
+        .body(AxumBody::empty())
+        .unwrap();
+
+    assert_eq!(status_of(&app, req).await, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn me_capabilities_needs_no_block_membership() {
+    // A deployment-scoped capability says nothing about the caller's active
+    // block: a valid token without ANY membership must pass the middleware
+    // (Authenticated, not BlockMember). The denial itself is the handler's
+    // 200-with-`false` answer, never a 403.
+    let auth = Arc::new(AuthState::dev(CurrentUser::dummy(DEV_SUB)));
+    let repo = Arc::new(FakeMembershipRepo::default());
+    let policy = Arc::new(MembershipAuthorizationPolicy::new(repo));
+    let authz = Arc::new(AuthorizationState::new(policy, /*enforce=*/ true));
+
+    let app = auth_router(auth, authz);
+    let req = Request::builder()
+        .method("GET")
+        .uri("/me/capabilities")
         .body(AxumBody::empty())
         .unwrap();
 

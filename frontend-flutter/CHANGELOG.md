@@ -23,6 +23,33 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The KI entry says "Keine Berechtigung" before you tap it** (issue #816,
+  `0.4.0-beta.45+137 → 0.4.0-beta.46+138`). #809 made the entry always visible
+  and let the server answer a denial inside the screen, which left the client
+  unable to state the permission up front: the backend gate
+  (`has_active_credential_role`) is deployment-scoped and was not on the wire,
+  and the season-scoped signal the old tile read is both wider (it also admits
+  `wardrobe_supervisor`) and ambient (a stale scope looked like a denial).
+  - **The predicate is now read, not guessed.** The backend publishes it at
+    `GET /v1/me/capabilities` (regenerated client, `1.4.0 → 1.5.0`), resolved
+    through the same policy instance the server enforces with. The entry
+    renders „Keine Berechtigung“ plus a lock for a resolved `false`.
+  - **A denial is a gate, not just a label.** `aiConfigDiscovery` suppresses
+    the `GET /v1/ai-import/config` dispatch when the capability is resolved to
+    `false`, so tapping a known-denied entry issues no request at all; the
+    screen renders the administrator narrative from the client-detected
+    `ai_config.capability_denied` — the same card, the same absence of a retry
+    affordance.
+  - **Unknown is still not a denial.** A pending probe, a transport failure or
+    a 5xx on the capability route keeps the ordinary subtitle and lets the
+    request through: a failed read must never put a permission problem in front
+    of a user whose role is intact.
+  - Decided and recorded: a self-report route returning 200 with booleans
+    rather than a second 403-armed gate, and no polling — one shot with an
+    explicit Retry (the drawer pill owns the periodic probe). Widget tests
+    cover granted / denied / pending / error with the fetch seam injected, and
+    a golden pair pins the denied entry so a hidden denial cannot return.
+
 - **A failing AI provider now says so — once, not three times** (issue #822,
   `0.4.0-beta.44+136 → 0.4.0-beta.45+137`). A provider outage used to read
   exactly like a one-off hiccup: every failed attempt rendered "a service was
