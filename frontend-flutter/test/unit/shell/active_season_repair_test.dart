@@ -209,16 +209,27 @@ void watchRepair(ProviderContainer container) {
   addTearDown(sub.close);
 }
 
+/// Keeps the (auto-dispose) projection chain alive WITHOUT requiring any
+/// particular state, so a test can pin the view in its loading or failed state
+/// while the other repair inputs settle.
+void pinView(ProviderContainer container) {
+  final sub = container.listen(seasonsView, (prev, next) {});
+  addTearDown(sub.close);
+}
+
+/// Loads the persisted anchor and the block-scope document into the repair's
+/// inputs (they are the values its first build reads).
+Future<void> settlePersistedInputs(ProviderContainer container) async {
+  await container.read(activeSeasonPersistedProvider.future);
+  await container.read(activeBlockPersistedProvider.future);
+}
+
 /// Settles every input of the repair BEFORE it is first watched, so the
 /// assertion "the repair ran exactly once" is about the repair and not about
 /// how many turns the projection needed.
 Future<void> settleInputs(ProviderContainer container) async {
-  // Subscribe to the projection so its (auto-dispose) controller and fetch
-  // chain stay alive while the inputs settle — without touching the repair.
-  final sub = container.listen(seasonsView, (prev, next) {});
-  addTearDown(sub.close);
-  await container.read(activeSeasonPersistedProvider.future);
-  await container.read(activeBlockPersistedProvider.future);
+  pinView(container);
+  await settlePersistedInputs(container);
   await waitUntil(() async => container.read(seasonsView).isLoaded);
   expect(container.read(seasonsView).isLoaded, isTrue);
 }
@@ -368,8 +379,15 @@ void main() {
       final f = await _buildFixture(() => gate.future);
       await seedAnchor(f.dao, 'season-1');
 
-      // The repair runs against the loading view (cached rows only) - the
-      // anchor must survive, because "unloaded" is not "gone".
+      // Pin the LOADING state and load the anchor into the repair's inputs
+      // BEFORE the repair is first watched: its first build therefore evaluates
+      // the loaded anchor against an unloaded view - the gate this test is
+      // about - instead of inferring it from a turn count.
+      pinView(f.container);
+      await settlePersistedInputs(f.container);
+      expect(f.container.read(activeSeasonPersistedProvider).value, 'season-1');
+      expect(f.container.read(seasonsView).isLoaded, isFalse);
+
       watchRepair(f.container);
       await settle(f.container);
       expect(await readAnchor(f.dao), 'season-1');
@@ -387,6 +405,19 @@ void main() {
         () async => Left<ProblemError, List<SeasonView>>(_offline),
       );
       await seedAnchor(f.dao, 'season-gone');
+
+      // Pin the FAILED state (the fetch settled as `Left`, retained rows
+      // served) and load the anchor before the repair is watched, so its first
+      // build evaluates the loaded anchor against a failed view.
+      pinView(f.container);
+      await waitUntil(() async => f.container.read(seasonsView).error != null);
+      await settlePersistedInputs(f.container);
+      expect(
+        f.container.read(activeSeasonPersistedProvider).value,
+        'season-gone',
+      );
+      expect(f.container.read(seasonsView).isLoaded, isFalse);
+      expect(f.container.read(seasonsView).error, isNotNull);
 
       watchRepair(f.container);
       await settle(f.container);

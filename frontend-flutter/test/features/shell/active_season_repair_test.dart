@@ -201,8 +201,13 @@ void main() {
       await seedAnchor(container, 'season-1');
 
       // Loading: the view holds cached rows only, so nothing is authoritative.
+      // Pin the state the repair's first evaluation sees instead of inferring
+      // it from a pump count: the anchor is already one of its inputs and the
+      // view is not loaded.
       await tester.pumpWidget(_app(container));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(container.read(activeSeasonPersistedProvider).value, 'season-1');
+      expect(container.read(seasonsView).isLoaded, isFalse);
       expect(await readAnchor(container), 'season-1');
 
       // The projection answers with the very season the anchor names: it
@@ -221,9 +226,13 @@ void main() {
     final container = _buildContainer(() => gate.future);
     await seedAnchor(container, 'season-gone');
 
-    // Still loading: the anchor is not evidence of absence.
+    // Still loading: the anchor is not evidence of absence. Same pinning as
+    // above - the repair's first evaluation sees the loaded anchor against an
+    // unloaded view.
     await tester.pumpWidget(_app(container));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(container.read(activeSeasonPersistedProvider).value, 'season-gone');
+    expect(container.read(seasonsView).isLoaded, isFalse);
     expect(await readAnchor(container), 'season-gone');
 
     gate.complete(Right([_season('season-1', title: 'Staffel 1')]));
