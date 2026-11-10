@@ -79,7 +79,7 @@ live on the dedicated [Easter-eggs screen](easter-eggs.md) since issue
 | General section | Section header | Groups always-available settings | `settings.general` |
 | Easter-eggs entry tile | List item (push, chevron) | Central entry to the dedicated Easter-eggs screen (issue #708 — the per-egg switches and gallery live there; counter-model of the AI-configuration entry); no membership gate — the preferences are local-only | `settings.easterEggsEntryTitle` + `settings.easterEggsEntrySubtitle` |
 | AI section | Section header | Groups the AI-configuration entry (issue #644) | `settings.ai` |
-| AI-configuration entry | List item (push, chevron; trailing Retry while the backend is unreachable) | Central entry to `AiConfigScreen` (issue #643) — ALWAYS rendered, never gated on an ambient scope; its subtitle states the reachability state (issue #809) | `settings.aiConfig` + `settings.aiConfigSubtitle` / `settings.aiConfigChecking` / `settings.aiConfigUnreachable` |
+| AI-configuration entry | List item (push, chevron; trailing Retry while the backend is unreachable, lock icon on a resolved denial) | Central entry to `AiConfigScreen` (issue #643) — ALWAYS rendered, never gated on an ambient scope; its subtitle states the reachability state (issue #809) AND the resolved credential capability (issue #816) | `settings.aiConfig` + `settings.aiConfigSubtitle` / `settings.aiConfigChecking` / `settings.aiConfigUnreachable` / `settings.aiConfigDenied` |
 | Development section | Section header | Labels the dev-only area | `settings.dev` |
 | Server address row | List item (read-only) | Active effective API base | `settings.serverAddress` |
 | Flavor row | List item (read-only) | Active build flavor | `settings.flavor` |
@@ -95,9 +95,11 @@ entry, and it never removes the entry (issue #809):
 
 | Entry state | Subtitle | Trailing | Tap |
 |---|---|---|---|
-| probe in flight | „Backend wird geprüft…“ (`settings.aiConfigChecking`) | spinner | pushes the screen |
-| backend answered (healthy/degraded/unhealthy) | „KI-Anbieter und Modelle für den KI-Import verwalten.“ (`settings.aiConfigSubtitle`) | chevron | pushes the screen |
+| probe in flight (reachability OR capability) | „Backend wird geprüft…“ (`settings.aiConfigChecking`) | spinner | pushes the screen |
+| backend answered, capability GRANTED | „KI-Anbieter und Modelle für den KI-Import verwalten.“ (`settings.aiConfigSubtitle`) | chevron | pushes the screen |
 | backend unreachable (`BackendHealthUnreachable`) | „Backend noch nicht erreichbar“ (`settings.aiConfigUnreachable`) | Retry action (`settings-ai-config-retry`) + chevron | pushes the screen (never blocked) |
+| capability RESOLVED DENIAL (`GET /v1/me/capabilities` → `has_active_credential_role: false`, issue #816) | „Keine Berechtigung“ (`settings.aiConfigDenied`) | lock icon (`settings-ai-config-denied`) + chevron — no Retry (retrying cannot flip a role) | pushes the screen; the screen suppresses its discovery read and renders the administrator narrative |
+| capability UNKNOWN (transport failure, 5xx on the capability route) | the ordinary subtitle (`settings.aiConfigSubtitle`) | chevron | pushes the screen — the server stays authoritative |
 
 A configuration surface hidden by "unknown" is indistinguishable from an
 absent one and disappears exactly in the cold-start / post-reset /
@@ -105,6 +107,15 @@ projector-lag state where it is needed — so no scope state ever hides it
 (issue #809 supersedes #643's hide-based gate for this entry point; the
 D3 "a pending fetch disables, never denies" rule still governs *acting on
 domain data*).
+
+Since issue #816 a DENIAL is likewise a state, not an absence, and it is
+stated *before* the tap: the entry reads the deployment-scoped predicate
+the AI-config handlers enforce (`has_active_credential_role`) straight off
+the wire (`GET /v1/me/capabilities`) instead of approximating it with the
+season-scoped membership signal. Only a **resolved** `false` says "Keine
+Berechtigung" — a pending or failed capability read is UNKNOWN and keeps
+the ordinary subtitle, because a failed read must never put a permission
+problem in front of a user whose role is intact.
 
 Data: rows as above; the reachable entry renders the plain subtitle.
 Easter-eggs state lives entirely on the dedicated screen (issue #708).
@@ -125,25 +136,32 @@ local-override flow).
   the tile dispatches no command and reads no network resource; the
   per-egg preferences are on-device `shared_preferences`. The touch
   target is a standard `ListTile` (≥ 48×48 dp).
-- AI-configuration entry (issues #643 / #809): `// AUTHZ-GATE:` — the
-  tile renders ALWAYS; the denial decision is the server's. The AI-config
-  handlers are handler-internally gated by `has_active_credential_role`
+- AI-configuration entry (issues #643 / #809 / #816): `// AUTHZ-GATE:` —
+  the tile renders ALWAYS; a denial is a rendered state and, since #816,
+  an EXACT mirror of the server's gate. The AI-config handlers are
+  handler-internally gated by `has_active_credential_role`
   (`costume_designer`/`costume_assistant`, any active membership) — a
-  deployment-scoped predicate that is not on the wire, so the client
-  cannot mirror it exactly and does not pretend to: no client-side
-  pre-gate hides the entry, and a 403 renders the localized
-  administrator narrative inside `AiConfigScreen` (the documented D4
-  exception) with no retry affordance. The season-scoped membership
-  approximation (#643) is deliberately gone: it is both wider (adds
-  `wardrobe_supervisor`) and ambient (a stale or absent scope made it
-  look like a denial in exactly the cold-start / post-reset case).
-  Reachability comes from the one-shot `backendHealthProbeProvider`
-  (`GET /v1/health`, public, never throws) — no polling (the drawer pill
-  polls). Tap pushes `AiConfigScreen` (`MaterialPageRoute`,
-  fire-and-forget, same as the wizard and import-submit entries) in every
-  state. The touch target is a standard `ListTile` (≥ 48×48 dp); the
-  Retry action is an `IconButton` with the localized `common.retry`
-  tooltip.
+  deployment-scoped predicate now published at
+  `GET /v1/me/capabilities` (`myCapabilitiesProvider`, one-shot, no
+  polling). A resolved denial renders „Keine Berechtigung“ here AND
+  suppresses the AI-config discovery dispatch (`aiConfigDiscovery`
+  short-circuits with the client-detected
+  `ai_config.capability_denied`), so no request leaves the device for a
+  caller the server would refuse; the screen renders the same
+  administrator narrative, without a retry affordance (D4 exception).
+  An UNKNOWN capability (probe in flight, transport failure, 5xx) is
+  never rendered as a denial — the request proceeds and a real 403
+  (`ai-config.forbidden` / `settings.forbidden`) still renders its
+  narrative. The season-scoped membership approximation (#643) stays
+  deliberately gone: it is both wider (adds `wardrobe_supervisor`) and
+  ambient (a stale or absent scope made it look like a denial in exactly
+  the cold-start / post-reset case). Reachability comes from the one-shot
+  `backendHealthProbeProvider` (`GET /v1/health`, public, never throws) —
+  no polling (the drawer pill polls). Tap pushes `AiConfigScreen`
+  (`MaterialPageRoute`, fire-and-forget, same as the wizard and
+  import-submit entries) in every state. The touch target is a standard
+  `ListTile` (≥ 48×48 dp); the Retry action is an `IconButton` with the
+  localized `common.retry` tooltip and re-runs BOTH one-shot probes.
 - Import-submit gear and preview Decision-Model CTA: unchanged
   destinations, but a backend that is down now surfaces the localized
   unreachable card (title + body + Retry) on the configuration screen
@@ -185,12 +203,16 @@ template + English catalog.
   — and always tappable (issues #643/#809); tap pushes `AiConfigScreen`,
   incl. the server-authoritative 403 narrative and its absence of a
   retry; the entry's three reachability states (checking / reachable /
-  unreachable + working Retry); the AI-imports Settings tile is gone
-  (issue #672, moved to the account drawer).
+  unreachable + working Retry); the four capability states (granted /
+  denied / pending / error, fetch seam injected — the denied case asserts
+  the lock icon, the absence of Retry and ZERO discovery requests); the
+  AI-imports Settings tile is gone (issue #672, moved to the account
+  drawer).
 - Golden: `settings_dev_{light,dark}` + `settings_prod_{light,dark}`
   (replacing the former dialog goldens) + the AI-configuration entry in
-  its three reachability states, `{light,dark}` × android (issue #809:
-  checking, reachable, unreachable — so a hidden entry cannot silently
-  return); regenerated with the #708 entry-tile layout.
+  its reachability states, `{light,dark}` × android (issue #809:
+  checking, reachable, unreachable) plus `denied` (issue #816) — so
+  neither a hidden entry nor a hidden denial can silently return;
+  regenerated with the #708 entry-tile layout.
 - Unit: backend-URI validation copy mapping (the per-egg store
   Ok/Err branches live with the Easter-eggs screen, issue #708).

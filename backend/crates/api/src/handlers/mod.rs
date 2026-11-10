@@ -9722,6 +9722,14 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
             "/meta/credits",
             routing::get(crate::meta::get_meta_credits),
         )
+        // Self surface (issue #816): the caller's global capability report.
+        // Authenticated at the middleware (a deployment-scoped capability says
+        // nothing about `X-Active-Block`); both predicates are resolved inside
+        // the handler through the injected `AuthorizationPolicy`.
+        .route(
+            "/me/capabilities",
+            routing::get(crate::me::get_my_capabilities::<ProductionPorts>),
+        )
         .route(
             "/ops/projector-health",
             routing::get(get_projector_health::<ProductionPorts>),

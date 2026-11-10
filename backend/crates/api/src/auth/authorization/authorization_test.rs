@@ -4,6 +4,7 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::sync::Arc;
 
@@ -183,6 +184,11 @@ fn allowlist_paths_map_to_authenticated_only() {
         // active membership in the queried series itself.
         "/audit",
         "/v1/audit",
+        // Self surface (issue #816): the caller's global capability report.
+        // Narrow equality match — a future `/me/*` route must be classified
+        // explicitly instead of inheriting this exception.
+        "/me/capabilities",
+        "/v1/me/capabilities",
         // Continuity photos (season-scoped handler-internal gate, issue #333)
         "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos",
         "/shooting-days/00000000-0000-7000-8000-000000000000/scenes/00000000-0000-7000-8000-000000000000/scene-shoots/00000000-0000-7000-8000-000000000000/continuity-photos/00000000-0000-7000-8000-000000000000",

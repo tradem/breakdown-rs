@@ -41,6 +41,9 @@ mod handler_photo_compensation;
 #[path = "handler_episode.rs"]
 mod handler_episode;
 
+#[path = "handler_me_capabilities.rs"]
+mod handler_me_capabilities;
+
 #[path = "handler_membership.rs"]
 mod handler_membership;
 

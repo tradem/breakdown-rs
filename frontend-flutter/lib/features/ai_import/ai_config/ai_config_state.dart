@@ -280,6 +280,18 @@ class AiConfigUnresolved {
   final ProblemError error;
 }
 
+/// Client-detected problem code for the EXACT pre-tap credential gate
+/// (issue #816).
+///
+/// No server problem carries this code: `GET /v1/me/capabilities` answered a
+/// RESOLVED denial, so the AI-config discovery dispatch was suppressed instead
+/// of provoking a 403 the client already knew was coming. It deliberately rides
+/// the same narrative as a real `ai-config.forbidden` — one behaviour, two
+/// sources — so the screen renders identically whether the denial came from the
+/// wire or from the capability mirror (same pattern as
+/// `ai_import.scope_missing` / `ai_config.decision_key_missing`).
+const String kAiConfigCapabilityDeniedCode = 'ai_config.capability_denied';
+
 /// Localized client-side copy for a config command failure, keyed on the
 /// stable problem `code` (never the server `detail`). Unknown codes fall
 /// back to a code-carrying generic.
@@ -291,7 +303,11 @@ class AiConfigUnresolved {
 /// land on the "administrator role required" narrative, never the fallback.
 String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
     switch (error.code) {
-      'ai-config.forbidden' || 'settings.forbidden' => l10n.aiConfigErrorAdmin,
+      'ai-config.forbidden' ||
+      'settings.forbidden' ||
+      // Client-detected pre-tap denial (issue #816): same narrative, because
+      // it is the same fact — the caller lacks the credential role.
+      kAiConfigCapabilityDeniedCode => l10n.aiConfigErrorAdmin,
       // 409 `ai-config.version-mismatch` — the scoped optimistic-lock code
       // the backend emits on a stale config edit/revoke (issue #481),
       // preserving the typed expected/current extensions. Same narrative as
@@ -338,7 +354,10 @@ bool isAiImportDisabled(ProblemError error) =>
 /// cannot flip a role — so the UI renders the "administrator role
 /// required" narrative ([aiConfigErrorCopy]) WITHOUT a retry affordance.
 bool isAiConfigAuthzDenied(ProblemError error) =>
-    error.code == 'ai-config.forbidden' || error.code == 'settings.forbidden';
+    error.code == 'ai-config.forbidden' ||
+    error.code == 'settings.forbidden' ||
+    // Issue #816: the client-detected mirror of the same predicate.
+    error.code == kAiConfigCapabilityDeniedCode;
 
 /// True when [error] says the backend produced NO answer at all (issue #809):
 /// a transport-level failure — connection refused/DNS (`connectionError`), a

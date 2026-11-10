@@ -5,6 +5,7 @@
 # Co-authored-by: qwen3.8-flash (opencode-go)
 # Co-authored-by: omen-alpha (opencode-go)
 # Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 # Regenerate the typed, Dio-based Dart API client (`breakdown_api`) from
 # `backend/openapi.yaml` into `vendor/breakdown_api/`.
@@ -81,7 +82,7 @@ echo "  gen  : openapi-generator-cli (JAR ${GENERATOR_VERSION} from openapitools
 # regenerated away and fail the CI drift check. Bump it (MINOR for additive
 # wire fields, MAJOR for a breaking contract) in the same commit that changes
 # `openapi.yaml`, so two client builds stay tellable apart.
-CLIENT_VERSION="1.4.0"
+CLIENT_VERSION="1.5.0"
 
 # Clean the previous output so removed operations/models disappear from the tree.
 rm -rf "${OUT}"

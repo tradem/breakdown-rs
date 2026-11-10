@@ -5904,6 +5904,12 @@ abstract class AppLocalizations {
   /// **'Backend noch nicht erreichbar'**
   String get settingsAiConfigUnreachable;
 
+  /// No description provided for @settingsAiConfigDenied.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Berechtigung'**
+  String get settingsAiConfigDenied;
+
   /// No description provided for @settingsAi.
   ///
   /// In de, this message translates to:

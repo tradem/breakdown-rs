@@ -30,6 +30,7 @@ pub mod auth;
 pub mod fault_injection;
 pub mod handlers;
 pub mod health;
+pub mod me;
 pub mod meta;
 pub mod problems;
 pub mod routes;
@@ -57,6 +58,7 @@ use utoipa::OpenApi;
         crate::health::get_health,
         crate::meta::get_meta_versions,
         crate::meta::get_meta_credits,
+        crate::me::get_my_capabilities,
         handlers::create_season,
         handlers::list_seasons,
         handlers::get_season,
@@ -198,6 +200,7 @@ use utoipa::OpenApi;
     components(schemas(
         handlers::IdVersionResponse,
         crate::meta::MetaVersionsResponse,
+        crate::me::MyCapabilitiesResponse,
         crate::problems::ProblemDetails,
         handlers::ManualArchiveResponse,
         handlers::ManualArchiveJobResult,

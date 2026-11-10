@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/auth_providers.dart';
+import '../../auth/capabilities.dart';
 import '../auth/sign_out.dart';
 import '../../data/settings/api_base_validation.dart';
 import '../../data/settings/api_base_override_store.dart';
@@ -273,15 +274,19 @@ class _EasterEggsEntryTile extends StatelessWidget {
 /// AUTHZ-GATE: the AI-config handlers are handler-internally gated by
 /// `has_active_credential_role` (an active `piece_designer` /
 /// `costume_assistant` in any active membership — backend
-/// `AuthorizationPolicy`). That predicate is deployment-scoped and is NOT
-/// on the wire, and the season-scoped approximation this tile used before
-/// #809 is a superset (it also covers `wardrobe_supervisor`) *and* ambient
-/// (a stale scope made it read as a denial). The client therefore does not
-/// pretend to mirror it: the entry is not pre-gated, and a denial is
-/// rendered from the server's scoped 403 arms (`ai-config.forbidden` /
-/// `settings.forbidden`) inside [AiConfigScreen] — the documented D4
-/// exception, with no retry affordance. Server authoritative, never a
-/// bypass, never a hidden entry.
+/// `AuthorizationPolicy`). That predicate is deployment-scoped; since issue
+/// #816 it IS on the wire (`GET /v1/me/capabilities`), so this tile mirrors
+/// it EXACTLY instead of approximating it with the season-scoped signal
+/// (which is a superset — it also covers `wardrobe_supervisor` — *and*
+/// ambient: a stale scope made it read as a denial). A resolved denial
+/// renders "Keine Berechtigung" here, before the tap, and the AI-config
+/// discovery dispatch is suppressed in
+/// `AiConfigController`'s discovery seam (no request). An UNKNOWN answer
+/// (probe in flight, transport failure, 5xx) is never a denial: the server
+/// stays authoritative and a real 403 (`ai-config.forbidden` /
+/// `settings.forbidden`) still renders its localized narrative inside
+/// [AiConfigScreen] — the documented D4 exception, with no retry
+/// affordance. Never a bypass, never a hidden entry.
 ///
 /// Reachability comes from [aiConfigReachabilityProvider] — a ONE-SHOT
 /// probe over the existing `backendHealthProbeProvider` seam (`GET
@@ -296,17 +301,33 @@ class _AiConfigEntryTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
     final reachability = ref.watch(aiConfigReachabilityProvider);
-    // Unknown is a STATE, never a denial and never an absence: while the
+    // Issue #816: the SERVER's own credential predicate, read off the wire
+    // (`GET /v1/me/capabilities`) instead of approximated from a season-scoped
+    // membership signal — that one is a superset (it also admits
+    // `wardrobe_supervisor`) AND ambient (a stale scope read as a denial).
+    final capabilities = ref.watch(myCapabilitiesProvider);
+    // Unknown is a STATE, never a denial and never an absence: while either
     // probe has not answered (or a defensive error left no value) the tile
     // says so and stays tappable.
-    final checking = reachability.isLoading || !reachability.hasValue;
+    final checking =
+        reachability.isLoading ||
+        !reachability.hasValue ||
+        capabilities.isLoading;
     final unreachable =
         !checking &&
         reachability.value == AiConfigBackendReachability.unreachable;
+    // A RESOLVED denial is the only state allowed to say "Keine Berechtigung".
+    // An error on the capability read is UNKNOWN, not a denial: a failed read
+    // must never put a permission problem in front of a user whose role is
+    // intact, and the server stays authoritative on every gated call.
+    final denied =
+        !checking && !unreachable && (capabilities.value?.isDenied ?? false);
     final subtitle = checking
         ? l10n.settingsAiConfigChecking
         : unreachable
         ? l10n.settingsAiConfigUnreachable
+        : denied
+        ? l10n.settingsAiConfigDenied
         : l10n.settingsAiConfigSubtitle;
     return ListTile(
       key: const Key('settings-ai-config'),
@@ -328,9 +349,23 @@ class _AiConfigEntryTile extends ConsumerWidget {
               key: const Key('settings-ai-config-retry'),
               tooltip: l10n.commonRetry,
               icon: const Icon(Icons.refresh),
-              // One-shot by design: re-running the probe is explicit user
-              // intent, never an implicit poll.
-              onPressed: () => ref.invalidate(aiConfigReachabilityProvider),
+              // One-shot by design: re-running the probes is explicit user
+              // intent, never an implicit poll. Both seams are re-run: a
+              // reachability retry that left a stale capability answer in place
+              // would keep rendering the old state.
+              onPressed: () {
+                ref.invalidate(aiConfigReachabilityProvider);
+                ref.invalidate(myCapabilitiesProvider);
+              },
+            ),
+          // A resolved denial is shown, not hidden (#809 rule) and never
+          // turned into a lock-out: no Retry affordance (retrying cannot flip
+          // a role), and the tile stays tappable so the screen can answer.
+          if (denied)
+            const Icon(
+              key: Key('settings-ai-config-denied'),
+              Icons.lock_outline,
+              size: 18,
             ),
           const Icon(Icons.chevron_right),
         ],

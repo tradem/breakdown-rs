@@ -11,6 +11,18 @@ part of 'ai_config_controller.dart';
 /// List-first config discovery (D2): `GET /v1/ai-import/config` (the
 /// caller's configs, newest-first) is authoritative. Tests override this
 /// seam.
+///
+/// AUTHZ-GATE (issue #816): a RESOLVED denial of the global credential
+/// predicate short-circuits here — the single place the read is dispatched —
+/// so no request leaves the device for a caller the server would refuse. This
+/// is the exact mirror that was impossible before the capability route
+/// existed; it is checked at DISPATCH time, `ref.read` rather than
+/// `ref.watch`, because a late capability answer must not rebuild this
+/// provider (that would re-dispatch a read that already went out).
+///
+/// Only a resolved `false` denies. A pending or failed capability read is
+/// UNKNOWN: the request proceeds and the server stays authoritative — an
+/// unknown capability must never be reported as "no permission".
 
 @ProviderFor(aiConfigDiscovery)
 final aiConfigDiscoveryProvider = AiConfigDiscoveryProvider._();
@@ -18,6 +30,18 @@ final aiConfigDiscoveryProvider = AiConfigDiscoveryProvider._();
 /// List-first config discovery (D2): `GET /v1/ai-import/config` (the
 /// caller's configs, newest-first) is authoritative. Tests override this
 /// seam.
+///
+/// AUTHZ-GATE (issue #816): a RESOLVED denial of the global credential
+/// predicate short-circuits here — the single place the read is dispatched —
+/// so no request leaves the device for a caller the server would refuse. This
+/// is the exact mirror that was impossible before the capability route
+/// existed; it is checked at DISPATCH time, `ref.read` rather than
+/// `ref.watch`, because a late capability answer must not rebuild this
+/// provider (that would re-dispatch a read that already went out).
+///
+/// Only a resolved `false` denies. A pending or failed capability read is
+/// UNKNOWN: the request proceeds and the server stays authoritative — an
+/// unknown capability must never be reported as "no permission".
 
 final class AiConfigDiscoveryProvider
     extends
@@ -32,6 +56,18 @@ final class AiConfigDiscoveryProvider
   /// List-first config discovery (D2): `GET /v1/ai-import/config` (the
   /// caller's configs, newest-first) is authoritative. Tests override this
   /// seam.
+  ///
+  /// AUTHZ-GATE (issue #816): a RESOLVED denial of the global credential
+  /// predicate short-circuits here — the single place the read is dispatched —
+  /// so no request leaves the device for a caller the server would refuse. This
+  /// is the exact mirror that was impossible before the capability route
+  /// existed; it is checked at DISPATCH time, `ref.read` rather than
+  /// `ref.watch`, because a late capability answer must not rebuild this
+  /// provider (that would re-dispatch a read that already went out).
+  ///
+  /// Only a resolved `false` denies. A pending or failed capability read is
+  /// UNKNOWN: the request proceeds and the server stays authoritative — an
+  /// unknown capability must never be reported as "no permission".
   AiConfigDiscoveryProvider._()
     : super(
         from: null,
@@ -58,7 +94,7 @@ final class AiConfigDiscoveryProvider
   }
 }
 
-String _$aiConfigDiscoveryHash() => r'029b979ce2384a80148f3846c6ac5924c230ff3a';
+String _$aiConfigDiscoveryHash() => r'6ed45a4b0b5e702e02b194d33998cbcb9c545854';
 
 /// The remembered hand-off state for the authenticated subject (task 1.3).
 

@@ -1143,6 +1143,7 @@
   "settingsAiConfigSubtitle": "KI-Anbieter und Modelle für den KI-Import verwalten.",
   "settingsAiConfigChecking": "Backend wird geprüft…",
   "settingsAiConfigUnreachable": "Backend noch nicht erreichbar",
+  "settingsAiConfigDenied": "Keine Berechtigung",
   "settingsAi": "KI",
   "settingsDev": "Entwicklung",
   "aiImportClippyNoConfig": "Es sieht so aus, als wolltest du einen Spielplan importieren… Willst du zuerst eine KI-Konfiguration einrichten?",

@@ -145,6 +145,24 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
   entry, and no client-side role approximation pre-gates it. Contrast the
   *action* gates in §5 (photo upload/delete and other handler-internal
   authz paths still pre-gate via `currentMembershipProvider`).
+- **A deployment-scoped permission is READ from the wire, never
+  approximated (issue #816, hard rule):** a server predicate that is not
+  scoped to the caller's ambient context (today:
+  `has_active_credential_role`, ADR-027) is mirrored by a client-side
+  AUTHZ-GATE via its own endpoint (`GET /v1/me/capabilities` →
+  `myCapabilitiesProvider`), never by reusing a *scoped* membership
+  signal. The scoped substitute is always wrong twice over: it is a
+  superset (the season signal admits `wardrobe_supervisor`) and it is
+  ambient (a stale or absent scope reads as a denial). A RESOLVED denial
+  is (a) a rendered state — "Keine Berechtigung" in the entry's subtitle,
+  never a hidden entry — and (b) a real gate: the gated read is not
+  dispatched (`aiConfigDiscovery` short-circuits with the
+  client-detected `ai_config.capability_denied`), so no request leaves
+  the device for a caller the server would refuse. An UNKNOWN answer
+  (probe in flight, transport failure, 5xx) is NEVER a denial — the
+  request proceeds and the server stays authoritative. ADR-035 B2
+  forbids adding a new `*_in_season` predicate to make such a gate fit;
+  publish the global predicate instead.
 
 ## 2. Workspace Structure
 

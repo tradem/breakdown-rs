@@ -126,6 +126,7 @@ import 'package:breakdown_api/src/model/meta_credits_response.dart';
 import 'package:breakdown_api/src/model/meta_versions_response.dart';
 import 'package:breakdown_api/src/model/model_info.dart';
 import 'package:breakdown_api/src/model/model_pricing.dart';
+import 'package:breakdown_api/src/model/my_capabilities_response.dart';
 import 'package:breakdown_api/src/model/outfit_continuity_candidate.dart';
 import 'package:breakdown_api/src/model/outfit_continuity_selection.dart';
 import 'package:breakdown_api/src/model/outfit_decision.dart';
@@ -322,6 +323,7 @@ part 'serializers.g.dart';
   MetaVersionsResponse,
   ModelInfo,
   ModelPricing,
+  MyCapabilitiesResponse,
   OutfitContinuityCandidate,
   OutfitContinuitySelection,
   OutfitDecision,
