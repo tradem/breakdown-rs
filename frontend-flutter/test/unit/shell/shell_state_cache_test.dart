@@ -152,6 +152,33 @@ void main() {
       // Idempotent delete.
       expect((await dao.delete(key)).isRight(), isTrue);
     });
+
+    // Issue #817: the repair deletes an anchor only while the stored value is
+    // still the one it read — a concurrent fresh write must survive.
+    test('deleteIfValue removes only a matching value', () async {
+      await dao.upsert(key: key, value: 'season-gone', cachedAt: cachedAt);
+      expect(
+        (await dao.deleteIfValue(key: key, value: 'season-other')).isRight(),
+        isTrue,
+      );
+      expect(
+        (await dao.read(key)).getRight().toNullable()!.value,
+        'season-gone',
+      );
+      expect(
+        (await dao.deleteIfValue(key: key, value: 'season-gone')).isRight(),
+        isTrue,
+      );
+      expect((await dao.read(key)).getRight().toNullable(), isNull);
+    });
+
+    test('deleteIfValue on an absent key is a no-op', () async {
+      expect(
+        (await dao.deleteIfValue(key: key, value: 'season-gone')).isRight(),
+        isTrue,
+      );
+      expect((await dao.read(key)).getRight().toNullable(), isNull);
+    });
   });
 
   group('ShellStateDao Err branches (executor fault injection)', () {
@@ -186,6 +213,12 @@ void main() {
     test('delete failure → Left(shell.state_delete_failed)', () async {
       executor.failWrite = true;
       final res = await faultDao.delete(key);
+      expect(res.getLeft().toNullable()!.code, 'shell.state_delete_failed');
+    });
+
+    test('deleteIfValue failure → Left(shell.state_delete_failed)', () async {
+      executor.failWrite = true;
+      final res = await faultDao.deleteIfValue(key: key, value: 'season-gone');
       expect(res.getLeft().toNullable()!.code, 'shell.state_delete_failed');
     });
 

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
+import 'package:drift/drift.dart' show BooleanExpressionOperators;
 import 'package:fpdart/fpdart.dart';
 
 import '../../core/problem_error.dart';
@@ -76,6 +77,30 @@ class ShellStateDao {
       await (_db.delete(
         _db.shellStateRows,
       )..where((t) => t.key.equals(key))).go();
+      return const Right(null);
+    } catch (e) {
+      return Left(
+        ProblemError(code: 'shell.state_delete_failed', detail: '$e'),
+      );
+    }
+  }
+
+  /// Deletes the entry for [key] only while its stored value still equals
+  /// [value] — compare-and-remove (issue #817).
+  ///
+  /// The conditional delete is the shell-state twin of
+  /// `ActiveBlockStore.removeScopeIfMatch`: a repair that decided from a
+  /// read taken earlier must never delete a value that a concurrent fresh
+  /// write replaced in the meantime. The comparison and the delete are one
+  /// SQL statement, so no read-modify-write window exists.
+  Future<Result<void>> deleteIfValue({
+    required String key,
+    required String value,
+  }) async {
+    try {
+      await (_db.delete(
+        _db.shellStateRows,
+      )..where((t) => t.key.equals(key) & t.value.equals(value))).go();
       return const Right(null);
     } catch (e) {
       return Left(
