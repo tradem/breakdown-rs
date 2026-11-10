@@ -54,7 +54,10 @@ pub struct OpenAiCompatibleChatClient {
 /// although a larger budget would have succeeded (nightly AI Import smoke
 /// 2026-08-13: `EOF while parsing an object at line 1 column 1158`).
 const TRUNCATION_RETRY_BUDGET_GROWTH: u32 = 2;
-const MAX_TRUNCATION_RETRIES: u32 = 2;
+/// Declared in `core` (issue #871, D-C2): the permit bound multiplies the two
+/// nested retry layers, so the number the client actually uses and the number the
+/// bound is computed from must be the same one.
+const MAX_TRUNCATION_RETRIES: u32 = breakdown_core::ai::HOSTED_INNER_RETRIES;
 
 impl OpenAiCompatibleChatClient {
     /// Attach the provider breaker (issue #871).

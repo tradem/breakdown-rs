@@ -56,7 +56,9 @@ impl OllamaChatClient {
     pub fn with_http(http: reqwest::Client, max_parse_retries: u32, timeout: Duration) -> Self {
         Self {
             http,
-            max_parse_retries: max_parse_retries.min(3),
+            // The cap is the number `AiImportBounds::attempt_worst_case_secs`
+            // multiplies with (issue #871, D-C2), declared in `core`.
+            max_parse_retries: max_parse_retries.min(breakdown_core::ai::OLLAMA_INNER_RETRIES),
             timeout,
             health: None,
         }

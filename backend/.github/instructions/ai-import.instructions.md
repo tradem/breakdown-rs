@@ -282,3 +282,41 @@ at chunk 25 **three times**: the same ~25 chunks paid for three times.
   `dev_reset` registers the table before the job delete.
 - A schedule import is ONE extraction unit, so it has no chunk resume; the port is
   only consulted by the script worker.
+
+#### Retry precedence (issue #871, workstream C)
+
+Two nested layers, and **which one wins is a rule, not an accident**:
+
+| Situation | What happens | Why |
+|---|---|---|
+| A retryable provider failure, breaker still **closed** | `retry_bounded` retries in-attempt, `AI_IMPORT_MAX_ATTEMPT_RETRIES` times (default 2) | a blip is cheap to absorb; the permit stays held (releasing and re-acquiring per retry would let another job interleave between two calls of the same chunk) |
+| The breaker **opens** (threshold consecutive failures for the pair) | every held/runnable job of that pair takes the **hold** path; `next_attempt_at` = the breaker's `retry_at` | the whole fleet re-probes at ONE instant instead of a per-job stagger, which is what makes the single CAS prober cheap and recovery fast |
+| A **non-provider** retryable failure (mapping DB, payload storage, pricing read model) | the ordinary per-job curve `1 min · 2^retries`, capped at 6 h | that curve was designed for exactly these, and the breaker must not swallow them — they say nothing about the endpoint |
+| The **hold expires** (`AI_IMPORT_MAX_PROVIDER_HOLD_SECS`) | `dead_letter` with the provider narrative, `retries` **unchanged**, exactly one attempt row | the document did not fail, the provider did; the operator's "documents that failed" count must not be inflated by infrastructure |
+
+**The permit is held across in-attempt retries and released with the attempt.** A
+hold *ends* the attempt, so a waiting job occupies no capacity. The window one
+attempt can occupy a permit is therefore a computed number, not a guess:
+
+```
+(1 + AI_IMPORT_MAX_ATTEMPT_RETRIES) × (1 + inner_retries) × AI_IMPORT_REQUEST_TIMEOUT_SECS
+  + AI_IMPORT_MAX_ATTEMPT_RETRIES × 30 s
+```
+
+with `inner_retries = 2` for hosted providers (`HOSTED_INNER_RETRIES`) and `3` for
+Ollama (`OLLAMA_INNER_RETRIES`) — the clients re-request a truncated/malformed
+answer *inside* one attempt, so the two layers **multiply**. With the defaults:
+**19 min** hosted, **25 min** Ollama. `AiImportBounds::attempt_worst_case_secs`
+is the authoritative rendering and is asserted in `bounds_tests.rs`; the inner
+counts are declared in `core` and read by the clients, so the arithmetic cannot
+drift from the code it describes.
+
+> **Intentional cost change (D-C1).** The in-attempt retry count dropped from
+> **5 to 2** in issue #871. Before the split, one knob governed both layers, so a
+> single chunk could cost `5 × 5 = 25` paid calls before anything surfaced, each
+> holding a permit for up to `AI_IMPORT_REQUEST_TIMEOUT_SECS`. Three attempts per
+> chunk is enough to tell a blip from an outage, and the breaker — not a long
+> retry ladder — is what handles the outage. This is a deliberate behaviour and
+> cost change, not a regression: an operator who wants the old ladder can set
+> `AI_IMPORT_MAX_ATTEMPT_RETRIES`, and `AI_IMPORT_MAX_RETRIES` keeps its job-level
+> meaning untouched.

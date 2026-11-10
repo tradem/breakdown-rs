@@ -11,8 +11,8 @@ use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 use reqwest::StatusCode;
 
 use super::{
-    OpenAiCompatibleChatClient, classify_http_status, classify_http_status_with_detail,
-    classify_transport_error, next_truncation_budget,
+    MAX_TRUNCATION_RETRIES, OpenAiCompatibleChatClient, classify_http_status,
+    classify_http_status_with_detail, classify_transport_error, next_truncation_budget,
 };
 
 // ===========================================================================
@@ -514,4 +514,55 @@ fn check_strict(value: &serde_json::Value, path: &str) {
     for (key, child) in map {
         check_strict(child, &format!("{path}.{key}"));
     }
+}
+
+// ===========================================================================
+// Issue #871, workstream C — the request count one attempt can issue
+// ===========================================================================
+
+/// One `chat_constrained` call issues at most `1 + HOSTED_INNER_RETRIES` billed
+/// requests, and that is the number `AiImportBounds::attempt_worst_case_secs`
+/// multiplies with.
+///
+/// The loop is simulated through the same `next_truncation_budget` countdown the
+/// real `request_decoded` uses, so this pins the structure rather than a mock: a
+/// future edit that grants one more retry fails here *and* invalidates the
+/// permit bound, instead of silently widening the window.
+#[test]
+fn one_attempt_issues_at_most_three_billed_requests() {
+    let mut retries_left = MAX_TRUNCATION_RETRIES;
+    let mut budget = 1_000u32;
+    let mut requests = 1usize; // the first request always happens
+    while let Some(grown) = next_truncation_budget(Some("length"), budget, retries_left) {
+        requests += 1;
+        budget = grown;
+        retries_left -= 1;
+    }
+    assert_eq!(
+        requests,
+        1 + breakdown_core::ai::HOSTED_INNER_RETRIES as usize,
+        "the bound multiplies (1 + max_attempt_retries) by (1 + this count)"
+    );
+    assert_eq!(requests, 3);
+}
+
+/// The countdown is driven by the retry counter, never by `finish_reason` — a
+/// gateway that cuts a body short while reporting `stop` still gets the bounded
+/// retries (observed live against eurouter). So the ceiling holds for *any*
+/// unparseable answer, which is what makes the permit bound a ceiling rather than
+/// a hope.
+#[test]
+fn the_retry_countdown_ignores_the_reported_finish_reason() {
+    for reported in [Some("length"), Some("stop"), None] {
+        assert_eq!(
+            next_truncation_budget(reported, 1_000, 1),
+            Some(2_000),
+            "an unparseable answer is retried whatever the provider claims ({reported:?})"
+        );
+    }
+    assert_eq!(
+        next_truncation_budget(Some("length"), 1_000, 0),
+        None,
+        "and the ceiling is the counter, so the last request is the last request"
+    );
 }

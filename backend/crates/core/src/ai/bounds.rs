@@ -52,6 +52,25 @@ pub struct AiImportBounds {
     pub max_provider_hold_secs: u64,
 }
 
+/// How often the **hosted** client re-requests one call after a truncated answer
+/// (issue #871, D-C2).
+///
+/// Declared here, not in the client, because the permit bound is an arithmetic
+/// claim about **both** nested retry layers: `retry_bounded` retries the call and
+/// the client retries the HTTP request inside it, so the worst case of one
+/// attempt multiplies them. One source of truth means the bound cannot drift from
+/// the clients it describes.
+pub const HOSTED_INNER_RETRIES: u32 = 2;
+
+/// The Ollama client's cap on re-requesting a malformed answer (issue #871,
+/// D-C2). See [`HOSTED_INNER_RETRIES`].
+pub const OLLAMA_INNER_RETRIES: u32 = 3;
+
+/// The backoff cap `retry_bounded` sleeps between in-attempt retries
+/// (`compute_backoff(attempt, 30 s)`), which the permit bound must include
+/// because the loop sleeps while still holding the permit.
+pub const MAX_ATTEMPT_BACKOFF_SECS: u64 = 30;
+
 const DEFAULT_MAX_CHUNKS: u32 = 128;
 const DEFAULT_MAX_TOKENS: u32 = 8_192;
 const DEFAULT_MAX_GLOBAL_CONCURRENCY: u32 = 16;
@@ -180,6 +199,36 @@ impl AiImportBounds {
     /// composition root owns the log line.
     pub const fn breaker_threshold_exceeds_attempt_budget(&self) -> bool {
         self.breaker_enabled && self.breaker_failure_threshold > self.max_attempt_retries + 1
+    }
+
+    /// The analytic worst case of **one attempt** across both nested retry
+    /// layers (issue #871, D-C2).
+    ///
+    /// ```
+    /// (1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs
+    ///   + max_attempt_retries × MAX_ATTEMPT_BACKOFF_SECS
+    /// ```
+    ///
+    /// The multiplication is the point: one *attempt* is not one request. The
+    /// outer layer retries the call `1 + max_attempt_retries` times, and the
+    /// client re-requests a truncated/malformed answer `1 + inner_retries` times
+    /// *inside* each of those. `retry_bounded` also sleeps between attempts while
+    /// still holding the concurrency permit, so the backoff is part of the window
+    /// a waiting job occupies capacity for.
+    ///
+    /// With the defaults: hosted = 3 × 3 × 120 s + 2 × 30 s = **19 min**,
+    /// Ollama = 3 × 4 × 120 s + 2 × 30 s = **25 min**. Before #871 the outer
+    /// layer alone was 6 × 120 s + 5 × 30 s = 14.5 min — the split knob shortened
+    /// it, the client-internal retries lengthen it, and this function is what
+    /// makes both statements checkable instead of remembered.
+    #[must_use]
+    pub const fn attempt_worst_case_secs(&self, inner_retries: u32) -> u64 {
+        (self.max_attempt_retries as u64 + 1)
+            .saturating_mul(inner_retries as u64 + 1)
+            .saturating_mul(self.request_timeout_secs)
+            .saturating_add(
+                (self.max_attempt_retries as u64).saturating_mul(MAX_ATTEMPT_BACKOFF_SECS),
+            )
     }
 
     /// Worst-case token budget for one script before provider-side spend
