@@ -2431,6 +2431,10 @@ impl AiImportQueue for FakeAiImportQueue {
         self.jobs.lock().await.insert(
             request.id.as_uuid(),
             AiImportJob {
+                // Issue #871: pre-#871 row — no provider snapshot, no hold.
+                provider: None,
+                model: None,
+                provider_hold: None,
                 id: request.id,
                 user_id: request.user_id,
                 document_kind: request.document_kind,
@@ -2601,6 +2605,10 @@ impl AiImportQueue for FakeAiImportQueue {
         self.jobs.lock().await.insert(
             request.id.as_uuid(),
             AiImportJob {
+                // Issue #871: pre-#871 row — no provider snapshot, no hold.
+                provider: None,
+                model: None,
+                provider_hold: None,
                 id: request.id,
                 user_id: request.user_id,
                 document_kind: request.document_kind,

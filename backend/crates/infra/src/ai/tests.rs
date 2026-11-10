@@ -134,6 +134,10 @@ async fn merge_worker_empty_input_is_non_retryable() {
             _kind: DocumentKind,
         ) -> Result<Option<AiImportJob>, DomainError> {
             let job = AiImportJob {
+                // Issue #871: pre-#871 row — no provider snapshot, no hold.
+                provider: None,
+                model: None,
+                provider_hold: None,
                 id: breakdown_core::ai::AiImportJobId(Uuid::now_v7()),
                 user_id: UserId::from_sub("test-user"),
                 document_kind: DocumentKind::Schedule,
@@ -403,6 +407,10 @@ async fn merge_worker_success_records_telemetry() {
         .await;
 
     let job = AiImportJob {
+        // Issue #871: pre-#871 row — no provider snapshot, no hold.
+        provider: None,
+        model: None,
+        provider_hold: None,
         id: AiImportJobId::new(),
         user_id: UserId::from_sub("merge-telemetry-user"),
         document_kind: DocumentKind::Schedule,
@@ -807,6 +815,10 @@ impl LlmClient for FakeLlmClientWithEpisodeTitle {
 
 fn script_job(id: AiImportJobId) -> AiImportJob {
     AiImportJob {
+        // Issue #871: pre-#871 row — no provider snapshot, no hold.
+        provider: None,
+        model: None,
+        provider_hold: None,
         id,
         user_id: UserId::from_sub("ai-test-user"),
         document_kind: DocumentKind::Script,
@@ -907,6 +919,10 @@ impl LlmClient for RecordingScheduleClient {
 /// A schedule job carrying the given declared source format.
 fn schedule_job(format: SourceFormat) -> AiImportJob {
     AiImportJob {
+        // Issue #871: pre-#871 row — no provider snapshot, no hold.
+        provider: None,
+        model: None,
+        provider_hold: None,
         id: AiImportJobId::new(),
         user_id: UserId::from_sub("ai-schedule-test-user"),
         document_kind: DocumentKind::Schedule,

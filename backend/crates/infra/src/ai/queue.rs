@@ -14,7 +14,7 @@ use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
     ApplyRunState, CostBreakdown, DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary,
-    LlmProvider, SourceFormat, TargetAttachOutcome, Telemetry, mapping_kind,
+    LlmProvider, ProviderHold, SourceFormat, TargetAttachOutcome, Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{BlockId, UserId};
@@ -1712,6 +1712,12 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         // stored purely for attribution: `block_id` stays the authoritative
         // write target. Absent for pre-#771 rows.
         target: decode_import_target(&row),
+        // The breaker key snapshot (issue #871, D-A2b). `NULL` for every
+        // pre-#871 row and for an upload whose config could not be resolved:
+        // such a job is never breaker-filtered, which is the honest
+        // degradation.
+        provider: decode_job_provider(&row),
+        model: row.try_get("model").map_err(map_sqlx_error)?,
         status,
         preview_handle: row.try_get("preview_handle").map_err(map_sqlx_error)?,
         last_error: row.try_get("last_error").map_err(map_sqlx_error)?,
@@ -1724,6 +1730,10 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
             .map_err(map_sqlx_error)?
             .max(0) as u32,
         next_attempt_at: row.try_get("next_attempt_at").map_err(map_sqlx_error)?,
+        // The provider hold (issue #871). Advisory visibility data like
+        // `progress`: an undecodable payload degrades to `None` rather than
+        // failing the whole job read.
+        provider_hold: decode_provider_hold(&row),
         // JSONB decoded through the core view type; `NULL`/undecodable
         // payloads degrade to `None` rather than failing the whole read —
         // progress is advisory visibility data, never correctness state.
@@ -1793,6 +1803,43 @@ fn decode_import_target(row: &sqlx::postgres::PgRow) -> Option<AiImportTarget> {
             block_number,
         }),
         _ => None,
+    }
+}
+
+/// Decode the `provider` snapshot column into the core enum (issue #871).
+///
+/// An unknown or missing value degrades to `None` — the job is then never
+/// breaker-filtered, which is the same honest degradation a pre-#871 row gets.
+fn decode_job_provider(row: &sqlx::postgres::PgRow) -> Option<LlmProvider> {
+    let raw = row
+        .try_get::<Option<String>, _>("provider")
+        .ok()
+        .flatten()?;
+    match serde_json::from_value::<LlmProvider>(serde_json::Value::String(raw)) {
+        Ok(provider) => Some(provider),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode ai_import provider snapshot");
+            None
+        }
+    }
+}
+
+/// Decode the nullable `provider_hold` JSONB column (issue #871).
+///
+/// Advisory visibility data: `NULL` (no hold), an undecodable payload or a
+/// missing column degrades to `None` instead of failing the whole job read —
+/// the same contract as `progress` and `apply_progress`.
+fn decode_provider_hold(row: &sqlx::postgres::PgRow) -> Option<ProviderHold> {
+    let value = row
+        .try_get::<Option<serde_json::Value>, _>("provider_hold")
+        .ok()
+        .flatten()?;
+    match serde_json::from_value::<ProviderHold>(value) {
+        Ok(hold) => Some(hold),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode ai_import provider hold payload");
+            None
+        }
     }
 }
 

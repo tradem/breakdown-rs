@@ -58,6 +58,10 @@ impl MockQueue {
     async fn enqueue_job(&self, kind: DocumentKind) -> AiImportJobId {
         let id = AiImportJobId::new();
         let job = AiImportJob {
+            // Issue #871: pre-#871 row — no provider snapshot, no hold.
+            provider: None,
+            model: None,
+            provider_hold: None,
             id,
             user_id: UserId::from_sub("test-user"),
             document_kind: kind,
@@ -98,6 +102,10 @@ impl AiImportQueue for MockQueue {
         request: breakdown_core::ai::AiImportEnqueueRequest,
     ) -> Result<AiImportEnqueueResult, DomainError> {
         let job = AiImportJob {
+            // Issue #871: pre-#871 row — no provider snapshot, no hold.
+            provider: None,
+            model: None,
+            provider_hold: None,
             id: request.id,
             user_id: request.user_id,
             document_kind: request.document_kind,

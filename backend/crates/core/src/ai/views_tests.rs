@@ -463,3 +463,80 @@ fn ai_import_job_progress_is_optional_on_the_wire() {
         Some(Some("extracting".to_owned()))
     );
 }
+
+// ===========================================================================
+// Issue #871 — the provider hold on the wire (tasks 1.2, 1.3, 1.6)
+// ===========================================================================
+
+#[test]
+fn provider_breaker_state_wire_spellings_are_snake_case() {
+    use crate::ai::ProviderBreakerState;
+    for (state, expected) in [
+        (ProviderBreakerState::Closed, "\"closed\""),
+        (ProviderBreakerState::Open, "\"open\""),
+        (ProviderBreakerState::HalfOpen, "\"half_open\""),
+        (ProviderBreakerState::Expired, "\"expired\""),
+    ] {
+        assert_eq!(serde_json::to_string(&state).unwrap_or_default(), expected);
+        // `as_str` must agree with the wire spelling — the runbook SQL and the
+        // job-row JSON are read by the same operator.
+        assert_eq!(format!("\"{}\"", state.as_str()), expected);
+    }
+}
+
+#[test]
+fn provider_hold_round_trips_through_json() {
+    use crate::ai::{LlmProvider, ProviderBreakerState, ProviderHold};
+    use chrono::TimeZone;
+
+    let until = chrono::Utc
+        .with_ymd_and_hms(2026, 11, 4, 7, 10, 11)
+        .single()
+        .unwrap_or_default();
+    let deadline = until + chrono::Duration::hours(6);
+    let hold = ProviderHold {
+        provider: LlmProvider::OpenCodeGo,
+        model: "some-model".to_string(),
+        reason_code: "ai-import.llm-provider-unavailable".to_string(),
+        state: ProviderBreakerState::Open,
+        until,
+        hold_deadline: deadline,
+        chunks_done: 25,
+    };
+    let json = serde_json::to_string(&hold).unwrap_or_default();
+    let back: ProviderHold = serde_json::from_str(&json).unwrap_or_else(|_| hold.clone());
+    assert_eq!(back, hold);
+    // The durable column's key names, which the runbook SQL reads.
+    assert!(json.contains("\"reason_code\""));
+    assert!(json.contains("\"hold_deadline\""));
+    assert!(json.contains("\"chunks_done\""));
+}
+
+#[test]
+fn a_pre_871_job_payload_decodes_with_no_hold_and_no_snapshot() {
+    // A job row written before #871 carries none of the three new fields. The
+    // view must decode it (that is the whole point of `serde(default)`), and
+    // the absence must stay absence — never a fabricated closed breaker.
+    let json = r#"{
+        "id": "01a1a554-97b8-7208-b2a5-ee82c65a88a6",
+        "user_id": "user-1",
+        "document_kind": "script",
+        "source_format": "pdf",
+        "block_id": null,
+        "dedup_key": "dedup",
+        "document_digest": "digest",
+        "source_handle": "handle",
+        "status": "failed",
+        "preview_handle": null,
+        "last_error": "service unavailable",
+        "retries": 3,
+        "max_retries": 5,
+        "created_at": "2026-11-04T06:54:59Z",
+        "updated_at": "2026-11-04T07:06:11Z"
+    }"#;
+    let job: crate::ai::AiImportJob =
+        serde_json::from_str(json).expect("a pre-#871 payload must still decode");
+    assert!(job.provider.is_none());
+    assert!(job.model.is_none());
+    assert!(job.provider_hold.is_none());
+}

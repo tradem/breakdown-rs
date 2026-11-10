@@ -287,3 +287,110 @@ fn worst_case_tokens_one_chunk() {
     };
     assert_eq!(b.worst_case_tokens(), 8_192);
 }
+
+// ===========================================================================
+// Issue #871 — the breaker / in-attempt retry bounds (tasks 1.1, 1.6)
+// ===========================================================================
+
+#[test]
+fn defaults_split_the_two_retry_layers() {
+    let b = AiImportBounds::default();
+    // The job budget keeps its documented value; the in-attempt budget is the
+    // new, much smaller knob (D-C1: 1 + 2 = 3 attempts per chunk).
+    assert_eq!(b.max_retries, 5);
+    assert_eq!(b.max_attempt_retries, 2);
+    assert_eq!(b.breaker_failure_threshold, 3);
+    assert!(b.breaker_enabled);
+    assert_eq!(b.max_provider_hold_secs, 6 * 60 * 60);
+}
+
+#[test]
+fn default_threshold_is_reachable_within_one_chunk() {
+    // The compile-time assert ties the DEFAULTS; this is its runtime twin, so a
+    // future edit that only touches one constant fails a test as well as the
+    // build.
+    let b = AiImportBounds::default();
+    assert!(b.breaker_failure_threshold <= b.max_attempt_retries + 1);
+    assert!(!b.breaker_threshold_exceeds_attempt_budget());
+}
+
+#[test]
+fn threshold_above_the_attempt_budget_is_reported_not_rejected() {
+    let b = AiImportBounds {
+        breaker_failure_threshold: 10,
+        max_attempt_retries: 2,
+        ..AiImportBounds::default()
+    };
+    // A legitimate operator choice: the counter is per pair across all jobs,
+    // chunks and replicas, so the breaker still opens — just more slowly.
+    assert!(b.breaker_threshold_exceeds_attempt_budget());
+    assert!(b.validate().is_ok());
+}
+
+#[test]
+fn a_disabled_breaker_never_reports_a_threshold_problem() {
+    let b = AiImportBounds {
+        breaker_enabled: false,
+        breaker_failure_threshold: 10,
+        ..AiImportBounds::default()
+    };
+    assert!(!b.breaker_threshold_exceeds_attempt_budget());
+}
+
+#[test]
+fn attempt_retries_env_override_is_bounded() {
+    with_env("AI_IMPORT_MAX_ATTEMPT_RETRIES", "7", || {
+        assert_eq!(AiImportBounds::from_env().max_attempt_retries, 7);
+    });
+    // Out of range (0..=10) falls back to the default rather than clamping.
+    with_env("AI_IMPORT_MAX_ATTEMPT_RETRIES", "11", || {
+        assert_eq!(AiImportBounds::from_env().max_attempt_retries, 2);
+    });
+    with_env("AI_IMPORT_MAX_ATTEMPT_RETRIES", "not-a-number", || {
+        assert_eq!(AiImportBounds::from_env().max_attempt_retries, 2);
+    });
+}
+
+#[test]
+fn breaker_threshold_env_override_is_bounded() {
+    with_env("AI_IMPORT_BREAKER_FAILURE_THRESHOLD", "1", || {
+        assert_eq!(AiImportBounds::from_env().breaker_failure_threshold, 1);
+    });
+    // Zero is not a valid threshold (1..=10): a breaker that opens on no
+    // failure would hold every job forever.
+    with_env("AI_IMPORT_BREAKER_FAILURE_THRESHOLD", "0", || {
+        assert_eq!(AiImportBounds::from_env().breaker_failure_threshold, 3);
+    });
+}
+
+#[test]
+fn breaker_switch_accepts_the_documented_spellings() {
+    for value in ["true", "1", "yes", "TRUE"] {
+        with_env("AI_IMPORT_BREAKER_ENABLED", value, || {
+            assert!(AiImportBounds::from_env().breaker_enabled, "{value}");
+        });
+    }
+    for value in ["false", "0", "no", "False"] {
+        with_env("AI_IMPORT_BREAKER_ENABLED", value, || {
+            assert!(!AiImportBounds::from_env().breaker_enabled, "{value}");
+        });
+    }
+    // An unrecognized value keeps the default instead of guessing.
+    with_env("AI_IMPORT_BREAKER_ENABLED", "maybe", || {
+        assert!(AiImportBounds::from_env().breaker_enabled);
+    });
+}
+
+#[test]
+fn provider_hold_window_env_override_is_bounded() {
+    with_env("AI_IMPORT_MAX_PROVIDER_HOLD_SECS", "120", || {
+        assert_eq!(AiImportBounds::from_env().max_provider_hold_secs, 120);
+    });
+    // Below the 60s floor falls back to the 6h default.
+    with_env("AI_IMPORT_MAX_PROVIDER_HOLD_SECS", "5", || {
+        assert_eq!(
+            AiImportBounds::from_env().max_provider_hold_secs,
+            6 * 60 * 60
+        );
+    });
+}

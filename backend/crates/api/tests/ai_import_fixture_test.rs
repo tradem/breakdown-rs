@@ -112,6 +112,10 @@ async fn post_fixture(app: &axum::Router, payload: &str) -> (StatusCode, String)
 /// the queue hands out jobs oldest-first.
 fn foreign_pending_job() -> AiImportJob {
     AiImportJob {
+        // Issue #871: pre-#871 row — no provider snapshot, no hold.
+        provider: None,
+        model: None,
+        provider_hold: None,
         id: AiImportJobId::from_uuid(Uuid::now_v7()),
         user_id: breakdown_core::shared::UserId::from_sub(DEV_SUB),
         document_kind: DocumentKind::Script,

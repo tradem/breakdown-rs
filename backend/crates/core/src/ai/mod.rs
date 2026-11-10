@@ -23,6 +23,7 @@ pub mod error;
 pub mod events;
 pub mod ports;
 pub mod preview;
+pub mod provider_health;
 pub mod source_name;
 pub mod views;
 
@@ -76,6 +77,6 @@ pub use views::{
     ApplyRunId, ApplyRunState, ApplyStage, CostBreakdown, CostDisplayPreference, CostStatus,
     CostTotal, CostTotalStatus, Currency, DecisionCostBreakdown, DecisionOutcome,
     DecisionTelemetry, DocumentKind, EnergyCostBreakdown, ImageCostBreakdown, JobStatus,
-    JobTelemetrySummary, ModelPricing, PricingSource, SourceFormat, Telemetry, TelemetryApplyState,
-    TokenCostBreakdown,
+    JobTelemetrySummary, ModelPricing, PricingSource, ProviderBreakerState, ProviderHold,
+    SourceFormat, Telemetry, TelemetryApplyState, TokenCostBreakdown,
 };
