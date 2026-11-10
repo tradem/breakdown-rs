@@ -114,6 +114,8 @@ CREATE TABLE ai_import.provider_health (
     provider              text        NOT NULL,
     model                 text        NOT NULL,
     state                 text        NOT NULL DEFAULT 'closed'
+                          -- Three values only: `expired` (D-C4) is a *job-hold*
+                          -- state, never a breaker state, so this CHECK rejects it.
                           CHECK (state IN ('closed', 'open', 'half_open')),
     consecutive_failures  integer     NOT NULL DEFAULT 0,
     opened_at             timestamptz,
@@ -263,7 +265,8 @@ pub struct ProviderHold {
     pub reason_code: String,
     /// `Open | HalfOpen` while waiting, `Expired` on the terminal expiry write
     /// (D-C4) — the state that lets a client tell "the provider did not come
-    /// back" from "your retries are used up".
+    /// back" from "your retries are used up". `Expired` exists only here (a
+    /// job-hold state); the breaker's own `state` column never takes it.
     pub state: ProviderBreakerState,
     /// Breaker's next probe time — also this job's `next_attempt_at`.
     pub until: DateTime<Utc>,

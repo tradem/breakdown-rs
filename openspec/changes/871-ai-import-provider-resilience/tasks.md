@@ -21,12 +21,15 @@ clock (AGENTS.md §4).
       guards the **defaults** only; `from_env` bounds each value and `warn!`s when
       `threshold > 1 + max_attempt_retries` (the counter is per pair, so the
       breaker still opens — just more slowly).
-- [ ] 1.2 `core::ai::views`: `ProviderBreakerState { Closed, Open, HalfOpen }`
-      (`as_str`, `serde(rename_all = "snake_case")`) and `ProviderHold
+- [ ] 1.2 `core::ai::views`: `ProviderBreakerState { Closed, Open, HalfOpen,
+      Expired }` (`as_str`, `serde(rename_all = "snake_case")`) and `ProviderHold
       { provider, model, reason_code, state, until, hold_deadline, chunks_done }`
       with `ToSchema`; new additive `AiImportJob.provider_hold:
       Option<ProviderHold>` (`serde(default)`) whose doc states it is cleared by
-      every other lifecycle write (**D-A4**).
+      every other lifecycle write **except** the hold-expiry write, which keeps it
+      with `state = Expired` (**D-C4**). Document that `Expired` is a *job-hold*
+      state only: the breaker's own `provider_health.state` CHECK accepts three
+      values and never `expired`.
 - [ ] 1.3 `AiImportJob.provider`/`.model` (`Option`, `serde(default)`) — the
       enqueue-time snapshot (**D-A2b**).
 - [ ] 1.4 `core::ai::ports`: `AiImportQueue::mark_held(id, worker_id,
@@ -44,9 +47,12 @@ clock (AGENTS.md §4).
 ## 2. [A] Infra — the durable breaker and the held path
 
 - [ ] 2.1 Migration `…_ai_import_provider_health.up/down.sql`: the
-      `ai_import.provider_health` table from **D-A2** plus
-      `ai_import_job.provider varchar` / `.model varchar` (additive, nullable, no
-      backfill) (**D-X3**).
+      `ai_import.provider_health` table from **D-A2** plus three additive, nullable
+      job columns with no backfill: `ai_import_job.provider varchar`,
+      `.model varchar` (the breaker key snapshot, **D-A2b**), `.provider_hold
+      jsonb` (the wire view's column, **D-A4**) and `.provider_hold_series_started_at
+      timestamptz` (the **series clock** that a breaker close must NOT clear,
+      **D-C4**). (**D-X3**)
 - [ ] 2.2 `infra::ai::provider_health` repository: single-statement transitions
       from the **D-A6** table (`closed→open` with the `closed_at` stable-window
       flap rule, `open→half_open` with the `probe_owner` CAS + probe lease,
