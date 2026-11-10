@@ -50,8 +50,9 @@ pub use ports::{
     AiConfigCommands, AiConfigRepository, AiImportEnqueueRequest, AiImportEnqueueResult,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
     CURATED_PROVIDERS, CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
-    LlmModelCatalog, ModelInfo, ModelPricingRow, PRIMARY_ORDINAL, TargetAttachOutcome,
-    UsageAccumulator, mapping_kind,
+    LlmModelCatalog, ModelInfo, ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeLease,
+    ProbeOutcome, ProviderBreakerSnapshot, ProviderHealth, TargetAttachOutcome, UsageAccumulator,
+    mapping_kind,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,

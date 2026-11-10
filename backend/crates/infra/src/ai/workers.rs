@@ -20,14 +20,15 @@ use breakdown_core::ai::{
     ApplyGateError, ApplyMapping, ApplyMappingDecision, ApplyProgress, ApplyRunId, ApplyStage,
     CategoryVocabularyEntry, CharacterApplyPlan, CostBreakdown, DecisionClient, DecisionOutcome,
     DecisionTelemetry, DocumentKind, DraftScene, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest,
-    LlmClient, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
-    PlannedShootingDay, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
-    ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
-    draft_row_ref, ensure_merge_applyable, extract_block_number, extract_scenes, mapping_kind,
-    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
-    scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
+    LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan,
+    PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot, ProviderHold, ReviewerDecisions,
+    SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule,
+    SourceFormat, Telemetry, TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason,
+    Uncertainty, UncertaintyAcknowledgement, UncertaintyKind, UsageAccumulator,
+    category_conflict_uncertainties, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
+    extract_block_number, extract_scenes, mapping_kind, merge_schedule_to_scenes, parse_script_day,
+    plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
+    verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -601,6 +602,14 @@ where
             progress.record_episode(first.episode.as_ref());
         }
         super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
+        // Issue #871: the breaker consult for THIS attempt, bound to the pair the
+        // attempt actually resolved (`resolve_config`), not to the enqueue-time
+        // snapshot.
+        let gate = ProviderGate {
+            queue: self.queue.as_ref(),
+            provider: self.provider,
+            model: &self.model,
+        };
         for (chunk_index, chunk) in chunks.into_iter().enumerate() {
             // Hoisted because the grounding check below must verify a quote
             // against *exactly* the bytes the model was given. Grounding against
@@ -619,10 +628,19 @@ where
                 // Stop before the next paid call: another worker owns the job.
                 return Err(claim_lost_error(job.id, worker_id));
             }
+            // Issue #871 (D-A5): the chunk boundary is the mid-run abort point.
+            // The in-flight request is NOT aborted (an aborted HTTP request is
+            // not refunded), so the only honest saving is not starting the next
+            // one — the overspend bound is exactly one chunk per worker.
+            if !gate.admits().await {
+                hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate).await?;
+                return Ok(String::new());
+            }
             let partial = retry_chat(
                 self.client.as_ref(),
                 request,
-                self.bounds.max_retries as usize,
+                self.bounds.max_attempt_retries as usize,
+                &gate,
             )
             .await;
             match partial {
@@ -1370,9 +1388,21 @@ where
         // request failed (issue #767); both stay empty on the native CSV path,
         // which never scores at all.
         let mut decision_scoring = super::decision_scoring::ScoringReport::default();
+        // Issue #871: the breaker consult for this attempt, bound to the pair the
+        // attempt resolved. A schedule job is ONE extraction unit, so this is its
+        // only boundary.
+        let gate = ProviderGate {
+            queue: self.queue.as_ref(),
+            provider: self.provider,
+            model: &self.model,
+        };
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
+            if !gate.admits().await {
+                hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate).await?;
+                return Ok(String::new());
+            }
             let source_text = match job.source_format {
                 SourceFormat::Pdf => self.extractor.extract(bytes).await?,
                 // `Csv` never reaches this branch (`native_csv` above), so the
@@ -1392,7 +1422,8 @@ where
             let (parsed, call_usage) = retry_schedule(
                 self.client.as_ref(),
                 request,
-                self.bounds.max_retries as usize,
+                self.bounds.max_attempt_retries as usize,
+                &gate,
             )
             .await?;
             extraction_usage.record(call_usage);
@@ -3982,21 +4013,143 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
     Ok(())
 }
 
+/// The internal, never-serialized sentinel for "the provider breaker is open"
+/// (issue #871, D-C2/2.9b).
+///
+/// Deliberately **not** a retryable `ServiceUnavailable` — that is exactly the
+/// shape `is_transient` retries, which is the bug the breaker removes — and
+/// deliberately **not** a new problem code (D-X1: a hold is not an error, it has
+/// no HTTP surface of its own). `Conflict` is this codebase's established
+/// internal-terminal channel for worker-only states (`ensure_claim_owned` uses
+/// it for a lost claim), and the AI worker path never maps it to a handler
+/// response. [`is_breaker_open`] is the one place that recognises it, so no
+/// caller has to match on the string.
+pub const BREAKER_OPEN_REASON: &str = "ai-import provider breaker is open";
+
+/// The sentinel a gated call returns when the breaker refuses it.
+pub fn breaker_open_error() -> DomainError {
+    DomainError::conflict(BREAKER_OPEN_REASON)
+}
+
+/// Whether an error is the breaker sentinel rather than a real failure.
+pub fn is_breaker_open(error: &DomainError) -> bool {
+    matches!(error, DomainError::Conflict { reason, .. } if reason == BREAKER_OPEN_REASON)
+}
+
+/// Park a claimed job on its provider's breaker (issue #871, D-A5).
+///
+/// Deliberately not `mark_failed`: a hold spends **no** retry, appends **no**
+/// attempt row, and points `next_attempt_at` at the breaker's probe time. The
+/// chunk loop calls this instead of the failure path whenever the breaker
+/// refuses the next paid call — mid-run (the chunk boundary) or at the start of
+/// an attempt.
+///
+/// `chunks_done` is `0` in this build: the chunk store that would make it
+/// meaningful arrives with workstream B (D-B5).
+async fn hold_job<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    bounds: &AiImportBounds,
+    id: AiImportJobId,
+    worker_id: &str,
+    gate: &ProviderGate<'_, Q>,
+) -> Result<(), DomainError> {
+    let breaker = gate
+        .breaker()
+        .await
+        .unwrap_or_else(ProviderBreakerSnapshot::closed);
+    // `until` is the breaker's next probe. Without one (a `closed` row that
+    // raced us) the job is released rather than held — a hold with no resume
+    // time would be an unbounded wait.
+    let Some(until) = breaker.retry_at else {
+        return queue.release_claim(id, worker_id).await;
+    };
+    let hold = ProviderHold {
+        provider: gate.provider,
+        model: gate.model.to_string(),
+        // #822's registered code, reused: no new problem code (D-X1).
+        reason_code: "ai-import.llm-provider-unavailable".to_string(),
+        state: breaker.state,
+        until,
+        // The queue re-derives this from the job's own series clock (D-C4);
+        // this value keeps the struct self-describing.
+        hold_deadline: until
+            + chrono::Duration::seconds(
+                i64::try_from(bounds.max_provider_hold_secs).unwrap_or(i64::MAX),
+            ),
+        chunks_done: 0,
+    };
+    queue
+        .mark_held(id, worker_id, hold, bounds.max_provider_hold_secs)
+        .await
+}
+
+/// A breaker consult bound to one `(provider, model)` pair and one queue
+/// (issue #871, D-A5).
+///
+/// It is a thin adapter so the retry loop and the chunk loop can ask "may this
+/// pair be called right now?" without knowing about SQL, and so a test queue
+/// (whose default verdict is `closed`) keeps the pre-#871 behaviour.
+struct ProviderGate<'a, Q: AiImportQueue + ?Sized> {
+    queue: &'a Q,
+    provider: LlmProvider,
+    model: &'a str,
+}
+
+impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
+    /// Whether a paid call may be started. A failed read **admits**: this
+    /// consult only ever saves money, so a database hiccup must not stop the
+    /// pipeline.
+    async fn admits(&self) -> bool {
+        self.queue
+            .provider_admits(self.provider, self.model)
+            .await
+            .unwrap_or(true)
+    }
+
+    /// The current verdict, for building the hold the worker parks the job with.
+    async fn breaker(&self) -> Option<ProviderBreakerSnapshot> {
+        self.queue
+            .provider_breaker(self.provider, self.model)
+            .await
+            .ok()
+    }
+}
+
 /// Retry a transient LLM provider failure at most `max_retries` times with
 /// backoff, then return the last error. The shared saga retry helper loops
 /// forever on transient errors; a provider outage must not retry without bound
 /// (unbounded cost, and the concurrency permit is held for the whole outage).
-async fn retry_bounded<F, Fut, T>(mut op: F, max_retries: usize) -> Result<T, AnyhowError>
+///
+/// Since issue #871 the loop also consults the provider breaker at the **top of
+/// every iteration** (the first attempt included) and again before each backoff
+/// sleep. Checking only before the sleep is not enough: another worker can open
+/// the breaker *during* that sleep, and the loop would then still call. An open
+/// breaker costs neither a call nor a delay — it short-circuits with
+/// [`breaker_open_error`], which the chunk loop turns into a hold (D-A5).
+async fn retry_bounded<F, Fut, T>(
+    mut op: F,
+    max_retries: usize,
+    gate: &ProviderGate<'_, impl AiImportQueue + ?Sized>,
+) -> Result<T, AnyhowError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, AnyhowError>>,
 {
     let mut attempt: usize = 0;
     loop {
+        if !gate.admits().await {
+            return Err(AnyhowError::new(breaker_open_error()));
+        }
         match op().await {
             Ok(value) => return Ok(value),
             Err(error) if is_transient(&error) && attempt < max_retries => {
                 attempt += 1;
+                // Re-check before the sleep: the verdict we read a moment ago
+                // can already be stale, and sleeping on a dead endpoint holds
+                // the permit for nothing.
+                if !gate.admits().await {
+                    return Err(AnyhowError::new(breaker_open_error()));
+                }
                 tokio::time::sleep(supervisor::compute_backoff(
                     attempt,
                     std::time::Duration::from_secs(30),
@@ -4008,13 +4161,15 @@ where
     }
 }
 
-async fn retry_chat<C>(
+async fn retry_chat<C, Q>(
     client: &C,
     request: LlmChatRequest,
     max_retries: usize,
+    gate: &ProviderGate<'_, Q>,
 ) -> Result<(ScriptContext, LlmCallUsage), DomainError>
 where
     C: LlmClient + ?Sized,
+    Q: AiImportQueue + ?Sized,
 {
     let outcome = retry_bounded(
         || async {
@@ -4024,6 +4179,7 @@ where
                 .map_err(AnyhowError::new)
         },
         max_retries,
+        gate,
     )
     .await;
     match outcome {
@@ -4035,13 +4191,15 @@ where
     }
 }
 
-async fn retry_schedule<C>(
+async fn retry_schedule<C, Q>(
     client: &C,
     request: LlmChatRequest,
     max_retries: usize,
+    gate: &ProviderGate<'_, Q>,
 ) -> Result<(ShootingSchedule, LlmCallUsage), DomainError>
 where
     C: LlmClient + ?Sized,
+    Q: AiImportQueue + ?Sized,
 {
     let outcome = retry_bounded(
         || async {
@@ -4051,6 +4209,7 @@ where
                 .map_err(AnyhowError::new)
         },
         max_retries,
+        gate,
     )
     .await;
     match outcome {

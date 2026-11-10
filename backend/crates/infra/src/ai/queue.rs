@@ -14,7 +14,8 @@ use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
     ApplyRunState, CostBreakdown, DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary,
-    LlmProvider, ProviderHold, SourceFormat, TargetAttachOutcome, Telemetry, mapping_kind,
+    LlmProvider, ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold, SourceFormat,
+    TargetAttachOutcome, Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{BlockId, UserId};
@@ -1353,6 +1354,53 @@ impl AiImportQueue for PgAiImportQueue {
             ids.push(id);
         }
         Ok(ids)
+    }
+
+    /// The provider breaker's verdict for one pair (issue #871).
+    ///
+    /// A single primary-key read, and `closed` when the pair has no row (never
+    /// seen a failure, so nothing to hold for). The claim predicate is the
+    /// authority; this is the cheap consult the worker uses mid-run.
+    async fn provider_breaker(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<ProviderBreakerSnapshot, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT state, consecutive_failures, flap_count, retry_at
+            FROM ai_import.provider_health
+            WHERE provider = $1 AND model = $2
+            "#,
+        )
+        .bind(provider.as_str())
+        .bind(model)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some(row) = row else {
+            return Ok(ProviderBreakerSnapshot::closed());
+        };
+        let raw: String = row.try_get("state").map_err(map_sqlx_error)?;
+        let state = match raw.as_str() {
+            "open" => ProviderBreakerState::Open,
+            "half_open" => ProviderBreakerState::HalfOpen,
+            _ => ProviderBreakerState::Closed,
+        };
+        Ok(ProviderBreakerSnapshot {
+            state,
+            consecutive_failures: u32::try_from(
+                row.try_get::<i32, _>("consecutive_failures")
+                    .map_err(map_sqlx_error)?,
+            )
+            .unwrap_or(0),
+            flap_count: u32::try_from(
+                row.try_get::<i32, _>("flap_count")
+                    .map_err(map_sqlx_error)?,
+            )
+            .unwrap_or(0),
+            retry_at: row.try_get("retry_at").map_err(map_sqlx_error)?,
+        })
     }
 
     /// Owner-fenced, throttled progress write (issue #664, ADR-038 D3).

@@ -662,6 +662,43 @@ pub trait AiImportQueue: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// The provider breaker's verdict for one `(provider, model)` pair
+    /// (issue #871).
+    ///
+    /// Consulted by the worker at the **chunk boundary** and by the in-attempt
+    /// retry loop before every attempt, which is how an outage stops costing
+    /// money mid-run: the in-flight request is not aborted (an aborted HTTP
+    /// request is not refunded), so the only honest saving is not *starting* the
+    /// next one. The overspend bound is therefore exactly one chunk per worker.
+    ///
+    /// The default reports `closed` — a backend with no durable breaker admits
+    /// everything, which is exactly the pre-#871 behaviour.
+    async fn provider_breaker(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<ProviderBreakerSnapshot, DomainError> {
+        Ok(ProviderBreakerSnapshot::closed())
+    }
+
+    /// Whether a paid call for this pair may be started right now.
+    ///
+    /// Derived from [`provider_breaker`](Self::provider_breaker) so there is one
+    /// source of truth for "only `closed` admits work". A **failed read fails
+    /// open**: this consult only ever *saves* money, so a database hiccup must
+    /// not silently stop the whole pipeline.
+    async fn provider_admits(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<bool, DomainError> {
+        Ok(self
+            .provider_breaker(provider, model)
+            .await
+            .map(|snapshot| snapshot.admits_claim())
+            .unwrap_or(true))
+    }
+
     /// Publish live extraction progress for a claimed job (issue #664).
     ///
     /// Owner-fenced like every other worker transition: a worker whose lease
