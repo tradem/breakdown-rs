@@ -34,7 +34,9 @@ use std::time::Duration;
 
 use super::heartbeat::LeaseHeartbeat;
 use super::heartbeat::claim_lost;
-use breakdown_core::ai::{AiImportBounds, AiImportJobId, AiImportQueue, DocumentKind, LlmProvider};
+use breakdown_core::ai::{
+    AiImportBounds, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind, LlmProvider,
+};
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::CredentialVault;
 use tokio::sync::watch;
@@ -49,7 +51,9 @@ use super::preview_store::AiDocumentSource;
 use super::preview_store::AiPreviewStore;
 use super::queue::PgAiImportQueue;
 use super::runtime::AiWorkerRuntime;
-use super::workers::{DecisionResolution, ScheduleImportWorker, ScriptImportWorker};
+use super::workers::{
+    DecisionResolution, ProviderGate, ScheduleImportWorker, ScriptImportWorker, hold_job,
+};
 use crate::ai::{DecisionPass, HttpDecisionClient};
 use crate::queries::ai_config::{AiConfigRepositoryImpl, AiWorkerConfig, AiWorkerDecisionConfig};
 
@@ -88,6 +92,11 @@ pub struct WorkerDeps {
     pub bounds: AiImportBounds,
     /// Pricing read model for the completion cost snapshots (issue #675).
     pub pricing: Option<Arc<dyn breakdown_core::ai::AiModelPricingRepository>>,
+    /// The provider breaker (issue #871), attached to every built client so the
+    /// guard covers the requests INSIDE one attempt (truncation/parse retries).
+    /// `None` runs the pipeline without a breaker — the pre-#871 behaviour, and
+    /// what the test harnesses use.
+    pub health: Option<Arc<dyn breakdown_core::ai::ProviderHealth>>,
 }
 
 /// Spawn the script import worker loop. The returned handle must be kept alive
@@ -160,17 +169,78 @@ async fn build_openai_client(
     provider: LlmProvider,
     api_key: String,
     timeout: Duration,
+    health: Option<&Arc<dyn breakdown_core::ai::ProviderHealth>>,
 ) -> Result<Arc<OpenAiCompatibleChatClient>, DomainError> {
-    let client = OpenAiCompatibleChatClient::new(provider, api_key, timeout).await?;
+    let mut client = OpenAiCompatibleChatClient::new(provider, api_key, timeout).await?;
+    if let Some(health) = health {
+        client = client.with_provider_health(Arc::clone(health));
+    }
     Ok(Arc::new(client))
 }
 
 /// Build the Ollama client for one job. Ollama is routed through its own
 /// client (its curated base URL is plain HTTP — sending a vaulted bearer token
 /// there would leak it, CWE-319).
-fn build_ollama_client(timeout: Duration) -> Result<Arc<OllamaChatClient>, DomainError> {
-    let client = OllamaChatClient::new(3, timeout)?;
+fn build_ollama_client(
+    timeout: Duration,
+    health: Option<&Arc<dyn breakdown_core::ai::ProviderHealth>>,
+) -> Result<Arc<OllamaChatClient>, DomainError> {
+    let mut client = OllamaChatClient::new(3, timeout)?;
+    if let Some(health) = health {
+        client = client.with_provider_health(Arc::clone(health));
+    }
     Ok(Arc::new(client))
+}
+
+/// The post-`resolve_config` breaker check (issue #871, D-A2b / D-A5).
+///
+/// The claim predicate filters on the **enqueue-time snapshot**, which can be
+/// stale: the user may have changed their AI config between upload and attempt.
+/// This is the authoritative check — it runs on the pair the attempt will
+/// actually call, *after* the config was resolved, so a stale snapshot cannot
+/// hide an outage from it.
+///
+/// Two things happen when the resolved pair differs from the snapshot:
+///
+/// 1. the snapshot is **refreshed** in the same write, so the next claim filters
+///    on the right pair instead of the obsolete one — otherwise a job could be
+///    filtered forever against a breaker it no longer uses;
+/// 2. the breaker verdict for the **resolved** pair is consulted, and an open
+///    verdict parks the job through the held path: no source load, no chunking,
+///    no paid call.
+///
+/// Returns `true` when the job was held and the caller must stop.
+async fn hold_if_breaker_open(
+    deps: &WorkerDeps,
+    job: &AiImportJob,
+    worker_id: &str,
+    config: &AiWorkerConfig,
+) -> Result<bool, DomainError> {
+    // Propagate the resolved pair onto the row (D-A2b layer 2).
+    deps.queue
+        .stamp_breaker_pair(job.id, worker_id, config.provider, &config.model)
+        .await?;
+    if deps
+        .queue
+        .provider_admits(config.provider, &config.model)
+        .await?
+    {
+        return Ok(false);
+    }
+    let gate = ProviderGate {
+        queue: deps.queue.as_ref(),
+        provider: config.provider,
+        model: &config.model,
+    };
+    hold_job(deps.queue.as_ref(), &deps.bounds, job.id, worker_id, &gate).await?;
+    warn!(
+        worker_id,
+        job_id = %job.id.as_uuid(),
+        provider = config.provider.as_str(),
+        model = config.model,
+        "#871 provider breaker is open for the resolved pair — job held without a paid call"
+    );
+    Ok(true)
 }
 
 /// Resolve the user's active AI config for one job.
@@ -405,6 +475,15 @@ async fn script_worker_tick(
         }
     };
 
+    // Issue #871: the AUTHORITATIVE breaker check, on the pair this attempt
+    // resolved (the claim predicate only ever saw the enqueue-time snapshot).
+    // It also refreshes the snapshot so the next claim filters on the right
+    // pair. An open verdict holds the job here — before the source load, the
+    // chunking and the first paid call.
+    if hold_if_breaker_open(deps, &job, worker_id, &config).await? {
+        return Ok(());
+    }
+
     // Fetch the API key only for OpenAI-compatible providers. Ollama needs no
     // bearer token (its base URL is plain HTTP), so fetching one would issue
     // an unnecessary Vault request (issue #214).
@@ -450,28 +529,30 @@ async fn script_worker_tick(
     // so the job is runnable immediately and is not charged a retry.
     let result = match config.provider {
         LlmProvider::Ollama => {
-            let client =
-                match build_ollama_client(Duration::from_secs(deps.bounds.request_timeout_secs)) {
-                    Ok(client) => client,
-                    Err(error) => {
-                        warn!(
+            let client = match build_ollama_client(
+                Duration::from_secs(deps.bounds.request_timeout_secs),
+                deps.health.as_ref(),
+            ) {
+                Ok(client) => client,
+                Err(error) => {
+                    warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "failed to build Ollama client; failing job"
+                    );
+                    deps.queue
+                        .mark_failed(
+                            job.id,
                             worker_id,
-                            job_id = %job.id.as_uuid(),
-                            %error,
-                            "failed to build Ollama client; failing job"
-                        );
-                        deps.queue
-                            .mark_failed(
-                                job.id,
-                                worker_id,
-                                &error.to_string(),
-                                Some(error.code().code),
-                                false,
-                            )
-                            .await?;
-                        return Ok(());
-                    }
-                };
+                            &error.to_string(),
+                            Some(error.code().code),
+                            false,
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            };
             let worker = ScriptImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -501,6 +582,7 @@ async fn script_worker_tick(
                 config.provider,
                 api_key,
                 Duration::from_secs(deps.bounds.request_timeout_secs),
+                deps.health.as_ref(),
             )
             .await
             {
@@ -641,6 +723,15 @@ async fn schedule_worker_tick(
         }
     };
 
+    // Issue #871: the AUTHORITATIVE breaker check, on the pair this attempt
+    // resolved (the claim predicate only ever saw the enqueue-time snapshot).
+    // It also refreshes the snapshot so the next claim filters on the right
+    // pair. An open verdict holds the job here — before the source load, the
+    // chunking and the first paid call.
+    if hold_if_breaker_open(deps, &job, worker_id, &config).await? {
+        return Ok(());
+    }
+
     // Fetch the API key only for OpenAI-compatible providers. Ollama needs no
     // bearer token (its base URL is plain HTTP), so fetching one would issue
     // an unnecessary Vault request (issue #214).
@@ -681,28 +772,30 @@ async fn schedule_worker_tick(
 
     let result = match config.provider {
         LlmProvider::Ollama => {
-            let client =
-                match build_ollama_client(Duration::from_secs(deps.bounds.request_timeout_secs)) {
-                    Ok(client) => client,
-                    Err(error) => {
-                        warn!(
+            let client = match build_ollama_client(
+                Duration::from_secs(deps.bounds.request_timeout_secs),
+                deps.health.as_ref(),
+            ) {
+                Ok(client) => client,
+                Err(error) => {
+                    warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "failed to build Ollama client; failing job"
+                    );
+                    deps.queue
+                        .mark_failed(
+                            job.id,
                             worker_id,
-                            job_id = %job.id.as_uuid(),
-                            %error,
-                            "failed to build Ollama client; failing job"
-                        );
-                        deps.queue
-                            .mark_failed(
-                                job.id,
-                                worker_id,
-                                &error.to_string(),
-                                Some(error.code().code),
-                                false,
-                            )
-                            .await?;
-                        return Ok(());
-                    }
-                };
+                            &error.to_string(),
+                            Some(error.code().code),
+                            false,
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            };
             let worker = ScheduleImportWorker {
                 queue: deps.queue.clone(),
                 client,
@@ -729,6 +822,7 @@ async fn schedule_worker_tick(
                 config.provider,
                 api_key,
                 Duration::from_secs(deps.bounds.request_timeout_secs),
+                deps.health.as_ref(),
             )
             .await
             {

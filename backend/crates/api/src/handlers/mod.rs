@@ -8698,6 +8698,9 @@ pub async fn update_ai_config<P: Ports>(
         .decision_model
         .clone()
         .unwrap_or_else(|| view.decision_model.clone());
+    // The extraction model this config now uses (issue #871): `update` is
+    // tri-state, so an omitted field keeps the stored value.
+    let effective_model = request.assistant_model.clone();
     let decision_key_binding = match &effective_decision_key {
         Some(key) if key == &request.vault_key_id => "shared",
         Some(_) => "own",
@@ -8728,6 +8731,9 @@ pub async fn update_ai_config<P: Ports>(
     // issue #481) instead of the generic `concurrency.version-mismatch`, so
     // the AI-config edit screen renders its "changed elsewhere — refresh"
     // narrative. The typed expected/current extensions are preserved.
+    // Issue #871: the command consumes `current_user.sub`, but the breaker-key
+    // restamp below needs it again.
+    let config_owner = current_user.sub.clone();
     let version = match state
         .ports
         .ai_config_commands()
@@ -8763,6 +8769,32 @@ pub async fn update_ai_config<P: Ports>(
         decision_key = %decision_key_binding,
         "ai_config updated"
     );
+    // Issue #871 (D-A2b layer 1): the breaker key of every queued job follows a
+    // config change. The claim predicate filters on the pair a job was enqueued
+    // with, so without this stamp a job uploaded under the old provider would be
+    // filtered against a breaker it no longer uses — and could wait out the whole
+    // hold window for an endpoint it will never call.
+    //
+    // Best-effort by contract: the config write already succeeded, so a failed
+    // stamp must not turn it into an error (the worker's post-`resolve_config`
+    // re-check repairs the snapshot authoritatively on the next attempt anyway).
+    match state
+        .ports
+        .ai_import_queue()
+        .restamp_user_breaker_pair(&config_owner, request.provider, &effective_model)
+        .await
+    {
+        Ok(0) => {}
+        Ok(restamped) => tracing::info!(
+            restamped,
+            provider = request.provider.as_str(),
+            "ai-import job breaker keys follow the config change (issue #871)"
+        ),
+        Err(error) => tracing::warn!(
+            %error,
+            "could not restamp ai-import job breaker keys after the config change (issue #871)"
+        ),
+    }
     Ok((StatusCode::OK, Json(version)))
 }
 

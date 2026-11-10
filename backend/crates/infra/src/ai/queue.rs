@@ -1287,6 +1287,73 @@ impl AiImportQueue for PgAiImportQueue {
         Ok(ids)
     }
 
+    /// Owner-fenced rewrite of one job's breaker-key snapshot (issue #871).
+    async fn stamp_breaker_pair(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<(), DomainError> {
+        sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET breaker_provider = $3,
+                breaker_model = $4,
+                updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+              AND (breaker_provider IS DISTINCT FROM $3
+                   OR breaker_model IS DISTINCT FROM $4)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(provider.as_str())
+        .bind(model)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        // The row count is deliberately not inspected: zero rows is the NORMAL
+        // case (the WHERE clause skips an unchanged pair, and an unchanged pair
+        // is what most attempts see). A changed pair on a reclaimed job is
+        // rejected by the same owner fence every other worker write uses, and
+        // that attempt then fails on its next lifecycle write — turning a
+        // snapshot refresh into a hard error here would fail jobs for a
+        // bookkeeping write.
+        Ok(())
+    }
+
+    /// Rewrite the snapshot of every runnable job of one user (issue #871,
+    /// D-A2b layer 1 — the config-change edge).
+    async fn restamp_user_breaker_pair(
+        &self,
+        user_id: &UserId,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<u64, DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET breaker_provider = $2,
+                breaker_model = $3,
+                updated_at = now()
+            WHERE user_id = $1
+              -- Only rows that can still be claimed: a running job has an owner
+              -- and refreshes its own snapshot, and a terminal one never runs.
+              AND status IN ('pending', 'failed')
+              AND (breaker_provider IS DISTINCT FROM $2
+                   OR breaker_model IS DISTINCT FROM $3)
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(provider.as_str())
+        .bind(model)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        Ok(result.rows_affected())
+    }
+
     /// Release every held job of a pair after the breaker closed (issue #871,
     /// D-A6).
     ///

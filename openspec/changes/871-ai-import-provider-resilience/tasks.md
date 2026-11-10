@@ -404,8 +404,27 @@ Landed in slices 5–6:
   re-point them (D-A6). Hence `AiImportQueue::release_held_jobs`, which drops
   `provider_hold` on a close and deliberately keeps the series clock.
 
-Remaining for PR A: the `worker_loop` post-`resolve_config` re-check (2.8), the
-client-internal guard over truncation retries (2.9b), the config-change stamp
-(2.6), and the **fake-`LlmClient` call-count test** from 2.11 (zero provider calls
-while the breaker is open — the gate is consulted before every attempt and at
-every chunk boundary, but the call count is not yet asserted). Then PRs B and C.
+Landed in slice 7 (PR A complete):
+
+- **2.8** `hold_if_breaker_open`: the authoritative post-`resolve_config` check in
+  both worker loops. It also **refreshes the snapshot** in the same write, so a
+  config change between upload and attempt cannot leave a job filtered against a
+  breaker it no longer uses.
+- **2.9b** the guard lives **inside both clients** now
+  (`with_provider_health`): one attempt is not one request — the hosted client
+  issues up to `1 + MAX_TRUNCATION_RETRIES = 3` billed requests and Ollama up to
+  `1 + max_parse_retries = 4` — so the check runs before every billable request,
+  parse retries included, and returns the internal sentinel.
+- **2.6** the config-change edge (`update_ai_config`) restamps the breaker key of
+  that user's `pending`/`failed` jobs in one statement
+  (`AiImportQueue::restamp_user_breaker_pair`). Best-effort by contract: the
+  config write already succeeded, and the worker's post-resolve re-check repairs
+  the snapshot authoritatively anyway.
+- **2.11** `provider_gate_tests.rs`: five call-count tests with a paused clock
+  (`tokio::test(start_paused = true)`, so the backoff completes instantly and no
+  assertion touches real time). An open **and** a half-open breaker cost **zero**
+  calls; a closed one still allows `1 + max_retries` attempts; a breaker that
+  opens *during* the backoff stops before the next call; and an unreadable
+  breaker admits (fail-open, because the consult only ever saves money).
+
+PR A is complete. PRs B (§4–6, chunk resume) and C (§7, retry policy) remain.

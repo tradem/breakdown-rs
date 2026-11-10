@@ -637,6 +637,47 @@ pub trait AiImportQueue: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Rewrite the breaker-key snapshot of one job (issue #871, D-A2b).
+    ///
+    /// The snapshot is taken at enqueue, but the pair a job actually uses is
+    /// resolved per attempt. When the two differ the resolved pair wins: the
+    /// claim predicate must filter on the pair the next attempt will call, or a
+    /// job could be filtered forever against a breaker it no longer uses.
+    ///
+    /// Owner-fenced: only the worker holding the claim may rewrite it, so a
+    /// displaced worker cannot stamp a pair onto a job another worker is running.
+    ///
+    /// The default implementation is a no-op for backends without a snapshot.
+    async fn stamp_breaker_pair(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// Rewrite the breaker-key snapshot of **every runnable job of one user**
+    /// (issue #871, D-A2b layer 1).
+    ///
+    /// The config-change edge calls this: when a user switches provider or model,
+    /// their queued jobs must be filtered against the breaker of the pair they
+    /// will now use — not the one they were enqueued with. One statement, and it
+    /// deliberately touches only `pending`/`failed` rows: a `running` job has an
+    /// owner and its own attempt refreshes the snapshot authoritatively, and a
+    /// terminal job will never be claimed again.
+    ///
+    /// The default implementation is a no-op for backends without a snapshot.
+    async fn restamp_user_breaker_pair(
+        &self,
+        _user_id: &UserId,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<u64, DomainError> {
+        Ok(0)
+    }
+
     /// Release every held job of a pair because the breaker **closed**
     /// (issue #871, D-A6).
     ///

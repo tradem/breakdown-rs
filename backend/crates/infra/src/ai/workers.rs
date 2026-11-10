@@ -14,6 +14,7 @@ use std::time::Instant;
 use anyhow::Error as AnyhowError;
 use std::collections::HashMap;
 
+pub use super::provider_health::{BREAKER_OPEN_REASON, breaker_open_error, is_breaker_open};
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
     AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
@@ -4013,29 +4014,6 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
     Ok(())
 }
 
-/// The internal, never-serialized sentinel for "the provider breaker is open"
-/// (issue #871, D-C2/2.9b).
-///
-/// Deliberately **not** a retryable `ServiceUnavailable` — that is exactly the
-/// shape `is_transient` retries, which is the bug the breaker removes — and
-/// deliberately **not** a new problem code (D-X1: a hold is not an error, it has
-/// no HTTP surface of its own). `Conflict` is this codebase's established
-/// internal-terminal channel for worker-only states (`ensure_claim_owned` uses
-/// it for a lost claim), and the AI worker path never maps it to a handler
-/// response. [`is_breaker_open`] is the one place that recognises it, so no
-/// caller has to match on the string.
-pub const BREAKER_OPEN_REASON: &str = "ai-import provider breaker is open";
-
-/// The sentinel a gated call returns when the breaker refuses it.
-pub fn breaker_open_error() -> DomainError {
-    DomainError::conflict(BREAKER_OPEN_REASON)
-}
-
-/// Whether an error is the breaker sentinel rather than a real failure.
-pub fn is_breaker_open(error: &DomainError) -> bool {
-    matches!(error, DomainError::Conflict { reason, .. } if reason == BREAKER_OPEN_REASON)
-}
-
 /// Park a claimed job on its provider's breaker (issue #871, D-A5).
 ///
 /// Deliberately not `mark_failed`: a hold spends **no** retry, appends **no**
@@ -4046,7 +4024,7 @@ pub fn is_breaker_open(error: &DomainError) -> bool {
 ///
 /// `chunks_done` is `0` in this build: the chunk store that would make it
 /// meaningful arrives with workstream B (D-B5).
-async fn hold_job<Q: AiImportQueue + ?Sized>(
+pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
     queue: &Q,
     bounds: &AiImportBounds,
     id: AiImportJobId,
@@ -4089,10 +4067,10 @@ async fn hold_job<Q: AiImportQueue + ?Sized>(
 /// It is a thin adapter so the retry loop and the chunk loop can ask "may this
 /// pair be called right now?" without knowing about SQL, and so a test queue
 /// (whose default verdict is `closed`) keeps the pre-#871 behaviour.
-struct ProviderGate<'a, Q: AiImportQueue + ?Sized> {
-    queue: &'a Q,
-    provider: LlmProvider,
-    model: &'a str,
+pub(super) struct ProviderGate<'a, Q: AiImportQueue + ?Sized> {
+    pub(super) queue: &'a Q,
+    pub(super) provider: LlmProvider,
+    pub(super) model: &'a str,
 }
 
 impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
@@ -4374,3 +4352,7 @@ impl<Q: AiImportQueue + 'static> Drop for ApplyRunGuard<Q> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "provider_gate_tests.rs"]
+mod provider_gate_tests;

@@ -765,6 +765,9 @@ async fn main() -> Result<()> {
                 credentials: worker_credential_vault.clone(),
                 bounds,
                 pricing: Some(std::sync::Arc::clone(&worker_pricing)),
+                // Issue #871: the breaker handle the clients consult before
+                // every billable request.
+                health: Some(std::sync::Arc::clone(&provider_health)),
             },
             shutdown_rx.clone(),
         ));
@@ -778,6 +781,7 @@ async fn main() -> Result<()> {
                 credentials: worker_credential_vault,
                 bounds,
                 pricing: Some(worker_pricing),
+                health: Some(provider_health),
             },
             shutdown_rx.clone(),
         ));

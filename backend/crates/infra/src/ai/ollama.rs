@@ -28,9 +28,27 @@ pub struct OllamaChatClient {
     http: reqwest::Client,
     max_parse_retries: u32,
     timeout: Duration,
+    /// The provider breaker (issue #871). `None` in tests and in builds that run
+    /// without a breaker.
+    health: Option<std::sync::Arc<dyn breakdown_core::ai::ProviderHealth>>,
 }
 
 impl OllamaChatClient {
+    /// Attach the provider breaker (issue #871).
+    ///
+    /// Inside the client on purpose: one attempt may issue up to
+    /// `1 + max_parse_retries <= 4` billed requests while re-requesting a
+    /// malformed answer, and a guard only at the caller's attempt boundary would
+    /// let those extra requests out after another worker opened the breaker.
+    #[must_use]
+    pub fn with_provider_health(
+        mut self,
+        health: std::sync::Arc<dyn breakdown_core::ai::ProviderHealth>,
+    ) -> Self {
+        self.health = Some(health);
+        self
+    }
+
     /// Test seam: inject a prebuilt client. The injected client's transport
     /// configuration is caller owned, so the issue #170 local-only redirect
     /// policy is **not** applied here; the production path ([`Self::new`])
@@ -40,6 +58,7 @@ impl OllamaChatClient {
             http,
             max_parse_retries: max_parse_retries.min(3),
             timeout,
+            health: None,
         }
     }
 
@@ -139,6 +158,16 @@ impl LlmClient for OllamaChatClient {
         // responses of bounded parse retries (issue #675).
         let mut total_usage = LlmCallUsage::default();
         for _attempt in 0..=self.max_parse_retries {
+            // Issue #871: before EVERY billable request, parse retries included.
+            if let Some(health) = &self.health
+                && !health
+                    .state(LlmProvider::Ollama, &req.model)
+                    .await
+                    .map(|snapshot| snapshot.admits_claim())
+                    .unwrap_or(true)
+            {
+                return Err(super::provider_health::breaker_open_error());
+            }
             let (content, usage) = self.request_once(&req).await?;
             total_usage.accumulate(usage);
             match serde_json::from_str::<ScriptContext>(&content) {

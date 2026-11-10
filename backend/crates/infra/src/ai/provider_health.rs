@@ -481,6 +481,29 @@ impl ProviderHealth for PgProviderHealth {
     }
 }
 
+/// The internal, never-serialized sentinel for "the provider breaker is open"
+/// (issue #871, D-C2/2.9b).
+///
+/// Deliberately **not** a retryable `ServiceUnavailable` — that is exactly the
+/// shape `is_transient` retries, which is the bug the breaker removes — and
+/// deliberately **not** a new problem code (D-X1: a hold is not an error, it has
+/// no HTTP surface of its own). `Conflict` is this codebase's established
+/// internal-terminal channel for worker-only states (`ensure_claim_owned` uses
+/// it for a lost claim), and the AI worker path never maps it to a handler
+/// response. [`is_breaker_open`] is the one place that recognises it, so no
+/// caller has to match on the string.
+pub const BREAKER_OPEN_REASON: &str = "ai-import provider breaker is open";
+
+/// The sentinel a gated call returns when the breaker refuses it.
+pub fn breaker_open_error() -> DomainError {
+    DomainError::conflict(BREAKER_OPEN_REASON)
+}
+
+/// Whether an error is the breaker sentinel rather than a real failure.
+pub fn is_breaker_open(error: &DomainError) -> bool {
+    matches!(error, DomainError::Conflict { reason, .. } if reason == BREAKER_OPEN_REASON)
+}
+
 /// The probe lease window, exposed for the sweeper's own budgeting.
 #[must_use]
 pub const fn probe_lease_window() -> Duration {
