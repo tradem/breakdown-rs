@@ -41,6 +41,8 @@ fn make_enqueue_request(user_id: &str) -> AiImportEnqueueRequest {
 
 fn progress(stage: AiImportStage, chunk: u32, episodes: &[&str]) -> AiImportProgress {
     AiImportProgress {
+        // Issue #871: additive field; this fixture is not a resumed attempt.
+        resumed_from: None,
         block_number: None,
         stage,
         chunk: Some(chunk),

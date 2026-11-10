@@ -97,6 +97,9 @@ pub struct WorkerDeps {
     /// `None` runs the pipeline without a breaker — the pre-#871 behaviour, and
     /// what the test harnesses use.
     pub health: Option<Arc<dyn breakdown_core::ai::ProviderHealth>>,
+    /// Durable per-chunk results (issue #871, workstream B). `None` disables
+    /// resume, which is the pre-#871 behaviour.
+    pub chunks: Option<Arc<dyn breakdown_core::ai::AiImportChunkStore>>,
 }
 
 /// Spawn the script import worker loop. The returned handle must be kept alive
@@ -562,6 +565,7 @@ async fn script_worker_tick(
                 }
             };
             let worker = ScriptImportWorker {
+                chunks: deps.chunks.clone(),
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),
@@ -615,6 +619,7 @@ async fn script_worker_tick(
                 }
             };
             let worker = ScriptImportWorker {
+                chunks: deps.chunks.clone(),
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),

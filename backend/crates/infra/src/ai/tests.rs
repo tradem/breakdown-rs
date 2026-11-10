@@ -855,6 +855,8 @@ fn script_worker(
     max_chunks: u32,
 ) -> ScriptImportWorker<FakeQueue, FakeLlmClient> {
     ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client: Arc::new(FakeLlmClient),
         previews: previews as Arc<dyn AiPreviewStore>,
@@ -1149,6 +1151,8 @@ fn script_worker_with_client<C: LlmClient + 'static>(
     client: C,
 ) -> ScriptImportWorker<FakeQueue, C> {
     ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client: Arc::new(client),
         previews: previews as Arc<dyn AiPreviewStore>,
@@ -1357,6 +1361,8 @@ async fn script_worker_surfaces_document_global_category_conflicts() {
     let queue = Arc::new(FakeQueue::default());
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue: Arc::clone(&queue),
         client: Arc::new(FakeLlmClientWithConflictingCategories),
         previews: previews.clone() as Arc<dyn AiPreviewStore>,
@@ -1398,6 +1404,8 @@ async fn script_worker_backfills_scene_number_from_chunk_heading() {
     let queue = Arc::new(FakeQueue::default());
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue: Arc::clone(&queue),
         client: Arc::new(FakeLlmClientWithoutSceneNumber),
         previews: previews.clone() as Arc<dyn AiPreviewStore>,
@@ -1443,6 +1451,8 @@ async fn script_worker_preserves_model_title_when_scan_has_none() {
     let queue = Arc::new(FakeQueue::default());
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue: Arc::clone(&queue),
         client: Arc::new(FakeLlmClientWithEpisodeTitle),
         previews: previews.clone() as Arc<dyn AiPreviewStore>,
@@ -4933,6 +4943,8 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
     let queue = Arc::new(FakeQueue::default());
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let worker: ScriptImportWorker<FakeQueue, OutfitClient> = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue: Arc::clone(&queue),
         client: Arc::new(OutfitClient {
             outfits: vec![
@@ -5921,6 +5933,8 @@ fn scoring_worker(
     decision: Arc<super::DecisionPass>,
 ) -> ScriptImportWorker<FakeQueue, TwoChunkScoringLlmClient> {
     ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client: Arc::new(TwoChunkScoringLlmClient),
         previews: previews as Arc<dyn AiPreviewStore>,
@@ -6951,6 +6965,8 @@ fn cost_worker(
     decision: Option<super::DecisionResolution>,
 ) -> ScriptImportWorker<FakeQueue, SingleChunkUsageClient> {
     ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client: Arc::new(SingleChunkUsageClient),
         previews: previews as Arc<dyn AiPreviewStore>,
@@ -7198,6 +7214,8 @@ fn per_request_cost_worker(
     pricing: Arc<dyn breakdown_core::ai::AiModelPricingRepository>,
 ) -> ScriptImportWorker<FakeQueue, TwoChunkUsageClient> {
     ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client: Arc::new(TwoChunkUsageClient::default()),
         previews: previews as Arc<dyn AiPreviewStore>,

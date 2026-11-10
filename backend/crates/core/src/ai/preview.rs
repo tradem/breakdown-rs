@@ -22,6 +22,16 @@ use crate::scene::views::SceneView;
 use crate::shared::{AggregateVersion, BlockId, CostumeCategoryId, EpisodeId, ProjectId};
 
 /// A bounded section of extracted script text beginning at an INT./EXT.
+/// The chunker's own version (issue #871, D-B7).
+///
+/// Part of the extraction fingerprint, because a stored chunk set is only
+/// resumable across attempts that would chunk the document **identically**. Bump
+/// this whenever [`extract_scenes`] changes what a chunk *is* (boundaries,
+/// heading retention, merge rules) — otherwise a resume would continue with
+/// boundaries the new chunker never produced, and the preview would mix two
+/// chunkings.
+pub const CHUNKER_VERSION: u32 = 1;
+
 /// heading. The chunker retains the heading and body so the LLM receives
 /// enough local context without requiring infrastructure dependencies.
 // `PartialEq` only: `shooting_day` carries the `f32` day score (issue #722).

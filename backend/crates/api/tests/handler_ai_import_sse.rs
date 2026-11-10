@@ -65,6 +65,8 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         last_error: None,
         retries: 0,
         progress: Some(AiImportProgress {
+            // Issue #871: additive field; this fixture is not resumed.
+            resumed_from: None,
             block_number: None,
             stage: AiImportStage::Extracting,
             chunk: Some(4),
@@ -207,6 +209,8 @@ async fn live_progress_and_status_frames_are_pushed_and_terminal_closes() {
     // the new frame without any polling.
     let mut updated = job.clone();
     updated.progress = Some(AiImportProgress {
+        // Issue #871: additive field; this fixture is not resumed.
+        resumed_from: None,
         block_number: None,
         stage: AiImportStage::Extracting,
         chunk: Some(5),

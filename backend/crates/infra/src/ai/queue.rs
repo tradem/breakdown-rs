@@ -943,8 +943,9 @@ impl AiImportQueue for PgAiImportQueue {
         worker_id: &str,
         preview_handle: &str,
     ) -> Result<(), DomainError> {
-        let result = sqlx::query(
+        let row = sqlx::query(
             r#"
+            WITH updated AS (
             UPDATE ai_import.ai_import_job
             SET status = 'succeeded', preview_handle = $3,
                 -- A finished job has no live stage (issue #763). The last frame
@@ -965,16 +966,26 @@ impl AiImportQueue for PgAiImportQueue {
                 permit_id = NULL,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
-            RETURNING pg_notify('ai_import_job_events', id::text)
+            RETURNING id, pg_notify('ai_import_job_events', id::text)
+            ),
+            -- Issue #871 (D-B1): a terminal job's chunk rows are derived work for
+            -- an attempt that will never happen again. Deleted in the SAME
+            -- statement as the transition, so no crash can leave them behind.
+            cleared AS (
+                DELETE FROM ai_import.ai_import_job_chunk
+                WHERE job_id IN (SELECT id FROM updated)
+            )
+            SELECT count(*) AS affected FROM updated
             "#,
         )
         .bind(id.as_uuid())
         .bind(worker_id)
         .bind(preview_handle)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        ensure_claim_owned(result.rows_affected(), id, worker_id, "complete")?;
+        let affected: i64 = row.try_get("affected").map_err(map_sqlx_error)?;
+        ensure_claim_owned(affected as u64, id, worker_id, "complete")?;
         self.hub.notify(id);
         Ok(())
     }
@@ -1053,6 +1064,13 @@ impl AiImportQueue for PgAiImportQueue {
                 WHERE id = $1 AND status = 'running' AND worker_id = $2
                 RETURNING id, retries, status, last_error,
                     pg_notify('ai_import_job_events', id::text)
+            ),
+            -- Issue #871 (D-B1): only the TERMINAL branch drops the chunk rows. A
+            -- job that merely backs off keeps them — that is the whole point of
+            -- the resume.
+            cleared AS (
+                DELETE FROM ai_import.ai_import_job_chunk
+                WHERE job_id IN (SELECT id FROM updated WHERE status = 'dead_letter')
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)
@@ -1116,6 +1134,11 @@ impl AiImportQueue for PgAiImportQueue {
                 WHERE id = $1 AND status = 'running' AND worker_id = $2
                 RETURNING id, retries, status, last_error,
                     pg_notify('ai_import_job_events', id::text)
+            ),
+            -- Issue #871 (D-B1): terminal, so the chunk rows go with it.
+            cleared AS (
+                DELETE FROM ai_import.ai_import_job_chunk
+                WHERE job_id IN (SELECT id FROM updated)
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)

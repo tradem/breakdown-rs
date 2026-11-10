@@ -241,6 +241,8 @@ fn script_worker(
     queue: Arc<RecordingQueue>,
 ) -> ScriptImportWorker<RecordingQueue, UnusedLlmClient> {
     ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client: Arc::new(UnusedLlmClient),
         previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,

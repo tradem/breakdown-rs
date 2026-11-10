@@ -312,6 +312,8 @@ async fn script_worker_returns_false_when_no_jobs() {
     let previews = Arc::new(MockPreviewStore);
 
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client,
         previews,
@@ -375,6 +377,8 @@ async fn script_worker_skips_wrong_kind() {
     let previews = Arc::new(MockPreviewStore);
 
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client,
         previews,
@@ -430,6 +434,8 @@ async fn start_heartbeat_returns_none_without_lease() {
     let previews = Arc::new(MockPreviewStore);
 
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client,
         previews,
@@ -456,6 +462,8 @@ async fn start_heartbeat_returns_some_with_lease() {
     let previews = Arc::new(MockPreviewStore);
 
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client,
         previews,
@@ -563,6 +571,8 @@ fn script_worker<C: LlmClient + 'static>(
     client: Arc<C>,
 ) -> ScriptImportWorker<MockQueue, C> {
     ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue,
         client,
         previews: Arc::new(MockPreviewStore),
@@ -683,6 +693,8 @@ async fn script_preview_stores_the_block_the_document_states() {
     // trait object (coerced at the field assignment).
     let previews = Arc::new(CapturingPreviewStore::default());
     let worker = ScriptImportWorker {
+        // Issue #871: resume disabled — the pre-#871 path (chunk 0).
+        chunks: None,
         queue: Arc::clone(&queue),
         // The model reports NO block (only the episode) — the scan must carry
         // the stored value on its own.
@@ -985,6 +997,8 @@ async fn claim_resets_progress_from_a_prior_attempt() {
         let mut job = job;
         job.status = JobStatus::Failed;
         job.progress = Some(AiImportProgress {
+            // Issue #871: additive field; this fixture is not resumed.
+            resumed_from: None,
             block_number: None,
             stage: AiImportStage::StoringPreview,
             chunk: Some(2),

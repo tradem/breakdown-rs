@@ -47,12 +47,13 @@ pub use error::AiConfigError;
 pub use events::AiConfigEvent;
 pub use ports::LlmProvider;
 pub use ports::{
-    AiConfigCommands, AiConfigRepository, AiImportEnqueueRequest, AiImportEnqueueResult,
-    AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
-    CURATED_PROVIDERS, CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
+    AiConfigCommands, AiConfigRepository, AiImportChunkStore, AiImportEnqueueRequest,
+    AiImportEnqueueResult, AiImportMapping, AiImportMappingRepository, AiImportQueue,
+    AiModelPricingRepository, CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider,
+    ExtractionFingerprint, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
     LlmModelCatalog, ModelInfo, ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeLease,
-    ProbeOutcome, ProviderBreakerSnapshot, ProviderHealth, TargetAttachOutcome, UsageAccumulator,
-    mapping_kind,
+    ProbeOutcome, ProviderBreakerSnapshot, ProviderHealth, StoredChunk, TargetAttachOutcome,
+    UsageAccumulator, mapping_kind, resume_cursor,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,

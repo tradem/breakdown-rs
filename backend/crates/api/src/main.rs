@@ -736,6 +736,12 @@ async fn main() -> Result<()> {
         // Provider breaker (issue #871, workstream A): the durable verdict, its
         // recovery probe and the hold sweeper. Wired before the workers take
         // their own clones of the config repo and the vault.
+        // Chunk-level resume (issue #871, workstream B): the durable per-chunk
+        // store both import workers share.
+        let chunk_store: std::sync::Arc<dyn breakdown_core::ai::AiImportChunkStore> =
+            std::sync::Arc::new(infra::ai::chunk_store::PgAiImportChunkStore::new(
+                pool.clone(),
+            ));
         let provider_health: std::sync::Arc<dyn breakdown_core::ai::ProviderHealth> =
             std::sync::Arc::new(infra::ai::provider_health::PgProviderHealth::new(
                 pool.clone(),
@@ -783,10 +789,12 @@ async fn main() -> Result<()> {
                 pricing: Some(std::sync::Arc::clone(&worker_pricing)),
                 // Issue #871: the breaker handle the clients consult before
                 // every billable request.
-                // Disabled ⇒ no guard in the clients either.
+                // Disabled ⇒ no guard in the clients either (issue #871 kill
+                // switch), while the chunk store is independent of it.
                 health: bounds
                     .breaker_enabled
                     .then(|| std::sync::Arc::clone(&provider_health)),
+                chunks: Some(std::sync::Arc::clone(&chunk_store)),
             },
             shutdown_rx.clone(),
         ));
@@ -801,6 +809,7 @@ async fn main() -> Result<()> {
                 bounds,
                 pricing: Some(worker_pricing),
                 health: bounds.breaker_enabled.then_some(provider_health),
+                chunks: Some(chunk_store),
             },
             shutdown_rx.clone(),
         ));

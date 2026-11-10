@@ -16,18 +16,19 @@ use std::collections::HashMap;
 
 pub use super::provider_health::{BREAKER_OPEN_REASON, breaker_open_error, is_breaker_open};
 use breakdown_core::ai::{
-    AiImportBounds, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportProgress, AiImportQueue, AiImportStage, AiModelPricingRepository, AppliedEpisode,
-    ApplyGateError, ApplyMapping, ApplyMappingDecision, ApplyProgress, ApplyRunId, ApplyStage,
-    CategoryVocabularyEntry, CharacterApplyPlan, CostBreakdown, DecisionClient, DecisionOutcome,
-    DecisionTelemetry, DocumentKind, DraftScene, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest,
-    LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan,
-    PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot, ProviderBreakerState,
-    ProviderHold, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
-    ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
-    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
-    UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
-    draft_row_ref, ensure_merge_applyable, extract_block_number, extract_scenes, mapping_kind,
+    AiImportBounds, AiImportChunkStore, AiImportJob, AiImportJobId, AiImportMapping,
+    AiImportMappingRepository, AiImportProgress, AiImportQueue, AiImportStage,
+    AiModelPricingRepository, AppliedEpisode, ApplyGateError, ApplyMapping, ApplyMappingDecision,
+    ApplyProgress, ApplyRunId, ApplyStage, CategoryVocabularyEntry, CharacterApplyPlan,
+    ChunkSetState, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry, DocumentKind,
+    DraftScene, EpisodeGroupPlan, ExtractionFingerprint, LlmCallUsage, LlmChatRequest, LlmClient,
+    LlmProvider, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
+    PlannedShootingDay, ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold,
+    ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingDayPlan,
+    ShootingSchedule, SourceFormat, StoredChunk, Telemetry, TelemetryApplyState, UnappliedOutfit,
+    UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
+    UsageAccumulator, category_conflict_uncertainties, character_mapping_ref, draft_row_ref,
+    ensure_merge_applyable, extract_block_number, extract_scenes, mapping_kind,
     merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
     scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
 };
@@ -253,6 +254,10 @@ pub struct ScriptImportWorker<Q, C> {
     /// "nothing was configured", and the completion telemetry records which
     /// one happened.
     pub decision: Option<DecisionResolution>,
+    /// Durable per-chunk results (issue #871, workstream B). `None` runs the
+    /// pre-#871 path — every attempt starts at chunk 0 — which is also what the
+    /// worker test harnesses use.
+    pub chunks: Option<Arc<dyn AiImportChunkStore>>,
 }
 
 /// Why a claimed job has — or has not — a Decision Model scoring pass
@@ -457,6 +462,66 @@ where
         result.map(|_| true)
     }
 
+    /// Open this attempt's chunk set and return the resume point (issue #871,
+    /// D-B2/B7).
+    ///
+    /// 1. build the extraction fingerprint (`document_digest | provider | model |
+    ///    sha256(effective prompt) | chunker_version`) and compare-and-set it;
+    /// 2. on a mismatch the store deletes the whole set and the attempt restarts
+    ///    at 0 — never a partial resume across two models, two prompts or two
+    ///    chunkings;
+    /// 3. load the rows (the store deletes a tail beyond a hole) and derive the
+    ///    cursor as the contiguous prefix length.
+    ///
+    /// Without a store (tests, and a build without resume) the answer is
+    /// `(0, empty, empty key)` — exactly the pre-#871 behaviour.
+    async fn open_chunk_set(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        effective_prompt: &str,
+        chunk_count: u32,
+    ) -> Result<(u32, HashMap<u32, StoredChunk>, String), DomainError> {
+        let Some(store) = &self.chunks else {
+            return Ok((0, HashMap::new(), String::new()));
+        };
+        let fingerprint = ExtractionFingerprint {
+            document_digest: job.document_digest.clone(),
+            provider: self.provider,
+            model: self.model.clone(),
+            prompt_hash: super::chunk_store::prompt_hash(effective_prompt),
+            chunker_version: breakdown_core::ai::preview::CHUNKER_VERSION,
+        };
+        let key = super::chunk_store::fingerprint_key(&fingerprint);
+        if let ChunkSetState::Invalidated(components) = store
+            .begin_extraction(job.id, worker_id, &fingerprint, &key)
+            .await?
+        {
+            tracing::warn!(
+                job_id = %job.id.as_uuid(),
+                components = ?components,
+                "#871 chunk resume invalidated: the stored chunks belong to a different configuration"
+            );
+        }
+        let stored_chunks = store.load(job.id).await?;
+        let resumed_from = breakdown_core::ai::resume_cursor(&stored_chunks);
+        if resumed_from >= chunk_count {
+            // Every chunk is already stored: this attempt only merges, which is
+            // the correct (and free) outcome.
+            tracing::info!(
+                job_id = %job.id.as_uuid(),
+                resumed_from,
+                chunks = chunk_count,
+                "#871 chunk resume: the stored set already covers the whole document"
+            );
+        }
+        let stored = stored_chunks
+            .into_iter()
+            .map(|chunk| (chunk.chunk_index, chunk))
+            .collect();
+        Ok((resumed_from, stored, key))
+    }
+
     /// `worker_id` must be the id that claimed `job`: every lifecycle write is
     /// owner-fenced, so passing a foreign id makes the job's completion fail
     /// with `DomainError::Conflict`.
@@ -574,6 +639,9 @@ where
         // NEVER per LLM token. Owner-fenced, so a displaced worker's write
         // is rejected and it aborts before its next billable call.
         let mut progress = AiImportProgress {
+            // Issue #871: set from the stored chunk prefix below, once the
+            // chunk store has been read.
+            resumed_from: None,
             stage: AiImportStage::Extracting,
             chunk: Some(0),
             chunks_total: Some(chunk_count),
@@ -599,6 +667,37 @@ where
             written_at: None,
         };
         progress.set_byte_budget(chunks_bytes.iter().copied().fold(0u64, u64::saturating_add));
+
+        // Issue #871 (workstream B, D-B7): open this attempt's chunk set. The
+        // fingerprint decides whether the stored chunks belong to the SAME
+        // configuration; a mismatch deletes them and restarts at chunk 0 rather
+        // than resuming across two models, two prompts or two chunkings.
+        let (resumed_from, stored, extraction_key) = self
+            .open_chunk_set(job, worker_id, &self.prompt, chunk_count)
+            .await?;
+        if resumed_from > 0 {
+            // The bar must not snap back to zero (D-B5): the first frame already
+            // reports the stored prefix, and `resumed_from` is what lets a client
+            // derive a rate from `chunk - resumed_from` instead of reading 25
+            // chunks in one second.
+            progress.chunk = Some(resumed_from);
+            progress.resumed_from = Some(resumed_from);
+            // The bytes of the resumed chunks are already extracted, so the byte
+            // numerator starts where the stored prefix ends.
+            progress.record_done_bytes(
+                chunks_bytes
+                    .iter()
+                    .take(resumed_from as usize)
+                    .copied()
+                    .fold(0u64, u64::saturating_add),
+            );
+            tracing::info!(
+                job_id = %job.id.as_uuid(),
+                resumed_from,
+                chunks = chunk_count,
+                "#871 chunk resume: continuing at the first uncompleted chunk"
+            );
+        }
         if let Some(first) = chunks.first() {
             progress.record_episode(first.episode.as_ref());
         }
@@ -639,15 +738,54 @@ where
                 hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate).await?;
                 return Ok(String::new());
             }
-            let partial = retry_chat(
-                self.client.as_ref(),
-                request,
-                self.bounds.max_attempt_retries as usize,
-                &gate,
-            )
-            .await;
-            match partial {
+            let index = u32::try_from(chunk_index).map_err(|error| {
+                DomainError::validation(format!("script chunk index exceeds range: {error}"))
+            })?;
+            // Issue #871 (D-B3): a chunk inside the stored prefix was already
+            // paid for and already produced its rows — resume it from the store
+            // instead of asking (and paying) again. It is fed through the SAME
+            // merge body below, so a resumed attempt assembles an identical
+            // preview.
+            let resumed_chunk = stored.get(&index);
+            let call_result = match resumed_chunk {
+                Some(stored_chunk) => Ok((stored_chunk.payload.clone(), stored_chunk.usage)),
+                None => {
+                    retry_chat(
+                        self.client.as_ref(),
+                        request,
+                        self.bounds.max_attempt_retries as usize,
+                        &gate,
+                    )
+                    .await
+                }
+            };
+            match call_result {
                 Ok((partial, call_usage)) => {
+                    // Issue #871 (D-B3): store the freshly paid result BEFORE the
+                    // merge consumes it — the stored unit is the raw parse, and a
+                    // crash after this write but before the merge costs nothing.
+                    if resumed_chunk.is_none()
+                        && let Some(store) = &self.chunks
+                    {
+                        // Re-check the claim right before the write: the store's
+                        // row lock is the real fence, but stopping here keeps a
+                        // displaced worker from even attempting it.
+                        if super::heartbeat::claim_lost(heartbeat.as_ref()) {
+                            return Err(claim_lost_error(job.id, worker_id));
+                        }
+                        store
+                            .put(
+                                job.id,
+                                worker_id,
+                                &extraction_key,
+                                &StoredChunk {
+                                    chunk_index: index,
+                                    payload: partial.clone(),
+                                    usage: call_usage,
+                                },
+                            )
+                            .await?;
+                    }
                     // Index of the first scene THIS chunk pushes (issue
                     // #722): the scoring pass slices the chunk's scenes out
                     // of the preview.
@@ -1370,6 +1508,9 @@ where
         // boundary and one at the storing boundary — a schedule job is a
         // single LLM/Native-CSV unit, so there is no per-chunk cadence.
         let mut progress = AiImportProgress {
+            // Issue #871: set from the stored chunk prefix below, once the
+            // chunk store has been read.
+            resumed_from: None,
             block_number: None,
             stage: if native_csv {
                 AiImportStage::Extracting

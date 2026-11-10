@@ -393,6 +393,25 @@ pub struct AiImportProgress {
     /// `total_bytes > 0` and falls back to the chunk counters otherwise.
     #[serde(default)]
     pub total_bytes: Option<u64>,
+    /// How many chunks this attempt **resumed from** (issue #871, D-B5).
+    ///
+    /// `Some(n)` means "`n` chunks are already stored and paid for; this attempt
+    /// continues at chunk `n + 1`". It is the honest counterpart of
+    /// [`Self::chunk`], which keeps its documented meaning ("1-based index of
+    /// the last completed chunk **of this attempt**") — so a resumed attempt's
+    /// first frame reports `chunk = resumed_from`, and the bar does not snap
+    /// back to zero.
+    ///
+    /// It exists because the counters alone are ambiguous: with `chunk = 25`
+    /// and `resumed_from = 25`, a client that derived a rate from `chunk` alone
+    /// would report "25 chunks in one second" and then declare a healthy
+    /// successor chunk stalled. The client therefore computes the rate from
+    /// `chunk - resumed_from` and the remaining count from `chunks_total - chunk`.
+    ///
+    /// Additive with `serde(default)`: pre-#871 frames read as `None`, and a
+    /// client then estimates exactly as it did before — nothing is fabricated.
+    #[serde(default)]
+    pub resumed_from: Option<u32>,
     /// When **this frame** was written, on the server's clock (issue #762).
     ///
     /// The end of the measured interval: `written_at - started_at` is extraction
