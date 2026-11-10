@@ -36,11 +36,17 @@ class _$AiImportJob extends AiImportJob {
   @override
   final int maxRetries;
   @override
+  final String? model;
+  @override
   final DateTime? nextAttemptAt;
   @override
   final String? previewHandle;
   @override
   final AiImportProgress? progress;
+  @override
+  final LlmProvider? provider;
+  @override
+  final ProviderHold? providerHold;
   @override
   final int retries;
   @override
@@ -78,9 +84,12 @@ class _$AiImportJob extends AiImportJob {
       required this.id,
       this.lastError,
       required this.maxRetries,
+      this.model,
       this.nextAttemptAt,
       this.previewHandle,
       this.progress,
+      this.provider,
+      this.providerHold,
       required this.retries,
       this.sourceFileName,
       required this.sourceFormat,
@@ -116,9 +125,12 @@ class _$AiImportJob extends AiImportJob {
         id == other.id &&
         lastError == other.lastError &&
         maxRetries == other.maxRetries &&
+        model == other.model &&
         nextAttemptAt == other.nextAttemptAt &&
         previewHandle == other.previewHandle &&
         progress == other.progress &&
+        provider == other.provider &&
+        providerHold == other.providerHold &&
         retries == other.retries &&
         sourceFileName == other.sourceFileName &&
         sourceFormat == other.sourceFormat &&
@@ -147,9 +159,12 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, lastError.hashCode);
     _$hash = $jc(_$hash, maxRetries.hashCode);
+    _$hash = $jc(_$hash, model.hashCode);
     _$hash = $jc(_$hash, nextAttemptAt.hashCode);
     _$hash = $jc(_$hash, previewHandle.hashCode);
     _$hash = $jc(_$hash, progress.hashCode);
+    _$hash = $jc(_$hash, provider.hashCode);
+    _$hash = $jc(_$hash, providerHold.hashCode);
     _$hash = $jc(_$hash, retries.hashCode);
     _$hash = $jc(_$hash, sourceFileName.hashCode);
     _$hash = $jc(_$hash, sourceFormat.hashCode);
@@ -180,9 +195,12 @@ class _$AiImportJob extends AiImportJob {
           ..add('id', id)
           ..add('lastError', lastError)
           ..add('maxRetries', maxRetries)
+          ..add('model', model)
           ..add('nextAttemptAt', nextAttemptAt)
           ..add('previewHandle', previewHandle)
           ..add('progress', progress)
+          ..add('provider', provider)
+          ..add('providerHold', providerHold)
           ..add('retries', retries)
           ..add('sourceFileName', sourceFileName)
           ..add('sourceFormat', sourceFormat)
@@ -265,6 +283,10 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
   int? get maxRetries => _$this._maxRetries;
   set maxRetries(int? maxRetries) => _$this._maxRetries = maxRetries;
 
+  String? _model;
+  String? get model => _$this._model;
+  set model(String? model) => _$this._model = model;
+
   DateTime? _nextAttemptAt;
   DateTime? get nextAttemptAt => _$this._nextAttemptAt;
   set nextAttemptAt(DateTime? nextAttemptAt) =>
@@ -280,6 +302,16 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _$this._progress ??= AiImportProgressBuilder();
   set progress(AiImportProgressBuilder? progress) =>
       _$this._progress = progress;
+
+  LlmProvider? _provider;
+  LlmProvider? get provider => _$this._provider;
+  set provider(LlmProvider? provider) => _$this._provider = provider;
+
+  ProviderHoldBuilder? _providerHold;
+  ProviderHoldBuilder get providerHold =>
+      _$this._providerHold ??= ProviderHoldBuilder();
+  set providerHold(ProviderHoldBuilder? providerHold) =>
+      _$this._providerHold = providerHold;
 
   int? _retries;
   int? get retries => _$this._retries;
@@ -343,9 +375,12 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _id = $v.id;
       _lastError = $v.lastError;
       _maxRetries = $v.maxRetries;
+      _model = $v.model;
       _nextAttemptAt = $v.nextAttemptAt;
       _previewHandle = $v.previewHandle;
       _progress = $v.progress?.toBuilder();
+      _provider = $v.provider;
+      _providerHold = $v.providerHold?.toBuilder();
       _retries = $v.retries;
       _sourceFileName = $v.sourceFileName;
       _sourceFormat = $v.sourceFormat;
@@ -397,9 +432,12 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
             lastError: lastError,
             maxRetries: BuiltValueNullFieldError.checkNotNull(
                 maxRetries, r'AiImportJob', 'maxRetries'),
+            model: model,
             nextAttemptAt: nextAttemptAt,
             previewHandle: previewHandle,
             progress: _progress?.build(),
+            provider: provider,
+            providerHold: _providerHold?.build(),
             retries: BuiltValueNullFieldError.checkNotNull(
                 retries, r'AiImportJob', 'retries'),
             sourceFileName: sourceFileName,
@@ -434,6 +472,9 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
 
         _$failedField = 'progress';
         _progress?.build();
+
+        _$failedField = 'providerHold';
+        _providerHold?.build();
 
         _$failedField = 'target';
         _target?.build();

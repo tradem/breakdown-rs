@@ -186,6 +186,10 @@ class _JobCard extends ConsumerWidget {
     // Issue #822: one derivation, rendered by both the retryable and the
     // terminal card (and, compactly, by the jobs row).
     final degradation = aiProviderDegradation(job);
+    // Issue #871: a HELD job says something different — waiting is correct and
+    // free — so it gets its own banner. When a hold exists it wins: the
+    // degradation banner would count attempts that were never charged.
+    final hold = aiProviderHold(job);
 
     if (jobStatusTerminalError(job.status)) {
       return Card(
@@ -227,7 +231,10 @@ class _JobCard extends ConsumerWidget {
               // Issue #822: an aggregated provider outage is its own state on
               // the terminal card too — with the spent-budget copy, because
               // this card can no longer keep a retry promise.
-              if (degradation != null) ...[
+              if (hold != null) ...[
+                const SizedBox(height: 12),
+                _ProviderHoldBanner(hold: hold, onErrorContainer: true),
+              ] else if (degradation != null) ...[
                 const SizedBox(height: 12),
                 _ProviderDegradedBanner(
                   degradation: degradation,
@@ -416,9 +423,15 @@ class _JobCard extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(jobStatusCopy(l10nOf(context), job.status)),
-              if (degradation != null) ...[
+              // Issue #871: a hold renders even with an EMPTY attempt history —
+              // a hold writes no attempt row, so keying this block on
+              // `degradation` alone would hide exactly the state it describes.
+              if (hold != null || degradation != null) ...[
                 const SizedBox(height: 8),
-                _ProviderDegradedBanner(degradation: degradation),
+                if (hold != null)
+                  _ProviderHoldBanner(hold: hold)
+                else if (degradation != null)
+                  _ProviderDegradedBanner(degradation: degradation),
               ],
               const SizedBox(height: 4),
               Text(
@@ -519,6 +532,80 @@ String _degradationBoundaryLabel(
 /// card as a whole carries count, window and next attempt without two
 /// countdowns disagreeing. A terminal card spends no countdown at all and says
 /// the budget is spent instead.
+/// The held-for-provider banner (issue #871).
+///
+/// Its job is to make the wait read as *correct* rather than as a defect: no
+/// attempt is being spent, so nothing is being lost while the breaker waits for
+/// its probe. The two terminal causes never share copy —
+/// [`AiProviderHold.expired`] renders "the provider never came back, upload
+/// again", while a genuine retry exhaustion stays with
+/// [`_ProviderDegradedBanner`]'s spent-budget text.
+class _ProviderHoldBanner extends StatelessWidget {
+  const _ProviderHoldBanner({required this.hold, this.onErrorContainer = false});
+
+  final AiProviderHold hold;
+
+  /// The terminal card's palette; the retryable card keeps the tonal surface.
+  final bool onErrorContainer;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
+    final foreground =
+        onErrorContainer ? scheme.onErrorContainer : scheme.onSurfaceVariant;
+    final until = _degradationBoundaryLabel(context, hold.until, hold.until);
+    final deadline = _degradationBoundaryLabel(
+      context,
+      hold.holdDeadline,
+      hold.holdDeadline,
+    );
+    // Expired: the provider did not return, so the promise "it continues after
+    // the pause" must not be made.
+    final body = hold.expired
+        ? l10n.aiJobProviderHoldExpiredBody(deadline)
+        : l10n.aiJobProviderHoldBody(until, deadline);
+    return Container(
+      key: const Key('ai-job-provider-hold'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: onErrorContainer
+            ? scheme.errorContainer
+            : scheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                hold.expired ? Icons.hourglass_disabled : Icons.hourglass_top,
+                size: 16,
+                color: foreground,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  l10n.aiJobProviderHoldTitle(hold.provider),
+                  style: TextStyle(color: foreground, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            body,
+            key: const Key('ai-job-provider-hold-body'),
+            style: TextStyle(color: foreground),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProviderDegradedBanner extends StatelessWidget {
   const _ProviderDegradedBanner({
     required this.degradation,

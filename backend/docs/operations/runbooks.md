@@ -1264,3 +1264,116 @@ business scope (season/block/episode ids) and any remembered import job ids, so
 a job referenced by an old client screen answers `404`. The *keep* rules are
 unchanged (AI config + credential bindings stay), and the reset never
 resurrects a target.
+
+## 16. AI provider breaker health (issue #871)
+
+The AI import pipeline keeps a **durable circuit breaker per `(provider, model)`
+pair** in `ai_import.provider_health`. While a pair is not `closed`, no job of
+that pair is claimed: the paid call is never started, and the retry budget is
+never charged.
+
+**What the states mean**
+
+| `state` | Meaning | Claims admitted |
+|---|---|---|
+| `closed` | The endpoint answers; the normal state | yes |
+| `open` | `AI_IMPORT_BREAKER_FAILURE_THRESHOLD` consecutive retryable provider failures (default 3); waiting for the probe at `retry_at` | **no** |
+| `half_open` | A probe (or a paid call) is in flight for the pair | **no** |
+
+`expired` is **not** a breaker state — it is a *job-hold* marker written by the
+expiry (see below) so the client can tell "the provider never came back" from
+"your retries are used up".
+
+### The three operator queries
+
+**1. Is a breaker open, since when, and when is the next probe?**
+
+```sql
+SELECT provider,
+       model,
+       state,
+       consecutive_failures,
+       flap_count,
+       opened_at,
+       closed_at,
+       retry_at,
+       last_failure_at
+FROM ai_import.provider_health
+WHERE state <> 'closed'
+ORDER BY retry_at NULLS FIRST, provider, model;
+```
+
+`flap_count` escalates the open window (`min(60 s · 2^flap, 30 min)`), so a
+provider that answers one probe and fails again settles at one probe per 30
+minutes instead of oscillating.
+
+**2. Which jobs are held right now, grouped by pair?**
+
+```sql
+SELECT breaker_provider,
+       breaker_model,
+       count(*)                                             AS held_jobs,
+       min(next_attempt_at)                                 AS next_probe,
+       min((provider_hold ->> 'hold_deadline')::timestamptz) AS first_deadline
+FROM ai_import.ai_import_job
+WHERE provider_hold IS NOT NULL
+  AND (provider_hold ->> 'state') IN ('open', 'half_open')
+GROUP BY breaker_provider, breaker_model
+ORDER BY held_jobs DESC;
+```
+
+A held job is `failed` with **`retries` unchanged** and **no attempt row** — that
+is the difference between "we waited" and "your document failed". It
+dead-letters at its own `hold_deadline` (`AI_IMPORT_MAX_PROVIDER_HOLD_SECS`,
+default 6 h, measured from the first hold of the series) with
+`provider_hold.state = expired`.
+
+**3. Chunk-store size and resume points for a job under investigation**
+
+Workstream B adds `ai_import.ai_import_job_chunk`; until then a job's resume
+point is always 0 and `provider_hold.chunks_done` is `0`. Once the store ships,
+`SELECT count(*) FROM ai_import.ai_import_job_chunk WHERE job_id = $1` is the
+number of chunks already paid for.
+
+### Log markers
+
+Every transition logs `tracing::warn!` with the literal marker
+
+```
+#871 provider breaker
+```
+
+and the fields `provider`, `model`, `state`, `consecutive_failures`, `retry_at`,
+`flap_count`. Grep for it to reconstruct an incident:
+
+```bash
+kubectl logs deploy/api | grep '#871 provider breaker'
+```
+
+Additional markers: `#871 probe: …` for probe outcomes (including the discarded
+stale-lease case) and `#871 provider breaker: materialized holds …` when the
+sweeper held jobs the open-time write could not reach (a job enqueued while the
+breaker was already open).
+
+### What an operator should and should not do
+
+- **Do nothing while the breaker is open and the probe is scheduled.** That is
+  the system working: the wait is free, and the probe re-checks the endpoint for
+  the price of one catalog read.
+- **Do not delete the breaker row to "unstick" a pair.** Deleting it closes the
+  breaker without a probe, so every held job of that pair is claimed again at
+  once and re-pays the outage. If you must force recovery, close it deliberately
+  (`UPDATE … SET state='closed', retry_at=NULL, closed_at=now()`) and say so in
+  the incident log — the held jobs then resume on their own `next_attempt_at`.
+- **`GET /v1/health` deliberately carries no provider check.** It is
+  unauthenticated with a 2 s per-check timeout, and a provider probe needs a
+  vaulted credential. The breaker row plus the log marker are the surface.
+
+### Kill switch
+
+`AI_IMPORT_BREAKER_ENABLED=false` makes the workers consult no health state and
+the claim predicate never filter — exactly the pre-#871 behaviour. It does not
+delete existing rows, so re-enabling resumes with the verdicts as they were.
+`AI_IMPORT_PROVIDER_SWEEP_ENABLED=false` stops the sweeper (and with it the
+probe and the hold expiry — **only** for a diagnosis window: without the
+sweeper, holds never expire and an open breaker never closes).

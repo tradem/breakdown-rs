@@ -365,7 +365,36 @@ class _JobRow extends ConsumerWidget {
           // state the status screen renders in full — same derivation, so the
           // row never contradicts the card. Drawn from the attempt codes the
           // list read carries, never from `last_error`.
-          if (job.providerDegradation != null)
+          // Held-for-provider line (issue #871): the compact form of the
+          // "waiting is correct and free" state. It is checked FIRST because a
+          // held job's attempt history is empty by construction (a hold writes
+          // no attempt row), so `providerDegradation` is null there — and a
+          // held job must never be rendered as a degraded one.
+          if (job.providerHold != null)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  BreakdownMaterialIcons.aiJobProviderDegraded,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppSpacing.space8),
+                Expanded(
+                  child: Text(
+                    l10n.aiJobsRowProviderHold(
+                      job.providerHold!.provider.toString(),
+                      // Same clock helper the status card uses, so the row and
+                      // the card name the same instant.
+                      formatClock(context, job.providerHold!.until),
+                    ),
+                    key: Key('ai-jobs-row-provider-hold-${job.id}'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            )
+          else if (job.providerDegradation != null)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

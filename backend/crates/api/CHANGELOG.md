@@ -17,6 +17,13 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.65.0] - Unreleased
+
+### Added — the provider breaker is wired (issue #871, workstream A)
+
+- Composition root builds `PgProviderHealth`, the recovery probe and the provider
+  watch, and spawns the watch (which hosts both the probe and the hold sweeper).
+
 ## [0.64.0] - Unreleased
 
 ### Added — `GET /v1/me/capabilities` publishes the two global predicates (issue #816)

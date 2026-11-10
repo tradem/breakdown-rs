@@ -152,6 +152,8 @@ import 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
 import 'package:breakdown_api/src/model/pricing_source.dart';
 import 'package:breakdown_api/src/model/problem_details.dart';
 import 'package:breakdown_api/src/model/projector_health_snapshot.dart';
+import 'package:breakdown_api/src/model/provider_breaker_state.dart';
+import 'package:breakdown_api/src/model/provider_hold.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
 import 'package:breakdown_api/src/model/rename_outfit_request.dart';
 import 'package:breakdown_api/src/model/rename_piece_request.dart';
@@ -349,6 +351,8 @@ part 'serializers.g.dart';
   PricingSource,
   ProblemDetails,
   ProjectorHealthSnapshot,
+  ProviderBreakerState,
+  ProviderHold,
   RenameEpisodeRequest,
   RenameOutfitRequest,
   RenamePieceRequest,

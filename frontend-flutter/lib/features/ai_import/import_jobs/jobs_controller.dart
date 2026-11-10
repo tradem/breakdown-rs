@@ -351,6 +351,7 @@ class AiImportJobRowView {
     this.decisionTelemetry,
     this.applied = false,
     this.providerDegradation,
+    this.providerHold,
   });
 
   /// Server-assigned job id (row key + `AiJobStatusScreen` parameter).
@@ -458,6 +459,10 @@ class AiImportJobRowView {
   /// being guessed from `last_error` (which is never an error identity).
   final AiProviderDegradation? providerDegradation;
 
+  /// The provider hold of this job (issue #871), derived by the same function
+  /// the status card uses, so the compact row and the card never disagree.
+  final AiProviderHold? providerHold;
+
   /// True when the row carries a server-side error detail (the
   /// `last_error` presence indicator).
   bool get hasLastError => lastError != null && lastError!.isNotEmpty;
@@ -526,6 +531,7 @@ class AiImportJobRowView {
           other.decisionTelemetry == decisionTelemetry &&
           other.applied == applied &&
           other.providerDegradation == providerDegradation &&
+          other.providerHold == providerHold &&
           _sameEpisodes(other.appliedEpisodes, appliedEpisodes);
 
   @override
@@ -546,6 +552,7 @@ class AiImportJobRowView {
     decisionTelemetry,
     applied,
     providerDegradation,
+    providerHold,
     Object.hashAll(appliedEpisodes),
   );
 
@@ -581,6 +588,11 @@ AiImportJobRowView jobRowViewFromJob(AiImportJob job) => AiImportJobRowView(
   // The degraded-provider aggregate (issue #822) — derived from the attempt
   // history the list read populates, by the same function the status card uses.
   providerDegradation: aiProviderDegradation(job),
+  // The held-for-provider marker (issue #871): a held job has an EMPTY attempt
+  // history by construction, so `providerDegradation` is null there — without
+  // this field the compact row would show nothing while the card explains the
+  // wait.
+  providerHold: aiProviderHold(job),
 );
 
 /// Maps a cached row to the renderable row (pure, Tier-1 testable).

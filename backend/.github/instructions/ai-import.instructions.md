@@ -22,7 +22,13 @@ applyTo:
 - `AI_IMPORT_MAX_CONCURRENT_JOBS_PER_USER` – per-user in-flight job ceiling (default: `2`).
 - `AI_IMPORT_MAX_DOCUMENT_BYTES` – maximum source document size (default: `20971520`).
 - `AI_IMPORT_REQUEST_TIMEOUT_SECS` – provider request timeout (default: `120`).
-- `AI_IMPORT_MAX_RETRIES` – maximum queue retries before dead-lettering (default: `5`).
+- `AI_IMPORT_MAX_RETRIES` – **job-level** retries before dead-lettering (default: `5`).
+- `AI_IMPORT_MAX_ATTEMPT_RETRIES` – **in-attempt** retries of one chunk's provider call (default: `2`, bounded `0..=10`). Since issue #871 this is a *second* knob: one knob allowed `5 × 5 = 25` paid calls for a single chunk before anything surfaced, each holding a concurrency permit for up to `AI_IMPORT_REQUEST_TIMEOUT_SECS`. `1 + 2 = 3` attempts per chunk is enough to tell a blip from an outage. The analytic worst case of one attempt across **both** nested layers is `(1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs + max_attempt_retries × 30 s` = **19 min** hosted (`inner = 2`) / **25 min** Ollama (`inner ≤ 3`), because the clients re-request a truncated/malformed answer inside one attempt.
+- `AI_IMPORT_BREAKER_FAILURE_THRESHOLD` – consecutive retryable provider failures for one `(provider, model)` pair that open the breaker (default: `3`, bounded `1..=10`). Counted per **pair across all jobs, chunks and replicas**. A threshold above `1 + AI_IMPORT_MAX_ATTEMPT_RETRIES` is accepted but logged at startup: the breaker still opens, just more slowly, because one chunk then contributes one failure instead of up to three.
+- `AI_IMPORT_BREAKER_ENABLED` – kill switch for the breaker (default: `true`; accepted spellings as `AI_IMPORT_ENABLED`). `false` restores the pre-#871 behaviour exactly.
+- `AI_IMPORT_MAX_PROVIDER_HOLD_SECS` – how long one **hold series** may last before the job dead-letters with the provider narrative (default: `21600` = 6 h, bounded `60..=604800`). Measured from the first hold of the series, so a flapping provider cannot reset the budget one probe at a time.
+- `AI_IMPORT_PROVIDER_SWEEP_ENABLED` – enable the provider watch (default: `true`).
+- `AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS` – provider-watch cadence in seconds (default: `60`, bounded `5..=3600`).
 - `AI_IMPORT_LEASE_SECS` – worker claim lease in seconds (default: `900`). An out-of-range number is clamped to `30..=86400`; only absent/unparsable values fall back to the default. A claim records `worker_id` + `lease_expires_at`; once the lease expires another worker may reclaim the `running` job (crash recovery, issue #177). Long jobs keep their claim via a background heartbeat (`LeaseHeartbeat`, renewing at 1/3 of the window), so the lease does not need to cover a whole multi-chunk script run. All worker-originated lifecycle writes (`mark_running`, `mark_succeeded`, `mark_failed`, `record_worker_telemetry`) are **owner-fenced**: a worker whose lease lapsed gets `DomainError::Conflict` instead of overwriting the new owner's state.
 - `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
 - `AI_IMPORT_USER_AGENT` – global override for the `User-Agent` sent by every AI provider HTTP client (default: `breakdown-rs-backend/<version> (ai-import)`).
@@ -182,3 +188,46 @@ disabled, `main.rs` wires `infra::ai::UnconfiguredAiPayloadStore`, which refuses
 operation with `ServiceUnavailable` (deliberately not `NotFound`, which would
 dead-letter jobs). `MemoryAiPreviewStore` is test-only.
 
+#### AI provider circuit breaker (issue #871)
+
+Two nested retry layers exist and must not be confused:
+**in-attempt** (`AI_IMPORT_MAX_ATTEMPT_RETRIES`, per chunk) and **job-level**
+(`AI_IMPORT_MAX_RETRIES`, per job). They used to be one knob, which is how one
+chunk could cost 25 paid calls.
+
+A **durable** breaker per `(provider, model)` pair sits in front of both:
+
+- **Only `closed` admits a claim.** The filter is one `NOT EXISTS` predicate on
+  all four claim paths (`claim_next`, `claim_next_kind` and their reconciling
+  variants). `retry_at` is deliberately **not** part of it: it is the probe
+  schedule, not a claim gate — filtering on it would lift the filter the instant
+  a probe became due and drain the queue instead of running one probe.
+- **Only retryable provider failures count.** A revoked key, a bad model or an
+  entitlement 4xx is `dependency.auth-failed`-class permanent (#637) and must
+  never open a breaker: that would convert one user's misconfiguration into an
+  outage for everyone on the endpoint.
+- **A held job is `failed` with `retries` unchanged and no attempt row.** The
+  wire carries an additive `provider_hold` (`provider`, `model`, `reason_code`,
+  `state`, `until`, `hold_deadline`, `chunks_done`); `last_error` keeps #822's
+  narrative so an older client still renders. `provider_hold` is cleared by every
+  other lifecycle write, with exactly one exception: the hold-expiry write keeps
+  it with `state = expired`, because that marker is the only durable signal
+  separating an expiry from a spent retry budget.
+- **Recovery is a probe, never elapsed time.** "Elapsed ⇒ closed" would resume
+  paying into a still-broken endpoint. The probe is the model-catalog read the
+  AI-config screen already uses (no tokens), authenticated with **one actively
+  held job's own vaulted key** — never a synthetic credential — and Ollama is
+  probed **unauthenticated** (`GET {base}/api/tags`), because the hosted catalog
+  client requires a non-empty key and always sends a bearer token, which would
+  leak one to a plain-HTTP curated origin (CWE-319). The probe judges
+  reachability only: it never retires or terminalizes a job.
+- **The probe is a task, not a claimed job.** Only `closed` admits a claim, so no
+  worker runs for the pair when the probe is due. It runs as lease CAS → request
+  **outside any transaction** → fenced result, so a hung probe cannot hold the
+  row lock and lock out the takeover its own lease exists to allow.
+- **Mid-run abort happens at the chunk boundary.** The in-flight request is not
+  aborted (an aborted HTTP request is not refunded), so the overspend bound is
+  exactly one chunk per worker.
+- **Operability:** the durable row plus the `#871 provider breaker` log marker;
+  see `docs/operations/runbooks.md` §16. `GET /v1/health` gains **no** provider
+  check (unauthenticated, 2 s timeout, no credential).

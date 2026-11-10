@@ -494,6 +494,11 @@ components:
           format: int32
           minimum: 0
           type: integer
+        model:
+          description: The model this job is bound to. See [`Self::provider`].
+          type:
+          - string
+          - 'null'
         next_attempt_at:
           description: |-
             When a retryable `failed` job becomes claimable again (issue #637).
@@ -521,6 +526,37 @@ components:
               in the same statement that lands `succeeded`/`dead_letter`/
               `payload_unavailable`, so a finished job never advertises the stage it
               died at (the last frame is always `storing_preview`).
+          - type: 'null'
+        provider:
+          oneOf:
+          - $ref: '#/components/schemas/LlmProvider'
+            description: |-
+              The provider this job is bound to, snapshotted at **enqueue** time
+              (issue #871, D-A2b). `None` for every pre-#871 row and for an upload
+              whose AI config could not be resolved at the API edge.
+
+              The claim predicate filters on this pair, and the predicate runs
+              *before* `resolve_config` — which is why the snapshot is refreshed at
+              the config-change edge and re-checked (authoritatively) after the
+              config is resolved. A `None` pair is never breaker-filtered: the honest
+              degradation, because there is nothing to compare a breaker against.
+          - type: 'null'
+        provider_hold:
+          oneOf:
+          - $ref: '#/components/schemas/ProviderHold'
+            description: |-
+              Why this job is waiting on its provider, when it is (issue #871).
+
+              `Some` while the job is **held** for a degraded `(provider, model)`
+              pair: `retries` was deliberately not charged, no attempt row was
+              appended, and `next_attempt_at` mirrors the breaker's probe time. A
+              job that never reached the provider therefore never burns its retry
+              budget.
+
+              Cleared by every other lifecycle write, except the hold-expiry write —
+              which keeps it with `state = expired` (see [`ProviderHold`]). Additive
+              with `serde(default)`: older clients ignore the field entirely and keep
+              rendering `#822`'s banner from `last_error`.
           - type: 'null'
         retries:
           format: int32
@@ -3873,6 +3909,86 @@ components:
       - dead_letter_count
       - dead_letters
       - checkpoints
+      type: object
+    ProviderBreakerState:
+      description: |-
+        State of a provider circuit breaker, as a **job hold** reports it
+        (issue #871, D-A4/D-A6).
+
+        `Expired` is deliberately part of this enum but **not** of the durable
+        breaker's own state: the `ai_import.provider_health.state` CHECK accepts
+        `closed`, `open` and `half_open` only. A hold that ran out of its deadline
+        keeps `state = expired` on the job row precisely so a client can tell "the
+        provider never came back" from "your retries are used up" — the two render
+        different copy and must never collapse into one.
+      enum:
+      - closed
+      - open
+      - half_open
+      - expired
+      type: string
+    ProviderHold:
+      description: |-
+        Why a job is **waiting** on its provider, and until when (issue #871).
+
+        A held job stays [`JobStatus::Failed`] on purpose: adding a
+        `waiting_for_provider` status would have to be classified correctly in
+        `is_terminal()`, `is_non_resumable()`, the payload retention, `dev_reset`
+        and the claim predicates — plus a new ARB key, glyph and golden in the
+        client — to say what this additive field says for free. `#822`'s banner
+        already renders "provider degraded · next attempt at X"; this is the honest
+        extension of that copy.
+
+        The field is cleared by **every** other lifecycle write (claim,
+        `mark_succeeded`, `mark_failed`, `mark_payload_unavailable`, ordinary
+        dead-letter) — with exactly one exception: the hold-expiry write keeps it
+        with `state = Expired`, because that marker is the only durable signal
+        separating an expiry from a spent retry budget.
+      properties:
+        chunks_done:
+          description: |-
+            Chunks already paid for and stored — the resume point (D-B2). `0` in a
+            build without the chunk store, which is honest: nothing was stored.
+          format: int32
+          minimum: 0
+          type: integer
+        hold_deadline:
+          description: |-
+            Absolute deadline of the whole hold **series** (D-C4): the job
+            dead-letters at this instant without spending a retry. Lives on the job
+            row (`provider_hold_series_started_at`) rather than in this struct, so a
+            short recovery cannot restart the budget.
+          format: date-time
+          type: string
+        model:
+          description: |-
+            The model the job was resolved against. Together with `provider` this is
+            the breaker key (D-A1).
+          type: string
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+          description: The provider whose endpoint is degraded.
+        reason_code:
+          description: |-
+            The registered problem code that opened the hold — today always
+            `ai-import.llm-provider-unavailable` (no new code, D-X1). The client
+            keeps rendering its existing per-code narrative.
+          type: string
+        state:
+          $ref: '#/components/schemas/ProviderBreakerState'
+          description: '`open`/`half_open` while waiting; `expired` on the terminal expiry write.'
+        until:
+          description: The breaker's next probe time — also this job's `next_attempt_at`.
+          format: date-time
+          type: string
+      required:
+      - provider
+      - model
+      - reason_code
+      - state
+      - until
+      - hold_deadline
+      - chunks_done
       type: object
     RenameEpisodeRequest:
       properties:

@@ -1551,5 +1551,43 @@
   "sceneUpdateErrorValidation": "Die Änderung wurde abgelehnt – bitte prüfe Nummer und Texte.",
   "sceneUpdateErrorConflict": "Die Szene wurde zwischenzeitlich geändert. Aktualisiere die Ansicht und versuche es erneut.",
   "sceneUpdateErrorNetwork": "Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuche es erneut.",
-  "sceneUpdateErrorGeneric": "Die Szene konnte nicht gespeichert werden ({code})."
+  "sceneUpdateErrorGeneric": "Die Szene konnte nicht gespeichert werden ({code}).",
+  "aiJobProviderHoldTitle": "{provider} ist nicht erreichbar",
+  "aiJobProviderHoldBody": "Der Auftrag wartet bis {until}; spätestens bis {deadline}. Kein Versuch wird verbraucht – der Import läuft nach der Pause weiter, sobald der Anbieter zurück ist.",
+  "aiJobProviderHoldExpiredBody": "Der Anbieter ist bis {deadline} nicht zurückgekommen. Der Auftrag wurde deshalb beendet, ohne einen Versuch zu verbrauchen – laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.",
+  "aiJobsRowProviderHold": "{provider} nicht erreichbar · wartet bis {until}",
+  "@aiJobProviderHoldTitle": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      }
+    }
+  },
+  "@aiJobProviderHoldBody": {
+    "placeholders": {
+      "until": {
+        "type": "String"
+      },
+      "deadline": {
+        "type": "String"
+      }
+    }
+  },
+  "@aiJobProviderHoldExpiredBody": {
+    "placeholders": {
+      "deadline": {
+        "type": "String"
+      }
+    }
+  },
+  "@aiJobsRowProviderHold": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      },
+      "until": {
+        "type": "String"
+      }
+    }
+  }
 }

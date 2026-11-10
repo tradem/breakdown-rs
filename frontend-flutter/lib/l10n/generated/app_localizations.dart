@@ -6839,6 +6839,30 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Die Szene konnte nicht gespeichert werden ({code}).'**
   String sceneUpdateErrorGeneric(Object code);
+
+  /// No description provided for @aiJobProviderHoldTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'{provider} ist nicht erreichbar'**
+  String aiJobProviderHoldTitle(String provider);
+
+  /// No description provided for @aiJobProviderHoldBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Auftrag wartet bis {until}; spätestens bis {deadline}. Kein Versuch wird verbraucht – der Import läuft nach der Pause weiter, sobald der Anbieter zurück ist.'**
+  String aiJobProviderHoldBody(String until, String deadline);
+
+  /// No description provided for @aiJobProviderHoldExpiredBody.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anbieter ist bis {deadline} nicht zurückgekommen. Der Auftrag wurde deshalb beendet, ohne einen Versuch zu verbrauchen – laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.'**
+  String aiJobProviderHoldExpiredBody(String deadline);
+
+  /// No description provided for @aiJobsRowProviderHold.
+  ///
+  /// In de, this message translates to:
+  /// **'{provider} nicht erreichbar · wartet bis {until}'**
+  String aiJobsRowProviderHold(String provider, String until);
 }
 
 class _AppLocalizationsDelegate
