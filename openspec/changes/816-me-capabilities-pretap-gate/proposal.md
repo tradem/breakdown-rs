@@ -95,7 +95,7 @@ Publish the **enforcement** predicate as a self-report, not a second policy.
   `scripts/regen-client.sh` (no hand edits); `CLIENT_VERSION` 1.4.0 → 1.5.0
   (additive wire).
 - `lib/data/capabilities_repository.dart` (new) + provider seam
-  `myCapabilitiesProvider` (`lib/auth/capabilities_providers.dart`), testable by
+  `myCapabilitiesProvider` (`lib/auth/capabilities.dart`), testable by
   overriding the repository like every other `data/` boundary.
 - `lib/features/settings/settings_screen.dart`: the AI entry gains the
   resolved-denial subtitle (`settings.aiConfigDenied` = "Keine Berechtigung"),

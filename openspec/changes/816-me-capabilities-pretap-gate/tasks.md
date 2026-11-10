@@ -25,7 +25,7 @@
 
 - [x] 2.1 `scripts/regen-client.sh` (`CLIENT_VERSION` 1.4.0 → 1.5.0); no hand edits under
       `vendor/breakdown_api/`.
-- [x] 2.2 `lib/data/capabilities_repository.dart` + `lib/auth/capabilities_providers.dart`
+- [x] 2.2 `lib/data/capabilities_repository.dart` + `lib/auth/capabilities.dart`
       (`myCapabilitiesProvider`, one-shot, never throws — the `Result` is unwrapped into
       `AsyncError` at the provider, so "unknown" stays distinguishable from "denied").
 - [x] 2.3 `settings_screen.dart`: resolved-denial subtitle `settings.aiConfigDenied`

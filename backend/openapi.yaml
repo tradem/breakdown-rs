@@ -7436,6 +7436,11 @@ paths:
         second form of the denial the client is trying to pre-empt — and would hide
         the ops answer from exactly the callers who lack the credential role.
 
+        Error handling: both policy arms are FALLIBLE, and a failure is NOT a
+        denial — the read model could not be read, so the response is the mapped
+        server error (registered `http.internal-error`), never a fabricated
+        `false` (the client would render a permission problem for a server fault).
+
         AUTHZ-GATE (issue #816): `Requirement::Authenticated` at the middleware —
         this route is deliberately exempt from the block-scoped membership check,
         because a deployment-scoped capability says nothing about the caller's

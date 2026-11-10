@@ -200,6 +200,7 @@ use utoipa::OpenApi;
     components(schemas(
         handlers::IdVersionResponse,
         crate::meta::MetaVersionsResponse,
+        crate::me::MyCapabilitiesResponse,
         crate::problems::ProblemDetails,
         handlers::ManualArchiveResponse,
         handlers::ManualArchiveJobResult,

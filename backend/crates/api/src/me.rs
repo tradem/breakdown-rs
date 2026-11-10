@@ -53,12 +53,11 @@ pub struct MyCapabilitiesResponse {
     pub has_active_ops_role: bool,
 }
 
-/// Resolve one fallible policy decision as a boolean capability.
+/// Map one resolved policy decision to a boolean capability.
 ///
-/// `Deny` is a resolved answer (`false`); an `Err` — the read model could not
-/// be read — is NOT a denial and must not become one (the client would render a
-/// permission problem for a server fault), so it propagates as the mapped
-/// server error.
+/// `Allow` is `true`, `Deny` is `false` — a denial is an ANSWER here, not a
+/// failure. (The failure case never reaches this function: the fallible policy
+/// call is `?`-propagated in [`get_my_capabilities`].)
 fn resolved(decision: PolicyDecision) -> bool {
     matches!(decision, PolicyDecision::Allow)
 }
@@ -70,6 +69,11 @@ fn resolved(decision: PolicyDecision) -> bool {
 /// distinguish "denied" from "unknown" before it acts. A 403 here would be a
 /// second form of the denial the client is trying to pre-empt — and would hide
 /// the ops answer from exactly the callers who lack the credential role.
+///
+/// Error handling: both policy arms are FALLIBLE, and a failure is NOT a
+/// denial — the read model could not be read, so the response is the mapped
+/// server error (registered `http.internal-error`), never a fabricated
+/// `false` (the client would render a permission problem for a server fault).
 ///
 /// AUTHZ-GATE (issue #816): `Requirement::Authenticated` at the middleware —
 /// this route is deliberately exempt from the block-scoped membership check,

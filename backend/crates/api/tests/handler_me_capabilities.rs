@@ -198,4 +198,11 @@ async fn predicate_failure_is_a_server_error_not_a_false_answer() {
         "a broken predicate must surface as an error — `false` would read as \
          \"you have no permission\" for a caller whose role is intact"
     );
+    // The CODE is the contract the client branches on (ADR-031): assert the
+    // registered internal-error entry, so a different 500 problem — or a
+    // denial code smuggled in — cannot pass this test.
+    assert_eq!(
+        problem.code, "http.internal-error",
+        "a read-model failure must land on the registered internal-error code"
+    );
 }

@@ -34,10 +34,18 @@ proceeds and the server stays authoritative.
 
 #### Scenario: Unknown is not a denial
 
-- **WHEN** the capability probe is still in flight, failed at the transport
-  level, or answered 5xx
-- **THEN** the entry renders "Zugriff wird geprüft…" / the reachability state,
-  and the AI-configuration discovery still runs — an unknown capability is
+- **WHEN** the capability probe is still in flight
+- **THEN** the entry's subtitle reads "Backend wird geprüft…"
+  (`settings.aiConfigChecking`) with the spinner, and the AI-configuration
+  discovery still runs — an unknown capability is never rendered as "Keine
+  Berechtigung".
+
+#### Scenario: A failed capability read is not a denial
+
+- **WHEN** the capability read fails at the transport level or answers 5xx
+- **THEN** the entry falls back to the ordinary subtitle
+  (`settings.aiConfigSubtitle`, no lock icon), the discovery request proceeds,
+  and the server's own 403/2xx answer stays authoritative — a failed read is
   never rendered as "Keine Berechtigung".
 
 #### Scenario: A season-scoped signal is not reused for a deployment-scoped gate
