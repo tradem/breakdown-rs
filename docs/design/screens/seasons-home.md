@@ -49,7 +49,7 @@ Compact — Season tab content with card list and extended FAB:
 {
   { "Season"                          | "Manuell" }
   --
-  {^ "Season 2 · Sommer 2026"
+  {^ "2 · Sommer 2026"
      "3 Blöcke · 42 Szenen · 118 Kleidungsstücke" [›]}
   {^ "Season 1"
      "4 Blöcke · 38 Szenen" [›]}
@@ -110,7 +110,7 @@ and tests — never in the wireframes.
 | Tab title | Top app bar | Screen identity | `nav.seasons` |
 | Manual action | App bar text button | Secondary/advanced create (quick-create sheet) | `seasons.create.manual` |
 | Season card | Card (outlined on light, filled on dark) | Opens the season's planning view | `nav.seasons` |
-| Card title | Card headline | Season name or fallback "Season {number}" | `seasons.tile` |
+| Card title | Card headline | Composed by `seasonDisplayLabel` (issue #840): `{number} · {name}` for a named season, `Season {number}` for a blank one — the same rule the shell's season pill uses | `seasons.tile` |
 | Card metadata | Card supporting text | Cached block/scene/costume counts, omitted when absent | `seasons.meta.blocks` / `seasons.meta.scenes` / `seasons.meta.costumes` |
 | Stale indicator | Icon + relative time | Cached metadata older than TTL | `seasons.stale` |
 | Chevron affordance | List-item affordance | Drill-down (paired with visible title) | n/a |
