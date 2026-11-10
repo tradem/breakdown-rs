@@ -178,7 +178,8 @@ async fn watch_locked(
     // admitted while it is open, so no paid call can succeed and nothing else
     // can close it.
     if let Some(probe) = probe {
-        let probed = super::provider_probe::run_probes(pool, health, probe, PROBE_OWNER).await?;
+        let probed =
+            super::provider_probe::run_probes(pool, health, queue, probe, PROBE_OWNER).await?;
         if probed > 0 {
             tracing::warn!(probes = probed, "#871 provider breaker: probe tick");
         }

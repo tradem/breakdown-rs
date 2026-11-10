@@ -637,6 +637,30 @@ pub trait AiImportQueue: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Release every held job of a pair because the breaker **closed**
+    /// (issue #871, D-A6).
+    ///
+    /// A close means the endpoint answers again, so the wait is over: the rows
+    /// drop `provider_hold` and become claimable through their own (now past)
+    /// `next_attempt_at`. Without this the marker would linger until each job is
+    /// claimed, and a client would keep rendering "waiting until X" for a job
+    /// that is already runnable.
+    ///
+    /// The **hold series clock survives** (`provider_hold_series_started_at` is
+    /// deliberately not touched): a short recovery must not hand the next
+    /// incident a fresh 6 h budget, which is exactly the flapping hole D-C4
+    /// closes. The clock is cleared on claim, or by the sweeper once the job has
+    /// been un-held for the stable window.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn release_held_jobs(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
+    }
+
     /// Expire held jobs whose own `hold_deadline` passed (issue #871, D-C4).
     ///
     /// The **only** path that can reach such a job: it is `failed` while its

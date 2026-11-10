@@ -1287,6 +1287,47 @@ impl AiImportQueue for PgAiImportQueue {
         Ok(ids)
     }
 
+    /// Release every held job of a pair after the breaker closed (issue #871,
+    /// D-A6).
+    ///
+    /// `provider_hold_series_started_at` is deliberately **not** cleared: the
+    /// series clock is what stops a flapping provider from resetting its 6 h
+    /// budget on every short recovery (D-C4). It ends on claim, or by the
+    /// sweeper's stable-window hygiene.
+    async fn release_held_jobs(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        let rows = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET provider_hold = NULL,
+                updated_at = now()
+            WHERE breaker_provider = $1 AND breaker_model = $2
+              AND status = 'failed'
+              AND provider_hold IS NOT NULL
+              -- An EXPIRED marker is terminal: a close must never revive a job
+              -- that already dead-lettered for the hold.
+              AND COALESCE(provider_hold ->> 'state', '') <> 'expired'
+            RETURNING id, pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(provider.as_str())
+        .bind(model)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id =
+                AiImportJobId::from_uuid(row.try_get::<Uuid, _>("id").map_err(map_sqlx_error)?);
+            self.hub.notify(id);
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
     /// Dead-letter the held jobs whose own deadline passed (issue #871, D-C4).
     ///
     /// The only path that can reach such a job: it is `failed` while its pair is

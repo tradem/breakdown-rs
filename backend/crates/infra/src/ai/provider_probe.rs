@@ -49,7 +49,9 @@ use uuid::Uuid;
 use super::CuratedProviderUrls;
 use super::catalog::OpenAiCompatibleModelCatalog;
 use super::provider_watch::PROVIDER_UNAVAILABLE_CODE;
+use super::queue::PgAiImportQueue as PgQueue;
 use crate::queries::ai_config::AiConfigRepositoryImpl;
+use breakdown_core::ai::ports::AiImportQueue as _;
 
 /// How many donor jobs one tick may try for one pair. A pair whose held jobs all
 /// have unusable credentials is not probed forever: the bound keeps one tick
@@ -291,6 +293,7 @@ fn classify_catalog_error(
 pub async fn run_probes(
     pool: &PgPool,
     health: &dyn ProviderHealth,
+    queue: &PgQueue,
     probe: &dyn ProviderProbe,
     owner: &str,
 ) -> Result<usize, breakdown_core::error::DomainError> {
@@ -343,11 +346,30 @@ pub async fn run_probes(
                 probed += 1;
                 if decision.closed {
                     // A close releases the pair's held jobs: they are claimable
-                    // again through their own (now past) `next_attempt_at`.
+                    // again through their own (now past) `next_attempt_at`, and
+                    // the held banner must stop claiming a wait that is over.
+                    // The series clock survives (D-C4).
+                    let released = queue
+                        .release_held_jobs(breaker.provider, &breaker.model)
+                        .await?;
                     tracing::warn!(
                         provider = breaker.provider.as_str(),
                         model = breaker.model,
+                        released = released.len(),
                         "#871 provider breaker: closed after a successful probe"
+                    );
+                } else if let Some(retry_at) = decision.retry_at {
+                    // The probe failed: the held rows must follow the breaker,
+                    // or they would display a resume time that has already
+                    // passed (D-A6).
+                    let refreshed = queue
+                        .refresh_held_jobs(breaker.provider, &breaker.model, retry_at)
+                        .await?;
+                    tracing::warn!(
+                        provider = breaker.provider.as_str(),
+                        model = breaker.model,
+                        refreshed = refreshed.len(),
+                        "#871 provider breaker: probe failed — held rows re-pointed"
                     );
                 }
             }
