@@ -16,6 +16,7 @@ import '../ai_import/import_jobs/jobs_controller.dart';
 import '../ai_import/import_jobs/jobs_screen.dart';
 import '../blocks/blocks_controller.dart';
 import '../blocks/blocks_screen.dart';
+import '../seasons/season_display_label.dart';
 import 'planning_location.dart';
 import '../../design/components/breakdown_app_bar.dart';
 
@@ -55,7 +56,11 @@ class ProductionOverviewScreen extends ConsumerWidget {
               key: const Key('production-season-row'),
               leading: const Icon(Icons.video_collection_outlined),
               title: Text(
-                season.title ?? l10n.seasonsDefaultTitle(season.number),
+                seasonDisplayLabel(
+                  l10n,
+                  number: season.number,
+                  title: season.title,
+                ),
               ),
               subtitle: Text(l10n.productionBlocksSubtitle),
             ),

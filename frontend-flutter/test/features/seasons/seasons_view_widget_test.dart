@@ -67,7 +67,7 @@ void main() {
     });
 
     // Cached rows still render (offline cold start, Task 4.1).
-    expect(find.text('Spring'), findsOneWidget);
+    expect(find.text('1 · Spring'), findsOneWidget);
     // Stale indicator is shown.
     expect(find.byKey(const Key('stale-banner')), findsOneWidget);
     // Error / retry affordance is shown.

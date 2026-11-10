@@ -22,6 +22,7 @@ import '../episodes/episodes_screen.dart';
 import '../reports/reports_aggregate_screen.dart';
 import '../reports/reports_aggregate_state.dart';
 import '../reports/widgets/reports_aggregate_entry.dart';
+import '../seasons/season_display_label.dart';
 import '../shell/planning_location.dart';
 import 'blocks_controller.dart';
 import 'blocks_state.dart';
@@ -60,8 +61,12 @@ class _AggregateReportsEntry extends StatelessWidget {
               id: season.id,
               seasonId: season.id,
               // Catalog copy only (check_inline_copy.sh) — never an inline
-              // label: the same fallback the app bar title uses.
-              label: season.title ?? l10n.blockSeasonNumber('${season.number}'),
+              // label: the same composition the app bar title uses.
+              label: seasonDisplayLabel(
+                l10n,
+                number: season.number,
+                title: season.title,
+              ),
             ),
           );
         },
@@ -123,7 +128,11 @@ class BlocksScreen extends ConsumerWidget {
     return LayoutBuilder(
       builder: (context, constraints) => Scaffold(
         appBar: BreakdownAppBar(
-          title: season.title ?? l10n.blockSeasonNumber('${season.number}'),
+          title: seasonDisplayLabel(
+            l10n,
+            number: season.number,
+            title: season.title,
+          ),
           actions: [
             // Season-level aggregated Soll-Ist entry (issue #571): labelled
             // per the visible-label norm; pushes the season-scope aggregate

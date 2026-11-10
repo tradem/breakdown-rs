@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../l10n/app_localizations_provider.dart';
+import 'season_display_label.dart';
 import 'widgets/season_card.dart';
 import '../../design/components/breakdown_app_bar.dart';
 
@@ -80,9 +81,11 @@ class SeasonsViewWidget extends ConsumerWidget {
                       final s = view.rows[i];
                       return SeasonCard(
                         key: Key('season-${s.id}'),
-                        title:
-                            s.title ??
-                            l10nOf(context).wizardReviewSeason('${s.number}'),
+                        title: seasonDisplayLabel(
+                          l10nOf(context),
+                          number: s.number,
+                          title: s.title,
+                        ),
                       );
                     },
                   ),

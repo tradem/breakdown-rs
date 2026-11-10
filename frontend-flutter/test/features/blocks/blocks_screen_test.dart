@@ -65,13 +65,13 @@ BlockView _block(
     ..version = 1,
 );
 
-SeasonView _season() => SeasonView(
+SeasonView _season({String? title = 'Season One'}) => SeasonView(
   (b) => b
     ..archived = false
     ..id = 'season-1'
     ..number = 1
     ..projectId = 'series-1'
-    ..title = 'Season One'
+    ..title = title
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -191,14 +191,14 @@ void main() {
     await container.read(authSessionControllerProvider.notifier).signIn();
   }
 
-  Future<void> pumpScreen(WidgetTester tester) async {
+  Future<void> pumpScreen(WidgetTester tester, {SeasonView? season}) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: BlocksScreen(season: _season())),
+        child: MaterialApp(home: BlocksScreen(season: season ?? _season())),
       ),
     );
     // Settle the route / FAB entrance animations; the screen itself has no
@@ -213,6 +213,33 @@ void main() {
 
       expect(find.text('Block 2'), findsOneWidget);
       expect(find.byKey(const Key('block-b1')), findsOneWidget);
+    });
+
+    // Issue #840: the AppBar title is composed by `seasonDisplayLabel`, so a
+    // blank season title falls back to the number — the old inline
+    // `title ?? blockSeasonNumber(...)` rendered an empty AppBar.
+    testWidgets('AppBar falls back to the number on an empty season title', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_block('b1', number: 2)]);
+      await pumpScreen(tester, season: _season(title: ''));
+      expect(find.text('Season 1'), findsOneWidget);
+    });
+
+    testWidgets('AppBar falls back to the number on a blank season title', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_block('b1', number: 2)]);
+      await pumpScreen(tester, season: _season(title: '   '));
+      expect(find.text('Season 1'), findsOneWidget);
+    });
+
+    testWidgets('AppBar keeps the number-plus-name form for a titled season', (
+      tester,
+    ) async {
+      await setupContainer(initialRows: [_block('b1', number: 2)]);
+      await pumpScreen(tester, season: _season(title: 'Dreharbeiten'));
+      expect(find.text('1 · Dreharbeiten'), findsOneWidget);
     });
 
     testWidgets('empty: plain-language state with create CTA', (tester) async {

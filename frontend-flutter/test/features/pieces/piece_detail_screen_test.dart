@@ -1169,7 +1169,7 @@ void main() {
         find.byKey(const Key('piece-repertoire-row-c-1-season-2')),
         findsOneWidget,
       );
-      expect(find.text('Season Two'), findsOneWidget);
+      expect(find.text('2 · Season Two'), findsOneWidget);
       // Only the repertoire row — the picker button is present but no
       // remove affordance for a season outside the repertoire.
       expect(

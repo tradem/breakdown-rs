@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations_provider.dart';
+import '../seasons/season_display_label.dart';
 import '../shell/shell_controller.dart';
 import '../shell/view_states.dart';
 import 'fundus_controller.dart';
@@ -252,7 +253,11 @@ class _SeasonChips extends StatelessWidget {
             FilterChip(
               key: Key('fundus-season-chip-${season.id}'),
               label: Text(
-                season.title ?? l10n.seasonsDefaultTitle(season.number),
+                seasonDisplayLabel(
+                  l10n,
+                  number: season.number,
+                  title: season.title,
+                ),
               ),
               selected: selected.contains(season.id),
               onSelected: (_) => onToggle(season.id),
@@ -283,7 +288,7 @@ class _PieceRow extends StatelessWidget {
       // A repertoire season the projection does not know yet (dangling
       // reference) renders its raw id instead of hiding the row.
       if (s == null) return id;
-      return s.title ?? l10n.seasonsDefaultTitle(s.number);
+      return seasonDisplayLabel(l10n, number: s.number, title: s.title);
     }
 
     final seasonNames = [for (final id in piece.seasonIds) nameOf(id)];

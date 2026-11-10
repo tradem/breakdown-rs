@@ -47,7 +47,7 @@ created season is not yet the ambient scope.
      "Die gewählte Datei wird von einem serverseitigen KI-Modell …"
      "Modell: … / …" }
   {^ "Importziel"
-     "Staffel 2 · Block 3"
+     "Season 2 · Block 3"
      "Episoden, Szenen und Drehtage dieses Imports landen in diesem Block."
      [Block wechseln]   [Block anlegen] }
   --
@@ -75,7 +75,7 @@ a content max-width — the form never splits into panes.
 | File row | Outlined button + text | Picks the document; the displayed name is DERIVED from the pending document's own `fileName` (never remembered locally), so it returns to `Keine Datei gewählt` as soon as the provider is cleared — a kind switch, or a successful submit | `aiImportPickPdf` / `aiImportPickCsvPdf` / `aiImportNoFile` |
 | AI disclosure card | Card (tertiary container) + `smart_toy_outlined` icon | EU AI Act Art. 50 point-of-interaction disclosure, **above** the submit action, plus the configured provider/model naming line (degrading honestly when unconfigured) | `aiImportDisclosureTitle` / `aiImportDisclosureBody` |
 | Target card | Card (surface container highest) | The write target of this import — the one fact that decides where every imported row lands. Rendered directly above the submit action, beside the disclosure | `aiImportTargetTitle` |
-| Target line | Title-medium text | `{season} · {block}` from read DTOs only: the season number is resolved **cache-only** and degrades to `Staffel unbekannt`; the block number comes from the resolved scope and degrades to `Block unbekannt`. Never a fabricated number | `aiImportTargetLine` with `blockSeasonNumber` / `blockTileLabel` / `aiImportTargetUnknownSeason` / `aiImportTargetUnknownBlock` |
+| Target line | Title-medium text | `{season} · {block}` from read DTOs only: the season number is resolved **cache-only** and degrades to `Season unbekannt`; the block number comes from the resolved scope and degrades to `Block unbekannt`. Never a fabricated number | `aiImportTargetLine` with `blockSeasonNumber` / `blockTileLabel` / `aiImportTargetUnknownSeason` / `aiImportTargetUnknownBlock` |
 | Target hint | Body-small text | States the consequence ("episodes, scenes and shooting days land in this block") so the target is actionable, not decorative | `aiImportTargetHint` |
 | Target picker | List items in the target card | Shown when the target season has **several** blocks: exactly one row per block, tapping adopts it as the sticky scope (the header then follows the line). The inline list IS the switch in this state, so the card renders no second switch affordance beside it | `aiImportTargetPickBlock` + `blockTileLabel` |
 | Target blocked state | Body text | No block in the season → "create a block first" **plus the create action** (issue #828: the identical state used to be a dead end); no season context → "select a season first". Both disable the submit action | `aiImportTargetNoBlocks` / `aiImportTargetNoSeason` |
@@ -187,7 +187,7 @@ client-side, zero calls). Every server failure surfaces keyed on its stable
 
 The target line is the primary label of the card and is announced as one
 semantics node with the title, so a screen-reader user hears "Importziel,
-Staffel 2, Block 3" before reaching the submit button. The submit action always
+Season 2, Block 3" before reaching the submit button. The submit action always
 carries a visible label (glossary rule); the disabled state is a real
 `onPressed: null` (announced as disabled, not merely dimmed). All copy comes
 from the ARB catalogs (`aiImport*` keys); backend `detail` text never renders.

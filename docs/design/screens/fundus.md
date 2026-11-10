@@ -23,14 +23,14 @@ The shell renders the location strip and scope chip above the content (one surfa
 {
   "Fundus"
   --
-  [ "Fundus durchsuchen: Kleidungsstücke über alle Staffeln" ]
-  [ {Staffel Eins} | {Staffel Zwei} | {Staffel Drei} ]
+  [ "Fundus durchsuchen: Kleidungsstücke über alle Seasons" ]
+  [ {1 · Season Eins} | {2 · Season Zwei} | {3 · Season Drei} ]
   --
   [Banner: 'Diese Ergebnisse basieren auf dem lokalen Cache und können veraltet sein.']
   --
-  {^ "Rote Lederjacke"          "Staffeln: Staffel Eins · Staffel Zwei"
+  {^ "Rote Lederjacke"          "Seasons: 1 · Season Eins · 2 · Season Zwei"
      " [thumbnail]               [chevron_right]"
-     "Abendkleid"                "Staffeln: Staffel Eins"
+     "Abendkleid"                "Seasons: 1 · Season Eins"
      " [thumbnail]               [chevron_right]"}
 }
 @endsalt
@@ -45,9 +45,9 @@ Compact layouts show the prefilter, a wrapping season-chip row and the result li
 | Screen title | Top app bar | Fundus identity | `fundus.title` |
 | Cast entry action | App-bar icon button | Opens the fundus surface | `fundus.tooltip` |
 | Name prefilter | Text field | Case/diacritics-insensitive substring over notes + category | `fundus.hint` |
-| Season chip | Filter chip | Toggles a season filter; all deselected = whole fundus | `fundus.seasonChip` |
+| Season chip | Filter chip | Toggles a season filter; all deselected = whole fundus. The chip label is composed by `seasonDisplayLabel` (issue #840): `{number} · {name}` for a named season, `Season {number}` for a blank one | `fundus.seasonChip` |
 | Piece row | List item | Opens the piece detail; announces designation + repertoire seasons | `fundus.row` |
-| Repertoire subtitle | Text | The piece's repertoire season names | `fundus.repertoireSeasons` |
+| Repertoire subtitle | Text | The piece's repertoire season names, each one composed by `seasonDisplayLabel` | `fundus.repertoireSeasons` |
 | Stale banner | Banner | Cache staleness indicator | `fundus.staleBanner` |
 
 ## States

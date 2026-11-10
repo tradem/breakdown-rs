@@ -25,6 +25,7 @@ import '../costume_categories/costume_categories_controller.dart';
 import '../photos/capture.dart';
 import '../photos/prepare.dart';
 import '../photos/widgets/photo_gallery.dart';
+import '../seasons/season_display_label.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import 'pieces_controller.dart';
 import 'pieces_state.dart';
@@ -243,7 +244,7 @@ class _RepertoireSection extends ConsumerWidget {
     String nameOf(String id) {
       for (final s in seasons) {
         if (s.id == id) {
-          return s.title ?? l10n.seasonsDefaultTitle(s.number);
+          return seasonDisplayLabel(l10n, number: s.number, title: s.title);
         }
       }
       // A repertoire season the projection does not know yet (dangling
@@ -331,8 +332,11 @@ class _RepertoireSection extends ConsumerWidget {
                     ListTile(
                       key: Key('repertoire-pick-${s.id}'),
                       title: Text(
-                        s.title ??
-                            l10nOf(sheetContext).seasonsDefaultTitle(s.number),
+                        seasonDisplayLabel(
+                          l10nOf(sheetContext),
+                          number: s.number,
+                          title: s.title,
+                        ),
                       ),
                       trailing: s.id == season.id
                           ? Text(l10nOf(sheetContext).pieceDetailRepertoire)

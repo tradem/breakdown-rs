@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations_provider.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../design/material_icons.dart';
+import '../seasons/season_display_label.dart';
 import 'planning_location.dart';
 
 /// Production [PlanningLocationCopy] adapter over the generated
@@ -19,7 +20,7 @@ class L10nPlanningLocationCopy implements PlanningLocationCopy {
 
   @override
   String seasonLabel(String? title, int number) =>
-      title ?? l10n.seasonsDefaultTitle('$number');
+      seasonDisplayLabel(l10n, number: number, title: title);
 
   @override
   String blockLabel(int number) => l10n.blockTileLabel('$number');

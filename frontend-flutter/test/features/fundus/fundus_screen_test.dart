@@ -199,7 +199,12 @@ void main() {
       ),
     );
     await pumpScreen(tester);
-    expect(find.textContaining('Staffel Eins · Staffel Zwei'), findsOneWidget);
+    // Issue #840: repertoire names are composed by `seasonDisplayLabel`,
+    // so each one leads with its number.
+    expect(
+      find.textContaining('1 · Staffel Eins · 2 · Staffel Zwei'),
+      findsOneWidget,
+    );
   });
 
   test(
