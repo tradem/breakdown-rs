@@ -22,6 +22,7 @@ AiImportProgress _progress({
   int? doneBytes,
   int? totalBytes,
   DateTime? startedAt,
+  int? resumedFrom,
   AiImportStage stage = AiImportStage.extracting,
 }) => AiImportProgress(
   (b) => b
@@ -30,7 +31,9 @@ AiImportProgress _progress({
     ..chunksTotal = chunksTotal
     ..doneBytes = doneBytes
     ..totalBytes = totalBytes
-    ..startedAt = startedAt,
+    ..startedAt = startedAt
+    // Issue #871 (D-B5): the resume point this attempt continues from.
+    ..resumedFrom = resumedFrom,
 );
 
 void main() {
@@ -503,6 +506,87 @@ void main() {
         basis: AiJobEtaBasis.chunks,
       );
       expect(aiJobEtaText(eta: point, stalled: false, copy: copy()), '2 h');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #871 (D-B5): a resumed attempt measures from its own start, never
+  // from the absolute counter.
+  // -------------------------------------------------------------------------
+  group('resumed attempts', () {
+    test('the rate divides by what THIS attempt completed, not the counter', () {
+      // 26 of 42 done, of which 25 were resumed: this attempt did ONE chunk in
+      // two minutes. A naive rate would read "26 chunks in two minutes".
+      final eta = estimateAiJobEta(
+        progress: _progress(
+          chunk: 26,
+          chunksTotal: 42,
+          resumedFrom: 25,
+          startedAt: _started,
+        ),
+        now: _started.add(const Duration(minutes: 2)),
+      );
+      // One sample this attempt is below the two-sample floor: no number is
+      // fabricated.
+      expect(eta, isNull);
+    });
+
+    test('two samples this attempt produce a figure from the delta', () {
+      // 27 done, 25 resumed → 2 chunks in 4 minutes → 2 min/chunk → 15 chunks
+      // left → 30 minutes.
+      final eta = estimateAiJobEta(
+        progress: _progress(
+          chunk: 27,
+          chunksTotal: 42,
+          resumedFrom: 25,
+          startedAt: _started,
+        ),
+        now: _started.add(const Duration(minutes: 4)),
+      );
+      expect(eta, isNotNull);
+      expect(eta!.basis, AiJobEtaBasis.chunks);
+      expect(eta.lower.inMinutes, 30);
+      // NOT the absurd 4-minute-derived figure a naive rate would produce
+      // (27 chunks in 4 min → ~2 min left).
+      expect(eta.lower.inMinutes, isNot(lessThan(10)));
+    });
+
+    test('the stall watchdog measures the cadence of this attempt', () {
+      // 2 chunks in 4 minutes → 2 min/chunk → a 6-minute stall window, not the
+      // 2-minute floor a 27-chunk rate would produce.
+      final eta = estimateAiJobEta(
+        progress: _progress(
+          chunk: 27,
+          chunksTotal: 42,
+          resumedFrom: 25,
+          startedAt: _started,
+        ),
+        now: _started.add(const Duration(minutes: 4)),
+      );
+      expect(eta!.chunkCadence, const Duration(minutes: 2));
+    });
+
+    test('the byte basis is refused on a resumed attempt', () {
+      // The prefix's bytes are not separable from this attempt's, so the pair is
+      // unusable — the chunk pair is the honest basis.
+      final units = aiJobProgressUnits(
+        _progress(
+          chunk: 26,
+          chunksTotal: 42,
+          doneBytes: 900,
+          totalBytes: 2000,
+          resumedFrom: 25,
+        ),
+      );
+      expect(units, isNotNull);
+      expect(units!.basis, AiJobEtaBasis.chunks);
+    });
+
+    test('a non-resumed frame keeps the byte preference', () {
+      final units = aiJobProgressUnits(
+        _progress(chunk: 2, chunksTotal: 10, doneBytes: 500, totalBytes: 2000),
+      );
+      expect(units!.basis, AiJobEtaBasis.bytes);
     });
   });
 }

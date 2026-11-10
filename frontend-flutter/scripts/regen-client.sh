@@ -82,7 +82,7 @@ echo "  gen  : openapi-generator-cli (JAR ${GENERATOR_VERSION} from openapitools
 # regenerated away and fail the CI drift check. Bump it (MINOR for additive
 # wire fields, MAJOR for a breaking contract) in the same commit that changes
 # `openapi.yaml`, so two client builds stay tellable apart.
-CLIENT_VERSION="1.6.0"
+CLIENT_VERSION="1.7.0"
 
 # Clean the previous output so removed operations/models disappear from the tree.
 rm -rf "${OUT}"

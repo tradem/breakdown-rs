@@ -1346,5 +1346,7 @@
   "aiJobProviderHoldBody": "The job waits until {until}, at the latest until {deadline}. No attempt is being spent – the import continues after the pause as soon as the provider is back.",
   "aiJobProviderHoldExpiredBody": "The provider did not come back by {deadline}. The job was therefore ended without spending an attempt – upload the document again once the provider answers.",
   "aiJobsRowProviderHold": "{provider} unreachable · waits until {until}",
-  "aiJobProviderHoldExpiredTitle": "{provider} did not come back"
+  "aiJobProviderHoldExpiredTitle": "{provider} did not come back",
+  "aiJobStageResumed": "Continuing from section {n} of {total}",
+  "aiJobStageResumedUnknown": "Continuing from section {n}"
 }

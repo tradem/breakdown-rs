@@ -322,7 +322,7 @@ class _JobCard extends ConsumerWidget {
                       key: const Key('ai-job-stage'),
                       progress == null
                           ? jobStatusCopy(l10nOf(context), job.status)
-                          : aiJobStageCopy(l10nOf(context), progress.stage),
+                          : aiJobStageCopyResumed(l10nOf(context), progress),
                     ),
                   ),
                 ],

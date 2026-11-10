@@ -18,6 +18,8 @@ class _$AiImportProgress extends AiImportProgress {
   @override
   final BuiltList<String>? episodesSeen;
   @override
+  final int? resumedFrom;
+  @override
   final AiImportStage stage;
   @override
   final DateTime? startedAt;
@@ -36,6 +38,7 @@ class _$AiImportProgress extends AiImportProgress {
       this.chunksTotal,
       this.doneBytes,
       this.episodesSeen,
+      this.resumedFrom,
       required this.stage,
       this.startedAt,
       this.totalBytes,
@@ -58,6 +61,7 @@ class _$AiImportProgress extends AiImportProgress {
         chunksTotal == other.chunksTotal &&
         doneBytes == other.doneBytes &&
         episodesSeen == other.episodesSeen &&
+        resumedFrom == other.resumedFrom &&
         stage == other.stage &&
         startedAt == other.startedAt &&
         totalBytes == other.totalBytes &&
@@ -72,6 +76,7 @@ class _$AiImportProgress extends AiImportProgress {
     _$hash = $jc(_$hash, chunksTotal.hashCode);
     _$hash = $jc(_$hash, doneBytes.hashCode);
     _$hash = $jc(_$hash, episodesSeen.hashCode);
+    _$hash = $jc(_$hash, resumedFrom.hashCode);
     _$hash = $jc(_$hash, stage.hashCode);
     _$hash = $jc(_$hash, startedAt.hashCode);
     _$hash = $jc(_$hash, totalBytes.hashCode);
@@ -88,6 +93,7 @@ class _$AiImportProgress extends AiImportProgress {
           ..add('chunksTotal', chunksTotal)
           ..add('doneBytes', doneBytes)
           ..add('episodesSeen', episodesSeen)
+          ..add('resumedFrom', resumedFrom)
           ..add('stage', stage)
           ..add('startedAt', startedAt)
           ..add('totalBytes', totalBytes)
@@ -122,6 +128,10 @@ class AiImportProgressBuilder
   set episodesSeen(ListBuilder<String>? episodesSeen) =>
       _$this._episodesSeen = episodesSeen;
 
+  int? _resumedFrom;
+  int? get resumedFrom => _$this._resumedFrom;
+  set resumedFrom(int? resumedFrom) => _$this._resumedFrom = resumedFrom;
+
   AiImportStage? _stage;
   AiImportStage? get stage => _$this._stage;
   set stage(AiImportStage? stage) => _$this._stage = stage;
@@ -150,6 +160,7 @@ class AiImportProgressBuilder
       _chunksTotal = $v.chunksTotal;
       _doneBytes = $v.doneBytes;
       _episodesSeen = $v.episodesSeen?.toBuilder();
+      _resumedFrom = $v.resumedFrom;
       _stage = $v.stage;
       _startedAt = $v.startedAt;
       _totalBytes = $v.totalBytes;
@@ -182,6 +193,7 @@ class AiImportProgressBuilder
             chunksTotal: chunksTotal,
             doneBytes: doneBytes,
             episodesSeen: _episodesSeen?.build(),
+            resumedFrom: resumedFrom,
             stage: BuiltValueNullFieldError.checkNotNull(
                 stage, r'AiImportProgress', 'stage'),
             startedAt: startedAt,

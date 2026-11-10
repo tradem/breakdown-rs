@@ -25,7 +25,7 @@ import '../../shell/quick_create_sheet.dart'
     show aiImportJobsQuickCreateActions, showQuickCreateSheet;
 import 'job_cost_card.dart' show aiJobCostMetricIcon;
 import 'job_status_screen.dart';
-import 'import_state.dart' show aiJobStageCopy;
+import 'import_state.dart' show aiJobStageCopyResumed;
 import 'jobs_controller.dart';
 import 'script_block_scope.dart';
 
@@ -311,7 +311,7 @@ class _JobRow extends ConsumerWidget {
           if (job.showsLiveProgress) ...[
             Text(
               key: Key('ai-jobs-row-stage-${job.id}'),
-              aiJobStageCopy(l10n, job.progress!.stage),
+              aiJobStageCopyResumed(l10n, job.progress),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             // Issue #827: the block the script states joins the episode list on

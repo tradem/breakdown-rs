@@ -87,6 +87,9 @@ AiImportJob _job(
             ..stage = progress.stage
             ..chunk = progress.chunk
             ..chunksTotal = progress.chunksTotal
+            // Issue #871: the resume point (D-B5) — omitted here would make a
+            // resumed scenario silently render the plain stage line.
+            ..resumedFrom = progress.resumedFrom
             ..episodesSeen.replace(progress.episodesSeen ?? BuiltList<String>())
             // Issue #827: the block the script states.
             ..blockNumber = progress.blockNumber
@@ -1866,6 +1869,71 @@ void main() {
       });
     }
   });
+
+  // ---------------------------------------------------------------------
+  // Issue #871, workstream B: a RESUMED attempt (chunk-level resume).
+  // ---------------------------------------------------------------------
+
+  testWidgets('a resumed attempt says where it continues, in sections rather '
+      'than scenes (issue #871)', (tester) async {
+    now = DateTime.utc(2026, 11, 4, 7, 10);
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.running,
+          progress: AiImportProgress(
+            (b) => b
+              ..stage = AiImportStage.extracting
+              // 25 chunks already stored, this attempt continues at 26.
+              ..resumedFrom = 25
+              ..chunk = 26
+              ..chunksTotal = 42
+              ..startedAt = now.subtract(const Duration(minutes: 1))
+              ..writtenAt = now,
+          ),
+          updatedAt: now,
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    // `Abschnitt`, not `Szene`: the number counts chunks, and one chunk can
+    // yield several scene rows.
+    expect(
+      find.textContaining('Continuing from section 25 of 42'),
+      findsOneWidget,
+    );
+    // The estimate itself is asserted in `job_eta_test.dart`, where the
+    // estimator's contract lives; the widget test only pins the copy.
+    await tester.pump();
+  });
+
+  testWidgets(
+    'a NON-resumed attempt renders the plain stage line (issue #871)',
+    (tester) async {
+      now = DateTime.utc(2026, 11, 4, 7, 10);
+      await setupContainer(
+        Right(
+          _job(
+            JobStatus.running,
+            progress: AiImportProgress(
+              (b) => b
+                ..stage = AiImportStage.extracting
+                ..chunk = 2
+                ..chunksTotal = 8
+                ..startedAt = now.subtract(const Duration(minutes: 2))
+                ..writtenAt = now,
+            ),
+            updatedAt: now,
+          ),
+        ),
+      );
+      await pumpScreen(tester);
+      expect(find.textContaining('Continuing from section'), findsNothing);
+      expect(find.textContaining('Extracting scenes'), findsOneWidget);
+      await tester.pump();
+    },
+  );
 
   // ---------------------------------------------------------------------
   // Issue #871: a HELD job (waiting is correct and free) vs. a genuine

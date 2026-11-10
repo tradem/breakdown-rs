@@ -77,9 +77,12 @@ impl PgAiImportChunkStore {
             .try_get("extraction_key_components")
             .map_err(map_sqlx_error)?;
         let changed = match (stored_key.as_deref(), stored_components) {
-            (Some(stored_key), Some(components)) if stored_key == key => {
-                // Same hash: nothing to do. The components are re-decoded only so
-                // a hash collision (or a hand-edited row) cannot silently pass.
+            // The components are the SOURCE of the verdict, not a cross-check on
+            // the hash: comparing them is what lets an invalidation NAME what
+            // changed (model, prompt, chunker) instead of only reporting that
+            // something did. A matching hash simply means "nothing changed", which
+            // the empty diff already answers.
+            (Some(_), Some(components)) => {
                 match serde_json::from_value::<ExtractionFingerprint>(components) {
                     Ok(previous) => previous.changed_components(fingerprint),
                     // An undecodable component blob cannot be trusted to be
@@ -87,10 +90,15 @@ impl PgAiImportChunkStore {
                     Err(_) => vec!["components_unreadable"],
                 }
             }
-            (Some(_), _) => {
-                // A different key with (unexpectedly) unreadable components: the
-                // hash is authoritative for the verdict.
-                vec!["extraction_key"]
+            (Some(_), None) => {
+                // A stored key with no components (a row written before the
+                // components column existed, or hand-edited): the hash is the only
+                // signal left.
+                if stored_key.as_deref() == Some(key) {
+                    Vec::new()
+                } else {
+                    vec!["extraction_key"]
+                }
             }
             (None, _) => {
                 // No stored set yet: nothing to invalidate, but the fingerprint

@@ -4275,4 +4275,14 @@ class AppLocalizationsDe extends AppLocalizations {
   String aiJobProviderHoldExpiredTitle(String provider) {
     return '$provider ist nicht zurückgekommen';
   }
+
+  @override
+  String aiJobStageResumed(String n, String total) {
+    return 'Fortsetzung ab Abschnitt $n von $total';
+  }
+
+  @override
+  String aiJobStageResumedUnknown(String n) {
+    return 'Fortsetzung ab Abschnitt $n';
+  }
 }

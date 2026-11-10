@@ -20,6 +20,7 @@ part 'ai_import_progress.g.dart';
 /// * [chunksTotal] - Total chunks in the document (known once chunking finishes).
 /// * [doneBytes] - Source-text bytes already extracted (issue #762), summed over the **completed** chunks. `0` is a deliberate published state, mirroring [`Self::chunk`].  Chunk cost is heterogeneous by an order of magnitude — one chunk is one scene and scene lengths differ wildly — so a byte denominator is a materially better ETA basis than a chunk count. Additive with `serde(default)`: `None` when the worker has no byte budget for the job (a schedule job is a single extraction unit).
 /// * [episodesSeen] - Human-readable episode labels discovered so far, in first-seen order, deduplicated (e.g. `[\"Ep. 3\", \"Ep. 4\"]`). Built at zero extra LLM token cost from the deterministic `Ep.:` marker scan and per-chunk extracted `DraftEpisode` metadata — never script prose.
+/// * [resumedFrom] - How many chunks this attempt **resumed from** (issue #871, D-B5).  `Some(n)` means \"`n` chunks are already stored and paid for; this attempt continues at chunk `n + 1`\". It is the honest counterpart of [`Self::chunk`], which keeps its documented meaning (\"1-based index of the last completed chunk **of this attempt**\") — so a resumed attempt's first frame reports `chunk = resumed_from`, and the bar does not snap back to zero.  It exists because the counters alone are ambiguous: with `chunk = 25` and `resumed_from = 25`, a client that derived a rate from `chunk` alone would report \"25 chunks in one second\" and then declare a healthy successor chunk stalled. The client therefore computes the rate from `chunk - resumed_from` and the remaining count from `chunks_total - chunk`.  Additive with `serde(default)`: pre-#871 frames read as `None`, and a client then estimates exactly as it did before — nothing is fabricated.
 /// * [stage]
 /// * [startedAt] - When the **current attempt** was claimed (issue #762).  The time anchor the counters above lack: without it a client can only run a stopwatch while its own screen stays open, and a reconnecting or restarted client can never reconstruct a rate from `chunk`/`chunks_total` alone. Every frame of one attempt carries the same value, so a client can recompute the estimate on every frame without accumulating state.  Additive with `serde(default)`: frames written before the field existed deserialize as `None`, and a client then simply shows no estimate — never a fabricated one. A retry starts cleanly because the claim clears [`Self::chunk`]/[`Self::done_bytes`] and writes a fresh anchor.
 /// * [totalBytes] - Total source-text bytes the document splits into (issue #762), known once the deterministic chunk scan finishes. Same `serde(default)` contract as [`Self::done_bytes`]; a client prefers the byte pair when `total_bytes > 0` and falls back to the chunk counters otherwise.
@@ -46,6 +47,10 @@ abstract class AiImportProgress
   /// Human-readable episode labels discovered so far, in first-seen order, deduplicated (e.g. `[\"Ep. 3\", \"Ep. 4\"]`). Built at zero extra LLM token cost from the deterministic `Ep.:` marker scan and per-chunk extracted `DraftEpisode` metadata — never script prose.
   @BuiltValueField(wireName: r'episodes_seen')
   BuiltList<String>? get episodesSeen;
+
+  /// How many chunks this attempt **resumed from** (issue #871, D-B5).  `Some(n)` means \"`n` chunks are already stored and paid for; this attempt continues at chunk `n + 1`\". It is the honest counterpart of [`Self::chunk`], which keeps its documented meaning (\"1-based index of the last completed chunk **of this attempt**\") — so a resumed attempt's first frame reports `chunk = resumed_from`, and the bar does not snap back to zero.  It exists because the counters alone are ambiguous: with `chunk = 25` and `resumed_from = 25`, a client that derived a rate from `chunk` alone would report \"25 chunks in one second\" and then declare a healthy successor chunk stalled. The client therefore computes the rate from `chunk - resumed_from` and the remaining count from `chunks_total - chunk`.  Additive with `serde(default)`: pre-#871 frames read as `None`, and a client then estimates exactly as it did before — nothing is fabricated.
+  @BuiltValueField(wireName: r'resumed_from')
+  int? get resumedFrom;
 
   @BuiltValueField(wireName: r'stage')
   AiImportStage get stage;
@@ -122,6 +127,13 @@ class _$AiImportProgressSerializer
       yield serializers.serialize(
         object.episodesSeen,
         specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
+    if (object.resumedFrom != null) {
+      yield r'resumed_from';
+      yield serializers.serialize(
+        object.resumedFrom,
+        specifiedType: const FullType.nullable(int),
       );
     }
     yield r'stage';
@@ -215,6 +227,14 @@ class _$AiImportProgressSerializer
           ) as BuiltList<String>?;
           if (valueDes == null) continue;
           result.episodesSeen.replace(valueDes);
+          break;
+        case r'resumed_from':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.resumedFrom = valueDes;
           break;
         case r'stage':
           final valueDes = serializers.deserialize(
