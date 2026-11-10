@@ -69,9 +69,10 @@ it depends on is in `design.md` — every decision is recorded there as `D-A*`,
 - The parsed **per-chunk result** (and its usage) is persisted per completed
   chunk in `ai_import.ai_import_job_chunk`, keyed `(job_id, chunk_index)` —
   overwrite-on-replay, so re-running a chunk costs one call, never a row.
-- The resume cursor is **derived** (`max(chunk_index) + 1`), never a column that
-  can disagree with the rows; a crash between chunks therefore leaves a
-  contiguous prefix and can never yield a preview with a hole.
+- The resume cursor is **derived** (the length of the contiguous stored prefix,
+  i.e. the first missing chunk), never a column that can disagree with the rows; a
+  crash between chunks therefore leaves a contiguous prefix and can never yield a
+  preview with a hole — and a hole that does exist is resumed **at**, never past.
 - A retried attempt resumes at the first uncompleted chunk: chunks 1..25 are not
   re-bought. Asserted by **provider call count**, never by wall clock.
 - Progress stays honest: an additive `AiImportProgress.resumed_from` lets the
@@ -79,10 +80,10 @@ it depends on is in `design.md` — every decision is recorded there as `D-A*`,
   the client's ETA (#762 `job_eta.dart`) measures from the resume point.
 - Chunk usage is stored per chunk so the job's cost snapshot counts **every paid
   call exactly once** across attempts — a retried import visibly costs more.
-- An extraction fingerprint (`document_digest | provider | model | prompt
-  version | chunker version`) invalidates the whole chunk set when anything that
-  determined the output changed; the restart is logged with the component that
-  changed.
+- An extraction fingerprint (`document_digest | provider | model |
+  sha256(effective prompt) | chunker version`) invalidates the whole chunk set
+  when anything that determined the output changed; the restart is logged with
+  the component that changed.
 
 ### C — Retry policy (PR 3, mostly a decision this change lands early)
 

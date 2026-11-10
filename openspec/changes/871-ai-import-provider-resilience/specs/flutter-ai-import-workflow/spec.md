@@ -26,9 +26,15 @@ not know the field SHALL keep working (it is additive and optional on the wire).
 
 German copy (shipped template locale, quoted as it appears):
 
-- banner: `Anbieter nicht erreichbar · wartet bis {time} · spätestens {deadline}`
+- banner: `{provider} ist nicht erreichbar · wartet bis {time} · spätestens
+  {deadline}`
 - second line: `Kein Versuch wird verbraucht — der Import läuft nach der Pause
-  weiter.`
+  weiter, sobald der Anbieter bis {deadline} zurück ist.`
+
+The second line SHALL be conditional on recovery: a hold expires into
+`dead_letter` when the provider does not come back, so the copy states the
+condition under which the import continues instead of promising it
+unconditionally.
 
 #### Scenario: A held job waits visibly
 
@@ -58,15 +64,19 @@ provider breaker.
 For a held job the surface SHALL state that the import waits for the provider, the
 time of the next probe and the hold's deadline, and that no retry budget is being
 consumed. Once the hold expires into `dead_letter`, the surface SHALL render the
-terminal provider narrative (retry budget spent because the provider never
-recovered), never "the next attempt may succeed".
+terminal provider narrative — the provider did not return before the deadline —
+never "the next attempt may succeed". The expiry copy SHALL NOT claim the retry
+budget is spent: a hold expires by its own deadline while `retries` is untouched
+by design, so "your retries are used up" would name the wrong cause.
 
 For a running job whose progress carries `resumed_from > 0`, the surface SHALL
-say where the attempt resumed (German: `Fortsetzung ab Szene {n} von {total}`)
-instead of presenting the resumed chunks as freshly processed. The remaining-time
-estimate SHALL be derived from the work done **in this attempt**
-(`chunk − resumed_from`) against the attempt's `started_at`, so a resumed attempt
-does not claim to have processed 25 chunks in one second.
+say where the attempt resumed (German: `Fortsetzung ab Abschnitt {n} von
+{total}`) instead of presenting the resumed chunks as freshly processed.
+`resumed_from` counts **chunks**, not scenes — one chunk can yield several scene
+rows, so labelling it `Szene` would show a wrong scene number; `Abschnitt` is the
+honest unit. The remaining-time estimate SHALL be derived from the work done **in
+this attempt** (`chunk − resumed_from`) against the attempt's `started_at`, so a
+resumed attempt does not claim to have processed 25 chunks in one second.
 
 #### Scenario: Running job shows stage and progress
 
@@ -84,8 +94,8 @@ does not claim to have processed 25 chunks in one second.
 
 - **WHEN** a running job's progress carries `resumed_from = 25` and `chunk = 25`
   of `chunks_total = 42`
-- **THEN** the surface states that the attempt resumes at scene 26 and still shows
-  25/42 completed
+- **THEN** the surface states that the attempt resumes at section 26 and still
+  shows 25/42 completed
 - **AND** the remaining-time estimate is not derived from 25 chunks processed in
   the attempt's first second
 
@@ -94,4 +104,5 @@ does not claim to have processed 25 chunks in one second.
 - **WHEN** a job that was held is now `dead_letter` after the hold expired
 - **THEN** the surface states that the provider did not recover within the
   deadline
+- **AND** it names the provider, not a spent retry budget, as the cause
 - **AND** it does not promise that the next attempt may succeed

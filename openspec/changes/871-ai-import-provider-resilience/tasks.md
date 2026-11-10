@@ -17,7 +17,10 @@ clock (AGENTS.md §4).
       `AI_IMPORT_BREAKER_FAILURE_THRESHOLD`, bounded `1..=10`),
       `max_provider_hold_secs` (default 21600, env
       `AI_IMPORT_MAX_PROVIDER_HOLD_SECS`) and a `const _: () = assert!(…)` tie
-      between attempt retries and the breaker threshold (**D-C1**).
+      between attempt retries and the breaker threshold (**D-C1**). The assert
+      guards the **defaults** only; `from_env` bounds each value and `warn!`s when
+      `threshold > 1 + max_attempt_retries` (the counter is per pair, so the
+      breaker still opens — just more slowly).
 - [ ] 1.2 `core::ai::views`: `ProviderBreakerState { Closed, Open, HalfOpen }`
       (`as_str`, `serde(rename_all = "snake_case")`) and `ProviderHold
       { provider, model, reason_code, state, until, hold_deadline, chunks_done }`
@@ -28,8 +31,10 @@ clock (AGENTS.md §4).
       enqueue-time snapshot (**D-A2b**).
 - [ ] 1.4 `core::ai::ports`: `AiImportQueue::mark_held(id, worker_id,
       hold: ProviderHold)` with the doc table from **D-A4** (what it deliberately
-      does NOT do); a `ProviderHealth` port (`open`, `record_failure`,
-      `record_success`, `try_begin_probe`, `state`) so the worker loop stays
+      does NOT do) and `AiImportQueue::expire_provider_holds(...)` (the claim-free
+      sweeper write, **D-C4**); a `ProviderHealth` port (`open`, `record_failure`,
+      `record_success`, `try_begin_probe`, `state`, plus the two derived writes
+      `hold_runnable_jobs` / `refresh_held_jobs`) so the worker loop stays
       queue-agnostic and the breaker is unit-testable against a fake.
 - [ ] 1.5 `AiImportEnqueueRequest`: `provider`/`model` fields; doc names the API
       edge as their source (CQRS boundary) and the #771/#763 precedent.
@@ -43,10 +48,12 @@ clock (AGENTS.md §4).
       `ai_import_job.provider varchar` / `.model varchar` (additive, nullable, no
       backfill) (**D-X3**).
 - [ ] 2.2 `infra::ai::provider_health` repository: single-statement transitions
-      from the **D-A6** table (`closed→open`, `open→half_open` with the
-      `probe_owner` CAS + probe lease, `half_open→closed`, `half_open→open` with
-      the `STABLE_WINDOW` flap rule); `min_open(n) = min(60 s · 2^n, 30 min)`; pure
-      `next_state(...)` function for the table-driven test.
+      from the **D-A6** table (`closed→open` with the `closed_at` stable-window
+      flap rule, `open→half_open` with the `probe_owner` CAS + probe lease,
+      `half_open→closed`, `half_open→open` with **no** flap increment but a
+      refresh of the pair's held jobs); `min_open(n) = min(60 s · 2^n, 30 min)`;
+      the `closed_at` column in the migration; pure `next_state(...)` function for
+      the table-driven test.
 - [ ] 2.3 Every transition logs `tracing::warn!` with the literal marker
       `#871 provider breaker` and the fields from **D-X2** (never a new health
       check on `/v1/health`).
@@ -59,9 +66,18 @@ clock (AGENTS.md §4).
       `next_attempt_at = hold.until` + `provider_hold`, **without** touching
       `retries` and **without** inserting an `ai_import_job_attempt` row; plus
       clearing `provider_hold` in `claim_next*`, `mark_succeeded`, `mark_failed`,
-      `mark_payload_unavailable` and the dead-letter path (**D-A4**).
+      `mark_payload_unavailable`, the dead-letter path **and on a successful
+      breaker close** (**D-A4**, **D-A6**).
+- [ ] 2.5b `queue.rs`: `hold_runnable_jobs(provider, model, retry_at)`, the
+      claim-free materialization run by the `closed→open` transition
+      (`status='pending'` or due `failed`, one statement, notify each returned id),
+      and `refresh_held_jobs(provider, model, retry_at)` for `half_open→open`
+      (**D-A4**, **D-A6**).
 - [ ] 2.6 `enqueue`: persist `provider`/`model`; the API edge resolves them from
-      the user's active AI config (same edge as the #771 target snapshot).
+      the user's active AI config (same edge as the #771 target snapshot). The
+      config-**change** edge stamps the new pair onto that user's runnable jobs in
+      one statement, so a stale snapshot cannot filter a job against a breaker it
+      no longer uses (**D-A2b**).
 - [ ] 2.7 `workers.rs`: `ProviderHealthGuard` consulted at the chunk boundary
       (before each chunk's first call) and before the in-attempt backoff sleep;
       an open breaker stops the loop, skips merge/preview and takes the held path
@@ -73,12 +89,22 @@ clock (AGENTS.md §4).
       breaker instead of sleeping (the call-count half of **D-C2**).
 - [ ] 2.10 Payload GC + `dev_reset/business.rs` + `dev_reset/plan.rs`: register
       `ai_import.provider_health` (before the job delete) (**D-X3**).
+- [ ] 2.10b Provider-hold sweeper: a periodic claim-free task
+      (`AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS`, default 60 s) that dead-letters a
+      held job whose own `hold_deadline` passed, under an advisory lock, notifying
+      each affected id — the only path that can reach a held job, because the
+      claim predicate excludes it and `mark_held` needs an owner (**D-C4**).
+      Registered and joined like the payload-GC sweeper.
 - [ ] 2.11 Unit tests with a fake `LlmClient` that fails N times then succeeds:
       **zero** provider calls while the breaker is open, the threshold opens it,
       a permanent failure never does, `mark_held` leaves `retries` AND the attempt
       rows untouched, the flap escalation table (**D-X4**).
 - [ ] 2.12 Postgres test: the claim predicate skips a held job for an open pair
-      and claims it again once `retry_at` has passed and the breaker closed.
+      and claims it again once `retry_at` has passed and the breaker closed; the
+      `closed→open` transition holds a queued (never-claimed) job; a failed probe
+      refreshes the held rows' `until`; a successful close clears `provider_hold`;
+      the sweeper dead-letters an expired hold whose breaker is still open, with
+      `retries` unchanged.
 
 ## 3. [A] API, client and docs
 
@@ -103,28 +129,35 @@ clock (AGENTS.md §4).
       states "n chunks already stored; this attempt continues at n+1") and its
       absence-is-honest rule (**D-B5**).
 - [ ] 4.2 `core::ai::ports`: chunk-store port (`load(job_id) -> Vec<StoredChunk>`,
-      `put(job_id, chunk_index, payload, usage)`, `clear(job_id)`,
-      `resume_cursor(job_id)`, `stored_usage(job_id)`) so `workers.rs` stays
-      testable against a fake — no read-model query from the write path.
-- [ ] 4.3 Unit tests: cursor derivation is `max+1` (not `count`) and
-      `resumed_from` serde round-trip.
+      `put(job_id, worker_id, extraction_key, chunk_index, payload, usage)`,
+      `clear(job_id)`, `resume_cursor(job_id)`, `stored_usage(job_id)`) so
+      `workers.rs` stays testable against a fake — no read-model query from the
+      write path. The `put` signature carries the owner and the fingerprint because
+      the write is claim-fenced (**D-B3**).
+- [ ] 4.3 Unit tests: the cursor is the contiguous prefix length (`0,1,3` ⇒ `2`,
+      not `4`) and `resumed_from` serde round-trip.
 
 ## 5. [B] Infra — the chunk store, the cursor and the fingerprint
 
 - [ ] 5.1 Migration `…_ai_import_chunk_resume.up/down.sql`: the
       `ai_import.ai_import_job_chunk` table from **D-B1** + `ai_import_job
       .extraction_key text` (**D-X3**).
-- [ ] 5.2 `infra::ai::chunk_store`: `ON CONFLICT (job_id, chunk_index) DO UPDATE`
-      put, the derived cursor query (**D-B2**), the ordered load for the merge
-      pass, `clear`, and the summed-usage read (**D-B4**).
+- [ ] 5.2 `infra::ai::chunk_store`: claim-fenced `INSERT … SELECT … FROM
+      ai_import.ai_import_job WHERE id = $1 AND status = 'running' AND worker_id =
+      $2 AND extraction_key = $6` with `ON CONFLICT (job_id, chunk_index) DO
+      UPDATE` (zero rows ⇒ `DomainError::Conflict`), the ordered load whose
+      **contiguous prefix** is the cursor (**D-B2**, and the tail beyond a hole is
+      deleted with a `#871 chunk resume hole at <index>` warn), `clear`, and the
+      summed-usage read (**D-B4**).
 - [ ] 5.3 Fingerprint helper (`document_digest | provider | model | sha256
       (effective prompt) | chunker version`), compare-and-set write, and the
       drop-and-restart path with the `#871 chunk resume invalidated: <component>`
       warn (**D-B7**).
 - [ ] 5.4 `workers.rs`: seed `extraction_usage` from the stored rows, load the
-      stored chunks into `context` in `chunk_index` order, iterate only the
-      remaining chunks, publish `resumed_from` on the first extraction frame and
-      `put` each chunk as it completes (**D-B3**/**D-B5**).
+      stored prefix into `context` in `chunk_index` order, iterate only the
+      remaining chunks, re-check `claim_lost` before each chunk write, publish
+      `resumed_from` on the first extraction frame and `put` each chunk as it
+      completes (**D-B3**/**D-B5**).
 - [ ] 5.5 Terminal transitions (`mark_succeeded`, `dead_letter`,
       `mark_payload_unavailable`) delete the job's chunk rows; the payload-GC
       sweep deletes them with the blobs; `dev_reset` lists register the table
@@ -141,8 +174,10 @@ clock (AGENTS.md §4).
 - [ ] 6.1 `job_eta.dart`: derive the attempt's rate from `chunk − resumed_from`
       while the remaining count stays `chunks_total − chunk`; unit test with
       `resumed_from = 25` (**D-B5**).
-- [ ] 6.2 Stage line copy `Fortsetzung ab Szene {n} von {total}` (ARB `de`/`en`)
-      only when `resumed_from > 0`; widget test (**D-B5b**).
+- [ ] 6.2 Stage line copy `Fortsetzung ab Abschnitt {n} von {total}` (ARB
+      `de`/`en`) only when `resumed_from > 0` — `Abschnitt`, not `Szene`, because
+      `resumed_from` counts chunks and one chunk can yield several scene rows;
+      widget test (**D-B5b**).
 - [ ] 6.3 Regenerate `openapi.yaml` + the Dart client; bump versions per crate.
 - [ ] 6.4 `ai-import.instructions.md`: the chunk table, the resume semantics, the
       invalidation rule **and** the one uncounted-spend sentence (**D-B4**).

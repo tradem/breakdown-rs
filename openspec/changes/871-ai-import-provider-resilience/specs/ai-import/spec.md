@@ -23,7 +23,10 @@ NEVER open it, and neither SHALL a non-provider `domain.service-unavailable`
 failure (mapping DB, pricing read model, payload storage, catalog parse).
 
 A job that hits an open breaker — before the claim or at a chunk boundary during
-a run — SHALL be **held**, not failed:
+a run — SHALL be **held**, not failed. Opening a breaker SHALL materialize the hold
+on every runnable job of that pair in one statement (no claim, no owner, no
+provider call), and a job that is already `running` SHALL be held by its owner.
+In both cases:
 
 - `retries` SHALL NOT be incremented;
 - NO `ai_import.ai_import_job_attempt` row SHALL be appended;
@@ -34,9 +37,14 @@ a run — SHALL be **held**, not failed:
   `provider`, `model`, `reason_code`, `state`, `until`, `hold_deadline` and
   `chunks_done`.
 
-The hold SHALL expire: after `AI_IMPORT_MAX_PROVIDER_HOLD_SECS` (default 6 h) the
-job SHALL transition to `dead_letter` with the provider narrative, with `retries`
-still unchanged and exactly one attempt row recorded.
+The hold SHALL expire without requiring a claim: a periodic claim-free sweeper
+SHALL dead-letter a held job whose own `hold_deadline` has passed, because the
+claim predicate keeps such a job unclaimable and an owner-fenced write could never
+reach it. On expiry the job SHALL transition to `dead_letter` with the provider
+narrative, with `retries` still unchanged and exactly one attempt row recorded;
+the deadline SHALL be measured from the first hold of the series, so a flapping
+provider cannot reset it one probe at a time, and it SHALL be cleared together
+with the hold when the breaker closes.
 
 #### Scenario: Three consecutive provider failures hold the queue instead of burning the budget
 - **WHEN** three consecutive chunk calls of one `(provider, model)` fail with
@@ -58,9 +66,17 @@ still unchanged and exactly one attempt row recorded.
 - **THEN** the worker stops at the chunk boundary before issuing chunk 26's call
 - **AND** the job is held with `chunks_done = 25` and no retry consumed
 
+#### Scenario: A queued job is held without ever being claimed
+- **WHEN** the breaker for a pair opens while three jobs of that pair are queued
+  (`pending`) and none is running
+- **THEN** the opening transition holds all three (status `failed`,
+  `next_attempt_at` = probe time, `provider_hold` populated)
+- **AND** no provider call is issued and no retry is charged
+
 #### Scenario: A held job expires into the provider narrative
-- **WHEN** a job has been held for `AI_IMPORT_MAX_PROVIDER_HOLD_SECS`
-- **THEN** it transitions to `dead_letter` naming the provider
+- **WHEN** a job has been held past its `hold_deadline`
+- **THEN** the claim-free sweeper transitions it to `dead_letter` naming the
+  provider
 - **AND** `retries` is unchanged and exactly one attempt row is recorded
 
 ### Requirement: Breaker recovery is half-open, single-prober and flap-bounded
@@ -100,11 +116,19 @@ Every completed chunk's **parsed result** and its call usage SHALL be persisted 
 replay), so a paid chunk is never paid for twice by a retried attempt and the loss
 of a worker between two chunks does not discard the chunks already extracted.
 
-The resume cursor SHALL be **derived** (`max(chunk_index) + 1`), never a stored
-column, so a lost write can never leave the cursor ahead of or behind the rows.
-`progress.chunk` SHALL keep its meaning (1-based index of the last completed chunk
-of the current attempt) and the additive `AiImportProgress.resumed_from` SHALL
-name the first uncompleted chunk (`n` means chunks `1..=n` are stored).
+The resume cursor SHALL be **derived**, never a stored column: it is the length of
+the **contiguous stored prefix** starting at chunk 0 (the first index that is
+missing), so a lost write, a hole or a stale cursor can neither skip a chunk nor
+silently shorten the work — a row beyond a hole SHALL be discarded as unusable
+rather than resumed past. `progress.chunk` SHALL keep its meaning (1-based index of
+the last completed chunk of the current attempt) and the additive
+`AiImportProgress.resumed_from` SHALL name the number of contiguous stored chunks
+(`n` means chunks `1..=n` are stored).
+
+Every chunk write SHALL be fenced to the claim that produced it (job id, owning
+worker, extraction fingerprint), so a worker that lost its claim during an
+in-flight call cannot insert a result produced under the old configuration into a
+chunk set another worker has since invalidated.
 
 #### Scenario: A run that died at chunk 25 of 42 resumes at chunk 26
 - **WHEN** a job whose chunk rows cover `1..=25` is re-claimed
@@ -121,6 +145,17 @@ name the first uncompleted chunk (`n` means chunks `1..=n` are stored).
 - **WHEN** a chunk's result is re-produced after a lost insert
 - **THEN** the row for that `(job_id, chunk_index)` is overwritten
 - **AND** the chunk is counted once in the job's usage
+
+#### Scenario: A hole in the stored chunk set is not resumed past
+- **WHEN** stored indices are `0, 1, 3`
+- **THEN** the resume cursor is `2`, and the row for chunk `3` is discarded
+- **AND** extraction resumes at chunk `2`, so no resumed preview omits a chunk
+
+#### Scenario: A worker that lost its claim cannot write a chunk
+- **WHEN** a worker's claim lapsed during an in-flight call and the job was
+  reclaimed with a different extraction fingerprint
+- **THEN** its chunk write affects zero rows and returns `DomainError::Conflict`
+- **AND** the new owner's chunk set is unchanged
 
 ### Requirement: Resume is invalidated by any change that determines the output
 
@@ -142,11 +177,11 @@ prompts.
 - **THEN** the rows are deleted, the attempt starts at chunk 0, and the
   invalidation is logged naming the model
 - **AND** the attempt's progress publishes no `resumed_from`
-
 #### Scenario: An unchanged configuration resumes as before
 - **WHEN** provider, model, the effective prompt and the document digest are
   unchanged
-- **THEN** the fingerprint matches and the attempt resumes at `max + 1`
+- **THEN** the fingerprint matches and the attempt resumes at the first missing
+  chunk
 
 ### Requirement: The cost snapshot counts every paid call exactly once
 
@@ -207,10 +242,12 @@ env-guarded ceilings (`max_chunks_per_script`, `max_tokens_per_req`,
 The two retry layers SHALL be separately bounded: `AI_IMPORT_MAX_RETRIES`
 (job-level, default 5, unchanged) and `AI_IMPORT_MAX_ATTEMPT_RETRIES`
 (in-attempt per chunk, default 2), so one chunk cannot be paid for
-`(1 + attempt_retries) × job_retries` times; a compile-time invariant SHALL
-guarantee that the in-attempt budget can actually reach the breaker threshold.
-A held job SHALL release its concurrency permit (the hold ends the attempt),
-while an in-attempt retry keeps it for an analytically bounded window of
+`(1 + attempt_retries) × job_retries` times. The breaker's failure counter is per
+`(provider, model)` across all jobs, chunks and replicas, so the two knobs do not
+have to line up for the breaker ever to open — a lower in-attempt budget only
+makes it open more slowly, and a configured mismatch SHALL be logged rather than
+rejected. A held job SHALL release its concurrency permit (the hold ends the
+attempt), while an in-attempt retry keeps it for an analytically bounded window of
 `(1 + max_attempt_retries) × request_timeout_secs`, and a retry SHALL short-
 circuit instead of sleeping when the breaker is open.
 
