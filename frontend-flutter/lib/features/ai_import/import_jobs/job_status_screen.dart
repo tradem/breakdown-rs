@@ -541,7 +541,10 @@ String _degradationBoundaryLabel(
 /// again", while a genuine retry exhaustion stays with
 /// [`_ProviderDegradedBanner`]'s spent-budget text.
 class _ProviderHoldBanner extends StatelessWidget {
-  const _ProviderHoldBanner({required this.hold, this.onErrorContainer = false});
+  const _ProviderHoldBanner({
+    required this.hold,
+    this.onErrorContainer = false,
+  });
 
   final AiProviderHold hold;
 
@@ -552,8 +555,9 @@ class _ProviderHoldBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
     final scheme = Theme.of(context).colorScheme;
-    final foreground =
-        onErrorContainer ? scheme.onErrorContainer : scheme.onSurfaceVariant;
+    final foreground = onErrorContainer
+        ? scheme.onErrorContainer
+        : scheme.onSurfaceVariant;
     final until = _degradationBoundaryLabel(context, hold.until, hold.until);
     final deadline = _degradationBoundaryLabel(
       context,
@@ -589,7 +593,10 @@ class _ProviderHoldBanner extends StatelessWidget {
               Expanded(
                 child: Text(
                   l10n.aiJobProviderHoldTitle(hold.provider),
-                  style: TextStyle(color: foreground, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: foreground,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],

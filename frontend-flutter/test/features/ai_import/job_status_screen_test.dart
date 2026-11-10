@@ -1872,7 +1872,7 @@ void main() {
   // retry exhaustion. The two must never share copy.
   // ---------------------------------------------------------------------
 
-  ProviderHold _hold({
+  ProviderHold holdFixture({
     required ProviderBreakerState state,
     required DateTime until,
     required DateTime deadline,
@@ -1897,7 +1897,7 @@ void main() {
           retries: 0,
           maxRetries: 5,
           nextAttemptAt: DateTime.utc(2026, 11, 4, 7, 10),
-          providerHold: _hold(
+          providerHold: holdFixture(
             state: ProviderBreakerState.open,
             until: DateTime.utc(2026, 11, 4, 7, 10),
             deadline: DateTime.utc(2026, 11, 4, 13, 6),
@@ -1933,7 +1933,7 @@ void main() {
           // Deliberately untouched: the expiry charges no retry.
           retries: 0,
           maxRetries: 5,
-          providerHold: _hold(
+          providerHold: holdFixture(
             state: ProviderBreakerState.expired,
             until: DateTime.utc(2026, 11, 4, 13, 0),
             deadline: DateTime.utc(2026, 11, 4, 13, 6),
@@ -1951,10 +1951,7 @@ void main() {
     await pumpScreen(tester);
 
     expect(find.byKey(const Key('ai-job-provider-hold')), findsOneWidget);
-    expect(
-      find.textContaining('did not come back by'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('did not come back by'), findsOneWidget);
     // The spent-budget narrative belongs to a genuine exhaustion — the expiry
     // never spent the budget, so this copy must not appear.
     expect(find.textContaining('retry budget is used up'), findsNothing);
@@ -1962,7 +1959,6 @@ void main() {
     expect(find.byKey(const Key('ai-job-provider-degraded')), findsNothing);
     await tester.pump();
   });
-
 }
 
 /// A stub repository: the job read serves the scripted [jobNotifier]

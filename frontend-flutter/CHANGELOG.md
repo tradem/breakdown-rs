@@ -23,6 +23,31 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A waiting import says it is waiting, and that waiting is free** (issue
+  #871, `0.4.0-beta.46+138 → 0.4.0-beta.47+139`). The backend now holds a job
+  while its AI provider is degraded instead of burning the retry budget to
+  rediscover the outage. Held is deliberately *not* failed, so the client must
+  not render it as one: `retries` is untouched and no attempt row exists, which
+  means #822's derivation would count zero failures and show nothing — or, on
+  expiry, show the spent-budget copy for a budget that was never charged.
+  - **A second, narrower derivation.** `AiProviderHold` + `aiProviderHold(job)`
+    sit next to `AiProviderDegradation`, never replacing it: a hold answers
+    "waiting is correct and free", degradation answers "your attempts are
+    failing". The two terminal causes never share copy — the expiry marker
+    (`provider_hold.state = expired`) says the provider never came back and asks
+    for a re-upload, while a genuine exhaustion keeps the spent-budget text.
+  - **The card and the compact row both render it.** The banner names the
+    provider (`opencode-go`, mapped to the wire spelling the AI-config screen
+    uses) plus the two clock boundaries — the next probe and the absolute
+    deadline — and states that no attempt is being spent. The retryable card's
+    banner block is now keyed on `hold != null || degradation != null`: a hold
+    writes no attempt row, so keying it on the degradation alone hid exactly the
+    state it describes.
+  - **Regenerated client** (`1.5.0 → 1.6.0`) for the additive `provider_hold`
+    field and the `ProviderHold` / `ProviderBreakerState` schemas.
+  - Widget tests cover both terminal causes with the other one's copy asserted
+    absent, so the two can never silently converge.
+
 - **The KI entry says "Keine Berechtigung" before you tap it** (issue #816,
   `0.4.0-beta.45+137 → 0.4.0-beta.46+138`). #809 made the entry always visible
   and let the server answer a denial inside the screen, which left the client
