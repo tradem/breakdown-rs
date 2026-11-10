@@ -363,7 +363,34 @@ row) and is idempotent, and the probe lease refuses a concurrent prober, lets th
 next tick take over a hung one, discards a superseded lease's result and closes
 on the current one.
 
-Remaining for PR A: the worker-side `ProviderHealthGuard` (2.7, 2.8, 2.9, 2.9b),
-the probe + sweeper tasks (2.2b, 2.10b), the config-change stamp (2.6), the
-Postgres test suite (2.11, 2.12), §3 (API/Dart/Flutter/runbook/instructions/
-versions), and then PRs B and C.
+Landed in slices 3–4:
+
+- **2.7 / 2.9** `ProviderGate` + a defaulted `AiImportQueue::provider_breaker`
+  consult (a fake queue reports `closed`, so every test fake and every worker
+  construction stayed unchanged). The retry loop consults the gate at the **top
+  of every iteration** and again before each sleep; both workers consult it at
+  their boundary and take the held path. The verdict travels as an internal
+  sentinel (`BREAKER_OPEN_REASON` / `is_breaker_open`) on the existing `Conflict`
+  channel — never a retryable `ServiceUnavailable` (that is the shape
+  `is_transient` retries) and never a new problem code (D-X1).
+- **2.2b / 2.10b** `provider_probe` (lease → request outside any transaction →
+  fenced result; hosted via the donor job's own vaulted key, Ollama
+  unauthenticated on a local-only client) and `provider_watch` (materialization
+  of the holds the open-time write cannot reach + expiry, under one advisory
+  lock, `AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS`). **This slice is not optional
+  for merge:** while a pair is open no job is claimed, so no paid call can
+  succeed and nothing else can close the breaker — the probe is the only way out
+  of a non-`closed` state.
+- **3.1** composition-root wiring (breaker, probe, watch).
+- *Deviation:* `run_provider_watch_tick` takes the probe as an
+  `Option<&dyn ProviderProbe>` seam so the tick is testable without a network,
+  and a **local** credential failure closes the breaker (logged) instead of
+  staying open — otherwise one user's deleted key would hold every job of that
+  endpoint hostage, which is exactly the D-A1 failure mode; the affected job's
+  own attempt still surfaces `dependency.auth-failed` (#637).
+
+Remaining for PR A: the `worker_loop` post-`resolve_config` re-check (2.8), the
+client-internal guard over truncation retries (2.9b), the config-change stamp
+(2.6), the Postgres test suite (2.11, 2.12), §3's remaining surface (OpenAPI +
+Dart, Flutter held banner/ARB/widget test, runbook, `ai-import.instructions.md`,
+version bumps), and then PRs B and C.
