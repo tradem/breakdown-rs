@@ -21,6 +21,7 @@ import '../../design/material_icons.dart';
 import '../../auth/active_episode.dart';
 import '../../auth/active_episode_store.dart';
 import '../../auth/auth_providers.dart';
+import 'active_season_store.dart';
 import 'quick_create_sheet.dart';
 import 'account_drawer.dart';
 import 'cast_tab_screen.dart';
@@ -144,6 +145,13 @@ class AppShellState extends ConsumerState<AppShell> {
     // the shell rebuilds once the persisted map resolves.
     final episodePersisted = ref.watch(activeEpisodePersistedProvider);
     _restoreEpisodeScope(state.activeSeason?.id, episodePersisted);
+
+    // Issue #817 (repair half of #809): a persisted active-season anchor and
+    // the persisted per-season block scopes can name data a dev data reset
+    // deleted. Watched unconditionally so the shell performs the eviction as
+    // soon as the seasons projection has loaded; the provider is a side
+    // effect, its value is unused.
+    ref.watch(activeScopeRepairProvider);
 
     // Issue #707: the destination-selection seam for ALL three
     // morphologies (bar / rail / drawer go through this one handler).

@@ -14,7 +14,12 @@ import '../../core/problem_error.dart';
 /// failure so the UI can render a retry affordance instead of silently
 /// discarding it (Task 3.3).
 class SeasonsView {
-  const SeasonsView({required this.rows, required this.isStale, this.error});
+  const SeasonsView({
+    required this.rows,
+    required this.isStale,
+    this.error,
+    this.isLoaded = false,
+  });
 
   final List<SeasonView> rows;
 
@@ -26,7 +31,20 @@ class SeasonsView {
   /// stale rows, D4) so the screen never goes blank on a transient error.
   final ProblemError? error;
 
+  /// `true` only when [rows] came from a **successful** read of the projection
+  /// (issue #817).
+  ///
+  /// [rows] is deliberately always usable — cached rows while the fetch is in
+  /// flight, retained rows after a failure — so "has rows" says nothing about
+  /// whether the projection is authoritative. A consumer that has to *prove* a
+  /// row is gone (evicting a persisted reference, #817) must ask this flag
+  /// instead: an unloaded or failed view is not evidence of absence. The
+  /// default is `false` (fail-closed: never treat rows as authoritative by
+  /// omission).
+  final bool isLoaded;
+
   @override
   String toString() =>
-      'SeasonsView(rows: ${rows.length}, isStale: $isStale, error: $error)';
+      'SeasonsView(rows: ${rows.length}, isStale: $isStale, '
+      'isLoaded: $isLoaded, error: $error)';
 }

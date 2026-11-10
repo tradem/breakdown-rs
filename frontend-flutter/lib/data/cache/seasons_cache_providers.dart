@@ -130,9 +130,11 @@ class SeasonsViewController extends _$SeasonsViewController {
       AsyncData(:final value) => value.match(
         // D4: surface AsyncError; retained rows stay in seasonsPrevRowsProvider.
         (err) => AsyncValue<SeasonsView>.error(err, StackTrace.current),
-        // After a successful snapshot the cache rows are fresh (D2).
+        // After a successful snapshot the cache rows are fresh (D2) and the
+        // view is authoritative (issue #817: `isLoaded` is the only signal a
+        // repair may treat as evidence of absence).
         (rows) => AsyncValue<SeasonsView>.data(
-          SeasonsView(rows: rows, isStale: false),
+          SeasonsView(rows: rows, isStale: false, isLoaded: true),
         ),
       ),
       AsyncError(:final error, :final stackTrace) =>
@@ -231,6 +233,8 @@ final seasonsView = Provider<SeasonsView>((ref) {
     AsyncError(:final error) => SeasonsView(
       rows: prev,
       isStale: prev.isNotEmpty,
+      // Retained rows after a failed read are not evidence of absence.
+      isLoaded: false,
       error: error is ProblemError
           ? error
           : const ProblemError(code: 'unknown'),
@@ -238,6 +242,8 @@ final seasonsView = Provider<SeasonsView>((ref) {
     AsyncLoading() => SeasonsView(
       rows: prev,
       isStale: prev.isNotEmpty && ttlStale,
+      // Rows served while the fetch is in flight are cached, not confirmed.
+      isLoaded: false,
     ),
   };
 });
