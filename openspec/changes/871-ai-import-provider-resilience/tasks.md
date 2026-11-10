@@ -389,8 +389,23 @@ Landed in slices 3–4:
   endpoint hostage, which is exactly the D-A1 failure mode; the affected job's
   own attempt still surfaces `dependency.auth-failed` (#637).
 
+Landed in slices 5–6:
+
+- **3.2–3.6** OpenAPI regenerated (`provider`, `model`, `provider_hold` +
+  `ProviderHold`/`ProviderBreakerState` schemas), Dart client regenerated through
+  `scripts/regen-client.sh`, Flutter held banner + compact row line + ARB de/en +
+  two widget tests (both terminal causes), runbook §16, the instructions file, and
+  the lockstep version bumps (core 0.66.0 / infra 0.76.0 / api 0.65.0).
+- **2.12** the Postgres contract suite:
+  `crates/integration-tests/tests/ai_import_provider_breaker.rs`, 14 tests, all
+  passing against real containers. **Writing it found two real gaps**, both fixed
+  in the same commit: a successful probe close did not release the pair's held
+  rows (the banner kept claiming a wait that was over) and a failed probe did not
+  re-point them (D-A6). Hence `AiImportQueue::release_held_jobs`, which drops
+  `provider_hold` on a close and deliberately keeps the series clock.
+
 Remaining for PR A: the `worker_loop` post-`resolve_config` re-check (2.8), the
 client-internal guard over truncation retries (2.9b), the config-change stamp
-(2.6), the Postgres test suite (2.11, 2.12), §3's remaining surface (OpenAPI +
-Dart, Flutter held banner/ARB/widget test, runbook, `ai-import.instructions.md`,
-version bumps), and then PRs B and C.
+(2.6), and the **fake-`LlmClient` call-count test** from 2.11 (zero provider calls
+while the breaker is open — the gate is consulted before every attempt and at
+every chunk boundary, but the call count is not yet asserted). Then PRs B and C.
