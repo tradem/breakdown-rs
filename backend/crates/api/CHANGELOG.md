@@ -17,6 +17,13 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.66.0] - Unreleased
+
+### Added — chunk store wired, `resumed_from` on the wire (issue #871, workstream B)
+
+- Composition root builds `PgAiImportChunkStore` and hands it to both import
+  workers.
+
 ## [0.65.0] - Unreleased
 
 ### Added — the provider breaker is wired (issue #871, workstream A)

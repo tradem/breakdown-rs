@@ -23,6 +23,24 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A resumed import says where it continues, and its estimate stops lying**
+  (issue #871, `0.4.0-beta.47+139 → 0.4.0-beta.48+140`). A retried attempt now
+  continues at the first chunk that never completed instead of re-extracting
+  from chunk 0, so the counters of a resumed attempt already include chunks this
+  attempt never paid for.
+  - **The stage line names the resume point** — `Fortsetzung ab Abschnitt {n} von
+    {total}`, and only when the attempt actually resumed. `Abschnitt`, not
+    `Szene`: the number counts chunks, and one chunk can yield several scene rows.
+  - **The ETA measures the delta, not the absolute counter.** The rate and the
+    stall watchdog divide by `chunk − resumed_from` and the remaining count still
+    comes from `chunks_total − chunk`; a naive rate would report "25 chunks in one
+    second" and then declare a healthy successor chunk stalled after two minutes.
+  - **The byte basis is refused on a resumed attempt.** `doneBytes` starts at the
+    stored prefix's bytes while `startedAt` covers only this attempt, and the
+    prefix's byte count is not on the wire — so the chunk pair, whose delta is
+    exact, is the only honest basis. Nothing is fabricated from the unusable pair.
+  - Regenerated client (`1.6.0 → 1.7.0`) for the additive `resumed_from` field.
+
 - **A waiting import says it is waiting, and that waiting is free** (issue
   #871, `0.4.0-beta.46+138 → 0.4.0-beta.47+139`). The backend now holds a job
   while its AI provider is degraded instead of burning the retry budget to

@@ -124,6 +124,29 @@ String aiJobStageCopy(AppLocalizations l10n, AiImportStage? stage) =>
       _ => l10n.aiJobStageUnknown(stage?.name ?? ''),
     };
 
+/// The extraction stage line, resume-aware (issue #871, D-B5b).
+///
+/// Appends the resume point only when the attempt actually resumed
+/// (`resumed_from > 0`); a normal attempt renders exactly the copy it did before,
+/// so nothing is invented for the common case.
+///
+/// `Abschnitt`, not `Szene`: `resumed_from` counts **chunks**, and one chunk can
+/// yield several scene rows — naming them scenes would promise a scene count the
+/// number does not carry.
+String aiJobStageCopyResumed(
+  AppLocalizations l10n,
+  AiImportProgress? progress,
+) {
+  final stage = aiJobStageCopy(l10n, progress?.stage);
+  final resumed = progress?.resumedFrom ?? 0;
+  if (resumed <= 0) return stage;
+  final total = progress?.chunksTotal;
+  final line = total != null && total > 0
+      ? l10n.aiJobStageResumed('$resumed', '$total')
+      : l10n.aiJobStageResumedUnknown('$resumed');
+  return '$stage · $line';
+}
+
 /// The LLM provider's own transient failure (issue #822): the ONLY code the
 /// LLM chat client emits for HTTP 429/5xx and transport timeout/connect, so it
 /// is the single stable signal that attributes a failed attempt to the

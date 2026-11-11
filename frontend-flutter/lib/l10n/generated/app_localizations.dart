@@ -6869,6 +6869,18 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'{provider} ist nicht zurückgekommen'**
   String aiJobProviderHoldExpiredTitle(String provider);
+
+  /// No description provided for @aiJobStageResumed.
+  ///
+  /// In de, this message translates to:
+  /// **'Fortsetzung ab Abschnitt {n} von {total}'**
+  String aiJobStageResumed(String n, String total);
+
+  /// No description provided for @aiJobStageResumedUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Fortsetzung ab Abschnitt {n}'**
+  String aiJobStageResumedUnknown(String n);
 }
 
 class _AppLocalizationsDelegate

@@ -16,6 +16,23 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.67.0] - Unreleased
+
+### Added — a retried attempt resumes instead of re-paying (issue #871, workstream B)
+
+- `AiImportProgress.resumed_from` (additive, `serde(default)`): "n chunks are
+  already stored and paid for; this attempt continues at n + 1". `chunk` keeps its
+  documented meaning, so a resumed attempt's first frame reports
+  `chunk = resumed_from` and the bar does not snap back to zero.
+- `AiImportChunkStore` port (`begin_extraction`, `load`, `put`, `clear`),
+  `StoredChunk`, `ChunkSetState` and the pure `resume_cursor`. The cursor is the
+  **contiguous prefix length**, never `MAX + 1`: over indices `0, 1, 3` that would
+  answer 4 and quietly omit chunk 2 from the preview. Derived, never stored — a
+  stored cursor can disagree with the rows after a lost write.
+- `ExtractionFingerprint` + `changed_components` and `preview::CHUNKER_VERSION`, so
+  an invalidation can NAME what changed (model, prompt, chunker) instead of only
+  that something did.
+
 ## [0.66.0] - Unreleased
 
 ### Added — a provider outage stops costing money (issue #871, workstream A)

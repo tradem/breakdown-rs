@@ -4228,4 +4228,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String aiJobProviderHoldExpiredTitle(String provider) {
     return '$provider did not come back';
   }
+
+  @override
+  String aiJobStageResumed(String n, String total) {
+    return 'Continuing from section $n of $total';
+  }
+
+  @override
+  String aiJobStageResumedUnknown(String n) {
+    return 'Continuing from section $n';
+  }
 }

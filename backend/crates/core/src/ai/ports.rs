@@ -1383,3 +1383,174 @@ pub trait ProviderHealth: Send + Sync {
     /// (bounded by the caller).
     async fn open_breakers(&self, limit: i64) -> Result<Vec<OpenBreaker>, DomainError>;
 }
+
+/// One chunk result as the store keeps it (issue #871, D-B1/D-B3).
+///
+/// The stored unit is the **parsed chunk result** — exactly what one paid call
+/// returned — not the applied scene rows. That is what makes the resume unit
+/// equal the paid call, which is the only unit that matters for cost.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredChunk {
+    /// 0-based chunk index.
+    pub chunk_index: u32,
+    /// The per-chunk extraction result.
+    pub payload: ScriptContext,
+    /// The usage that chunk's call(s) actually consumed.
+    pub usage: LlmCallUsage,
+}
+
+/// Durable per-chunk extraction results (issue #871, workstream B).
+///
+/// A retried attempt continues at the first chunk that never completed instead
+/// of re-extracting from chunk 0: the issue's evidence is a 42-chunk document
+/// that died at chunk 25 three times, i.e. the same ~25 chunks paid for three
+/// times.
+///
+/// The port exists so `workers.rs` stays testable against a fake and the write
+/// path never queries a read model.
+#[async_trait]
+pub trait AiImportChunkStore: Send + Sync {
+    /// Every stored chunk of one job, in `chunk_index` order.
+    ///
+    /// Implementations MUST delete a tail that lies beyond a hole (an index that
+    /// is missing while a later one exists) and log it: such a row is
+    /// unreachable by construction — the merge pass is a prefix walk — so it can
+    /// only ever be garbage.
+    async fn load(&self, job_id: AiImportJobId) -> Result<Vec<StoredChunk>, DomainError>;
+
+    /// Open an attempt's chunk set: compare-and-set the extraction fingerprint
+    /// and drop the stored chunks when it changed (issue #871, D-B7).
+    ///
+    /// Implementations MUST run this in the same transaction and the same lock
+    /// order as [`put`](Self::put) — job row first, chunk rows second — so an
+    /// invalidation can never interleave with a chunk write from a worker that is
+    /// about to lose its claim.
+    ///
+    /// The default reports `Compatible` for backends without a store.
+    async fn begin_extraction(
+        &self,
+        _job_id: AiImportJobId,
+        _worker_id: &str,
+        _fingerprint: &ExtractionFingerprint,
+        _key: &str,
+    ) -> Result<ChunkSetState, DomainError> {
+        Ok(ChunkSetState::Compatible)
+    }
+
+    /// Store one completed chunk, **claim-fenced**.
+    ///
+    /// The fence is a row lock on the job (`SELECT … FOR UPDATE`), not a
+    /// predicate: under READ COMMITTED a bare `INSERT … SELECT … WHERE
+    /// status = 'running'` can read the old owner and still commit after another
+    /// worker reclaimed the job and invalidated the set (D-B3). Refused writes
+    /// return [`DomainError::Conflict`], the same discipline as
+    /// `mark_progress`/`mark_failed`.
+    ///
+    /// `ON CONFLICT (job_id, chunk_index) DO UPDATE` makes a chunk re-run after a
+    /// lost write repair itself by overwriting, so resume stays idempotent
+    /// without any per-row reservation machinery.
+    async fn put(
+        &self,
+        job_id: AiImportJobId,
+        worker_id: &str,
+        extraction_key: &str,
+        chunk: &StoredChunk,
+    ) -> Result<(), DomainError>;
+
+    /// Delete every stored chunk of one job (terminal transitions, GC, and the
+    /// invalidation path).
+    async fn clear(&self, job_id: AiImportJobId) -> Result<u64, DomainError>;
+}
+
+/// The resume cursor: the length of the **contiguous** stored prefix
+/// (issue #871, D-B2).
+///
+/// Deliberately not `MAX(chunk_index) + 1`: over indices `0, 1, 3` that would
+/// answer `4` and quietly omit chunk 2 from the preview. Deliberately not a
+/// stored column either — a stored cursor can disagree with the rows after a
+/// lost write, a derived one cannot.
+///
+/// `chunks` must be ordered by `chunk_index` (what
+/// [`AiImportChunkStore::load`] returns).
+#[must_use]
+pub fn resume_cursor(chunks: &[StoredChunk]) -> u32 {
+    let mut expected = 0u32;
+    for chunk in chunks {
+        if chunk.chunk_index != expected {
+            break;
+        }
+        expected = expected.saturating_add(1);
+    }
+    expected
+}
+
+#[cfg(test)]
+#[path = "chunk_resume_tests.rs"]
+mod chunk_resume_tests;
+
+/// The inputs of the extraction fingerprint (issue #871, D-B7).
+///
+/// Only what the **system** controls can invalidate a stored chunk set: the
+/// document, the provider, the model, the effective prompt and the chunker. A
+/// provider-side default change is deliberately out of reach — the preview's own
+/// provenance stamp (`provider`/`model`, #675) covers that.
+///
+/// The components are kept next to the hash they produce, so an invalidation can
+/// **name** what changed. A bare hash can only say *that* something did, and the
+/// operator needs to know whether the restart was necessary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractionFingerprint {
+    /// The source document's digest — a different document is a different job,
+    /// but a re-upload of the same bytes is the `dedup_key` path and shares it.
+    pub document_digest: String,
+    pub provider: LlmProvider,
+    pub model: String,
+    /// `sha256` of the prompt text actually sent: the user's **stored** prompt
+    /// when one is configured, else the deployment default. Hashed rather than
+    /// versioned because there is no prompt version anywhere in the system — the
+    /// stored prompt is free text the user can edit.
+    pub prompt_hash: String,
+    /// Bumped by hand when the chunker changes what a chunk *is*. Without it a
+    /// chunker change would silently resume with boundaries the new chunker
+    /// never produced.
+    pub chunker_version: u32,
+}
+
+impl ExtractionFingerprint {
+    /// The components that differ from `previous`, in a stable order.
+    ///
+    /// Drives the `#871 chunk resume invalidated: <components>` log line. Empty
+    /// means the sets are compatible and the resume may proceed.
+    #[must_use]
+    pub fn changed_components(&self, previous: &Self) -> Vec<&'static str> {
+        let mut changed = Vec::new();
+        if self.document_digest != previous.document_digest {
+            changed.push("document_digest");
+        }
+        if self.provider != previous.provider {
+            changed.push("provider");
+        }
+        if self.model != previous.model {
+            changed.push("model");
+        }
+        if self.prompt_hash != previous.prompt_hash {
+            changed.push("prompt");
+        }
+        if self.chunker_version != previous.chunker_version {
+            changed.push("chunker_version");
+        }
+        changed
+    }
+}
+
+/// What [`AiImportChunkStore::begin_extraction`] decided (issue #871, D-B7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChunkSetState {
+    /// The stored set was produced by the same configuration (or there was
+    /// none): the attempt may resume from its contiguous prefix.
+    Compatible,
+    /// The set belonged to a different configuration and was deleted; the
+    /// attempt starts at chunk 0. Carries the components that changed, so the
+    /// caller can log `#871 chunk resume invalidated: <components>`.
+    Invalidated(Vec<&'static str>),
+}

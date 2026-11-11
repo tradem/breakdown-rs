@@ -312,6 +312,8 @@ fn ai_import_progress_eta_fields_are_additive_on_the_wire() {
 
     let current = AiImportProgress {
         block_number: None,
+        // Issue #871: this fixture is not a resumed attempt.
+        resumed_from: None,
         stage: AiImportStage::Extracting,
         chunk: Some(3),
         chunks_total: Some(12),
@@ -448,6 +450,8 @@ fn ai_import_job_progress_is_optional_on_the_wire() {
 
     let with_progress = AiImportProgress {
         block_number: None,
+        // Issue #871: this fixture is not a resumed attempt.
+        resumed_from: None,
         stage: AiImportStage::Extracting,
         chunk: Some(4),
         chunks_total: Some(12),

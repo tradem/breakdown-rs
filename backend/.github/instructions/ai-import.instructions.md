@@ -231,3 +231,54 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
 - **Operability:** the durable row plus the `#871 provider breaker` log marker;
   see `docs/operations/runbooks.md` §16. `GET /v1/health` gains **no** provider
   check (unauthenticated, 2 s timeout, no credential).
+
+#### Chunk-level resume (issue #871, workstream B)
+
+A retried attempt continues at the first chunk that never completed instead of
+re-extracting from chunk 0. The issue's evidence is a 42-chunk document that died
+at chunk 25 **three times**: the same ~25 chunks paid for three times.
+
+- **The store.** `ai_import.ai_import_job_chunk` holds one row per completed chunk
+  — the parsed `ScriptContext`-shaped result plus that call's usage. The stored
+  unit is the **paid call**, which is the only unit that matters for cost. A
+  table rather than a JSONB column because one bounded insert per chunk beats
+  O(n²) bytes, and because `ai_import_job.updated_at` is load-bearing (retention
+  clock, GC `ORDER BY`, ETA anchor) and must not be written once per chunk.
+- **The cursor is derived, never stored**: the length of the contiguous stored
+  prefix. `MAX(chunk_index) + 1` over `0, 1, 3` would answer 4 and quietly omit
+  chunk 2 from the preview; a stored cursor can disagree with the rows after a
+  lost write. A row beyond a hole is unreachable (the merge is a prefix walk), so
+  it is deleted with `#871 chunk resume hole at <index>`.
+- **Every chunk write is fenced by a row LOCK, not a predicate.** Under READ
+  COMMITTED a bare `INSERT … SELECT … WHERE status = 'running' AND worker_id = $2`
+  reads the job row without a lock, so another session can reclaim the job and
+  rewrite `extraction_key` between the read and the commit — and the stale write
+  lands anyway. `SELECT … FOR UPDATE` on the job row, and the invalidation path
+  takes the same lock in the same order, so the two serialize.
+- **The fingerprint is what makes resume safe.** `sha256(document_digest |
+  provider | model | sha256(effective prompt) | chunker_version)`; a mismatch
+  deletes the whole set and restarts at 0 (`#871 chunk resume invalidated:
+  <components>`), because a preview must never mix two chunkings, two models or
+  two prompts. The components are stored next to the hash so the log can *name*
+  what changed. Bump `core::ai::preview::CHUNKER_VERSION` whenever
+  `extract_scenes` changes what a chunk is.
+- **Progress and ETA measure from the resume point.** `progress.resumed_from`
+  carries "n chunks already stored"; `progress.chunk` keeps its documented
+  meaning (1-based index of the last completed chunk **of this attempt**). A
+  client derives the rate from `chunk - resumed_from` and the remaining count
+  from `chunks_total - chunk` — using the absolute counter would read "25 chunks
+  in one second" and then declare a healthy successor chunk stalled.
+- **Cost: every paid call is counted once.** The chunk row carries its usage, and
+  `ON CONFLICT … DO UPDATE` *replaces* a re-run chunk's usage instead of adding
+  it, so the completion snapshot sums all chunks regardless of which attempt paid
+  for them. **One case is deliberately uncounted:** a call whose response arrived
+  but whose row never persisted (a kill between response and insert). Its spend is
+  bounded by one chunk per crash, it appears in no other surface, and it is not
+  guessed at.
+- **Cleanup.** Terminal transitions (`mark_succeeded`, `mark_payload_unavailable`,
+  the dead-letter branch of `mark_failed`) delete the job's chunk rows in the same
+  statement; a job that merely backs off keeps them — that is the resume. The
+  payload-GC sweep deletes them with the blobs (skipped in dry-run), and
+  `dev_reset` registers the table before the job delete.
+- A schedule import is ONE extraction unit, so it has no chunk resume; the port is
+  only consulted by the script worker.

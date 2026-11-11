@@ -385,6 +385,24 @@ where
             }
         };
 
+        // Issue #871 (D-B1): a terminal job's chunk rows are derived work and go
+        // in the same run as its blobs. The terminal lifecycle writes already
+        // delete them, so this covers only rows that survived a crash — which is
+        // why it needs no `ai_payload_cleanup` mark: the delete is keyed by job
+        // and idempotent. Skipped in dry-run, where nothing may be deleted.
+        if !config.dry_run
+            && let Err(error) =
+                sqlx::query("DELETE FROM ai_import.ai_import_job_chunk WHERE job_id = $1")
+                    .bind(job_id)
+                    .execute(pool)
+                    .await
+        {
+            errors += 1;
+            first_error.get_or_insert_with(|| {
+                DomainError::service_unavailable(format!("Failed to delete AI chunk rows: {error}"))
+            });
+        }
+
         // A row can be selected because only *one* of its payloads is still
         // owed; re-deleting the other would be a harmless no-op but would
         // inflate the counters, which is half of what issue #206 is about.

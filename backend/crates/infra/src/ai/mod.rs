@@ -19,6 +19,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 pub mod catalog;
+pub mod chunk_store;
 pub mod client;
 pub mod concurrency;
 pub mod credentials;

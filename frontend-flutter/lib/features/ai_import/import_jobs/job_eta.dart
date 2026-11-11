@@ -55,9 +55,18 @@ class AiJobProgressUnits {
 /// not shown; nothing is fabricated from a missing denominator.
 AiJobProgressUnits? aiJobProgressUnits(AiImportProgress? progress) {
   if (progress == null) return null;
+  // Issue #871: on a RESUMED attempt the byte pair mixes two populations —
+  // `doneBytes` starts at the stored prefix's bytes while `startedAt` only
+  // covers this attempt — and the prefix's byte count is not on the wire. The
+  // chunk pair, whose delta is exact (`chunk - resumed_from`), is therefore the
+  // only honest basis. Nothing is fabricated from the unusable pair.
+  final resumed = progress.resumedFrom ?? 0;
   final totalBytes = progress.totalBytes;
   final doneBytes = progress.doneBytes;
-  if (totalBytes != null && totalBytes > 0 && doneBytes != null) {
+  if (resumed == 0 &&
+      totalBytes != null &&
+      totalBytes > 0 &&
+      doneBytes != null) {
     return AiJobProgressUnits(
       done: doneBytes.clamp(0, totalBytes),
       total: totalBytes,
@@ -221,24 +230,39 @@ AiJobEta? estimateAiJobEta({
   final units = aiJobProgressUnits(progress);
   final startedAt = progress?.startedAt;
   if (units == null || startedAt == null) return null;
+  // Issue #871: `chunk` counts the last completed chunk OF THIS ATTEMPT, which on
+  // a resumed attempt already includes the stored prefix. Every quantity derived
+  // from "how much did this attempt do" must therefore subtract it — otherwise a
+  // resumed attempt reads as "25 chunks in one second" and then declares a healthy
+  // successor chunk stalled after two minutes.
+  final resumed = progress?.resumedFrom ?? 0;
+  final chunksDone = progress?.chunk;
   // The two-sample floor is about COMPLETED CHUNKS, independent of the basis the
   // rate uses: one chunk is one sample whatever its byte count, so a byte-basis
   // frame with a single chunk done must not produce a number.
-  final chunksDone = progress?.chunk;
-  if (chunksDone != null && chunksDone < aiJobEtaMinUnits) return null;
+  final samplesThisAttempt = chunksDone == null ? null : chunksDone - resumed;
+  if (samplesThisAttempt != null && samplesThisAttempt < aiJobEtaMinUnits) {
+    return null;
+  }
   final elapsedMicros = now.difference(startedAt).inMicroseconds;
   if (elapsedMicros <= 0) return null;
+  // The rate denominator is what THIS attempt completed, never the absolute
+  // counter; the remaining count still comes from the absolute counter.
+  final rateDone = units.done - resumed;
+  if (rateDone < aiJobEtaMinUnits) return null;
   return estimateEtaFrom(
     startedAt: startedAt,
     done: units.done,
     total: units.total,
+    rateDone: rateDone,
     basis: units.basis,
     now: now,
     previous: previous,
     // The stall watchdog measures the CHUNK cadence: on the byte basis a unit is
     // a byte, so its cost says nothing about when the next frame may arrive.
-    chunkCadence: chunksDone != null && chunksDone >= aiJobEtaMinUnits
-        ? Duration(microseconds: (elapsedMicros / chunksDone).round())
+    chunkCadence:
+        samplesThisAttempt != null && samplesThisAttempt >= aiJobEtaMinUnits
+        ? Duration(microseconds: (elapsedMicros / samplesThisAttempt).round())
         : null,
   );
 }
@@ -261,15 +285,22 @@ AiJobEta? estimateEtaFrom({
   AiJobEta? previous,
   AiJobEtaBasis basis = AiJobEtaBasis.chunks,
   Duration? chunkCadence,
+
+  /// Units THIS attempt completed, when that differs from [done] (issue #871:
+  /// a resumed attempt's counter includes the stored prefix). The rate divides
+  /// the elapsed time by this; the remaining count still comes from [done].
+  int? rateDone,
 }) {
   if (startedAt == null) return null;
   final units = AiJobProgressUnits(done: done, total: total, basis: basis);
   if (units.total <= 0) return null;
   if (units.done < aiJobEtaMinUnits) return null;
+  final rateUnits = rateDone ?? units.done;
+  if (rateUnits < aiJobEtaMinUnits) return null;
   final elapsedMicros = now.difference(startedAt).inMicroseconds;
   if (elapsedMicros <= 0) return null;
 
-  final rawPerUnit = elapsedMicros / units.done;
+  final rawPerUnit = elapsedMicros / rateUnits;
   final rawSpread = _relativeGap(rawPerUnit, previous?.perUnit);
   var perUnitMicros = rawPerUnit;
   var spread = rawSpread;

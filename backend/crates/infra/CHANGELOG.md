@@ -16,6 +16,36 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.77.0] - Unreleased
+
+### Added — durable chunk store and resume-on-retry (issue #871, workstream B)
+
+- Migration `20261110000002_ai_import_chunk_resume`:
+  `ai_import.ai_import_job_chunk` (PK `(job_id, chunk_index)`, FK cascade) plus
+  `extraction_key` and `extraction_key_components` on the job row. A table rather
+  than a JSONB column: one bounded insert per chunk instead of O(n²) bytes, and
+  `updated_at` stays untouched — it is the retention clock, the payload-GC
+  `ORDER BY` key and the ETA anchor `started_at` (#762).
+- `PgAiImportChunkStore`: every write takes the job row `FOR UPDATE` first,
+  because under READ COMMITTED a bare `INSERT … SELECT … WHERE status = 'running'`
+  can read the old owner and still commit after another worker reclaimed the job
+  and invalidated the set. The invalidation path takes the same lock in the same
+  order. `ON CONFLICT (job_id, chunk_index) DO UPDATE` makes a chunk re-run repair
+  itself by overwriting, so resume is idempotent and the usage sum counts one paid
+  call per chunk.
+- `load` deletes a tail beyond a hole (`#871 chunk resume hole at <index>`) and
+  returns the prefix; `begin_extraction` compare-and-sets the fingerprint and
+  deletes the whole set when it changed (`#871 chunk resume invalidated`).
+- Terminal lifecycle writes delete the job's chunk rows in the SAME statement; a
+  job that merely backs off keeps them — that is the resume. The payload-GC sweep
+  deletes them with the blobs; `dev_reset` registers the table.
+- The script import worker opens the chunk set, publishes `resumed_from`, feeds a
+  stored chunk through the SAME merge body instead of re-requesting it, and `put`s
+  a fresh chunk before the merge consumes it.
+- Review follow-up from PR A: a `ProviderBreakerOpen` sentinel that arrives as an
+  error (the client-internal guard can refuse a request inside an attempt) takes
+  the HELD path instead of `mark_failed`.
+
 ## [0.76.0] - Unreleased
 
 ### Added — durable provider breaker, probe and hold sweeper (issue #871, workstream A)

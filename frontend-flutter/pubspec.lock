@@ -135,7 +135,7 @@ packages:
       path: "vendor/breakdown_api"
       relative: true
     source: path
-    version: "1.6.0"
+    version: "1.7.0"
   breakdown_lints:
     dependency: "direct dev"
     description:
