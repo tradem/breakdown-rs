@@ -7,6 +7,8 @@ import 'dart:async' show unawaited;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../data/cache/clock.dart';
+import '../data/cache/seasons_cache_providers.dart' show clockProvider;
 import 'active_block.dart';
 import 'active_episode_store.dart';
 
@@ -74,6 +76,39 @@ class ActiveEpisodeScope {
       'episodeId: $episodeId, number: $episodeNumber)';
 }
 
+/// When the process last PICKED each season's episode (issue #879).
+///
+/// A pick is written *before* the server-side projector carries the new
+/// episode and before `GET /v1/episodes` can serve it, so a successful
+/// projection read inside that window is not yet evidence that the episode is
+/// gone — the projector-lag window §4 of `frontend-flutter/AGENTS.md` models
+/// optimistically. `activeEpisodeScopeRepairProvider` therefore refuses to
+/// evict a pick younger than `kEpisodeScopeSettleWindow`.
+///
+/// Deliberately IN MEMORY and per season (bounded by the seasons the user
+/// visited, overwritten on every pick): a persisted timestamp would be renewed
+/// by the cold-start restore and could never expire, and a cold start must be
+/// free to repair a scope the previous session picked.
+@Riverpod(keepAlive: true)
+class EpisodePickTimes extends _$EpisodePickTimes {
+  /// The injectable clock, WATCHED in [build] (not read per `record` call):
+  /// reading an auto-dispose provider from outside a build would create it
+  /// without a subscription and leave its zero-duration disposal timer pending
+  /// — a `testWidgets` teardown failure in every suite that touches a pick.
+  Clock _clock = Clock.system;
+
+  @override
+  Map<String, ({String episodeId, DateTime at})> build() {
+    _clock = ref.watch(clockProvider);
+    return const {};
+  }
+
+  /// Records a real pick of [episodeId] in [seasonId] (never a restore).
+  void record({required String seasonId, required String episodeId}) {
+    state = {...state, seasonId: (episodeId: episodeId, at: _clock.now())};
+  }
+}
+
 /// The sticky active-episode scope. `null` means no episode is in context
 /// (fresh boot, signed out, or the scope was cleared) — the quick-create
 /// sheet then offers only its context-free entries.
@@ -113,6 +148,12 @@ class ActiveEpisode extends _$ActiveEpisode {
   /// `BlockView`; `null` is honest — the block chip's CACHE-ONLY number
   /// backfill then resolves the label (never a fabricated number, never a
   /// network fetch).
+  ///
+  /// [isRestore] marks a write that REPLAYS a persisted scope (the shell's
+  /// cold-start restore) instead of a user pick. Only a real pick is recorded
+  /// in [episodePickTimesProvider]; a restore must not look like one, or the
+  /// repair's projector-lag grace window (issue #879, `activeEpisodeScopeRepair`)
+  /// would be renewed on every boot and a dead scope would never be evicted.
   void set({
     required String seasonId,
     required String blockId,
@@ -120,6 +161,7 @@ class ActiveEpisode extends _$ActiveEpisode {
     required int episodeNumber,
     String? episodeName,
     int? blockNumber,
+    bool isRestore = false,
   }) {
     state = ActiveEpisodeScope(
       seasonId: seasonId,
@@ -128,6 +170,11 @@ class ActiveEpisode extends _$ActiveEpisode {
       episodeNumber: episodeNumber,
       episodeName: episodeName,
     );
+    if (!isRestore) {
+      ref
+          .read(episodePickTimesProvider.notifier)
+          .record(seasonId: seasonId, episodeId: episodeId);
+    }
     unawaited(
       ref
           .read(activeEpisodeStoreProvider)

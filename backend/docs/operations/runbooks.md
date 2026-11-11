@@ -1121,20 +1121,38 @@ What goes stale:
   again;
 - any remembered **import job id** (the job rows are deleted).
 
-The **active-season anchor** (`shell_state.active_season_id@<sub>`) and the
-persisted **per-season block scopes** repair themselves (issue #817): once the
-seasons projection has loaded without the referenced season, the client evicts
-the anchor and the block scopes of that season on its own — compare-and-remove,
-so a pick made in the meantime survives, and nothing is evicted while the fetch
-is loading or failed. The **active-episode scope** is not covered by that repair
-yet, so it still has to be cleared by hand.
+The **active-season anchor** (`shell_state.active_season_id@<sub>`), the
+persisted **per-season block scopes** and the persisted **per-season episode
+scopes** (`breakdown.active_episode_scopes`) all repair themselves: once the
+seasons projection has loaded without a referenced season, the client evicts
+that season's anchor, its block scope and its episode scope on its own. The
+active season's remembered episode is additionally checked against its own
+block-scoped episode projection (issue #879, C5 of #809): an episode the loaded
+projection does not serve is evicted and its in-memory scope is dropped, so the
+chip and the quick-create entries stop pointing at a deleted episode. Every
+removal is a compare-and-remove, so a pick made in the meantime survives, and
+nothing is evicted while a fetch is loading or has failed.
 
-Clear the **Drift** database (projections cache + AI handoff store) via
-`adb shell pm clear <applicationId>` or a reinstall of the dev build, and drop
-the remaining persisted scope (the episode anchor) from **secure storage**,
-keeping the AI-config id. A dev-only "clear local cache" action in the app
-settings is a possible follow-up; today the reset procedure includes the manual
-clear.
+Nothing in the business scope has to be cleared by hand anymore. Clear the
+**Drift** database (projections cache) via `adb shell pm clear <applicationId>`
+or a reinstall of the dev build.
+
+`pm clear` and a reinstall wipe **all** app-local state, so they also drop the
+locally remembered **AI-config id**: the client keeps that reference in the
+secure-storage document `breakdown.ai_import_handoff` (identity-scoped), not in
+Drift and not on the server. What survives is the configuration itself — the
+`ai_config` stream, its id and the credential bindings live in the backend and
+are replayed by the server reset — so recover the reference by re-opening
+**Settings → KI** and selecting the existing configuration from the list; no API
+key has to be typed again (re-entering it is only needed for a NEW
+configuration). A dev-only "clear local cache" action in the app settings,
+which would clear Drift and leave secure storage alone, is a possible
+follow-up.
+
+The one residual case: a persisted episode whose season STILL exists but whose
+block the backend no longer serves answers the episode list with an error (403
+/ 404) rather than an empty list, and a failed read is not evidence of absence —
+the entry then waits for a later successful read (or a full `pm clear`).
 
 ## 14. Decision Model live smoke test (issue #808)
 

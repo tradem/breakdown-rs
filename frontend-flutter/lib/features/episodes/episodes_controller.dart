@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -63,7 +64,12 @@ class EpisodesPrevRows extends _$EpisodesPrevRows {
 
 /// The projection a screen reads from (seasons reference pattern).
 class EpisodesView {
-  const EpisodesView({required this.rows, required this.isStale, this.error});
+  const EpisodesView({
+    required this.rows,
+    required this.isStale,
+    this.error,
+    this.isLoaded = false,
+  });
 
   final List<EpisodeView> rows;
 
@@ -74,6 +80,18 @@ class EpisodesView {
   /// Non-null when the last fetch failed. Rows are still served (retained
   /// stale rows) so the screen never goes blank on a transient error.
   final ProblemError? error;
+
+  /// `true` only when [rows] came from a **successful** read of the projection
+  /// (issue #879 — the episode twin of `SeasonsView.isLoaded`).
+  ///
+  /// [rows] is deliberately always usable — cached rows while the fetch is in
+  /// flight, retained rows after a failure — so "has rows" says nothing about
+  /// whether the projection is authoritative. A consumer that has to *prove*
+  /// an episode is gone (evicting a persisted episode reference,
+  /// `activeEpisodeScopeRepairProvider`) must ask this flag instead: an
+  /// unloaded or failed view is not evidence of absence. The default is
+  /// `false` (fail-closed: never treat rows as authoritative by omission).
+  final bool isLoaded;
 }
 
 /// Read-projection controller.
@@ -121,7 +139,10 @@ class EpisodesViewController extends _$EpisodesViewController {
             }),
           );
           return AsyncValue<EpisodesView>.data(
-            EpisodesView(rows: rows, isStale: false),
+            // Issue #879: a successful snapshot is the ONLY authoritative
+            // row set (`isLoaded` is what a repair may treat as proof of
+            // absence — see `activeEpisodeScopeRepairProvider`).
+            EpisodesView(rows: rows, isStale: false, isLoaded: true),
           );
         },
       ),
@@ -164,6 +185,8 @@ EpisodesView episodesView(Ref ref, String blockId, String seasonId) {
     AsyncError(:final error) => EpisodesView(
       rows: prev,
       isStale: prev.isNotEmpty,
+      // Retained rows after a failed read are not evidence of absence.
+      isLoaded: false,
       error: error is ProblemError
           ? error
           : const ProblemError(code: 'unknown'),
@@ -171,6 +194,8 @@ EpisodesView episodesView(Ref ref, String blockId, String seasonId) {
     AsyncLoading() => EpisodesView(
       rows: prev,
       isStale: prev.isNotEmpty && ttlStale,
+      // Rows served while the fetch is in flight are cached, not confirmed.
+      isLoaded: false,
     ),
   };
 }

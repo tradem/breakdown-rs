@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -98,6 +99,108 @@ void main() {
       // Sign-out wipe.
       expect((await store.clear()).isRight(), isTrue);
       expect((await store.readScopes()).getRight().toNullable(), isEmpty);
+    });
+
+    test(
+      'removeScopeIfMatch evicts only the scope naming the episode',
+      () async {
+        final store = ActiveEpisodeStore.secure();
+        await store.saveScope(
+          seasonId: 's-1',
+          blockId: 'b-1',
+          episodeId: 'e-stale',
+          episodeNumber: 1,
+        );
+        // A fresh pick replaced the entry between the stale read and the write:
+        // compare-and-remove must not delete it (issue #879).
+        await store.saveScope(
+          seasonId: 's-1',
+          blockId: 'b-1',
+          episodeId: 'e-fresh',
+          episodeNumber: 2,
+        );
+        expect(
+          (await store.removeScopeIfMatch(
+            seasonId: 's-1',
+            episodeId: 'e-stale',
+          )).isRight(),
+          isTrue,
+        );
+        expect(
+          (await store.readScopes()).getRight().toNullable()?['s-1']?.episodeId,
+          'e-fresh',
+        );
+
+        // An unknown season is a no-op success.
+        expect(
+          (await store.removeScopeIfMatch(
+            seasonId: 's-unknown',
+            episodeId: 'e-x',
+          )).isRight(),
+          isTrue,
+        );
+
+        // A matching removal evicts exactly that season.
+        await store.saveScope(
+          seasonId: 's-2',
+          blockId: 'b-2',
+          episodeId: 'e-2',
+          episodeNumber: 2,
+        );
+        expect(
+          (await store.removeScopeIfMatch(
+            seasonId: 's-1',
+            episodeId: 'e-fresh',
+          )).isRight(),
+          isTrue,
+        );
+        expect((await store.readScopes()).getRight().toNullable(), {
+          's-2': const PersistedEpisodeScope(
+            blockId: 'b-2',
+            episodeId: 'e-2',
+            episodeNumber: 2,
+          ),
+        });
+      },
+    );
+
+    test('removeScopeIfMatch reports a READ failure as Err', () async {
+      final store = ActiveEpisodeStore.secure();
+      // A whole-store failure: the read fails before any removal is decided.
+      platform.failAll = true;
+      expect(
+        (await store.removeScopeIfMatch(
+          seasonId: 's-1',
+          episodeId: 'e-1',
+        )).getLeft().toNullable()?.code,
+        'active_episode.scopes_read_failed',
+      );
+    });
+
+    test('removeScopeIfMatch reports a WRITE failure as Err', () async {
+      final store = ActiveEpisodeStore.secure();
+      await store.saveScope(
+        seasonId: 's-1',
+        blockId: 'b-1',
+        episodeId: 'e-1',
+        episodeNumber: 1,
+      );
+      // The document stays readable and the entry matches, so the removal
+      // reaches `_writeAll` — the only path that can report a write failure.
+      platform.failWrites = true;
+      expect(
+        (await store.removeScopeIfMatch(
+          seasonId: 's-1',
+          episodeId: 'e-1',
+        )).getLeft().toNullable()?.code,
+        'active_episode.scopes_write_failed',
+      );
+      platform.failWrites = false;
+      // Nothing was lost: the entry is still there.
+      expect(
+        (await store.readScopes()).getRight().toNullable()?['s-1']?.episodeId,
+        'e-1',
+      );
     });
 
     test('overlapping saves do not lose seasons (serialized)', () async {

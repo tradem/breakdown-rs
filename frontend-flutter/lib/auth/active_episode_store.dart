@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show Completer;
 import 'dart:convert';
@@ -146,6 +147,24 @@ class ActiveEpisodeStore {
       episodeNumber: episodeNumber,
       episodeName: episodeName,
     );
+    return _writeAll(scopes, 'active_episode.scopes_write_failed');
+  });
+
+  /// Evicts the persisted scope for [seasonId] only when it still names
+  /// [episodeId] (stale-episode cleanup, issue #879): the twin of
+  /// `ActiveBlockStore.removeScopeIfMatch`, so a fresh pick that landed after
+  /// the stale read is never deleted, whatever the scheduling order.
+  Future<Result<void>> removeScopeIfMatch({
+    required String seasonId,
+    required String episodeId,
+  }) => _mutex.run(() async {
+    final current = await readScopes();
+    final scopes = current.getRight().toNullable();
+    if (scopes == null) {
+      return Left(current.getLeft().toNullable()!);
+    }
+    if (scopes[seasonId]?.episodeId != episodeId) return const Right(null);
+    scopes.remove(seasonId);
     return _writeAll(scopes, 'active_episode.scopes_write_failed');
   });
 
