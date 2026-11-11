@@ -65,26 +65,52 @@ Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lif
 - **CI hardening (hard rule):** SHA-pin third-party actions (40-char SHA + `# vX` comment); never interpolate `${{ github.event.* }}` into `run:` — pass via `env:`. → Workflow detail: `../.github/instructions/workflow-hardening.instructions.md`
 
 ## 5. Code Example: kameo_es Aggregate
-```rust
-#[derive(Actor, Default)]
-pub struct CostumeAggregate { id: Uuid, is_assigned: bool }
 
-impl Entity for CostumeAggregate {
-    type ID = Uuid; type Event = CostumeEvent; type Metadata = ();
-    fn category() -> &'static str { "costume" }
+The shape below is the one the vendored `kameo_es` 0.2.0 actually enforces
+(`.patches/kameo_es/core/src/lib.rs`, trait `Command`). Note the direction: the
+**command is the trait's type parameter**, the **aggregate is the impl target** —
+`impl Command<AssignPiece> for PieceAggregate`. An earlier revision of this file
+showed `impl Command<Aggregate> for Command` with `type Reply`/`execute`; that
+signature does not exist in this version and will not compile.
+
+```rust
+pub struct PieceAggregate { id: PieceId, name: String /* ... */ }
+
+impl Entity for PieceAggregate {
+    type ID = Uuid; type Event = PieceEvent; type Metadata = EventMetadata;
+    fn category() -> &'static str { "piece" }
 }
 
-impl Command<CostumeAggregate> for AssignCostume {
-    type Reply = Result<(), DomainError>;
-    fn execute(self, state: &CostumeAggregate) -> Self::Reply {
-        if state.is_assigned { return Err(DomainError::AlreadyAssigned); }
-        Ok(CostumeEvent::CostumeAssigned { id: state.id })
+// State rebuild. MUST be idempotent: the projector redelivers events.
+impl Apply for PieceAggregate {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
+        if let PieceEvent::PieceCreated { name, .. } = event { self.name = name; }
     }
-    fn apply(event: Self::Event, state: &mut CostumeAggregate) {
-        if let CostumeEvent::CostumeAssigned { .. } = event { state.is_assigned = true; }
+}
+
+// The command carries a name for causation/idempotency bookkeeping.
+impl CommandName for RenamePiece {
+    fn command_name() -> &'static str { "rename_piece" }
+}
+
+impl Command<RenamePiece> for PieceAggregate {
+    type Error = PieceError;
+
+    // `handle` takes `&self` (state is already rebuilt) and returns a Vec:
+    // one command may emit several events.
+    fn handle(&self, cmd: RenamePiece, _ctx: Context<'_, Self>) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.name.trim().is_empty() { return Err(PieceError::BlankName); }
+        Ok(vec![PieceEvent::PieceRenamed { id: self.id, name: cmd.name }])
+    }
+
+    // Optional state-based idempotency hook (this is how a repeat command
+    // becomes a no-op — a rejected command is NOT the idiom here).
+    fn is_state_idempotent(&self, cmd: &RenamePiece, _ctx: Context<'_, Self>) -> bool {
+        self.name == cmd.name
     }
 }
 ```
+
 
 ## 6. Reference Register (on-demand instructions)
 Detailed documentation lives as glob-scoped rule files (Markdown with YAML frontmatter,
