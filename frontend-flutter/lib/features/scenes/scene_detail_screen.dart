@@ -30,7 +30,7 @@ import '../characters/role_extract_screen.dart';
 import '../outfits/outfits_controller.dart';
 import '../pieces/piece_identity.dart';
 import '../pieces/widgets/pieces_widgets.dart';
-import '../seasons/seasons_controller.dart';
+import '../../data/cache/seasons_cache_providers.dart';
 import '../scene_shoots/scene_shoots_screen.dart';
 import '../shell/planning_location.dart';
 import '../shooting_days/create_shooting_day_sheet.dart';
@@ -496,10 +496,21 @@ class _SceneCastLooksSection extends ConsumerWidget {
     final lookCount = [for (final g in groups) ...g.beats].length;
     final assigned = scene.assignedCharacters.toSet();
     final hasCandidates = characters.rows.any((c) => !assigned.contains(c.id));
-    // The Cast route dispatches commands that take a `SeasonView`; a cold cache
-    // fetches the row through the repository (CQRS boundary — never a
-    // hand-rolled DTO). `null` disables the edit icon with its honest reason.
-    final season = ref.watch(seasonByIdProvider(seasonId)).value;
+    // The Cast route dispatches commands that take a `SeasonView`. Every
+    // hierarchy push carries the acted-on `SeasonView` in its route
+    // `SceneLocation` (CQRS boundary — zero extra reads); direct-pumped tests
+    // and cold routes fall back to the fenced `seasonsView` cache/list
+    // projection. `null` disables the edit icon without hiding it.
+    final routeLocation = locationFromArguments(
+      ModalRoute.of(context)?.settings.arguments,
+    );
+    final routeSeason = switch (routeLocation) {
+      SceneLocation(:final season) when season.id == seasonId => season,
+      _ => null,
+    };
+    final season =
+        routeSeason ??
+        ref.watch(seasonsView).rows.where((s) => s.id == seasonId).firstOrNull;
     // Ephemeral reconciliation indicator for this scene's optimistic beat
     // overlay (reconciling spinner / stale cloud-off + warning).
     final beatOverlay = ref
@@ -546,6 +557,7 @@ class _SceneCastLooksSection extends ConsumerWidget {
                   key: Key('scene-piece-assign-${group.characterId}'),
                   icon: const Icon(Icons.add),
                   tooltip: l10n.sceneDetailAssignOutfit,
+                  visualDensity: VisualDensity.compact,
                   onPressed: () => _assignLook(
                     context,
                     ref,
@@ -561,6 +573,7 @@ class _SceneCastLooksSection extends ConsumerWidget {
                       ? Key('scene-character-${group.characterId}')
                       : null,
                   characterId: group.characterId,
+                  isFirstRow: index == 0,
                   beatOrder: group.beats[index].order,
                   // The figure cell is written once per figure; the change
                   // steps below it keep the column empty, like a table.
@@ -596,10 +609,13 @@ class _SceneCastLooksSection extends ConsumerWidget {
                   ),
                   trailingExtra: index == group.beats.length - 1
                       ? IconButton(
-                          key: Key('scene-piece-add-change-'
-                              '${group.characterId}'),
+                          key: Key(
+                            'scene-piece-add-change-'
+                            '${group.characterId}',
+                          ),
                           icon: const Icon(Icons.add),
                           tooltip: l10n.sceneDetailAddChange,
+                          visualDensity: VisualDensity.compact,
                           onPressed: () => _assignLook(
                             context,
                             ref,
@@ -712,7 +728,8 @@ class _SceneCastLooksSection extends ConsumerWidget {
           characterId: picked,
         );
     if (!context.mounted) return;
-    if (result.isLeft()) {
+    final newVersion = result.match((_) => null, (version) => version);
+    if (newVersion == null) {
       // Reconcile the version even on conflict: the next action must echo the
       // current projection version, not the rejected one (no re-dispatch).
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
@@ -731,26 +748,47 @@ class _SceneCastLooksSection extends ConsumerWidget {
         .where((c) => c.id == picked)
         .map((c) => c.name)
         .firstOrNull;
+    // The assignment ACK advanced the scene version: the second command must
+    // echo THAT version, never the one the row was rendered from (a projector
+    // that has not caught up yet would answer 409 otherwise).
+    final updatedScene = scene.rebuild(
+      (b) => b
+        ..version = newVersion
+        ..assignedCharacters.add(picked),
+    );
     // Straight into the look picker: the reviewer asked for "Figur UND Look",
     // so the second half must not need a second trip.
-    await _assignLook(context, ref, picked, name);
+    await _assignLook(context, ref, picked, name, actingScene: updatedScene);
   }
 
   /// Picks a look of [characterId] and appends it as that figure's next beat.
+  ///
+  /// [actingScene] overrides the rendered row for the beat command's version
+  /// echo (the combined assign flow casts first and must not send the
+  /// pre-assignment version).
   Future<void> _assignLook(
     BuildContext context,
     WidgetRef ref,
     String characterId,
-    String? characterName,
-  ) async {
+    String? characterName, {
+    SceneView? actingScene,
+  }) async {
     // The picker lists the character's own looks (a scene casts an outfit,
     // never a bare piece). The list is the API edge's read model — fetched
     // lazily here, cached per character.
     final outfitsResult = await ref.read(
       characterOutfitsProvider(characterId).future,
     );
-    final outfits = outfitsResult.match((_) => const <OutfitView>[], (r) => r);
     if (!context.mounted) return;
+    final outfits = outfitsResult.match((err) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(sceneBeatErrorCopy(l10nOf(context), err))),
+      );
+      return null;
+    }, (r) => r);
+    // A failed read is NOT an empty wardrobe: reporting "no look yet" for a
+    // transport failure would send the user to create a look that exists.
+    if (outfits == null) return;
     if (outfits.isEmpty) {
       // No look to pick is stated, not silent: the looks live in the Cast view.
       ScaffoldMessenger.of(context).showSnackBar(
@@ -758,6 +796,7 @@ class _SceneCastLooksSection extends ConsumerWidget {
       );
       return;
     }
+    final targetScene = actingScene ?? scene;
     final picked = await showPickOutfitSheet(context, outfits);
     if (picked == null || !context.mounted) return;
     final pickedOutfit = outfits
@@ -767,7 +806,7 @@ class _SceneCastLooksSection extends ConsumerWidget {
         .read(scenesControllerProvider(episodeId).notifier)
         .addOutfitBeat(
           seasonId: seasonId,
-          scene: scene,
+          scene: targetScene,
           characterId: characterId,
           outfitId: picked.outfitId,
           note: picked.note,
@@ -835,7 +874,9 @@ class _SceneCastLooksSection extends ConsumerWidget {
                 result.match(
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
-                      content: Text(characterErrorCopy(l10nOf(context), err)),
+                      // The captured copy: the section may be gone after the
+                      // refresh, and `l10nOf(context)` would throw then.
+                      content: Text(characterErrorCopy(l10n, err)),
                     ),
                   ),
                   (_) {},
@@ -905,7 +946,9 @@ class _SceneCastLooksSection extends ConsumerWidget {
                 result.match(
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
-                      content: Text(sceneBeatErrorCopy(l10nOf(context), err)),
+                      // The captured copy: the section may be gone after the
+                      // refresh, and `l10nOf(context)` would throw then.
+                      content: Text(sceneBeatErrorCopy(l10n, err)),
                     ),
                   ),
                   (_) {},
@@ -972,6 +1015,7 @@ class _CastRow extends StatelessWidget {
     required this.characterId,
     required this.characterName,
     required this.lookLabel,
+    this.isFirstRow = true,
     this.beatOrder,
     this.lookKey,
     this.lookIcon,
@@ -987,6 +1031,11 @@ class _CastRow extends StatelessWidget {
   final String characterId;
   final String characterName;
   final String lookLabel;
+
+  /// Whether this row is the FIRST row of its figure. The figure cell (name
+  /// and its actions) is written once per figure — the change steps below it
+  /// keep the column empty, like a table.
+  final bool isFirstRow;
   final int? beatOrder;
 
   /// Explicit key for the LOOK cell, for the rows that name no beat (the
@@ -1013,16 +1062,55 @@ class _CastRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.space4),
       child: Row(
+        // The look column of every row starts at the same x as the header's:
+        // the figure's actions ride INSIDE column 1, never beside the table.
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Column 1 — the figure and its actions.
           Expanded(
             flex: 4,
-            child: Text(
-              characterName,
-              style: theme.textTheme.bodyMedium,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: isFirstRow
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        characterName,
+                        style: theme.textTheme.bodyMedium,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Wrap(
+                        children: [
+                          // Always rendered on the figure's first row: with
+                          // `onPressed: null` it is DISABLED when the season
+                          // row could not be resolved — an absent control is
+                          // indistinguishable from "not supported".
+                          IconButton(
+                            key: Key('scene-character-edit-$characterId'),
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            tooltip: l10n.sceneDetailEditCharacterTooltip,
+                            visualDensity: VisualDensity.compact,
+                            onPressed: onEdit,
+                          ),
+                          if (onRemoveCharacter != null)
+                            IconButton(
+                              key: Key('scene-character-remove-$characterId'),
+                              icon: const Icon(
+                                Icons.person_remove_outlined,
+                                size: 18,
+                              ),
+                              tooltip: l10n.sceneDetailRemoveCharacterTooltip,
+                              visualDensity: VisualDensity.compact,
+                              onPressed: onRemoveCharacter,
+                            ),
+                        ],
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
           const SizedBox(width: AppSpacing.space8),
+          // Column 2 — the look and its actions.
           Expanded(
             flex: 6,
             child: Row(
@@ -1032,61 +1120,53 @@ class _CastRow extends StatelessWidget {
                       ? null
                       : Key('scene-piece-beat-$characterId-$beatOrder')),
               children: [
-                if (changeArrow)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Text(
-                      '→',
-                      key: Key('scene-piece-arrow-$characterId-$beatOrder'),
-                    ),
-                  ),
-                if (lookIcon != null) ...[
-                  Icon(lookIcon, size: 18),
-                  const SizedBox(width: AppSpacing.space4),
-                ],
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                Expanded(
+                  child: Row(
                     children: [
-                      Text(
-                        lookLabel,
-                        style: lookStyle,
-                        overflow: TextOverflow.ellipsis,
+                      if (changeArrow)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Text(
+                            '→',
+                            key: Key(
+                              'scene-piece-arrow-$characterId-$beatOrder',
+                            ),
+                          ),
+                        ),
+                      if (lookIcon != null) ...[
+                        Icon(lookIcon, size: 18),
+                        const SizedBox(width: AppSpacing.space4),
+                      ],
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              lookLabel,
+                              style: lookStyle,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (lookNote case final note? when note.isNotEmpty)
+                              Text(note, style: theme.textTheme.bodySmall),
+                          ],
+                        ),
                       ),
-                      if (lookNote case final note? when note.isNotEmpty)
-                        Text(note, style: theme.textTheme.bodySmall),
                     ],
                   ),
                 ),
+                if (onRemoveLook != null)
+                  IconButton(
+                    key: Key('scene-piece-remove-$characterId-$beatOrder'),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    tooltip: l10n.sceneDetailRemoveOutfitTooltip,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onRemoveLook,
+                  ),
+                ?trailingExtra,
               ],
             ),
           ),
-          if (onEdit != null)
-            IconButton(
-              key: Key('scene-character-edit-$characterId'),
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: l10n.sceneDetailEditCharacterTooltip,
-              visualDensity: VisualDensity.compact,
-              onPressed: onEdit,
-            ),
-          if (onRemoveLook != null)
-            IconButton(
-              key: Key('scene-piece-remove-$characterId-$beatOrder'),
-              icon: const Icon(Icons.delete_outline),
-              tooltip: l10n.sceneDetailRemoveOutfitTooltip,
-              visualDensity: VisualDensity.compact,
-              onPressed: onRemoveLook,
-            ),
-          if (onRemoveCharacter != null)
-            IconButton(
-              key: Key('scene-character-remove-$characterId'),
-              icon: const Icon(Icons.person_remove_outlined),
-              tooltip: l10n.sceneDetailRemoveCharacterTooltip,
-              visualDensity: VisualDensity.compact,
-              onPressed: onRemoveCharacter,
-            ),
-          ?trailingExtra,
         ],
       ),
     );
@@ -1186,9 +1266,7 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                     ),
                   ],
                 ),
-                _ => Text(
-                  byId[id]?.label ?? l10n.sceneShootDayFallback,
-                ),
+                _ => Text(byId[id]?.label ?? l10n.sceneShootDayFallback),
               },
               subtitle: byId[id]?.date != null
                   ? Text(l10n.shootingDayDate('${byId[id]!.date}'))

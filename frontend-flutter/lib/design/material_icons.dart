@@ -116,7 +116,9 @@ abstract final class BreakdownMaterialIcons {
   ///
   /// Glossary rule: the icons REINFORCE the visible `I/T` text label and never
   /// replace it — always render them next to the text, never alone.
-  static ({List<IconData> locations, IconData time})? forSceneMood(String? mood) {
+  static ({List<IconData> locations, IconData time})? forSceneMood(
+    String? mood,
+  ) {
     final value = mood?.trim().toUpperCase();
     if (value == null || value.isEmpty) {
       return null;

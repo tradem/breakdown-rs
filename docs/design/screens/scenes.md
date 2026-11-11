@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # SceneDetail — Screen Spec
 
@@ -146,7 +147,10 @@ narrative, sign-in/network/generic fallbacks).
   and a refused release leaves it on both (two visible, removable rows)
   instead of on none.
 * Edit a cast figure: pushes the Cast screen (character detail) with the
-  season row resolved cache-first; returning refreshes the scene so a
+  season row from the route's `SceneLocation` (the DTO the user navigated
+  from), falling back to the fenced `seasonsView` projection — never a
+  second projection lookup. When no row resolves, the edit icon renders
+  disabled instead of disappearing. Returning refreshes the scene so a
   renamed/removed look does not keep its old label.
 * Pull-to-refresh: reconciliation pass (single-flight, bounded retries).
 

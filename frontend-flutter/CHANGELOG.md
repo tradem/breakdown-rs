@@ -37,9 +37,10 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     fix. One card now renders a table — one row per (figure, look), the header
     carries both counts ("Figuren 2 · Looks 3") — with column labels, per-row
     removal of either target, an edit icon that opens the Cast screen (character
-    detail, season row resolved cache-first) and one bottom action,
-    "Figur und Look zuweisen", that casts the figure and then opens its look
-    picker.
+    detail, season row from the route's `SceneLocation`, falling back to the
+    fenced `seasonsView` projection; disabled when neither resolves) and one
+    bottom action, "Figur und Look zuweisen", that casts the figure and then
+    opens its look picker.
   - **Moods like `A/I/T` render their icons.** `forSceneMood` only accepted a
     single location component plus the canonical `I/A`, so a mixed scene ("Erfurt
     / Straße" outside, then "Eingang + Flur / vor OP" inside) rendered its mood as

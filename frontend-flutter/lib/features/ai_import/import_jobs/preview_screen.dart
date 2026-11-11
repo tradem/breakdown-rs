@@ -1780,10 +1780,8 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
     final rows = ref
         .watch(blocksListFetchProvider(seasonId))
         .whenData(
-          (result) => result.match<Iterable<BlockView>?>(
-            (_) => null,
-            (rows) => rows,
-          ),
+          (result) =>
+              result.match<Iterable<BlockView>?>((_) => null, (rows) => rows),
         )
         .value;
     final scriptBlock = scope.scriptBlockNumber;

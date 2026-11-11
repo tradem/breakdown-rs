@@ -1150,10 +1150,7 @@ void main() {
       addTearDown(db.close);
       dao = AiImportJobsCacheDao(db);
       repo = FakeAiImportRepository(BreakdownApi(), dao);
-      blockRepo = _FakePreviewBlockRepository(
-        BreakdownApi(),
-        BlockCacheDao(db),
-      )
+      blockRepo = _FakePreviewBlockRepository(BreakdownApi(), BlockCacheDao(db))
         // The silent adoption (issue #829 follow-up) CREATES a block when the
         // target season lacks the script's one, so this group needs the block
         // write path faked: the default answer is the realistic refusal (the
@@ -2328,11 +2325,9 @@ void main() {
       await pumpPreview(tester);
       await tester.pumpAndSettle();
 
-      expect(
-        repo.attachCalls,
-        [('job-1', blockTwo.id)],
-        reason: 'the target is attached without any interaction',
-      );
+      expect(repo.attachCalls, [
+        ('job-1', blockTwo.id),
+      ], reason: 'the target is attached without any interaction');
       expect(blockRepo.createCalls, 0, reason: 'the block already exists');
       await tester.pump();
     });
@@ -2370,11 +2365,9 @@ void main() {
             'the script states no shooting window, so none is invented for '
             'the block',
       );
-      expect(
-        repo.attachCalls,
-        [('job-1', 'block-new')],
-        reason: 'the created block becomes the job\'s target',
-      );
+      expect(repo.attachCalls, [
+        ('job-1', 'block-new'),
+      ], reason: 'the created block becomes the job\'s target');
       await tester.pump();
     });
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: longcat-2.0 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-1 unit test: pure logic, no Flutter imports (AGENTS.md test pyramid).
 // Exercises the RFC 9457 problem+json parsing and the DioException -> ProblemError
@@ -90,7 +91,8 @@ void main() {
         response: Response(
           requestOptions: RequestOptions(path: '/v1/ai-import/scripts'),
           statusCode: 403,
-          data: '{"type":"about:blank","title":"AI import forbidden",'
+          data:
+              '{"type":"about:blank","title":"AI import forbidden",'
               '"status":403,"code":"ai-import.forbidden","detail":"nope",'
               '"trace_id":"01a1cacc1d557600b8c4b6135c318172"}',
         ),

@@ -18,8 +18,10 @@ import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
+import 'package:frontend_flutter/data/season_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
 import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
@@ -444,6 +446,15 @@ void main() {
           appConfigProvider.overrideWithValue(devAuthConfig),
           cacheDatabaseProvider.overrideWithValue(db),
           sceneRepositoryProvider.overrideWithValue(repo),
+          // The pushed detail resolves its season row for the cast edit route
+          // from the fenced `seasonsView` projection (this route carries no
+          // `SceneLocation` — the screen is pumped as `home:`).
+          seasonRepositoryProvider.overrideWithValue(
+            SeasonRepository(BreakdownApi(), SeasonCacheDao(db)),
+          ),
+          seasonsListFetchProvider.overrideWith(
+            (ref) async => const Right(<SeasonView>[]),
+          ),
           reconciliationSchedulerProvider.overrideWith(
             (ref) => ManualReconciliationScheduler(),
           ),
@@ -512,10 +523,7 @@ void main() {
       // must be scrolled into the viewport before it exists in the tree.
       for (var i = 0; i < 6; i++) {
         if (find.byKey(const Key('scene-cast-s1')).evaluate().isNotEmpty) break;
-        await tester.drag(
-          find.byType(Scrollable).first,
-          const Offset(0, -300),
-        );
+        await tester.drag(find.byType(Scrollable).first, const Offset(0, -300));
         await tester.pumpAndSettle();
       }
       expect(find.byKey(const Key('scene-cast-s1')), findsOneWidget);

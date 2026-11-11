@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Design — scene detail: plan before cast, one cast table, mixed-mood icons
 
@@ -68,11 +69,17 @@ to a real day is a schedule, not a move, so nothing is released. Disabled when
   cancelled picker keeps the figure cast, and a figure without looks gets the
   "no look yet — create it in the Cast view" hint instead of an empty sheet.
 
-Edit route: the character detail needs a `SeasonView`, and the scene detail is
-pushed with a `seasonId` only. `seasonById` (new, `features/seasons`) resolves it
-CACHE-FIRST and fetches on a miss through `SeasonRepository` (the single owner of
-network + cache writes; CQRS boundary — never a hand-rolled DTO). An unreadable
-row disables the edit icon rather than opening a screen it cannot fill.
+Edit route: the character detail needs a `SeasonView`. Every hierarchy push
+already carries the acted-on row in its route `SceneLocation` (`season`), so the
+detail screen reads it from there — zero extra reads, no projection round trip
+(CQRS boundary: the context comes from the DTO the user navigated from, never a
+second lookup and never a hand-rolled DTO). Direct-pumped routes and cold
+routes carry no location and fall back to the fenced `seasonsView` cache/list
+projection. When neither resolves a row, the edit icon renders DISABLED rather
+than hidden (a missing control is indistinguishable from "not supported"), and
+no unfenced `SeasonRepository.getAndCache` call is made from a widget — cache
+writes stay behind `CacheWriteFence` so a sign-out or base switch mid-request
+cannot land foreign rows in a freshly cleared cache.
 
 ## D4 — Mixed-mood icons
 

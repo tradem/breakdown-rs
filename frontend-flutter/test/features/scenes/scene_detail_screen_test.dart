@@ -29,20 +29,23 @@ import 'package:frontend_flutter/design/components/ai_score_stars.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/piece_repository.dart';
 import 'package:frontend_flutter/data/outfit_repository.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
+import 'package:frontend_flutter/data/season_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
 import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/domain/reconciliation/reconciliation.dart';
 import 'package:frontend_flutter/features/characters/character_detail_screen.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
-import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
-import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
+import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
 import 'package:frontend_flutter/features/scenes/scene_detail_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
+import 'package:frontend_flutter/features/shell/planning_location.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
@@ -258,6 +261,19 @@ SeasonView _seasonView() => SeasonView(
     ..version = 1,
 );
 
+/// The hierarchy level a real push carries (issue #548): the scenes screen
+/// deepens the `EpisodeLocation` it was given into a `SceneLocation`, which is
+/// where the detail reads the acted-on `SeasonView` from.
+BlockView _blockView() => BlockView(
+  (b) => b
+    ..id = 'block-1'
+    ..number = 1
+    ..seasonId = 'season-1'
+    ..projectId = 'series-1'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
 SeasonMembershipDto _membership({
   List<String> capabilities = const ['assign_costumes'],
 }) => SeasonMembershipDto(
@@ -379,12 +395,19 @@ class _FakeShootingDayRepository extends ShootingDayRepository {
   int scheduleCalls = 0;
   int unscheduleCalls = 0;
 
+  /// A release (`unscheduleScene`) that fails while the schedule succeeded —
+  /// the partial-failure shape of the "move to another day" chain.
+  Result<int>? nextUnscheduleWrite;
+  int? lastScheduleVersion;
+  int? lastUnscheduleVersion;
+
   @override
   Future<Result<int>> scheduleScene(
     String sceneId,
     ScheduleSceneRequest request,
   ) {
     scheduleCalls++;
+    lastScheduleVersion = request.version;
     final scripted = nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
@@ -397,7 +420,8 @@ class _FakeShootingDayRepository extends ShootingDayRepository {
     int sceneVersion,
   ) {
     unscheduleCalls++;
-    final scripted = nextWrite;
+    lastUnscheduleVersion = sceneVersion;
+    final scripted = nextUnscheduleWrite ?? nextWrite;
     if (scripted != null) return Future.value(scripted);
     return Future.value(const Right(2));
   }
@@ -434,6 +458,15 @@ void main() {
     /// Looks per figure id, for the tests that cast a figure themselves (the
     /// combined "figure and look" flow resolves the looks of the picked one).
     Map<String, List<OutfitView>> figureOutfits = const {},
+
+    /// The `ch-1` looks result, for the tests that script a FETCH FAILURE
+    /// (a transport problem must not read as "this figure has no look").
+    Result<List<OutfitView>>? ch1OutfitsOverride,
+
+    /// The season rows the fenced `seasonsView` projection serves. `const []`
+    /// models a projection that resolved none (the edit icon is rendered
+    /// DISABLED, never hidden).
+    List<SeasonView>? seasonRows,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -457,10 +490,17 @@ void main() {
         ),
         outfitsListFetchProvider('ch-1')
             .overrideWith((ref) async => const Right(<OutfitView>[])),
-        // The cast section resolves the season row for the edit route
-        // (cache-first in production; a provider override keeps the test off
-        // the network).
-        seasonByIdProvider('season-1').overrideWith((ref) async => _seasonView()),
+        // The cast section resolves the season row for the edit route from
+        // the route's `SceneLocation` (pushed hierarchy routes) or, as here
+        // (direct-pumped), from the fenced `seasonsView` cache/list projection.
+        // Both the repository and the fetch seam are faked so no test touches
+        // the pinned production client.
+        seasonRepositoryProvider.overrideWithValue(
+          SeasonRepository(BreakdownApi(), SeasonCacheDao(db)),
+        ),
+        seasonsListFetchProvider.overrideWith(
+          (ref) async => Right(seasonRows ?? [_seasonView()]),
+        ),
         shootingDayRepositoryProvider.overrideWithValue(days),
         reconciliationSchedulerProvider.overrideWith(
           (ref) => ManualReconciliationScheduler(),
@@ -478,12 +518,13 @@ void main() {
         // `ch-1` keeps the historical fixture; `figureOutfits` adds looks for
         // the figures a test casts itself (the combined assign flow).
         characterOutfitsProvider('ch-1').overrideWith(
-          (ref) async => Right(<OutfitView>[_outfit('outfit-9', name: 'Hut')]),
+          (ref) async =>
+              ch1OutfitsOverride ??
+              Right(<OutfitView>[_outfit('outfit-9', name: 'Hut')]),
         ),
         for (final entry in figureOutfits.entries)
-          characterOutfitsProvider(
-            entry.key,
-          ).overrideWith((ref) async => Right(entry.value)),
+          characterOutfitsProvider(entry.key)
+              .overrideWith((ref) async => Right(entry.value)),
         scenesListFetchProvider('episode-1').overrideWith((ref) async {
           scenesFetchLog?.add(1);
           return Right(scene == null ? [] : [scene]);
@@ -513,6 +554,38 @@ void main() {
             // empty state is sourced from this DTO, never a re-fetch).
             episode: _episode(),
             sceneId: 'scene-1',
+          ),
+        ),
+      ),
+    );
+    await _pumpFrames(tester, n: 30);
+  }
+
+  /// Pumps the detail screen as a PUSHED route whose settings carry the
+  /// hierarchy location a real navigation provides (issue #548) — the branch
+  /// that resolves the season row from the acted-on DTO alone.
+  Future<void> pumpDetailFromRoute(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    final location = SceneLocation(
+      _seasonView(),
+      _blockView(),
+      _episode(),
+      _scene(characters: ['ch-1']),
+    );
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          initialRoute: '/scene',
+          onGenerateRoute: (settings) => MaterialPageRoute<void>(
+            settings: RouteSettings(arguments: location),
+            builder: (_) => SceneDetailScreen(
+              seasonId: 'season-1',
+              episode: _episode(),
+              sceneId: 'scene-1',
+            ),
           ),
         ),
       ),
@@ -580,7 +653,9 @@ void main() {
         characterRows: [_character('ch-9', name: 'Bea')],
         // The figure the flow casts needs a look to pick — otherwise the
         // flow stops after the assignment with its "no look yet" hint.
-        figureOutfits: {'ch-9': [_outfit('outfit-9', name: 'Hut')]},
+        figureOutfits: {
+          'ch-9': [_outfit('outfit-9', name: 'Hut')],
+        },
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
@@ -596,6 +671,38 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       await _pumpFrames(tester);
       expect(sceneRepo.addCalls, 1);
+      // The look command echoes the version the ASSIGNMENT ack returned, not
+      // the one the row was rendered from (a lagging projector answered 409
+      // otherwise).
+      expect(sceneRepo.lastVersion, 2);
+    });
+
+    testWidgets('a look fetch failure reports the problem, never "no look yet" '
+        '(issue #834 follow-up)', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        ch1OutfitsOverride: const Left(
+          ProblemError(code: 'transport.connectionError'),
+        ),
+      );
+      await pumpDetail(tester);
+      await expandSection(tester, 'scene-cast-scene-1');
+      await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
+      await _pumpFrames(tester);
+      // A failed read is not an empty wardrobe: no command, and the network
+      // copy instead of the "create the look in the Cast view" hint.
+      expect(sceneRepo.addCalls, 0);
+      expect(
+        find.text('Network problem – the change was not saved. Try again.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'This character has no look yet — create it in the Cast view.',
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('unassign confirm-first; failure leaves id in place', (
@@ -1395,10 +1502,7 @@ void main() {
       expect(find.byType(Divider), findsNothing);
       // Expand every section, assert again (the M3 ExpansionTile used to
       // draw its default top+bottom borders while expanded — issue #834).
-      for (final key in [
-        'scene-shooting-days-scene-1',
-        'scene-cast-scene-1',
-      ]) {
+      for (final key in ['scene-shooting-days-scene-1', 'scene-cast-scene-1']) {
         await expandSection(tester, key);
       }
       expect(find.byType(Divider), findsNothing);
@@ -1795,8 +1899,9 @@ void main() {
       expect(days.unscheduleCalls, 0);
     });
 
-    testWidgets('a scene with no candidate day disables the script-day chip',
-        (tester) async {
+    testWidgets('a scene with no candidate day disables the script-day chip', (
+      tester,
+    ) async {
       await setupContainer(
         scene: _scene(scriptDay: 'Tag 1', days: ['d-1']),
         dayRows: [_day('d-1')],
@@ -1820,14 +1925,42 @@ void main() {
       );
       await pumpDetail(tester);
       await expandSection(tester, 'scene-shooting-days-scene-1');
-      await tester.tap(
-        find.byKey(const Key('scene-shooting-day-move-d-1')),
-      );
+      await tester.tap(find.byKey(const Key('scene-shooting-day-move-d-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('schedule-day-d-2')));
       await _pumpFrames(tester);
       expect(days.scheduleCalls, 1);
       expect(days.unscheduleCalls, 1);
+      // The chain is ACK-driven: the schedule echoes the rendered version (1)
+      // and the release echoes the version the schedule returned (2).
+      expect(days.lastScheduleVersion, 1);
+      expect(days.lastUnscheduleVersion, 2);
+    });
+
+    testWidgets('a refused release after scheduling reports the conflict code', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1'), _day('d-2')],
+      );
+      // The step that fails is the SECOND one: the new day is acknowledged and
+      // the release is refused — the scene ends up planned on both days
+      // (visible, removable rows) instead of on none.
+      days.nextUnscheduleWrite = const Left(_conflict);
+      await pumpDetail(tester);
+      await expandSection(tester, 'scene-shooting-days-scene-1');
+      await tester.tap(find.byKey(const Key('scene-shooting-day-move-d-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('schedule-day-d-2')));
+      await _pumpFrames(tester);
+      expect(days.scheduleCalls, 1);
+      expect(days.unscheduleCalls, 1);
+      expect(days.lastUnscheduleVersion, 2);
+      expect(
+        find.text('Changed elsewhere — refresh and try again.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a refused move keeps the day the scene had', (tester) async {
@@ -1840,9 +1973,7 @@ void main() {
       );
       await pumpDetail(tester);
       await expandSection(tester, 'scene-shooting-days-scene-1');
-      await tester.tap(
-        find.byKey(const Key('scene-shooting-day-move-d-1')),
-      );
+      await tester.tap(find.byKey(const Key('scene-shooting-day-move-d-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('schedule-day-d-2')));
       await _pumpFrames(tester);
@@ -1891,6 +2022,69 @@ void main() {
       expect(find.textContaining('A/I/T'), findsOneWidget);
       expect(find.byIcon(Icons.sensor_door_outlined), findsOneWidget);
       expect(find.byIcon(Icons.wb_sunny_outlined), findsOneWidget);
+    });
+
+    testWidgets('an unresolved season row DISABLES the edit icon instead of '
+        'hiding it (issue #834 follow-up)', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        // The fenced projection resolved no season row: the edit route cannot
+        // be filled, so the control states that instead of vanishing.
+        seasonRows: const [],
+      );
+      await pumpDetail(tester);
+      await expandSection(tester, 'scene-cast-scene-1');
+      final edit = find.byKey(const Key('scene-character-edit-ch-1'));
+      expect(edit, findsOneWidget);
+      expect(tester.widget<IconButton>(edit).onPressed, isNull);
+    });
+
+    testWidgets('the route location resolves the season row with no projection '
+        'read (issue #834 follow-up)', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        // The projection resolved NOTHING: only the route's `SceneLocation`
+        // can fill the edit route, which is the production path.
+        seasonRows: const [],
+      );
+      await pumpDetailFromRoute(tester);
+      await expandSection(tester, 'scene-cast-scene-1');
+      final edit = find.byKey(const Key('scene-character-edit-ch-1'));
+      expect(edit, findsOneWidget);
+      expect(tester.widget<IconButton>(edit).onPressed, isNotNull);
+    });
+
+    testWidgets('the look column of every row starts at the header column on a '
+        'smartphone width (issue #834 follow-up)', (tester) async {
+      await setupContainer(
+        scene: _scene(
+          characters: ['ch-1'],
+          beats: [_beat('ch-1', 0), _beat('ch-1', 1)],
+        ),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      // A 360dp phone: the figure's actions live INSIDE column 1, so the
+      // look column never shifts against the header's label.
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pump();
+      await expandSection(tester, 'scene-cast-scene-1');
+      expect(tester.takeException(), isNull);
+      final headerX = tester
+          .getTopLeft(find.byKey(const Key('scene-cast-column-look')))
+          .dx;
+      expect(
+        tester.getTopLeft(find.byKey(const Key('scene-piece-beat-ch-1-0'))).dx,
+        headerX,
+      );
+      expect(
+        tester.getTopLeft(find.byKey(const Key('scene-piece-beat-ch-1-1'))).dx,
+        headerX,
+      );
     });
   });
 }

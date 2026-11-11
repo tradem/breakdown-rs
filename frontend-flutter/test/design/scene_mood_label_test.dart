@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Tier-2 tests for the set-shorthand mood reinforcement (issue #721): the
 // `BreakdownMaterialIcons.forSceneMood` resolver and the shared
@@ -43,10 +44,18 @@ void main() {
       // the clinic" — the reported live case) name the same fact: the scene
       // crosses the threshold. Both orders must render, and both must render
       // the SAME thing.
-      expectIcons('I/A/T', [Icons.sensor_door_outlined], Icons.wb_sunny_outlined);
-      expectIcons('A/I/T', [Icons.sensor_door_outlined], Icons.wb_sunny_outlined);
-      expectIcons('I/A/N', [Icons.sensor_door_outlined], Icons.dark_mode_outlined);
-      expectIcons('A/I/AB', [Icons.sensor_door_outlined], Icons.bedtime_outlined);
+      expectIcons('I/A/T', [
+        Icons.sensor_door_outlined,
+      ], Icons.wb_sunny_outlined);
+      expectIcons('A/I/T', [
+        Icons.sensor_door_outlined,
+      ], Icons.wb_sunny_outlined);
+      expectIcons('I/A/N', [
+        Icons.sensor_door_outlined,
+      ], Icons.dark_mode_outlined);
+      expectIcons('A/I/AB', [
+        Icons.sensor_door_outlined,
+      ], Icons.bedtime_outlined);
     });
 
     test('repeated locations render one icon each', () {

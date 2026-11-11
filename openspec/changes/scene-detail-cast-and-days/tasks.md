@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Tasks — scene detail: plan before cast, one cast table, mixed-mood icons
 
@@ -34,9 +35,9 @@
       `scene-character-remove-<id>`) and the no-look placeholder keeps
       `scene-piece-empty-<char>`.
 - [x] 2.3 Edit route: `scene-character-edit-<id>` pushes `RoleExtractScreen`
-      (Cast screen → character detail) with the season row from the new
-      `seasonById` provider (cache-first, fetch on miss); returning refreshes the
-      scene.
+      (Cast screen → character detail) with the season row from the route's
+      `SceneLocation` (falling back to the fenced `seasonsView` projection);
+      returning refreshes the scene.
 - [x] 2.4 Bottom action „Figur und Look zuweisen"
       (`scene-character-assign-<scene>`) = assign + look picker; a cancelled
       picker keeps the figure cast; a figure without looks gets the explicit hint
