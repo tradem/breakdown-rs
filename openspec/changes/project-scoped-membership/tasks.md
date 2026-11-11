@@ -71,7 +71,26 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Live check: season with no blocks + `dev-user` project role →
+- [x] 5.1 Live check: season with no blocks + `dev-user` project role →
       upload accepted → block derived from the script (`827`/`829`).
-- [ ] 5.2 `cargo test -p architecture_tests`, `cargo deny check bans`,
+      *Verified against the running dev backend on 2026-11-11 (API restarted
+      from this branch, migrations applied):*
+      `POST /v1/seasons` in a fresh project → the season creator is
+      bootstrapped as `costume_designer` at project scope
+      (`projection_project_membership`, `stream_version = 0`), the project has
+      0 blocks, `POST /v1/ai-import/scripts` with `X-Declared-Season` → **202**,
+      job `block_id = NULL` with the declared season as target; the same upload
+      declaring a season of a project without a role → **403
+      `ai-import.forbidden`**. Block derivation from the script itself (`827`)
+      is the pre-existing worker step and was not part of this check (the
+      fixture PDF dead-letters at extraction, as any stub document does).
+- [x] 5.2 `cargo test -p architecture_tests`, `cargo deny check bans`,
       OpenAPI drift test (no contract change expected).
+      *All green:* `crates/core`, `crates/infra`, `crates/api` (incl. the
+      OpenAPI drift + route-coverage contract harness), `architecture_tests`,
+      `cargo deny check bans`, `cargo clippy --workspace --all-targets -D
+      warnings`, the ast-grep CI scopes, and the integration suite except two
+      pre-existing failures unrelated to this change
+      (`ai_script_apply_shooting_days` never seeds the `ai_import_job` row that
+      `claim_apply_run` — introduced by #801 — requires, so it fails on `main`
+      too).
