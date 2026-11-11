@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Closed keep/reset classification of every aggregate category (issue #770).
 //!
@@ -45,6 +46,11 @@ pub enum AggregateCategory {
     AiConfig,
     Settings,
     Membership,
+    /// Project-scoped costume roles (openspec change
+    /// `project-scoped-membership`). **Keep**, like [`Self::Membership`]: they
+    /// are the developer's own role grants, and a business reset that dropped
+    /// them would lock the dev user out of every season-scoped check.
+    ProjectMembership,
     // ── business data (reset) ───────────────────────────────────────────────
     Season,
     Block,
@@ -65,10 +71,11 @@ pub enum AggregateCategory {
 
 impl AggregateCategory {
     /// Every category, in plan order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::AiConfig,
         Self::Settings,
         Self::Membership,
+        Self::ProjectMembership,
         Self::Season,
         Self::Block,
         Self::Episode,
@@ -89,6 +96,7 @@ impl AggregateCategory {
             Self::AiConfig => "ai_config",
             Self::Settings => "settings",
             Self::Membership => "membership",
+            Self::ProjectMembership => "project_membership",
             Self::Season => "season",
             Self::Block => "block",
             Self::Episode => "episode",
@@ -111,7 +119,9 @@ impl AggregateCategory {
     /// inherit "keep" by accident.
     pub const fn class(self) -> AggregateClass {
         match self {
-            Self::AiConfig | Self::Settings | Self::Membership => AggregateClass::Keep,
+            Self::AiConfig | Self::Settings | Self::Membership | Self::ProjectMembership => {
+                AggregateClass::Keep
+            }
             Self::Season
             | Self::Block
             | Self::Episode
@@ -133,6 +143,7 @@ impl AggregateCategory {
             Self::AiConfig => "ai_import.projection_ai_config",
             Self::Settings => "projection_settings",
             Self::Membership => "projection_membership",
+            Self::ProjectMembership => "projection_project_membership",
             Self::Season => "projection_season",
             Self::Block => "projection_block",
             Self::Episode => "projection_episode",
@@ -159,6 +170,7 @@ impl AggregateCategory {
             Self::AiConfig => "SELECT count(*) FROM ai_import.projection_ai_config",
             Self::Settings => "SELECT count(*) FROM projection_settings",
             Self::Membership => "SELECT count(*) FROM projection_membership",
+            Self::ProjectMembership => "SELECT count(*) FROM projection_project_membership",
             Self::Season => "SELECT count(*) FROM projection_season",
             Self::Block => "SELECT count(*) FROM projection_block",
             Self::Episode => "SELECT count(*) FROM projection_episode",
@@ -184,6 +196,7 @@ impl AggregateCategory {
             Self::AiConfig => "DELETE FROM ai_import.projection_ai_config",
             Self::Settings => "DELETE FROM projection_settings",
             Self::Membership => "DELETE FROM projection_membership",
+            Self::ProjectMembership => "DELETE FROM projection_project_membership",
             Self::Season => "DELETE FROM projection_season",
             Self::Block => "DELETE FROM projection_block",
             Self::Episode => "DELETE FROM projection_episode",
@@ -245,6 +258,7 @@ mod tests {
             <AiConfig as Entity>::category(),
             <SettingsAggregate as Entity>::category(),
             <BlockMembership as Entity>::category(),
+            <breakdown_core::project_membership::ProjectMembership as Entity>::category(),
             <SeasonAggregate as Entity>::category(),
             <BlockAggregate as Entity>::category(),
             <EpisodeAggregate as Entity>::category(),
@@ -287,15 +301,20 @@ mod tests {
         assert_eq!(AggregateCategory::lookup(""), None);
     }
 
-    /// The keep-list is exactly the configuration triple (issue #770).
+    /// The keep-list is exactly the configuration set (issue #770), including
+    /// both membership scopes: a reset must never take the developer's own role
+    /// grants away.
     #[test]
-    fn keep_list_is_the_configuration_triple() {
+    fn keep_list_is_the_configuration_set() {
         let keep: Vec<&str> = AggregateCategory::ALL
             .iter()
             .filter(|c| c.class() == AggregateClass::Keep)
             .map(|c| c.as_str())
             .collect();
-        assert_eq!(keep, vec!["ai_config", "settings", "membership"]);
+        assert_eq!(
+            keep,
+            vec!["ai_config", "settings", "membership", "project_membership",]
+        );
     }
 
     /// A quoted word in a doc comment before the literal must not be mistaken

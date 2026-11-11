@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! The reset plan — what a run would keep, delete and purge (issue #770).
 //!
@@ -388,15 +389,22 @@ fn notes_for(level: ResetLevel) -> Vec<String> {
             "the AI job rows and their dedup keys are deleted, so re-uploading the same document \
              enqueues a fresh job (202 + new id) instead of returning the old one"
                 .to_string(),
-            "ai_config, settings and membership streams are untouched".to_string(),
+            // Spelled out in prose, deliberately NOT as the category token: the
+            // plan render's per-category uniqueness assertion counts the bare
+            // column name, and a note repeating it would look like a duplicate
+            // listing.
+            "the configuration streams are untouched: ai_config, settings, block membership and \
+             project-scoped membership"
+                .to_string(),
         ],
         ResetLevel::Business => vec![
             "the event store can only be wiped by removing its data volume: run \
              scripts/reset-dev-data.sh business, which stops the API, backs up, drops \
              backend_sierradb_dev_data and drives the phases in order"
                 .to_string(),
-            "keep-list streams (ai_config, settings, membership) are exported before the wipe and \
-             replayed verbatim afterwards, so the projectors rebuild the keep projections"
+            "keep-list streams (ai_config, settings, block membership, project-scoped membership) \
+             are exported before the wipe and replayed verbatim afterwards, so the projectors \
+             rebuild the keep projections"
                 .to_string(),
             "ai_model_pricing is exported for the backup but deliberately kept — the cost \
              snapshot depends on it"
@@ -509,7 +517,11 @@ mod tests {
             .collect();
         let rendered = plan.render();
         for category in AggregateCategory::ALL {
-            let needle = format!("{:<17}", category.as_str());
+            // The leading separator is part of the needle on purpose: the
+            // category column is padded, so a bare name would also match
+            // *inside* a longer sibling (`membership` inside
+            // `project_membership`).
+            let needle = format!(" {:<17}", category.as_str());
             assert_eq!(
                 rendered.matches(&needle).count(),
                 1,
