@@ -14,13 +14,51 @@ pub struct AiImportBounds {
     pub max_concurrent_jobs_per_user: u32,
     pub max_document_bytes: u64,
     pub request_timeout_secs: u64,
+    /// **Job-level** retry budget (issue #637): how often a job may be
+    /// re-claimed after a retryable failure before it dead-letters.
+    ///
+    /// Unrelated to [`Self::max_attempt_retries`] since issue #871 — the two
+    /// used to be one knob, which allowed `5 × 5 = 25` paid calls for a single
+    /// chunk before anything surfaced.
     pub max_retries: u32,
+    /// **In-attempt** retry budget (issue #871, D-C1): how often one chunk's
+    /// provider call is retried inside a single attempt.
+    ///
+    /// Deliberately a second knob rather than a re-meaning of
+    /// [`Self::max_retries`]: renaming a documented env var to fix a
+    /// precedence bug would be churn without a beneficiary. `1 + 2 = 3`
+    /// attempts per chunk is enough to tell a blip from an outage.
+    pub max_attempt_retries: u32,
+    /// Consecutive retryable provider failures for one `(provider, model)`
+    /// pair that open the breaker (issue #871, D-A3).
+    ///
+    /// Counted per **pair across all jobs, chunks and replicas** — not per job
+    /// and not per chunk — so independent observations accumulate toward one
+    /// verdict. Only retryable provider failures count: a revoked key or an
+    /// entitlement 4xx is permanent (#637) and must never turn one user's
+    /// misconfiguration into an outage for everyone on the endpoint.
+    pub breaker_failure_threshold: u32,
+    /// Kill switch for the breaker (issue #871 rollout): with `false` the
+    /// worker consults no health state and the claim predicate never filters,
+    /// i.e. exactly the pre-#871 behaviour.
+    pub breaker_enabled: bool,
+    /// How long a job may sit **held** for one provider outage series before
+    /// it dead-letters with the provider narrative (issue #871, D-C4).
+    ///
+    /// Measured from the first hold of the current series (the job's own
+    /// `provider_hold_series_started_at`), so a flapping provider cannot reset
+    /// the budget one probe at a time. Deliberately the same magnitude as the
+    /// job-backoff cap (6 h).
+    pub max_provider_hold_secs: u64,
 }
 
 const DEFAULT_MAX_CHUNKS: u32 = 128;
 const DEFAULT_MAX_TOKENS: u32 = 8_192;
 const DEFAULT_MAX_GLOBAL_CONCURRENCY: u32 = 16;
 const DEFAULT_MAX_USER_CONCURRENCY: u32 = 2;
+const DEFAULT_MAX_ATTEMPT_RETRIES: u32 = 2;
+const DEFAULT_BREAKER_FAILURE_THRESHOLD: u32 = 3;
+const DEFAULT_MAX_PROVIDER_HOLD_SECS: u64 = 6 * 60 * 60;
 
 // These defaults are deliberately coupled to non-zero ceilings. This is a
 // compile-time guard against accidentally shipping an unbounded worker.
@@ -30,6 +68,14 @@ const _: () = assert!(
         && DEFAULT_MAX_GLOBAL_CONCURRENCY > 0
         && DEFAULT_MAX_USER_CONCURRENCY > 0
 );
+
+// Issue #871 (D-C1): the two retry layers must not multiply into a budget that
+// cannot surface an outage. The invariant ties the **defaults** only —
+// `consecutive_failures` counts per pair across all jobs, chunks and replicas,
+// so a configured threshold above `1 + max_attempt_retries` still opens the
+// breaker, just more slowly (one failure per chunk instead of up to three).
+// `from_env` therefore bounds the values and warns instead of rejecting.
+const _: () = assert!(DEFAULT_MAX_ATTEMPT_RETRIES + 1 >= DEFAULT_BREAKER_FAILURE_THRESHOLD);
 
 impl Default for AiImportBounds {
     fn default() -> Self {
@@ -41,6 +87,10 @@ impl Default for AiImportBounds {
             max_document_bytes: 20 * 1024 * 1024,
             request_timeout_secs: 120,
             max_retries: 5,
+            max_attempt_retries: DEFAULT_MAX_ATTEMPT_RETRIES,
+            breaker_failure_threshold: DEFAULT_BREAKER_FAILURE_THRESHOLD,
+            breaker_enabled: true,
+            max_provider_hold_secs: DEFAULT_MAX_PROVIDER_HOLD_SECS,
         }
     }
 }
@@ -88,6 +138,25 @@ impl AiImportBounds {
                 3_600,
             ),
             max_retries: bounded_u32("AI_IMPORT_MAX_RETRIES", defaults.max_retries, 0, 20),
+            max_attempt_retries: bounded_u32(
+                "AI_IMPORT_MAX_ATTEMPT_RETRIES",
+                defaults.max_attempt_retries,
+                0,
+                10,
+            ),
+            breaker_failure_threshold: bounded_u32(
+                "AI_IMPORT_BREAKER_FAILURE_THRESHOLD",
+                defaults.breaker_failure_threshold,
+                1,
+                10,
+            ),
+            breaker_enabled: bounded_bool("AI_IMPORT_BREAKER_ENABLED", defaults.breaker_enabled),
+            max_provider_hold_secs: bounded_u64(
+                "AI_IMPORT_MAX_PROVIDER_HOLD_SECS",
+                defaults.max_provider_hold_secs,
+                60,
+                7 * 24 * 60 * 60,
+            ),
         };
         // Cross-field invariant (enforced by validate()): the per-user ceiling
         // must never exceed the global ceiling, or a per-user config could
@@ -96,6 +165,21 @@ impl AiImportBounds {
             .max_concurrent_jobs_per_user
             .min(bounds.max_concurrent_jobs_global);
         bounds
+    }
+
+    /// Issue #871 (D-C1): whether the configured breaker threshold is higher
+    /// than one chunk can contribute, i.e. whether a single chunk can no longer
+    /// open the breaker alone.
+    ///
+    /// A threshold above `1 + max_attempt_retries` is a legitimate operator
+    /// choice — `consecutive_failures` counts per **pair across all jobs,
+    /// chunks and replicas**, so the breaker still opens, just more slowly.
+    /// This is therefore reported, not rejected: the caller logs it once at
+    /// startup. It is a pure predicate rather than a `tracing::warn!` here
+    /// because `core` carries no logging dependency (AGENTS.md §1) — the
+    /// composition root owns the log line.
+    pub const fn breaker_threshold_exceeds_attempt_budget(&self) -> bool {
+        self.breaker_enabled && self.breaker_failure_threshold > self.max_attempt_retries + 1
     }
 
     /// Worst-case token budget for one script before provider-side spend
@@ -137,4 +221,19 @@ fn bounded_u64(name: &str, default: u64, min: u64, max: u64) -> u64 {
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|value| (*value >= min) && (*value <= max))
         .unwrap_or(default)
+}
+
+/// Read a boolean flag with the same accepted spellings as the rest of the
+/// AI-import switches (`AI_IMPORT_ENABLED`): `true`/`1`/`yes` and
+/// `false`/`0`/`no`, case-insensitive. Anything else keeps the default.
+fn bounded_bool(name: &str, default: bool) -> bool {
+    match std::env::var(name).ok().as_deref() {
+        Some(value) if value.eq_ignore_ascii_case("true") => true,
+        Some("1") => true,
+        Some(value) if value.eq_ignore_ascii_case("yes") => true,
+        Some(value) if value.eq_ignore_ascii_case("false") => false,
+        Some("0") => false,
+        Some(value) if value.eq_ignore_ascii_case("no") => false,
+        _ => default,
+    }
 }

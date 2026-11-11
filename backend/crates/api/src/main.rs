@@ -495,7 +495,11 @@ async fn main() -> Result<()> {
 
     // --- Report archival (staging + external + worker + triggers) ---
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
-    let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
+    // Issue #871: the claim filter follows the breaker kill switch. Read here so the
+    // queue the workers claim from and the switch the operator sets are the same
+    // decision.
+    let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone())
+        .with_breaker_filter(AiImportBounds::from_env().breaker_enabled);
     // Capture the SSE event hub before the queue moves into `ProductionPorts`
     // (issue #664): the PgListener bridge forwards cross-instance pg_notify
     // payloads into this same fan-out.
@@ -729,6 +733,44 @@ async fn main() -> Result<()> {
         let worker_pricing: std::sync::Arc<dyn breakdown_core::ai::AiModelPricingRepository> =
             std::sync::Arc::new(infra::ai::PgAiModelPricingRepository::new(pool.clone()));
 
+        // Provider breaker (issue #871, workstream A): the durable verdict, its
+        // recovery probe and the hold sweeper. Wired before the workers take
+        // their own clones of the config repo and the vault.
+        let provider_health: std::sync::Arc<dyn breakdown_core::ai::ProviderHealth> =
+            std::sync::Arc::new(infra::ai::provider_health::PgProviderHealth::new(
+                pool.clone(),
+            ));
+        let probe_http = infra::ai::provider_probe::CatalogProviderProbe::local_http_client(
+            infra::ai::provider_probe::probe_timeout(),
+        )?;
+        let provider_probe: std::sync::Arc<dyn infra::ai::provider_probe::ProviderProbe> =
+            std::sync::Arc::new(infra::ai::provider_probe::CatalogProviderProbe::new(
+                infra::ai::catalog::OpenAiCompatibleModelCatalog::new()?,
+                worker_ai_config_repo.clone(),
+                worker_credential_vault.clone(),
+                probe_http,
+            ));
+        // One periodic task hosts the probe and the hold sweeper (design
+        // D-C4/2.10b): both are claim-free and share one advisory lock.
+        //
+        // Issue #871 kill switch: with `AI_IMPORT_BREAKER_ENABLED=false` the watch
+        // is not spawned at all — otherwise it would keep holding and expiring
+        // jobs for a breaker the operator just switched off. The durable rows are
+        // left untouched, so re-enabling resumes with the verdicts as they were.
+        if bounds.breaker_enabled {
+            infra::ai::provider_watch::spawn_provider_watch(
+                pool.clone(),
+                std::sync::Arc::clone(&provider_health),
+                provider_probe,
+            );
+            info!("AI provider breaker watch spawned (issue #871)");
+        } else {
+            warn!(
+                "AI_IMPORT_BREAKER_ENABLED=false — the provider breaker is disabled: no probe, \
+                 no hold sweeper, no claim filter and no worker gate"
+            );
+        }
+
         ai_worker_handles.push(spawn_script_import_worker(
             WorkerDeps {
                 runtime: Arc::clone(&runtime),
@@ -739,6 +781,12 @@ async fn main() -> Result<()> {
                 credentials: worker_credential_vault.clone(),
                 bounds,
                 pricing: Some(std::sync::Arc::clone(&worker_pricing)),
+                // Issue #871: the breaker handle the clients consult before
+                // every billable request.
+                // Disabled ⇒ no guard in the clients either.
+                health: bounds
+                    .breaker_enabled
+                    .then(|| std::sync::Arc::clone(&provider_health)),
             },
             shutdown_rx.clone(),
         ));
@@ -752,6 +800,7 @@ async fn main() -> Result<()> {
                 credentials: worker_credential_vault,
                 bounds,
                 pricing: Some(worker_pricing),
+                health: bounds.breaker_enabled.then_some(provider_health),
             },
             shutdown_rx.clone(),
         ));

@@ -305,3 +305,126 @@ clock (AGENTS.md §4).
 - [ ] 8.7 Operators answer "is the breaker open, since when, which jobs are
       held" from the runbook SQL and the `#871 provider breaker` marker.
 - [ ] 8.8 Tests as specified in **D-X4** — no wall-clock gating.
+
+## Implementation status (in progress, PR A)
+
+Landed on `feature/871-a-provider-breaker`:
+
+- **1.1** bounds + the D-C1 compile-time assert. *Deviation:* the
+  `threshold > 1 + max_attempt_retries` report is a **pure predicate**
+  (`breaker_threshold_exceeds_attempt_budget`) logged by the composition root,
+  not a `tracing::warn!` inside `from_env` — `core` carries no logging
+  dependency (AGENTS.md §1). Same operator outcome.
+- **1.2 / 1.3** `ProviderBreakerState`, `ProviderHold`, additive
+  `AiImportJob.provider_hold/.provider/.model`.
+- **1.4** `ProviderHealth` port + the pure state machine in
+  `core::ai::provider_health`. *Deviation:* `hold_runnable_jobs` /
+  `refresh_held_jobs` live on `AiImportQueue`, not on `ProviderHealth` — they are
+  job-table writes, and putting them on the breaker port would have made the port
+  depend on the queue. `mark_held` carries an explicit `hold_window_secs`
+  parameter: the deadline is derived from the job's series clock plus the
+  configured window, and inferring it from `hold_deadline - until` would be short
+  by the current open window (up to 30 min at the flap cap).
+- **1.5** `AiImportEnqueueRequest.provider/.model`.
+- **1.6** state-machine, bounds and wire tests (core: 395 passing).
+- **2.1** migration `20261110000001`. *Deviation (drift found against the real
+  schema):* the design's "new `ai_import_job.provider`/`.model` columns" **already
+  exist** as the *telemetry* provenance of the attempt that produced the result
+  (`record_worker_telemetry`, and `has_telemetry` is derived from
+  `provider IS NOT NULL`). Writing an enqueue-time snapshot into them would make
+  a job that recorded nothing report a telemetry summary of zeros. The snapshot
+  therefore gets its own pair, **`breaker_provider` / `breaker_model`**.
+- **2.2** `infra::ai::provider_health` repository (CAS transitions driven by the
+  core state machine). *Deviation:* the transitions are read → pure decision →
+  compare-and-set (bounded retry), not one hand-written `UPDATE` per transition,
+  so the arithmetic has exactly one source of truth. A hung probe in `half_open`
+  is taken over after the lease window — without that branch a single dead HTTP
+  request would wedge the pair forever, because no claim is admitted in
+  `half_open`.
+- **2.3** every committed transition logs `#871 provider breaker` with the D-X2
+  fields.
+- **2.4** the `NOT EXISTS (… provider_health …)` predicate on **all four** claim
+  paths, without `retry_at`.
+- **2.5** `mark_held` (retries untouched, no attempt row, series clock + derived
+  deadline) and `provider_hold` cleared on every other lifecycle write.
+- **2.5b / 2.5c** `hold_runnable_jobs` serves both materialization writers
+  (open-time fast path and the sweeper's guarantee) — one idempotent statement
+  guarded by `provider_hold IS NULL`, so `hold_owed_jobs` is not a second
+  statement.
+- **2.10** `dev_reset` registers `provider_health` before the job delete.
+
+Verified against a throwaway Postgres 16 (full migration chain + the statements
+above, executed as SQL): the claim predicate filters an open pair and admits it
+once closed, `mark_held` leaves `retries` and the attempt history untouched, a
+job enqueued **while** the breaker is open is held, the second materialization is
+a no-op, `refresh_held_jobs` moves `until` but not the deadline, the expiry
+dead-letters once (`state = expired`, `retries` unchanged, exactly one attempt
+row) and is idempotent, and the probe lease refuses a concurrent prober, lets the
+next tick take over a hung one, discards a superseded lease's result and closes
+on the current one.
+
+Landed in slices 3–4:
+
+- **2.7 / 2.9** `ProviderGate` + a defaulted `AiImportQueue::provider_breaker`
+  consult (a fake queue reports `closed`, so every test fake and every worker
+  construction stayed unchanged). The retry loop consults the gate at the **top
+  of every iteration** and again before each sleep; both workers consult it at
+  their boundary and take the held path. The verdict travels as an internal
+  sentinel (`BREAKER_OPEN_REASON` / `is_breaker_open`) on the existing `Conflict`
+  channel — never a retryable `ServiceUnavailable` (that is the shape
+  `is_transient` retries) and never a new problem code (D-X1).
+- **2.2b / 2.10b** `provider_probe` (lease → request outside any transaction →
+  fenced result; hosted via the donor job's own vaulted key, Ollama
+  unauthenticated on a local-only client) and `provider_watch` (materialization
+  of the holds the open-time write cannot reach + expiry, under one advisory
+  lock, `AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS`). **This slice is not optional
+  for merge:** while a pair is open no job is claimed, so no paid call can
+  succeed and nothing else can close the breaker — the probe is the only way out
+  of a non-`closed` state.
+- **3.1** composition-root wiring (breaker, probe, watch).
+- *Deviation:* `run_provider_watch_tick` takes the probe as an
+  `Option<&dyn ProviderProbe>` seam so the tick is testable without a network,
+  and a **local** credential failure closes the breaker (logged) instead of
+  staying open — otherwise one user's deleted key would hold every job of that
+  endpoint hostage, which is exactly the D-A1 failure mode; the affected job's
+  own attempt still surfaces `dependency.auth-failed` (#637).
+
+Landed in slices 5–6:
+
+- **3.2–3.6** OpenAPI regenerated (`provider`, `model`, `provider_hold` +
+  `ProviderHold`/`ProviderBreakerState` schemas), Dart client regenerated through
+  `scripts/regen-client.sh`, Flutter held banner + compact row line + ARB de/en +
+  two widget tests (both terminal causes), runbook §16, the instructions file, and
+  the lockstep version bumps (core 0.66.0 / infra 0.76.0 / api 0.65.0).
+- **2.12** the Postgres contract suite:
+  `crates/integration-tests/tests/ai_import_provider_breaker.rs`, 14 tests, all
+  passing against real containers. **Writing it found two real gaps**, both fixed
+  in the same commit: a successful probe close did not release the pair's held
+  rows (the banner kept claiming a wait that was over) and a failed probe did not
+  re-point them (D-A6). Hence `AiImportQueue::release_held_jobs`, which drops
+  `provider_hold` on a close and deliberately keeps the series clock.
+
+Landed in slice 7 (PR A complete):
+
+- **2.8** `hold_if_breaker_open`: the authoritative post-`resolve_config` check in
+  both worker loops. It also **refreshes the snapshot** in the same write, so a
+  config change between upload and attempt cannot leave a job filtered against a
+  breaker it no longer uses.
+- **2.9b** the guard lives **inside both clients** now
+  (`with_provider_health`): one attempt is not one request — the hosted client
+  issues up to `1 + MAX_TRUNCATION_RETRIES = 3` billed requests and Ollama up to
+  `1 + max_parse_retries = 4` — so the check runs before every billable request,
+  parse retries included, and returns the internal sentinel.
+- **2.6** the config-change edge (`update_ai_config`) restamps the breaker key of
+  that user's `pending`/`failed` jobs in one statement
+  (`AiImportQueue::restamp_user_breaker_pair`). Best-effort by contract: the
+  config write already succeeded, and the worker's post-resolve re-check repairs
+  the snapshot authoritatively anyway.
+- **2.11** `provider_gate_tests.rs`: five call-count tests with a paused clock
+  (`tokio::test(start_paused = true)`, so the backoff completes instantly and no
+  assertion touches real time). An open **and** a half-open breaker cost **zero**
+  calls; a closed one still allows `1 + max_retries` attempts; a breaker that
+  opens *during* the backoff stops before the next call; and an unreadable
+  breaker admits (fail-open, because the consult only ever saves money).
+
+PR A is complete. PRs B (§4–6, chunk resume) and C (§7, retry policy) remain.

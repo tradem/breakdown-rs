@@ -152,6 +152,83 @@ impl JobStatus {
     }
 }
 
+/// State of a provider circuit breaker, as a **job hold** reports it
+/// (issue #871, D-A4/D-A6).
+///
+/// `Expired` is deliberately part of this enum but **not** of the durable
+/// breaker's own state: the `ai_import.provider_health.state` CHECK accepts
+/// `closed`, `open` and `half_open` only. A hold that ran out of its deadline
+/// keeps `state = expired` on the job row precisely so a client can tell "the
+/// provider never came back" from "your retries are used up" — the two render
+/// different copy and must never collapse into one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderBreakerState {
+    /// The endpoint is answering; jobs of the pair are claimable.
+    Closed,
+    /// The endpoint failed `breaker_failure_threshold` times in a row; no job
+    /// of the pair is claimed while the breaker is open.
+    Open,
+    /// A probe (or a paid call) is in flight for the pair; still no claims,
+    /// because only the probe may end a non-`closed` state.
+    HalfOpen,
+    /// **Job-hold state only** (never a breaker state): the hold ran out of
+    /// [`ProviderHold::hold_deadline`] and the job dead-lettered without
+    /// spending a retry.
+    Expired,
+}
+
+impl ProviderBreakerState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Closed => "closed",
+            Self::Open => "open",
+            Self::HalfOpen => "half_open",
+            Self::Expired => "expired",
+        }
+    }
+}
+
+/// Why a job is **waiting** on its provider, and until when (issue #871).
+///
+/// A held job stays [`JobStatus::Failed`] on purpose: adding a
+/// `waiting_for_provider` status would have to be classified correctly in
+/// `is_terminal()`, `is_non_resumable()`, the payload retention, `dev_reset`
+/// and the claim predicates — plus a new ARB key, glyph and golden in the
+/// client — to say what this additive field says for free. `#822`'s banner
+/// already renders "provider degraded · next attempt at X"; this is the honest
+/// extension of that copy.
+///
+/// The field is cleared by **every** other lifecycle write (claim,
+/// `mark_succeeded`, `mark_failed`, `mark_payload_unavailable`, ordinary
+/// dead-letter) — with exactly one exception: the hold-expiry write keeps it
+/// with `state = Expired`, because that marker is the only durable signal
+/// separating an expiry from a spent retry budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ProviderHold {
+    /// The provider whose endpoint is degraded.
+    pub provider: LlmProvider,
+    /// The model the job was resolved against. Together with `provider` this is
+    /// the breaker key (D-A1).
+    pub model: String,
+    /// The registered problem code that opened the hold — today always
+    /// `ai-import.llm-provider-unavailable` (no new code, D-X1). The client
+    /// keeps rendering its existing per-code narrative.
+    pub reason_code: String,
+    /// `open`/`half_open` while waiting; `expired` on the terminal expiry write.
+    pub state: ProviderBreakerState,
+    /// The breaker's next probe time — also this job's `next_attempt_at`.
+    pub until: DateTime<Utc>,
+    /// Absolute deadline of the whole hold **series** (D-C4): the job
+    /// dead-letters at this instant without spending a retry. Lives on the job
+    /// row (`provider_hold_series_started_at`) rather than in this struct, so a
+    /// short recovery cannot restart the budget.
+    pub hold_deadline: DateTime<Utc>,
+    /// Chunks already paid for and stored — the resume point (D-B2). `0` in a
+    /// build without the chunk store, which is honest: nothing was stored.
+    pub chunks_done: u32,
+}
+
 /// Opaque identifier for an operational AI import job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(transparent)]
@@ -458,6 +535,20 @@ pub struct AiImportJob {
     /// active season because nothing named where it would go.
     #[serde(default)]
     pub target: Option<AiImportTarget>,
+    /// The provider this job is bound to, snapshotted at **enqueue** time
+    /// (issue #871, D-A2b). `None` for every pre-#871 row and for an upload
+    /// whose AI config could not be resolved at the API edge.
+    ///
+    /// The claim predicate filters on this pair, and the predicate runs
+    /// *before* `resolve_config` — which is why the snapshot is refreshed at
+    /// the config-change edge and re-checked (authoritatively) after the
+    /// config is resolved. A `None` pair is never breaker-filtered: the honest
+    /// degradation, because there is nothing to compare a breaker against.
+    #[serde(default)]
+    pub provider: Option<LlmProvider>,
+    /// The model this job is bound to. See [`Self::provider`].
+    #[serde(default)]
+    pub model: Option<String>,
     pub status: JobStatus,
     pub preview_handle: Option<String>,
     pub last_error: Option<String>,
@@ -471,6 +562,20 @@ pub struct AiImportJob {
     /// import ("why is this job not running yet?").
     #[serde(default)]
     pub next_attempt_at: Option<DateTime<Utc>>,
+    /// Why this job is waiting on its provider, when it is (issue #871).
+    ///
+    /// `Some` while the job is **held** for a degraded `(provider, model)`
+    /// pair: `retries` was deliberately not charged, no attempt row was
+    /// appended, and `next_attempt_at` mirrors the breaker's probe time. A
+    /// job that never reached the provider therefore never burns its retry
+    /// budget.
+    ///
+    /// Cleared by every other lifecycle write, except the hold-expiry write —
+    /// which keeps it with `state = expired` (see [`ProviderHold`]). Additive
+    /// with `serde(default)`: older clients ignore the field entirely and keep
+    /// rendering `#822`'s banner from `last_error`.
+    #[serde(default)]
+    pub provider_hold: Option<ProviderHold>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     /// Live extraction progress of a **running** job, when the worker already

@@ -170,6 +170,10 @@ fn schedule_headers(content_type: &'static str, block_id: BlockId) -> HeaderMap 
 fn succeeded_job(preview_handle: &str) -> AiImportJob {
     let now = Utc::now();
     AiImportJob {
+        // Issue #871: pre-#871 row — no provider snapshot, no hold.
+        provider: None,
+        model: None,
+        provider_hold: None,
         id: AiImportJobId::new(),
         user_id: UserId::from_sub(TEST_SUB),
         document_kind: DocumentKind::Script,

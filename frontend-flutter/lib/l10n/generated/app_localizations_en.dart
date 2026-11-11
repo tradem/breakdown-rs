@@ -4203,4 +4203,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String sceneUpdateErrorGeneric(Object code) {
     return 'The scene could not be saved ($code).';
   }
+
+  @override
+  String aiJobProviderHoldTitle(String provider) {
+    return '$provider is unreachable';
+  }
+
+  @override
+  String aiJobProviderHoldBody(String until, String deadline) {
+    return 'The job waits until $until, at the latest until $deadline. No attempt is being spent – the import continues after the pause as soon as the provider is back.';
+  }
+
+  @override
+  String aiJobProviderHoldExpiredBody(String deadline) {
+    return 'The provider did not come back by $deadline. The job was therefore ended without spending an attempt – upload the document again once the provider answers.';
+  }
+
+  @override
+  String aiJobsRowProviderHold(String provider, String until) {
+    return '$provider unreachable · waits until $until';
+  }
+
+  @override
+  String aiJobProviderHoldExpiredTitle(String provider) {
+    return '$provider did not come back';
+  }
 }

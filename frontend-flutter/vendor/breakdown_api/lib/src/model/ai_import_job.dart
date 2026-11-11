@@ -5,17 +5,19 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:breakdown_api/src/model/job_telemetry_summary.dart';
 import 'package:breakdown_api/src/model/document_kind.dart';
-import 'package:breakdown_api/src/model/job_status.dart';
-import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/applied_episode.dart';
-import 'package:breakdown_api/src/model/decision_telemetry.dart';
 import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/ai_import_progress.dart';
-import 'package:breakdown_api/src/model/ai_import_target.dart';
 import 'package:breakdown_api/src/model/cost_breakdown.dart';
 import 'package:breakdown_api/src/model/ai_import_attempt.dart';
+import 'package:breakdown_api/src/model/job_telemetry_summary.dart';
+import 'package:breakdown_api/src/model/llm_provider.dart';
+import 'package:breakdown_api/src/model/job_status.dart';
+import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/decision_telemetry.dart';
+import 'package:breakdown_api/src/model/provider_hold.dart';
+import 'package:breakdown_api/src/model/ai_import_target.dart';
 import 'package:breakdown_api/src/model/apply_progress.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -39,9 +41,12 @@ part 'ai_import_job.g.dart';
 /// * [id] - Opaque identifier for an operational AI import job.
 /// * [lastError]
 /// * [maxRetries]
+/// * [model] - The model this job is bound to. See [`Self::provider`].
 /// * [nextAttemptAt] - When a retryable `failed` job becomes claimable again (issue #637).  `None` for every other state: `pending`/`running` have no backoff, and a terminal job never retries. The column always existed; the wire view omitted it, so neither the UI nor operators could explain a stalled import (\"why is this job not running yet?\").
 /// * [previewHandle]
 /// * [progress] - Live extraction progress of a **running** job, when the worker already published it (issue #664). `None` for pending jobs, for freshly re-claimed retry attempts (the claim SQL resets stale progress) and — since issue #763 — for every terminal job: the queue clears the column in the same statement that lands `succeeded`/`dead_letter`/ `payload_unavailable`, so a finished job never advertises the stage it died at (the last frame is always `storing_preview`).
+/// * [provider] - The provider this job is bound to, snapshotted at **enqueue** time (issue #871, D-A2b). `None` for every pre-#871 row and for an upload whose AI config could not be resolved at the API edge.  The claim predicate filters on this pair, and the predicate runs *before* `resolve_config` — which is why the snapshot is refreshed at the config-change edge and re-checked (authoritatively) after the config is resolved. A `None` pair is never breaker-filtered: the honest degradation, because there is nothing to compare a breaker against.
+/// * [providerHold] - Why this job is waiting on its provider, when it is (issue #871).  `Some` while the job is **held** for a degraded `(provider, model)` pair: `retries` was deliberately not charged, no attempt row was appended, and `next_attempt_at` mirrors the breaker's probe time. A job that never reached the provider therefore never burns its retry budget.  Cleared by every other lifecycle write, except the hold-expiry write — which keeps it with `state = expired` (see [`ProviderHold`]). Additive with `serde(default)`: older clients ignore the field entirely and keep rendering `#822`'s banner from `last_error`.
 /// * [retries]
 /// * [sourceFileName] - The uploaded document's own file name, as the client picked it (issue #763). Additive with `serde(default)`: `None` for every job created before the field existed and for every upload that carried no name.  The value is display metadata only — it is sanitized at the API edge (`sanitize_source_file_name`: basename, no control characters, bounded) and is deliberately **not** derived from [`Self::source_handle`], which is an opaque storage coordinate and never a name.
 /// * [sourceFormat]
@@ -104,6 +109,10 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   @BuiltValueField(wireName: r'max_retries')
   int get maxRetries;
 
+  /// The model this job is bound to. See [`Self::provider`].
+  @BuiltValueField(wireName: r'model')
+  String? get model;
+
   /// When a retryable `failed` job becomes claimable again (issue #637).  `None` for every other state: `pending`/`running` have no backoff, and a terminal job never retries. The column always existed; the wire view omitted it, so neither the UI nor operators could explain a stalled import (\"why is this job not running yet?\").
   @BuiltValueField(wireName: r'next_attempt_at')
   DateTime? get nextAttemptAt;
@@ -114,6 +123,15 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   /// Live extraction progress of a **running** job, when the worker already published it (issue #664). `None` for pending jobs, for freshly re-claimed retry attempts (the claim SQL resets stale progress) and — since issue #763 — for every terminal job: the queue clears the column in the same statement that lands `succeeded`/`dead_letter`/ `payload_unavailable`, so a finished job never advertises the stage it died at (the last frame is always `storing_preview`).
   @BuiltValueField(wireName: r'progress')
   AiImportProgress? get progress;
+
+  /// The provider this job is bound to, snapshotted at **enqueue** time (issue #871, D-A2b). `None` for every pre-#871 row and for an upload whose AI config could not be resolved at the API edge.  The claim predicate filters on this pair, and the predicate runs *before* `resolve_config` — which is why the snapshot is refreshed at the config-change edge and re-checked (authoritatively) after the config is resolved. A `None` pair is never breaker-filtered: the honest degradation, because there is nothing to compare a breaker against.
+  @BuiltValueField(wireName: r'provider')
+  LlmProvider? get provider;
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  /// Why this job is waiting on its provider, when it is (issue #871).  `Some` while the job is **held** for a degraded `(provider, model)` pair: `retries` was deliberately not charged, no attempt row was appended, and `next_attempt_at` mirrors the breaker's probe time. A job that never reached the provider therefore never burns its retry budget.  Cleared by every other lifecycle write, except the hold-expiry write — which keeps it with `state = expired` (see [`ProviderHold`]). Additive with `serde(default)`: older clients ignore the field entirely and keep rendering `#822`'s banner from `last_error`.
+  @BuiltValueField(wireName: r'provider_hold')
+  ProviderHold? get providerHold;
 
   @BuiltValueField(wireName: r'retries')
   int get retries;
@@ -257,6 +275,13 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       object.maxRetries,
       specifiedType: const FullType(int),
     );
+    if (object.model != null) {
+      yield r'model';
+      yield serializers.serialize(
+        object.model,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     if (object.nextAttemptAt != null) {
       yield r'next_attempt_at';
       yield serializers.serialize(
@@ -276,6 +301,20 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       yield serializers.serialize(
         object.progress,
         specifiedType: const FullType.nullable(AiImportProgress),
+      );
+    }
+    if (object.provider != null) {
+      yield r'provider';
+      yield serializers.serialize(
+        object.provider,
+        specifiedType: const FullType.nullable(LlmProvider),
+      );
+    }
+    if (object.providerHold != null) {
+      yield r'provider_hold';
+      yield serializers.serialize(
+        object.providerHold,
+        specifiedType: const FullType.nullable(ProviderHold),
       );
     }
     yield r'retries';
@@ -462,6 +501,14 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
           ) as int;
           result.maxRetries = valueDes;
           break;
+        case r'model':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.model = valueDes;
+          break;
         case r'next_attempt_at':
           final valueDes = serializers.deserialize(
             value,
@@ -485,6 +532,22 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
           ) as AiImportProgress?;
           if (valueDes == null) continue;
           result.progress.replace(valueDes);
+          break;
+        case r'provider':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(LlmProvider),
+          ) as LlmProvider?;
+          if (valueDes == null) continue;
+          result.provider = valueDes;
+          break;
+        case r'provider_hold':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(ProviderHold),
+          ) as ProviderHold?;
+          if (valueDes == null) continue;
+          result.providerHold.replace(valueDes);
           break;
         case r'retries':
           final valueDes = serializers.deserialize(

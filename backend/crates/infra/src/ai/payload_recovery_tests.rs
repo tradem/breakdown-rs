@@ -68,6 +68,10 @@ impl RecordingQueue {
     fn new(kind: DocumentKind, preview_handle: Option<&str>) -> Self {
         Self {
             job: AiImportJob {
+                // Issue #871: pre-#871 row — no provider snapshot, no hold.
+                provider: None,
+                model: None,
+                provider_hold: None,
                 id: AiImportJobId::new(),
                 user_id: UserId::from_sub("payload-recovery-user"),
                 document_kind: kind,

@@ -10,11 +10,14 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::time::Duration;
 
+use breakdown_core::ai::ports::ProviderHealth as _;
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
-    ApplyRunState, CostBreakdown, DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary,
-    LlmProvider, SourceFormat, TargetAttachOutcome, Telemetry, mapping_kind,
+    ApplyRunState, BreakerCounters, BreakerDecision, CostBreakdown, DecisionTelemetry,
+    DocumentKind, JobStatus, JobTelemetrySummary, LlmProvider, ProviderBreakerSnapshot,
+    ProviderBreakerState, ProviderHold, ProviderOutcome, SourceFormat, TargetAttachOutcome,
+    Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{BlockId, UserId};
@@ -24,6 +27,12 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use super::events::AiJobEventHub;
+
+/// How many expired holds one sweeper tick dead-letters (issue #871).
+///
+/// A bound, not a horizon: the next tick continues where this one stopped. It also
+/// sizes the pre-generated attempt-id vector the expiry statement joins against.
+const EXPIRE_BATCH: i32 = 512;
 
 /// The one named unit the whole lease window is derived from.
 ///
@@ -78,6 +87,9 @@ pub struct PgAiImportQueue {
     /// PostgreSQL mode the shared `PgListener` task additionally forwards
     /// cross-instance `pg_notify` payloads into the same hub.
     hub: AiJobEventHub,
+    /// `AI_IMPORT_BREAKER_ENABLED` (issue #871): when false the claim
+    /// predicate admits every job, which is the pre-#871 behaviour.
+    breaker_filter: bool,
 }
 
 impl PgAiImportQueue {
@@ -88,13 +100,25 @@ impl PgAiImportQueue {
             pool,
             lease: lease_from_env(),
             hub: AiJobEventHub::new(),
+            breaker_filter: true,
         }
     }
 
     /// Override the claim lease window. Used by deployments that want a
     /// different recovery horizon and by tests that need a deterministic
     /// already-expired lease (`Duration::ZERO`).
+    /// Enable or disable the breaker's claim filter (issue #871,
+    /// `AI_IMPORT_BREAKER_ENABLED`).
+    ///
+    /// With the switch off the predicate admits everything — the pre-#871
+    /// behaviour — while the durable rows are left untouched, so re-enabling
+    /// resumes with the verdicts as they were.
     #[must_use]
+    pub fn with_breaker_filter(mut self, enabled: bool) -> Self {
+        self.breaker_filter = enabled;
+        self
+    }
+
     pub fn with_lease(mut self, lease: Duration) -> Self {
         self.lease = lease;
         self
@@ -323,8 +347,9 @@ impl AiImportQueue for PgAiImportQueue {
             r#"
             INSERT INTO ai_import.ai_import_job
                 (id, user_id, document_kind, source_format, block_id, dedup_key, document_digest, source_handle, source_file_name,
-                 target_season_id, target_season_number, target_block_number)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                 target_season_id, target_season_number, target_block_number,
+                 breaker_provider, breaker_model)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             -- The conflict target only echoes the key it collided on: a
             -- duplicate re-upload must NOT overwrite the existing row's
             -- display name (issue #763). The row the user already knows keeps
@@ -352,6 +377,10 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(request.target.as_ref().map(|t| t.season_id.0))
         .bind(request.target.as_ref().map(|t| t.season_number))
         .bind(request.target.as_ref().map(|t| t.block_number))
+        // The breaker key snapshot (issue #871, D-A2b): resolved at the API
+        // edge, written here so the claim predicate can filter in SQL.
+        .bind(request.provider.map(|provider| provider.as_str().to_string()))
+        .bind(request.model.as_deref())
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -382,11 +411,27 @@ impl AiImportQueue for PgAiImportQueue {
             WITH next_job AS (
                 SELECT id
                 FROM ai_import.ai_import_job
-                WHERE status = 'pending'
+                WHERE (status = 'pending'
                    OR (status = 'failed' AND
                        (next_attempt_at IS NULL OR next_attempt_at <= now()))
                    OR (status = 'running' AND
-                       lease_expires_at IS NOT NULL AND lease_expires_at <= now())
+                       lease_expires_at IS NOT NULL AND lease_expires_at <= now()))
+                  -- Issue #871 (D-A2): only a CLOSED breaker admits a claim.
+                  -- `retry_at` is deliberately absent: it is the probe
+                  -- schedule, not a claim gate, and lifting the filter when the
+                  -- probe became due would drain the queue instead of running
+                  -- one probe.
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $3 OR NOT EXISTS (
+                      SELECT 1 FROM ai_import.provider_health ph
+                      WHERE ph.provider = ai_import.ai_import_job.breaker_provider
+                        AND ph.model    = ai_import.ai_import_job.breaker_model
+                        AND ph.state <> 'closed'
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -402,6 +447,11 @@ impl AiImportQueue for PgAiImportQueue {
                 -- Stale progress from a prior attempt must never flash
                 -- before the new attempt's first `mark_progress` (issue #664).
                 progress = NULL,
+                -- Issue #871: a claim ends the hold series. The job is about to
+                -- run for real, so the next hold (if any) is a new episode and
+                -- gets a fresh 6h budget (D-C4).
+                provider_hold = NULL,
+                provider_hold_series_started_at = NULL,
                 -- Stale decision telemetry from a prior attempt must not be
                 -- read as THIS attempt's outcome (issue #767). The column is
                 -- written in the same completion write as the extraction
@@ -418,6 +468,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -446,6 +497,22 @@ impl AiImportQueue for PgAiImportQueue {
                        (next_attempt_at IS NULL OR next_attempt_at <= now()))
                    OR (status = 'running' AND
                        lease_expires_at IS NOT NULL AND lease_expires_at <= now()))
+                  -- Issue #871 (D-A2): only a CLOSED breaker admits a claim.
+                  -- `retry_at` is deliberately absent: it is the probe
+                  -- schedule, not a claim gate, and lifting the filter when the
+                  -- probe became due would drain the queue instead of running
+                  -- one probe.
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $4 OR NOT EXISTS (
+                      SELECT 1 FROM ai_import.provider_health ph
+                      WHERE ph.provider = ai_import.ai_import_job.breaker_provider
+                        AND ph.model    = ai_import.ai_import_job.breaker_model
+                        AND ph.state <> 'closed'
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -457,6 +524,9 @@ impl AiImportQueue for PgAiImportQueue {
                 permit_id = NULL,
                 -- See `claim_next`: no stale progress across attempts.
                 progress = NULL,
+                -- See `claim_next`: a claim ends the hold series (issue #871).
+                provider_hold = NULL,
+                provider_hold_series_started_at = NULL,
                 -- See `claim_next`: no stale decision telemetry across
                 -- attempts (issue #767).
                 decision_telemetry = NULL,
@@ -471,6 +541,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(kind.as_str())
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -506,11 +577,27 @@ impl AiImportQueue for PgAiImportQueue {
             WITH next_job AS (
                 SELECT id, permit_id AS orphan_permit_id
                 FROM ai_import.ai_import_job
-                WHERE status = 'pending'
+                WHERE (status = 'pending'
                    OR (status = 'failed' AND
                        (next_attempt_at IS NULL OR next_attempt_at <= now()))
                    OR (status = 'running' AND
-                       lease_expires_at IS NOT NULL AND lease_expires_at <= now())
+                       lease_expires_at IS NOT NULL AND lease_expires_at <= now()))
+                  -- Issue #871 (D-A2): only a CLOSED breaker admits a claim.
+                  -- `retry_at` is deliberately absent: it is the probe
+                  -- schedule, not a claim gate, and lifting the filter when the
+                  -- probe became due would drain the queue instead of running
+                  -- one probe.
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $3 OR NOT EXISTS (
+                      SELECT 1 FROM ai_import.provider_health ph
+                      WHERE ph.provider = ai_import.ai_import_job.breaker_provider
+                        AND ph.model    = ai_import.ai_import_job.breaker_model
+                        AND ph.state <> 'closed'
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -521,6 +608,10 @@ impl AiImportQueue for PgAiImportQueue {
                     worker_id = $1,
                     permit_id = NULL,
                     progress = NULL,
+                    -- A claim ends the hold series (issue #871, D-C4) — same
+                    -- rule as `claim_next`.
+                    provider_hold = NULL,
+                    provider_hold_series_started_at = NULL,
                     -- Stale decision telemetry never outlives its attempt
                     -- (issue #767) — same rule as `claim_next`.
                     decision_telemetry = NULL,
@@ -542,6 +633,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -569,6 +661,22 @@ impl AiImportQueue for PgAiImportQueue {
                        (next_attempt_at IS NULL OR next_attempt_at <= now()))
                    OR (status = 'running' AND
                        lease_expires_at IS NOT NULL AND lease_expires_at <= now()))
+                  -- Issue #871 (D-A2): only a CLOSED breaker admits a claim.
+                  -- `retry_at` is deliberately absent: it is the probe
+                  -- schedule, not a claim gate, and lifting the filter when the
+                  -- probe became due would drain the queue instead of running
+                  -- one probe.
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $4 OR NOT EXISTS (
+                      SELECT 1 FROM ai_import.provider_health ph
+                      WHERE ph.provider = ai_import.ai_import_job.breaker_provider
+                        AND ph.model    = ai_import.ai_import_job.breaker_model
+                        AND ph.state <> 'closed'
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -579,6 +687,10 @@ impl AiImportQueue for PgAiImportQueue {
                     worker_id = $2,
                     permit_id = NULL,
                     progress = NULL,
+                    -- A claim ends the hold series (issue #871, D-C4) — same
+                    -- rule as `claim_next`.
+                    provider_hold = NULL,
+                    provider_hold_series_started_at = NULL,
                     -- Stale decision telemetry never outlives its attempt
                     -- (issue #767) — same rule as `claim_next`.
                     decision_telemetry = NULL,
@@ -601,6 +713,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(kind.as_str())
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -840,6 +953,10 @@ impl AiImportQueue for PgAiImportQueue {
                 -- forever — to every consumer, across restarts.
                 progress = NULL,
                 last_error = NULL, next_attempt_at = NULL,
+                -- Issue #871: a succeeded job holds nothing, and its hold
+                -- series is over.
+                provider_hold = NULL,
+                provider_hold_series_started_at = NULL,
                 worker_id = NULL, lease_expires_at = NULL,
                 -- The permit is released by its holder around this write, so
                 -- the link must not outlive the claim: a stale id would name a
@@ -914,6 +1031,13 @@ impl AiImportQueue for PgAiImportQueue {
                     -- until it is re-claimed, and a reader must not see the
                     -- old attempt's outcome in the meantime.
                     decision_telemetry = NULL,
+                    -- Issue #871: the ordinary failure path is not a hold, so
+                    -- the marker must not survive it. The ONE exception is the
+                    -- hold-expiry write, which keeps it with state=expired —
+                    -- that marker is what separates an expiry from a spent
+                    -- retry budget.
+                    provider_hold = NULL,
+                    provider_hold_series_started_at = NULL,
                     -- A terminal or backing-off job holds no claim: releasing the
                     -- lease here keeps `running` the only leased state, so the
                     -- reclaim predicate can never resurrect a failed job early.
@@ -981,6 +1105,10 @@ impl AiImportQueue for PgAiImportQueue {
                     -- earlier attempt's outcome must not survive it (issue
                     -- #767).
                     decision_telemetry = NULL,
+                    -- Issue #871: terminal, so the hold marker and its series
+                    -- clock go too.
+                    provider_hold = NULL,
+                    provider_hold_series_started_at = NULL,
                     worker_id = NULL,
                     lease_expires_at = NULL,
                     permit_id = NULL,
@@ -1009,6 +1137,480 @@ impl AiImportQueue for PgAiImportQueue {
         ensure_claim_owned(result.rows_affected(), id, worker_id, "mark the payload of")?;
         self.hub.notify(id);
         Ok(())
+    }
+
+    /// Park a claimed job on its provider's breaker without spending a retry
+    /// (issue #871, D-A4).
+    ///
+    /// Three things make this deliberately *not* `mark_failed`:
+    ///
+    /// * `retries` is untouched — the budget must not be consumed by an attempt
+    ///   that never reached the provider;
+    /// * no `ai_import_job_attempt` row is appended — the history must not fill
+    ///   with identical rows;
+    /// * `next_attempt_at` is the breaker's probe time, not the per-job backoff,
+    ///   so the whole fleet re-probes at one instant (D-C3).
+    ///
+    /// The **hold series clock** and the derived `hold_deadline` are written
+    /// here rather than passed in: both expressions read the pre-update row, so
+    /// the clock and the deadline can never disagree, and a re-hold refreshes
+    /// `until` while the deadline stays where the series started (D-C4). A
+    /// passed-in deadline could restart the 6h budget on every short recovery,
+    /// which is exactly the unbounded hold the expiry exists to prevent.
+    ///
+    /// The claim, lease and permit link are cleared: a held job occupies no
+    /// capacity (D-C2 — the permit is released with the attempt).
+    async fn mark_held(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        hold: ProviderHold,
+        hold_window_secs: u64,
+    ) -> Result<(), DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET status = 'failed',
+                next_attempt_at = $4,
+                last_error = LEFT($3, 1000),
+                -- The hold series clock (D-C4): set once per series, never
+                -- restarted by a re-hold.
+                provider_hold_series_started_at =
+                    COALESCE(provider_hold_series_started_at, now()),
+                -- The deadline is DERIVED here from that clock. Both
+                -- expressions read the OLD row value, so they agree by
+                -- construction.
+                provider_hold = jsonb_set(
+                    $5::jsonb,
+                    '{hold_deadline}',
+                    to_jsonb(
+                        COALESCE(provider_hold_series_started_at, now())
+                        + make_interval(secs => $6)
+                    )
+                ),
+                -- A held job holds no claim (D-C2).
+                worker_id = NULL,
+                lease_expires_at = NULL,
+                permit_id = NULL,
+                updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(&hold.reason_code)
+        .bind(hold.until)
+        .bind(serde_json::to_value(&hold).map_err(|error| {
+            DomainError::validation(format!("provider hold is not serializable: {error}"))
+        })?)
+        .bind(i64::try_from(hold_window_secs).unwrap_or(i64::MAX))
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        ensure_claim_owned(result.rows_affected(), id, worker_id, "hold")?;
+        self.hub.notify(id);
+        Ok(())
+    }
+
+    /// Materialize a hold on every runnable job of a pair (issue #871, D-A4).
+    ///
+    /// Serves **both** materialization writers, because they are one statement
+    /// with one semantics:
+    ///
+    /// * the `closed → open` transition calls it for the fast path, so an
+    ///   outage becomes visible in the instant it is detected;
+    /// * the sweeper calls it for every non-`closed` pair, which is the
+    ///   guarantee — the open-time write cannot reach a job **enqueued while the
+    ///   breaker is already open** (the claim predicate excludes it but writes
+    ///   nothing) nor a `failed` job whose `next_attempt_at` became due
+    ///   *afterwards*. Both would otherwise be invisible **and** unexpirable,
+    ///   because the expiry precondition is the hold.
+    ///
+    /// Idempotent by the `provider_hold IS NULL` guard, so the two callers
+    /// cannot double-apply.
+    async fn hold_runnable_jobs(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        hold: ProviderHold,
+        hold_window_secs: u64,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        let rows = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET status = 'failed',
+                next_attempt_at = $3,
+                last_error = LEFT($4, 1000),
+                provider_hold_series_started_at =
+                    COALESCE(provider_hold_series_started_at, now()),
+                provider_hold = jsonb_set(
+                    $5::jsonb,
+                    '{hold_deadline}',
+                    to_jsonb(
+                        COALESCE(provider_hold_series_started_at, now())
+                        + make_interval(secs => $6)
+                    )
+                ),
+                updated_at = now()
+            WHERE breaker_provider = $1 AND breaker_model = $2
+              -- Only jobs that have not been held yet: the guard is what makes
+              -- the two writers idempotent.
+              AND provider_hold IS NULL
+              -- "Runnable": a fresh job, or a failed one whose backoff is due.
+              -- A `running` job is NOT touched — it has an owner, and its own
+              -- attempt takes the held path through `mark_held`.
+              AND (status = 'pending'
+                   OR (status = 'failed' AND
+                       (next_attempt_at IS NULL OR next_attempt_at <= now())))
+            RETURNING id, pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(provider.as_str())
+        .bind(model)
+        .bind(hold.until)
+        .bind(&hold.reason_code)
+        .bind(serde_json::to_value(&hold).map_err(|error| {
+            DomainError::validation(format!("provider hold is not serializable: {error}"))
+        })?)
+        .bind(i64::try_from(hold_window_secs).unwrap_or(i64::MAX))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id =
+                AiImportJobId::from_uuid(row.try_get::<Uuid, _>("id").map_err(map_sqlx_error)?);
+            self.hub.notify(id);
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
+    /// Re-point every held job of a pair at a new probe time (issue #871,
+    /// D-A6 `half_open → open`).
+    ///
+    /// A held row follows the breaker: without this its `until` would show a
+    /// resume time that has already passed while the claim predicate — which
+    /// reads the breaker, not the job — keeps it unclaimable.
+    async fn refresh_held_jobs(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        until: chrono::DateTime<Utc>,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        let rows = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET next_attempt_at = $3,
+                provider_hold = jsonb_set(
+                    provider_hold,
+                    '{until}',
+                    to_jsonb($3::timestamptz)
+                ),
+                updated_at = now()
+            WHERE breaker_provider = $1 AND breaker_model = $2
+              AND status = 'failed'
+              AND provider_hold IS NOT NULL
+              -- An EXPIRED marker is terminal: it must never be revived by a
+              -- later probe failure (D-C4).
+              AND COALESCE(provider_hold ->> 'state', '') <> 'expired'
+            RETURNING id, pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(provider.as_str())
+        .bind(model)
+        .bind(until)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id =
+                AiImportJobId::from_uuid(row.try_get::<Uuid, _>("id").map_err(map_sqlx_error)?);
+            self.hub.notify(id);
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
+    /// Owner-fenced rewrite of one job's breaker-key snapshot (issue #871).
+    async fn stamp_breaker_pair(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<(), DomainError> {
+        sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET breaker_provider = $3,
+                breaker_model = $4,
+                updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+              AND (breaker_provider IS DISTINCT FROM $3
+                   OR breaker_model IS DISTINCT FROM $4)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(provider.as_str())
+        .bind(model)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        // The row count is deliberately not inspected: zero rows is the NORMAL
+        // case (the WHERE clause skips an unchanged pair, and an unchanged pair
+        // is what most attempts see). A changed pair on a reclaimed job is
+        // rejected by the same owner fence every other worker write uses, and
+        // that attempt then fails on its next lifecycle write — turning a
+        // snapshot refresh into a hard error here would fail jobs for a
+        // bookkeeping write.
+        Ok(())
+    }
+
+    /// Rewrite the snapshot of every runnable job of one user (issue #871,
+    /// D-A2b layer 1 — the config-change edge).
+    async fn restamp_user_breaker_pair(
+        &self,
+        user_id: &UserId,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<u64, DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET breaker_provider = $2,
+                breaker_model = $3,
+                updated_at = now()
+            WHERE user_id = $1
+              -- Only rows that can still be claimed: a running job has an owner
+              -- and refreshes its own snapshot, and a terminal one never runs.
+              AND status IN ('pending', 'failed')
+              AND (breaker_provider IS DISTINCT FROM $2
+                   OR breaker_model IS DISTINCT FROM $3)
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(provider.as_str())
+        .bind(model)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        Ok(result.rows_affected())
+    }
+
+    /// Release every held job of a pair after the breaker closed (issue #871,
+    /// D-A6).
+    ///
+    /// `provider_hold_series_started_at` is deliberately **not** cleared: the
+    /// series clock is what stops a flapping provider from resetting its 6 h
+    /// budget on every short recovery (D-C4). It ends on claim, or by the
+    /// sweeper's stable-window hygiene.
+    async fn release_held_jobs(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        let rows = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET provider_hold = NULL,
+                updated_at = now()
+            WHERE breaker_provider = $1 AND breaker_model = $2
+              AND status = 'failed'
+              AND provider_hold IS NOT NULL
+              -- An EXPIRED marker is terminal: a close must never revive a job
+              -- that already dead-lettered for the hold.
+              AND COALESCE(provider_hold ->> 'state', '') <> 'expired'
+            RETURNING id, pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(provider.as_str())
+        .bind(model)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id =
+                AiImportJobId::from_uuid(row.try_get::<Uuid, _>("id").map_err(map_sqlx_error)?);
+            self.hub.notify(id);
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
+    /// Dead-letter the held jobs whose own deadline passed (issue #871, D-C4).
+    ///
+    /// The only path that can reach such a job: it is `failed` while its pair is
+    /// open, so the claim predicate keeps it unclaimable, and `mark_held`'s
+    /// owner fence needs a `running` row that no longer exists. Keyed on the
+    /// **job's own** `hold_deadline`, never on a claim.
+    ///
+    /// `retries` stays untouched and exactly one attempt row is written: the
+    /// document did not fail, the provider did. `provider_hold` is **kept** with
+    /// `state = expired` — the durable marker that lets a client tell "the
+    /// provider never came back" from "your retries are used up" (the two must
+    /// never share copy).
+    async fn expire_provider_holds(
+        &self,
+        error_summary: &str,
+        error_code: Option<&str>,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        // One attempt id PER expired job (issue #871 review): a single bound id
+        // would be inserted for every row of the CTE and violate the attempt
+        // primary key as soon as two holds expire in one tick — rolling the whole
+        // statement back and leaving the D-C4 budget unenforced forever, because
+        // the next tick would fail the same way.
+        //
+        // The ids are generated here (UUIDv7, per the repo rule) and joined to the
+        // candidate rows by ordinality, which also bounds the batch: at most
+        // `EXPIRE_BATCH` holds are examined per tick.
+        let attempt_ids: Vec<Uuid> = (0..EXPIRE_BATCH).map(|_| Uuid::now_v7()).collect();
+        let rows = sqlx::query(
+            r#"
+            WITH due AS (
+                SELECT id
+                FROM ai_import.ai_import_job
+                WHERE status = 'failed'
+                  AND provider_hold IS NOT NULL
+                  AND (provider_hold ->> 'hold_deadline')::timestamptz <= now()
+                ORDER BY (provider_hold ->> 'hold_deadline')::timestamptz
+                LIMIT $4
+                FOR UPDATE SKIP LOCKED
+            ),
+            numbered AS (
+                SELECT id, row_number() OVER (ORDER BY id) AS rn FROM due
+            ),
+            expired AS (
+                UPDATE ai_import.ai_import_job AS job
+                SET status = 'dead_letter',
+                    last_error = LEFT($1, 1000),
+                    next_attempt_at = NULL,
+                    progress = NULL,
+                    decision_telemetry = NULL,
+                    -- KEPT, not nulled: the marker the client branches on.
+                    provider_hold = jsonb_set(
+                        provider_hold,
+                        '{state}',
+                        '"expired"'
+                    ),
+                    provider_hold_series_started_at = NULL,
+                    worker_id = NULL,
+                    lease_expires_at = NULL,
+                    permit_id = NULL,
+                    updated_at = now()
+                FROM numbered
+                WHERE job.id = numbered.id
+                RETURNING job.id, job.retries, job.last_error, numbered.rn,
+                    pg_notify('ai_import_job_events', job.id::text)
+            )
+            INSERT INTO ai_import.ai_import_job_attempt
+                (id, job_id, attempt_no, status, error_summary, error_code, retryable)
+            -- Exactly ONE attempt row per expired job, each with its own id.
+            SELECT lease.attempt_id, expired.id, expired.retries + 1, 'dead_letter',
+                   expired.last_error, $3, FALSE
+            FROM expired
+            JOIN unnest($2::uuid[]) WITH ORDINALITY AS lease(attempt_id, rn)
+              ON lease.rn = expired.rn
+            RETURNING job_id
+            "#,
+        )
+        .bind(error_summary)
+        .bind(&attempt_ids)
+        .bind(error_code)
+        .bind(EXPIRE_BATCH)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id =
+                AiImportJobId::from_uuid(row.try_get::<Uuid, _>("job_id").map_err(map_sqlx_error)?);
+            self.hub.notify(id);
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
+    /// Record one paid-call outcome in the durable breaker (issue #871).
+    ///
+    /// Delegates to the breaker repository over the same pool, so the state
+    /// machine has exactly one implementation and the queue needs no second
+    /// wiring handle. Constructing the repository per call is a `PgPool` clone —
+    /// it holds no state of its own.
+    async fn record_provider_outcome(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        outcome: ProviderOutcome,
+        threshold: u32,
+    ) -> Result<BreakerDecision, DomainError> {
+        let health = super::provider_health::PgProviderHealth::new(self.pool.clone());
+        match outcome {
+            ProviderOutcome::Success => health.record_success(provider, model).await,
+            // A PERMANENT failure must never open the breaker: it would convert
+            // one user's misconfiguration into an outage for everyone on the
+            // endpoint (D-A1). It is therefore not reported to the counter at all.
+            ProviderOutcome::PermanentFailure => Ok(BreakerDecision::unchanged(BreakerCounters {
+                state: ProviderBreakerState::Closed,
+                consecutive_failures: 0,
+                flap_count: 0,
+                closed_at: None,
+            })),
+            ProviderOutcome::RetryableFailure => {
+                health.record_failure(provider, model, threshold).await
+            }
+        }
+    }
+
+    /// The provider breaker's verdict for one pair (issue #871).
+    ///
+    /// A single primary-key read, and `closed` when the pair has no row (never
+    /// seen a failure, so nothing to hold for). The claim predicate is the
+    /// authority; this is the cheap consult the worker uses mid-run.
+    async fn provider_breaker(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<ProviderBreakerSnapshot, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT state, consecutive_failures, flap_count, retry_at
+            FROM ai_import.provider_health
+            WHERE provider = $1 AND model = $2
+            "#,
+        )
+        .bind(provider.as_str())
+        .bind(model)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some(row) = row else {
+            return Ok(ProviderBreakerSnapshot::closed());
+        };
+        let raw: String = row.try_get("state").map_err(map_sqlx_error)?;
+        let state = match raw.as_str() {
+            "open" => ProviderBreakerState::Open,
+            "half_open" => ProviderBreakerState::HalfOpen,
+            _ => ProviderBreakerState::Closed,
+        };
+        Ok(ProviderBreakerSnapshot {
+            state,
+            consecutive_failures: u32::try_from(
+                row.try_get::<i32, _>("consecutive_failures")
+                    .map_err(map_sqlx_error)?,
+            )
+            .unwrap_or(0),
+            flap_count: u32::try_from(
+                row.try_get::<i32, _>("flap_count")
+                    .map_err(map_sqlx_error)?,
+            )
+            .unwrap_or(0),
+            retry_at: row.try_get("retry_at").map_err(map_sqlx_error)?,
+        })
     }
 
     /// Owner-fenced, throttled progress write (issue #664, ADR-038 D3).
@@ -1712,6 +2314,12 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         // stored purely for attribution: `block_id` stays the authoritative
         // write target. Absent for pre-#771 rows.
         target: decode_import_target(&row),
+        // The breaker key snapshot (issue #871, D-A2b). `NULL` for every
+        // pre-#871 row and for an upload whose config could not be resolved:
+        // such a job is never breaker-filtered, which is the honest
+        // degradation.
+        provider: decode_job_provider(&row),
+        model: row.try_get("breaker_model").map_err(map_sqlx_error)?,
         status,
         preview_handle: row.try_get("preview_handle").map_err(map_sqlx_error)?,
         last_error: row.try_get("last_error").map_err(map_sqlx_error)?,
@@ -1724,6 +2332,10 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
             .map_err(map_sqlx_error)?
             .max(0) as u32,
         next_attempt_at: row.try_get("next_attempt_at").map_err(map_sqlx_error)?,
+        // The provider hold (issue #871). Advisory visibility data like
+        // `progress`: an undecodable payload degrades to `None` rather than
+        // failing the whole job read.
+        provider_hold: decode_provider_hold(&row),
         // JSONB decoded through the core view type; `NULL`/undecodable
         // payloads degrade to `None` rather than failing the whole read —
         // progress is advisory visibility data, never correctness state.
@@ -1793,6 +2405,43 @@ fn decode_import_target(row: &sqlx::postgres::PgRow) -> Option<AiImportTarget> {
             block_number,
         }),
         _ => None,
+    }
+}
+
+/// Decode the `provider` snapshot column into the core enum (issue #871).
+///
+/// An unknown or missing value degrades to `None` — the job is then never
+/// breaker-filtered, which is the same honest degradation a pre-#871 row gets.
+fn decode_job_provider(row: &sqlx::postgres::PgRow) -> Option<LlmProvider> {
+    let raw = row
+        .try_get::<Option<String>, _>("provider")
+        .ok()
+        .flatten()?;
+    match serde_json::from_value::<LlmProvider>(serde_json::Value::String(raw)) {
+        Ok(provider) => Some(provider),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode ai_import provider snapshot");
+            None
+        }
+    }
+}
+
+/// Decode the nullable `provider_hold` JSONB column (issue #871).
+///
+/// Advisory visibility data: `NULL` (no hold), an undecodable payload or a
+/// missing column degrades to `None` instead of failing the whole job read —
+/// the same contract as `progress` and `apply_progress`.
+fn decode_provider_hold(row: &sqlx::postgres::PgRow) -> Option<ProviderHold> {
+    let value = row
+        .try_get::<Option<serde_json::Value>, _>("provider_hold")
+        .ok()
+        .flatten()?;
+    match serde_json::from_value::<ProviderHold>(value) {
+        Ok(hold) => Some(hold),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode ai_import provider hold payload");
+            None
+        }
     }
 }
 

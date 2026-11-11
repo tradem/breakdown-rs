@@ -73,6 +73,11 @@ const CASCADE_CLEARED_TABLES: &[&str] = &[
 /// audit/dead-letter/checkpoint state is meaningless once the store is empty.
 const OPERATIONAL_DELETES: &[&str] = &[
     "DELETE FROM ai_import.projection_ai_import_mapping",
+    // Issue #871: the breaker verdict is keyed per (provider, model) and
+    // outlives the jobs it protects, so it must go with them. A leftover row in
+    // state 'open' would filter every freshly seeded job of that pair against
+    // an outage that no longer exists. Ordered before the job delete (D-X3).
+    "DELETE FROM ai_import.provider_health",
     "DELETE FROM ai_import.ai_import_job",
     "DELETE FROM ai_import.concurrency_permit",
     "DELETE FROM ai_import.projection_ai_payload_gc_run",

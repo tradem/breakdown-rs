@@ -61,6 +61,10 @@ async fn seed_job(
     let id = AiImportJobId::new();
     let result = queue
         .enqueue(AiImportEnqueueRequest {
+            // Issue #871: no breaker snapshot in this fixture — the job is
+            // never breaker-filtered, which is the honest degradation.
+            provider: None,
+            model: None,
             id,
             user_id: UserId::from_sub(user),
             document_kind: kind,

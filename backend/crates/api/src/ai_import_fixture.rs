@@ -151,6 +151,10 @@ async fn seed_ai_import_preview<P: crate::state::Ports>(
         .ai_import_queue()
         .seed_succeeded(
             AiImportEnqueueRequest {
+                // Issue #871: no breaker snapshot in this fixture — the job is
+                // never breaker-filtered, which is the honest degradation.
+                provider: None,
+                model: None,
                 id: job_id,
                 user_id: current_user.sub.clone(),
                 document_kind: DocumentKind::Script,

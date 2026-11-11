@@ -16,6 +16,39 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.66.0] - Unreleased
+
+### Added — a provider outage stops costing money (issue #871, workstream A)
+
+- `AiImportBounds` splits the retry layers: `max_attempt_retries` (default 2, env
+  `AI_IMPORT_MAX_ATTEMPT_RETRIES`, `0..=10`) bounds the in-attempt loop while
+  `max_retries` keeps its job-level meaning. One knob allowed `5 × 5 = 25` paid
+  calls for a single chunk before anything surfaced.
+- `breaker_failure_threshold` (default 3), `breaker_enabled`
+  (`AI_IMPORT_BREAKER_ENABLED`, default true) and `max_provider_hold_secs`
+  (default 6 h). A compile-time assert ties the defaults
+  (`max_attempt_retries + 1 >= breaker_failure_threshold`); the runtime predicate
+  `breaker_threshold_exceeds_attempt_budget()` reports a legal-but-slower
+  configuration instead of rejecting it — the counter is per pair across all
+  jobs, chunks and replicas, so the breaker still opens.
+- `ProviderBreakerState` (`closed`/`open`/`half_open`/`expired`) and
+  `ProviderHold` on the wire, plus the additive `AiImportJob.provider_hold`,
+  `.provider` and `.model` (`serde(default)`, so a pre-#871 payload still
+  decodes). `expired` is documented as a **job-hold** state only: the breaker's
+  own state never takes it, and the distinction is what lets a client tell "the
+  provider never came back" from "your retries are used up".
+- `core::ai::provider_health` — the breaker state machine as pure functions
+  (`min_open`, `flap_count_on_open`, `on_retryable_failure`, `on_success`,
+  `on_probe_failure`, `on_probe_success`), so the transition table is testable as
+  a table instead of through a database.
+- `AiImportQueue::mark_held`, `hold_runnable_jobs`, `refresh_held_jobs`,
+  `expire_provider_holds` and the `provider_breaker`/`provider_admits` consult;
+  `AiImportEnqueueRequest.provider`/`.model`. `mark_held` defaults to
+  `release_claim` — never `mark_failed`, which would charge the very budget the
+  write exists to protect.
+- The `ProviderHealth` port (`state`, `record_failure`, `record_success`,
+  `try_begin_probe`, `finish_probe`, `open_breakers`).
+
 ## [0.65.0] - Unreleased
 
 ### Added — a failed attempt can name the LLM provider (issue #822)

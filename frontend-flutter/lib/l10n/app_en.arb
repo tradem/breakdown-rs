@@ -1341,5 +1341,10 @@
   "sceneUpdateErrorValidation": "The change was rejected — check the number and the texts.",
   "sceneUpdateErrorConflict": "The scene changed in the meantime. Refresh the view and try again.",
   "sceneUpdateErrorNetwork": "Network problem — the change was not saved. Try again.",
-  "sceneUpdateErrorGeneric": "The scene could not be saved ({code})."
+  "sceneUpdateErrorGeneric": "The scene could not be saved ({code}).",
+  "aiJobProviderHoldTitle": "{provider} is unreachable",
+  "aiJobProviderHoldBody": "The job waits until {until}, at the latest until {deadline}. No attempt is being spent – the import continues after the pause as soon as the provider is back.",
+  "aiJobProviderHoldExpiredBody": "The provider did not come back by {deadline}. The job was therefore ended without spending an attempt – upload the document again once the provider answers.",
+  "aiJobsRowProviderHold": "{provider} unreachable · waits until {until}",
+  "aiJobProviderHoldExpiredTitle": "{provider} did not come back"
 }

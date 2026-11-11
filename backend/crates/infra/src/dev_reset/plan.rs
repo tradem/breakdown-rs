@@ -149,6 +149,10 @@ pub const BOOKKEEPING_TABLES: &[(&str, &str)] = &[
         "SELECT count(*) FROM ai_import.projection_ai_import_mapping",
     ),
     (
+        "ai_import.provider_health",
+        "SELECT count(*) FROM ai_import.provider_health",
+    ),
+    (
         "ai_import.ai_import_job",
         "SELECT count(*) FROM ai_import.ai_import_job",
     ),

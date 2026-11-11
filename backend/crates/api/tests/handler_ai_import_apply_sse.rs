@@ -54,6 +54,10 @@ fn state(ports: FakePorts) -> AppState<FakePorts> {
 /// A `succeeded` job — the only state an apply can ever run against.
 fn succeeded_job(id: AiImportJobId) -> AiImportJob {
     AiImportJob {
+        // Issue #871: pre-#871 row — no provider snapshot, no hold.
+        provider: None,
+        model: None,
+        provider_hold: None,
         id,
         user_id: UserId::from_sub(TEST_SUB),
         document_kind: DocumentKind::Script,

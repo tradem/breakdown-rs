@@ -147,6 +147,10 @@ async fn harness() -> Result<Harness> {
 /// job-progress tests): one fresh job, no payload storage configured.
 fn make_enqueue_request(user_id: &str) -> AiImportEnqueueRequest {
     AiImportEnqueueRequest {
+        // Issue #871: no breaker snapshot in this fixture — the job is
+        // never breaker-filtered, which is the honest degradation.
+        provider: None,
+        model: None,
         id: AiImportJobId::new(),
         user_id: breakdown_core::shared::UserId::from_sub(user_id),
         document_kind: DocumentKind::Script,

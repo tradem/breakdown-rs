@@ -4250,4 +4250,29 @@ class AppLocalizationsDe extends AppLocalizations {
   String sceneUpdateErrorGeneric(Object code) {
     return 'Die Szene konnte nicht gespeichert werden ($code).';
   }
+
+  @override
+  String aiJobProviderHoldTitle(String provider) {
+    return '$provider ist nicht erreichbar';
+  }
+
+  @override
+  String aiJobProviderHoldBody(String until, String deadline) {
+    return 'Der Auftrag wartet bis $until; spätestens bis $deadline. Kein Versuch wird verbraucht – der Import läuft nach der Pause weiter, sobald der Anbieter zurück ist.';
+  }
+
+  @override
+  String aiJobProviderHoldExpiredBody(String deadline) {
+    return 'Der Anbieter ist bis $deadline nicht zurückgekommen. Der Auftrag wurde deshalb beendet, ohne einen Versuch zu verbrauchen – laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.';
+  }
+
+  @override
+  String aiJobsRowProviderHold(String provider, String until) {
+    return '$provider nicht erreichbar · wartet bis $until';
+  }
+
+  @override
+  String aiJobProviderHoldExpiredTitle(String provider) {
+    return '$provider ist nicht zurückgekommen';
+  }
 }

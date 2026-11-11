@@ -38,6 +38,9 @@ pub struct OpenAiCompatibleChatClient {
     provider: LlmProvider,
     api_key: SecretValue,
     timeout: Duration,
+    /// The provider breaker (issue #871, D-C2/2.9b). `None` in tests and in
+    /// builds that run without a breaker: no guard, no behaviour change.
+    health: Option<std::sync::Arc<dyn breakdown_core::ai::ProviderHealth>>,
 }
 
 /// Output-token budget growth per truncation retry (doubling) and the number
@@ -54,6 +57,36 @@ const TRUNCATION_RETRY_BUDGET_GROWTH: u32 = 2;
 const MAX_TRUNCATION_RETRIES: u32 = 2;
 
 impl OpenAiCompatibleChatClient {
+    /// Attach the provider breaker (issue #871).
+    ///
+    /// The guard has to live **inside** the client, because one attempt is not
+    /// one request: `request_decoded` issues up to `1 + MAX_TRUNCATION_RETRIES =
+    /// 3` billed requests while re-requesting a truncated answer. A guard only at
+    /// the caller's attempt boundary would let the second and third request go out
+    /// after another worker had already opened the breaker.
+    #[must_use]
+    pub fn with_provider_health(
+        mut self,
+        health: std::sync::Arc<dyn breakdown_core::ai::ProviderHealth>,
+    ) -> Self {
+        self.health = Some(health);
+        self
+    }
+
+    /// Refuse the next billable request when the breaker is open.
+    ///
+    /// A failed read admits (the consult only ever saves money).
+    async fn admits_billable_request(&self, model: &str) -> bool {
+        let Some(health) = &self.health else {
+            return true;
+        };
+        health
+            .state(self.provider, model)
+            .await
+            .map(|snapshot| snapshot.admits_claim())
+            .unwrap_or(true)
+    }
+
     /// Reject Ollama in this client: its curated base URL is plain HTTP and
     /// sending vaulted bearer credentials there would leak them (CWE-319).
     /// Ollama must be routed through `OllamaChatClient`.
@@ -95,6 +128,7 @@ impl OpenAiCompatibleChatClient {
             provider,
             api_key: SecretValue::new(api_key),
             timeout,
+            health: None,
         })
     }
 
@@ -132,6 +166,7 @@ impl OpenAiCompatibleChatClient {
             provider,
             api_key: SecretValue::new(api_key),
             timeout,
+            health: None,
         })
     }
 
@@ -175,6 +210,11 @@ impl OpenAiCompatibleChatClient {
         // provider billed those tokens too.
         let mut total_usage = LlmCallUsage::default();
         loop {
+            // Issue #871: BEFORE every billable request, truncation retries
+            // included. An open breaker costs no request and no delay.
+            if !self.admits_billable_request(&req.model).await {
+                return Err(super::provider_health::breaker_open_error());
+            }
             let body = ChatCompletionRequest {
                 model: req.model.clone(),
                 // The configured prompt (instructions) is carried in a system

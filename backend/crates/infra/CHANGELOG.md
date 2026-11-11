@@ -16,6 +16,37 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.76.0] - Unreleased
+
+### Added — durable provider breaker, probe and hold sweeper (issue #871, workstream A)
+
+- Migration `20261110000001_ai_import_provider_health`: the
+  `ai_import.provider_health` table (one row per `(provider, model)`, three-value
+  state CHECK, flap/`closed_at`/probe-lease columns) plus the additive job
+  columns `breaker_provider`, `breaker_model`, `provider_hold` and
+  `provider_hold_series_started_at`. The breaker key gets its own pair rather
+  than the existing `provider`/`model` columns: those are the **telemetry**
+  provenance of the attempt that produced the result, and `has_telemetry` is
+  derived from `provider IS NOT NULL` — an enqueue-time snapshot there would make
+  a job that recorded nothing report a telemetry summary of zeros.
+- All four claim paths carry one predicate: only a `closed` breaker admits a
+  claim. `retry_at` is deliberately not part of it (it is the probe schedule, not
+  a claim gate).
+- `mark_held` (retries untouched, no attempt row, breaker `retry_at` as
+  `next_attempt_at`, series clock + derived `hold_deadline` in SQL), hold
+  materialization/refresh, and the claim-free expiry that dead-letters at the
+  job's own deadline with `state = expired` and exactly one attempt row.
+- `infra::ai::provider_health::PgProviderHealth`: the core state machine applied
+  as read → pure decision → compare-and-set, so the arithmetic has one source of
+  truth. Every committed transition logs the `#871 provider breaker` marker.
+- `infra::ai::provider_probe`: the recovery probe (catalog read for hosted
+  providers with a donor job's own vaulted key, unauthenticated `/api/tags` for
+  Ollama), lease → request outside any transaction → fenced result.
+- `infra::ai::provider_watch`: the claim-free sweeper (materialize the holds the
+  open-time write cannot reach + expire the overdue ones) under one advisory
+  lock, `AI_IMPORT_PROVIDER_SWEEP_INTERVAL_SECS` (default 60).
+- `dev_reset` registers `provider_health` before the job delete.
+
 ## [0.75.0] - Unreleased
 
 ### Changed — provider failures are provider-attributed, and the jobs list carries attempt history (issue #822)

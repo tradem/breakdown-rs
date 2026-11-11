@@ -442,6 +442,10 @@ mod apply_run_state_default {
             source_handle: "source".to_owned(),
             source_file_name: None,
             target: None,
+            // Issue #871: no provider snapshot and no hold on a pre-#871 row.
+            provider: None,
+            model: None,
+            provider_hold: None,
             status: JobStatus::Succeeded,
             preview_handle: Some("preview".to_owned()),
             last_error: None,

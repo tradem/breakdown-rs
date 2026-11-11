@@ -51,6 +51,7 @@ AiImportJob _job(
   AiImportTarget? target,
   DecisionTelemetry? decisionTelemetry,
   DateTime? updatedAt,
+  ProviderHold? providerHold,
 }) => AiImportJob(
   (b) => b
     ..id = 'job-1'
@@ -77,6 +78,8 @@ AiImportJob _job(
     ..maxRetries = maxRetries
     ..lastError = lastError
     ..nextAttemptAt = nextAttemptAt
+    // Issue #871: the hold marker, when the scenario is a held job.
+    ..providerHold = providerHold?.toBuilder()
     ..attempts.addAll(attempts)
     ..progress = progress == null
         ? null
@@ -1862,6 +1865,99 @@ void main() {
         );
       });
     }
+  });
+
+  // ---------------------------------------------------------------------
+  // Issue #871: a HELD job (waiting is correct and free) vs. a genuine
+  // retry exhaustion. The two must never share copy.
+  // ---------------------------------------------------------------------
+
+  ProviderHold holdFixture({
+    required ProviderBreakerState state,
+    required DateTime until,
+    required DateTime deadline,
+  }) => ProviderHold(
+    (b) => b
+      ..provider = LlmProvider.opencodeGo
+      ..model = 'some-model'
+      ..reasonCode = aiLlmProviderUnavailableCode
+      ..state = state
+      ..until = until
+      ..holdDeadline = deadline
+      ..chunksDone = 0,
+  );
+
+  testWidgets('a HELD job explains the wait and promises the resume '
+      '(issue #871)', (tester) async {
+    now = DateTime.utc(2026, 11, 4, 7, 7);
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.failed,
+          retries: 0,
+          maxRetries: 5,
+          nextAttemptAt: DateTime.utc(2026, 11, 4, 7, 10),
+          providerHold: holdFixture(
+            state: ProviderBreakerState.open,
+            until: DateTime.utc(2026, 11, 4, 7, 10),
+            deadline: DateTime.utc(2026, 11, 4, 13, 6),
+          ),
+          // A hold writes NO attempt row; the history is deliberately empty.
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-job-provider-hold')), findsOneWidget);
+    // The dependency is NAMED, with the wire spelling the AI-config screen uses.
+    expect(find.text('opencode-go is unreachable'), findsOneWidget);
+    // The two clock boundaries are rendered, and the wait is stated as free.
+    final body = tester
+        .widget<Text>(find.byKey(const Key('ai-job-provider-hold-body')))
+        .data!;
+    expect(RegExp(r'\d{1,2}:\d{2}').allMatches(body).length, 2);
+    expect(find.textContaining('No attempt is being spent'), findsOneWidget);
+    // A hold is NOT a degradation: the count-of-failures banner must not appear,
+    // because no attempt was charged.
+    expect(find.byKey(const Key('ai-job-provider-degraded')), findsNothing);
+    await tester.pump();
+  });
+
+  testWidgets('an EXPIRED hold says the provider never came back and never '
+      'claims the retry budget was spent (issue #871)', (tester) async {
+    now = DateTime.utc(2026, 11, 4, 13, 7);
+    await setupContainer(
+      Right(
+        _job(
+          JobStatus.deadLetter,
+          // Deliberately untouched: the expiry charges no retry.
+          retries: 0,
+          maxRetries: 5,
+          providerHold: holdFixture(
+            state: ProviderBreakerState.expired,
+            until: DateTime.utc(2026, 11, 4, 13, 0),
+            deadline: DateTime.utc(2026, 11, 4, 13, 6),
+          ),
+          attempts: [
+            _attempt(
+              1,
+              code: aiLlmProviderUnavailableCode,
+              createdAt: DateTime.utc(2026, 11, 4, 7, 6),
+            ),
+          ],
+        ),
+      ),
+    );
+    await pumpScreen(tester);
+
+    expect(find.byKey(const Key('ai-job-provider-hold')), findsOneWidget);
+    expect(find.textContaining('did not come back by'), findsOneWidget);
+    // The spent-budget narrative belongs to a genuine exhaustion — the expiry
+    // never spent the budget, so this copy must not appear.
+    expect(find.textContaining('retry budget is used up'), findsNothing);
+    // Nor does the count-of-failures banner.
+    expect(find.byKey(const Key('ai-job-provider-degraded')), findsNothing);
+    await tester.pump();
   });
 }
 

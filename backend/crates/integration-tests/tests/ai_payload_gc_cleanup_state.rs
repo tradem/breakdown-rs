@@ -63,6 +63,10 @@ async fn seed_job(queue: &PgAiImportQueue, dedup: &str) -> AiImportJobId {
     let id = AiImportJobId::new();
     let result = queue
         .enqueue(AiImportEnqueueRequest {
+            // Issue #871: no breaker snapshot in this fixture — the job is
+            // never breaker-filtered, which is the honest degradation.
+            provider: None,
+            model: None,
             id,
             user_id: breakdown_core::shared::UserId::from_sub("payload-gc-user"),
             document_kind: DocumentKind::Script,

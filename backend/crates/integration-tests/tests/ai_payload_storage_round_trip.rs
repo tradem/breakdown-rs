@@ -293,6 +293,10 @@ async fn ai_payload_storage_lifecycle_survives_restart() -> Result<()> {
     let source_handle = storage_a.put_source(job_id, csv.clone()).await?;
     let enqueued = queue_a
         .enqueue(AiImportEnqueueRequest {
+            // Issue #871: no breaker snapshot in this fixture — the job is
+            // never breaker-filtered, which is the honest degradation.
+            provider: None,
+            model: None,
             id: job_id,
             user_id: user_id.clone(),
             document_kind: DocumentKind::Schedule,
@@ -420,6 +424,10 @@ async fn ai_payload_apply_round_trips_through_projection() -> Result<()> {
         .await?;
     let enqueued = queue_a
         .enqueue(AiImportEnqueueRequest {
+            // Issue #871: no breaker snapshot in this fixture — the job is
+            // never breaker-filtered, which is the honest degradation.
+            provider: None,
+            model: None,
             id: job_id,
             user_id: user_id.clone(),
             document_kind: DocumentKind::Script,

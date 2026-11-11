@@ -203,6 +203,108 @@ class AiProviderDegradation {
   );
 }
 
+/// The provider's wire key (`opencode-go`, `ollama`, …) for user-facing copy.
+///
+/// `LlmProvider` is a generated `EnumClass`, whose `toString()` yields the DART
+/// identifier (`opencodeGo`), not the wire spelling the rest of the product uses.
+/// Mapping here keeps the banner copy identical to the AI-config screen's
+/// vocabulary without inventing a second source of truth on the backend.
+String aiProviderWireKey(LlmProvider provider) {
+  if (provider == LlmProvider.openai) return 'openai';
+  if (provider == LlmProvider.gemini) return 'gemini';
+  if (provider == LlmProvider.openrouter) return 'openrouter';
+  if (provider == LlmProvider.eurouter) return 'eurouter';
+  if (provider == LlmProvider.neuralwatt) return 'neuralwatt';
+  if (provider == LlmProvider.opencodeGo) return 'opencode-go';
+  if (provider == LlmProvider.opencode) return 'opencode';
+  if (provider == LlmProvider.ollama) return 'ollama';
+  // A provider the client does not know yet still renders something stable.
+  return provider.toString();
+}
+
+/// The job is **held** for a degraded provider (issue #871).
+///
+/// Deliberately a second, narrower derivation next to
+/// [`AiProviderDegradation`] rather than a replacement: the two answer different
+/// questions and must never share copy.
+///
+/// * a **hold** says *"waiting is correct and free"* — `retries` was not
+///   charged and no attempt row exists, so the retry budget is intact;
+/// * **degradation** says *"your attempts failed and the budget is going"*.
+///
+/// The trap this guards against: a hold-expired job is `dead_letter` with a
+/// provider-attributed history, so the #822 derivation would happily render the
+/// **spent-budget** copy — while `retries` was deliberately never charged. The
+/// expiry marker `provider_hold.state == expired` is the only durable signal
+/// that separates the two, which is exactly why the backend keeps the field on
+/// the terminal write.
+class AiProviderHold {
+  const AiProviderHold({
+    required this.provider,
+    required this.until,
+    required this.holdDeadline,
+    required this.expired,
+    required this.chunksDone,
+  });
+
+  /// The provider's wire key (e.g. `opencode-go`); the client never renders the
+  /// model, which is an operator detail.
+  final String provider;
+
+  /// The breaker's next probe — also the job's `next_attempt_at`.
+  final DateTime until;
+
+  /// The absolute end of the hold series; the job dead-letters here.
+  final DateTime holdDeadline;
+
+  /// `true` when the hold ran out: the provider did not come back in time. The
+  /// copy must then stop promising that the import continues.
+  final bool expired;
+
+  /// Chunks already paid for and stored (the resume point). `0` until the chunk
+  /// store ships (workstream B).
+  final int chunksDone;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AiProviderHold &&
+          other.provider == provider &&
+          other.until == until &&
+          other.holdDeadline == holdDeadline &&
+          other.expired == expired &&
+          other.chunksDone == chunksDone;
+
+  @override
+  int get hashCode =>
+      Object.hash(provider, until, holdDeadline, expired, chunksDone);
+}
+
+/// The provider hold of [job], or `null` when the job is not held (issue #871).
+///
+/// Only a `failed` or `dead_letter` job can be held: the hold is written on the
+/// retryable path (`mark_held` lands `failed`) and kept by the expiry
+/// (`dead_letter` with `state = expired`). Anything else means the field is
+/// stale, and a stale field must not produce a banner.
+AiProviderHold? aiProviderHold(AiImportJob job) {
+  final hold = job.providerHold;
+  if (hold == null) return null;
+  if (job.status != JobStatus.failed && job.status != JobStatus.deadLetter) {
+    return null;
+  }
+  final expired = hold.state == ProviderBreakerState.expired;
+  // A terminal job that is NOT the expiry is a genuine failure: the terminal
+  // card's own copy is the honest one there, so the hold banner steps aside.
+  if (job.status == JobStatus.deadLetter && !expired) return null;
+  return AiProviderHold(
+    provider: aiProviderWireKey(hold.provider),
+    until: hold.until,
+    holdDeadline: hold.holdDeadline,
+    expired: expired,
+    chunksDone: hold.chunksDone,
+  );
+}
+
 /// The provider-degraded state of [job], or `null` when it does not apply
 /// (issue #822).
 ///

@@ -23,9 +23,11 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
+use super::provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 use super::views::{
     AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget, ApplyProgress,
-    ApplyRunId, ApplyRunState, DocumentKind, ModelPricing, SourceFormat, Telemetry,
+    ApplyRunId, ApplyRunState, DocumentKind, ModelPricing, ProviderBreakerState, ProviderHold,
+    SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -346,6 +348,19 @@ pub struct AiImportEnqueueRequest {
     /// edge (issue #763). `None` for an upload that carried no name, which the
     /// job row stores as `NULL` — never a fabricated or handle-derived value.
     pub source_file_name: Option<String>,
+    /// The provider of the user's active AI config, snapshotted at the API edge
+    /// (issue #871, D-A2b).
+    ///
+    /// Source of the value is the API edge — the only legitimate read-model
+    /// consumer, exactly as for the `target` snapshot (#771) and
+    /// `source_file_name` (#763). The claim predicate filters on this pair and
+    /// runs *before* `resolve_config`, so a stale snapshot is refreshed at the
+    /// config-change edge and re-checked (authoritatively) after resolution.
+    /// `None` means "could not be resolved" — such a job is never
+    /// breaker-filtered, which is the honest degradation.
+    pub provider: Option<LlmProvider>,
+    /// The model of the user's active AI config. See [`Self::provider`].
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -534,6 +549,250 @@ pub trait AiImportQueue: Send + Sync {
     ) -> Result<(), DomainError> {
         self.mark_failed(id, worker_id, error_summary, error_code, false)
             .await
+    }
+
+    /// Park a claimed job on its provider's breaker **without** spending a
+    /// retry (issue #871, D-A4).
+    ///
+    /// Deliberately not `mark_failed`:
+    ///
+    /// | | `mark_failed` | `mark_held` |
+    /// |---|---|---|
+    /// | `retries` | +1 | **unchanged** |
+    /// | attempt row | appended | **none** |
+    /// | `status` | `failed` → maybe `dead_letter` | `failed` |
+    /// | `next_attempt_at` | job backoff (1 min · 2^n) | the breaker's `retry_at` |
+    /// | `last_error` | error summary | provider summary (old clients keep the #822 narrative) |
+    /// | `progress` | kept on the retryable branch | kept |
+    /// | `provider_hold` | cleared | set |
+    ///
+    /// The budget must not be consumed by an attempt that never reached the
+    /// provider, and the attempt history must not fill with identical rows —
+    /// that is the whole point of the separate write.
+    ///
+    /// Owner-fenced like every other worker transition. The implementation also
+    /// owns the hold **series clock** (`COALESCE(provider_hold_series_started_at,
+    /// now())`) and therefore the `hold_deadline`, so a re-hold can never
+    /// restart the expiry budget (D-C4).
+    ///
+    /// The default hands the job back through
+    /// [`release_claim`](Self::release_claim) — the pre-existing "return a
+    /// claimed job to the runnable pool **without** counting an attempt"
+    /// transition. That is the honest fallback for a backend with no durable
+    /// breaker: nothing is charged, and the job stays claimable. Falling back to
+    /// [`mark_failed`](Self::mark_failed) would charge the very budget this
+    /// write exists to protect.
+    ///
+    /// `hold_window_secs` is the configured
+    /// `AI_IMPORT_MAX_PROVIDER_HOLD_SECS`: the deadline is derived from the
+    /// job's own series clock plus this window, so it must be passed in rather
+    /// than inferred from the hold's `hold_deadline - until` (that difference is
+    /// short by the current open window, which grows to 30 min under flapping).
+    async fn mark_held(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        _hold: ProviderHold,
+        _hold_window_secs: u64,
+    ) -> Result<(), DomainError> {
+        self.release_claim(id, worker_id).await
+    }
+
+    /// Materialize a hold on every **runnable** job of a pair (issue #871,
+    /// D-A4 writer 2).
+    ///
+    /// Runs on the `closed → open` transition: a job whose pair is already open
+    /// is never claimed, so an owner-fenced write could not reach it — it would
+    /// sit `pending` with no reason and no deadline, which is exactly the
+    /// invisibility #822 removed. No claim, no owner, no provider call.
+    ///
+    /// Returns the ids it touched so the caller can notify each one through the
+    /// existing hub.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn hold_runnable_jobs(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+        _hold: ProviderHold,
+        _hold_window_secs: u64,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    /// Re-point every held job of a pair at a new probe time (issue #871,
+    /// D-A6 `half_open → open`).
+    ///
+    /// Without it a held job would display a resume time that has already
+    /// passed while the claim predicate — which reads the **breaker**, not the
+    /// job — keeps it unclaimable.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn refresh_held_jobs(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+        _until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    /// Rewrite the breaker-key snapshot of one job (issue #871, D-A2b).
+    ///
+    /// The snapshot is taken at enqueue, but the pair a job actually uses is
+    /// resolved per attempt. When the two differ the resolved pair wins: the
+    /// claim predicate must filter on the pair the next attempt will call, or a
+    /// job could be filtered forever against a breaker it no longer uses.
+    ///
+    /// Owner-fenced: only the worker holding the claim may rewrite it, so a
+    /// displaced worker cannot stamp a pair onto a job another worker is running.
+    ///
+    /// The default implementation is a no-op for backends without a snapshot.
+    async fn stamp_breaker_pair(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// Rewrite the breaker-key snapshot of **every runnable job of one user**
+    /// (issue #871, D-A2b layer 1).
+    ///
+    /// The config-change edge calls this: when a user switches provider or model,
+    /// their queued jobs must be filtered against the breaker of the pair they
+    /// will now use — not the one they were enqueued with. One statement, and it
+    /// deliberately touches only `pending`/`failed` rows: a `running` job has an
+    /// owner and its own attempt refreshes the snapshot authoritatively, and a
+    /// terminal job will never be claimed again.
+    ///
+    /// The default implementation is a no-op for backends without a snapshot.
+    async fn restamp_user_breaker_pair(
+        &self,
+        _user_id: &UserId,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<u64, DomainError> {
+        Ok(0)
+    }
+
+    /// Release every held job of a pair because the breaker **closed**
+    /// (issue #871, D-A6).
+    ///
+    /// A close means the endpoint answers again, so the wait is over: the rows
+    /// drop `provider_hold` and become claimable through their own (now past)
+    /// `next_attempt_at`. Without this the marker would linger until each job is
+    /// claimed, and a client would keep rendering "waiting until X" for a job
+    /// that is already runnable.
+    ///
+    /// The **hold series clock survives** (`provider_hold_series_started_at` is
+    /// deliberately not touched): a short recovery must not hand the next
+    /// incident a fresh 6 h budget, which is exactly the flapping hole D-C4
+    /// closes. The clock is cleared on claim, or by the sweeper once the job has
+    /// been un-held for the stable window.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn release_held_jobs(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    /// Expire held jobs whose own `hold_deadline` passed (issue #871, D-C4).
+    ///
+    /// The **only** path that can reach such a job: it is `failed` while its
+    /// pair is open, so the claim predicate keeps it unclaimable, and
+    /// [`mark_held`](Self::mark_held)'s owner fence needs a `running` row that
+    /// no longer exists. A claim-free sweeper therefore performs it, keyed on
+    /// the job's own deadline rather than on any claim.
+    ///
+    /// `retries` stays untouched — the document did not fail, the provider did,
+    /// so the operator's "documents that failed" count must not be inflated by
+    /// infrastructure — and `provider_hold` is kept with
+    /// `state = expired`, the durable marker that separates an expiry from a
+    /// spent retry budget.
+    ///
+    /// Returns the ids it dead-lettered.
+    ///
+    /// The default implementation is a no-op for backends with no job table.
+    async fn expire_provider_holds(
+        &self,
+        _error_summary: &str,
+        _error_code: Option<&str>,
+    ) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    /// The provider breaker's verdict for one `(provider, model)` pair
+    /// (issue #871).
+    ///
+    /// Consulted by the worker at the **chunk boundary** and by the in-attempt
+    /// retry loop before every attempt, which is how an outage stops costing
+    /// money mid-run: the in-flight request is not aborted (an aborted HTTP
+    /// request is not refunded), so the only honest saving is not *starting* the
+    /// next one. The overspend bound is therefore exactly one chunk per worker.
+    ///
+    /// The default reports `closed` — a backend with no durable breaker admits
+    /// everything, which is exactly the pre-#871 behaviour.
+    async fn provider_breaker(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<ProviderBreakerSnapshot, DomainError> {
+        Ok(ProviderBreakerSnapshot::closed())
+    }
+
+    /// Record one paid-call outcome in the durable breaker (issue #871, D-A3).
+    ///
+    /// This is the **write** side of the breaker and the only thing that makes
+    /// it real: without it `consecutive_failures` never moves, so a closed
+    /// breaker can never open from actual traffic and the claim filter, the holds
+    /// and the expiry machinery would all be inert.
+    ///
+    /// Only **retryable provider failures** may be recorded as
+    /// [`ProviderOutcome::RetryableFailure`] — a revoked key or an entitlement 4xx
+    /// is permanent (#637) and would convert one user's misconfiguration into an
+    /// outage for everyone on the endpoint.
+    ///
+    /// Returns the transition, so the caller can act on it: `opened` means the
+    /// caller holds its job, `closed` means the pair's held jobs may be released.
+    ///
+    /// The default reports "nothing changed" for backends without a breaker.
+    async fn record_provider_outcome(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+        _outcome: ProviderOutcome,
+        _threshold: u32,
+    ) -> Result<BreakerDecision, DomainError> {
+        Ok(BreakerDecision::unchanged(BreakerCounters {
+            state: ProviderBreakerState::Closed,
+            consecutive_failures: 0,
+            flap_count: 0,
+            closed_at: None,
+        }))
+    }
+
+    /// Whether a paid call for this pair may be started right now.
+    ///
+    /// Derived from [`provider_breaker`](Self::provider_breaker) so there is one
+    /// source of truth for "only `closed` admits work". A **failed read fails
+    /// open**: this consult only ever *saves* money, so a database hiccup must
+    /// not silently stop the whole pipeline.
+    async fn provider_admits(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<bool, DomainError> {
+        Ok(self
+            .provider_breaker(provider, model)
+            .await
+            .map(|snapshot| snapshot.admits_claim())
+            .unwrap_or(true))
     }
 
     /// Publish live extraction progress for a claimed job (issue #664).
@@ -989,4 +1248,138 @@ pub trait AiImportMappingRepository: Send + Sync {
         &self,
         preview_id: AiImportJobId,
     ) -> Result<Vec<AiImportMapping>, DomainError>;
+}
+
+/// One breaker row as the worker needs to read it (issue #871).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderBreakerSnapshot {
+    pub state: ProviderBreakerState,
+    pub consecutive_failures: u32,
+    pub flap_count: u32,
+    /// The next probe time; `None` while `closed`.
+    pub retry_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl ProviderBreakerSnapshot {
+    /// A pair nobody has observed a failure for yet.
+    #[must_use]
+    pub const fn closed() -> Self {
+        Self {
+            state: ProviderBreakerState::Closed,
+            consecutive_failures: 0,
+            flap_count: 0,
+            retry_at: None,
+        }
+    }
+
+    /// Whether a job of this pair may be claimed. Only `closed` admits a claim:
+    /// `retry_at` is the probe schedule, never a claim gate (D-A2).
+    #[must_use]
+    pub const fn admits_claim(&self) -> bool {
+        matches!(self.state, ProviderBreakerState::Closed)
+    }
+}
+
+/// A breaker row that is **not** closed, as the sweeper/probe task selects it
+/// (issue #871, D-A3/D-C4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenBreaker {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub state: ProviderBreakerState,
+    pub retry_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The fence of one probe attempt (issue #871, D-A6).
+///
+/// `probe_owner` alone is **not** the fence: the same worker (or task instance)
+/// can reacquire the lease, and its earlier result would then still match. The
+/// fence is `lease_id`, a fresh UUIDv7 written by the `open → half_open` CAS and
+/// matched by the result write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeLease {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub owner: String,
+    pub lease_id: Uuid,
+}
+
+/// What a probe observed about the **endpoint** (issue #871, D-A3).
+///
+/// Reachability only: a probe result is a verdict about the endpoint, never
+/// about a document, so it never retires or terminalizes a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeOutcome {
+    /// The endpoint answered (2xx, or a 401/403 credential rejection — the
+    /// endpoint demonstrably answered, which is what the probe measures).
+    Reachable,
+    /// Transport error, timeout, 429 or 5xx: the outage this breaker exists for.
+    Unreachable,
+}
+
+/// Durable provider-health state, one row per `(provider, model)` pair
+/// (issue #871, D-A2).
+///
+/// The worker loop and the probe/sweeper tasks talk to this port instead of to
+/// SQL, so the breaker is unit-testable against a fake and the queue stays
+/// unaware of it — the claim predicate is the only place the two meet, and it
+/// meets in SQL.
+#[async_trait]
+pub trait ProviderHealth: Send + Sync {
+    /// The current verdict. A pair with no row is `closed` — never seen a
+    /// failure, so nothing to hold for.
+    async fn state(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<ProviderBreakerSnapshot, DomainError>;
+
+    /// Count one **retryable** provider failure (D-A1) and open the breaker at
+    /// `threshold` consecutive failures.
+    ///
+    /// Only retryable failures may call this: a revoked key or an entitlement
+    /// 4xx is permanent (#637) and would convert one user's misconfiguration
+    /// into an outage for everyone on the endpoint.
+    ///
+    /// When the returned decision has `opened`, the caller materializes the
+    /// holds through [`AiImportQueue::hold_runnable_jobs`].
+    async fn record_failure(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        threshold: u32,
+    ) -> Result<BreakerDecision, DomainError>;
+
+    /// Record that the endpoint answered a **paid call**: reset the failure
+    /// count and close. When the returned decision has `closed`, the caller
+    /// releases the pair's held jobs through the queue.
+    async fn record_success(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<BreakerDecision, DomainError>;
+
+    /// CAS `open → half_open` with a fresh lease, so exactly one prober runs per
+    /// window. `None` when another task already holds the lease or the breaker
+    /// is not open.
+    async fn try_begin_probe(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        owner: &str,
+    ) -> Result<Option<ProbeLease>, DomainError>;
+
+    /// Write a probe result, **fenced to its lease**. `false` when the lease is
+    /// stale (another task owns the state now) — the result is then discarded,
+    /// which is the same `ensure_claim_owned` discipline every other
+    /// owner-fenced write uses.
+    async fn finish_probe(
+        &self,
+        lease: &ProbeLease,
+        outcome: ProbeOutcome,
+    ) -> Result<BreakerDecision, DomainError>;
+
+    /// Every breaker that is not `closed`, for the probe task and the sweeper
+    /// (bounded by the caller).
+    async fn open_breakers(&self, limit: i64) -> Result<Vec<OpenBreaker>, DomainError>;
 }

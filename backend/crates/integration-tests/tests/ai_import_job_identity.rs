@@ -28,6 +28,10 @@ use uuid::Uuid;
 
 fn make_request(user_id: &str, source_file_name: Option<&str>) -> AiImportEnqueueRequest {
     AiImportEnqueueRequest {
+        // Issue #871: no breaker snapshot in this fixture — the job is
+        // never breaker-filtered, which is the honest degradation.
+        provider: None,
+        model: None,
         id: AiImportJobId::new(),
         user_id: breakdown_core::shared::UserId::from_sub(user_id),
         document_kind: DocumentKind::Script,

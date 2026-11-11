@@ -150,6 +150,8 @@ export 'package:breakdown_api/src/model/plan_scene_shoot_request.dart';
 export 'package:breakdown_api/src/model/pricing_source.dart';
 export 'package:breakdown_api/src/model/problem_details.dart';
 export 'package:breakdown_api/src/model/projector_health_snapshot.dart';
+export 'package:breakdown_api/src/model/provider_breaker_state.dart';
+export 'package:breakdown_api/src/model/provider_hold.dart';
 export 'package:breakdown_api/src/model/rename_episode_request.dart';
 export 'package:breakdown_api/src/model/rename_outfit_request.dart';
 export 'package:breakdown_api/src/model/rename_piece_request.dart';

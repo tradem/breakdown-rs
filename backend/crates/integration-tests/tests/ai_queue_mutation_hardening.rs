@@ -22,6 +22,10 @@ use uuid::Uuid;
 
 fn make_enqueue_request(user_id: &str, kind: DocumentKind) -> AiImportEnqueueRequest {
     AiImportEnqueueRequest {
+        // Issue #871: no breaker snapshot in this fixture — the job is
+        // never breaker-filtered, which is the honest degradation.
+        provider: None,
+        model: None,
         id: AiImportJobId::new(),
         user_id: breakdown_core::shared::UserId::from_sub(user_id),
         document_kind: kind,
@@ -597,11 +601,19 @@ async fn duplicate_dedup_key_returns_existing() -> Result<()> {
     let dedup_key = format!("dedup-unique-{}", Uuid::now_v7());
     let first_id = AiImportJobId::new();
     let request1 = AiImportEnqueueRequest {
+        // Issue #871: no breaker snapshot in this fixture — the job is
+        // never breaker-filtered, which is the honest degradation.
+        provider: None,
+        model: None,
         id: first_id,
         dedup_key: dedup_key.clone(),
         ..make_enqueue_request("user-1", DocumentKind::Script)
     };
     let request2 = AiImportEnqueueRequest {
+        // Issue #871: no breaker snapshot in this fixture — the job is
+        // never breaker-filtered, which is the honest degradation.
+        provider: None,
+        model: None,
         dedup_key,
         ..make_enqueue_request("user-1", DocumentKind::Script)
     };

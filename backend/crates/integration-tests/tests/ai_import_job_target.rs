@@ -62,6 +62,10 @@ async fn seed_blockless_job(
     let id = AiImportJobId::new();
     let result = queue
         .enqueue(AiImportEnqueueRequest {
+            // Issue #871: no breaker snapshot in this fixture — the job is
+            // never breaker-filtered, which is the honest degradation.
+            provider: None,
+            model: None,
             id,
             user_id: UserId::from_sub(user),
             document_kind: DocumentKind::Script,
@@ -246,6 +250,10 @@ async fn set_target_once_refuses_a_job_without_a_target_snapshot() -> Result<()>
     let id = AiImportJobId::new();
     queue
         .enqueue(AiImportEnqueueRequest {
+            // Issue #871: no breaker snapshot in this fixture — the job is
+            // never breaker-filtered, which is the honest degradation.
+            provider: None,
+            model: None,
             id,
             user_id: UserId::from_sub("attach-user"),
             document_kind: DocumentKind::Script,
