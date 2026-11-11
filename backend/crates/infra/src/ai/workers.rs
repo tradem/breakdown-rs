@@ -493,16 +493,11 @@ where
             chunker_version: breakdown_core::ai::preview::CHUNKER_VERSION,
         };
         let key = super::chunk_store::fingerprint_key(&fingerprint);
-        if let ChunkSetState::Invalidated(components) = store
+        // `begin_extraction` logs `#871 chunk resume invalidated` (with
+        // `components` and `deleted_chunks`) when it drops a mismatched set.
+        let _state: ChunkSetState = store
             .begin_extraction(job.id, worker_id, &fingerprint, &key)
-            .await?
-        {
-            tracing::warn!(
-                job_id = %job.id.as_uuid(),
-                components = ?components,
-                "#871 chunk resume invalidated: the stored chunks belong to a different configuration"
-            );
-        }
+            .await?;
         let stored_chunks = store.load(job.id).await?;
         let resumed_from = breakdown_core::ai::resume_cursor(&stored_chunks);
         if resumed_from >= chunk_count {
@@ -682,8 +677,8 @@ where
             // chunks in one second.
             progress.chunk = Some(resumed_from);
             progress.resumed_from = Some(resumed_from);
-            // The bytes of the resumed chunks are already extracted, so the byte
-            // numerator starts where the stored prefix ends.
+            // The bytes and episodes of the resumed chunks are already known, so
+            // the first frame starts where the stored prefix ends.
             progress.record_done_bytes(
                 chunks_bytes
                     .iter()
@@ -691,6 +686,9 @@ where
                     .copied()
                     .fold(0u64, u64::saturating_add),
             );
+            for resumed_chunk in chunks.iter().take(resumed_from as usize) {
+                progress.record_episode(resumed_chunk.episode.as_ref());
+            }
             tracing::info!(
                 job_id = %job.id.as_uuid(),
                 resumed_from,
@@ -730,14 +728,6 @@ where
                 // Stop before the next paid call: another worker owns the job.
                 return Err(claim_lost_error(job.id, worker_id));
             }
-            // Issue #871 (D-A5): the chunk boundary is the mid-run abort point.
-            // The in-flight request is NOT aborted (an aborted HTTP request is
-            // not refunded), so the only honest saving is not starting the next
-            // one — the overspend bound is exactly one chunk per worker.
-            if !gate.admits().await {
-                hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate).await?;
-                return Ok(String::new());
-            }
             let index = u32::try_from(chunk_index).map_err(|error| {
                 DomainError::validation(format!("script chunk index exceeds range: {error}"))
             })?;
@@ -750,6 +740,25 @@ where
             let call_result = match resumed_chunk {
                 Some(stored_chunk) => Ok((stored_chunk.payload.clone(), stored_chunk.usage)),
                 None => {
+                    // Issue #871 (D-A5): the chunk boundary before a PAID call is
+                    // the mid-run abort point. The in-flight request is NOT
+                    // aborted (an aborted HTTP request is not refunded), so the
+                    // only honest saving is not starting the next one — the
+                    // overspend bound is exactly one chunk per worker. Stored
+                    // prefix chunks make no call, so they never consult the
+                    // breaker.
+                    if !gate.admits().await {
+                        hold_job(
+                            self.queue.as_ref(),
+                            &self.bounds,
+                            job.id,
+                            worker_id,
+                            &gate,
+                            index,
+                        )
+                        .await?;
+                        return Ok(String::new());
+                    }
                     retry_chat(
                         self.client.as_ref(),
                         request,
@@ -1058,26 +1067,40 @@ where
                     // is not `ServiceUnavailable`, dead-letter the job outright) for
                     // a call the breaker prevented.
                     if is_breaker_open(&error) {
-                        hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate)
-                            .await?;
+                        hold_job(
+                            self.queue.as_ref(),
+                            &self.bounds,
+                            job.id,
+                            worker_id,
+                            &gate,
+                            index,
+                        )
+                        .await?;
                         return Ok(String::new());
                     }
                     self.fail(job.id, worker_id, &error).await?;
                     return Err(error);
                 }
             }
-            // Chunk completed (issue #664): 1-based counter + episodes
-            // discovered up to and including this chunk, in first-seen order.
-            progress.chunk = Some(u32::try_from(chunk_index + 1).map_err(|error| {
-                DomainError::validation(format!(
-                    "script chunk index exceeds telemetry range: {error}"
-                ))
-            })?);
-            progress.record_episode(chunk.episode.as_ref());
-            // Issue #762: count the bytes just extracted, so the published
-            // numerator advances with the same cadence as the chunk counter.
-            progress.record_done_bytes(chunks_bytes.get(chunk_index).copied().unwrap_or(0));
-            super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress).await?;
+            // Stored prefix chunks were already reflected in the initial frame
+            // (`chunk = resumed_from`, `done_bytes = sum(0..resumed_from)`):
+            // re-publishing them here would rewind `chunk` to `1..=resumed_from`
+            // and double-count their bytes.
+            if resumed_chunk.is_none() {
+                // Chunk completed (issue #664): 1-based counter + episodes
+                // discovered up to and including this chunk, in first-seen order.
+                progress.chunk = Some(u32::try_from(chunk_index + 1).map_err(|error| {
+                    DomainError::validation(format!(
+                        "script chunk index exceeds telemetry range: {error}"
+                    ))
+                })?);
+                progress.record_episode(chunk.episode.as_ref());
+                // Issue #762: count the bytes just extracted, so the published
+                // numerator advances with the same cadence as the chunk counter.
+                progress.record_done_bytes(chunks_bytes.get(chunk_index).copied().unwrap_or(0));
+                super::workers::publish_progress(&*self.queue, job.id, worker_id, &progress)
+                    .await?;
+            }
         }
         // Pass 2 (OpenSpec `ai-import-decision-outfit-continuity`): after EVERY
         // chunk is extracted and merged, a cross-scene scan asks the Decision
@@ -1557,7 +1580,15 @@ where
             super::csv_schedule::parse_schedule_csv(bytes)?
         } else {
             if !gate.admits().await {
-                hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate).await?;
+                hold_job(
+                    self.queue.as_ref(),
+                    &self.bounds,
+                    job.id,
+                    worker_id,
+                    &gate,
+                    0,
+                )
+                .await?;
                 return Ok(String::new());
             }
             let source_text = match job.source_format {
@@ -1589,7 +1620,15 @@ where
                 // by default), because the outer handler treats `Conflict` as
                 // non-permanent and writes nothing.
                 Err(error) if is_breaker_open(&error) => {
-                    hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate).await?;
+                    hold_job(
+                        self.queue.as_ref(),
+                        &self.bounds,
+                        job.id,
+                        worker_id,
+                        &gate,
+                        0,
+                    )
+                    .await?;
                     return Ok(String::new());
                 }
                 other => other?,
@@ -4189,14 +4228,16 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
 /// refuses the next paid call — mid-run (the chunk boundary) or at the start of
 /// an attempt.
 ///
-/// `chunks_done` is `0` in this build: the chunk store that would make it
-/// meaningful arrives with workstream B (D-B5).
+/// `chunks_done` is the number of chunks this attempt already knows to be
+/// stored (a resumed prefix, or the index of the chunk the breaker refused):
+/// the `ProviderHold` carries it so the held job keeps its progress.
 pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
     queue: &Q,
     bounds: &AiImportBounds,
     id: AiImportJobId,
     worker_id: &str,
     gate: &ProviderGate<'_, Q>,
+    chunks_done: u32,
 ) -> Result<(), DomainError> {
     let breaker = gate
         .breaker()
@@ -4221,7 +4262,7 @@ pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
             + chrono::Duration::seconds(
                 i64::try_from(bounds.max_provider_hold_secs).unwrap_or(i64::MAX),
             ),
-        chunks_done: 0,
+        chunks_done,
     };
     queue
         .mark_held(id, worker_id, hold, bounds.max_provider_hold_secs)
@@ -4423,7 +4464,7 @@ where
                 }
                 tokio::time::sleep(supervisor::compute_backoff(
                     attempt,
-                    std::time::Duration::from_secs(30),
+                    std::time::Duration::from_secs(breakdown_core::ai::MAX_ATTEMPT_BACKOFF_SECS),
                 ))
                 .await;
             }

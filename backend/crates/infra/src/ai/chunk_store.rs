@@ -20,10 +20,10 @@
 //!    contiguous stored prefix. `MAX(chunk_index) + 1` over `0, 1, 3` would
 //!    answer 4 and quietly omit chunk 2 from the preview.
 
+use breakdown_core::ai::AiImportJobId;
 use breakdown_core::ai::ports::{
     AiImportChunkStore, ChunkSetState, ExtractionFingerprint, StoredChunk, resume_cursor,
 };
-use breakdown_core::ai::{AiImportJobId, ScriptContext};
 use breakdown_core::error::DomainError;
 use sqlx::{PgPool, Row};
 
@@ -169,29 +169,6 @@ impl PgAiImportChunkStore {
             "#871 chunk resume invalidated: the stored chunks belong to a different configuration"
         );
         Ok(ChunkSetState::Invalidated(changed))
-    }
-}
-
-/// The stored extraction fingerprint of one job, if any.
-pub async fn stored_fingerprint(
-    pool: &PgPool,
-    job_id: AiImportJobId,
-) -> Result<Option<ExtractionFingerprint>, DomainError> {
-    let components: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT extraction_key_components FROM ai_import.ai_import_job WHERE id = $1",
-    )
-    .bind(job_id.as_uuid())
-    .fetch_optional(pool)
-    .await
-    .map_err(map_sqlx_error)?
-    .flatten();
-    match components {
-        Some(value) => serde_json::from_value(value).map(Some).map_err(|error| {
-            DomainError::validation(format!(
-                "stored extraction fingerprint is undecodable: {error}"
-            ))
-        }),
-        None => Ok(None),
     }
 }
 
@@ -395,14 +372,6 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
         sqlx::Error::RowNotFound => DomainError::not_found("row not found"),
         other => DomainError::service_unavailable(format!("database error: {other}")),
     }
-}
-
-/// `true` when the job row's `ScriptContext` payload shape is what this build
-/// writes. Kept for the tests' benefit: a payload written by another build
-/// decodes through `serde(default)` and stays resumable.
-#[must_use]
-pub fn payload_is_decodable(value: &serde_json::Value) -> bool {
-    serde_json::from_value::<ScriptContext>(value.clone()).is_ok()
 }
 
 #[cfg(test)]

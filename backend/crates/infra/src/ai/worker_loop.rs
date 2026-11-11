@@ -188,7 +188,7 @@ fn build_ollama_client(
     timeout: Duration,
     health: Option<&Arc<dyn breakdown_core::ai::ProviderHealth>>,
 ) -> Result<Arc<OllamaChatClient>, DomainError> {
-    let mut client = OllamaChatClient::new(3, timeout)?;
+    let mut client = OllamaChatClient::new(breakdown_core::ai::OLLAMA_INNER_RETRIES, timeout)?;
     if let Some(health) = health {
         client = client.with_provider_health(Arc::clone(health));
     }
@@ -243,7 +243,26 @@ async fn hold_if_breaker_open(
         threshold: deps.bounds.breaker_failure_threshold,
         enabled: deps.bounds.breaker_enabled,
     };
-    hold_job(deps.queue.as_ref(), &deps.bounds, job.id, worker_id, &gate).await?;
+    // Issue #871 (D-B5): a script job may already own a stored chunk prefix, and
+    // holding it must not lose that progress — the `ProviderHold` reports it so
+    // the resuming attempt (and the client bar) start where the work stopped.
+    let chunks_done = match &deps.chunks {
+        Some(store) if job.document_kind == DocumentKind::Script => store
+            .load(job.id)
+            .await
+            .map(|chunks| breakdown_core::ai::resume_cursor(&chunks))
+            .unwrap_or(0),
+        _ => 0,
+    };
+    hold_job(
+        deps.queue.as_ref(),
+        &deps.bounds,
+        job.id,
+        worker_id,
+        &gate,
+        chunks_done,
+    )
+    .await?;
     warn!(
         worker_id,
         job_id = %job.id.as_uuid(),
