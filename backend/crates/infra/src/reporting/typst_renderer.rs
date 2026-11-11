@@ -32,6 +32,132 @@ struct EmbeddedTemplate {
     source: String,
 }
 
+/// Bump when the cached shape changes (the file is keyed on the version, so a
+/// stale cache is simply ignored instead of mis-read).
+const FONT_INDEX_CACHE_VERSION: u32 = 1;
+
+/// Explicit cache-directory override (containers, CI, read-only homes).
+const FONT_INDEX_CACHE_DIR_ENV: &str = "FONT_INDEX_CACHE_DIR";
+
+/// The parsed font index, persisted so a boot does not re-read every font file.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct FontIndexCache {
+    version: u32,
+    files: Vec<CachedFontFile>,
+}
+
+impl FontIndexCache {
+    fn empty() -> Self {
+        Self {
+            version: FONT_INDEX_CACHE_VERSION,
+            files: Vec::new(),
+        }
+    }
+}
+
+/// One font file's faces, with the stat stamp that validates the entry.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct CachedFontFile {
+    /// Absolute path as walked; the cache key.
+    path: String,
+    /// File size in bytes at index time.
+    len: u64,
+    /// Modification time, split so the JSON never needs 128-bit integers.
+    mtime_s: i64,
+    /// Nanosecond part of the modification time.
+    mtime_ns: u32,
+    /// The file's faces in `FontInfo::iter` order (the same order
+    /// `Font::iter` uses, which is what the `ordinal` in [`FontOrigin`] means).
+    faces: Vec<typst::text::FontInfo>,
+}
+
+/// A non-empty environment variable, or `None`.
+fn non_empty_env(key: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(key).filter(|value| !value.is_empty())
+}
+
+/// Where the parsed font index may be cached, if anywhere.
+///
+/// `FONT_INDEX_CACHE_DIR` wins (containers mount a volume there), then
+/// `XDG_CACHE_HOME`, then `$HOME/.cache`. `None` means "no cache": the boot
+/// still works, it just pays the parse every time.
+fn resolve_font_cache_dir(
+    explicit: Option<std::ffi::OsString>,
+    xdg_cache_home: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Option<std::path::PathBuf> {
+    let non_empty = |value: Option<std::ffi::OsString>| value.filter(|v| !v.is_empty());
+    if let Some(dir) = non_empty(explicit) {
+        return Some(std::path::PathBuf::from(dir));
+    }
+    if let Some(dir) = non_empty(xdg_cache_home) {
+        return Some(std::path::PathBuf::from(dir).join("breakdown"));
+    }
+    non_empty(home).map(|home| {
+        std::path::PathBuf::from(home)
+            .join(".cache")
+            .join("breakdown")
+    })
+}
+
+/// The effective cache directory for this process.
+fn font_index_cache_dir() -> Option<std::path::PathBuf> {
+    resolve_font_cache_dir(
+        non_empty_env(FONT_INDEX_CACHE_DIR_ENV),
+        non_empty_env("XDG_CACHE_HOME"),
+        non_empty_env("HOME"),
+    )
+}
+
+/// `(len, mtime seconds, mtime nanos)` for a font file, or `None` when it
+/// cannot be stat'ed (then it is simply not cached).
+fn file_stamp(path: &std::path::Path) -> Option<(u64, i64, u32)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?;
+    let since_epoch = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some((
+        meta.len(),
+        i64::try_from(since_epoch.as_secs()).ok()?,
+        since_epoch.subsec_nanos(),
+    ))
+}
+
+fn font_index_cache_path(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join(format!("font-index-v{FONT_INDEX_CACHE_VERSION}.json"))
+}
+
+/// Read the cache, treating anything unreadable as "no cache".
+fn load_font_index_cache(dir: &std::path::Path) -> FontIndexCache {
+    let Ok(bytes) = std::fs::read(font_index_cache_path(dir)) else {
+        return FontIndexCache::empty();
+    };
+    match serde_json::from_slice::<FontIndexCache>(&bytes) {
+        Ok(cache) if cache.version == FONT_INDEX_CACHE_VERSION => cache,
+        _ => FontIndexCache::empty(),
+    }
+}
+
+/// Publish the cache atomically, best-effort: a read-only or full filesystem
+/// leaves the previous cache (or none) in place and must never fail the boot.
+fn store_font_index_cache(dir: &std::path::Path, cache: &FontIndexCache) {
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let Ok(json) = serde_json::to_vec(cache) else {
+        return;
+    };
+    let final_path = font_index_cache_path(dir);
+    let tmp_path = final_path.with_extension("json.tmp");
+    if std::fs::write(&tmp_path, &json).is_err() {
+        return;
+    }
+    if std::fs::rename(&tmp_path, &final_path).is_err() {
+        // Best-effort cleanup: the previous cache (or none) stays valid, and a
+        // failed unlink must never fail the boot.
+        let _cleanup = std::fs::remove_file(&tmp_path);
+    }
+}
+
 /// Font metadata for Typst's font *selection*, with face bytes loaded on demand.
 ///
 /// Typst needs the [`typst::text::FontInfo`] of every installed face before it
@@ -101,19 +227,69 @@ impl FontSet {
             );
         }
 
+        let cache_dir = font_index_cache_dir();
+        let mut cached_files: HashMap<String, CachedFontFile> = match &cache_dir {
+            Some(dir) => load_font_index_cache(dir)
+                .files
+                .into_iter()
+                .map(|entry| (entry.path.clone(), entry))
+                .collect(),
+            None => HashMap::new(),
+        };
+
         let mut book = typst::text::FontBook::new();
         let mut origins = Vec::new();
+        let mut entries: Vec<CachedFontFile> = Vec::new();
+        let mut parsed = 0usize;
         for file in collect_font_files(&dirs) {
-            // Read the file to derive its faces' metadata, then DROP the bytes:
-            // only `FontInfo` goes into the book, and the face itself is re-read
-            // on demand by `font`. Peak heap here is one font file (~14 MB for
-            // the largest Nerd Font on the dev machine) instead of the whole
-            // tree. A read-only mmap would avoid even that, but `unsafe` is
-            // denied in this crate.
-            let Ok(data) = std::fs::read(&file) else {
-                continue;
+            let key = file.to_string_lossy().into_owned();
+            let stamp = file_stamp(&file);
+
+            // Reuse a cached entry only when the file is byte-identical by
+            // (size, mtime). A container image update therefore invalidates
+            // exactly the fonts that changed.
+            let reused = match (stamp, cached_files.remove(&key)) {
+                (Some((len, secs, nanos)), Some(entry))
+                    if entry.len == len && entry.mtime_s == secs && entry.mtime_ns == nanos =>
+                {
+                    Some(entry)
+                }
+                _ => None,
             };
-            for (ordinal, info) in typst::text::FontInfo::iter(&data).enumerate() {
+
+            let faces = match reused {
+                Some(entry) => entry.faces,
+                None => {
+                    // Read the file to derive its faces' metadata, then DROP the
+                    // bytes: only `FontInfo` is kept, and the face itself is
+                    // re-read on demand by `font`. Peak heap here is one font
+                    // file (~14 MB for the largest Nerd Font on the dev machine)
+                    // instead of the whole tree. A read-only mmap would avoid even
+                    // that, but `unsafe` is denied in this crate.
+                    let Ok(data) = std::fs::read(&file) else {
+                        continue;
+                    };
+                    let faces: Vec<typst::text::FontInfo> =
+                        typst::text::FontInfo::iter(&data).collect();
+                    if faces.is_empty() {
+                        continue;
+                    }
+                    parsed += 1;
+                    faces
+                }
+            };
+
+            if let Some((len, mtime_s, mtime_ns)) = stamp {
+                entries.push(CachedFontFile {
+                    path: key,
+                    len,
+                    mtime_s,
+                    mtime_ns,
+                    faces: faces.clone(),
+                });
+            }
+
+            for (ordinal, info) in faces.into_iter().enumerate() {
                 book.push(info);
                 origins.push(FontOrigin::File {
                     path: file.clone(),
@@ -131,6 +307,26 @@ impl FontSet {
                 if dirs.len() == 1 { "y" } else { "ies" }
             ));
         }
+
+        // Only rewrite when at least one file was actually parsed: an unchanged
+        // font tree must not touch the cache on every boot.
+        if parsed > 0
+            && let Some(dir) = &cache_dir
+        {
+            store_font_index_cache(
+                dir,
+                &FontIndexCache {
+                    version: FONT_INDEX_CACHE_VERSION,
+                    files: entries,
+                },
+            );
+        }
+        tracing::debug!(
+            parsed,
+            indexed = origins.len(),
+            cache = cache_dir.is_some(),
+            "font index ready"
+        );
 
         Ok(Self {
             book: typst::utils::LazyHash::new(book),
@@ -1119,6 +1315,83 @@ mod font_discovery_tests {
                 "embedded template for {kind:?} must be prefixed with the shared helpers"
             );
         }
+    }
+
+    #[test]
+    fn font_cache_dir_precedence() {
+        use std::ffi::OsString;
+        fn some(value: &str) -> Option<OsString> {
+            Some(OsString::from(value))
+        }
+        let expected = |p: &str| Some(std::path::PathBuf::from(p));
+
+        // An explicit override wins outright (containers point it at a volume).
+        assert_eq!(
+            resolve_font_cache_dir(some("/cache/fonts"), some("/xdg"), some("/home")),
+            expected("/cache/fonts")
+        );
+        assert_eq!(
+            resolve_font_cache_dir(None, some("/xdg"), some("/home")),
+            expected("/xdg/breakdown")
+        );
+        assert_eq!(
+            resolve_font_cache_dir(None, None, some("/home")),
+            expected("/home/.cache/breakdown")
+        );
+        // No writable candidate at all: no cache, and the boot still works.
+        assert_eq!(resolve_font_cache_dir(None, None, None), None);
+        // An EMPTY override must not shadow the XDG fallback.
+        assert_eq!(
+            resolve_font_cache_dir(Some(OsString::new()), some("/xdg"), some("/home")),
+            expected("/xdg/breakdown")
+        );
+    }
+
+    #[test]
+    fn font_index_cache_roundtrips_and_rejects_a_stale_version() {
+        let dir = std::env::temp_dir().join(format!(
+            "breakdown-font-cache-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+
+        let entry = CachedFontFile {
+            path: "/usr/share/fonts/x.ttf".into(),
+            len: 42,
+            mtime_s: 7,
+            mtime_ns: 9,
+            faces: Vec::new(),
+        };
+        store_font_index_cache(
+            &dir,
+            &FontIndexCache {
+                version: FONT_INDEX_CACHE_VERSION,
+                files: vec![entry],
+            },
+        );
+        let loaded = load_font_index_cache(&dir);
+        assert_eq!(loaded.files.len(), 1, "the entry must survive a roundtrip");
+        assert_eq!(loaded.files[0].path, "/usr/share/fonts/x.ttf");
+        assert_eq!(loaded.files[0].len, 42);
+        assert_eq!(loaded.files[0].mtime_ns, 9);
+
+        // A cache written by another schema version is ignored, never mis-read.
+        store_font_index_cache(
+            &dir,
+            &FontIndexCache {
+                version: FONT_INDEX_CACHE_VERSION + 1,
+                files: loaded.files.clone(),
+            },
+        );
+        assert!(
+            load_font_index_cache(&dir).files.is_empty(),
+            "a foreign version must be dropped"
+        );
+
+        // An absent directory is "no cache", not an error (read-only images).
+        assert!(load_font_index_cache(&dir.join("absent")).files.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
