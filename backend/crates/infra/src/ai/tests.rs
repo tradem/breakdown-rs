@@ -36,6 +36,7 @@ use chrono::Utc;
 use reqwest::StatusCode;
 use uuid::Uuid;
 
+use super::mapping::CachedMappings;
 use super::{
     AiImportFeature, AiPreviewStore, ApplyScriptRequest, ApplyWorker, MemoryAiPreviewStore,
     ScheduleApplyRequest, ScheduleApplyWorker, ScheduleImportWorker, ScriptImportWorker,
@@ -1797,6 +1798,7 @@ struct FakeMappings {
     /// crash between a successful command and the mapping write (issue #179).
     fail_insert_at: Arc<Mutex<Option<usize>>>,
     insert_calls: Arc<AtomicUsize>,
+    find_calls: Arc<AtomicUsize>,
     reserved: Arc<Mutex<Vec<AiImportMapping>>>,
 }
 
@@ -1809,6 +1811,12 @@ impl FakeMappings {
     /// Reservations in call order (the confirm path uses `insert`).
     fn reservations(&self) -> Vec<AiImportMapping> {
         self.reserved.lock().unwrap().clone()
+    }
+
+    /// How many `find` calls reached this store — the read the per-run cache
+    /// exists to remove.
+    fn find_calls(&self) -> usize {
+        self.find_calls.load(Ordering::SeqCst)
     }
 
     /// Remove every mapping of `draft_ref` — simulating a lost reservation row
@@ -1842,6 +1850,7 @@ impl AiImportMappingRepository for FakeMappings {
         aggregate_kind: &str,
         ordinal: i32,
     ) -> Result<Option<AiImportMapping>, DomainError> {
+        self.find_calls.fetch_add(1, Ordering::SeqCst);
         Ok(self
             .values
             .lock()
@@ -7675,5 +7684,226 @@ async fn a_breaker_hold_keeps_the_stored_chunk_progress() {
     assert_eq!(
         holds[0].state,
         breakdown_core::ai::ProviderBreakerState::Open
+    );
+}
+
+// ── Per-run mapping cache (live-test finding: apply duration) ───────────────
+//
+// The apply is an idempotency-checked write loop over one preview's mapping
+// table. Every aggregate it creates used to start with its own `find`, so a
+// 57-scene script paid hundreds of strictly sequential SQL round trips that all
+// answered questions this run already knows. These tests pin the two halves of
+// the contract: a primed run reads nothing back, and a write is never rolled
+// back by the cache.
+
+/// A confirmed mapping row of the cache tests' preview.
+fn cached_row(preview_id: AiImportJobId, draft_ref: &str, version: u64) -> AiImportMapping {
+    AiImportMapping {
+        preview_id,
+        draft_ref: draft_ref.to_owned(),
+        aggregate_kind: breakdown_core::ai::mapping_kind::SCENE.to_owned(),
+        ordinal: breakdown_core::ai::PRIMARY_ORDINAL,
+        aggregate_id: Uuid::now_v7(),
+        aggregate_version: breakdown_core::shared::AggregateVersion(version),
+    }
+}
+
+#[tokio::test]
+async fn a_listed_preview_answers_every_find_without_the_store() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    let row = cached_row(preview_id, "scene-a", 3);
+    store.insert(row.clone()).await.unwrap();
+    let cache = CachedMappings::new(store.clone());
+
+    // The apply's first act (`resolved_decisions`) lists the preview. Not
+    // audit-context resolution: the idempotency rows ARE the apply's own state,
+    // which is why the production call site carries the same suppression.
+    let listed = cache
+        .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1, "the listing primes the cache");
+    assert_eq!(
+        store.find_calls(),
+        0,
+        "a listing is one query, never one per row"
+    );
+
+    // Every later lookup — the hit and the miss — is answered in memory. The
+    // miss matters most: 8 of 10 lookups in a fresh apply are "no row yet".
+    for _ in 0..10 {
+        assert_eq!(
+            cache
+                .find(
+                    preview_id,
+                    "scene-a",
+                    breakdown_core::ai::mapping_kind::SCENE,
+                    0
+                )
+                .await
+                .unwrap(),
+            Some(row.clone())
+        );
+        assert_eq!(
+            cache
+                .find(
+                    preview_id,
+                    "scene-z",
+                    breakdown_core::ai::mapping_kind::SCENE,
+                    0
+                )
+                .await
+                .unwrap(),
+            None
+        );
+    }
+    assert_eq!(
+        store.find_calls(),
+        0,
+        "a listed preview never sends the store a per-row find"
+    );
+}
+
+#[tokio::test]
+async fn an_unlisted_preview_still_asks_the_store_for_an_absent_row() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    let cache = CachedMappings::new(store.clone());
+
+    // Nothing listed yet: a miss does NOT prove absence (another run may
+    // confirm that row), so the answer must come from the store.
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(store.find_calls(), 1, "an unprimed miss asks the store");
+}
+
+#[tokio::test]
+async fn reserve_and_confirm_mirror_into_the_cache_and_never_roll_back() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    let cache = CachedMappings::new(store.clone());
+    cache
+        .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+        .await
+        .unwrap();
+
+    let reserved = cache
+        .reserve(AiImportMapping::reservation(
+            preview_id,
+            "scene-a".to_owned(),
+            breakdown_core::ai::mapping_kind::SCENE.to_owned(),
+            breakdown_core::ai::PRIMARY_ORDINAL,
+            Uuid::now_v7(),
+        ))
+        .await
+        .unwrap();
+    assert!(reserved.is_reserved(), "the reservation is visible as such");
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap()
+            .map(|mapping| mapping.aggregate_id),
+        Some(reserved.aggregate_id),
+        "the reserved id is what the next step drives"
+    );
+
+    let mut confirmed = reserved.clone();
+    confirmed.aggregate_version = breakdown_core::shared::AggregateVersion(4);
+    cache.insert(confirmed.clone()).await.unwrap();
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap()
+            .map(|mapping| mapping.aggregate_version.0),
+        Some(4)
+    );
+
+    // A late duplicate must not roll the confirmed row back to its reservation
+    // (the SQL upsert guards this with `WHERE ... < EXCLUDED`; the cache has to
+    // mirror it or a re-dispatch would drive the wrong expected version).
+    let mut stale = confirmed.clone();
+    stale.aggregate_version = breakdown_core::shared::AggregateVersion(1);
+    cache.insert(stale).await.unwrap();
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap()
+            .map(|mapping| mapping.aggregate_version.0),
+        Some(4),
+        "a non-advancing confirm leaves the cached version alone"
+    );
+    assert_eq!(
+        store.find_calls(),
+        0,
+        "not one of these steps re-reads the table"
+    );
+}
+
+#[tokio::test]
+async fn a_relisting_replaces_the_cached_slice() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    store
+        .insert(cached_row(preview_id, "scene-a", 1))
+        .await
+        .unwrap();
+    let cache = CachedMappings::new(store.clone());
+    cache
+        .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+        .await
+        .unwrap();
+
+    // A dev reset (or a rolled-back reservation) drops the row from the table.
+    store.remove(preview_id, "scene-a");
+    assert_eq!(
+        cache
+            .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+            .await
+            .unwrap()
+            .len(),
+        0,
+        "the second listing is the complete truth"
+    );
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap(),
+        None,
+        "a row that vanished from the store vanishes from the cache"
     );
 }

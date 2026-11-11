@@ -3,12 +3,110 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 
+use std::collections::{HashMap, HashSet};
+use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
 use breakdown_core::ai::{
     AiImportJobId, AiImportMapping, AiImportMappingRepository, PRIMARY_ORDINAL,
 };
 use breakdown_core::error::DomainError;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+/// Full primary key of one mapping row: `(preview, draft_ref, kind, ordinal)`.
+type MappingKey = (AiImportJobId, String, String, i32);
+
+/// Build the cache key of a mapping row from its parts.
+fn mapping_key(
+    preview_id: AiImportJobId,
+    draft_ref: &str,
+    aggregate_kind: &str,
+    ordinal: i32,
+) -> MappingKey {
+    (
+        preview_id,
+        draft_ref.to_owned(),
+        aggregate_kind.to_owned(),
+        ordinal,
+    )
+}
+
+/// What one apply run has learned about the mapping table.
+#[derive(Debug, Default)]
+struct MappingSnapshot {
+    /// Known rows, keyed like the table. Only rows that exist; "absent" is
+    /// decided by [`Self::complete`], never by a missing entry — a key nobody
+    /// has read yet is *unknown*, and answering `None` for it would invent a
+    /// reservation-free row.
+    rows: HashMap<MappingKey, AiImportMapping>,
+    /// Previews whose every row has been listed, so a key that is absent from
+    /// [`Self::rows`] is known-not-to-exist.
+    complete: HashSet<AiImportJobId>,
+}
+
+/// Read-through cache over [`AiImportMappingRepository`] for **one apply run**.
+///
+/// Why this exists (live-test finding): an apply is an idempotency-checked
+/// write loop, and every aggregate it creates (`scene`, `episode`, `character`,
+/// `piece`, `outfit`, `outfit beat`, `scene_shoot`) used to start with its own
+/// `find` — one SQL round trip per aggregate, strictly sequential. For a
+/// 57-scene script that is hundreds of trips that all answer the same question
+/// about a table this run already lists once.
+///
+/// Semantics are the repository's, not a weaker version of them:
+///
+/// * a `find` is answered from memory only when the row is cached **or** its
+///   preview was listed completely (a listed preview makes an absent key a
+///   known `None`);
+/// * `reserve` and `insert` always reach the store and mirror its answer — with
+///   the same monotonic rule (`insert` only advances a row) the SQL enforces,
+///   so a late duplicate can never roll the cache back either;
+/// * `list_by_preview` primes the cache for that preview.
+///
+/// Correctness rests on the apply being **single-flight per preview**
+/// (`AiImportQueue::claim_apply_run`): one run, one owner, one cache. A stolen
+/// claim (the documented staleness takeover) can therefore see a stale `None`
+/// and dispatch a create that the other run already committed — that is the
+/// documented convergence path (`derive_id` + `ExpectedVersion::Empty` +
+/// `created_now`), it costs one recovered append, never a duplicate aggregate.
+#[derive(Debug)]
+pub struct CachedMappings<M> {
+    inner: M,
+    snapshot: RwLock<MappingSnapshot>,
+}
+
+impl<M> CachedMappings<M> {
+    /// Wrap `inner` in a fresh (empty) per-run cache.
+    pub fn new(inner: M) -> Self {
+        Self {
+            inner,
+            snapshot: RwLock::new(MappingSnapshot::default()),
+        }
+    }
+
+    /// A poisoned lock carries a consistent snapshot: every writer mutates it
+    /// under the same guard and no operation can leave a half-written row, so
+    /// recovering the guard is safe and cannot panic a request (AGENTS.md §1).
+    fn read(&self) -> RwLockReadGuard<'_, MappingSnapshot> {
+        self.snapshot.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn write(&self) -> RwLockWriteGuard<'_, MappingSnapshot> {
+        self.snapshot
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `Some(row)` when the cache knows the answer (`row` = `None` for a key
+    /// proven absent), `None` when it has to ask the store.
+    fn lookup(&self, key: &MappingKey) -> Option<Option<AiImportMapping>> {
+        let snapshot = self.read();
+        if let Some(row) = snapshot.rows.get(key) {
+            return Some(Some(row.clone()));
+        }
+        snapshot.complete.contains(&key.0).then_some(None)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct PgAiImportMappingRepository {
@@ -145,6 +243,97 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         .await
         .map_err(map_sqlx_error)?;
         rows.into_iter().map(map_mapping).collect()
+    }
+}
+
+#[async_trait::async_trait]
+impl<M: AiImportMappingRepository> AiImportMappingRepository for CachedMappings<M> {
+    async fn find(
+        &self,
+        preview_id: AiImportJobId,
+        draft_ref: &str,
+        aggregate_kind: &str,
+        ordinal: i32,
+    ) -> Result<Option<AiImportMapping>, DomainError> {
+        let key = mapping_key(preview_id, draft_ref, aggregate_kind, ordinal);
+        if let Some(known) = self.lookup(&key) {
+            return Ok(known);
+        }
+        let found = self
+            .inner
+            .find(preview_id, draft_ref, aggregate_kind, ordinal)
+            .await?;
+        // Only a hit is cached here: a miss from a single-row read does not
+        // prove absence (another run may still confirm it), while a hit is the
+        // store's own monotonic truth. The `complete` set covers the misses.
+        if let Some(row) = found.as_ref() {
+            self.write().rows.insert(key, row.clone());
+        }
+        Ok(found)
+    }
+
+    async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
+        let key = mapping_key(
+            mapping.preview_id,
+            &mapping.draft_ref,
+            &mapping.aggregate_kind,
+            mapping.ordinal,
+        );
+        let won = self.inner.reserve(mapping).await?;
+        // The winning row is authoritative — insert-if-absent returned the row
+        // that is actually persisted, which is the id every later step must use.
+        self.write().rows.insert(key, won.clone());
+        Ok(won)
+    }
+
+    async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
+        let key = mapping_key(
+            mapping.preview_id,
+            &mapping.draft_ref,
+            &mapping.aggregate_kind,
+            mapping.ordinal,
+        );
+        let next = mapping.clone();
+        self.inner.insert(mapping).await?;
+        let mut snapshot = self.write();
+        let advances = snapshot
+            .rows
+            .get(&key)
+            .is_none_or(|current| current.aggregate_version < next.aggregate_version);
+        if advances {
+            snapshot.rows.insert(key, next);
+        }
+        Ok(())
+    }
+
+    async fn list_by_preview(
+        &self,
+        preview_id: AiImportJobId,
+    ) -> Result<Vec<AiImportMapping>, DomainError> {
+        // A decorator of the port, not a write-side consumer: this call IS the
+        // repository implementation the apply's idempotency read goes through,
+        // and it resolves no audit context (no `project_id`, no season).
+        let rows = self
+            .inner
+            .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+            .await?;
+        let mut snapshot = self.write();
+        // Replace this preview's slice wholesale: the listing is the complete
+        // truth, so a row that vanished (a dev reset) must vanish here too.
+        snapshot.rows.retain(|key, _| key.0 != preview_id);
+        for row in &rows {
+            snapshot.rows.insert(
+                mapping_key(
+                    row.preview_id,
+                    &row.draft_ref,
+                    &row.aggregate_kind,
+                    row.ordinal,
+                ),
+                row.clone(),
+            );
+        }
+        snapshot.complete.insert(preview_id);
+        Ok(rows)
     }
 }
 

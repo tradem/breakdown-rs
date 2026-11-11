@@ -2512,7 +2512,38 @@ where
         let _heartbeat =
             ApplyRunHeartbeat::spawn(Arc::clone(&self.queue), preview_id, run_id, progress_rx);
 
+        // CR-002/D2 wants the outfit step refused on an archived target season.
+        // Resolved ONCE here instead of per outfit (one SQL trip per look, which
+        // a script apply paid hundreds of times for one row that cannot change
+        // within a run) — see `OutfitDispatch::season_archived`.
+        let season_archived = match self
+            .season_repo
+            .find_by_id(season_id.0) // ast-grep-ignore: cqrs-boundary
+            .await
+        {
+            Ok(season) => Some(season.archived),
+            Err(error) if is_infra_outage(&error) => return Err(error),
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    season = %season_id.0,
+                    "AI apply could not resolve the target season; every outfit step will be refused",
+                );
+                None
+            }
+        };
+
+        // Wall-clock accounting for the live-test question "why does an import
+        // of 50-60 scenes take so long". One line at the end answers it without
+        // per-row log noise: total, per-row distribution and the write counts the
+        // response reports. Read it before tuning anything (the rows are strictly
+        // sequential today, so per-row time × rows is the whole story).
+        let apply_started = Instant::now();
+        let mut row_ms_total: u128 = 0;
+        let mut row_ms_max: u128 = 0;
+
         for row in &plan.scenes {
+            let row_started = Instant::now();
             // `(episode, created by THIS apply)` — the flag decides whether the
             // requested number/title may label the summary entry (issue #763).
             let row_episode: (EpisodeId, bool) = match &row.episode {
@@ -2798,6 +2829,7 @@ where
                                 outfit,
                                 character_id,
                                 piece_ids: pieces.piece_ids,
+                                season_archived,
                             },
                         )
                         .await?
@@ -2927,6 +2959,9 @@ where
             // One completed row (issue #762). Throttled: the stride keeps the
             // write count bounded for a large preview, the last row and the
             // finalizing boundary always write.
+            let row_ms = row_started.elapsed().as_millis();
+            row_ms_total = row_ms_total.saturating_add(row_ms);
+            row_ms_max = row_ms_max.max(row_ms);
             apply_progress.applied = apply_progress.applied.saturating_add(1);
             // The heartbeat publishes whatever the counters say right now, so it
             // learns every row boundary (issue #800 #3); `send_replace` has no
@@ -2942,6 +2977,28 @@ where
         // Every row is dispatched; the trailing work (episode summary,
         // telemetry) is still running (issue #762). The heartbeat stays alive
         // for it — the summary can be slow for a large plan too.
+        tracing::info!(
+            job_id = %preview_id.as_uuid(),
+            run_id = %run_id.as_uuid(),
+            rows = apply_progress.total,
+            elapsed_ms = apply_started.elapsed().as_millis() as u64,
+            row_ms_avg = if apply_progress.total == 0 {
+                0
+            } else {
+                (row_ms_total / u128::from(apply_progress.total)) as u64
+            },
+            row_ms_max = row_ms_max as u64,
+            applied = result.applied.len(),
+            created_episodes = result.created_episodes,
+            created_characters = result.created_characters,
+            created_pieces = result.created_pieces,
+            created_outfits = result.created_outfits,
+            created_outfit_beats = result.created_outfit_beats,
+            created_days = result.created_days,
+            planned_scene_shoots = result.planned_scene_shoots,
+            unapplied_outfits = result.unapplied_outfits.len(),
+            "AI import apply row phase finished",
+        );
         apply_progress.stage = ApplyStage::Finalizing;
         apply_progress.updated_at = chrono::Utc::now();
         progress_tx.send_replace(apply_progress.clone());
@@ -3469,6 +3526,7 @@ where
             outfit,
             character_id,
             piece_ids,
+            season_archived,
         } = dispatch;
         let ordinal = ordinal_of(outfit.ordinal)?;
         // A selected gap row carries its own kind: its ordinal is the figure's
@@ -3506,12 +3564,8 @@ where
         let notes_pending = version < OUTFIT_NOTED;
 
         if version < OUTFIT_CREATED {
-            let season = self
-                .season_repo
-                .find_by_id(season_id.0) // ast-grep-ignore: cqrs-boundary
-                .await;
-            match season {
-                Ok(season) if season.archived => {
+            match season_archived {
+                Some(true) => {
                     tracing::info!(
                         season = %season_id.0,
                         "AI apply refused the outfit step: the target season is archived"
@@ -3521,11 +3575,9 @@ where
                         DomainError::conflict("target season is archived").to_string(),
                     ));
                 }
-                Ok(_) => {}
-                Err(error) if is_infra_outage(&error) => return Err(error),
-                Err(error) => {
+                Some(false) => {}
+                None => {
                     tracing::warn!(
-                        %error,
                         season = %season_id.0,
                         "AI apply could not resolve the target season; refusing the outfit step"
                     );
@@ -4178,6 +4230,15 @@ struct OutfitDispatch<'a> {
     character_id: Uuid,
     /// The ids of the outfit's pieces, created in the step before.
     piece_ids: Vec<Uuid>,
+    /// The archived verdict of the target season, resolved ONCE per apply run
+    /// (`None` = the read failed permanently, so every outfit step refuses).
+    ///
+    /// CR-002/D2 requires the outfit step to refuse an archived season; it used
+    /// to re-read the same season row per outfit (one SQL round trip per look,
+    /// hundreds per script). The read is now taken once at the start of the run:
+    /// the verdict can only go stale *within* one apply, and every other phase
+    /// of the same run already works against the season it resolved then.
+    season_archived: Option<bool>,
 }
 
 /// The per-row day-link context of the script apply (issue #706). Bundled so
