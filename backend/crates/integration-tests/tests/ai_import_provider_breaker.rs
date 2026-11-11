@@ -764,3 +764,61 @@ async fn two_holds_expiring_in_one_tick_each_get_their_own_attempt_row() -> Resu
     assert_eq!(distinct, 2);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_disabled_breaker_admits_a_held_job_once_its_hold_is_due() -> Result<()> {
+    // Issue #871 review: the kill switch bypasses the CLAIM FILTER, but a held job
+    // is still subject to `next_attempt_at` — it becomes claimable when that time
+    // is due, not the instant the switch is flipped. This pins that behaviour
+    // explicitly, including that the claim clears the hold marker and leaves the
+    // durable verdict alone (so re-enabling resumes with it).
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    // The switch OFF: exactly what `main.rs` builds for
+    // `AI_IMPORT_BREAKER_ENABLED=false`.
+    let queue = PgAiImportQueue::new(pool.clone()).with_breaker_filter(false);
+    let health = PgProviderHealth::new(pool.clone());
+    let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+
+    // The pair is degraded and the job is held with a FUTURE resume time.
+    open_breaker(&health, 3).await;
+    let until = Utc::now() + Duration::hours(1);
+    queue
+        .hold_runnable_jobs(
+            PROVIDER,
+            MODEL,
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+        )
+        .await?;
+
+    // Still filtered by its own hold time — the switch is not a time machine.
+    assert!(
+        queue.claim_next("w1").await?.is_none(),
+        "a held job waits for its own next_attempt_at even with the breaker disabled"
+    );
+
+    // Make the hold due (a past timestamp, never a sleep).
+    sqlx::query(
+        "UPDATE ai_import.ai_import_job SET next_attempt_at = now() - interval '1 second' WHERE id = $1",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await?;
+
+    let claimed = queue
+        .claim_next("w1")
+        .await?
+        .expect("with the breaker disabled the claim filter admits it once due");
+    assert_eq!(claimed.id, id);
+    // The claim clears the hold marker…
+    let HoldRow { hold_state, .. } = read_hold_state(&pool, id).await;
+    assert!(hold_state.is_none(), "the claim clears the hold");
+    // …and leaves the durable verdict untouched, so re-enabling resumes with it.
+    let snapshot = health.state(PROVIDER, MODEL).await?;
+    assert_eq!(
+        snapshot.state,
+        ProviderBreakerState::Open,
+        "the switch must not delete verdicts"
+    );
+    Ok(())
+}

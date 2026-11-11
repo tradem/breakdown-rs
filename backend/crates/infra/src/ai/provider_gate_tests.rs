@@ -33,6 +33,11 @@ struct BreakerQueue {
     state: std::sync::Mutex<ProviderBreakerState>,
     /// When set, `provider_breaker` fails — the "database hiccup" case.
     fail_reads: bool,
+    /// Outcomes the gate recorded, in order (issue #871 review: the write side
+    /// must be observable, or "the breaker can open" is untested).
+    recorded: std::sync::Mutex<Vec<(&'static str, bool)>>,
+    /// How many failures it takes to open (the fake's own threshold).
+    opens_after: u32,
 }
 
 impl BreakerQueue {
@@ -40,6 +45,8 @@ impl BreakerQueue {
         Arc::new(Self {
             state: std::sync::Mutex::new(state),
             fail_reads: false,
+            recorded: std::sync::Mutex::new(Vec::new()),
+            opens_after: u32::MAX,
         })
     }
 
@@ -47,7 +54,13 @@ impl BreakerQueue {
         Self {
             state: std::sync::Mutex::new(ProviderBreakerState::Closed),
             fail_reads: true,
+            recorded: std::sync::Mutex::new(Vec::new()),
+            opens_after: u32::MAX,
         }
+    }
+
+    fn recorded(&self) -> Vec<(&'static str, bool)> {
+        self.recorded.lock().unwrap().clone()
     }
 
     fn set(&self, state: ProviderBreakerState) {
@@ -129,6 +142,54 @@ impl AiImportQueue for BreakerQueue {
         _telemetry: Telemetry,
     ) -> Result<(), DomainError> {
         unreachable!("the gate tests never record telemetry")
+    }
+
+    async fn record_provider_outcome(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+        outcome: breakdown_core::ai::ProviderOutcome,
+        _threshold: u32,
+    ) -> Result<breakdown_core::ai::BreakerDecision, DomainError> {
+        use breakdown_core::ai::{BreakerDecision, ProviderOutcome};
+        let (opened, closed) = match outcome {
+            ProviderOutcome::RetryableFailure => {
+                let mut state = self.state.lock().unwrap();
+                let mut failures = self
+                    .recorded
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|(kind, _)| *kind == "failure")
+                    .count() as u32;
+                failures += 1;
+                self.recorded.lock().unwrap().push(("failure", true));
+                if failures >= self.opens_after {
+                    *state = ProviderBreakerState::Open;
+                    (true, false)
+                } else {
+                    (false, false)
+                }
+            }
+            ProviderOutcome::Success => {
+                *self.state.lock().unwrap() = ProviderBreakerState::Closed;
+                self.recorded.lock().unwrap().push(("success", false));
+                (false, true)
+            }
+            ProviderOutcome::PermanentFailure => (false, false),
+        };
+        Ok(BreakerDecision {
+            state: if opened {
+                ProviderBreakerState::Open
+            } else {
+                ProviderBreakerState::Closed
+            },
+            consecutive_failures: 1,
+            flap_count: 0,
+            retry_at: None,
+            opened,
+            closed,
+        })
     }
 
     /// The one method under test.
@@ -309,4 +370,155 @@ async fn a_failing_breaker_read_admits() {
     );
     // And the sentinel stays a distinct shape.
     assert!(is_breaker_open(&breaker_open_error()));
+}
+
+// ---------------------------------------------------------------------------
+// Issue #871 review: the breaker's WRITE side. Without these, "the breaker can
+// open from real traffic" was an untested claim.
+// ---------------------------------------------------------------------------
+
+fn provider_failure() -> anyhow::Error {
+    anyhow::Error::new(DomainError::llm_provider_unavailable("HTTP 503"))
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_last_failure_of_a_chunk_is_recorded_too() {
+    // The regression CodeRabbit caught: recording only inside the retry arm made
+    // the FINAL failure invisible, so a deployment with `max_attempt_retries = 0`
+    // never incremented the counter and the breaker could never open.
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 99, // never opens, so every failure must still be recorded
+        enabled: true,
+    };
+    let calls = AtomicUsize::new(0);
+
+    let _: Result<(), anyhow::Error> = retry_bounded(
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(provider_failure())
+        },
+        0, // no in-attempt retries: exactly ONE attempt, which must be counted
+        &gate,
+    )
+    .await;
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        queue.recorded(),
+        vec![("failure", true)],
+        "the single (and last) failure must reach the breaker counter"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_generic_service_outage_never_moves_the_counter() {
+    // `is_transient` also matches the mapping DB, payload storage and the pricing
+    // read model. Only the provider's own code may move the counter (D-A1).
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 1,
+        enabled: true,
+    };
+
+    let _: Result<(), anyhow::Error> = retry_bounded(
+        || async {
+            Err::<(), anyhow::Error>(anyhow::Error::new(DomainError::service_unavailable(
+                "mapping DB",
+            )))
+        },
+        2,
+        &gate,
+    )
+    .await;
+
+    assert!(
+        queue.recorded().is_empty(),
+        "a storage outage must not open a breaker for a healthy provider"
+    );
+    assert_eq!(
+        queue.state.lock().unwrap().clone(),
+        ProviderBreakerState::Closed
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_successful_call_is_recorded_as_success() {
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 3,
+        enabled: true,
+    };
+
+    let _: Result<(), anyhow::Error> = retry_bounded(|| async { Ok(()) }, 2, &gate).await;
+    assert_eq!(queue.recorded(), vec![("success", false)]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_kill_switch_records_nothing() {
+    // `AI_IMPORT_BREAKER_ENABLED=false`: no verdict, no counter, no hold.
+    let queue = BreakerQueue::new(ProviderBreakerState::Open);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 1,
+        enabled: false,
+    };
+
+    // Admits despite the open state, and records nothing at all.
+    assert!(gate.admits().await);
+    assert!(!gate.record_failure().await);
+    gate.record_success().await;
+    assert!(queue.recorded().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
+    // The branch the retry loop relies on: opening on THIS failure must return the
+    // sentinel immediately instead of sleeping and calling again.
+    let queue = Arc::new(BreakerQueue {
+        state: std::sync::Mutex::new(ProviderBreakerState::Closed),
+        fail_reads: false,
+        recorded: std::sync::Mutex::new(Vec::new()),
+        opens_after: 1,
+    });
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 1,
+        enabled: true,
+    };
+    let calls = AtomicUsize::new(0);
+
+    let result: Result<(), anyhow::Error> = retry_bounded(
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(provider_failure())
+        },
+        5,
+        &gate,
+    )
+    .await;
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "no second call after the open"
+    );
+    let domain = result
+        .expect_err("refused")
+        .downcast::<DomainError>()
+        .expect("sentinel");
+    assert!(is_breaker_open(&domain));
 }

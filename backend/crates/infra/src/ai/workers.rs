@@ -4087,6 +4087,20 @@ pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
         .await
 }
 
+/// Whether an error is the **provider's** failure rather than a generic
+/// transient one (issue #871, D-A1).
+///
+/// `is_transient` matches every `ServiceUnavailable`, which includes the mapping
+/// DB, payload storage and the pricing read model. Only the provider's own code
+/// may move the breaker counter: a storage hiccup says nothing about the
+/// endpoint, and counting it would let one dependency outage hold every job of a
+/// perfectly healthy provider.
+fn is_provider_failure(error: &AnyhowError) -> bool {
+    error.downcast_ref::<DomainError>().is_some_and(|domain| {
+        domain.code().code == super::provider_watch::PROVIDER_UNAVAILABLE_CODE
+    })
+}
+
 /// A breaker consult bound to one `(provider, model)` pair and one queue
 /// (issue #871, D-A5).
 ///
@@ -4238,20 +4252,31 @@ where
                 gate.record_success().await;
                 return Ok(value);
             }
-            Err(error) if is_transient(&error) && attempt < max_retries => {
-                // The counter is only ever incremented HERE, which is what makes
-                // the breaker able to open from real traffic at all. A permanent
-                // failure never reaches this arm (`is_transient` is false).
-                if gate.record_failure().await {
-                    // It opened on this very failure: stop now instead of
-                    // sleeping and calling into an endpoint the fleet has just
-                    // stopped calling.
+            Err(error) => {
+                // Record EVERY retryable provider failure, including the one that
+                // exhausts the budget — recording only inside the retry arm made
+                // the last failure of every chunk invisible, and a deployment with
+                // `AI_IMPORT_MAX_ATTEMPT_RETRIES=0` recorded nothing at all, so the
+                // breaker could never open from real traffic (issue #871 review).
+                //
+                // The classifier is the provider CODE, not `is_transient`: the
+                // latter also matches the mapping DB, payload storage and the
+                // pricing read model, and those say nothing about the endpoint
+                // (D-A1 — counting them would let a storage hiccup open a breaker
+                // for every user of a healthy provider).
+                if is_provider_failure(&error) && gate.record_failure().await {
+                    // It opened on this very failure: stop now instead of sleeping
+                    // and calling into an endpoint the fleet has just stopped
+                    // calling.
                     return Err(AnyhowError::new(breaker_open_error()));
                 }
+                if !is_transient(&error) || attempt >= max_retries {
+                    return Err(error);
+                }
                 attempt += 1;
-                // Re-check before the sleep: the verdict we read a moment ago
-                // can already be stale, and sleeping on a dead endpoint holds
-                // the permit for nothing.
+                // Re-check before the sleep: the verdict we read a moment ago can
+                // already be stale, and sleeping on a dead endpoint holds the
+                // permit for nothing.
                 if !gate.admits().await {
                     return Err(AnyhowError::new(breaker_open_error()));
                 }
@@ -4261,7 +4286,6 @@ where
                 ))
                 .await;
             }
-            Err(error) => return Err(error),
         }
     }
 }
