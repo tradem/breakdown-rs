@@ -22,6 +22,7 @@ import '../../auth/active_episode.dart';
 import '../../auth/active_episode_store.dart';
 import '../../auth/auth_providers.dart';
 import 'active_season_store.dart';
+import 'active_episode_scope_repair.dart';
 import 'quick_create_sheet.dart';
 import 'account_drawer.dart';
 import 'cast_tab_screen.dart';
@@ -152,6 +153,13 @@ class AppShellState extends ConsumerState<AppShell> {
     // soon as the seasons projection has loaded; the provider is a side
     // effect, its value is unused.
     ref.watch(activeScopeRepairProvider);
+
+    // Issue #879 (C5 of #809): the persisted per-season EPISODE scope had the
+    // same shape of staleness and is repaired against a loaded projection too
+    // (a vanished season, or an episode the active season's own block
+    // projection no longer serves). Same contract as above: watched
+    // unconditionally, side effect, value unused.
+    ref.watch(activeEpisodeScopeRepairProvider);
 
     // Issue #707: the destination-selection seam for ALL three
     // morphologies (bar / rail / drawer go through this one handler).

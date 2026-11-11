@@ -345,7 +345,7 @@ final class EpisodesViewControllerProvider
 }
 
 String _$episodesViewControllerHash() =>
-    r'b088dfd1be377e73e45d68f296d21bd96b950935';
+    r'e61e40faefd77454baf938ad41e2688be2abbbf9';
 
 /// Read-projection controller.
 ///
@@ -587,7 +587,7 @@ final class EpisodesViewProvider
   }
 }
 
-String _$episodesViewHash() => r'46bec670c98358bb4b51cec2a71fcec159c739b4';
+String _$episodesViewHash() => r'104907c298b62f8703d135bbd2aa9bc2fdba441d';
 
 /// The projection a screen reads (selector).
 
