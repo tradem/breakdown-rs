@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! `reset-dev-data` — safe, repeatable dev data reset (issue #770).
 //!
@@ -62,6 +63,14 @@ OPTIONS:
 SAFETY:
   Refuses unless APP_ENV is development/unset, REQUIRE_IN_TRANSIT_TLS is not
   true, and DATABASE_URL/SIERRADB_URL both point at loopback hosts.
+
+SCHEMA:
+  Every phase applies the pending PostgreSQL migrations first, through
+  MIGRATOR_DATABASE_URL when set (the schema-owning role) and DATABASE_URL
+  otherwise — the plan counts the schema by name, so a dev database behind the
+  checked-in migrations used to fail with `relation … does not exist`. A
+  --dry-run migrates too (schema only); the applied versions are the first
+  report line.
 ";
 
 struct ParsedArgs {

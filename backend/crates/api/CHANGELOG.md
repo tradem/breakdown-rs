@@ -19,6 +19,12 @@ commits (ADR-020 D5).
 
 ## [0.66.0] - Unreleased
 
+### Changed — the reset CLI documents its schema step (#770 follow-up)
+
+- `reset-dev-data --help` gained a `SCHEMA:` block: every phase applies the
+  pending PostgreSQL migrations before the plan (through
+  `MIGRATOR_DATABASE_URL` when set, else `DATABASE_URL`), `--dry-run` included.
+
 ### Added — chunk store wired, `resumed_from` on the wire (issue #871, workstream B)
 
 - Composition root builds `PgAiImportChunkStore` and hands it to both import

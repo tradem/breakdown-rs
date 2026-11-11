@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Prod refusal for the reset tooling (issue #770).
 //!
@@ -12,7 +13,8 @@
 //! 1. the operator must acknowledge the mode explicitly (`--env dev`),
 //! 2. `APP_ENV`, when set, must say `development`/`dev`,
 //! 3. `REQUIRE_IN_TRANSIT_TLS=true` (the production TLS gate, ADR-024) refuses,
-//! 4. both `DATABASE_URL` and `SIERRADB_URL` must resolve to a loopback host.
+//! 4. `DATABASE_URL`, `SIERRADB_URL` and — when set — `MIGRATOR_DATABASE_URL`
+//!    must resolve to a loopback host.
 //!
 //! Every layer is a pure function over a [`DevEnvironment`] so the whole matrix
 //! is unit-tested without touching a real database.
@@ -23,6 +25,10 @@ pub struct DevEnvironment {
     /// `APP_ENV` — unset in the shipped dev flow, so absence is not a refusal.
     pub app_env: Option<String>,
     pub database_url: String,
+    /// `MIGRATOR_DATABASE_URL` — the DDL role that applies the pending
+    /// migrations before the plan reads the schema. `None` in single-role dev
+    /// mode (the tool then uses `DATABASE_URL`, like `main.rs` at boot).
+    pub migrator_database_url: Option<String>,
     pub sierradb_url: String,
     /// `AI_PAYLOAD_S3_ENDPOINT` — the bucket the reset deletes payload objects
     /// from. `None` when AI payload storage is not configured.
@@ -83,6 +89,7 @@ impl DevEnvironment {
         Self {
             app_env: std::env::var("APP_ENV").ok(),
             database_url: std::env::var("DATABASE_URL").unwrap_or_default(),
+            migrator_database_url: non_empty_env("MIGRATOR_DATABASE_URL"),
             sierradb_url: std::env::var("SIERRADB_URL").unwrap_or_default(),
             ai_payload_endpoint: non_empty_env("AI_PAYLOAD_S3_ENDPOINT"),
             object_storage_endpoint: non_empty_env("S3_ENDPOINT"),
@@ -90,6 +97,15 @@ impl DevEnvironment {
                 .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
                 .unwrap_or(false),
         }
+    }
+
+    /// The connection that applies migrations: `MIGRATOR_DATABASE_URL` when set
+    /// (the schema owner under role separation), else `DATABASE_URL` — the same
+    /// fallback `main.rs` uses at boot.
+    pub fn migrator_url(&self) -> &str {
+        self.migrator_database_url
+            .as_deref()
+            .unwrap_or(&self.database_url)
     }
 
     /// The database host the guard resolved (for the confirmation prompt).
@@ -130,6 +146,22 @@ pub fn check(env: &DevEnvironment, dev_ack: bool) -> Result<(), Refusal> {
             which: "DATABASE_URL",
             host: database_host,
         });
+    }
+
+    // The migrator connection applies DDL, so it gets the same loopback rule: a
+    // remote `MIGRATOR_DATABASE_URL` would let this tool migrate (and, in a
+    // reset, wipe the schema of) a database that is not the local dev stack.
+    if let Some(migrator_url) = env.migrator_database_url.as_deref() {
+        let host = url_host(migrator_url).ok_or_else(|| Refusal::UnparseableUrl {
+            which: "MIGRATOR_DATABASE_URL",
+            value: redact_url(migrator_url),
+        })?;
+        if !is_loopback(&host) {
+            return Err(Refusal::NonLocalTarget {
+                which: "MIGRATOR_DATABASE_URL",
+                host,
+            });
+        }
     }
 
     let event_store_host = url_host(&env.sierradb_url).ok_or_else(|| Refusal::UnparseableUrl {
@@ -254,6 +286,7 @@ mod tests {
         DevEnvironment {
             app_env: None,
             database_url: database.to_string(),
+            migrator_database_url: None,
             sierradb_url: event_store.to_string(),
             ai_payload_endpoint: None,
             object_storage_endpoint: None,
@@ -336,6 +369,38 @@ mod tests {
                 which: "SIERRADB_URL",
                 host: "stunnel".to_string()
             })
+        );
+    }
+
+    /// The migrator connection applies DDL, so a remote one is refused even
+    /// when `DATABASE_URL` points at the loopback dev stack.
+    #[test]
+    fn remote_migrator_refuses() {
+        let mut environment = local();
+        environment.migrator_database_url = Some(
+            "postgres://breakdown_migrator:secret@db.prod.internal:5432/breakdown".to_string(),
+        );
+        assert_eq!(
+            check(&environment, true),
+            Err(Refusal::NonLocalTarget {
+                which: "MIGRATOR_DATABASE_URL",
+                host: "db.prod.internal".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn migrator_url_prefers_the_ddl_role_and_falls_back_to_the_app_url() {
+        let mut environment = local();
+        assert_eq!(
+            environment.migrator_url(),
+            "postgres://postgres:postgres@localhost:5432/breakdown"
+        );
+        environment.migrator_database_url =
+            Some("postgres://breakdown_migrator:secret@localhost:5432/breakdown".to_string());
+        assert_eq!(
+            environment.migrator_url(),
+            "postgres://breakdown_migrator:secret@localhost:5432/breakdown"
         );
     }
 

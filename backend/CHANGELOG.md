@@ -188,6 +188,23 @@ tag. Never edit a released entry afterwards.
 
 ### Fixed
 
+- **The dev reset no longer dies on a stale dev schema (follow-up to #770).**
+  `./scripts/reset-dev-data.sh business` aborted in its `export` phase with
+  `relation "ai_import.ai_import_job_chunk" does not exist` (migration
+  `20261110000002`). The plan enumerates the schema **by name** —
+  `plan::BOOKKEEPING_TABLES` plus one projection table per aggregate category —
+  but the only caller of `sqlx::migrate!` is `main.rs` at API boot, and the
+  wrapper stops the API before that phase, so a database that fell behind
+  `crates/infra/migrations` could never be reset: the failure named a table and
+  nothing told the operator that the schema, not the data, was the problem.
+  Every phase now applies the pending migrations **before** building the plan —
+  through `MIGRATOR_DATABASE_URL` when set (the schema-owning role under role
+  separation, refused by the guard if it is not a loopback target) and
+  `DATABASE_URL` otherwise, exactly like the API boot. `--dry-run` migrates too,
+  because a plan cannot count a table that does not exist yet, and the applied
+  versions are printed as the first report line instead of being hidden inside
+  a dry run. No version bump (dev tooling only).
+
 - **A completed AI apply can no longer lose its target-episode summary (issue
   #864, follow-up to #805).** After a completed apply of the live episode-300
   import, the job's `applied_episodes` was still `NULL`, so the "#759" hop had

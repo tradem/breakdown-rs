@@ -18,6 +18,18 @@ commits (ADR-020 D5).
 
 ## [0.78.0] - Unreleased
 
+### Fixed — the dev reset applies the pending migrations before its plan (#770 follow-up)
+
+- `dev_reset` now brings the schema to the head of `crates/infra/migrations`
+  before `ResetPlan::build` counts it. The plan enumerates tables **by name**, so
+  a dev database behind the migrations failed with
+  `relation "ai_import.ai_import_job_chunk" does not exist` (migration
+  `20261110000002`) — the wrapper stops the API, which is otherwise the only
+  caller of `sqlx::migrate!`. `DevEnvironment` carries
+  `MIGRATOR_DATABASE_URL` (schema owner under role separation; the guard refuses
+  a non-loopback target) with the `DATABASE_URL` fallback `main.rs` uses, and the
+  applied `version_description`s are the report's first line.
+
 ### Changed — the retry counts come from `core` (issue #871, workstream C)
 
 - `MAX_TRUNCATION_RETRIES` and the Ollama parse-retry cap now read
