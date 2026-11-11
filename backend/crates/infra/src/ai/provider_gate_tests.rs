@@ -36,6 +36,11 @@ struct BreakerQueue {
     /// Outcomes the gate recorded, in order (issue #871 review: the write side
     /// must be observable, or "the breaker can open" is untested).
     recorded: std::sync::Mutex<Vec<(&'static str, bool)>>,
+    /// The fake's consecutive-failure counter, kept ONCE and returned in the
+    /// decision. Recounting the `recorded` log instead (an earlier draft) made the
+    /// decision disagree with the state, and taking the `recorded` lock while
+    /// holding the `state` lock introduced a lock-ordering hazard for no reason.
+    failures: std::sync::atomic::AtomicU32,
     /// How many failures it takes to open (the fake's own threshold).
     opens_after: u32,
 }
@@ -46,6 +51,7 @@ impl BreakerQueue {
             state: std::sync::Mutex::new(state),
             fail_reads: false,
             recorded: std::sync::Mutex::new(Vec::new()),
+            failures: std::sync::atomic::AtomicU32::new(0),
             opens_after: u32::MAX,
         })
     }
@@ -55,6 +61,7 @@ impl BreakerQueue {
             state: std::sync::Mutex::new(ProviderBreakerState::Closed),
             fail_reads: true,
             recorded: std::sync::Mutex::new(Vec::new()),
+            failures: std::sync::atomic::AtomicU32::new(0),
             opens_after: u32::MAX,
         }
     }
@@ -152,43 +159,36 @@ impl AiImportQueue for BreakerQueue {
         _threshold: u32,
     ) -> Result<breakdown_core::ai::BreakerDecision, DomainError> {
         use breakdown_core::ai::{BreakerDecision, ProviderOutcome};
-        let (opened, closed) = match outcome {
+        use std::sync::atomic::Ordering;
+        // One counter, incremented on a retryable failure and reset on a success,
+        // and no lock is ever held while another is acquired.
+        let consecutive_failures = match outcome {
             ProviderOutcome::RetryableFailure => {
-                let mut state = self.state.lock().unwrap();
-                let mut failures = self
-                    .recorded
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter(|(kind, _)| *kind == "failure")
-                    .count() as u32;
-                failures += 1;
+                let failures = self.failures.fetch_add(1, Ordering::SeqCst) + 1;
                 self.recorded.lock().unwrap().push(("failure", true));
                 if failures >= self.opens_after {
-                    *state = ProviderBreakerState::Open;
-                    (true, false)
-                } else {
-                    (false, false)
+                    *self.state.lock().unwrap() = ProviderBreakerState::Open;
                 }
+                failures
             }
             ProviderOutcome::Success => {
-                *self.state.lock().unwrap() = ProviderBreakerState::Closed;
+                self.failures.store(0, Ordering::SeqCst);
                 self.recorded.lock().unwrap().push(("success", false));
-                (false, true)
+                *self.state.lock().unwrap() = ProviderBreakerState::Closed;
+                0
             }
-            ProviderOutcome::PermanentFailure => (false, false),
+            // A permanent failure is not reported to the counter at all (D-A1),
+            // so it leaves both the counter and the state untouched.
+            ProviderOutcome::PermanentFailure => self.failures.load(Ordering::SeqCst),
         };
+        let state = *self.state.lock().unwrap();
         Ok(BreakerDecision {
-            state: if opened {
-                ProviderBreakerState::Open
-            } else {
-                ProviderBreakerState::Closed
-            },
-            consecutive_failures: 1,
+            state,
+            consecutive_failures,
             flap_count: 0,
             retry_at: None,
-            opened,
-            closed,
+            opened: matches!(state, ProviderBreakerState::Open),
+            closed: matches!(state, ProviderBreakerState::Closed),
         })
     }
 
@@ -461,6 +461,11 @@ async fn a_successful_call_is_recorded_as_success() {
 
     let _: Result<(), anyhow::Error> = retry_bounded(|| async { Ok(()) }, 2, &gate).await;
     assert_eq!(queue.recorded(), vec![("success", false)]);
+    assert_eq!(
+        queue.failures.load(Ordering::SeqCst),
+        0,
+        "a success resets the counter, so the next failure starts from zero"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -490,6 +495,7 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
         state: std::sync::Mutex::new(ProviderBreakerState::Closed),
         fail_reads: false,
         recorded: std::sync::Mutex::new(Vec::new()),
+        failures: std::sync::atomic::AtomicU32::new(0),
         opens_after: 1,
     });
     let gate = ProviderGate {
@@ -533,6 +539,7 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
         state: std::sync::Mutex::new(ProviderBreakerState::Closed),
         fail_reads: false,
         recorded: std::sync::Mutex::new(Vec::new()),
+        failures: std::sync::atomic::AtomicU32::new(0),
         opens_after: 2, // the SECOND failure opens it
     });
     let gate = ProviderGate {
