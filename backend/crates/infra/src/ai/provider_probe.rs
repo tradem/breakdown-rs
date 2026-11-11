@@ -145,15 +145,7 @@ impl ProviderProbe for CatalogProviderProbe {
     async fn probe(&self, provider: LlmProvider, donor: &DonorJob) -> ProbeOutcome {
         if provider.is_local() {
             // Unauthenticated on purpose: no vault read at all on this path.
-            // The curated Ollama base URL already ends in `/api`
-            // (`http://ollama:11434/api`), so appending `/api/tags` would request
-            // `/api/api/tags` — a 404 that the probe reads as `Unreachable`, which
-            // would mean an Ollama breaker could never close and every held job
-            // would dead-letter at its deadline even after Ollama recovered.
-            let url = format!(
-                "{}/tags",
-                <CuratedProviderUrls as breakdown_core::ai::CuratedLlmProvider>::base_url(provider)
-            );
+            let url = ollama_probe_url(provider);
             return match self.http.get(url).send().await {
                 Ok(response) if response.status().is_success() => {
                     match response.json::<OllamaTags>().await {
@@ -231,6 +223,23 @@ impl ProviderProbe for CatalogProviderProbe {
             Err(error) => classify_catalog_error(provider, &error),
         }
     }
+}
+
+/// The URL the Ollama probe requests (issue #871).
+///
+/// A **shared builder** rather than an inline `format!`: the curated Ollama base
+/// URL already ends in `/api` (`http://ollama:11434/api`), so appending
+/// `/api/tags` would request `/api/api/tags` — a 404 the probe reads as
+/// `Unreachable`, which would mean an Ollama breaker could never close and every
+/// held job would dead-letter at its deadline even after Ollama recovered. The
+/// test asserts on THIS function, so a regression in the probe cannot pass while
+/// an independently constructed expectation stays green.
+#[must_use]
+pub fn ollama_probe_url(provider: LlmProvider) -> String {
+    format!(
+        "{}/tags",
+        <CuratedProviderUrls as breakdown_core::ai::CuratedLlmProvider>::base_url(provider)
+    )
 }
 
 /// A probe that could not obtain a credential **locally**.
@@ -473,16 +482,27 @@ mod tests {
     /// (issue #871 review): the curated base URL already ends in `/api`, so a
     /// duplicated segment is a 404 that the probe would classify as
     /// `Unreachable` — an Ollama breaker could then never close.
+    ///
+    /// Asserts on [`ollama_probe_url`], the SAME function `probe` calls, so the
+    /// test cannot stay green while the probe regresses (the earlier version
+    /// rebuilt the URL independently and would have).
     #[test]
-    fn the_ollama_probe_path_is_not_doubled() {
+    fn the_probe_builds_the_undoubled_ollama_path() {
+        let url = ollama_probe_url(LlmProvider::Ollama);
+        assert_eq!(url, "http://ollama:11434/api/tags");
+        assert!(
+            !url.contains("/api/api/"),
+            "the probe must not duplicate the /api segment: {url}"
+        );
+        // The path is exactly what Ollama serves, derived from the base URL the
+        // chat client also uses.
         let base = <CuratedProviderUrls as breakdown_core::ai::CuratedLlmProvider>::base_url(
             LlmProvider::Ollama,
         );
-        assert_eq!(base, "http://ollama:11434/api");
-        assert_eq!(format!("{base}/tags"), "http://ollama:11434/api/tags");
-        assert!(
-            !format!("{base}/tags").contains("/api/api/"),
-            "the probe must not duplicate the /api segment"
+        assert_eq!(
+            url.strip_prefix(base),
+            Some("/tags"),
+            "the probe path is relative to the curated base: {url}"
         );
     }
 

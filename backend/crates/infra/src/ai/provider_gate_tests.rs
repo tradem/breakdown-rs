@@ -522,3 +522,56 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
         .expect("sentinel");
     assert!(is_breaker_open(&domain));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
+    // The case CodeRabbit asked for explicitly: the budget is spent AND this very
+    // failure opens the breaker. The sentinel must come back, so the worker takes
+    // the held path instead of `mark_failed` — otherwise a job is charged a retry
+    // for a call the breaker just proved pointless.
+    let queue = Arc::new(BreakerQueue {
+        state: std::sync::Mutex::new(ProviderBreakerState::Closed),
+        fail_reads: false,
+        recorded: std::sync::Mutex::new(Vec::new()),
+        opens_after: 2, // the SECOND failure opens it
+    });
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 2,
+        enabled: true,
+    };
+    let calls = AtomicUsize::new(0);
+
+    // max_retries = 1 ⇒ two attempts: the second is both the last permitted one
+    // and the one that opens the breaker.
+    let result: Result<(), anyhow::Error> = retry_bounded(
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(provider_failure())
+        },
+        1,
+        &gate,
+    )
+    .await;
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "both permitted attempts ran"
+    );
+    assert_eq!(
+        queue.recorded().len(),
+        2,
+        "both failures reached the counter — N of N+1 was the bug"
+    );
+    let domain = result
+        .expect_err("refused")
+        .downcast::<DomainError>()
+        .expect("sentinel");
+    assert!(
+        is_breaker_open(&domain),
+        "the last-permitted failure must return the sentinel, not the raw error"
+    );
+}
