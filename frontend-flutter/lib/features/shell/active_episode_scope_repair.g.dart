@@ -35,6 +35,15 @@ part of 'active_episode_scope_repair.dart';
 /// views deliberately always serve a usable row list: cached rows while a
 /// fetch is in flight, retained rows after a failure, so "has rows" says
 /// nothing about authority.
+///
+/// Nor is a pick younger than [kEpisodeScopeSettleWindow] evicted: a read
+/// inside the projector-lag window is not evidence of absence yet (the
+/// AI-import apply → "open imported episode" case the review caught).
+///
+/// The provider is auto-dispose on purpose: the shell is its only watcher, so
+/// the repair's lifetime IS the shell's. When `AuthGate` drops the shell on
+/// sign-out the element is disposed, and an in-flight eviction's `ref.mounted`
+/// fence keeps it from writing or discarding anything afterwards.
 
 @ProviderFor(activeEpisodeScopeRepair)
 final activeEpisodeScopeRepairProvider = ActiveEpisodeScopeRepairProvider._();
@@ -66,6 +75,15 @@ final activeEpisodeScopeRepairProvider = ActiveEpisodeScopeRepairProvider._();
 /// views deliberately always serve a usable row list: cached rows while a
 /// fetch is in flight, retained rows after a failure, so "has rows" says
 /// nothing about authority.
+///
+/// Nor is a pick younger than [kEpisodeScopeSettleWindow] evicted: a read
+/// inside the projector-lag window is not evidence of absence yet (the
+/// AI-import apply → "open imported episode" case the review caught).
+///
+/// The provider is auto-dispose on purpose: the shell is its only watcher, so
+/// the repair's lifetime IS the shell's. When `AuthGate` drops the shell on
+/// sign-out the element is disposed, and an in-flight eviction's `ref.mounted`
+/// fence keeps it from writing or discarding anything afterwards.
 
 final class ActiveEpisodeScopeRepairProvider
     extends $FunctionalProvider<void, void, void>
@@ -97,13 +115,22 @@ final class ActiveEpisodeScopeRepairProvider
   /// views deliberately always serve a usable row list: cached rows while a
   /// fetch is in flight, retained rows after a failure, so "has rows" says
   /// nothing about authority.
+  ///
+  /// Nor is a pick younger than [kEpisodeScopeSettleWindow] evicted: a read
+  /// inside the projector-lag window is not evidence of absence yet (the
+  /// AI-import apply → "open imported episode" case the review caught).
+  ///
+  /// The provider is auto-dispose on purpose: the shell is its only watcher, so
+  /// the repair's lifetime IS the shell's. When `AuthGate` drops the shell on
+  /// sign-out the element is disposed, and an in-flight eviction's `ref.mounted`
+  /// fence keeps it from writing or discarding anything afterwards.
   ActiveEpisodeScopeRepairProvider._()
     : super(
         from: null,
         argument: null,
         retry: null,
         name: r'activeEpisodeScopeRepairProvider',
-        isAutoDispose: false,
+        isAutoDispose: true,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
@@ -131,4 +158,4 @@ final class ActiveEpisodeScopeRepairProvider
 }
 
 String _$activeEpisodeScopeRepairHash() =>
-    r'd060e1162b3d70445123341750d815a581099b16';
+    r'e771bdb76dabcf115a4d260035b6c38b26b04e39';

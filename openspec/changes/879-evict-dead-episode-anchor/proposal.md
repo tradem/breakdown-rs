@@ -95,6 +95,29 @@ the repair into a rebuild loop, and a converged state performs no write at all.
   `removeScopeIfMatch` coverage in `test/auth/active_episode_store_test.dart`,
   and a `failWrites` knob on the shared secure-storage fake.
 
+## Review round (CodeRabbit on PR #886)
+
+- **Projector lag (D8, added).** A pick is written before the projector carries
+  the new episode, so a successful read inside that window is not evidence of
+  absence — exactly the AI-import `openImportedEpisode` flow. Picks are now
+  recorded in memory (`episodePickTimesProvider`, written by the one
+  `ActiveEpisode.set` seam) and a pick younger than
+  `kEpisodeScopeSettleWindow` (30 s — the client's own reconciliation budget
+  with a safety factor) is not evicted. The record is memory-only by design: a
+  persisted timestamp would be renewed by the cold-start restore on every boot
+  and could never expire.
+- **Shell-lifetime ownership (D9, added).** The repair is auto-dispose instead
+  of keep-alive: the shell is its only watcher, so a sign-out disposes it and
+  the in-flight callback's `ref.mounted` fence takes effect.
+- **Per-scope attribution (D10, added).** Results are paired with their entry,
+  so a failed write for one season can no longer discard a sibling season's
+  in-memory scope.
+- **Runbook correction.** The §13 text claimed `pm clear` keeps the remembered
+  AI-config id; the id lives in the secure-storage handoff document, which
+  `pm clear`/a reinstall wipes. The recovery path (re-select the existing
+  configuration in Settings → KI; the config and its credentials are
+  server-side) is now stated.
+
 ### Deliberately out of scope
 
 - **A cold-start fetch budget change.** The active season's episode projection

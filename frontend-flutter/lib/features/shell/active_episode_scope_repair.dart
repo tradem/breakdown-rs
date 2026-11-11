@@ -8,10 +8,28 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/active_episode.dart';
 import '../../auth/active_episode_store.dart';
-import '../../data/cache/seasons_cache_providers.dart';
+import '../../data/cache/seasons_cache_providers.dart'
+    show clockProvider, seasonsView;
 import '../episodes/episodes_controller.dart';
 import 'active_season_store.dart';
 part 'active_episode_scope_repair.g.dart';
+
+/// How long a pick made in this process is protected from the repair's proof
+/// of absence (issue #879).
+///
+/// A pick (episode chip, Script/Schedule row, AI-import "open imported
+/// episode") is written *before* the server-side projector carries the new
+/// episode, so a `GET /v1/episodes` served inside that gap is a SUCCESSFUL read
+/// that does not yet know the row — the projector-lag window §4 of
+/// `frontend-flutter/AGENTS.md` models optimistically. Evicting on it would
+/// silently reset the filter the user just chose.
+///
+/// The window is the client's own patience for a lagging projector
+/// (`kMaxReconcileAttempts` × `ExponentialBackoffScheduler`: 0,5 + 1 + 2 + 4 s
+/// ≈ 7,5 s) with a safety factor. It is only a grace: a pick that is a minute
+/// old is evaluable again, and the next cold start always is (the record is
+/// in-memory, so a restore never renews it).
+const Duration kEpisodeScopeSettleWindow = Duration(seconds: 30);
 
 /// Evicts persisted active-episode scopes whose episode (or season) the
 /// projections no longer serve (issue #879 — C5 of #809).
@@ -40,7 +58,16 @@ part 'active_episode_scope_repair.g.dart';
 /// views deliberately always serve a usable row list: cached rows while a
 /// fetch is in flight, retained rows after a failure, so "has rows" says
 /// nothing about authority.
-@Riverpod(keepAlive: true)
+///
+/// Nor is a pick younger than [kEpisodeScopeSettleWindow] evicted: a read
+/// inside the projector-lag window is not evidence of absence yet (the
+/// AI-import apply → "open imported episode" case the review caught).
+///
+/// The provider is auto-dispose on purpose: the shell is its only watcher, so
+/// the repair's lifetime IS the shell's. When `AuthGate` drops the shell on
+/// sign-out the element is disposed, and an in-flight eviction's `ref.mounted`
+/// fence keeps it from writing or discarding anything afterwards.
+@riverpod
 void activeEpisodeScopeRepair(Ref ref) {
   final seasons = ref.watch(seasonsView);
   final persisted = ref.watch(activeEpisodePersistedProvider).value;
@@ -75,7 +102,38 @@ void activeEpisodeScopeRepair(Ref ref) {
   }
 
   if (dead.isEmpty) return;
+  // A pick made moments ago is not evidence of absence yet (projector lag).
+  // The clock is the injectable seam (deterministic tests, AGENTS.md §6).
+  final now = ref.watch(clockProvider).now();
+  final picks = ref.watch(episodePickTimesProvider);
+  dead.removeWhere(
+    (seasonId, episodeId) => !_settled(
+      now,
+      picks[seasonId],
+      seasonId: seasonId,
+      episodeId: episodeId,
+    ),
+  );
+  if (dead.isEmpty) return;
   _evictDeadEpisodes(ref, dead);
+}
+
+/// `true` when the episode named by ([seasonId], [episodeId]) may be judged on
+/// a loaded projection: it is not a pick the live process made inside
+/// [kEpisodeScopeSettleWindow].
+///
+/// A `null` [pick] means the scope was restored from storage (or written by a
+/// build without the pick record), so it is by definition older than the
+/// window — and a record for a DIFFERENT episode of the same season says
+/// nothing about this one: a stale key must never shield a dead scope.
+bool _settled(
+  DateTime now,
+  ({String episodeId, DateTime at})? pick, {
+  required String seasonId,
+  required String episodeId,
+}) {
+  if (pick == null || pick.episodeId != episodeId) return true;
+  return now.difference(pick.at) >= kEpisodeScopeSettleWindow;
 }
 
 /// Evicts the per-season episode scopes named by [dead] (`seasonId` →
@@ -87,16 +145,25 @@ void activeEpisodeScopeRepair(Ref ref) {
 /// invalidated only after a settled successful write — so a failing store
 /// cannot turn this into a rebuild loop (the next cold start retries
 /// naturally), and a converged state performs no write at all.
+///
+/// Only scopes whose removal actually SUCCEEDED may reach the in-memory
+/// cleanup: with several seasons, one failed write must not let a sibling's
+/// success discard a scope whose document is still stored.
 void _evictDeadEpisodes(Ref ref, Map<String, String> dead) {
   final store = ref.read(activeEpisodeStoreProvider);
+  final entries = dead.entries.toList(growable: false);
   unawaited(
     Future.wait([
-      for (final entry in dead.entries)
+      for (final entry in entries)
         store.removeScopeIfMatch(seasonId: entry.key, episodeId: entry.value),
     ]).then((results) {
-      final wrote = results.any((res) => res.isRight());
-      if (!ref.mounted || !wrote) return;
-      _discardDeadInMemoryScope(ref, dead);
+      if (!ref.mounted) return;
+      final removed = <String, String>{
+        for (var i = 0; i < entries.length; i++)
+          if (results[i].isRight()) entries[i].key: entries[i].value,
+      };
+      if (removed.isEmpty) return;
+      _discardDeadInMemoryScope(ref, removed);
       ref.invalidate(activeEpisodePersistedProvider);
     }),
   );

@@ -189,6 +189,9 @@ void main() {
           blockId: 'b-1',
           episodeId: 'e-gone',
           episodeNumber: 1,
+          // What `_restoreEpisodeScope` does: a replayed document, not a pick
+          // — so it does not renew the projector-lag grace window.
+          isRestore: true,
         );
 
     await tester.pumpWidget(_app(f.container));
@@ -215,6 +218,7 @@ void main() {
           blockId: 'b-1',
           episodeId: 'e-1',
           episodeNumber: 1,
+          isRestore: true,
         );
 
     await tester.pumpWidget(_app(f.container));

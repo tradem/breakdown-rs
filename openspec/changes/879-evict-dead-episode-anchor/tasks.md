@@ -53,6 +53,25 @@
 - [x] 4.4 Mutation-checked: removing the `isLoaded` gate fails exactly the two
       negative cases; removing the compare-and-remove fails the race case.
 
+## 4b. Review round (CodeRabbit on PR #886)
+
+- [x] 4b.1 Projector-lag grace: `episodePickTimesProvider` records real picks
+      (in memory, per season) through the `ActiveEpisode.set` seam;
+      `isRestore: true` marks the cold-start replay so it never renews the
+      window; the repair skips picks younger than
+      `kEpisodeScopeSettleWindow` (30 s).
+- [x] 4b.2 Repair provider is auto-dispose (shell-lifetime ownership) instead of
+      keep-alive, so sign-out ends the repair via the `ref.mounted` fence.
+- [x] 4b.3 Per-scope attribution: `Future.wait` results are paired with their
+      entry, so only successfully removed scopes reach the in-memory discard.
+- [x] 4b.4 Unit test for the settle window (protected inside, evicted past it —
+      mutation-checked: removing the guard fails it).
+- [x] 4b.5 Store suite splits the read-failure and write-failure branches
+      (`failAll` vs `failWrites`; the write branch asserts
+      `active_episode.scopes_write_failed`).
+- [x] 4b.6 Runbook §13: `pm clear` deletes the remembered AI-config id (secure
+      storage, not Drift); the recovery path is documented.
+
 ## 5. Verification
 
 - [x] 5.1 `dart format --set-exit-if-changed .` — clean.

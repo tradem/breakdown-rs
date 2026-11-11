@@ -437,6 +437,10 @@ class AppShellState extends ConsumerState<AppShell> {
               episodeId: saved.episodeId,
               episodeNumber: saved.episodeNumber,
               episodeName: saved.episodeName,
+              // A replayed document, not a pick: it must not renew the
+              // repair's projector-lag grace window (issue #879), or a dead
+              // scope restored on every boot could never be evicted.
+              isRestore: true,
             );
       }),
     );

@@ -197,6 +197,7 @@ _buildFixture({
   Future<Result<List<EpisodeView>>> Function()? episodesFetch,
   String sub = 'sub-1',
   ActiveEpisodeStore? episodeStore,
+  DateTime Function()? now,
 }) {
   final db = CacheDatabase();
   final dao = ShellStateDao(db);
@@ -211,7 +212,9 @@ _buildFixture({
       shellStateDaoProvider.overrideWithValue(dao),
       activeEpisodeStoreProvider.overrideWithValue(store),
       clockProvider.overrideWith(
-        (ref) => Clock.fixed(DateTime.utc(2026, 2, 1)),
+        (ref) => now == null
+            ? Clock.fixed(DateTime.utc(2026, 2, 1))
+            : Clock(() => now()),
       ),
       seasonsListFetchProvider.overrideWith((ref) => seasonsFetch()),
       episodesListFetchProvider('b-1', 'season-1').overrideWith(
@@ -508,6 +511,53 @@ void main() {
       expect(store.removeAttempts, 0);
       expect((await readScopes(store))['season-2']?.episodeId, 'e-2');
     });
+
+    test(
+      'a pick younger than the settle window is not evicted (projector lag)',
+      () async {
+        var now = DateTime.utc(2026, 2, 1);
+        final store = _ScriptedActiveEpisodeStore(const FlutterSecureStorage());
+        final f = _buildFixture(
+          seasonsFetch: () async => Right([_season('season-1')]),
+          // The just-created episode is not in the projection yet.
+          episodesFetch: () async => Right([_episode('e-other')]),
+          episodeStore: store,
+          now: () => now,
+        );
+        await seedAnchor(f.dao, 'season-1');
+        // The AI-import "open imported episode" case: a real PICK, written
+        // while the projector still lags.
+        f.container
+            .read(activeEpisodeProvider.notifier)
+            .set(
+              seasonId: 'season-1',
+              blockId: 'b-1',
+              episodeId: 'e-gone',
+              episodeNumber: 1,
+            );
+        await waitUntil(
+          () async => (await readScopes(store)).containsKey('season-1'),
+        );
+
+        await settleInputs(f.container);
+        watchRepair(f.container);
+        await settle(f.container);
+
+        // Inside the window the same loaded absence is NOT evidence.
+        expect((await readScopes(store))['season-1']?.episodeId, 'e-gone');
+        expect(store.removeAttempts, 0);
+        expect(f.container.read(activeEpisodeProvider)?.episodeId, 'e-gone');
+
+        // Past the window it is: the episode never appeared.
+        now = now.add(kEpisodeScopeSettleWindow);
+        f.container.invalidate(activeEpisodeScopeRepairProvider);
+        await waitUntil(
+          () async => !(await readScopes(store)).containsKey('season-1'),
+        );
+        expect((await readScopes(store)).containsKey('season-1'), isFalse);
+        expect(store.removeAttempts, 1);
+      },
+    );
 
     test('season scoping: a sibling live season keeps its scope', () async {
       final f = _buildFixture(

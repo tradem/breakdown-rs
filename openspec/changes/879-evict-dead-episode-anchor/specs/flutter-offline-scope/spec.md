@@ -45,6 +45,34 @@ fetch is in flight, retained rows after a failure.
 - **THEN** the scope is kept, and it is kept again after a later successful read
   that still contains the episode
 
+### Requirement: A Fresh Pick Is Not Evidence of Absence (Projector Lag)
+
+A scope whose episode was PICKED by the live process within
+`kEpisodeScopeSettleWindow` SHALL NOT be evicted, even when a loaded projection
+does not contain it: a pick is written before the server-side projector carries
+the new episode, so a successful read inside that window is a lagging read, not
+a proof of absence (the AI-import "open imported episode" flow picks an episode
+it has just created).
+
+The pick time SHALL be recorded in memory only (never in the persisted
+document), and a cold-start restore (`ActiveEpisode.set(isRestore: true)`) SHALL
+NOT record one — otherwise every boot would renew the window and a dead scope
+could never be evicted. After the window the same loaded absence is evidence and
+the scope is evicted on the next evaluation.
+
+#### Scenario: An AI import picks an episode the projector has not reached
+
+- **WHEN** the user opens an episode the import has just created and the loaded
+  episode projection does not carry it yet
+- **THEN** the scope is kept (and its persisted document with it), and it is
+  still kept on a later read, so the Script filter survives the lag
+
+#### Scenario: The same episode is genuinely gone
+
+- **WHEN** a scope older than the settle window is absent from a loaded
+  projection (or the app cold-starts and the scope was restored, not picked)
+- **THEN** the scope is evicted
+
 ### Requirement: Episode Scope Eviction Is Compare-and-Remove
 
 A repair that decided from an earlier read SHALL remove a persisted episode
@@ -79,6 +107,20 @@ introduce a per-identity key or rewrite any other season's entry.
   seasons also have remembered episodes
 - **THEN** only the active season's entry is removed; the other seasons keep
   theirs and are repaired when they become active
+
+### Requirement: Episode Scope Repair Is Owned by the Shell's Lifetime
+
+The repair SHALL stop acting when the shell unmounts: the provider is
+auto-dispose, so `AuthGate` dropping `AppShell` (sign-out) disposes it and an
+in-flight eviction's `ref.mounted` fence prevents any later write or in-memory
+discard. Every eviction SHALL be attributed to the scope whose removal
+succeeded — one failed write MUST NOT discard a sibling scope's in-memory value
+whose document is still stored.
+
+#### Scenario: Sign-out lands between the decision and the write
+
+- **WHEN** the shell is removed while an eviction is settling
+- **THEN** nothing is written and no in-memory scope is discarded
 
 ### Requirement: Episode Scope Repair Is Best-Effort and Idempotent
 

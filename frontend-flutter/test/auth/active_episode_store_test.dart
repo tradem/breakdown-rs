@@ -164,18 +164,42 @@ void main() {
       },
     );
 
-    test('removeScopeIfMatch reports a storage failure as Err', () async {
+    test('removeScopeIfMatch reports a READ failure as Err', () async {
       final store = ActiveEpisodeStore.secure();
+      // A whole-store failure: the read fails before any removal is decided.
       platform.failAll = true;
       expect(
         (await store.removeScopeIfMatch(
           seasonId: 's-1',
           episodeId: 'e-1',
         )).getLeft().toNullable()?.code,
-        anyOf(
-          'active_episode.scopes_read_failed',
-          'active_episode.scopes_write_failed',
-        ),
+        'active_episode.scopes_read_failed',
+      );
+    });
+
+    test('removeScopeIfMatch reports a WRITE failure as Err', () async {
+      final store = ActiveEpisodeStore.secure();
+      await store.saveScope(
+        seasonId: 's-1',
+        blockId: 'b-1',
+        episodeId: 'e-1',
+        episodeNumber: 1,
+      );
+      // The document stays readable and the entry matches, so the removal
+      // reaches `_writeAll` — the only path that can report a write failure.
+      platform.failWrites = true;
+      expect(
+        (await store.removeScopeIfMatch(
+          seasonId: 's-1',
+          episodeId: 'e-1',
+        )).getLeft().toNullable()?.code,
+        'active_episode.scopes_write_failed',
+      );
+      platform.failWrites = false;
+      // Nothing was lost: the entry is still there.
+      expect(
+        (await store.readScopes()).getRight().toNullable()?['s-1']?.episodeId,
+        'e-1',
       );
     });
 
