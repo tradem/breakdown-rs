@@ -334,6 +334,16 @@ async fn main() -> Result<()> {
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
+    // Project-scoped costume membership (openspec change
+    // `project-scoped-membership`): a second, additive scope so a season with
+    // no blocks is not role-less by construction. Its own stream
+    // (`project_membership-<project_id>`) and checkpoint row.
+    let _project_membership_projector = infra::projectors::spawn_project_membership_projector(
+        pool.clone(),
+        Arc::clone(&redis_client),
+        infra::projectors::ProjectorFlushConfig::default(),
+    )
+    .await?;
     // Spawn all 11 category audit projectors and keep their supervisor handles
     // alive for the process lifetime. The handles' Drop aborts the projectors,
     // so they MUST be held here (not dropped at end of function).
