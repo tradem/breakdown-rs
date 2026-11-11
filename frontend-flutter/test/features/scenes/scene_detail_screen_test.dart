@@ -32,12 +32,14 @@ import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/piece_repository.dart';
+import 'package:frontend_flutter/data/outfit_repository.dart';
 import 'package:frontend_flutter/data/scene_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
-import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/design/theme.dart';
+import 'package:frontend_flutter/features/characters/character_detail_screen.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
+import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
 import 'package:frontend_flutter/features/scenes/scene_detail_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
@@ -58,6 +60,7 @@ SceneView _scene({
   int version = 1,
   List<SceneOutfitBeatView> beats = const [],
   String? mood,
+  String? scriptDay,
 }) => SceneView(
   (b) => b
     ..id = id
@@ -67,6 +70,7 @@ SceneView _scene({
     ..location = 'Studio A'
     ..mood = mood
     ..sceneNumber = 7
+    ..scriptDay = scriptDay
     ..shootingDayIds.replace(days)
     ..outfitBeats.replace(beats)
     ..summary = 'Night shoot'
@@ -238,6 +242,18 @@ EpisodeView _episode() => EpisodeView(
     ..blockId = 'block-1'
     ..number = 1
     ..projectId = 'series-1'
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
+
+/// The season the detail screen was pushed into — the cast route to the
+/// character detail needs the row (issue #834 follow-up).
+SeasonView _seasonView() => SeasonView(
+  (b) => b
+    ..id = 'season-1'
+    ..projectId = 'series-1'
+    ..number = 1
+    ..archived = false
     ..updatedAt = DateTime.utc(2026, 1, 1)
     ..version = 1,
 );
@@ -414,6 +430,10 @@ void main() {
     List<int>? scenesFetchLog,
     List<String> membershipCapabilities = const ['assign_costumes'],
     List<PieceView> pieceRows = const [],
+
+    /// Looks per figure id, for the tests that cast a figure themselves (the
+    /// combined "figure and look" flow resolves the looks of the picked one).
+    Map<String, List<OutfitView>> figureOutfits = const {},
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -429,6 +449,18 @@ void main() {
         cacheDatabaseProvider.overrideWithValue(db),
         sceneRepositoryProvider.overrideWithValue(sceneRepo),
         characterRepositoryProvider.overrideWithValue(characters),
+        // The Cast screen the edit route opens renders the character's outfits
+        // (`outfitsViewProvider` → `outfitsListFetchProvider`); faked here so
+        // the route never touches the pinned production client.
+        outfitRepositoryProvider.overrideWithValue(
+          OutfitRepository(BreakdownApi(), OutfitCacheDao(db)),
+        ),
+        outfitsListFetchProvider('ch-1')
+            .overrideWith((ref) async => const Right(<OutfitView>[])),
+        // The cast section resolves the season row for the edit route
+        // (cache-first in production; a provider override keeps the test off
+        // the network).
+        seasonByIdProvider('season-1').overrideWith((ref) async => _seasonView()),
         shootingDayRepositoryProvider.overrideWithValue(days),
         reconciliationSchedulerProvider.overrideWith(
           (ref) => ManualReconciliationScheduler(),
@@ -443,9 +475,15 @@ void main() {
         piecesListFetchProvider('season-1')
             .overrideWith((ref) async => Right(pieceRows)),
         // A scene casts an OUTFIT: the picker reads the character's looks.
+        // `ch-1` keeps the historical fixture; `figureOutfits` adds looks for
+        // the figures a test casts itself (the combined assign flow).
         characterOutfitsProvider('ch-1').overrideWith(
           (ref) async => Right(<OutfitView>[_outfit('outfit-9', name: 'Hut')]),
         ),
+        for (final entry in figureOutfits.entries)
+          characterOutfitsProvider(
+            entry.key,
+          ).overrideWith((ref) async => Right(entry.value)),
         scenesListFetchProvider('episode-1').overrideWith((ref) async {
           scenesFetchLog?.add(1);
           return Right(scene == null ? [] : [scene]);
@@ -482,13 +520,29 @@ void main() {
     await _pumpFrames(tester, n: 30);
   }
 
+  /// Scrolls the detail list until [target] is built and on screen.
+  ///
+  /// The body is a `ListView`, so a section below the fold is not in the widget
+  /// tree AT ALL — a finder cannot see it, and `skipOffstage` does not help.
+  /// Issue #834's follow-up moved the cast section BELOW the shooting days, so
+  /// every section assertion scrolls first (bounded, deterministic: drag by a
+  /// fixed step and stop as soon as the finder resolves).
+  Future<void> revealInDetail(WidgetTester tester, Finder target) async {
+    for (var i = 0; i < 8 && target.evaluate().isEmpty; i++) {
+      final scrollable = find.byType(Scrollable);
+      if (scrollable.evaluate().isEmpty) return;
+      await tester.drag(scrollable.first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+    }
+  }
+
   /// Issue #834: every section is COLLAPSED by default — a test asserting
-  /// section content expands the section first (one tap on the section
-  /// header card).
+  /// section content reveals and then expands it (one tap on the header card).
   Future<void> expandSection(WidgetTester tester, String sectionKey) async {
+    final header = find.byKey(Key(sectionKey));
     // A scene that never resolved renders no sections at all — a tap would
     // throw on the empty finder.
-    final header = find.byKey(Key(sectionKey));
+    await revealInDetail(tester, header);
     if (header.evaluate().isEmpty) return;
     await tester.tap(header.first);
     await tester.pumpAndSettle();
@@ -504,7 +558,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       expect(find.text('Ada'), findsOneWidget);
       expect(find.byKey(const Key('scene-character-ch-1')), findsOneWidget);
     });
@@ -515,23 +569,33 @@ void main() {
       await setupContainer(scene: _scene());
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
-      expect(find.byKey(const Key('scene-characters-empty')), findsOneWidget);
+      await expandSection(tester, 'scene-cast-scene-1');
+      expect(find.byKey(const Key('scene-cast-empty')), findsOneWidget);
     });
 
-    testWidgets('assign carries picked id + scene version', (tester) async {
+    testWidgets('the combined assign flow casts the figure, then its look '
+        '(issue #834 follow-up)', (tester) async {
       await setupContainer(
         scene: _scene(),
         characterRows: [_character('ch-9', name: 'Bea')],
+        // The figure the flow casts needs a look to pick — otherwise the
+        // flow stops after the assignment with its "no look yet" hint.
+        figureOutfits: {'ch-9': [_outfit('outfit-9', name: 'Hut')]},
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       await tester.tap(find.byKey(const Key('scene-character-assign-scene-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('assign-character-ch-9')));
       await _pumpFrames(tester);
       expect(characters.sceneAssignCalls, 1);
+      // One button, both halves: the look picker follows the assignment.
+      expect(find.byKey(const Key('pick-outfit-outfit-9')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await _pumpFrames(tester);
+      expect(sceneRepo.addCalls, 1);
     });
 
     testWidgets('unassign confirm-first; failure leaves id in place', (
@@ -543,7 +607,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       characters.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
       await tester.pumpAndSettle();
@@ -568,7 +632,7 @@ void main() {
       await setupContainer(scene: null, characterRows: const []);
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       expect(find.byKey(const Key('scene-detail-gone')), findsOneWidget);
       expect(find.byKey(const Key('scene-detail-loading')), findsNothing);
     });
@@ -582,7 +646,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       final baseline = fetchLog.length;
       characters.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
@@ -607,7 +671,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       final button = tester.widget<FilledButton>(
         find.byKey(const Key('scene-character-assign-scene-1')),
       );
@@ -916,9 +980,9 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-characters-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
 
-      expect(find.text('Characters (1)'), findsOneWidget);
+      expect(find.text('Characters (1) · Looks (0)'), findsOneWidget);
       expect(find.byKey(const Key('scene-character-c-1')), findsOneWidget);
       expect(find.text('Ada'), findsOneWidget);
       // The assign button stays enabled for the not-yet-assigned character.
@@ -947,12 +1011,12 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-pieces-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
       // The beat casts an OUTFIT, so its label is the look's joined name.
       expect(find.text('Hut'), findsOneWidget);
       expect(find.text('Trench, guanti'), findsOneWidget);
-      expect(find.text('Looks (1)'), findsOneWidget);
+      expect(find.text('Characters (1) · Looks (1)'), findsOneWidget);
     });
 
     testWidgets('two beats render the change sequence with the arrow', (
@@ -980,14 +1044,14 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-pieces-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
       expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
       // The `→` prefix marks the change from the previous beat of the
       // character; order 0 carries none.
       expect(find.byKey(const Key('scene-piece-arrow-ch-1-0')), findsNothing);
       expect(find.byKey(const Key('scene-piece-arrow-ch-1-1')), findsOneWidget);
-      expect(find.text('Looks (2)'), findsOneWidget);
+      expect(find.text('Characters (1) · Looks (2)'), findsOneWidget);
     });
 
     testWidgets('empty-state affordance for a character without a beat', (
@@ -1000,7 +1064,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-pieces-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       expect(find.byKey(const Key('scene-piece-empty-ch-1')), findsOneWidget);
       expect(find.byKey(const Key('scene-piece-assign-ch-1')), findsOneWidget);
       // No add-change affordance without an existing beat.
@@ -1023,7 +1087,7 @@ void main() {
         );
         await pumpDetail(tester);
         // Issue #834: the section is collapsed by default — expand first.
-        await expandSection(tester, 'scene-pieces-scene-1');
+        await expandSection(tester, 'scene-cast-scene-1');
         await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -1044,7 +1108,7 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('Hut'), findsOneWidget);
-        expect(find.text('Looks (1)'), findsOneWidget);
+        expect(find.text('Characters (1) · Looks (1)'), findsOneWidget);
       },
     );
 
@@ -1059,7 +1123,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-pieces-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -1088,7 +1152,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-pieces-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       final baseline = fetchLog.length;
       sceneRepo.nextWrite = const Left(_conflict);
       await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
@@ -1114,7 +1178,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-pieces-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
       await tester.pumpAndSettle();
       // Confirm-first: no dispatch before confirmation.
@@ -1151,7 +1215,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-pieces-scene-1');
+      await expandSection(tester, 'scene-cast-scene-1');
       await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
       await tester.pumpAndSettle();
       await tester.tap(
@@ -1235,7 +1299,7 @@ void main() {
     );
     await pumpDetail(tester);
     // Issue #834: the section is collapsed by default — expand first.
-    await expandSection(tester, 'scene-pieces-scene-1');
+    await expandSection(tester, 'scene-cast-scene-1');
     await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -1244,7 +1308,7 @@ void main() {
     // The optimistic beat renders at order 3 (max 2 + 1) — the same
     // position the aggregate will assign — so the row keys stay unique.
     expect(find.byKey(const Key('scene-piece-beat-ch-1-3')), findsOneWidget);
-    expect(find.text('Looks (3)'), findsOneWidget);
+    expect(find.text('Characters (1) · Looks (3)'), findsOneWidget);
   });
 
   // CodeRabbit #4172169329: a SECOND command must build its optimistic
@@ -1264,7 +1328,7 @@ void main() {
     );
     await pumpDetail(tester);
     // Issue #834: the section is collapsed by default — expand first.
-    await expandSection(tester, 'scene-pieces-scene-1');
+    await expandSection(tester, 'scene-cast-scene-1');
     // First beat: acked version 2, optimistic row 0.
     await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
     await tester.pumpAndSettle();
@@ -1321,7 +1385,7 @@ void main() {
       // the fold: the ListView builds slivers lazily, so DRAG it into the
       // viewport before asserting (skipOffstage cannot find unbuilt
       // children).
-      expect(find.text('Characters (1)'), findsOneWidget);
+      expect(find.text('Characters (1) · Looks (0)'), findsOneWidget);
       expect(find.text('Shooting days (1)'), findsOneWidget);
     });
 
@@ -1332,9 +1396,8 @@ void main() {
       // Expand every section, assert again (the M3 ExpansionTile used to
       // draw its default top+bottom borders while expanded — issue #834).
       for (final key in [
-        'scene-characters-scene-1',
-        'scene-pieces-scene-1',
         'scene-shooting-days-scene-1',
+        'scene-cast-scene-1',
       ]) {
         await expandSection(tester, key);
       }
@@ -1357,7 +1420,7 @@ void main() {
           .whereType<PageStorageKey>()
           .map((k) => k.value)
           .toSet();
-      expect(storageKeys, hasLength(3));
+      expect(storageKeys, hasLength(2));
     });
 
     testWidgets('header block: numeral, location, mood + schedule chips', (
@@ -1628,7 +1691,7 @@ void main() {
           .byKey(const Key('scene-piece-add-change-ch-1'))
           .evaluate()
           .isEmpty) {
-        await expandSection(tester, 'scene-pieces-scene-1');
+        await expandSection(tester, 'scene-cast-scene-1');
       }
 
       // 1) Details ack (v2): the fake echoes request.version + 1.
@@ -1689,5 +1752,145 @@ void main() {
         expect(sceneRepo.lastUpdateDetails!.details.mood, ' X/Y ');
       },
     );
+  });
+
+  // Issue #834 follow-up — the section order, the script-day binding, the
+  // "move to another day" flow and the merged cast/look table.
+  group('SceneDetailScreen sections (issue #834 follow-up)', () {
+    testWidgets('shooting days render ABOVE the cast', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], days: ['d-1'], scriptDay: 'Tag 1'),
+        characterRows: [_character('ch-1')],
+        dayRows: [_day('d-1')],
+      );
+      await pumpDetail(tester);
+      final days = find.byKey(const Key('scene-shooting-days-scene-1'));
+      final cast = find.byKey(const Key('scene-cast-scene-1'));
+      await revealInDetail(tester, cast);
+      expect(days, findsOneWidget);
+      expect(cast, findsOneWidget);
+      expect(
+        tester.getTopLeft(days).dy < tester.getTopLeft(cast).dy,
+        isTrue,
+        reason: 'a scene is planned before it is cast',
+      );
+    });
+
+    testWidgets('the script day binds to a REAL shooting day from its chip '
+        '(issue #834 follow-up)', (tester) async {
+      await setupContainer(
+        scene: _scene(scriptDay: 'Tag 1'),
+        dayRows: [_day('d-9', label: 'Drehtag 1')],
+      );
+      await pumpDetail(tester);
+      await tester.tap(
+        find.byKey(const Key('scene-script-day-assign-scene-1')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('schedule-day-d-9')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('schedule-day-d-9')));
+      await _pumpFrames(tester);
+      expect(days.scheduleCalls, 1);
+      // The chip is a bind, not a move: nothing is unscheduled.
+      expect(days.unscheduleCalls, 0);
+    });
+
+    testWidgets('a scene with no candidate day disables the script-day chip',
+        (tester) async {
+      await setupContainer(
+        scene: _scene(scriptDay: 'Tag 1', days: ['d-1']),
+        dayRows: [_day('d-1')],
+      );
+      await pumpDetail(tester);
+      final button = tester.widget<IconButton>(
+        find.byKey(const Key('scene-script-day-assign-scene-1')),
+      );
+      expect(
+        button.onPressed,
+        isNull,
+        reason: 'the only day of the episode is already planned on this scene',
+      );
+    });
+
+    testWidgets('"move to another day" schedules the new day and only then '
+        'releases the old one (issue #834 follow-up)', (tester) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1'), _day('d-2')],
+      );
+      await pumpDetail(tester);
+      await expandSection(tester, 'scene-shooting-days-scene-1');
+      await tester.tap(
+        find.byKey(const Key('scene-shooting-day-move-d-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('schedule-day-d-2')));
+      await _pumpFrames(tester);
+      expect(days.scheduleCalls, 1);
+      expect(days.unscheduleCalls, 1);
+    });
+
+    testWidgets('a refused move keeps the day the scene had', (tester) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1'), _day('d-2')],
+      );
+      days.nextWrite = const Left(
+        ProblemError(code: 'concurrency.version-mismatch', status: 409),
+      );
+      await pumpDetail(tester);
+      await expandSection(tester, 'scene-shooting-days-scene-1');
+      await tester.tap(
+        find.byKey(const Key('scene-shooting-day-move-d-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('schedule-day-d-2')));
+      await _pumpFrames(tester);
+      expect(days.scheduleCalls, 1);
+      expect(
+        days.unscheduleCalls,
+        0,
+        reason: 'never release the old day before the new one is acknowledged',
+      );
+    });
+
+    testWidgets('one row carries the figure and its look, with the edit route '
+        'into the Cast screen (issue #834 follow-up)', (tester) async {
+      await setupContainer(
+        scene: _scene(
+          characters: ['ch-1'],
+          beats: [_beat('ch-1', 0, note: 'Trench')],
+        ),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      await expandSection(tester, 'scene-cast-scene-1');
+      // Figure cell and look cell live in the SAME row.
+      final row = find.byKey(const Key('scene-character-ch-1'));
+      expect(
+        find.descendant(of: row, matching: find.text('Ada')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: row, matching: find.text('Jacke')),
+        findsOneWidget,
+      );
+      // Column labels make the two cells a table, not a guess.
+      expect(find.text('Character'), findsOneWidget);
+      expect(find.text('Look'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('scene-character-edit-ch-1')));
+      await tester.pumpAndSettle();
+      expect(find.byType(CharacterDetailScreen), findsOneWidget);
+    });
+
+    testWidgets('a MIXED mood renders the import preview icons in the header '
+        '(issue #834 follow-up)', (tester) async {
+      await setupContainer(scene: _scene(mood: 'A/I/T'));
+      await pumpDetail(tester);
+      expect(find.textContaining('A/I/T'), findsOneWidget);
+      expect(find.byIcon(Icons.sensor_door_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.wb_sunny_outlined), findsOneWidget);
+    });
   });
 }

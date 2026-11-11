@@ -318,3 +318,28 @@ class SeasonsController extends _$SeasonsController {
     return res.match((_) => null, (rows) => rows);
   }
 }
+
+/// One season row by id, CACHE-FIRST — the read DTO a detail screen needs to
+/// dispatch a command that takes a `SeasonView` (the scene detail's cast route
+/// to the character detail, issue #834 follow-up).
+///
+/// A cached hit is served without a network call. A miss fetches THROUGH
+/// [SeasonRepository] (`getAndCache`), the single owner of network + cache
+/// writes, so the resolved row is the same DTO the season list shows. `null`
+/// means the row genuinely could not be read (a transport failure): the caller
+/// reports that instead of opening a screen it cannot fill — never a
+/// hand-rolled DTO with guessed ids (CQRS boundary).
+@riverpod
+Future<SeasonView?> seasonById(Ref ref, String seasonId) async {
+  final repo = ref.watch(seasonRepositoryProvider);
+  final cached = await repo.readCached();
+  final hit = cached.match<SeasonView?>((_) => null, (rows) {
+    for (final row in rows) {
+      if (row.id == seasonId) return row;
+    }
+    return null;
+  });
+  if (hit != null) return hit;
+  final fetched = await repo.getAndCache(seasonId);
+  return fetched.match((_) => null, (row) => row);
+}

@@ -23,6 +23,34 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The scene view plans before it casts, and shows a figure with its look in
+  one row** (`0.4.0-beta.51+143 → 0.4.0-beta.52+144`).
+  - **Shooting days come first.** The days section moved above the cast: a scene
+    is planned before it is cast, and the dispo is built from the days. Its
+    actions are icons now — each day row carries "move to another day" (schedule
+    the picked day FIRST, release the current one only after that ack, so a
+    refusal never leaves the scene on no day) next to the board and the
+    unschedule action, and the script day's chip in the header gained the
+    affordance that binds "Tag 1" to a real shooting day of the episode.
+  - **Figuren and Looks are one section.** Two lists made the reader join them by
+    hand, and a figure without a look was a dead end one section away from the
+    fix. One card now renders a table — one row per (figure, look), the header
+    carries both counts ("Figuren 2 · Looks 3") — with column labels, per-row
+    removal of either target, an edit icon that opens the Cast screen (character
+    detail, season row resolved cache-first) and one bottom action,
+    "Figur und Look zuweisen", that casts the figure and then opens its look
+    picker.
+  - **Moods like `A/I/T` render their icons.** `forSceneMood` only accepted a
+    single location component plus the canonical `I/A`, so a mixed scene ("Erfurt
+    / Straße" outside, then "Eingang + Flur / vor OP" inside) rendered its mood as
+    bare text. It now returns one location icon per named component — the
+    distinct `I`+`A` pair (either order) stays the single threshold icon — and the
+    editor's chip set also offers the `A/I/*` forms the parser never produces.
+  - No wire change, no new screen. Widget tests pin the section order, the
+    script-day binding, the move ordering (refused schedule ⇒ no release), the
+    one-row-per-(figure, look) table, the edit route and the mixed-mood icons; the
+    scene-detail golden is rebaselined.
+
 - **A script import needs no block up front — and it takes its block from the
   script on its own** (`0.4.0-beta.50+142 → 0.4.0-beta.51+143`). Reported from the
   live workflow: a season picked in the shell still could not import a script

@@ -14,47 +14,47 @@ import 'package:frontend_flutter/design/material_icons.dart';
 import 'package:frontend_flutter/design/scene_mood_label.dart';
 
 void main() {
-  group('BreakdownMaterialIcons.forSceneMood (issue #721)', () {
+  group('BreakdownMaterialIcons.forSceneMood (issues #721, #834 follow-up)', () {
+    /// Asserts the resolved icons of [mood] field by field — a record holding a
+    /// [List] compares its list by IDENTITY, so the location icons are compared
+    /// with a value matcher instead.
+    void expectIcons(String mood, List<IconData> locations, IconData time) {
+      final icons = BreakdownMaterialIcons.forSceneMood(mood);
+      expect(icons, isNotNull, reason: mood);
+      expect(icons!.locations, locations, reason: mood);
+      expect(icons.time, time, reason: mood);
+    }
+
     test('canonical two-component shorthand resolves location + time', () {
-      expect(BreakdownMaterialIcons.forSceneMood('I/T'), (
-        Icons.home_outlined,
-        Icons.wb_sunny_outlined,
-      ));
-      expect(BreakdownMaterialIcons.forSceneMood('A/N'), (
-        Icons.park_outlined,
-        Icons.dark_mode_outlined,
-      ));
-      expect(BreakdownMaterialIcons.forSceneMood('I/AB'), (
-        Icons.home_outlined,
-        Icons.bedtime_outlined,
-      ));
+      expectIcons('I/T', [Icons.home_outlined], Icons.wb_sunny_outlined);
+      expectIcons('A/N', [Icons.park_outlined], Icons.dark_mode_outlined);
+      expectIcons('I/AB', [Icons.home_outlined], Icons.bedtime_outlined);
       // D and M share the twilight icon.
-      expect(
-        BreakdownMaterialIcons.forSceneMood('A/D')!.$2,
-        Icons.wb_twilight_outlined,
-      );
-      expect(
-        BreakdownMaterialIcons.forSceneMood('I/M')!.$2,
-        Icons.wb_twilight_outlined,
-      );
+      expectIcons('A/D', [Icons.park_outlined], Icons.wb_twilight_outlined);
+      expectIcons('I/M', [Icons.home_outlined], Icons.wb_twilight_outlined);
     });
 
     test('lowercase and padded input normalizes', () {
-      expect(BreakdownMaterialIcons.forSceneMood(' i/t '), (
-        Icons.home_outlined,
-        Icons.wb_sunny_outlined,
-      ));
+      expectIcons(' i/t ', [Icons.home_outlined], Icons.wb_sunny_outlined);
     });
 
-    test('combined I/A/T resolves the combined icon once', () {
-      expect(BreakdownMaterialIcons.forSceneMood('I/A/T'), (
-        Icons.sensor_door_outlined,
-        Icons.wb_sunny_outlined,
-      ));
-      expect(BreakdownMaterialIcons.forSceneMood('I/A/N'), (
-        Icons.sensor_door_outlined,
-        Icons.dark_mode_outlined,
-      ));
+    test('a MIXED shorthand resolves to one threshold icon', () {
+      // `I/A/T` (INT./EXT.) and `A/I/T` ("outside at the street, then inside
+      // the clinic" — the reported live case) name the same fact: the scene
+      // crosses the threshold. Both orders must render, and both must render
+      // the SAME thing.
+      expectIcons('I/A/T', [Icons.sensor_door_outlined], Icons.wb_sunny_outlined);
+      expectIcons('A/I/T', [Icons.sensor_door_outlined], Icons.wb_sunny_outlined);
+      expectIcons('I/A/N', [Icons.sensor_door_outlined], Icons.dark_mode_outlined);
+      expectIcons('A/I/AB', [Icons.sensor_door_outlined], Icons.bedtime_outlined);
+    });
+
+    test('repeated locations render one icon each', () {
+      // Not a threshold crossing: the same side twice keeps its own icons.
+      expectIcons('A/A/T', [
+        Icons.park_outlined,
+        Icons.park_outlined,
+      ], Icons.wb_sunny_outlined);
     });
 
     test('non-shorthand values resolve to null', () {
@@ -65,9 +65,11 @@ void main() {
       expect(BreakdownMaterialIcons.forSceneMood('I'), isNull);
       expect(BreakdownMaterialIcons.forSceneMood('I/X'), isNull);
       expect(BreakdownMaterialIcons.forSceneMood('X/T'), isNull);
-      // A three-component value other than the canonical I/A/<time>.
-      expect(BreakdownMaterialIcons.forSceneMood('A/I/T'), isNull);
-      expect(BreakdownMaterialIcons.forSceneMood('I/T/N'), isNull);
+      // More than three location components is not a shorthand this pipeline
+      // knows: no icons rather than a guessed set.
+      expect(BreakdownMaterialIcons.forSceneMood('I/A/I/A/T'), isNull);
+      // A component after the time token is not a location either.
+      expect(BreakdownMaterialIcons.forSceneMood('I/A/T/N'), isNull);
     });
   });
 
@@ -86,6 +88,19 @@ void main() {
       // reinforce it and never replace it.
       expect(find.text('Mood: I/T'), findsOneWidget);
       expect(find.byIcon(Icons.home_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.wb_sunny_outlined), findsOneWidget);
+    });
+
+    testWidgets('a MIXED mood renders its icons too (issue #834 follow-up)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: SceneMoodLabel(mood: 'A/I/T')),
+        ),
+      );
+      expect(find.text('A/I/T'), findsOneWidget);
+      expect(find.byIcon(Icons.sensor_door_outlined), findsOneWidget);
       expect(find.byIcon(Icons.wb_sunny_outlined), findsOneWidget);
     });
 

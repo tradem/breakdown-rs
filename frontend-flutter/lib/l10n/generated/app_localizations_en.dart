@@ -2268,9 +2268,32 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String sceneDetailCharactersTitle(Object count) {
-    return 'Characters ($count)';
+  String sceneDetailCastTitle(Object characters, Object looks) {
+    return 'Characters ($characters) · Looks ($looks)';
   }
+
+  @override
+  String get sceneDetailCastColumnCharacter => 'Character';
+
+  @override
+  String get sceneDetailCastColumnLook => 'Look';
+
+  @override
+  String get sceneDetailAssignCharacterAndLook => 'Assign character and look';
+
+  @override
+  String get sceneDetailEditCharacterTooltip => 'Edit character (Cast)';
+
+  @override
+  String get sceneDetailNoLooksForFigure =>
+      'This character has no look yet — create it in the Cast view.';
+
+  @override
+  String get sceneDetailMoveToOtherDay => 'Move to another shooting day';
+
+  @override
+  String get sceneDetailAssignScriptDayTooltip =>
+      'Assign the script day to a shooting day';
 
   @override
   String get sceneDetailNoCharacters => 'No characters assigned yet.';
@@ -2335,11 +2358,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sceneDetailGone => 'This scene is no longer available.';
-
-  @override
-  String sceneDetailOutfitsTitle(Object count) {
-    return 'Looks ($count)';
-  }
 
   @override
   String get sceneDetailAssignOutfit => 'Assign look';

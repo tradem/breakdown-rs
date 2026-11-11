@@ -3702,11 +3702,53 @@ abstract class AppLocalizations {
   /// **'Drehtag im Skript: {day}'**
   String sceneDetailScriptDay(Object day);
 
-  /// No description provided for @sceneDetailCharactersTitle.
+  /// No description provided for @sceneDetailCastTitle.
   ///
   /// In de, this message translates to:
-  /// **'Figuren ({count})'**
-  String sceneDetailCharactersTitle(Object count);
+  /// **'Figuren ({characters}) · Looks ({looks})'**
+  String sceneDetailCastTitle(Object characters, Object looks);
+
+  /// No description provided for @sceneDetailCastColumnCharacter.
+  ///
+  /// In de, this message translates to:
+  /// **'Figur'**
+  String get sceneDetailCastColumnCharacter;
+
+  /// No description provided for @sceneDetailCastColumnLook.
+  ///
+  /// In de, this message translates to:
+  /// **'Look'**
+  String get sceneDetailCastColumnLook;
+
+  /// No description provided for @sceneDetailAssignCharacterAndLook.
+  ///
+  /// In de, this message translates to:
+  /// **'Figur und Look zuweisen'**
+  String get sceneDetailAssignCharacterAndLook;
+
+  /// No description provided for @sceneDetailEditCharacterTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Figur bearbeiten (Cast)'**
+  String get sceneDetailEditCharacterTooltip;
+
+  /// No description provided for @sceneDetailNoLooksForFigure.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Figur hat noch keinen Look – lege ihn in der Cast-Ansicht an.'**
+  String get sceneDetailNoLooksForFigure;
+
+  /// No description provided for @sceneDetailMoveToOtherDay.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf anderen Drehtag umhängen'**
+  String get sceneDetailMoveToOtherDay;
+
+  /// No description provided for @sceneDetailAssignScriptDayTooltip.
+  ///
+  /// In de, this message translates to:
+  /// **'Skript-Tag einem Drehtag zuweisen'**
+  String get sceneDetailAssignScriptDayTooltip;
 
   /// No description provided for @sceneDetailNoCharacters.
   ///
@@ -3815,12 +3857,6 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Diese Szene ist nicht mehr verfügbar.'**
   String get sceneDetailGone;
-
-  /// No description provided for @sceneDetailOutfitsTitle.
-  ///
-  /// In de, this message translates to:
-  /// **'Looks ({count})'**
-  String sceneDetailOutfitsTitle(Object count);
 
   /// No description provided for @sceneDetailAssignOutfit.
   ///

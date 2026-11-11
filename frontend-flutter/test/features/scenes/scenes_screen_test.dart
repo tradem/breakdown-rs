@@ -504,10 +504,21 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('scene-s1')));
       await tester.pumpAndSettle();
-      // Collapsible Characters + Shooting days sections (design §4).
+      // Collapsible Shooting days + cast/look sections (design §4; days
+      // first, cast below it — issue #834 follow-up).
       expect(find.byKey(const Key('scene-detail-s1')), findsOneWidget);
-      expect(find.byKey(const Key('scene-characters-s1')), findsOneWidget);
       expect(find.byKey(const Key('scene-shooting-days-s1')), findsOneWidget);
+      // The cast card sits below the days: the body is a lazy ListView, so it
+      // must be scrolled into the viewport before it exists in the tree.
+      for (var i = 0; i < 6; i++) {
+        if (find.byKey(const Key('scene-cast-s1')).evaluate().isNotEmpty) break;
+        await tester.drag(
+          find.byType(Scrollable).first,
+          const Offset(0, -300),
+        );
+        await tester.pumpAndSettle();
+      }
+      expect(find.byKey(const Key('scene-cast-s1')), findsOneWidget);
     });
   });
 }
