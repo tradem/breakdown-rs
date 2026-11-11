@@ -504,6 +504,17 @@ impl FakeQueue {
     fn apply_progress_log(&self) -> Vec<Option<breakdown_core::ai::ApplyProgress>> {
         self.state.lock().unwrap().apply_progress.clone()
     }
+
+    /// The live extraction progress frames published through this queue, in
+    /// order (issue #871 resume regression).
+    fn progress_frames(&self) -> Vec<breakdown_core::ai::AiImportProgress> {
+        self.state.lock().unwrap().progress.clone()
+    }
+
+    /// The holds this worker materialized, in order (issue #871, D-A4).
+    fn holds(&self) -> Vec<breakdown_core::ai::ProviderHold> {
+        self.state.lock().unwrap().holds.clone()
+    }
 }
 
 #[test]
@@ -559,6 +570,16 @@ struct FakeQueueState {
     succeeded: Vec<AiImportJobId>,
     failed: Vec<AiImportJobId>,
     telemetry: Vec<Telemetry>,
+    /// Every live extraction progress frame the worker published, in order
+    /// (issue #871 resume regression: the frames must be monotone after a
+    /// resumed attempt).
+    progress: Vec<breakdown_core::ai::AiImportProgress>,
+    /// Every hold the worker materialized (issue #871, D-A4).
+    holds: Vec<breakdown_core::ai::ProviderHold>,
+    /// The breaker verdict this fake reports for every pair. `None` is the
+    /// `closed` default, which is what keeps every pre-#871 test on the path it
+    /// was written for (claim admitted, hold released).
+    breaker: Option<breakdown_core::ai::ProviderBreakerSnapshot>,
     /// Every apply-progress write the worker published, in order (issue #762).
     /// `None` is the run's end signal.
     apply_progress: Vec<Option<breakdown_core::ai::ApplyProgress>>,
@@ -705,6 +726,42 @@ impl AiImportQueue for FakeQueue {
         // are about the recorded values, not about which port carried them.
         self.state.lock().unwrap().telemetry.push(telemetry);
         Ok(())
+    }
+
+    async fn mark_progress(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        progress: &breakdown_core::ai::AiImportProgress,
+    ) -> Result<(), DomainError> {
+        self.state.lock().unwrap().progress.push(progress.clone());
+        Ok(())
+    }
+
+    async fn mark_held(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        hold: breakdown_core::ai::ProviderHold,
+        _hold_window_secs: u64,
+    ) -> Result<(), DomainError> {
+        self.state.lock().unwrap().holds.push(hold);
+        // The port's default is the honest fallback for a backend without a
+        // durable breaker; keep it so a held job stays claimable here too.
+        self.release_claim(id, worker_id).await
+    }
+
+    async fn provider_breaker(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<breakdown_core::ai::ProviderBreakerSnapshot, DomainError> {
+        Ok(self
+            .state
+            .lock()
+            .unwrap()
+            .breaker
+            .unwrap_or_else(breakdown_core::ai::ProviderBreakerSnapshot::closed))
     }
 
     async fn record_telemetry(
@@ -7310,4 +7367,313 @@ async fn a_job_without_a_decision_pass_records_no_decision_component() {
     // Extraction-only jobs keep the pre-#768 meaning: the total is the
     // extraction component.
     assert_eq!(cost.total.total_nano, Some(14_000_000 + 50_000));
+}
+
+// --- Issue #871 workstream B/C review regressions -------------------------
+
+/// Deterministic in-memory [`breakdown_core::ai::AiImportChunkStore`] for the
+/// worker-level resume test (issue #871, D-B6).
+///
+/// Deliberately minimal: the production store's claim fence and its
+/// fingerprint compare-and-set are Postgres properties and are covered by
+/// `integration-tests/tests/ai_import_chunk_resume.rs`. Here the store only has
+/// to answer "which chunks are already paid for".
+#[derive(Clone, Default)]
+struct InMemoryChunkStore {
+    chunks: Arc<Mutex<Vec<breakdown_core::ai::StoredChunk>>>,
+}
+
+impl InMemoryChunkStore {
+    fn with_prefix(prefix: u32) -> Self {
+        let store = Self::default();
+        {
+            let mut chunks = store.chunks.lock().unwrap();
+            for index in 0..prefix {
+                chunks.push(stored_chunk(index, 100));
+            }
+        }
+        store
+    }
+}
+
+#[async_trait]
+impl breakdown_core::ai::AiImportChunkStore for InMemoryChunkStore {
+    async fn load(
+        &self,
+        _job_id: AiImportJobId,
+    ) -> Result<Vec<breakdown_core::ai::StoredChunk>, DomainError> {
+        let mut chunks = self.chunks.lock().unwrap().clone();
+        chunks.sort_by_key(|chunk| chunk.chunk_index);
+        Ok(chunks)
+    }
+
+    async fn begin_extraction(
+        &self,
+        _job_id: AiImportJobId,
+        _worker_id: &str,
+        _fingerprint: &breakdown_core::ai::ExtractionFingerprint,
+        _key: &str,
+    ) -> Result<breakdown_core::ai::ChunkSetState, DomainError> {
+        Ok(breakdown_core::ai::ChunkSetState::Compatible)
+    }
+
+    async fn put(
+        &self,
+        _job_id: AiImportJobId,
+        _worker_id: &str,
+        _extraction_key: &str,
+        chunk: &breakdown_core::ai::StoredChunk,
+    ) -> Result<(), DomainError> {
+        let mut chunks = self.chunks.lock().unwrap();
+        chunks.retain(|stored| stored.chunk_index != chunk.chunk_index);
+        chunks.push(chunk.clone());
+        Ok(())
+    }
+
+    async fn clear(&self, _job_id: AiImportJobId) -> Result<u64, DomainError> {
+        let mut chunks = self.chunks.lock().unwrap();
+        let cleared = u64::try_from(chunks.len()).unwrap_or(u64::MAX);
+        chunks.clear();
+        Ok(cleared)
+    }
+}
+
+/// One stored chunk carrying `tokens_in` of usage, so the cost regression can
+/// tell a resumed (already paid) chunk from a fresh call.
+fn stored_chunk(index: u32, tokens_in: u64) -> breakdown_core::ai::StoredChunk {
+    breakdown_core::ai::StoredChunk {
+        chunk_index: index,
+        payload: ScriptContext {
+            scenes: vec![DraftScene {
+                // The merge rewrites `draft_ref` with the server-owned
+                // `stable_draft_ref`, so the summary is what lets the resume
+                // test prove WHICH chunk a preview row came from.
+                summary: Some(format!("resumed chunk {index}")),
+                ..Default::default()
+            }],
+            ..ScriptContext::default()
+        },
+        usage: LlmCallUsage {
+            tokens_in,
+            ..LlmCallUsage::default()
+        },
+    }
+}
+
+/// Records the `source_text` of every script extraction request and answers one
+/// row per chunk, so a test can assert the CALL COUNT (never wall clock) and
+/// which chunks were actually sent (issue #871, D-B6).
+#[derive(Clone, Default)]
+struct CountingScriptClient {
+    seen: Arc<Mutex<Vec<String>>>,
+}
+
+impl CountingScriptClient {
+    fn calls(&self) -> Vec<String> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl LlmClient for CountingScriptClient {
+    async fn chat_constrained(
+        &self,
+        request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        self.seen.lock().unwrap().push(request.source_text.clone());
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                scenes: vec![DraftScene {
+                    summary: Some("fresh call".to_owned()),
+                    ..Default::default()
+                }],
+                ..ScriptContext::default()
+            },
+            LlmCallUsage {
+                tokens_in: 50,
+                ..LlmCallUsage::default()
+            },
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Err(DomainError::validation(
+            "CountingScriptClient only extracts scripts",
+        ))
+    }
+}
+
+/// A four-scene script: one `INT.` heading per chunk, so `chunks_total == 4`.
+const FOUR_SCENE_SCRIPT: &str = "1. INT. SCENE 1 - DAY\nA\n\n2. INT. SCENE 2 - DAY\nB\n\n3. INT. SCENE 3 - DAY\nC\n\n4. INT. SCENE 4 - DAY\nD";
+
+/// The bytes `process_text` hands the model per chunk, in chunk order — the
+/// same `heading` + `\n` + `text` assembly the byte budget counts.
+fn chunk_source_bytes(script: &str) -> Vec<u64> {
+    breakdown_core::ai::extract_scenes(script)
+        .iter()
+        .map(|chunk| u64::try_from(chunk.heading.len() + 1 + chunk.text.len()).unwrap_or(u64::MAX))
+        .collect()
+}
+
+fn resume_worker(
+    queue: Arc<FakeQueue>,
+    previews: Arc<MemoryAiPreviewStore>,
+    store: Arc<InMemoryChunkStore>,
+) -> ScriptImportWorker<FakeQueue, CountingScriptClient> {
+    ScriptImportWorker {
+        chunks: Some(store as Arc<dyn breakdown_core::ai::AiImportChunkStore>),
+        queue,
+        client: Arc::new(CountingScriptClient::default()),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    }
+}
+
+/// Issue #871 (D-B6, task 5.6): a job with stored chunks `0..25` issues exactly
+/// `chunks_total - 25` calls and never re-asks for the stored ones — asserted on
+/// the call count, never on wall clock.
+#[tokio::test]
+async fn a_resumed_script_job_pays_only_for_the_missing_chunks() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let store = Arc::new(InMemoryChunkStore::with_prefix(2));
+    let worker = resume_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::clone(&store),
+    );
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(&job, "w-resume", FOUR_SCENE_SCRIPT)
+        .await
+        .unwrap();
+
+    // Call count and the chunks actually sent: 4 chunks, 2 stored → 2 calls,
+    // and the stored prefix is never re-asked.
+    let calls = worker.client.calls();
+    assert_eq!(calls.len(), 2, "4 chunks - 2 stored = 2 paid calls");
+    for call in &calls {
+        assert!(
+            !call.contains("SCENE 1") && !call.contains("SCENE 2"),
+            "a stored chunk must never be re-requested: {call}"
+        );
+    }
+    // The new chunks are the ones that were missing.
+    assert!(calls.iter().any(|call| call.contains("SCENE 3")));
+    assert!(calls.iter().any(|call| call.contains("SCENE 4")));
+    // Merge completeness: every scene of the document reaches the preview.
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.scenes.len(), 4, "all four scenes in the preview");
+    let summaries: Vec<Option<&str>> = preview
+        .scenes
+        .iter()
+        .map(|scene| scene.summary.as_deref())
+        .collect();
+    assert_eq!(
+        summaries,
+        vec![
+            Some("resumed chunk 0"),
+            Some("resumed chunk 1"),
+            Some("fresh call"),
+            Some("fresh call"),
+        ],
+        "the stored prefix and the fresh calls assemble the SAME preview"
+    );
+
+    // Token sum (D-B4): the resumed chunks' usage is NOT lost — 2 × 100 stored
+    // plus 2 × 50 fresh = 300.
+    let telemetry = the_only_telemetry(&queue);
+    assert_eq!(telemetry.tokens_in, 300);
+
+    // Monotone progress frames (Finding 1 regression): a stored chunk must not
+    // rewind `chunk` to 1 and must not add its bytes a second time.
+    let bytes = chunk_source_bytes(FOUR_SCENE_SCRIPT);
+    let frames: Vec<breakdown_core::ai::AiImportProgress> = queue
+        .progress_frames()
+        .into_iter()
+        .filter(|frame| frame.stage == breakdown_core::ai::AiImportStage::Extracting)
+        .collect();
+    assert!(!frames.is_empty(), "the worker published progress");
+    for frame in &frames {
+        assert_eq!(
+            frame.resumed_from,
+            Some(2),
+            "every frame of a resumed attempt reports the stored prefix"
+        );
+        assert!(
+            frame.chunk.unwrap_or(0) >= 2,
+            "chunk never rewinds below the resume point (got {:?})",
+            frame.chunk
+        );
+    }
+    let first_new = frames
+        .iter()
+        .find(|frame| frame.chunk == Some(3))
+        .expect("a frame after the first newly extracted chunk");
+    assert_eq!(
+        first_new.done_bytes,
+        Some(bytes[0] + bytes[1] + bytes[2]),
+        "done_bytes counts each chunk exactly once"
+    );
+}
+
+/// Issue #871 (Finding 2 + Finding 1 regression): a breaker that refuses the
+/// next PAID call holds the job with the stored progress, and the stored prefix
+/// is merged without consulting the breaker at all.
+#[tokio::test]
+async fn a_breaker_hold_keeps_the_stored_chunk_progress() {
+    let queue = Arc::new(FakeQueue::default());
+    {
+        let mut state = queue.state.lock().unwrap();
+        state.breaker = Some(breakdown_core::ai::ProviderBreakerSnapshot {
+            state: breakdown_core::ai::ProviderBreakerState::Open,
+            consecutive_failures: 3,
+            flap_count: 0,
+            retry_at: Some(Utc::now() + chrono::Duration::minutes(5)),
+        });
+    }
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let store = Arc::new(InMemoryChunkStore::with_prefix(2));
+    let worker = resume_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::clone(&store),
+    );
+    let job = script_job(AiImportJobId::new());
+    let result = worker
+        .process_text(&job, "w-hold", FOUR_SCENE_SCRIPT)
+        .await
+        .unwrap();
+
+    // A hold hands the job back without a preview handle and without a failure.
+    assert_eq!(result, "", "a hold returns no preview handle");
+    assert!(
+        queue.state.lock().unwrap().failed.is_empty(),
+        "a hold is not a failure"
+    );
+    // Not one paid call: the breaker was consulted only for a NEW chunk.
+    assert!(
+        worker.client.calls().is_empty(),
+        "no provider request while the breaker refuses"
+    );
+    let holds = queue.holds();
+    assert_eq!(holds.len(), 1, "exactly one hold");
+    assert_eq!(
+        holds[0].chunks_done, 2,
+        "the hold reports the two chunks that are already stored"
+    );
+    assert_eq!(
+        holds[0].state,
+        breakdown_core::ai::ProviderBreakerState::Open
+    );
 }

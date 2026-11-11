@@ -16,6 +16,27 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.68.0] - Unreleased
+
+### Changed — the retry precedence is now a documented rule (issue #871, workstream C)
+
+- `AiImportBounds::attempt_worst_case_secs(inner_retries)` renders the analytic
+  permit window of ONE attempt across both nested retry layers:
+  `(1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs +
+  max_attempt_retries × 30 s` = **19 min** hosted / **25 min** Ollama with the
+  defaults. Before #871 the outer layer alone was 14.5 min, because both layers
+  shared one knob.
+- `HOSTED_INNER_RETRIES` (2), `OLLAMA_INNER_RETRIES` (3) and
+  `MAX_ATTEMPT_BACKOFF_SECS` (30) are declared here and read by `infra`'s clients,
+  so the number the clients use and the number the bound multiplies are the same.
+
+### Changed — intentional cost change
+
+- The **in-attempt** retry count is 2 by default, down from the 5 both layers used
+  to share. One chunk could previously cost `5 × 5 = 25` paid calls before
+  anything surfaced. This is a deliberate cost change (D-C1); the breaker, not a
+  long retry ladder, is what handles an outage.
+
 ## [0.67.0] - Unreleased
 
 ### Added — a retried attempt resumes instead of re-paying (issue #871, workstream B)

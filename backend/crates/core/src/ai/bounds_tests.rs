@@ -2,7 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
-use super::{AiImportBounds, bounded_u32, bounded_u64};
+use super::{
+    AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, OLLAMA_INNER_RETRIES,
+    bounded_u32, bounded_u64,
+};
 use std::env;
 
 // ---------------------------------------------------------------------------
@@ -393,4 +396,61 @@ fn provider_hold_window_env_override_is_bounded() {
             6 * 60 * 60
         );
     });
+}
+
+// ===========================================================================
+// Issue #871, workstream C — the permit bound across BOTH retry layers
+// ===========================================================================
+
+#[test]
+fn the_default_attempt_window_is_19_minutes_hosted() {
+    // (1 + 2) × (1 + 2) × 120 s + 2 × 30 s = 1140 s
+    let b = AiImportBounds::default();
+    assert_eq!(b.attempt_worst_case_secs(HOSTED_INNER_RETRIES), 19 * 60);
+}
+
+#[test]
+fn the_default_attempt_window_is_25_minutes_for_ollama() {
+    // (1 + 2) × (1 + 3) × 120 s + 2 × 30 s = 1500 s
+    let b = AiImportBounds::default();
+    assert_eq!(b.attempt_worst_case_secs(OLLAMA_INNER_RETRIES), 25 * 60);
+}
+
+#[test]
+fn the_bound_multiplies_the_layers_rather_than_adding_them() {
+    // The defect D-C2 documents: one knob allowed 5 × 5 = 25 paid calls for ONE
+    // chunk. The split knob plus this formula is what makes the window checkable.
+    let b = AiImportBounds::default();
+    let hosted = b.attempt_worst_case_secs(HOSTED_INNER_RETRIES);
+    let outer_only = (b.max_attempt_retries as u64 + 1) * b.request_timeout_secs
+        + b.max_attempt_retries as u64 * MAX_ATTEMPT_BACKOFF_SECS;
+    assert!(
+        hosted > outer_only,
+        "the client-internal retries must be part of the window: {hosted}s vs {outer_only}s"
+    );
+    // And the pre-#871 configuration, for the record: the OUTER layer alone was
+    // 6 × 120 s + 5 × 30 s = 14.5 min because both layers shared `max_retries`.
+    let legacy_outer = 6 * b.request_timeout_secs + 5 * MAX_ATTEMPT_BACKOFF_SECS;
+    assert_eq!(legacy_outer, 870);
+}
+
+#[test]
+fn a_single_attempt_has_a_floor_of_one_request() {
+    // Zero retries at both layers is still one request (plus no backoff), so the
+    // formula can never claim a zero window.
+    let b = AiImportBounds {
+        max_attempt_retries: 0,
+        ..AiImportBounds::default()
+    };
+    assert_eq!(b.attempt_worst_case_secs(0), b.request_timeout_secs);
+}
+
+#[test]
+fn the_inner_retry_counts_are_the_ones_the_clients_use() {
+    // Pinned deliberately: these two numbers are multiplied into the permit
+    // bound, and `infra`'s clients read them from here rather than declaring
+    // their own — a silent change would invalidate the arithmetic above.
+    assert_eq!(HOSTED_INNER_RETRIES, 2);
+    assert_eq!(OLLAMA_INNER_RETRIES, 3);
+    assert_eq!(MAX_ATTEMPT_BACKOFF_SECS, 30);
 }

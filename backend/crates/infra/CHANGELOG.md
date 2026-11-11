@@ -16,6 +16,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.78.0] - Unreleased
+
+### Changed — the retry counts come from `core` (issue #871, workstream C)
+
+- `MAX_TRUNCATION_RETRIES` and the Ollama parse-retry cap now read
+  `breakdown_core::ai::HOSTED_INNER_RETRIES` / `OLLAMA_INNER_RETRIES` instead of
+  declaring their own literals. The permit bound multiplies these two numbers, so
+  the value the clients use and the value the bound is computed from must be one
+  value — a silent change on either side would invalidate the arithmetic in
+  `AiImportBounds::attempt_worst_case_secs`.
+
 ## [0.77.0] - Unreleased
 
 ### Added — durable chunk store and resume-on-retry (issue #871, workstream B)

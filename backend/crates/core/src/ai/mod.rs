@@ -28,7 +28,9 @@ pub mod source_name;
 pub mod views;
 
 pub use aggregate::AiConfig;
-pub use bounds::AiImportBounds;
+pub use bounds::{
+    AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, OLLAMA_INNER_RETRIES,
+};
 pub use commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
 pub use continuity::{
     CONTINUITY_MIN_CONFIDENCE, ContinuityOutcome, OutfitContinuityGap, PriorOutfit,

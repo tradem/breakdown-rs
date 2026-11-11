@@ -341,6 +341,70 @@ async fn terminal_transitions_drop_the_rows_and_a_retryable_failure_keeps_them()
     Ok(())
 }
 
+/// Issue #871 review (D-B1): hold expiry is a **terminal** transition, so the
+/// chunks paid for before the hold must go with it — like every other
+/// `dead_letter` path. Leaving them behind kept storage for a job no worker can
+/// ever claim again.
+#[tokio::test]
+async fn an_expired_hold_drops_the_stored_chunks() -> Result<()> {
+    const HOLD_WINDOW: u64 = 3600;
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let store = PgAiImportChunkStore::new(pool.clone());
+    let id = claimed_job(&queue, "d1", "w1").await;
+    let print = fingerprint(MODEL, "p");
+    let key = fingerprint_key(&print);
+    store.begin_extraction(id, "w1", &print, &key).await?;
+    store.put(id, "w1", &key, &chunk(0, 1)).await?;
+    store.put(id, "w1", &key, &chunk(1, 1)).await?;
+    assert_eq!(resume_cursor(&store.load(id).await?), 2);
+
+    // The breaker opens mid-run and the job is parked with its progress.
+    queue
+        .mark_held(
+            id,
+            "w1",
+            breakdown_core::ai::ProviderHold {
+                provider: PROVIDER,
+                model: MODEL.to_owned(),
+                reason_code: "ai-import.llm-provider-unavailable".to_owned(),
+                state: breakdown_core::ai::ProviderBreakerState::Open,
+                until: chrono::Utc::now() + chrono::Duration::minutes(5),
+                // Self-describing only; the adapter re-derives the deadline from
+                // the job's own series clock.
+                hold_deadline: chrono::Utc::now() + chrono::Duration::minutes(5),
+                chunks_done: 2,
+            },
+            HOLD_WINDOW,
+        )
+        .await?;
+    assert_eq!(
+        resume_cursor(&store.load(id).await?),
+        2,
+        "a hold keeps the paid work: that is the resume it exists for"
+    );
+
+    // The deadline passed — written in the past, never slept out.
+    sqlx::query(
+        "UPDATE ai_import.ai_import_job SET provider_hold = jsonb_set(provider_hold, '{hold_deadline}', to_jsonb(now() - interval '1 minute')) WHERE id = $1",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await?;
+    let expired = queue
+        .expire_provider_holds(
+            "the provider stayed unavailable",
+            Some("ai-import.llm-provider-unavailable"),
+        )
+        .await?;
+    assert_eq!(expired, vec![id]);
+    assert!(
+        store.load(id).await?.is_empty(),
+        "hold expiry is terminal, so the stored chunks go with it"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn clear_is_idempotent() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;

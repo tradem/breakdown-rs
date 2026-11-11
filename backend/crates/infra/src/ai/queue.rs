@@ -1529,6 +1529,12 @@ impl AiImportQueue for PgAiImportQueue {
                 WHERE job.id = numbered.id
                 RETURNING job.id, job.retries, job.last_error, numbered.rn,
                     pg_notify('ai_import_job_events', job.id::text)
+            ),
+            -- Issue #871 (D-B1): hold expiry is terminal (`dead_letter`), so any
+            -- chunks stored before the hold are deleted in the same statement.
+            cleared AS (
+                DELETE FROM ai_import.ai_import_job_chunk
+                WHERE job_id IN (SELECT id FROM expired)
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)
