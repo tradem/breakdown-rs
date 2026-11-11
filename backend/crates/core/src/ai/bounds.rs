@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -204,7 +205,7 @@ impl AiImportBounds {
     /// The analytic worst case of **one attempt** across both nested retry
     /// layers (issue #871, D-C2).
     ///
-    /// ```
+    /// ```text
     /// (1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs
     ///   + max_attempt_retries × MAX_ATTEMPT_BACKOFF_SECS
     /// ```
