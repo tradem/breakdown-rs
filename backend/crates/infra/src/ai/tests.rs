@@ -1800,6 +1800,12 @@ struct FakeMappings {
     insert_calls: Arc<AtomicUsize>,
     find_calls: Arc<AtomicUsize>,
     reserved: Arc<Mutex<Vec<AiImportMapping>>>,
+    /// Optional barrier every `scene` reservation waits on. Armed by the
+    /// concurrency test: with a barrier of N the apply can only finish if all N
+    /// rows reach their scene reservation at the same time — a serial row loop
+    /// deadlocks instead of passing, which makes the assertion structural rather
+    /// than a timing measurement.
+    scene_reserve_barrier: Arc<Mutex<Option<Arc<tokio::sync::Barrier>>>>,
 }
 
 impl FakeMappings {
@@ -1811,6 +1817,12 @@ impl FakeMappings {
     /// Reservations in call order (the confirm path uses `insert`).
     fn reservations(&self) -> Vec<AiImportMapping> {
         self.reserved.lock().unwrap().clone()
+    }
+
+    /// Arm the scene-reservation barrier (see [`Self::scene_reserve_barrier`]).
+    fn arm_scene_reserve_barrier(&self, parties: usize) {
+        *self.scene_reserve_barrier.lock().unwrap() =
+            Some(Arc::new(tokio::sync::Barrier::new(parties)));
     }
 
     /// How many `find` calls reached this store — the read the per-run cache
@@ -1865,6 +1877,13 @@ impl AiImportMappingRepository for FakeMappings {
     }
 
     async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
+        // Guard dropped before the `await`: a `std` guard is not `Send`.
+        let barrier = { self.scene_reserve_barrier.lock().unwrap().clone() };
+        if mapping.aggregate_kind == breakdown_core::ai::mapping_kind::SCENE
+            && let Some(barrier) = barrier
+        {
+            barrier.wait().await;
+        }
         self.reserved.lock().unwrap().push(mapping.clone());
         // Mirrors the production insert-if-absent: an existing row (reserved or
         // confirmed) wins, so retries converge on one aggregate id.
@@ -8397,5 +8416,109 @@ async fn schedule_apply_skips_a_pair_a_concurrent_apply_confirmed_after_the_prim
     assert_eq!(
         raced.aggregate_version.0, 1,
         "the run must leave the competing confirm untouched"
+    );
+}
+
+// ── Row concurrency (live-test finding: apply duration) ────────────────────
+//
+// Measured against a real single-node SierraDB: an `EAPPEND` returns only once
+// its partition watermark is confirmed, and the confirmation loop batches. Eight
+// concurrent appends were confirmed inside one ~0.3 s tick, while the same eight
+// appends serially paid up to ~2 s each — so the row loop must not dispatch one
+// row at a time. These tests pin that structurally, never by timing.
+
+#[tokio::test]
+async fn rows_dispatch_concurrently_up_to_the_bound_and_keep_plan_order() {
+    let queue = Arc::new(FakeQueue::default());
+    let mappings = Arc::new(FakeMappings::default());
+    let commands = Arc::new(FakeSceneCommands::default());
+    let worker = script_apply_worker(
+        Arc::clone(&commands),
+        Arc::clone(&mappings),
+        Arc::clone(&queue),
+    );
+
+    const ROWS: usize = 4;
+    const _: () = assert!(ROWS <= super::workers::APPLY_ROW_CONCURRENCY);
+
+    let preview = ScriptContext {
+        block_number: None,
+        title: Some("concurrency fixture".to_owned()),
+        scenes: (0..ROWS)
+            .map(|index| DraftScene {
+                draft_ref: format!("row-{index}"),
+                scene_number: Some(u32::try_from(index + 1).expect("row index fits u32")),
+                ..Default::default()
+            })
+            .collect(),
+        uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
+    };
+    let decisions: Vec<ApplyMapping> = (0..ROWS)
+        .map(|index| create_decision(&format!("row-{index}")))
+        .collect();
+
+    // The barrier only releases once EVERY row sits in its scene reservation.
+    // A serial row loop would block on the first row forever, so passing this
+    // test IS the proof that the rows run at the same time.
+    mappings.arm_scene_reserve_barrier(ROWS);
+
+    let preview_id = AiImportJobId::new();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        worker.apply_script(ApplyScriptRequest {
+            continuity_selections: Vec::new(),
+            acknowledged_uncertainties: Vec::new(),
+            categories: Vec::new(),
+            actor: UserId::from_sub("ai-test-user"),
+            preview_id,
+            preview: &preview,
+            decisions: &decisions,
+            episode_id: breakdown_core::shared::EpisodeId::new(),
+            season_id: breakdown_core::shared::SeasonId::new(),
+            project_id: None,
+            block_id: breakdown_core::shared::BlockId::new(),
+            episode_groups: Vec::new(),
+            known_episodes: Vec::new(),
+            shooting_days: Vec::new(),
+            telemetry: None,
+        }),
+    )
+    .await
+    .expect("a serial row loop would deadlock on the barrier and time out")
+    .expect("apply succeeds");
+
+    // Every row created exactly one scene, and the summary carries them all —
+    // aggregated in PLAN order (the ids themselves are derived from the draft
+    // refs, so the plan's order is reproducible).
+    let created = commands.created.lock().unwrap().clone();
+    assert_eq!(created.len(), ROWS, "every row created exactly one scene");
+    assert_eq!(
+        result.applied.len(),
+        ROWS,
+        "each row contributes exactly one scene to the summary"
+    );
+    let planned: Vec<Uuid> = preview
+        .scenes
+        .iter()
+        .map(|scene| {
+            super::schedule_apply::derive_id(
+                preview_id,
+                &scene.draft_ref,
+                breakdown_core::ai::mapping_kind::SCENE,
+                breakdown_core::ai::PRIMARY_ORDINAL,
+            )
+        })
+        .collect();
+    let summarised: Vec<Uuid> = result
+        .applied
+        .iter()
+        .map(|scene| scene.aggregate_id)
+        .collect();
+    assert_eq!(
+        summarised, planned,
+        "the summary is aggregated in PLAN order, not completion order"
     );
 }

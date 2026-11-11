@@ -1765,6 +1765,65 @@ impl MergeWorker {
     }
 }
 
+/// How many draft rows one script apply works on at the same time.
+///
+/// Measured against a real single-node SierraDB (see the PR body): an `EAPPEND`
+/// returns once its partition watermark is confirmed, and the confirmation loop
+/// batches. 8 concurrent appends were confirmed inside one ~0.3 s tick, while 8
+/// *serial* appends paid up to ~2 s each — so this constant is the throughput
+/// knob, not a cosmetic one. It is deliberately conservative: the rows already
+/// fan out into several commands each, and the Postgres pool is 20.
+pub(crate) const APPLY_ROW_CONCURRENCY: usize = 8;
+
+/// Immutable per-run inputs every row of one script apply needs.
+struct RowApplyContext<'a> {
+    actor: &'a UserId,
+    preview_id: AiImportJobId,
+    project_id: Option<ProjectId>,
+    season_id: SeasonId,
+    block_id: BlockId,
+    /// The archived verdict of the target season (CR-002/D2), resolved lazily by
+    /// the first outfit create (see `run_script_apply`); `None` when the read
+    /// failed permanently, so every outfit step refuses.
+    ///
+    /// A `OnceCell`, not an `Option`: rows are applied concurrently, so "one read
+    /// per run" has to be a shared, initialize-at-most-once value. Rows that
+    /// create no outfit never initialize it.
+    season_archived: &'a tokio::sync::OnceCell<Option<bool>>,
+}
+
+/// The requested number/name an applied-episode summary entry may be labelled
+/// with: `None` unless THIS apply created the episode (issue #763 — on a
+/// reapply the mapping wins and the persisted episode keeps the first values).
+type AppliedEpisodeLabel = Option<(Option<i32>, Option<String>)>;
+
+/// What one applied row contributes to the run's result.
+///
+/// The row no longer writes into the shared `ScriptApplyResult`, so the caller
+/// can aggregate in PLAN order after concurrent rows have finished. Every field
+/// is a counter the run sums, except `applied_summary`, which the caller feeds
+/// through `record_applied_episode` in the same plan order.
+#[derive(Default)]
+struct RowApplyOutcome {
+    /// The row's scene, `None` only if a bug ever returns before dispatching it.
+    scene: Option<UuidVersion>,
+    /// `(episode, label)` for the per-episode summary; only set when THIS call
+    /// dispatched the row (issue #763).
+    applied_summary: Option<(EpisodeId, AppliedEpisodeLabel)>,
+    /// The row's wall-clock time, kept as a `Duration`: rows of a cached
+    /// re-apply are often sub-millisecond, and summing truncated milliseconds
+    /// made the run's average report 0 ms.
+    row_elapsed: Duration,
+    created_episodes: u32,
+    created_characters: u32,
+    created_pieces: u32,
+    created_outfits: u32,
+    created_outfit_beats: u32,
+    created_days: u32,
+    planned_scene_shoots: u32,
+    unapplied_outfits: Vec<UnappliedOutfit>,
+}
+
 /// Apply worker for reviewed script rows.
 ///
 /// One accepted draft row applies as up to three kinds of aggregate: its
@@ -2460,31 +2519,41 @@ where
             unapplied_outfits: plan.unapplied_outfits,
             applied_episodes: Vec::new(),
         };
-        // Figures named by several draft rows are created once. This is a cache
-        // of what *this* request resolved, not a projection read: everything that
-        // crosses a request boundary goes through the mapping (CQRS boundary).
-        let mut figures: HashMap<String, Figure> = HashMap::new();
-        // Episodes a NEW group already resolved in *this* request (issue #581),
-        // with the flag that says whether *this* apply created it. Same
-        // rationale as `figures`: the mapping is the durable record, the map
-        // only avoids re-driving it per row of the same group. The flag is what
-        // decides whether the requested number/title may label the summary
-        // entry (issue #763 review): on a reapply the mapping wins, so the
-        // persisted episode keeps the values of the FIRST apply.
-        let mut resolved_episodes: HashMap<String, (EpisodeId, bool)> = HashMap::new();
-        // Shooting days an ACCEPTED group already resolved in *this* request
-        // (issue #706). Same rationale as `resolved_episodes`: one day per
-        // group, created on first sight, reused by every later row.
-        let mut resolved_days: HashMap<String, AppliedDay> = HashMap::new();
-        // Monotonic fallback planned-order counter for the scene-shoot links
-        // (issue #706): script extraction carries no per-day order, so rows
-        // apply in plan order. Every PLANNED row consumes one increment on
-        // every attempt — including a row whose pair is already confirmed
-        // (its early return runs after the increment) — so a partial-run
-        // retry cannot reallocate a confirmed row's order to a later row
-        // (CodeRabbit review). Deterministic across retries: the rows are
-        // processed in the same plan order.
-        let mut fallback_order: u32 = 0;
+        // NOTE: the per-row resolution maps (`figures`, `resolved_episodes`,
+        // `resolved_days`) live in `apply_row` now. They were caches for one
+        // sequential walk; with concurrent rows they would have to be shared and
+        // locked, and the per-run mapping cache makes re-resolving a figure /
+        // episode group / day group cost nothing. The durable record that keeps
+        // two rows from creating the same aggregate is the mapping, never these
+        // maps (CQRS boundary: everything crossing a request boundary goes
+        // through the mapping).
+        //
+        // Monotonic fallback planned-order allocation for the scene-shoot links
+        // (issue #706): script extraction carries no per-day order, so rows are
+        // ordered by PLAN position. Every PLANNED row consumes one increment on
+        // every attempt — including a row whose pair is already confirmed (its
+        // early return runs after the allocation) — so a partial-run retry
+        // cannot reallocate a confirmed row's order to a later row (CodeRabbit
+        // review). Allocated here, in plan order, BEFORE any row is dispatched:
+        // with concurrent rows the completion order is not the plan order, and
+        // `planned_order` must stay deterministic across retries.
+        let planned_orders: Vec<Option<LexicalSortKey>> = {
+            let mut counter: u32 = 0;
+            let mut orders = Vec::with_capacity(plan.scenes.len());
+            for row in &plan.scenes {
+                if matches!(row.shooting_day, PlannedShootingDay::Group { .. }) {
+                    counter = counter.checked_add(1).ok_or_else(|| {
+                        DomainError::validation("cannot allocate a unique fallback planned order")
+                    })?;
+                    let order = LexicalSortKey::new(format!("{counter:08}"))
+                        .map_err(|error| DomainError::validation(error.to_string()))?;
+                    orders.push(Some(order));
+                } else {
+                    orders.push(None);
+                }
+            }
+            orders
+        };
         // Issue #762: the apply's own progress. The plan is the total (the
         // worker holds it already — never a projection read), the anchor is
         // this run's start, and the throttled writes below keep the dedicated
@@ -2515,450 +2584,115 @@ where
         // CR-002/D2 wants the outfit step refused on an archived target season.
         // Resolved lazily on the FIRST outfit create (`version < OUTFIT_CREATED`),
         // then reused for the rest of the run: at most one SQL trip per script
-        // apply, and zero when the plan creates no new outfits.
-        let mut season_archived: Option<Option<bool>> = None;
+        // apply, and zero when the plan creates no new outfits. The `OnceCell` is
+        // what keeps that "once" true while rows run concurrently.
+        let season_archived: tokio::sync::OnceCell<Option<bool>> = tokio::sync::OnceCell::new();
 
         // Wall-clock accounting for the live-test question "why does an import
         // of 50-60 scenes take so long". One line at the end answers it without
         // per-row log noise: total, per-row distribution and the write counts the
-        // response reports. Read it before tuning anything (the rows are strictly
-        // sequential today, so per-row time × rows is the whole story).
+        // response reports.
         let apply_started = Instant::now();
         let mut row_elapsed_total = Duration::ZERO;
         let mut row_elapsed_max = Duration::ZERO;
 
-        for row in &plan.scenes {
-            let row_started = Instant::now();
-            // `(episode, created by THIS apply)` — the flag decides whether the
-            // requested number/title may label the summary entry (issue #763).
-            let row_episode: (EpisodeId, bool) = match &row.episode {
-                PlannedEpisode::Existing(episode_id) => (*episode_id, false),
-                PlannedEpisode::New {
-                    episode_ref,
-                    number,
-                    name,
-                } => {
-                    // `CreateEpisode` carries a denormalized series reference;
-                    // the API edge always resolves it from the target episode.
-                    // A missing series is an API-edge contract violation,
-                    // surfaced as a validation failure instead of an episode
-                    // without a series.
-                    let Some(project_id) = project_id else {
-                        return Err(DomainError::validation(
-                            "apply cannot create an episode without a series context",
-                        ));
+        // Rows are applied CONCURRENTLY, bounded by `APPLY_ROW_CONCURRENCY`.
+        //
+        // Why this is the fix and not a micro-optimisation (measured against a
+        // real dev SierraDB, see the PR): an `EAPPEND` returns once the
+        // partition watermark is confirmed, and the single-node confirmation
+        // loop batches — 8 concurrent appends were confirmed in ONE ~0.3 s tick,
+        // while the same 8 appends serially paid up to ~2 s each. The unit of
+        // cost is therefore the append, and a serial row loop pays it once per
+        // append (hundreds of times per script). Concurrency amortises the tick
+        // AND removes the serial round-trip chain.
+        //
+        // Ordering guarantees that must survive (all preserved below):
+        // * `applied` (and every counter) is aggregated in PLAN order;
+        // * the applied-episode summary merges in plan order;
+        // * the fallback scene-shoot order is allocated in plan order, above;
+        // * a row's own steps stay strictly ordered (scene → figures → beats →
+        //   day link): the scene stream has one expected version per row.
+        // Owned handles, cloned per row: the futures must not borrow locals
+        // through a closure (that makes the future's lifetime non-general and a
+        // `JoinSet::spawn` of `apply_script` stop compiling), and every one of
+        // them is cheap to clone.
+        let row_ctx = std::sync::Arc::new(RowApplyContext {
+            actor: &actor,
+            preview_id,
+            project_id,
+            season_id,
+            block_id,
+            season_archived: &season_archived,
+        });
+        let applied_counter = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        // Bounded, ordered concurrency without a stream combinator: rows are
+        // applied in batches of `APPLY_ROW_CONCURRENCY`, and each batch is joined
+        // before the next one starts. `try_join_all` preserves the input order, so
+        // `outcomes` is in PLAN order — the aggregation below depends on it — and
+        // a failing row aborts the run at its batch boundary (rows already
+        // committed stay committed, exactly like the sequential abort did).
+        let mut outcomes: Vec<RowApplyOutcome> = Vec::with_capacity(plan.scenes.len());
+        let rows: Vec<(&SceneApplyPlan, Option<LexicalSortKey>)> =
+            plan.scenes.iter().zip(planned_orders).collect();
+        for batch in rows.chunks(APPLY_ROW_CONCURRENCY) {
+            let row_futures = batch.iter().map(|(row, planned_order)| {
+                let row = *row;
+                let planned_order = planned_order.clone();
+                let row_ctx = std::sync::Arc::clone(&row_ctx);
+                let applied_counter = std::sync::Arc::clone(&applied_counter);
+                let progress_template = apply_progress.clone();
+                let progress_tx = progress_tx.clone();
+                async move {
+                    let outcome = self.apply_row(&row_ctx, row, planned_order).await?;
+                    let applied = applied_counter
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                        .saturating_add(1);
+                    let snapshot = ApplyProgress {
+                        applied,
+                        ..progress_template
                     };
-                    let (episode_id, created_now) = match resolved_episodes.get(episode_ref) {
-                        Some(resolved) => *resolved,
-                        None => {
-                            let (episode_id, created) = self
-                                .create_episode_reserved(
-                                    actor.clone(),
-                                    ReservedEpisodeDraft {
-                                        preview_id,
-                                        episode_ref: episode_ref.clone(),
-                                        block_id,
-                                        project_id,
-                                        number: *number,
-                                        name: name.clone(),
-                                    },
-                                )
-                                .await?;
-                            if created {
-                                result.created_episodes += 1;
-                            }
-                            resolved_episodes.insert(episode_ref.clone(), (episode_id, created));
-                            (episode_id, created)
-                        }
-                    };
-                    (episode_id, created_now)
-                }
-            };
-            let (scene, row_state) = self
-                .apply_scene_row(actor.clone(), preview_id, row_episode.0, project_id, row)
-                .await?;
-            result.applied.push(scene);
-            // (issue #763) Count the row into the per-episode summary — but ONLY
-            // when this call dispatched it. A row a confirmed mapping already
-            // settled stays where that earlier attempt put it, so attributing it
-            // to THIS request's episode would record an episode id that need not
-            // hold the scene (CodeRabbit review): the retry's target is not the
-            // scene's home, and neither its id nor its edge-resolved label may be
-            // claimed. The persisted summary is merged, not replaced, so the
-            // earlier apply's correct entry survives a retry.
-            //
-            // The plan's number/title may only label an entry when THIS apply
-            // created the episode: on a reapply the mapping wins and the
-            // persisted episode keeps the first apply's values, so the request's
-            // `Create` target can disagree with it. Otherwise the edge-resolved
-            // `known_episodes` identity labels the entry, and an unknown label
-            // stays `None` (never a guess).
-            if row_state == AppliedRowState::AppliedNow {
-                let requested_label = match (&row.episode, row_episode.1) {
-                    (PlannedEpisode::New { number, name, .. }, true) => {
-                        Some((Some(*number), name.clone()))
+                    // The heartbeat follows the counters through the channel, so
+                    // it learns every row boundary (issue #800 #3) without a
+                    // per-row store write.
+                    progress_tx.send_replace(snapshot.clone());
+                    if applied >= snapshot.total || applied.is_multiple_of(progress_stride) {
+                        self.publish_apply_progress(preview_id, run_id, &snapshot)
+                            .await;
                     }
-                    _ => None,
-                };
+                    Ok::<RowApplyOutcome, DomainError>(outcome)
+                }
+            });
+            outcomes.extend(futures::future::try_join_all(row_futures).await?);
+        }
+        for outcome in outcomes {
+            row_elapsed_total = row_elapsed_total.saturating_add(outcome.row_elapsed);
+            row_elapsed_max = row_elapsed_max.max(outcome.row_elapsed);
+            let scene = outcome
+                .scene
+                .ok_or_else(|| DomainError::validation("an applied row reported no scene"))?;
+            result.applied.push(scene);
+            result.created_episodes += outcome.created_episodes;
+            result.created_characters += outcome.created_characters;
+            result.created_pieces += outcome.created_pieces;
+            result.created_outfits += outcome.created_outfits;
+            result.created_outfit_beats += outcome.created_outfit_beats;
+            result.created_days += outcome.created_days;
+            result.planned_scene_shoots += outcome.planned_scene_shoots;
+            result.unapplied_outfits.extend(outcome.unapplied_outfits);
+            // (issue #763) The per-episode summary merges in PLAN order. A row a
+            // confirmed mapping already settled contributes nothing: its episode
+            // target is not the scene's home.
+            if let Some((episode_id, requested_label)) = outcome.applied_summary {
                 record_applied_episode(
                     &mut result.applied_episodes,
-                    row_episode.0,
+                    episode_id,
                     requested_label,
                     &known_episodes,
                 );
             }
-
-            for character in &row.characters {
-                if self
-                    .resolve_figure(
-                        actor.clone(),
-                        preview_id,
-                        season_id,
-                        project_id,
-                        character,
-                        &mut figures,
-                    )
-                    .await?
-                {
-                    result.created_characters += 1;
-                }
-            }
-
-            // ── Scene relation (issue #546 §5.8) ──
-            // ScenePhases: the row's `scene` mapping row and its
-            // `scene_costume_beat` rows hold versions of the SAME stream (the
-            // scene aggregate). Recover the stream version as the MAX across
-            // all of them — a single row can lag the stream when a previous
-            // apply crashed between a beat append and its confirm. Confirms
-            // stay only-moves-forward, so no row can exceed the stream and
-            // the max is exact at every quiet point.
-            let lanes = scene_beat_lanes(row);
-            let mut scene_version = scene.version;
-            for lane in &lanes {
-                for slot in &lane.beats {
-                    let address = beat_address(row, slot.outfit);
-                    let stored = self
-                        .mappings
-                        .find(
-                            // ast-grep-ignore: cqrs-boundary
-                            preview_id,
-                            &address.draft_ref,
-                            address.kind,
-                            ordinal_of(address.ordinal)?,
-                        )
-                        .await?;
-                    if let Some(stored) = stored {
-                        scene_version = scene_version.max(stored.aggregate_version);
-                    }
-                }
-            }
-
-            // One `AssignCharacter` per figure of the row, BEFORE any beat:
-            // a beat may only exist for a figure in `assigned_characters`
-            // (the handler answers 422 `scene.character-not-in-scene`
-            // otherwise).
-            for lane in &lanes {
-                let Some(Figure::Resolved(resolved)) =
-                    figures.get(&character_mapping_ref(&lane.character.identity))
-                else {
-                    // Unavailable figures are reported per costume below.
-                    continue;
-                };
-                scene_version = self
-                    .assign_figure_to_scene(
-                        actor.clone(),
-                        project_id,
-                        scene.aggregate_id,
-                        resolved.aggregate_id,
-                        scene_version,
-                    )
-                    .await?;
-            }
-
-            for lane in &lanes {
-                let lane_ref = character_mapping_ref(&lane.character.identity);
-                let character_id = match figures.get(&lane_ref) {
-                    Some(Figure::Resolved(resolved)) => resolved.aggregate_id,
-                    Some(Figure::Unavailable(detail)) => {
-                        for slot in &lane.beats {
-                            result.unapplied_outfits.push(unapplied(
-                                row,
-                                slot.outfit,
-                                UnappliedOutfitReason::CharacterUnavailable,
-                                Some(detail.clone()),
-                            ));
-                        }
-                        continue;
-                    }
-                    None => {
-                        // Unreachable through the planner, which only pairs an
-                        // outfit with a figure of the same row; reported rather
-                        // than assumed, because an ownerless look is exactly
-                        // what must never be created.
-                        for slot in &lane.beats {
-                            result.unapplied_outfits.push(unapplied(
-                                row,
-                                slot.outfit,
-                                UnappliedOutfitReason::CharacterNotPlanned,
-                                None,
-                            ));
-                        }
-                        continue;
-                    }
-                };
-                for slot in &lane.beats {
-                    let outfit = slot.outfit;
-                    // Continuation (OpenSpec `ai-import-decision-outfit-continuity`,
-                    // design D3): a continued look creates NOTHING. The source
-                    // scene already owns the `Outfit`; this row contributes only
-                    // the beat, so the reference is by identity and no second
-                    // aggregate (nor a duplicate piece set) can appear.
-                    if let Some(continuation) = outfit.continuation.as_ref() {
-                        let resolved = self
-                            .resolve_continued_outfit(preview_id, continuation)
-                            .await?;
-                        let Some(outfit_id) = resolved else {
-                            tracing::warn!(
-                                draft_ref = %row.draft_ref,
-                                outfit_ordinal = outfit.ordinal,
-                                source_draft_ref = %continuation.source_draft_ref,
-                                "AI apply could not resolve the source outfit of a continuation"
-                            );
-                            result.unapplied_outfits.push(unapplied(
-                                row,
-                                outfit,
-                                UnappliedOutfitReason::ContinuityUnresolved,
-                                Some(format!(
-                                    "source outfit of row {} was not created by this apply",
-                                    continuation.source_draft_ref
-                                )),
-                            ));
-                            continue;
-                        };
-                        match self
-                            .apply_outfit_beat(BeatDispatch {
-                                actor: actor.clone(),
-                                preview_id,
-                                project_id,
-                                scene_id: scene.aggregate_id,
-                                character_id,
-                                beat: beat_address(row, outfit),
-                                outfit_id,
-                                scene_version: &mut scene_version,
-                            })
-                            .await?
-                        {
-                            BeatAttempt::Appended => result.created_outfit_beats += 1,
-                            BeatAttempt::Settled => {}
-                            BeatAttempt::Refused(error) => {
-                                tracing::warn!(
-                                    draft_ref = %row.draft_ref,
-                                    outfit_ordinal = outfit.ordinal,
-                                    error = %error,
-                                    "AI apply could not add one continued outfit beat"
-                                );
-                                result.unapplied_outfits.push(unapplied(
-                                    row,
-                                    outfit,
-                                    UnappliedOutfitReason::BeatRejected,
-                                    Some(error.to_string()),
-                                ));
-                            }
-                        }
-                        continue;
-                    }
-                    // Step 1 — the outfit's constituent pieces in the season
-                    // fundus. They must exist before the outfit can reference
-                    // them, so a refused piece stops the look here.
-                    let pieces = match self
-                        .apply_outfit_pieces(
-                            actor.clone(),
-                            OutfitPieceDispatch {
-                                preview_id,
-                                season_id,
-                                project_id,
-                                row,
-                                outfit,
-                            },
-                        )
-                        .await?
-                    {
-                        ChainStep::Done(pieces) => pieces,
-                        ChainStep::Refused(reason, detail) => {
-                            tracing::warn!(
-                                draft_ref = %row.draft_ref,
-                                outfit_ordinal = outfit.ordinal,
-                                reason = ?reason,
-                                error = %detail,
-                                "AI apply could not create the pieces of one outfit"
-                            );
-                            result.unapplied_outfits.push(unapplied(
-                                row,
-                                outfit,
-                                reason,
-                                Some(detail),
-                            ));
-                            continue;
-                        }
-                    };
-                    result.created_pieces += pieces.created;
-                    // Step 2 — the look itself, referencing those pieces.
-                    let applied = match self
-                        .apply_outfit(
-                            actor.clone(),
-                            OutfitDispatch {
-                                preview_id,
-                                season_id,
-                                project_id,
-                                row,
-                                outfit,
-                                character_id,
-                                piece_ids: pieces.piece_ids,
-                                season_archived: &mut season_archived,
-                            },
-                        )
-                        .await?
-                    {
-                        ChainStep::Done(applied) => applied,
-                        ChainStep::Refused(reason, detail) => {
-                            tracing::warn!(
-                                draft_ref = %row.draft_ref,
-                                outfit_ordinal = outfit.ordinal,
-                                reason = ?reason,
-                                error = %detail,
-                                "AI apply could not finish one outfit row"
-                            );
-                            result.unapplied_outfits.push(unapplied(
-                                row,
-                                outfit,
-                                reason,
-                                Some(detail),
-                            ));
-                            continue;
-                        }
-                    };
-                    if applied.created {
-                        result.created_outfits += 1;
-                    }
-                    // Step 3 — the outfit chain fully succeeded: persist the
-                    // scene relation as its beat (issue #546 §5.8).
-                    match self
-                        .apply_outfit_beat(BeatDispatch {
-                            actor: actor.clone(),
-                            preview_id,
-                            project_id,
-                            scene_id: scene.aggregate_id,
-                            character_id,
-                            beat: beat_address(row, outfit),
-                            outfit_id: applied.outfit_id,
-                            scene_version: &mut scene_version,
-                        })
-                        .await?
-                    {
-                        BeatAttempt::Appended => result.created_outfit_beats += 1,
-                        BeatAttempt::Settled => {}
-                        BeatAttempt::Refused(error) => {
-                            tracing::warn!(
-                                draft_ref = %row.draft_ref,
-                                outfit_ordinal = outfit.ordinal,
-                                error = %error,
-                                "AI apply could not add one outfit beat"
-                            );
-                            result.unapplied_outfits.push(unapplied(
-                                row,
-                                outfit,
-                                UnappliedOutfitReason::BeatRejected,
-                                Some(error.to_string()),
-                            ));
-                        }
-                    }
-                }
-            }
-
-            // ── Shooting-day assignment (issue #706) ──
-            // After the beats: `scene_version` now holds the row's current
-            // scene-stream version (max across the row's mapping rows, advanced
-            // in place by every dispatch above), so the link dispatches at the
-            // reached version. A `None` row — no day metadata, ungroupable
-            // label, or a group the reviewer rejected — stays unscheduled.
-            if let PlannedShootingDay::Group {
-                day_ref,
-                label,
-                score,
-            } = &row.shooting_day
-            {
-                // Episode-scoped day key (CodeRabbit review, issue #706): a
-                // day number is NOT episode-unique — a multi-episode script
-                // repeats `Tag 1` per episode, so the same `day_ref` must
-                // resolve to one day PER EPISODE. Keying by the row's
-                // resolved episode keeps episode 2's scenes off episode 1's
-                // day (and keeps the mapping draft_ref, which the id is
-                // derived from, retry-stable).
-                let day_key = format!("{}:{day_ref}", row_episode.0.0);
-                let day = match resolved_days.get(&day_key) {
-                    Some(day) => *day,
-                    None => {
-                        let day = self
-                            .day_linker()
-                            .resolve_day(
-                                actor.clone(),
-                                DayDraft {
-                                    preview_id,
-                                    draft_ref: day_key.clone(),
-                                    episode_id: row_episode.0,
-                                    label: label.clone(),
-                                    date: None,
-                                    project_id,
-                                    // Issue #722: the accepted group's
-                                    // hybrid day score becomes the created
-                                    // day's `ShootingDaySource::AiExtracted
-                                    // .confidence`; `None` stays honest.
-                                    confidence: *score,
-                                },
-                            )
-                            .await?;
-                        if day.created {
-                            result.created_days += 1;
-                        }
-                        resolved_days.insert(day_key, day);
-                        day
-                    }
-                };
-                let scheduled = self
-                    .schedule_row_on_day(
-                        actor.clone(),
-                        RowDayLink {
-                            preview_id,
-                            project_id,
-                            scene_id: scene.aggregate_id,
-                            day: day.id,
-                            scene_version: &mut scene_version,
-                            fallback_order: &mut fallback_order,
-                        },
-                    )
-                    .await?;
-                if scheduled {
-                    result.planned_scene_shoots += 1;
-                }
-            }
-            // One completed row (issue #762). Throttled: the stride keeps the
-            // write count bounded for a large preview, the last row and the
-            // finalizing boundary always write.
-            let row_elapsed = row_started.elapsed();
-            row_elapsed_total = row_elapsed_total.saturating_add(row_elapsed);
-            row_elapsed_max = row_elapsed_max.max(row_elapsed);
-            apply_progress.applied = apply_progress.applied.saturating_add(1);
-            // The heartbeat publishes whatever the counters say right now, so it
-            // learns every row boundary (issue #800 #3); `send_replace` has no
-            // receiver-error to swallow — a stopped heartbeat simply does not
-            // read it.
-            progress_tx.send_replace(apply_progress.clone());
-            let last_row = apply_progress.applied >= apply_progress.total;
-            if last_row || apply_progress.applied.is_multiple_of(progress_stride) {
-                self.publish_apply_progress(preview_id, run_id, &apply_progress)
-                    .await;
-            }
         }
+
         // Every row is dispatched; the trailing work (episode summary,
         // telemetry) is still running (issue #762). The heartbeat stays alive
         // for it — the summary can be slow for a large plan too.
@@ -3022,6 +2756,473 @@ where
                 "advisory AI import apply progress write failed; continuing the apply"
             );
         }
+    }
+
+    /// Apply ONE draft row, from its episode down to its scene-shoot links.
+    ///
+    /// Extracted from the row loop so rows can be applied concurrently: every
+    /// row owns its own aggregate streams (`scene`, its figures, its pieces and
+    /// outfits, its day links), so nothing in here is shared mutable state. The
+    /// three resolution maps are row-local on purpose:
+    ///
+    /// * the per-run mapping cache makes their lookups free (a confirmed row
+    ///   costs no round trip), so re-resolving per row is cheaper than
+    ///   serializing rows behind a shared map;
+    /// * concurrent rows racing on the same figure / episode group / day group
+    ///   converge through the established protocol (`derive_id` +
+    ///   `ExpectedVersion::Empty` + `created_now`), so a race's loser recovers
+    ///   instead of duplicating — the race path is the crash path.
+    ///
+    /// `planned_order` is pre-allocated by the caller in PLAN order, never at
+    /// completion time: the fallback scene-shoot order must stay deterministic
+    /// across retries and independent of scheduling.
+    async fn apply_row(
+        &self,
+        ctx: &RowApplyContext<'_>,
+        row: &SceneApplyPlan,
+        planned_order: Option<LexicalSortKey>,
+    ) -> Result<RowApplyOutcome, DomainError> {
+        let RowApplyContext {
+            actor: _,
+            preview_id,
+            project_id,
+            season_id,
+            block_id,
+            season_archived,
+        } = ctx;
+        // One `UserId` clone per row (the body clones it per command, exactly as
+        // it did when it ran inline in the loop); everything else is `Copy`.
+        let actor = ctx.actor.clone();
+        let preview_id = *preview_id;
+        let project_id = *project_id;
+        let season_id = *season_id;
+        let block_id = *block_id;
+        let season_archived = *season_archived;
+        // Row-local resolution caches (see the method docs).
+        let mut figures: HashMap<String, Figure> = HashMap::new();
+        let mut resolved_episodes: HashMap<String, (EpisodeId, bool)> = HashMap::new();
+        let mut resolved_days: HashMap<String, AppliedDay> = HashMap::new();
+        let mut outcome = RowApplyOutcome::default();
+        let row_started = Instant::now();
+        // `(episode, created by THIS apply)` — the flag decides whether the
+        // requested number/title may label the summary entry (issue #763).
+        let row_episode: (EpisodeId, bool) = match &row.episode {
+            PlannedEpisode::Existing(episode_id) => (*episode_id, false),
+            PlannedEpisode::New {
+                episode_ref,
+                number,
+                name,
+            } => {
+                // `CreateEpisode` carries a denormalized series reference;
+                // the API edge always resolves it from the target episode.
+                // A missing series is an API-edge contract violation,
+                // surfaced as a validation failure instead of an episode
+                // without a series.
+                let Some(project_id) = project_id else {
+                    return Err(DomainError::validation(
+                        "apply cannot create an episode without a series context",
+                    ));
+                };
+                let (episode_id, created_now) = match resolved_episodes.get(episode_ref) {
+                    Some(resolved) => *resolved,
+                    None => {
+                        let (episode_id, created) = self
+                            .create_episode_reserved(
+                                actor.clone(),
+                                ReservedEpisodeDraft {
+                                    preview_id,
+                                    episode_ref: episode_ref.clone(),
+                                    block_id,
+                                    project_id,
+                                    number: *number,
+                                    name: name.clone(),
+                                },
+                            )
+                            .await?;
+                        if created {
+                            outcome.created_episodes += 1;
+                        }
+                        resolved_episodes.insert(episode_ref.clone(), (episode_id, created));
+                        (episode_id, created)
+                    }
+                };
+                (episode_id, created_now)
+            }
+        };
+        let (scene, row_state) = self
+            .apply_scene_row(actor.clone(), preview_id, row_episode.0, project_id, row)
+            .await?;
+        outcome.scene = Some(scene);
+        // (issue #763) Count the row into the per-episode summary — but ONLY
+        // when this call dispatched it. A row a confirmed mapping already
+        // settled stays where that earlier attempt put it, so attributing it
+        // to THIS request's episode would record an episode id that need not
+        // hold the scene (CodeRabbit review): the retry's target is not the
+        // scene's home, and neither its id nor its edge-resolved label may be
+        // claimed. The persisted summary is merged, not replaced, so the
+        // earlier apply's correct entry survives a retry.
+        //
+        // The plan's number/title may only label an entry when THIS apply
+        // created the episode: on a reapply the mapping wins and the
+        // persisted episode keeps the first apply's values, so the request's
+        // `Create` target can disagree with it. Otherwise the edge-resolved
+        // `known_episodes` identity labels the entry, and an unknown label
+        // stays `None` (never a guess).
+        if row_state == AppliedRowState::AppliedNow {
+            let requested_label = match (&row.episode, row_episode.1) {
+                (PlannedEpisode::New { number, name, .. }, true) => {
+                    Some((Some(*number), name.clone()))
+                }
+                _ => None,
+            };
+            outcome.applied_summary = Some((row_episode.0, requested_label));
+        }
+
+        for character in &row.characters {
+            if self
+                .resolve_figure(
+                    actor.clone(),
+                    preview_id,
+                    season_id,
+                    project_id,
+                    character,
+                    &mut figures,
+                )
+                .await?
+            {
+                outcome.created_characters += 1;
+            }
+        }
+
+        // ── Scene relation (issue #546 §5.8) ──
+        // ScenePhases: the row's `scene` mapping row and its
+        // `scene_costume_beat` rows hold versions of the SAME stream (the
+        // scene aggregate). Recover the stream version as the MAX across
+        // all of them — a single row can lag the stream when a previous
+        // apply crashed between a beat append and its confirm. Confirms
+        // stay only-moves-forward, so no row can exceed the stream and
+        // the max is exact at every quiet point.
+        let lanes = scene_beat_lanes(row);
+        let mut scene_version = scene.version;
+        for lane in &lanes {
+            for slot in &lane.beats {
+                let address = beat_address(row, slot.outfit);
+                let stored = self
+                    .mappings
+                    .find(
+                        // ast-grep-ignore: cqrs-boundary
+                        preview_id,
+                        &address.draft_ref,
+                        address.kind,
+                        ordinal_of(address.ordinal)?,
+                    )
+                    .await?;
+                if let Some(stored) = stored {
+                    scene_version = scene_version.max(stored.aggregate_version);
+                }
+            }
+        }
+
+        // One `AssignCharacter` per figure of the row, BEFORE any beat:
+        // a beat may only exist for a figure in `assigned_characters`
+        // (the handler answers 422 `scene.character-not-in-scene`
+        // otherwise).
+        for lane in &lanes {
+            let Some(Figure::Resolved(resolved)) =
+                figures.get(&character_mapping_ref(&lane.character.identity))
+            else {
+                // Unavailable figures are reported per costume below.
+                continue;
+            };
+            scene_version = self
+                .assign_figure_to_scene(
+                    actor.clone(),
+                    project_id,
+                    scene.aggregate_id,
+                    resolved.aggregate_id,
+                    scene_version,
+                )
+                .await?;
+        }
+
+        for lane in &lanes {
+            let lane_ref = character_mapping_ref(&lane.character.identity);
+            let character_id = match figures.get(&lane_ref) {
+                Some(Figure::Resolved(resolved)) => resolved.aggregate_id,
+                Some(Figure::Unavailable(detail)) => {
+                    for slot in &lane.beats {
+                        outcome.unapplied_outfits.push(unapplied(
+                            row,
+                            slot.outfit,
+                            UnappliedOutfitReason::CharacterUnavailable,
+                            Some(detail.clone()),
+                        ));
+                    }
+                    continue;
+                }
+                None => {
+                    // Unreachable through the planner, which only pairs an
+                    // outfit with a figure of the same row; reported rather
+                    // than assumed, because an ownerless look is exactly
+                    // what must never be created.
+                    for slot in &lane.beats {
+                        outcome.unapplied_outfits.push(unapplied(
+                            row,
+                            slot.outfit,
+                            UnappliedOutfitReason::CharacterNotPlanned,
+                            None,
+                        ));
+                    }
+                    continue;
+                }
+            };
+            for slot in &lane.beats {
+                let outfit = slot.outfit;
+                // Continuation (OpenSpec `ai-import-decision-outfit-continuity`,
+                // design D3): a continued look creates NOTHING. The source
+                // scene already owns the `Outfit`; this row contributes only
+                // the beat, so the reference is by identity and no second
+                // aggregate (nor a duplicate piece set) can appear.
+                if let Some(continuation) = outfit.continuation.as_ref() {
+                    let resolved = self
+                        .resolve_continued_outfit(preview_id, continuation)
+                        .await?;
+                    let Some(outfit_id) = resolved else {
+                        tracing::warn!(
+                            draft_ref = %row.draft_ref,
+                            outfit_ordinal = outfit.ordinal,
+                            source_draft_ref = %continuation.source_draft_ref,
+                            "AI apply could not resolve the source outfit of a continuation"
+                        );
+                        outcome.unapplied_outfits.push(unapplied(
+                            row,
+                            outfit,
+                            UnappliedOutfitReason::ContinuityUnresolved,
+                            Some(format!(
+                                "source outfit of row {} was not created by this apply",
+                                continuation.source_draft_ref
+                            )),
+                        ));
+                        continue;
+                    };
+                    match self
+                        .apply_outfit_beat(BeatDispatch {
+                            actor: actor.clone(),
+                            preview_id,
+                            project_id,
+                            scene_id: scene.aggregate_id,
+                            character_id,
+                            beat: beat_address(row, outfit),
+                            outfit_id,
+                            scene_version: &mut scene_version,
+                        })
+                        .await?
+                    {
+                        BeatAttempt::Appended => outcome.created_outfit_beats += 1,
+                        BeatAttempt::Settled => {}
+                        BeatAttempt::Refused(error) => {
+                            tracing::warn!(
+                                draft_ref = %row.draft_ref,
+                                outfit_ordinal = outfit.ordinal,
+                                error = %error,
+                                "AI apply could not add one continued outfit beat"
+                            );
+                            outcome.unapplied_outfits.push(unapplied(
+                                row,
+                                outfit,
+                                UnappliedOutfitReason::BeatRejected,
+                                Some(error.to_string()),
+                            ));
+                        }
+                    }
+                    continue;
+                }
+                // Step 1 — the outfit's constituent pieces in the season
+                // fundus. They must exist before the outfit can reference
+                // them, so a refused piece stops the look here.
+                let pieces = match self
+                    .apply_outfit_pieces(
+                        actor.clone(),
+                        OutfitPieceDispatch {
+                            preview_id,
+                            season_id,
+                            project_id,
+                            row,
+                            outfit,
+                        },
+                    )
+                    .await?
+                {
+                    ChainStep::Done(pieces) => pieces,
+                    ChainStep::Refused(reason, detail) => {
+                        tracing::warn!(
+                            draft_ref = %row.draft_ref,
+                            outfit_ordinal = outfit.ordinal,
+                            reason = ?reason,
+                            error = %detail,
+                            "AI apply could not create the pieces of one outfit"
+                        );
+                        outcome.unapplied_outfits.push(unapplied(
+                            row,
+                            outfit,
+                            reason,
+                            Some(detail),
+                        ));
+                        continue;
+                    }
+                };
+                outcome.created_pieces += pieces.created;
+                // Step 2 — the look itself, referencing those pieces.
+                let applied = match self
+                    .apply_outfit(
+                        actor.clone(),
+                        OutfitDispatch {
+                            preview_id,
+                            season_id,
+                            project_id,
+                            row,
+                            outfit,
+                            character_id,
+                            piece_ids: pieces.piece_ids,
+                            season_archived,
+                        },
+                    )
+                    .await?
+                {
+                    ChainStep::Done(applied) => applied,
+                    ChainStep::Refused(reason, detail) => {
+                        tracing::warn!(
+                            draft_ref = %row.draft_ref,
+                            outfit_ordinal = outfit.ordinal,
+                            reason = ?reason,
+                            error = %detail,
+                            "AI apply could not finish one outfit row"
+                        );
+                        outcome.unapplied_outfits.push(unapplied(
+                            row,
+                            outfit,
+                            reason,
+                            Some(detail),
+                        ));
+                        continue;
+                    }
+                };
+                if applied.created {
+                    outcome.created_outfits += 1;
+                }
+                // Step 3 — the outfit chain fully succeeded: persist the
+                // scene relation as its beat (issue #546 §5.8).
+                match self
+                    .apply_outfit_beat(BeatDispatch {
+                        actor: actor.clone(),
+                        preview_id,
+                        project_id,
+                        scene_id: scene.aggregate_id,
+                        character_id,
+                        beat: beat_address(row, outfit),
+                        outfit_id: applied.outfit_id,
+                        scene_version: &mut scene_version,
+                    })
+                    .await?
+                {
+                    BeatAttempt::Appended => outcome.created_outfit_beats += 1,
+                    BeatAttempt::Settled => {}
+                    BeatAttempt::Refused(error) => {
+                        tracing::warn!(
+                            draft_ref = %row.draft_ref,
+                            outfit_ordinal = outfit.ordinal,
+                            error = %error,
+                            "AI apply could not add one outfit beat"
+                        );
+                        outcome.unapplied_outfits.push(unapplied(
+                            row,
+                            outfit,
+                            UnappliedOutfitReason::BeatRejected,
+                            Some(error.to_string()),
+                        ));
+                    }
+                }
+            }
+        }
+
+        // ── Shooting-day assignment (issue #706) ──
+        // After the beats: `scene_version` now holds the row's current
+        // scene-stream version (max across the row's mapping rows, advanced
+        // in place by every dispatch above), so the link dispatches at the
+        // reached version. A `None` row — no day metadata, ungroupable
+        // label, or a group the reviewer rejected — stays unscheduled.
+        if let PlannedShootingDay::Group {
+            day_ref,
+            label,
+            score,
+        } = &row.shooting_day
+        {
+            // Episode-scoped day key (CodeRabbit review, issue #706): a
+            // day number is NOT episode-unique — a multi-episode script
+            // repeats `Tag 1` per episode, so the same `day_ref` must
+            // resolve to one day PER EPISODE. Keying by the row's
+            // resolved episode keeps episode 2's scenes off episode 1's
+            // day (and keeps the mapping draft_ref, which the id is
+            // derived from, retry-stable).
+            let day_key = format!("{}:{day_ref}", row_episode.0.0);
+            let day = match resolved_days.get(&day_key) {
+                Some(day) => *day,
+                None => {
+                    let day = self
+                        .day_linker()
+                        .resolve_day(
+                            actor.clone(),
+                            DayDraft {
+                                preview_id,
+                                draft_ref: day_key.clone(),
+                                episode_id: row_episode.0,
+                                label: label.clone(),
+                                date: None,
+                                project_id,
+                                // Issue #722: the accepted group's
+                                // hybrid day score becomes the created
+                                // day's `ShootingDaySource::AiExtracted
+                                // .confidence`; `None` stays honest.
+                                confidence: *score,
+                            },
+                        )
+                        .await?;
+                    if day.created {
+                        outcome.created_days += 1;
+                    }
+                    resolved_days.insert(day_key, day);
+                    day
+                }
+            };
+            // Pre-allocated in plan order by `run_script_apply`; a planned
+            // row without one is a caller bug, surfaced instead of guessed.
+            let planned_order = planned_order.clone().ok_or_else(|| {
+                DomainError::validation(
+                    "a scheduled row reached the day link without a planned order",
+                )
+            })?;
+            let scheduled = self
+                .schedule_row_on_day(
+                    actor.clone(),
+                    RowDayLink {
+                        preview_id,
+                        project_id,
+                        scene_id: scene.aggregate_id,
+                        day: day.id,
+                        scene_version: &mut scene_version,
+                        planned_order,
+                    },
+                )
+                .await?;
+            if scheduled {
+                outcome.planned_scene_shoots += 1;
+            }
+        }
+        // The row is done. Its counters are aggregated — and the progress
+        // frame published — by the caller once this row's future resolves
+        // (see `run_script_apply`).
+        outcome.row_elapsed = row_started.elapsed();
+        Ok(outcome)
     }
 
     /// Fill in the decisions the reviewer did not send because their rows are
@@ -3548,32 +3749,32 @@ where
         let notes_pending = version < OUTFIT_NOTED;
 
         if version < OUTFIT_CREATED {
-            let archived = match *season_archived {
-                Some(verdict) => verdict,
-                None => {
+            // `get_or_try_init` makes the read initialize-exactly-once even when
+            // several rows reach their first outfit at the same time; an outage
+            // is returned (never cached) so the run aborts as before.
+            let archived = *season_archived
+                .get_or_try_init(|| async {
                     // CR-002/D2: non-audit dispatch precondition (refuse outfit
                     // creation on an archived season; `project_id` comes from
                     // the API edge request, AGENTS.md §1).
-                    let verdict = match self
+                    match self
                         .season_repo
                         .find_by_id(season_id.0) // ast-grep-ignore: cqrs-boundary
                         .await
                     {
-                        Ok(season) => Some(season.archived),
-                        Err(error) if is_infra_outage(&error) => return Err(error),
+                        Ok(season) => Ok(Some(season.archived)),
+                        Err(error) if is_infra_outage(&error) => Err(error),
                         Err(error) => {
                             tracing::warn!(
                                 %error,
                                 season = %season_id.0,
                                 "AI apply could not resolve the target season; every outfit step will be refused",
                             );
-                            None
+                            Ok(None)
                         }
-                    };
-                    *season_archived = Some(verdict);
-                    verdict
-                }
-            };
+                    }
+                })
+                .await?;
             match archived {
                 Some(true) => {
                     tracing::info!(
@@ -4087,21 +4288,15 @@ where
             scene_id,
             day,
             scene_version,
-            fallback_order,
+            planned_order,
         } = link;
         let day_linker = self.day_linker();
         let pair_key = format!("scene-shoot:{}:{}", scene_id, day.0);
-        // Consume the fallback order BEFORE the confirmed-pair early return:
-        // every planned row advances the counter on every attempt, so a
-        // partial-run retry cannot reallocate a confirmed row's order to a
-        // later row of the same day (CodeRabbit review, issue #706). The
-        // allocation is computed before any command dispatch — it can fail
-        // and must not leave the scene already scheduled.
-        *fallback_order = fallback_order.checked_add(1).ok_or_else(|| {
-            DomainError::validation("cannot allocate a unique fallback planned order")
-        })?;
-        let planned_order = LexicalSortKey::new(format!("{:08}", *fallback_order))
-            .map_err(|error| DomainError::validation(error.to_string()))?;
+        // `planned_order` arrives pre-allocated in PLAN order (issue #706): the
+        // allocation must be independent of dispatch order and reproducible on a
+        // retry, so it can no longer be derived from a counter advanced here.
+        // It is consumed by the confirmed-pair early return below exactly like
+        // before — every planned row owns one order on every attempt.
         // Read the idempotency projection (non-audit): the spec requires the
         // mapping lookup so a retried apply re-drives an unfinished pair
         // instead of planning a second scene shoot. Not audit-context
@@ -4247,7 +4442,7 @@ struct OutfitDispatch<'a> {
     /// one apply, and every other phase of the same run already works against
     /// the season it resolved then. A plan that creates no outfit never pays the
     /// read at all.
-    season_archived: &'a mut Option<Option<bool>>,
+    season_archived: &'a tokio::sync::OnceCell<Option<bool>>,
 }
 
 /// The per-row day-link context of the script apply (issue #706). Bundled so
@@ -4260,8 +4455,11 @@ struct RowDayLink<'a> {
     day: ShootingDayId,
     /// The row's running scene-stream version, advanced in place.
     scene_version: &'a mut AggregateVersion,
-    /// Monotonic fallback planned-order counter, advanced in place.
-    fallback_order: &'a mut u32,
+    /// The row's fallback planned order, allocated in PLAN order before any row
+    /// was dispatched (issue #706). Never allocated here: with concurrent rows
+    /// the arrival order is not the plan order, and a retry must reproduce the
+    /// first attempt's allocation.
+    planned_order: LexicalSortKey,
 }
 
 /// A costume row that did not become a `Costume`, shaped for the reviewer.
