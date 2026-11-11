@@ -173,10 +173,21 @@ mem_forget = "deny"
 # Release profiles are untouched. `split-debuginfo` only affects Linux/macOS;
 # it is accepted (and ignored) elsewhere. See `backend/AGENTS.md` §8 and
 # `.github/instructions/build-performance.instructions.md`.
+#
+# `incremental = false` (measured 2026-11-11): on the 15 GB dev machine the
+# incremental caches had grown to 202 GB under `target/debug/incremental`
+# (83 GB next to it in `deps/`), and incremental rustc is also the more
+# memory-hungry mode — the compile/link peak inside a terminal's single
+# systemd cgroup is what pushed it over `systemd-oomd`'s limit four times on
+# 2026-11-05/11-11 (9.4–11.5 GB peaks, killing cosmic-term along with cargo).
+# Opt back in per shell with `CARGO_INCREMENTAL=1` (the env var overrides the
+# profile), e.g. for tight single-crate edit/run loops.
 [profile.dev]
 debug = "line-tables-only"
 split-debuginfo = "unpacked"
+incremental = false
 
 [profile.test]
 debug = "line-tables-only"
 split-debuginfo = "unpacked"
+incremental = false
