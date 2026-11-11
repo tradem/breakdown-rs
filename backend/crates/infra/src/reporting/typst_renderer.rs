@@ -32,6 +32,144 @@ struct EmbeddedTemplate {
     source: String,
 }
 
+/// Font metadata for Typst's font *selection*, with face bytes loaded on demand.
+///
+/// Typst needs the [`typst::text::FontInfo`] of every installed face before it
+/// can resolve a `#set text(font: "…")` family, but it only needs the *bytes*
+/// of the faces it actually lays text out with (`World::font`). Loading all of
+/// them up front is what made the API hold every installed font for the process
+/// lifetime: on the 15 GB dev machine `/usr/share/fonts` holds 9.0 GB in 3428
+/// files (7.6 GB of it Nerd Fonts) while the report templates use a single
+/// family — a 7.3 GB RSS at boot, a 24 s boot, and the memory pressure behind
+/// the `systemd-oomd` kills on 2026-11-05/11-11.
+///
+/// So the book is built exactly as before (same faces, same order — family
+/// selection and glyph coverage stay identical, and the templates remain the
+/// only source of truth for which families matter), while each face's bytes are
+/// read the first time Typst asks for it and cached afterwards.
+pub struct FontSet {
+    /// Face metadata, in the order Typst addresses faces by index.
+    book: typst::utils::LazyHash<typst::text::FontBook>,
+    /// Where each face's bytes come from, parallel to the book's indices.
+    origins: Vec<FontOrigin>,
+    /// Faces already read from disk, keyed by book index.
+    loaded: std::sync::Mutex<HashMap<usize, Font>>,
+}
+
+/// Where a single face's bytes live.
+#[derive(Clone)]
+enum FontOrigin {
+    /// Already in memory (explicitly constructed renderers, tests).
+    Resident(Font),
+    /// A face inside a font file. `ordinal` is the face's position in
+    /// `FontInfo::iter`/`Font::iter` order: both walk the same
+    /// `fonts_in_collection` index range and filter alike, so the ordinal
+    /// identifies the face without re-deriving the collection index.
+    File {
+        /// Font file the face belongs to (`.ttf`/`.otf`/`.ttc`).
+        path: std::path::PathBuf,
+        /// Position of the face inside that file.
+        ordinal: usize,
+    },
+}
+
+impl FontSet {
+    /// Wrap fonts that are already in memory.
+    fn from_fonts(fonts: Vec<Font>) -> Self {
+        let mut book = typst::text::FontBook::new();
+        let mut origins = Vec::with_capacity(fonts.len());
+        for font in fonts {
+            book.push(font.info().clone());
+            origins.push(FontOrigin::Resident(font));
+        }
+        Self {
+            book: typst::utils::LazyHash::new(book),
+            origins,
+            loaded: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Index every installed font without keeping a single face's bytes.
+    fn load_system() -> Result<Self, String> {
+        let dirs = candidate_font_dirs();
+        if dirs.is_empty() {
+            return Err(
+                "no font directories found — install fonts (fontconfig-style tree under \
+                 /usr/share/fonts, or point REPORT_FONT_DIRS at font directories) \
+                 so PDF reports can render"
+                    .into(),
+            );
+        }
+
+        let mut book = typst::text::FontBook::new();
+        let mut origins = Vec::new();
+        for file in collect_font_files(&dirs) {
+            // Read the file to derive its faces' metadata, then DROP the bytes:
+            // only `FontInfo` goes into the book, and the face itself is re-read
+            // on demand by `font`. Peak heap here is one font file (~14 MB for
+            // the largest Nerd Font on the dev machine) instead of the whole
+            // tree. A read-only mmap would avoid even that, but `unsafe` is
+            // denied in this crate.
+            let Ok(data) = std::fs::read(&file) else {
+                continue;
+            };
+            for (ordinal, info) in typst::text::FontInfo::iter(&data).enumerate() {
+                book.push(info);
+                origins.push(FontOrigin::File {
+                    path: file.clone(),
+                    ordinal,
+                });
+            }
+        }
+
+        if origins.is_empty() {
+            return Err(format!(
+                "no usable fonts found in {} candidate director{} — PDF reports \
+                 cannot render; install fonts (fontconfig-style tree under \
+                 /usr/share/fonts) or set REPORT_FONT_DIRS to font directories",
+                dirs.len(),
+                if dirs.len() == 1 { "y" } else { "ies" }
+            ));
+        }
+
+        Ok(Self {
+            book: typst::utils::LazyHash::new(book),
+            origins,
+            loaded: std::sync::Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// The face metadata Typst selects from.
+    fn book(&self) -> &typst::utils::LazyHash<typst::text::FontBook> {
+        &self.book
+    }
+
+    /// Number of indexed faces.
+    fn len(&self) -> usize {
+        self.origins.len()
+    }
+
+    /// The face at book index `index`, reading its bytes on first use.
+    fn font(&self, index: usize) -> Option<Font> {
+        match self.origins.get(index)? {
+            FontOrigin::Resident(font) => Some(font.clone()),
+            FontOrigin::File { path, ordinal } => {
+                if let Ok(cache) = self.loaded.lock()
+                    && let Some(hit) = cache.get(&index)
+                {
+                    return Some(hit.clone());
+                }
+                let data = std::fs::read(path).ok()?;
+                let font = Font::iter(Bytes::new(data)).nth(*ordinal)?;
+                if let Ok(mut cache) = self.loaded.lock() {
+                    cache.insert(index, font.clone());
+                }
+                Some(font)
+            }
+        }
+    }
+}
+
 /// A restricted virtual filesystem for Typst compilation.
 ///
 /// Only serves:
@@ -45,35 +183,35 @@ pub struct RestrictedWorld {
     template_source: Source,
     /// The report data as JSON bytes.
     report_json: Bytes,
-    /// Embedded fonts.
-    fonts: Vec<Font>,
-    /// Font book metadata.
-    #[allow(dead_code)]
-    font_book: typst::utils::LazyHash<typst::text::FontBook>,
+    /// Font metadata for selection plus on-demand face loading.
+    fonts: Arc<FontSet>,
     /// The standard library.
     library: typst::utils::LazyHash<typst::Library>,
 }
 
 impl RestrictedWorld {
     /// Create a new restricted world with the given template and data.
-    #[allow(clippy::unwrap_used)] // VirtualPath::new from a const literal cannot fail
     pub fn new(template_source: &str, report_json: &[u8], fonts: Vec<Font>) -> Self {
+        Self::with_font_set(
+            template_source,
+            report_json,
+            Arc::new(FontSet::from_fonts(fonts)),
+        )
+    }
+
+    /// Create a world over an indexed [`FontSet`] (faces loaded on demand).
+    #[allow(clippy::unwrap_used)] // VirtualPath::new from a const literal cannot fail
+    pub fn with_font_set(template_source: &str, report_json: &[u8], fonts: Arc<FontSet>) -> Self {
         let file_id = FileId::new(typst::syntax::RootedPath::new(
             typst::syntax::VirtualRoot::Project,
             VirtualPath::new("main.typ").unwrap(), // const-time path literal
         ));
         let source = Source::new(file_id, template_source.to_string());
 
-        let mut font_book = typst::text::FontBook::new();
-        for font in &fonts {
-            font_book.push(font.info().clone());
-        }
-
         Self {
             template_source: source,
             report_json: Bytes::new(report_json.to_vec()),
             fonts,
-            font_book: typst::utils::LazyHash::new(font_book),
             library: typst::utils::LazyHash::new(typst::Library::default()),
         }
     }
@@ -96,7 +234,7 @@ impl World for RestrictedWorld {
     }
 
     fn book(&self) -> &typst::utils::LazyHash<typst::text::FontBook> {
-        &self.font_book
+        self.fonts.book()
     }
 
     fn main(&self) -> FileId {
@@ -122,7 +260,7 @@ impl World for RestrictedWorld {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts.get(index).cloned()
+        self.fonts.font(index)
     }
 
     fn today(
@@ -169,11 +307,8 @@ impl Default for RenderConfig {
 pub struct TypstReportRenderer {
     /// Embedded templates keyed by report kind.
     pub templates: HashMap<ReportKind, String>,
-    /// Embedded fonts for deterministic Latin text rendering.
-    fonts: Vec<Font>,
-    /// Font book metadata.
-    #[allow(dead_code)]
-    font_book: typst::utils::LazyHash<typst::text::FontBook>,
+    /// Font metadata for selection plus on-demand face loading.
+    fonts: Arc<FontSet>,
     /// Semaphore for concurrency control.
     semaphore: Arc<tokio::sync::Semaphore>,
     /// Render configuration.
@@ -207,18 +342,19 @@ impl TypstReportRenderer {
         fonts: Vec<Font>,
         config: RenderConfig,
     ) -> Self {
-        let mut font_book = typst::text::FontBook::new();
-        for font in &fonts {
-            font_book.push(font.info().clone());
-        }
+        Self::from_font_set(templates, FontSet::from_fonts(fonts), config)
+    }
 
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(config.concurrency_limit));
-
+    /// Single constructor for an already-indexed font set.
+    fn from_font_set(
+        templates: HashMap<ReportKind, String>,
+        fonts: FontSet,
+        config: RenderConfig,
+    ) -> Self {
         Self {
             templates,
-            fonts,
-            font_book: typst::utils::LazyHash::new(font_book),
-            semaphore,
+            fonts: Arc::new(fonts),
+            semaphore: Arc::new(tokio::sync::Semaphore::new(config.concurrency_limit)),
             config,
         }
     }
@@ -229,11 +365,17 @@ impl TypstReportRenderer {
     /// In production, use `new()` with explicitly embedded templates and fonts.
     pub fn with_defaults() -> Result<Self, ReportRenderError> {
         let templates = embedded_templates();
-        // Load system fonts — a failure here is a deployment misconfiguration
-        // (the composition root fails fast on it, issue #642).
-        let fonts = load_system_fonts().map_err(ReportRenderError::Internal)?;
+        // Index the installed fonts — a failure here is a deployment
+        // misconfiguration (the composition root fails fast on it, issue #642).
+        // Only metadata is read; face bytes are pulled in by `FontSet::font`
+        // when Typst actually lays text out in a family.
+        let fonts = FontSet::load_system().map_err(ReportRenderError::Internal)?;
 
-        Ok(Self::new(templates, fonts))
+        Ok(Self::from_font_set(
+            templates,
+            fonts,
+            RenderConfig::default(),
+        ))
     }
 }
 
@@ -333,7 +475,11 @@ impl ReportRenderer for TypstReportRenderer {
         // integer`); carry the report kind with them so the single logged
         // error is actionable without correlating the request.
         let kind = req.kind;
-        let world = RestrictedWorld::new(template_source, &report_json_vec, self.fonts.clone());
+        let world = RestrictedWorld::with_font_set(
+            template_source,
+            &report_json_vec,
+            Arc::clone(&self.fonts),
+        );
 
         // Compile with deadline
         let deadline = std::time::Duration::from_secs(self.config.deadline_secs);
@@ -730,53 +876,15 @@ fn collect_font_files(dirs: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
     files
 }
 
-/// Load system fonts via freedesktop/fontconfig-convention discovery.
-///
-/// Recurses into subdirectories (distro font trees are rarely flat) and
-/// accepts `ttf`/`otf`/`ttc`/`otc`. Returns an error — never a silent empty
-/// set — when no fonts can be found, so the composition root can fail fast
-/// (issue #642).
-fn load_system_fonts() -> Result<Vec<Font>, String> {
-    let dirs = candidate_font_dirs();
-    if dirs.is_empty() {
-        return Err(
-            "no font directories found — install fonts (fontconfig-style tree under \
-             /usr/share/fonts, or point REPORT_FONT_DIRS at font directories) \
-             so PDF reports can render"
-                .into(),
-        );
-    }
-
-    let mut fonts = Vec::new();
-    for file in collect_font_files(&dirs) {
-        if let Ok(data) = std::fs::read(&file) {
-            let bytes = typst::foundations::Bytes::new(data);
-            fonts.extend(Font::iter(bytes));
-        }
-    }
-
-    if fonts.is_empty() {
-        return Err(format!(
-            "no usable fonts found in {} candidate director{} — PDF reports \
-             cannot render; install fonts (fontconfig-style tree under \
-             /usr/share/fonts) or set REPORT_FONT_DIRS to font directories",
-            dirs.len(),
-            if dirs.len() == 1 { "y" } else { "ies" }
-        ));
-    }
-
-    Ok(fonts)
-}
-
 // --- P4.4 mutation-hardening: `Debug for TypstReportRenderer` guard ---
 //
 // Kills the `replace <impl fmt::Debug for TypstReportRenderer>::fmt ->
 // fmt::Result with Ok(Default::default())` mutant (empty output). Constructing
 // with empty templates/fonts needs no system fonts, so this is a fast
 // whitebox kill. The remaining P4.4 typst mutants (`font`, `render` bound
-// checks, `load_system_fonts`) are excluded in `.cargo/mutants.toml` (they only
-// change behaviour when an actual Typst compile runs, which requires system
-// fonts — a system resource, per the `CommandsImpl>::` precedent).
+// checks, `FontSet::load_system`) are excluded in `.cargo/mutants.toml` (they
+// only change behaviour when an actual Typst compile runs, which requires
+// system fonts — a system resource, per the `CommandsImpl>::` precedent).
 #[cfg(test)]
 mod mutation_tests {
     use super::*;
@@ -1034,7 +1142,53 @@ mod font_discovery_tests {
             !renderer.templates.is_empty(),
             "template map must be non-empty"
         );
-        assert!(!renderer.fonts.is_empty(), "font book must be non-empty");
+        assert!(renderer.fonts.len() > 0, "font book must be non-empty");
+    }
+
+    #[test]
+    fn lazy_face_loading_materialises_the_template_family() {
+        // The templates set `font: "Noto Sans"`. Before `FontSet` every
+        // installed face was resident, so resolving it could never fail; now the
+        // bytes are read on demand, and a regression here would silently render
+        // every report in a fallback font. Compile a real document in that
+        // family and require a warning-free result.
+        let Ok(set) = FontSet::load_system() else {
+            eprintln!("host has no discoverable fonts; skipping lazy-face test");
+            return;
+        };
+        const FAMILY: &str = "Noto Sans";
+        if !set.book().contains_family(FAMILY) {
+            eprintln!("{FAMILY} is not installed here; skipping lazy-face test");
+            return;
+        }
+        let index = set
+            .book()
+            .select(FAMILY, typst::text::FontVariant::default())
+            .expect("a family the book contains must be selectable");
+        let font = set.font(index).expect("lazy face must load from disk");
+        assert_eq!(font.info().family, FAMILY);
+
+        let world = RestrictedWorld::with_font_set(
+            &format!("#set text(font: \"{FAMILY}\", size: 10pt)\nHallo Welt\n"),
+            b"{}",
+            std::sync::Arc::new(set),
+        );
+        let result = typst::compile::<PagedDocument>(&world);
+        let pages = result
+            .output
+            .expect("a document in an installed family must compile")
+            .pages()
+            .len();
+        assert_eq!(pages, 1, "one page expected");
+        assert!(
+            result.warnings.is_empty(),
+            "no fallback warnings expected, got: {:?}",
+            result
+                .warnings
+                .iter()
+                .map(|w| w.message.to_string())
+                .collect::<Vec<_>>()
+        );
     }
 
     /// Independent font-presence probe: a deliberately simple second
