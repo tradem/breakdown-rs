@@ -74,6 +74,8 @@ use breakdown_core::piece::commands::{
     UpdatePieceNotes,
 };
 use breakdown_core::piece::ports::PieceCommands;
+use breakdown_core::project_membership::ProjectMembership;
+use breakdown_core::project_membership::commands::BootstrapProjectOwner;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::commands::{
     AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
@@ -97,7 +99,7 @@ use breakdown_core::settings::commands::{
 };
 use breakdown_core::settings::ports::SettingsCommands;
 use breakdown_core::shared::{
-    AggregateVersion, EventMetadata, Provenance, SceneShootId, ShootingDayId, UserId,
+    AggregateVersion, EventMetadata, ProjectId, Provenance, SceneShootId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::commands::{
@@ -1133,6 +1135,48 @@ impl SeasonCommandsImpl {
             cmd_service,
         }
     }
+
+    /// Bootstrap the season creator's **project-scoped** `costume_designer`
+    /// grant (openspec change `project-scoped-membership`, design D3).
+    ///
+    /// The project-scope mirror of the block-creation `OwnerBootstrapped`
+    /// precedent: a production needs an accountable costume role from its
+    /// first season, including a season that never gains a block — otherwise a
+    /// block-less season is role-less and every season-scoped check on it is
+    /// refused (the `829` D1 upload being the motivating case).
+    ///
+    /// Deliberate properties:
+    ///
+    /// - **Projector-independent:** the command path emits the grant; nothing
+    ///   here reads a projection (CQRS boundary).
+    /// - **Idempotent:** `ExpectedVersion::Any` plus the aggregate's
+    ///   `is_state_idempotent` hook makes a second season in the same project,
+    ///   or a redelivered event, a no-op instead of a duplicate grant.
+    /// - **Best-effort:** a failure is logged and never fails the season
+    ///   creation that already succeeded (audit-metadata doctrine: derived
+    ///   context must not block command processing).
+    async fn bootstrap_project_owner(&self, actor: UserId, project_id: ProjectId) {
+        let cmd = BootstrapProjectOwner {
+            project_id,
+            user_id: actor.clone(),
+        };
+        let result = ProjectMembership::execute(&self.cmd_service, project_id.0, cmd)
+            .expected_version(ExpectedVersion::Any)
+            .metadata(EventMetadata {
+                actor: Some(actor),
+                provenance: Provenance::Human,
+                project_id: Some(project_id),
+            })
+            .await;
+        if let Err(error) = result {
+            tracing::warn!(
+                %error,
+                project_id = %project_id.0,
+                "failed to bootstrap the project-scoped owner role (season creator); \
+                 the season itself was created"
+            );
+        }
+    }
 }
 
 impl SeasonCommands for SeasonCommandsImpl {
@@ -1142,10 +1186,10 @@ impl SeasonCommands for SeasonCommandsImpl {
         cmd: CreateSeason,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
         let id = cmd.id;
-        let project_id = Some(cmd.project_id);
+        let project_id = cmd.project_id;
         let claim = reserve_create_claim(
             &self.reservations,
-            &season_number_key(cmd.project_id.0, cmd.number),
+            &season_number_key(project_id.0, cmd.number),
             id,
             DomainError::Conflict {
                 code: &SEASON_NUMBER_ALREADY_EXISTS,
@@ -1156,13 +1200,20 @@ impl SeasonCommands for SeasonCommandsImpl {
         let result = SeasonAggregate::execute(&self.cmd_service, id, cmd)
             .expected_version(ExpectedVersion::Empty)
             .metadata(EventMetadata {
-                actor: Some(actor),
+                actor: Some(actor.clone()),
                 provenance: Provenance::Human,
-                project_id,
+                project_id: Some(project_id),
             })
             .await;
         compensate_create_claim(&self.reservations, &claim, &result).await;
-        map_executed(id, result)
+        let created = map_executed(id, result);
+        // design D3: the season creator becomes the project's first
+        // project-scoped `costume_designer`. Only after the season exists, and
+        // never failing the creation (best-effort).
+        if created.is_ok() {
+            self.bootstrap_project_owner(actor, project_id).await;
+        }
+        created
     }
 
     async fn rename(
