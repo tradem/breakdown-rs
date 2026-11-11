@@ -170,16 +170,25 @@ guessed season.
 ## Preview — the target block is attached after extraction (issue #829)
 
 A job uploaded without `X-Active-Block` carries its target **season** and no
-block (ADR-039). The preview's block-scope line then carries the actions that
-decide it, and nothing else may:
+block (ADR-039). The preview's block-scope card then decides it — and it decides
+on its **own** (follow-up to #829: the tap the card used to require was skipped
+in the observed review flow, and the apply then answered
+`409 ai-import.target-missing`):
 
 | State | Rendering |
 |---|---|
-| script states block N, target season has block N | "Aus Skript übernehmen – Block N" → `PUT /v1/ai-import/jobs/{id}/target` |
-| script states block N, the season has no block N | "Block N anlegen" → the shared create-block form → attach the created block |
+| script states block N, target season has block N | attached silently → `PUT /v1/ai-import/jobs/{id}/target` |
+| script states block N, the season has no block N | a block numbered N is created (no dates — the script states none) and attached silently |
+| the silent create/attach was refused | the manual actions: "Aus Skript übernehmen – Block N", "Block N anlegen" (shared form, prefilled), and the picker |
 | the script states no block (or the list is unreadable) | "Zielblock wählen" over the target season's blocks, with a create entry |
 | attached | the actions disappear; the scope line names the target |
 | a preview group already points at an existing episode, or the job was already applied | the locked narrative, no action |
+
+The silent adoption runs **once** per card: it never retries, and opening the
+picker ends it, so a reviewer's own choice is never overruled by a later
+automatic one. It also only decides on a block list the client actually holds —
+a pending or failed read is "unknown", never "the season has no such block", so a
+flaky list cannot create a block that already exists.
 
 The card renders the summary and these actions **independently**: a block-less
 schedule preview has neither a script block nor a target block, so a card that

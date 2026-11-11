@@ -1512,6 +1512,9 @@ class _PreviewTargetActions extends ConsumerStatefulWidget {
 class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
   bool _busy = false;
 
+  /// One adoption attempt per card lifetime (see [_scheduleAutoAdopt]).
+  bool _autoAttempted = false;
+
   Future<void> _attach(String blockId) async {
     setState(() => _busy = true);
     final repo = ref.read(aiImportRepositoryProvider);
@@ -1535,6 +1538,56 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
     ref.invalidate(aiJobBlockInfoProvider(widget.jobId));
   }
 
+  /// The zero-tap adoption of the script's block (follow-up to #829).
+  ///
+  /// The review of #857 kept the adoption behind a tap, and a block-less import
+  /// that never got a target ended in the apply's `409 ai-import.target-missing`
+  /// — the refusal this card exists to pre-empt. So as soon as the card knows
+  /// BOTH the script's block (#827) and the target season's block list, it
+  /// adopts on its own: the block carrying that number when one exists,
+  /// otherwise a block created with the script's number (and no dates — the
+  /// script states none, and inventing a shooting window would be a fabricated
+  /// fact the block list would then show).
+  ///
+  /// Exactly ONE attempt: a failed attach/create keeps the manual affordances
+  /// and their code-keyed error, but never retries in a loop.
+  void _scheduleAutoAdopt(int number, BlockView? match) {
+    if (_autoAttempted || _busy) return;
+    _autoAttempted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_autoAdopt(number, match));
+    });
+  }
+
+  Future<void> _autoAdopt(int number, BlockView? match) async {
+    if (match != null) {
+      await _attach(match.id);
+      return;
+    }
+    setState(() => _busy = true);
+    final seasonId = widget.scope.targetSeasonId!;
+    final season = await ref.read(aiImportSeasonViewProvider(seasonId).future);
+    if (!mounted) return;
+    if (season == null) {
+      // The shared form pre-fills its ids from the season row; an unreadable
+      // row cannot be created against, so the manual action reports it.
+      setState(() => _busy = false);
+      return;
+    }
+    final created = await ref
+        .read(blocksControllerProvider(seasonId).notifier)
+        .create(season: season, number: number);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final blockId = created.match((_) => null, (ack) => ack.id);
+    // A failed create already renders the blocks screen's code-keyed banner via
+    // the controller; the manual affordances stay as the retry.
+    if (blockId == null) return;
+    ref.invalidate(blocksListFetchProvider(seasonId));
+    await _attach(blockId);
+  }
+
   /// The picker's outcome: a block to attach, or "create one first".
   ///
   /// A sentinel rather than `null`, because `null` already means "the sheet was
@@ -1543,6 +1596,10 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
   static const _createSentinel = 'create';
 
   Future<void> _pick() async {
+    // A manual choice wins over the silent adoption: once the reviewer opens the
+    // picker, the card stops adopting on its own (a retry that turns the block
+    // list from failed to loaded would otherwise take the decision back).
+    _autoAttempted = true;
     final seasonId = widget.scope.targetSeasonId!;
     // `ref.read(...future)`, not `ref.watch`: this runs from a tap, and watching
     // outside `build` is unsupported (it asserts in debug builds, which made the
@@ -1716,17 +1773,28 @@ class _PreviewTargetActionsState extends ConsumerState<_PreviewTargetActions> {
     }
 
     final seasonId = scope.targetSeasonId!;
-    final blocks = ref.watch(blocksListFetchProvider(seasonId)).value;
-    final rows = blocks?.match<Iterable<BlockView>>(
-      (_) => const <BlockView>[],
-      (value) => value,
-    );
+    // Only a list the client actually HOLDS may drive a decision: a pending or
+    // FAILED read is `null`, never an empty season — the difference decides
+    // whether the adopt affordances (and the silent adoption below) can name a
+    // block at all.
+    final rows = ref
+        .watch(blocksListFetchProvider(seasonId))
+        .whenData(
+          (result) => result.match<Iterable<BlockView>?>(
+            (_) => null,
+            (rows) => rows,
+          ),
+        )
+        .value;
     final scriptBlock = scope.scriptBlockNumber;
     BlockView? scriptMatch;
     if (scriptBlock != null && rows != null) {
       for (final block in rows) {
         if (block.number == scriptBlock) scriptMatch = block;
       }
+      // Zero taps when the card can decide: adopt the script's block, or create
+      // it when the season lacks it (issue #829 follow-up).
+      _scheduleAutoAdopt(scriptBlock, scriptMatch);
     }
 
     // Which action the state can honestly offer: adopting the script's block

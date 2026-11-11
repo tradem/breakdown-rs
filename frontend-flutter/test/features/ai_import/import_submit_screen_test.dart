@@ -709,8 +709,9 @@ void main() {
       );
     });
 
-    testWidgets('a season without any block blocks the upload with actionable '
-        'copy', (tester) async {
+    testWidgets('a season without any block states the deferred block and '
+        'enables the block-less upload without an extra tap (issue #829 '
+        'follow-up)', (tester) async {
       await setupContainer(
         realActiveBlock: true,
         seasonId: 'season-b',
@@ -725,17 +726,16 @@ void main() {
       );
       expect(find.textContaining('Create a block first'), findsOneWidget);
       expect(
-        tester
-            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
-            .onPressed,
-        isNull,
+        find.byKey(const Key('ai-import-target-blockless-hint')),
+        findsOneWidget,
+        reason: 'the card states where the block comes from instead',
       );
       await tester.pump();
     });
 
-    testWidgets('a season without blocks offers the BLOCK-LESS upload, and the '
-        'dispatch declares its season while suppressing the ambient block '
-        '(issue #829)', (tester) async {
+    testWidgets('a season without blocks enables the BLOCK-LESS upload with no '
+        'tap, and the dispatch declares its season while suppressing the '
+        'ambient block (issue #829 follow-up)', (tester) async {
       await setupContainer(
         realActiveBlock: true,
         seasonId: 'season-b',
@@ -745,37 +745,9 @@ void main() {
       await pumpScreen(tester, seasonId: 'season-b');
       repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
 
-      // The empty state is no longer a dead end: it explains that the block is
-      // chosen after extraction and offers exactly that.
-      expect(
-        find.byKey(const Key('ai-import-target-blockless')),
-        findsOneWidget,
-      );
-      expect(
-        tester
-            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
-            .onPressed,
-        isNull,
-        reason:
-            'nothing is dispatched until the user either creates a block '
-            'or explicitly chooses the block-less path',
-      );
-
-      // The kind switch CLEARS the block-less choice (`selectKind` resets it),
-      // so it is selected first and the block-less decision after it.
-      container
-          .read(aiImportSubmitControllerProvider.notifier)
-          .selectKind(AiImportKind.schedule);
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('ai-import-target-blockless')));
-      await tester.pumpAndSettle();
-
-      // The card now states the deferred block, with a way back.
-      expect(
-        find.byKey(const Key('ai-import-target-blockless-undo')),
-        findsOneWidget,
-      );
+      // The reported dead end: with a season picked and no block in it, the
+      // only target that exists IS the deferred one, so it must not need a tap
+      // (the tap read as "create a block first").
       expect(
         tester
             .widget<Text>(find.byKey(const Key('ai-import-target-line')))
@@ -785,11 +757,24 @@ void main() {
       );
 
       // Pick a document the same way the other dispatch tests do: the pending
-      // document provider is what both kinds write.
+      // document provider is what both kinds write. The kind switch comes
+      // first — a CSV on the script route is the client-side 415.
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
       container
           .read(pendingDocumentProvider.notifier)
           .set(AiImportDocument.csv('day,scene\n1,12'));
       await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+            .onPressed,
+        isNotNull,
+        reason: 'the block-less target needs no confirmation tap',
+      );
+
       await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
       await tester.tap(find.byKey(const Key('ai-import-submit')));
       await tester.pumpAndSettle();
@@ -809,12 +794,11 @@ void main() {
       );
     });
 
-    testWidgets('the block-less choice cannot enable a dispatch without a '
+    testWidgets('a block-less target still cannot enable a dispatch without a '
         'season (review of #857)', (tester) async {
-      // The choice lives in a provider, so it can outlive the scope that made it
-      // (sign-out, backend switch, dev data reset). A dispatch in that state
-      // could only answer `ai_import.scope_missing`, so the button must not be
-      // enabled by the flag alone.
+      // The block-less arm is derived from the SEASON now, and a season-less
+      // screen has neither: a dispatch in that state could only answer
+      // `ai_import.scope_missing`, so the button stays disabled.
       // `realActiveBlock: true` is what leaves the screen WITHOUT a season
       // context (which is the state this test is about).
       await setupContainer(realActiveBlock: true);
@@ -822,8 +806,6 @@ void main() {
       container
           .read(aiImportSubmitControllerProvider.notifier)
           .selectKind(AiImportKind.schedule);
-      // Set AFTER the kind switch: `selectKind` clears the choice by design.
-      container.read(blockLessImportProvider.notifier).set(true);
       container
           .read(pendingDocumentProvider.notifier)
           .set(AiImportDocument.csv('day,scene\n1,12'));
@@ -838,10 +820,11 @@ void main() {
       );
     });
 
-    testWidgets('a stale block-less choice never drops the block the card '
-        'showed (review finding)', (tester) async {
-      // The choice lives in a session provider; coming back to a season that HAS
-      // a block must not turn the dispatch block-less behind the user's back.
+    testWidgets('a season WITH a block never turns the dispatch block-less '
+        'behind the user\'s back (review finding)', (tester) async {
+      // The block-less arm only covers "the season has no block at all"; as
+      // soon as one exists the dispatch must carry it, or the upload would drop
+      // the target the card showed.
       await setupContainer(seasonId: 'season-1', seasonNumber: '2');
       await pumpScreen(tester, seasonId: 'season-1');
       repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
@@ -849,8 +832,6 @@ void main() {
       container
           .read(aiImportSubmitControllerProvider.notifier)
           .selectKind(AiImportKind.schedule);
-      // A leftover from an earlier visit (selectKind clears it, so set it last).
-      container.read(blockLessImportProvider.notifier).set(true);
       container
           .read(pendingDocumentProvider.notifier)
           .set(AiImportDocument.csv('day,scene\n1,12'));
@@ -863,7 +844,7 @@ void main() {
       expect(
         repo.lastSendActiveBlock,
         isTrue,
-        reason: 'a resolved block wins over a stale block-less choice',
+        reason: 'a resolved block wins over the block-less arm',
       );
       await tester.pump();
     });

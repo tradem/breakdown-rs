@@ -23,6 +23,35 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A script import needs no block up front — and it takes its block from the
+  script on its own** (`0.4.0-beta.50+142 → 0.4.0-beta.51+143`). Reported from the
+  live workflow: a season picked in the shell still could not import a script
+  without creating a block first, and when the block the script states was never
+  confirmed in the preview the apply refused with `ai-import.target-missing`.
+  - **The block-less dispatch is the season's fact, not a choice.** A target
+    season with no block at all now enables the submit action directly: the card
+    states the deferred target (`Block unbekannt`, block comes from the script)
+    and the upload declares its season without `X-Active-Block`. The old
+    "Block aus Skript anhängen" button and its undo — plus the session flag behind
+    them — are gone; they read as "create a block first", which is exactly the
+    detour that sent the reporter back to the block form for a block the import
+    never needed. A season WITH a block behaves unchanged and never silently
+    drops it.
+  - **The preview adopts the script's block without a tap.** As soon as the card
+    knows both the script's block (#827) and the season's block list, it attaches
+    that block — or, when the season has no such block, creates it with the
+    script's number and no dates (the script states no shooting window) and
+    attaches it. One attempt per card, and opening the picker ends the
+    automatic path: a refusal (`block.number-already-exists`, a failed attach)
+    keeps the manual actions and their code-keyed copy instead of retrying, and a
+    reviewer's own pick is never overruled. Only a block list the client actually
+    holds may decide — a pending or failed read is "unknown", never "no such
+    block", so a flaky list cannot create a duplicate.
+  - No wire change, no new screen. Widget tests cover the auto-adoption (existing
+    and created block, silent refusal), the block-less dispatch without a tap, and
+    the "season WITH a block never turns block-less" guard; the blocked-target
+    golden is rebaselined.
+
 - **A season picked in the shell is the import target — the AI-import screen no
   longer claims none was selected** (`0.4.0-beta.49+141 → 0.4.0-beta.50+142`).
   The target seam (issue #771) resolved the season from the ambient BLOCK scope

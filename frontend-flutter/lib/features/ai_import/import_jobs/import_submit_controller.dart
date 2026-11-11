@@ -45,9 +45,6 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     if (state == kind) return;
     state = kind;
     ref.read(pendingDocumentProvider.notifier).set(null);
-    // A kind switch invalidates the block-less choice too: it was made for the
-    // previous dispatch, and a stale flag would degrade a later upload.
-    ref.read(blockLessImportProvider.notifier).set(false);
   }
 
   /// The submit dispatch. Returns the acknowledgement on success (the
@@ -277,28 +274,6 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     }
   }
 }
-
-/// Whether this dispatch is deliberately **block-less** (issue #829).
-///
-/// The submit card offers it in exactly one state: the target season has no
-/// block at all (the arm that used to be a dead end printing "no blocks"). The
-/// upload then declares its season and sends NO `X-Active-Block`, so the job
-/// starts with a target season and no block and the block is attached after
-/// extraction — from the script it states (#827) or by hand.
-///
-/// Cleared on every kind switch, exactly like the pending document: a stale
-/// "block-less" flag must never silently degrade a later dispatch that has a
-/// resolved block.
-class BlockLessImport extends Notifier<bool> {
-  @override
-  bool build() => false;
-
-  void set(bool value) => state = value;
-}
-
-final blockLessImportProvider = NotifierProvider<BlockLessImport, bool>(
-  BlockLessImport.new,
-);
 
 /// The pending document (picked file). Cleared after every dispatch —
 /// by [selectKind] (a kind switch invalidates the body) and by the
