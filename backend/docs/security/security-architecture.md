@@ -138,7 +138,7 @@ block-scoped, never open.
 | `/settings/{id}` (`GET`/`DELETE`), `/settings/{id}/gdrive` (`PATCH`) (issue #555) | `Authenticated` + handler gates | Integration-level credentials, not season-scoped (ADR-028), so the middleware cannot gate them. Every handler enforces the credential role (`has_active_credential_role`) *and* per-binding ownership (`projection_settings.owner == caller`) with `// AUTHZ-GATE:` comments — 403 `settings.forbidden` for the role denial, 403 `settings.binding-forbidden` for a foreign or legacy unknown-owner binding. Ownership is checked before any Vault write or command dispatch, so a non-owner can neither read the `vault_key_id` nor rotate/destroy another user's secret. |
 | `/costumes/{id}/photos*` (issue #535) | `Authenticated` + handler gate | Handler internally resolves the costume's owning **project** (strict, `project_id_for_costume_strict` — lookup failures answer 500) and calls `has_active_costume_role_in_project` — a costume-dept role (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any active block of the project authorizes, **project-wide**. Returns `403` on denial, `422 costume.container-unresolved` when the costume has neither character nor repertoire (no resolvable container). Marked with `// AUTHZ-GATE:` comments — reviewers grep for them. See [Costume-photo authorization level (issue #535)](#costume-photo-authorization-level-issue-535). |
 | `/blocks/{id}/members/accept` | `Authenticated` | The invitee is *not yet* a member (that is the point). The domain command `AcceptInvitation` binds `user_id` to the authenticated `sub`, so a caller can only accept their own invitation. |
-| `/ai-import*`, `/report/*.pdf`, `/report/archive` | `Authenticated` + handler gates | Each handler performs season-scoped internal authorization (costume-dept membership / credential role) with `// AUTHZ-GATE:` comments. |
+| `/ai-import*`, `/report/*.pdf`, `/report/archive` | `Authenticated` + handler gates | Each handler performs season-scoped internal authorization (costume-dept membership / credential role) with `// AUTHZ-GATE:` comments. The AI-import gate (`authorize_ai_upload_target`) resolves through `authorize_season_result` → `effective_costume_role_in_season`, so a block-scoped role **or** a project-scoped one authorizes the declared season (see "Project-scoped costume roles"). The report-archive gate stays block-only. |
 | `/audit` (series-scoped journal) | `Authenticated` + handler gate | The journal is filtered by the `project_id` **query parameter**, so the caller's active block (`X-Active-Block`) is unrelated to the project being read — a middleware `BlockMember` check would give false assurance. `requirement_for` therefore classifies the route `Authenticated` and `get_audit_history` verifies `MembershipRepository::has_active_membership_in_project` itself, returning `403` on denial (issue #342). Its block-scoped twin `/blocks/{id}/audit` stays `BlockMember`. |
 | `/ops/projector-health` (issue #409) | `Authenticated` + handler gate | Deployment-scoped infrastructure state (DLQ + checkpoint progress) — no block/season scope applies. The handler verifies `AuthorizationPolicy::authorize_ops` (active `ops_admin` membership in any block, or the `OPS_ADMIN_SUBS` bootstrap allowlist) with `// AUTHZ-GATE:`. The ops capability itself is protected in both directions: it can only be granted **and** only be demoted/removed by existing ops holders (`invite_member` / `grant_role` / `remove_member` guards — a regular block member can neither self-escalate nor strip an ops holder). The `OPS_ADMIN_SUBS` bootstrap allowlist is injected once at API start; revoking a bootstrap subject requires an API restart, membership-based grants are revocable immediately via the membership API. |
 
@@ -224,6 +224,49 @@ since #535 the costume-photo gate is typed at the **series/project level**
   reports) keep the season-typed predicate `has_active_costume_role_in_season`;
   ADR-035 B2 forbids *adding* new `*_in_season` predicates, not keeping this
   grandfathered one.
+
+### Project-scoped costume roles (openspec change `project-scoped-membership`)
+
+Block membership grants a role **at a block**, and the season-scoped predicate
+joins `projection_block` — so a season with **no** block was role-less by
+construction, and every season-scoped check on it was refused. Observed live on
+2026-11-11: the block-less AI-import upload (`X-Declared-Season`, issue `829` D1)
+answered `403 ai-import.forbidden` for the production's own costume designer.
+
+The additive second scope closes that hole:
+
+- **Two scopes, one resolution.** `projection_project_membership` (one stream per
+  project, category `project_membership`, stream id = `project_id`, PK
+  `(project_id, user_id)`, `state` in `active`/`revoked`) sits next to the
+  block-scoped `projection_membership`. Every season-scoped costume check
+  resolves the **effective** role through
+  `MembershipRepository::effective_costume_role_in_season`: an active
+  block-scoped role in any block of the season, **else** an active
+  project-scoped role on the season's `project_id`, else deny. Both scopes
+  coexist — neither overwrites the other's rows, and a block role still wins
+  inside its own season (role rotation at block boundaries is unchanged).
+- **Fail-closed.** A projection miss, an unresolvable `project_id` (no
+  `projection_season` row) or an unparsable role token is `None` (deny); a
+  repository error is `Err` and the fallible policy surface propagates it as a
+  mapped server error — never as `Allow`.
+- **Allowlist unchanged.** Only `costume_designer`, `wardrobe_supervisor` and
+  `costume_assistant` may be granted at project scope; the aggregate rejects
+  anything else (`ops_admin` is never reachable through this path).
+- **What deliberately does NOT gain the fallback** (design D6, the
+  privilege-widening mitigation): `has_active_report_archive_role_in_season`
+  keeps its block-only resolution and its narrower two-role list
+  (`costume_designer`, `wardrobe_supervisor`) — manual report archival is not
+  reachable through a project grant. The settings credential gate
+  (`has_active_credential_role`) and the deployment-scoped ops capability
+  (`has_active_ops_role`) are untouched.
+- **Bootstrap.** Creating a season emits `ProjectOwnerBootstrapped` for its
+  creator (`costume_designer` at project scope), best-effort and idempotent
+  (the aggregate's state hook turns a second season of the same project into a
+  no-op). It rides on the command path, not on a projector, so it works before
+  any read model exists.
+- **No client change, no route change.** The client already declares the season
+  and renders the server's problem code; the project fallback only stops a
+  legitimate workflow from being refused.
 
 ## Membership projection encoding (role / state)
 
