@@ -16,6 +16,26 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.79.0] - Unreleased
+
+### Fixed — an inline `(OT)` marker outranks the cast section it stands in
+
+- The default script prompt classified a figure that stands under
+  `Darsteller`/`Hauptrollen` **and** carries an inline `(OT)` as a genuine
+  conflict, so the section won: the marker was demoted to a hint (the live
+  import answered "… is marked as (OT), which may indicate an extra or guest
+  role"), the figure fell back to `main_cast` and the reviewer got a blocking
+  uncertainty for a classification the document plainly states. An inline marker
+  ATTACHED TO THE NAME now outranks the section — `(OT)`/`(O.T.)`/`Off-Text` is
+  always `extra`, with no uncertainty, no fallback to `main_cast`, and no hedged
+  wording (the rule names "may indicate" as forbidden). A name **without** a
+  marker keeps following its section, so the grounded `main_cast` default is
+  untouched where the document says nothing about the figure itself. The
+  regression guard in `catalog_misc_tests.rs` was flipped accordingly (it used to
+  *require* the conflict); the prompt file's deployment note still applies — a
+  deployment with a stored script prompt only picks the wording up after that
+  prompt is updated or cleared.
+
 ## [0.78.0] - Unreleased
 
 ### Fixed — the dev reset applies the pending migrations before its plan (#770 follow-up)

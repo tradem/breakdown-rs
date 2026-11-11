@@ -26,6 +26,20 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An inline `(OT)` marker classifies a figure as `extra`, whatever section it
+  stands in.** The default script prompt called a figure that is listed under
+  `Darsteller`/`Hauptrollen` **and** marked `(OT)` a genuine conflict, so the
+  section won: the marker became a hint ("… which may indicate an extra or guest
+  role"), the figure defaulted back to `main_cast`, and every such row was a
+  blocking checkbox in the #663 apply gate. The rule is now deterministic — an
+  inline marker attached to the NAME outranks the section (always `extra`, no
+  uncertainty, no `main_cast` fallback, no hedged note), while a name without a
+  marker keeps its section. Crates: `infra` 0.78.0 → 0.79.0, `api` 0.66.0 → 0.67.0
+  (lockstep dependency); `core` unchanged — the classification is the prompt's,
+  not a domain rule, and no wire shape moved.
+
 ### Added
 
 - **A repeated LLM-provider outage is attributable, and the jobs list can read it (issue #822).**
