@@ -44,6 +44,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_target.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
+import 'package:frontend_flutter/features/shell/active_season_store.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_screen.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
@@ -224,6 +225,11 @@ void main() {
     // create-block form takes a `SeasonView`) and a scriptable create ack.
     SeasonView? season,
     bool blockCreate = false,
+    // The season the SHELL carries as its active season (the season chip's
+    // pick) — the import target's fallback when no block scope is set. Only
+    // overridden when given, so every existing case keeps the real (empty)
+    // resolution.
+    SeasonView? shellActiveSeason,
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
@@ -255,6 +261,10 @@ void main() {
           aiImportSeasonViewProvider(seasonId)
               .overrideWith((ref) async => season),
         if (blockCreate) blockRepositoryProvider.overrideWithValue(blockRepo),
+        if (shellActiveSeason != null)
+          activeSeasonResolutionProvider.overrideWith(
+            (ref) async => shellActiveSeason,
+          ),
         // The disclosure card renders the configured naming line (issue
         // #608) — a deterministic override keeps the test off the real
         // discovery path; `naming: false` exercises the degraded state.
@@ -410,6 +420,94 @@ void main() {
   });
 
   group('import target — visible and resolved before dispatch (issue #771)', () {
+    testWidgets('a season picked in the SHELL is the import target — no block '
+        'scope required, so the submit affordance can actually enable', (
+      tester,
+    ) async {
+      // Regression: every non-wizard entry (the shell's Import action, the
+      // production overview's AI-import row, the jobs screen's plus) pushes the
+      // plain screen and relied on the ambient BLOCK scope alone. Picking a
+      // season in the season chip sets no block, so the card claimed "no
+      // season selected" for a season the chip plainly showed — and the submit
+      // affordance could never be enabled, whatever file was picked.
+      await setupContainer(
+        realActiveBlock: true,
+        seasonId: 'season-b',
+        seasonNumber: '2',
+        blocks: Right([blockView('block-b', seasonId: 'season-b', number: 7)]),
+        shellActiveSeason: seasonView('season-b'),
+        jobResult: Right(_job('job-1', JobStatus.pending)),
+      );
+      // The entry passes NO season of its own — the fallback is the seam under
+      // test.
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('ai-import-target-missing')), findsNothing);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        'Season 2 · Block 7',
+        reason: 'the season the chip shows is the season the card names',
+      );
+      // The resolution's single block was adopted, so the request carries the
+      // block the line shows.
+      expect(container.read(activeBlockProvider)?.blockId, 'block-b');
+      // Issue #831: a resolved target is only half the predicate.
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+            .onPressed,
+        isNull,
+        reason: 'no document yet → still no dispatch',
+      );
+
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-import-submit')))
+            .onPressed,
+        isNotNull,
+        reason: 'season + block + document → the dispatch is reachable',
+      );
+
+      await tester.tap(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.uploadCalls, 1);
+      expect(
+        repo.lastDeclaredSeasonId,
+        'season-b',
+        reason: 'the dispatch declares the season the card showed',
+      );
+    });
+
+    test(
+      'the ambient block scope outranks the shell\'s active season',
+      () async {
+        // The scope is what the request carries as `X-Active-Block`. A chip
+        // season must never silently re-target a dispatch that still acts in
+        // another season's block — that is the `ai_import.scope_mismatch` case.
+        await setupContainer(
+          seasonId: 'season-b',
+          shellActiveSeason: seasonView('season-b'),
+        );
+
+        expect(
+          container.read(aiImportSeasonContextProvider(null)),
+          'season-1',
+          reason: 'FakeActiveBlock carries season-1',
+        );
+      },
+    );
+
     testWidgets('the target line names the resolved season and block above '
         'the submit action', (tester) async {
       await setupContainer(seasonId: 'season-1');

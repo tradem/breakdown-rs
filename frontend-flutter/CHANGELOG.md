@@ -23,6 +23,30 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A season picked in the shell is the import target — the AI-import screen no
+  longer claims none was selected** (`0.4.0-beta.49+141 → 0.4.0-beta.50+142`).
+  The target seam (issue #771) resolved the season from the ambient BLOCK scope
+  alone, but picking a season in the season chip sets no block: every
+  non-wizard entry (the shell's Import action, the production overview's
+  AI-import row, the jobs screen's plus, the empty-state CTA) pushes the plain
+  screen, so the card rendered "Wähle zuerst eine Season aus …" for a season the
+  chip plainly showed — and the submit affordance stayed disabled whatever file
+  was picked.
+  - **One seam, one fallback.** `aiImportSeasonContext` now reads
+    `explicitSeasonId → block-scope season → shell active season`, so the target
+    line names the season the chip names. The block scope keeps precedence
+    because it is what the request carries as `X-Active-Block`: a chip season
+    never silently re-targets a dispatch that still acts in another season's
+    block (the `ai_import.scope_mismatch` case).
+  - **The block is still resolved, never assumed.** With the season known,
+    `blockScopeResolution` runs its ordinary arms — one block is adopted,
+    several render the visible picker, none offers the block-less upload
+    (#829) — so the affordance enables on the documented sequence and a dispatch
+    never carries a block the user was not shown.
+  - No wire change, no new screen, no API surface. Widget tests cover the
+    shell-season entry (target line, block adoption, enabled affordance,
+    declared season) and the block-scope precedence.
+
 - **A resumed import says where it continues, and its estimate stops lying**
   (issue #871, `0.4.0-beta.47+139 → 0.4.0-beta.48+140`). A retried attempt now
   continues at the first chunk that never completed instead of re-extracting
