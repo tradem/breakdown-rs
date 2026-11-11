@@ -111,6 +111,8 @@ async fn get_season_membership_returns_empty_capabilities_for_non_member() {
             report_archive_role_override: Default::default(),
             series_membership_override: Default::default(),
             series_piece_role_override: Default::default(),
+            project_roles: Default::default(),
+            season_projects: Default::default(),
         },
         ..Default::default()
     };

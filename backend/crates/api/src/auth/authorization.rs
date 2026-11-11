@@ -79,15 +79,34 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy
         }
     }
 
+    /// Season-scoped costume authorization, resolved through
+    /// [`MembershipRepository::effective_costume_role_in_season`] (openspec
+    /// change `project-scoped-membership`, design D2).
+    ///
+    /// **Precedence:** an active block membership with a costume-dept role in
+    /// any block of the season, else an active project-scoped costume role on
+    /// the season's `project_id`, else `Deny`. The `project_id` is resolved
+    /// *from the season*, never from the request, and the resolution lives in
+    /// the repository — this policy must not re-implement it.
+    ///
+    /// The new second scope is what makes a **block-less** season authorizable
+    /// at all: the block scope joins `projection_block`, so a season with no
+    /// block had no roles and the block-less AI-import upload (`829` D1) was
+    /// refused with `403 ai-import.forbidden` even for the project's costume
+    /// designer.
+    ///
+    /// Fail-closed: a read-model failure is propagated as `Err` (the caller
+    /// answers a mapped server error, never `Allow`), a projection miss or an
+    /// unresolvable season is `Deny`.
     async fn authorize_season_result(
         &self,
         ctx: &SeasonAuthContext,
     ) -> Result<PolicyDecision, DomainError> {
         self.repo
-            .has_active_costume_role_in_season(ctx.season_id, ctx.actor.clone())
+            .effective_costume_role_in_season(ctx.season_id, ctx.actor.clone())
             .await
-            .map(|active| {
-                if active {
+            .map(|role| {
+                if role.is_some() {
                     PolicyDecision::Allow
                 } else {
                     PolicyDecision::Deny
@@ -133,16 +152,20 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy
 
 /// Season-scoped costume-photo authorization policy (v1: derived).
 ///
-/// Grants access if the user holds any costume-dept role
-/// (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in any
-/// `active` block of the target season.
+/// Grants access if the caller holds an **effective** costume-dept role
+/// (`costume_designer`, `wardrobe_supervisor`, `costume_assistant`) in the
+/// target season: an `active` block membership in any block of that season,
+/// else an `active` project-scoped costume role on the season's project
+/// (`openspec/changes/project-scoped-membership`, design D2).
 ///
 /// ## Between-blocks gap (v1 limitation)
 ///
 /// A costumer between contracts (left Block 3, not yet in Block 5 of the
 /// same season) loses photo access. This is accepted as correct from a
 /// security standpoint — when a user is not on the production, they do not
-/// get confidential photos.
+/// get confidential photos. The project scope softens this where it matters
+/// most: a holder of a project-scoped costume role keeps photo access across
+/// the gap (openspec change `project-scoped-membership`).
 ///
 /// ## v2 evolution (SeasonCrew)
 ///
@@ -171,12 +194,15 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy for SeasonPhotoAc
     }
 
     async fn authorize_season(&self, ctx: &SeasonAuthContext) -> PolicyDecision {
+        // Effective resolution (block scope first, then the season's project
+        // scope) — the same precedence as `authorize_season_result`. An
+        // infallible surface has to fold an error into the denial itself.
         match self
             .repo
-            .has_active_costume_role_in_season(ctx.season_id, ctx.actor.clone())
+            .effective_costume_role_in_season(ctx.season_id, ctx.actor.clone())
             .await
         {
-            Ok(true) => PolicyDecision::Allow,
+            Ok(Some(_)) => PolicyDecision::Allow,
             // Any error (or non-costume-role) fails closed to Deny.
             _ => PolicyDecision::Deny,
         }
@@ -187,10 +213,10 @@ impl<Repo: MembershipRepository + 'static> AuthorizationPolicy for SeasonPhotoAc
         ctx: &SeasonAuthContext,
     ) -> Result<PolicyDecision, DomainError> {
         self.repo
-            .has_active_costume_role_in_season(ctx.season_id, ctx.actor.clone())
+            .effective_costume_role_in_season(ctx.season_id, ctx.actor.clone())
             .await
-            .map(|active| {
-                if active {
+            .map(|role| {
+                if role.is_some() {
                     PolicyDecision::Allow
                 } else {
                     PolicyDecision::Deny

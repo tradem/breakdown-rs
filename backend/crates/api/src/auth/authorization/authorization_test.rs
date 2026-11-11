@@ -247,7 +247,7 @@ async fn panicking_policy_yields_403_never_500() {
 use super::SeasonPhotoAccessPolicy;
 use breakdown_core::error::DomainError;
 use breakdown_core::membership::policy::{Action, SeasonAuthContext};
-use breakdown_core::membership::{MembershipRepository, MembershipView};
+use breakdown_core::membership::{MembershipRepository, MembershipView, Role};
 use breakdown_core::shared::{ProjectId, SeasonId, UserId};
 
 /// A MembershipRepository whose `has_active_costume_role_in_season` returns
@@ -340,6 +340,21 @@ impl MembershipRepository for MockSeasonMembershipRepo {
             ));
         }
         Ok(self.result.load(Ordering::Relaxed))
+    }
+
+    async fn effective_costume_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<Option<Role>, DomainError> {
+        // Dimension-free mock: the effective resolution reduces to its
+        // block-scope answer because no project-scoped grant can be seeded
+        // here.
+        self.has_active_costume_role_in_season(season_id, user_id)
+            .await
+            // `Some` only carries the verdict here; the mock has no role
+            // dimension, so a representative costume-department role is used.
+            .map(|active| active.then_some(Role::CostumeDesigner))
     }
 
     async fn has_active_report_archive_role_in_season(

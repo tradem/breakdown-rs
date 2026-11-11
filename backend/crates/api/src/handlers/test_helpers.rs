@@ -4,6 +4,7 @@
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,7 +60,7 @@ use breakdown_core::season::commands::{CreateSeason, RenameSeason};
 use breakdown_core::season::ports::{SeasonCommands, SeasonRepository};
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
-    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, SceneShootId, SeasonId, ProjectId,
+    AggregateVersion, BlockId, EpisodeId, PhotoId, PhotoVariant, ProjectId, SceneShootId, SeasonId,
     ShootingDayId,
 };
 use breakdown_core::shooting_day::commands::WrapShootingDay;
@@ -343,7 +344,10 @@ impl FakeMembershipRepo {
             .lock()
             .await
             .insert((block_id, user_id), (role, MembershipStateKind::Active));
-        self.scopes.lock().await.insert(block_id, (season_id, project_id));
+        self.scopes
+            .lock()
+            .await
+            .insert(block_id, (season_id, project_id));
     }
 
     /// Every known row as `(block_id, user_id, role, state)`: the `members`
@@ -354,7 +358,12 @@ impl FakeMembershipRepo {
         let detailed = self.detailed.lock().await;
         let mut rows: DetailedMembers = members
             .iter()
-            .map(|key| (key.clone(), (Role::CostumeAssistant, MembershipStateKind::Active)))
+            .map(|key| {
+                (
+                    key.clone(),
+                    (Role::CostumeAssistant, MembershipStateKind::Active),
+                )
+            })
             .collect();
         rows.extend(detailed.iter().map(|(k, v)| (k.clone(), *v)));
         rows.into_iter()
@@ -391,12 +400,7 @@ impl MembershipRepository for FakeMembershipRepo {
         block_id: BlockId,
         user_id: UserId,
     ) -> Result<Option<MembershipView>, DomainError> {
-        if let Some((role, state)) = self
-            .detailed
-            .lock()
-            .await
-            .get(&(block_id, user_id.clone()))
-        {
+        if let Some((role, state)) = self.detailed.lock().await.get(&(block_id, user_id.clone())) {
             return Ok(Some(MembershipView {
                 block_id,
                 user_id,
@@ -433,7 +437,12 @@ impl MembershipRepository for FakeMembershipRepo {
         let mut rows: DetailedMembers = members
             .iter()
             .filter(|(b, _)| *b == block_id)
-            .map(|key| (key.clone(), (Role::CostumeAssistant, MembershipStateKind::Active)))
+            .map(|key| {
+                (
+                    key.clone(),
+                    (Role::CostumeAssistant, MembershipStateKind::Active),
+                )
+            })
             .collect();
         rows.extend(
             detailed
@@ -457,12 +466,7 @@ impl MembershipRepository for FakeMembershipRepo {
         block_id: BlockId,
         user_id: UserId,
     ) -> Result<bool, DomainError> {
-        if let Some((_, state)) = self
-            .detailed
-            .lock()
-            .await
-            .get(&(block_id, user_id.clone()))
-        {
+        if let Some((_, state)) = self.detailed.lock().await.get(&(block_id, user_id.clone())) {
             return Ok(*state == MembershipStateKind::Active);
         }
         Ok(self.members.lock().await.contains(&(block_id, user_id)))
@@ -529,6 +533,34 @@ impl MembershipRepository for FakeMembershipRepo {
             .await)
     }
 
+    async fn effective_costume_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<Option<Role>, DomainError> {
+        // This thin fake seeds no project-scoped grants, so it resolves the
+        // block scope only — the same answer the real repository gives when no
+        // `projection_project_membership` row exists. The project fallback is
+        // pinned where it can be seeded (`crates/api/tests/common/mod.rs`) and
+        // against real SQL (`crates/integration-tests/tests/membership_round_trip.rs`).
+        let rows = self.rows().await;
+        let scopes = self.scopes.lock().await;
+        Ok(rows
+            .into_iter()
+            .find(|(block_id, row_user, role, state)| {
+                row_user == &user_id
+                    && *state == MembershipStateKind::Active
+                    && matches!(
+                        role,
+                        Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant
+                    )
+                    && scopes
+                        .get(block_id)
+                        .is_some_and(|(season, _)| season == &season_id)
+            })
+            .map(|(_, _, role, _)| role))
+    }
+
     async fn has_active_report_archive_role_in_season(
         &self,
         season_id: SeasonId,
@@ -547,32 +579,19 @@ impl MembershipRepository for FakeMembershipRepo {
 
     async fn has_active_credential_role(&self, user_id: UserId) -> Result<bool, DomainError> {
         // ADR-027: designer + assistant only, global scope (any block).
-        Ok(self
-            .rows()
-            .await
-            .iter()
-            .any(|(_, row_user, role, state)| {
-                row_user == &user_id
-                    && *state == MembershipStateKind::Active
-                    && matches!(
-                        role,
-                        Role::CostumeDesigner | Role::CostumeAssistant
-                    )
-            }))
+        Ok(self.rows().await.iter().any(|(_, row_user, role, state)| {
+            row_user == &user_id
+                && *state == MembershipStateKind::Active
+                && matches!(role, Role::CostumeDesigner | Role::CostumeAssistant)
+        }))
     }
 
     async fn has_active_ops_role(&self, user_id: UserId) -> Result<bool, DomainError> {
         // Deployment-scoped ops capability (issue #409): any active
         // `ops_admin` row in any block.
-        Ok(self
-            .rows()
-            .await
-            .iter()
-            .any(|(_, row_user, role, state)| {
-                row_user == &user_id
-                    && *state == MembershipStateKind::Active
-                    && *role == Role::OpsAdmin
-            }))
+        Ok(self.rows().await.iter().any(|(_, row_user, role, state)| {
+            row_user == &user_id && *state == MembershipStateKind::Active && *role == Role::OpsAdmin
+        }))
     }
 }
 
@@ -686,10 +705,7 @@ impl CostumeRepository for FakeCostumeRepo {
     async fn costume_with_details_photos(&self, id: Uuid) -> Result<CostumeView, DomainError> {
         Err(DomainError::not_found("costume"))
     }
-    async fn repertoire_seasons(
-        &self,
-        _costume_id: Uuid,
-    ) -> Result<Vec<SeasonId>, DomainError> {
+    async fn repertoire_seasons(&self, _costume_id: Uuid) -> Result<Vec<SeasonId>, DomainError> {
         Ok(Vec::new())
     }
 }

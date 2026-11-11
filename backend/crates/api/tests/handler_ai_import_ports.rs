@@ -58,7 +58,7 @@ use breakdown_core::ai::{
 use breakdown_core::ai::{AiImportTarget, AiImportTargetRequest};
 use breakdown_core::block::BlockView;
 use breakdown_core::episode::views::EpisodeView;
-use breakdown_core::membership::Role;
+use breakdown_core::membership::{MembershipRepository, Role};
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
@@ -428,6 +428,178 @@ async fn seed_ai_season_access(ports: &FakePorts, season_id: SeasonId) -> Projec
         )
         .await;
     project_id
+}
+
+/// Seed a season in which the test user holds an ACTIVE piece-dept role at
+/// **project scope only** (openspec change `project-scoped-membership`).
+///
+/// This is the case that could not be expressed before: no block membership at
+/// all, just a `projection_project_membership` grant on the season's project —
+/// exactly the state `BootstrapProjectOwner` puts a season creator in. The
+/// block scope must MISS here, so the authorization can only come from the
+/// project fallback.
+async fn seed_ai_project_role_access(ports: &FakePorts, season_id: SeasonId) -> ProjectId {
+    let project_id = ProjectId::new();
+    ports.season_repo.seasons.lock().await.insert(
+        season_id.0,
+        SeasonView {
+            id: season_id.0,
+            project_id,
+            number: 7,
+            title: Some("Target season".to_owned()),
+            archived: false,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    // The season → project attribution the project fallback resolves THROUGH
+    // (never from the request): the fake mirrors `projection_season`.
+    ports
+        .membership_repo
+        .season_projects
+        .lock()
+        .await
+        .insert(season_id.0, project_id);
+    // No block row, no block membership — only the project-scoped grant.
+    ports
+        .membership_repo
+        .seed_project_role(
+            project_id,
+            UserId::from_sub(TEST_SUB),
+            Role::CostumeDesigner,
+        )
+        .await;
+    project_id
+}
+
+/// `project-scoped-membership` 3.4: the block-less script upload is accepted
+/// for a caller who holds a **project-scoped** costume role on the declared
+/// season's project, and the resulting job has no block (`827`/`829` derive it
+/// from the script later).
+///
+/// This is the regression the whole change exists for: before it, the season
+/// predicate joined `projection_block`, so a season with no block had no roles
+/// and this upload answered `403 ai-import.forbidden` even for the production's
+/// costume designer.
+#[tokio::test]
+async fn upload_ai_script_authorizes_a_block_less_season_through_a_project_role() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let season_id = SeasonId::new();
+    seed_ai_project_role_access(&ports, season_id).await;
+
+    // Proof that the block scope alone would have refused: the season-scoped
+    // predicate still misses (there is no block), while the effective
+    // resolution finds the project grant.
+    assert!(
+        !ports
+            .membership_repo
+            .has_active_costume_role_in_season(season_id, UserId::from_sub(TEST_SUB))
+            .await
+            .expect("the block-scope predicate must not error"),
+        "the block scope must miss — otherwise this test proves nothing"
+    );
+    assert_eq!(
+        ports
+            .membership_repo
+            .effective_costume_role_in_season(season_id, UserId::from_sub(TEST_SUB))
+            .await
+            .expect("the effective resolution must not error"),
+        Some(Role::CostumeDesigner),
+        "the project-scoped grant must resolve through the season's project"
+    );
+
+    let result = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers_with_declared_season(season_id),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await;
+
+    let (status, Json(job_id)) = result.expect("a project-scoped role must authorize the upload");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("enqueued job should be retrievable");
+    assert_eq!(
+        job.block_id, None,
+        "the job stays block-less; the target block is derived from the script"
+    );
+    assert_eq!(
+        job.target,
+        Some(AiImportTarget {
+            season_id,
+            season_number: 7,
+            block_number: None,
+        }),
+        "the snapshot names the season of the authorizing project, no block"
+    );
+}
+
+/// `project-scoped-membership` 3.5: no widening. A caller with **no** role in
+/// either scope still gets `403 ai-import.forbidden` on the same block-less
+/// upload — the project fallback only ever *adds* the explicit grant. A grant on
+/// a FOREIGN project must not help either: the project is resolved from the
+/// season, never from the request.
+#[tokio::test]
+async fn upload_ai_script_refuses_a_block_less_season_without_any_role() {
+    let ports = FakePorts::default();
+    let queue = ports.ai_import_queue.clone();
+    let store = ports.ai_payload_store.clone();
+    let season_id = SeasonId::new();
+    let project_id = ProjectId::new();
+    ports.season_repo.seasons.lock().await.insert(
+        season_id.0,
+        SeasonView {
+            id: season_id.0,
+            project_id,
+            number: 7,
+            title: None,
+            archived: false,
+            version: AggregateVersion::INITIAL,
+            updated_at: Utc::now(),
+        },
+    );
+    ports
+        .membership_repo
+        .season_projects
+        .lock()
+        .await
+        .insert(season_id.0, project_id);
+    // The only grant the caller holds is on a different project.
+    ports
+        .membership_repo
+        .seed_project_role(
+            ProjectId::new(),
+            UserId::from_sub(TEST_SUB),
+            Role::CostumeDesigner,
+        )
+        .await;
+
+    let problem = upload_ai_script::<FakePorts>(
+        State(state(ports)),
+        user(),
+        pdf_headers_with_declared_season(season_id),
+        api::problems::Bytes(axum::body::Bytes::from_static(b"%PDF-1.7 fake")),
+    )
+    .await
+    .expect_err("a caller without a role in either scope must be refused")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::FORBIDDEN.as_u16());
+    assert_eq!(problem.code, "ai-import.forbidden");
+    assert!(
+        queue.jobs.lock().await.is_empty(),
+        "a refused upload must not leave a job row behind"
+    );
+    assert_eq!(
+        store.handle_count_for_test().await,
+        0,
+        "a refused upload must not store its source document"
+    );
 }
 
 /// A PDF upload request that declares ONLY its season — no `X-Active-Block`
