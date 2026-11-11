@@ -160,6 +160,8 @@ async fn an_open_breaker_costs_zero_calls() {
         queue: queue.as_ref(),
         provider: LlmProvider::OpenCodeGo,
         model: "m",
+        threshold: 3,
+        enabled: true,
     };
     let calls = AtomicUsize::new(0);
 
@@ -197,6 +199,8 @@ async fn a_half_open_breaker_also_costs_zero_calls() {
         queue: queue.as_ref(),
         provider: LlmProvider::OpenCodeGo,
         model: "m",
+        threshold: 3,
+        enabled: true,
     };
     let calls = AtomicUsize::new(0);
 
@@ -220,6 +224,8 @@ async fn a_closed_breaker_does_not_interfere_with_the_retry_loop() {
         queue: queue.as_ref(),
         provider: LlmProvider::OpenCodeGo,
         model: "m",
+        threshold: 3,
+        enabled: true,
     };
     let calls = AtomicUsize::new(0);
 
@@ -255,6 +261,8 @@ async fn a_breaker_that_opens_during_the_backoff_stops_before_the_next_call() {
         queue: queue.as_ref(),
         provider: LlmProvider::OpenCodeGo,
         model: "m",
+        threshold: 3,
+        enabled: true,
     };
     let calls = AtomicUsize::new(0);
 
@@ -292,6 +300,8 @@ async fn a_failing_breaker_read_admits() {
         queue: &queue,
         provider: LlmProvider::OpenCodeGo,
         model: "m",
+        threshold: 3,
+        enabled: true,
     };
     assert!(
         gate.admits().await,

@@ -370,7 +370,10 @@ class _JobRow extends ConsumerWidget {
           // held job's attempt history is empty by construction (a hold writes
           // no attempt row), so `providerDegradation` is null there — and a
           // held job must never be rendered as a degraded one.
-          if (job.providerHold != null)
+          // An EXPIRED hold has ended: its row must not say "waits until X"
+          // (issue #871 review). The degradation fallback stays suppressed for it
+          // — the expiry charged no retry, so counting failures would lie.
+          if (job.providerHold != null && !job.providerHold!.expired)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -394,7 +397,7 @@ class _JobRow extends ConsumerWidget {
                 ),
               ],
             )
-          else if (job.providerDegradation != null)
+          else if (job.providerHold == null && job.providerDegradation != null)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

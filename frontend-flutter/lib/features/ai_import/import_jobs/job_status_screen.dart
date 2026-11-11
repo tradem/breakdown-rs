@@ -592,7 +592,11 @@ class _ProviderHoldBanner extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  l10n.aiJobProviderHoldTitle(hold.provider),
+                  // Issue #871 review: an expired hold has ENDED, so the present
+                  // tense "is unreachable" would contradict the body next to it.
+                  hold.expired
+                      ? l10n.aiJobProviderHoldExpiredTitle(hold.provider)
+                      : l10n.aiJobProviderHoldTitle(hold.provider),
                   style: TextStyle(
                     color: foreground,
                     fontWeight: FontWeight.bold,

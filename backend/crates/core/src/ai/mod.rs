@@ -71,6 +71,7 @@ pub use preview::{
     parse_schedule_scene_ref, parse_script_day, plan_scene_apply, sanitize_meta_summary,
     scene_beat_lanes, shooting_day_group_refs, stable_draft_ref, verify_draft_outfits,
 };
+pub use provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,

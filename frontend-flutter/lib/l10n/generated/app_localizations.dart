@@ -6863,6 +6863,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'{provider} nicht erreichbar · wartet bis {until}'**
   String aiJobsRowProviderHold(String provider, String until);
+
+  /// No description provided for @aiJobProviderHoldExpiredTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'{provider} ist nicht zurückgekommen'**
+  String aiJobProviderHoldExpiredTitle(String provider);
 }
 
 class _AppLocalizationsDelegate

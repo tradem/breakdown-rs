@@ -145,8 +145,13 @@ impl ProviderProbe for CatalogProviderProbe {
     async fn probe(&self, provider: LlmProvider, donor: &DonorJob) -> ProbeOutcome {
         if provider.is_local() {
             // Unauthenticated on purpose: no vault read at all on this path.
+            // The curated Ollama base URL already ends in `/api`
+            // (`http://ollama:11434/api`), so appending `/api/tags` would request
+            // `/api/api/tags` — a 404 that the probe reads as `Unreachable`, which
+            // would mean an Ollama breaker could never close and every held job
+            // would dead-letter at its deadline even after Ollama recovered.
             let url = format!(
-                "{}/api/tags",
+                "{}/tags",
                 <CuratedProviderUrls as breakdown_core::ai::CuratedLlmProvider>::base_url(provider)
             );
             return match self.http.get(url).send().await {
@@ -463,6 +468,23 @@ pub const fn provider_unavailable_code() -> &'static str {
 mod tests {
     use super::*;
     use breakdown_core::error::DomainError;
+
+    /// The probe must request exactly `/api/tags`, not `/api/api/tags`
+    /// (issue #871 review): the curated base URL already ends in `/api`, so a
+    /// duplicated segment is a 404 that the probe would classify as
+    /// `Unreachable` — an Ollama breaker could then never close.
+    #[test]
+    fn the_ollama_probe_path_is_not_doubled() {
+        let base = <CuratedProviderUrls as breakdown_core::ai::CuratedLlmProvider>::base_url(
+            LlmProvider::Ollama,
+        );
+        assert_eq!(base, "http://ollama:11434/api");
+        assert_eq!(format!("{base}/tags"), "http://ollama:11434/api/tags");
+        assert!(
+            !format!("{base}/tags").contains("/api/api/"),
+            "the probe must not duplicate the /api segment"
+        );
+    }
 
     #[test]
     fn a_storage_outage_is_the_outage_the_breaker_tracks() {

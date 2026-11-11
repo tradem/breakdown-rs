@@ -22,14 +22,14 @@ use breakdown_core::ai::{
     CategoryVocabularyEntry, CharacterApplyPlan, CostBreakdown, DecisionClient, DecisionOutcome,
     DecisionTelemetry, DocumentKind, DraftScene, EpisodeGroupPlan, LlmCallUsage, LlmChatRequest,
     LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan,
-    PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot, ProviderHold, ReviewerDecisions,
-    SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule,
-    SourceFormat, Telemetry, TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason,
-    Uncertainty, UncertaintyAcknowledgement, UncertaintyKind, UsageAccumulator,
-    category_conflict_uncertainties, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    extract_block_number, extract_scenes, mapping_kind, merge_schedule_to_scenes, parse_script_day,
-    plan_scene_apply, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
-    verify_draft_outfits,
+    PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot, ProviderBreakerState,
+    ProviderHold, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext,
+    ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry, TelemetryApplyState,
+    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
+    UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
+    draft_row_ref, ensure_merge_applyable, extract_block_number, extract_scenes, mapping_kind,
+    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
+    scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -610,6 +610,8 @@ where
             queue: self.queue.as_ref(),
             provider: self.provider,
             model: &self.model,
+            threshold: self.bounds.breaker_failure_threshold,
+            enabled: self.bounds.breaker_enabled,
         };
         for (chunk_index, chunk) in chunks.into_iter().enumerate() {
             // Hoisted because the grounding check below must verify a quote
@@ -911,6 +913,17 @@ where
                     }
                 }
                 Err(error) => {
+                    // Issue #871: the gate can refuse mid-attempt — from the top
+                    // of `retry_bounded`, from the pre-sleep re-check, or from the
+                    // client-internal guard. That is a HOLD, never a failure:
+                    // `mark_failed` would charge a retry (and, because the sentinel
+                    // is not `ServiceUnavailable`, dead-letter the job outright) for
+                    // a call the breaker prevented.
+                    if is_breaker_open(&error) {
+                        hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate)
+                            .await?;
+                        return Ok(String::new());
+                    }
                     self.fail(job.id, worker_id, &error).await?;
                     return Err(error);
                 }
@@ -1396,6 +1409,8 @@ where
             queue: self.queue.as_ref(),
             provider: self.provider,
             model: &self.model,
+            threshold: self.bounds.breaker_failure_threshold,
+            enabled: self.bounds.breaker_enabled,
         };
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
@@ -1420,13 +1435,24 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
             };
-            let (parsed, call_usage) = retry_schedule(
+            let (parsed, call_usage) = match retry_schedule(
                 self.client.as_ref(),
                 request,
                 self.bounds.max_attempt_retries as usize,
                 &gate,
             )
-            .await?;
+            .await
+            {
+                // Issue #871: a breaker refusal is a HOLD. Propagating it through
+                // `?` would leave the job `running` until its lease lapsed (900 s
+                // by default), because the outer handler treats `Conflict` as
+                // non-permanent and writes nothing.
+                Err(error) if is_breaker_open(&error) => {
+                    hold_job(self.queue.as_ref(), &self.bounds, job.id, worker_id, &gate).await?;
+                    return Ok(String::new());
+                }
+                other => other?,
+            };
             extraction_usage.record(call_usage);
             parsed
         };
@@ -4071,6 +4097,12 @@ pub(super) struct ProviderGate<'a, Q: AiImportQueue + ?Sized> {
     pub(super) queue: &'a Q,
     pub(super) provider: LlmProvider,
     pub(super) model: &'a str,
+    /// The consecutive-failure threshold (`AI_IMPORT_BREAKER_FAILURE_THRESHOLD`).
+    pub(super) threshold: u32,
+    /// `AI_IMPORT_BREAKER_ENABLED`. When false the gate admits everything and
+    /// records nothing: the switch has to disable the breaker, not merely its
+    /// log line.
+    pub(super) enabled: bool,
 }
 
 impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
@@ -4078,10 +4110,91 @@ impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
     /// consult only ever saves money, so a database hiccup must not stop the
     /// pipeline.
     async fn admits(&self) -> bool {
+        if !self.enabled {
+            return true;
+        }
         self.queue
             .provider_admits(self.provider, self.model)
             .await
             .unwrap_or(true)
+    }
+
+    /// Record one **retryable provider failure** (issue #871, D-A3) and report
+    /// whether it opened the breaker.
+    ///
+    /// Without this the breaker could never open from real traffic: the counter
+    /// is only ever incremented here, so an unwired worker would ship a breaker
+    /// whose claim filter, holds and expiry machinery were all inert.
+    async fn record_failure(&self) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        let decision = self
+            .queue
+            .record_provider_outcome(
+                self.provider,
+                self.model,
+                breakdown_core::ai::ProviderOutcome::RetryableFailure,
+                self.threshold,
+            )
+            .await
+            .unwrap_or_else(|error| {
+                // Best-effort: a failed write must not fail the job.
+                tracing::warn!(%error, "#871 provider breaker: could not record a failure");
+                breakdown_core::ai::provider_health::BreakerDecision::unchanged(
+                    breakdown_core::ai::provider_health::BreakerCounters {
+                        state: ProviderBreakerState::Closed,
+                        consecutive_failures: 0,
+                        flap_count: 0,
+                        closed_at: None,
+                    },
+                )
+            });
+        decision.opened
+    }
+
+    /// Record that a paid call **succeeded**: reset the counter and, when that
+    /// closes a half-open breaker, release the pair's held jobs (D-A6 — a close
+    /// on a paid call is as good as a close on a probe).
+    async fn record_success(&self) {
+        if !self.enabled {
+            return;
+        }
+        let decision = self
+            .queue
+            .record_provider_outcome(
+                self.provider,
+                self.model,
+                breakdown_core::ai::ProviderOutcome::Success,
+                self.threshold,
+            )
+            .await;
+        match decision {
+            Ok(decision) if decision.closed => {
+                // The held rows must stop claiming a wait that is over.
+                match self
+                    .queue
+                    .release_held_jobs(self.provider, self.model)
+                    .await
+                {
+                    Ok(released) if !released.is_empty() => tracing::warn!(
+                        provider = self.provider.as_str(),
+                        model = self.model,
+                        released = released.len(),
+                        "#871 provider breaker: closed on a successful paid call — held jobs released"
+                    ),
+                    Ok(_) => {}
+                    Err(error) => tracing::warn!(
+                        %error,
+                        "#871 provider breaker: could not release held jobs after a close"
+                    ),
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "#871 provider breaker: could not record a success");
+            }
+        }
     }
 
     /// The current verdict, for building the hold the worker parks the job with.
@@ -4119,8 +4232,22 @@ where
             return Err(AnyhowError::new(breaker_open_error()));
         }
         match op().await {
-            Ok(value) => return Ok(value),
+            Ok(value) => {
+                // Issue #871 (D-A3): a successful paid call resets the pair's
+                // failure counter and may close a half-open breaker.
+                gate.record_success().await;
+                return Ok(value);
+            }
             Err(error) if is_transient(&error) && attempt < max_retries => {
+                // The counter is only ever incremented HERE, which is what makes
+                // the breaker able to open from real traffic at all. A permanent
+                // failure never reaches this arm (`is_transient` is false).
+                if gate.record_failure().await {
+                    // It opened on this very failure: stop now instead of
+                    // sleeping and calling into an endpoint the fleet has just
+                    // stopped calling.
+                    return Err(AnyhowError::new(breaker_open_error()));
+                }
                 attempt += 1;
                 // Re-check before the sleep: the verdict we read a moment ago
                 // can already be stale, and sleeping on a dead endpoint holds

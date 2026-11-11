@@ -4223,4 +4223,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String aiJobsRowProviderHold(String provider, String until) {
     return '$provider unreachable · waits until $until';
   }
+
+  @override
+  String aiJobProviderHoldExpiredTitle(String provider) {
+    return '$provider did not come back';
+  }
 }

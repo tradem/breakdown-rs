@@ -23,7 +23,7 @@ use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::preview::{ScriptContext, ShootingSchedule};
-use super::provider_health::BreakerDecision;
+use super::provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 use super::views::{
     AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget, ApplyProgress,
     ApplyRunId, ApplyRunState, DocumentKind, ModelPricing, ProviderBreakerState, ProviderHold,
@@ -744,6 +744,37 @@ pub trait AiImportQueue: Send + Sync {
         _model: &str,
     ) -> Result<ProviderBreakerSnapshot, DomainError> {
         Ok(ProviderBreakerSnapshot::closed())
+    }
+
+    /// Record one paid-call outcome in the durable breaker (issue #871, D-A3).
+    ///
+    /// This is the **write** side of the breaker and the only thing that makes
+    /// it real: without it `consecutive_failures` never moves, so a closed
+    /// breaker can never open from actual traffic and the claim filter, the holds
+    /// and the expiry machinery would all be inert.
+    ///
+    /// Only **retryable provider failures** may be recorded as
+    /// [`ProviderOutcome::RetryableFailure`] — a revoked key or an entitlement 4xx
+    /// is permanent (#637) and would convert one user's misconfiguration into an
+    /// outage for everyone on the endpoint.
+    ///
+    /// Returns the transition, so the caller can act on it: `opened` means the
+    /// caller holds its job, `closed` means the pair's held jobs may be released.
+    ///
+    /// The default reports "nothing changed" for backends without a breaker.
+    async fn record_provider_outcome(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+        _outcome: ProviderOutcome,
+        _threshold: u32,
+    ) -> Result<BreakerDecision, DomainError> {
+        Ok(BreakerDecision::unchanged(BreakerCounters {
+            state: ProviderBreakerState::Closed,
+            consecutive_failures: 0,
+            flap_count: 0,
+            closed_at: None,
+        }))
     }
 
     /// Whether a paid call for this pair may be started right now.

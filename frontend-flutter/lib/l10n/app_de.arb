@@ -1589,5 +1589,13 @@
         "type": "String"
       }
     }
+  },
+  "aiJobProviderHoldExpiredTitle": "{provider} ist nicht zurückgekommen",
+  "@aiJobProviderHoldExpiredTitle": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      }
+    }
   }
 }

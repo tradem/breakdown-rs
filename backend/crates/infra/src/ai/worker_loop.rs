@@ -216,6 +216,12 @@ async fn hold_if_breaker_open(
     worker_id: &str,
     config: &AiWorkerConfig,
 ) -> Result<bool, DomainError> {
+    // Issue #871 kill switch: with the breaker disabled the worker consults
+    // nothing and holds nothing — the pre-#871 behaviour. Checked before the
+    // stamp so a disabled breaker writes nothing at all.
+    if !deps.bounds.breaker_enabled {
+        return Ok(false);
+    }
     // Propagate the resolved pair onto the row (D-A2b layer 2).
     deps.queue
         .stamp_breaker_pair(job.id, worker_id, config.provider, &config.model)
@@ -231,6 +237,8 @@ async fn hold_if_breaker_open(
         queue: deps.queue.as_ref(),
         provider: config.provider,
         model: &config.model,
+        threshold: deps.bounds.breaker_failure_threshold,
+        enabled: deps.bounds.breaker_enabled,
     };
     hold_job(deps.queue.as_ref(), &deps.bounds, job.id, worker_id, &gate).await?;
     warn!(

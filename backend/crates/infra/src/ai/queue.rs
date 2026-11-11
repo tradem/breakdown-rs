@@ -10,12 +10,14 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::time::Duration;
 
+use breakdown_core::ai::ports::ProviderHealth as _;
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
-    ApplyRunState, CostBreakdown, DecisionTelemetry, DocumentKind, JobStatus, JobTelemetrySummary,
-    LlmProvider, ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold, SourceFormat,
-    TargetAttachOutcome, Telemetry, mapping_kind,
+    ApplyRunState, BreakerCounters, BreakerDecision, CostBreakdown, DecisionTelemetry,
+    DocumentKind, JobStatus, JobTelemetrySummary, LlmProvider, ProviderBreakerSnapshot,
+    ProviderBreakerState, ProviderHold, ProviderOutcome, SourceFormat, TargetAttachOutcome,
+    Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{BlockId, UserId};
@@ -25,6 +27,12 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use super::events::AiJobEventHub;
+
+/// How many expired holds one sweeper tick dead-letters (issue #871).
+///
+/// A bound, not a horizon: the next tick continues where this one stopped. It also
+/// sizes the pre-generated attempt-id vector the expiry statement joins against.
+const EXPIRE_BATCH: i32 = 512;
 
 /// The one named unit the whole lease window is derived from.
 ///
@@ -79,6 +87,9 @@ pub struct PgAiImportQueue {
     /// PostgreSQL mode the shared `PgListener` task additionally forwards
     /// cross-instance `pg_notify` payloads into the same hub.
     hub: AiJobEventHub,
+    /// `AI_IMPORT_BREAKER_ENABLED` (issue #871): when false the claim
+    /// predicate admits every job, which is the pre-#871 behaviour.
+    breaker_filter: bool,
 }
 
 impl PgAiImportQueue {
@@ -89,13 +100,25 @@ impl PgAiImportQueue {
             pool,
             lease: lease_from_env(),
             hub: AiJobEventHub::new(),
+            breaker_filter: true,
         }
     }
 
     /// Override the claim lease window. Used by deployments that want a
     /// different recovery horizon and by tests that need a deterministic
     /// already-expired lease (`Duration::ZERO`).
+    /// Enable or disable the breaker's claim filter (issue #871,
+    /// `AI_IMPORT_BREAKER_ENABLED`).
+    ///
+    /// With the switch off the predicate admits everything — the pre-#871
+    /// behaviour — while the durable rows are left untouched, so re-enabling
+    /// resumes with the verdicts as they were.
     #[must_use]
+    pub fn with_breaker_filter(mut self, enabled: bool) -> Self {
+        self.breaker_filter = enabled;
+        self
+    }
+
     pub fn with_lease(mut self, lease: Duration) -> Self {
         self.lease = lease;
         self
@@ -398,12 +421,17 @@ impl AiImportQueue for PgAiImportQueue {
                   -- schedule, not a claim gate, and lifting the filter when the
                   -- probe became due would drain the queue instead of running
                   -- one probe.
-                  AND NOT EXISTS (
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $3 OR NOT EXISTS (
                       SELECT 1 FROM ai_import.provider_health ph
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
-                  )
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -440,6 +468,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -473,12 +502,17 @@ impl AiImportQueue for PgAiImportQueue {
                   -- schedule, not a claim gate, and lifting the filter when the
                   -- probe became due would drain the queue instead of running
                   -- one probe.
-                  AND NOT EXISTS (
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $4 OR NOT EXISTS (
                       SELECT 1 FROM ai_import.provider_health ph
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
-                  )
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -507,6 +541,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(kind.as_str())
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -552,12 +587,17 @@ impl AiImportQueue for PgAiImportQueue {
                   -- schedule, not a claim gate, and lifting the filter when the
                   -- probe became due would drain the queue instead of running
                   -- one probe.
-                  AND NOT EXISTS (
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $3 OR NOT EXISTS (
                       SELECT 1 FROM ai_import.provider_health ph
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
-                  )
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -593,6 +633,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -625,12 +666,17 @@ impl AiImportQueue for PgAiImportQueue {
                   -- schedule, not a claim gate, and lifting the filter when the
                   -- probe became due would drain the queue instead of running
                   -- one probe.
-                  AND NOT EXISTS (
+                  -- The bound parameter is AI_IMPORT_BREAKER_ENABLED, so it is
+                  -- NEGATED here: enabled ⇒ `false OR NOT EXISTS` ⇒ the filter
+                  -- applies; disabled ⇒ `true OR …` ⇒ every job is admitted (the
+                  -- pre-#871 behaviour). The durable rows stay untouched, so
+                  -- re-enabling resumes with the verdicts as they were.
+                  AND (NOT $4 OR NOT EXISTS (
                       SELECT 1 FROM ai_import.provider_health ph
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
-                  )
+                  ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -667,6 +713,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(kind.as_str())
         .bind(worker_id)
         .bind(self.lease_secs())
+        .bind(self.breaker_filter)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -1412,10 +1459,33 @@ impl AiImportQueue for PgAiImportQueue {
         error_summary: &str,
         error_code: Option<&str>,
     ) -> Result<Vec<AiImportJobId>, DomainError> {
+        // One attempt id PER expired job (issue #871 review): a single bound id
+        // would be inserted for every row of the CTE and violate the attempt
+        // primary key as soon as two holds expire in one tick — rolling the whole
+        // statement back and leaving the D-C4 budget unenforced forever, because
+        // the next tick would fail the same way.
+        //
+        // The ids are generated here (UUIDv7, per the repo rule) and joined to the
+        // candidate rows by ordinality, which also bounds the batch: at most
+        // `EXPIRE_BATCH` holds are examined per tick.
+        let attempt_ids: Vec<Uuid> = (0..EXPIRE_BATCH).map(|_| Uuid::now_v7()).collect();
         let rows = sqlx::query(
             r#"
-            WITH expired AS (
-                UPDATE ai_import.ai_import_job
+            WITH due AS (
+                SELECT id
+                FROM ai_import.ai_import_job
+                WHERE status = 'failed'
+                  AND provider_hold IS NOT NULL
+                  AND (provider_hold ->> 'hold_deadline')::timestamptz <= now()
+                ORDER BY (provider_hold ->> 'hold_deadline')::timestamptz
+                LIMIT $4
+                FOR UPDATE SKIP LOCKED
+            ),
+            numbered AS (
+                SELECT id, row_number() OVER (ORDER BY id) AS rn FROM due
+            ),
+            expired AS (
+                UPDATE ai_import.ai_import_job AS job
                 SET status = 'dead_letter',
                     last_error = LEFT($1, 1000),
                     next_attempt_at = NULL,
@@ -1432,25 +1502,26 @@ impl AiImportQueue for PgAiImportQueue {
                     lease_expires_at = NULL,
                     permit_id = NULL,
                     updated_at = now()
-                WHERE status = 'failed'
-                  AND provider_hold IS NOT NULL
-                  AND (provider_hold ->> 'hold_deadline')::timestamptz <= now()
-                RETURNING id, retries, last_error,
-                    pg_notify('ai_import_job_events', id::text)
+                FROM numbered
+                WHERE job.id = numbered.id
+                RETURNING job.id, job.retries, job.last_error, numbered.rn,
+                    pg_notify('ai_import_job_events', job.id::text)
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)
-            -- Exactly ONE attempt row for the whole hold, at the next number
-            -- after the last charged retry (`retries + 1`, the same numbering
-            -- `mark_payload_unavailable` uses).
-            SELECT $2, id, retries + 1, 'dead_letter', last_error, $3, FALSE
+            -- Exactly ONE attempt row per expired job, each with its own id.
+            SELECT lease.attempt_id, expired.id, expired.retries + 1, 'dead_letter',
+                   expired.last_error, $3, FALSE
             FROM expired
+            JOIN unnest($2::uuid[]) WITH ORDINALITY AS lease(attempt_id, rn)
+              ON lease.rn = expired.rn
             RETURNING job_id
             "#,
         )
         .bind(error_summary)
-        .bind(Uuid::now_v7())
+        .bind(&attempt_ids)
         .bind(error_code)
+        .bind(EXPIRE_BATCH)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -1462,6 +1533,37 @@ impl AiImportQueue for PgAiImportQueue {
             ids.push(id);
         }
         Ok(ids)
+    }
+
+    /// Record one paid-call outcome in the durable breaker (issue #871).
+    ///
+    /// Delegates to the breaker repository over the same pool, so the state
+    /// machine has exactly one implementation and the queue needs no second
+    /// wiring handle. Constructing the repository per call is a `PgPool` clone —
+    /// it holds no state of its own.
+    async fn record_provider_outcome(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        outcome: ProviderOutcome,
+        threshold: u32,
+    ) -> Result<BreakerDecision, DomainError> {
+        let health = super::provider_health::PgProviderHealth::new(self.pool.clone());
+        match outcome {
+            ProviderOutcome::Success => health.record_success(provider, model).await,
+            // A PERMANENT failure must never open the breaker: it would convert
+            // one user's misconfiguration into an outage for everyone on the
+            // endpoint (D-A1). It is therefore not reported to the counter at all.
+            ProviderOutcome::PermanentFailure => Ok(BreakerDecision::unchanged(BreakerCounters {
+                state: ProviderBreakerState::Closed,
+                consecutive_failures: 0,
+                flap_count: 0,
+                closed_at: None,
+            })),
+            ProviderOutcome::RetryableFailure => {
+                health.record_failure(provider, model, threshold).await
+            }
+        }
     }
 
     /// The provider breaker's verdict for one pair (issue #871).

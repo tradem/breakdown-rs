@@ -495,7 +495,11 @@ async fn main() -> Result<()> {
 
     // --- Report archival (staging + external + worker + triggers) ---
     let report_archival_queue = PgReportArchivalQueue::new(pool.clone());
-    let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone());
+    // Issue #871: the claim filter follows the breaker kill switch. Read here so the
+    // queue the workers claim from and the switch the operator sets are the same
+    // decision.
+    let ai_import_queue = infra::ai::PgAiImportQueue::new(pool.clone())
+        .with_breaker_filter(AiImportBounds::from_env().breaker_enabled);
     // Capture the SSE event hub before the queue moves into `ProductionPorts`
     // (issue #664): the PgListener bridge forwards cross-instance pg_notify
     // payloads into this same fan-out.
@@ -748,12 +752,24 @@ async fn main() -> Result<()> {
             ));
         // One periodic task hosts the probe and the hold sweeper (design
         // D-C4/2.10b): both are claim-free and share one advisory lock.
-        infra::ai::provider_watch::spawn_provider_watch(
-            pool.clone(),
-            std::sync::Arc::clone(&provider_health),
-            provider_probe,
-        );
-        info!("AI provider breaker watch spawned (issue #871)");
+        //
+        // Issue #871 kill switch: with `AI_IMPORT_BREAKER_ENABLED=false` the watch
+        // is not spawned at all — otherwise it would keep holding and expiring
+        // jobs for a breaker the operator just switched off. The durable rows are
+        // left untouched, so re-enabling resumes with the verdicts as they were.
+        if bounds.breaker_enabled {
+            infra::ai::provider_watch::spawn_provider_watch(
+                pool.clone(),
+                std::sync::Arc::clone(&provider_health),
+                provider_probe,
+            );
+            info!("AI provider breaker watch spawned (issue #871)");
+        } else {
+            warn!(
+                "AI_IMPORT_BREAKER_ENABLED=false — the provider breaker is disabled: no probe, \
+                 no hold sweeper, no claim filter and no worker gate"
+            );
+        }
 
         ai_worker_handles.push(spawn_script_import_worker(
             WorkerDeps {
@@ -767,7 +783,10 @@ async fn main() -> Result<()> {
                 pricing: Some(std::sync::Arc::clone(&worker_pricing)),
                 // Issue #871: the breaker handle the clients consult before
                 // every billable request.
-                health: Some(std::sync::Arc::clone(&provider_health)),
+                // Disabled ⇒ no guard in the clients either.
+                health: bounds
+                    .breaker_enabled
+                    .then(|| std::sync::Arc::clone(&provider_health)),
             },
             shutdown_rx.clone(),
         ));
@@ -781,7 +800,7 @@ async fn main() -> Result<()> {
                 credentials: worker_credential_vault,
                 bounds,
                 pricing: Some(worker_pricing),
-                health: Some(provider_health),
+                health: bounds.breaker_enabled.then_some(provider_health),
             },
             shutdown_rx.clone(),
         ));

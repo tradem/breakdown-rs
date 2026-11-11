@@ -697,3 +697,70 @@ fn _counters_are_part_of_the_contract() -> BreakerCounters {
         closed_at: None,
     }
 }
+
+#[tokio::test]
+async fn two_holds_expiring_in_one_tick_each_get_their_own_attempt_row() -> Result<()> {
+    // Issue #871 review: `expire_provider_holds` used to bind ONE attempt id for
+    // every expired row, so two holds reaching their deadline in the same tick
+    // violated the attempt primary key — the whole statement rolled back and the
+    // D-C4 budget was never enforced, on every tick, forever. This case is the
+    // regression guard.
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let health = PgProviderHealth::new(pool.clone());
+    open_breaker(&health, 3).await;
+
+    let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let second = seed_job(&queue, "u1", "d2", Some((PROVIDER, MODEL))).await;
+    let until = Utc::now() + Duration::seconds(60);
+    queue
+        .hold_runnable_jobs(
+            PROVIDER,
+            MODEL,
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+        )
+        .await?;
+    // Both deadlines in the past, so both are due in the SAME statement.
+    sqlx::query(
+        "UPDATE ai_import.ai_import_job SET provider_hold = jsonb_set(provider_hold, '{hold_deadline}', to_jsonb(now() - interval '1 minute'))",
+    )
+    .execute(&pool)
+    .await?;
+
+    let expired = queue
+        .expire_provider_holds(
+            "the provider stayed unavailable",
+            Some("ai-import.llm-provider-unavailable"),
+        )
+        .await?;
+    assert_eq!(
+        expired.len(),
+        2,
+        "both due holds must expire in one tick, not fail on a duplicate attempt id"
+    );
+
+    for id in [first, second] {
+        let HoldRow {
+            status,
+            retries,
+            hold_state,
+            ..
+        } = read_hold_state(&pool, id).await;
+        assert_eq!(status, "dead_letter");
+        assert_eq!(retries, 0, "the expiry charges no retry");
+        assert_eq!(hold_state.as_deref(), Some("expired"));
+        assert_eq!(
+            attempt_count(&pool, id).await,
+            1,
+            "exactly one attempt row per expired job"
+        );
+    }
+    // And the ids are distinct, which is what the old single-bind version broke.
+    let distinct: i64 =
+        sqlx::query_scalar("SELECT count(DISTINCT id) FROM ai_import.ai_import_job_attempt")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(distinct, 2);
+    Ok(())
+}
