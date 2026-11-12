@@ -2066,7 +2066,7 @@ impl AiImportQueue for PgAiImportQueue {
         run_id: ApplyRunId,
         summary: &breakdown_core::ai::ApplyImportSummary,
     ) -> Result<(), DomainError> {
-        let outcome = breakdown_core::ai::ApplyRunOutcome::Succeeded(summary.clone());
+        let outcome = breakdown_core::ai::ApplyRunOutcome::Succeeded(Box::new(summary.clone()));
         self.finish_apply_run(id, run_id, "done", &outcome).await
     }
 

@@ -2989,7 +2989,7 @@ impl AiImportQueue for FakeAiImportQueue {
             id,
             run_id,
             breakdown_core::ai::ApplyState::Done,
-            breakdown_core::ai::ApplyRunOutcome::Succeeded(summary.clone()),
+            breakdown_core::ai::ApplyRunOutcome::Succeeded(Box::new(summary.clone())),
         )
         .await
     }
@@ -3377,7 +3377,7 @@ pub async fn run_dispatched_apply(ports: &FakePorts) -> breakdown_core::ai::Appl
         .await
         .expect("the dispatched run should report an outcome");
     match outcome {
-        breakdown_core::ai::ApplyRunOutcome::Succeeded(summary) => summary,
+        breakdown_core::ai::ApplyRunOutcome::Succeeded(summary) => *summary,
         breakdown_core::ai::ApplyRunOutcome::Failed { code } => {
             panic!("the dispatched apply run failed with code {code}")
         }

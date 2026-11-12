@@ -936,42 +936,47 @@ class AiImportRepository extends BaseRepository {
   /// could not be applied — and an unbounded socket is exactly how a
   /// black-holed POST spins forever while the resumable classification, which is
   /// what finds the run again, never fires.
+  ///
+  /// Never throws (`no_throw_in_data_domain`): a transport failure is its
+  /// `ProblemError`, an undecodable body is `ai_import.dto_invalid`.
   Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
-  ) => run(() async {
-    final response = await api.dio.post<Object?>(
-      '/v1/ai-import/jobs/$jobId/apply',
-      // `standardSerializers` carries the `StandardJsonPlugin`, so the body
-      // is JSON rather than the bare pair-list form the bare instance emits.
-      data: standardSerializers.serializeWith(
-        ApplyAiImportRequest.serializer,
-        request,
-      ),
-      options: Options(
-        contentType: 'application/json',
-        receiveTimeout: kApplyDispatchTimeout,
-      ),
-    );
-    final body = response.data;
-    if (body is! Map<String, dynamic>) {
-      throw const FormatException('the apply answer is not an object');
-    }
-    final accepted = standardSerializers.deserializeWith(
-      ApplyRunAccepted.serializer,
-      body,
-    );
-    if (accepted == null) {
-      throw const FormatException(
-        'the apply answer is not an ApplyRunAccepted',
+  ) async {
+    try {
+      final response = await api.dio.post<Object?>(
+        '/v1/ai-import/jobs/$jobId/apply',
+        // `standardSerializers` carries the `StandardJsonPlugin`, so the body
+        // is JSON rather than the bare pair-list form the bare instance emits.
+        data: standardSerializers.serializeWith(
+          ApplyAiImportRequest.serializer,
+          request,
+        ),
+        options: Options(
+          contentType: 'application/json',
+          receiveTimeout: kApplyDispatchTimeout,
+        ),
       );
+      final body = response.data;
+      if (body is! Map<String, dynamic>) {
+        return const Left(ProblemError(code: 'ai_import.dto_invalid'));
+      }
+      final accepted = standardSerializers.deserializeWith(
+        ApplyRunAccepted.serializer,
+        body,
+      );
+      if (accepted == null) {
+        return const Left(ProblemError(code: 'ai_import.dto_invalid'));
+      }
+      return Right(accepted);
+    } on DioException catch (error) {
+      return Left(problemErrorFromDio(error));
+    } on Object {
+      // A structurally valid response the serializers reject (an unknown future
+      // shape) is the client's `dto_invalid`, never a crash out of a repository.
+      return const Left(ProblemError(code: 'ai_import.dto_invalid'));
     }
-    return Response<ApplyRunAccepted>(
-      requestOptions: response.requestOptions,
-      statusCode: response.statusCode,
-      data: accepted,
-    );
-  }, dtoInvalidCode: 'ai_import.dto_invalid');
+  }
 
   /// Dispatch an apply and follow the **durable run** to its outcome (issues
   /// #899, #805).

@@ -995,7 +995,13 @@ pub struct ApplyImportSummary {
 pub enum ApplyRunOutcome {
     /// The run completed and applied its plan (fully or partially — the summary
     /// reports the difference through `unapplied_outfits`).
-    Succeeded(ApplyImportSummary),
+    // `Box` is an implementation detail, not contract: the summary is the only
+    // large variant here (a crate plus three vectors) and an outcome is stored
+    // INLINE in `AiImportJob` / `ApplyRunState`, so leaving it unboxed makes
+    // every job read carry the summary's full footprint plus the discriminant
+    // (`clippy::large_enum_variant`). Kept out of the doc comment on purpose —
+    // `utoipa` publishes doc text into the wire contract.
+    Succeeded(Box<ApplyImportSummary>),
     /// The run stopped on an error the client can branch on.
     Failed {
         /// Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).

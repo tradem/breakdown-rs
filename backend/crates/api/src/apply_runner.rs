@@ -109,7 +109,7 @@ impl<P: Ports> ApplyRunner<P> {
         );
         let outcome = self.execute(job_id, run_id, request).await;
         let outcome = match outcome {
-            Ok(summary) => ApplyRunOutcome::Succeeded(summary),
+            Ok(summary) => ApplyRunOutcome::Succeeded(Box::new(summary)),
             Err(error) => {
                 // Classify once, persist the registered code: the client
                 // branches on `code`, never on a prose detail (ADR-031).
