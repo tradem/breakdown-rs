@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,6 +55,13 @@ where
     ) -> Result<ScheduleApplyResult, DomainError> {
         ensure_merge_applyable(request.preview)
             .map_err(|error| DomainError::conflict(error.to_string()))?;
+
+        // Prime the per-run mapping cache once so every day and `(scene, day)`
+        // `find` below is answered in memory instead of issuing N+1 SQL reads.
+        // Non-audit idempotency read (`project_id` comes from the API edge).
+        self.mappings
+            .list_by_preview(request.preview_id) // ast-grep-ignore: cqrs-boundary
+            .await?;
 
         let mut day_by_key: HashMap<String, AppliedDay> = HashMap::new();
         let mut scene_versions: HashMap<Uuid, AggregateVersion> = request
@@ -192,6 +200,13 @@ where
                         scene_shoot_id.0,
                     ))
                     .await?;
+                // Schedule apply has no `claim_apply_run` lock: if a concurrent
+                // apply confirmed this pair after our initial `list_by_preview`,
+                // `reserve` returns that confirmed row — skip before dispatching
+                // `schedule_scene` at a now-stale scene version.
+                if !reservation.is_reserved() {
+                    continue;
+                }
                 let scene_shoot_id = SceneShootId::from_uuid(reservation.aggregate_id);
 
                 let scene_version =
@@ -348,6 +363,16 @@ where
                 id.0,
             ))
             .await?;
+        // Same no-lock race as the pair reservation below, on the day side: a
+        // concurrent apply may have confirmed this day after our prime, and
+        // `reserve` then hands back that confirmed row instead of a fresh one.
+        if !reservation.is_reserved() {
+            return Ok(AppliedDay {
+                id: ShootingDayId::from_uuid(reservation.aggregate_id),
+                version: reservation.aggregate_version,
+                created: false,
+            });
+        }
         let id = ShootingDayId::from_uuid(reservation.aggregate_id);
 
         // Step 2 (command): on a retry the stream already exists, so the

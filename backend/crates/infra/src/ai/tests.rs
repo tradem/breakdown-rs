@@ -36,6 +36,7 @@ use chrono::Utc;
 use reqwest::StatusCode;
 use uuid::Uuid;
 
+use super::mapping::CachedMappings;
 use super::{
     AiImportFeature, AiPreviewStore, ApplyScriptRequest, ApplyWorker, MemoryAiPreviewStore,
     ScheduleApplyRequest, ScheduleApplyWorker, ScheduleImportWorker, ScriptImportWorker,
@@ -1797,7 +1798,14 @@ struct FakeMappings {
     /// crash between a successful command and the mapping write (issue #179).
     fail_insert_at: Arc<Mutex<Option<usize>>>,
     insert_calls: Arc<AtomicUsize>,
+    find_calls: Arc<AtomicUsize>,
     reserved: Arc<Mutex<Vec<AiImportMapping>>>,
+    /// Optional barrier every `scene` reservation waits on. Armed by the
+    /// concurrency test: with a barrier of N the apply can only finish if all N
+    /// rows reach their scene reservation at the same time — a serial row loop
+    /// deadlocks instead of passing, which makes the assertion structural rather
+    /// than a timing measurement.
+    scene_reserve_barrier: Arc<Mutex<Option<Arc<tokio::sync::Barrier>>>>,
 }
 
 impl FakeMappings {
@@ -1809,6 +1817,18 @@ impl FakeMappings {
     /// Reservations in call order (the confirm path uses `insert`).
     fn reservations(&self) -> Vec<AiImportMapping> {
         self.reserved.lock().unwrap().clone()
+    }
+
+    /// Arm the scene-reservation barrier (see [`Self::scene_reserve_barrier`]).
+    fn arm_scene_reserve_barrier(&self, parties: usize) {
+        *self.scene_reserve_barrier.lock().unwrap() =
+            Some(Arc::new(tokio::sync::Barrier::new(parties)));
+    }
+
+    /// How many `find` calls reached this store — the read the per-run cache
+    /// exists to remove.
+    fn find_calls(&self) -> usize {
+        self.find_calls.load(Ordering::SeqCst)
     }
 
     /// Remove every mapping of `draft_ref` — simulating a lost reservation row
@@ -1842,6 +1862,7 @@ impl AiImportMappingRepository for FakeMappings {
         aggregate_kind: &str,
         ordinal: i32,
     ) -> Result<Option<AiImportMapping>, DomainError> {
+        self.find_calls.fetch_add(1, Ordering::SeqCst);
         Ok(self
             .values
             .lock()
@@ -1856,6 +1877,13 @@ impl AiImportMappingRepository for FakeMappings {
     }
 
     async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
+        // Guard dropped before the `await`: a `std` guard is not `Send`.
+        let barrier = { self.scene_reserve_barrier.lock().unwrap().clone() };
+        if mapping.aggregate_kind == breakdown_core::ai::mapping_kind::SCENE
+            && let Some(barrier) = barrier
+        {
+            barrier.wait().await;
+        }
         self.reserved.lock().unwrap().push(mapping.clone());
         // Mirrors the production insert-if-absent: an existing row (reserved or
         // confirmed) wins, so retries converge on one aggregate id.
@@ -3174,6 +3202,10 @@ type CategoryDispatchLog =
 struct FakeSeasonRepo {
     archived: Arc<Mutex<Option<bool>>>,
     failure: Arc<Mutex<Option<DomainError>>>,
+    /// How many `find_by_id` calls reached this port: the archived-season
+    /// verdict is resolved lazily, so a preview that creates no outfit must
+    /// leave this at zero and a preview that creates several must pay it once.
+    find_calls: Arc<AtomicUsize>,
 }
 
 impl FakeSeasonRepo {
@@ -3182,12 +3214,21 @@ impl FakeSeasonRepo {
         Self {
             archived: Arc::new(Mutex::new(Some(true))),
             failure: Arc::new(Mutex::new(None)),
+            find_calls: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// How many `find_by_id` calls reached this port.
+    fn find_calls(&self) -> usize {
+        self.find_calls.load(Ordering::SeqCst)
     }
 }
 
 impl SeasonRepository for FakeSeasonRepo {
     async fn find_by_id(&self, id: Uuid) -> Result<SeasonView, DomainError> {
+        // Counted before the injected-failure branch: a test asking "did the
+        // worker call this port at all" must see the call either way.
+        self.find_calls.fetch_add(1, Ordering::SeqCst);
         if let Some(error) = self.failure.lock().unwrap().clone() {
             return Err(error);
         }
@@ -3913,6 +3954,14 @@ async fn script_apply_publishes_apply_progress_and_clears_it_at_the_end() {
         "the final row is published, got {applying:?}"
     );
     assert_eq!(applying.last(), Some(&2), "monotone, ending at the total");
+    // Rows of one batch finish out of order and `mark_apply_progress` only
+    // compares the run's status/id, so a lower count landing last would store a
+    // smaller `applied` and the bar would move backwards (CodeRabbit finding).
+    // The worker gates the compare-and-write, so the frame log is non-decreasing.
+    assert!(
+        applying.windows(2).all(|window| window[0] <= window[1]),
+        "published progress never moves backwards, got {applying:?}"
+    );
 
     // The trailing work announces itself instead of freezing the bar at 100 %.
     assert!(
@@ -6610,6 +6659,56 @@ async fn script_apply_binds_a_continuation_to_the_source_outfit() {
     assert_eq!(beat_outfits[0], outfits[0].0);
 }
 
+/// A row that wears a CONTINUED look must not run concurrently with the row that
+/// creates the source outfit: `resolve_continued_outfit` reads that row's
+/// CONFIRMED `outfit` mapping, and a continuation that reads too early is
+/// reported as `ContinuityUnresolved` and never retried (design D3).
+///
+/// The plan lists the continuation FIRST, so nothing but the dependency ordering
+/// can make it resolve: under a plain row fan-out both rows start together and
+/// the continuation looks up an outfit that does not exist yet.
+#[tokio::test]
+async fn a_continuation_waits_for_the_row_that_creates_its_source_outfit() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            continued_row("1. INT. WOHNUNG", "2. INT. OP"),
+            row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]),
+        ],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("2. INT. OP"),
+        create_decision("1. INT. WOHNUNG"),
+    ];
+    let result = fixture.apply(&preview, &decisions).await.unwrap();
+
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "the continuation must wait for its source row, got {:?}",
+        result.unapplied_outfits
+    );
+    assert_eq!(
+        result.created_outfits, 1,
+        "a continuation creates no second Outfit"
+    );
+    let outfits = fixture.wardrobe.assigned.lock().unwrap().clone();
+    assert_eq!(outfits.len(), 1);
+    let mut beat_outfits: Vec<Uuid> = Vec::new();
+    for scene_id in fixture.scenes.created.lock().unwrap().clone() {
+        for (_, outfit_id) in fixture.scenes.beats_of(scene_id) {
+            beat_outfits.push(outfit_id);
+        }
+    }
+    assert_eq!(beat_outfits.len(), 2, "one beat per scene");
+    assert!(
+        beat_outfits
+            .iter()
+            .all(|outfit_id| *outfit_id == outfits[0].0),
+        "both scenes cast the source Outfit"
+    );
+}
+
 #[tokio::test]
 async fn re_applying_a_continuation_adds_no_second_outfit_or_beat() {
     let fixture = ScriptApplyFixture::new();
@@ -7675,5 +7774,809 @@ async fn a_breaker_hold_keeps_the_stored_chunk_progress() {
     assert_eq!(
         holds[0].state,
         breakdown_core::ai::ProviderBreakerState::Open
+    );
+}
+
+// ── Per-run mapping cache (live-test finding: apply duration) ───────────────
+//
+// The apply is an idempotency-checked write loop over one preview's mapping
+// table. Every aggregate it creates used to start with its own `find`, so a
+// 57-scene script paid hundreds of strictly sequential SQL round trips that all
+// answered questions this run already knows. These tests pin the two halves of
+// the contract: a primed run reads nothing back, and a write is never rolled
+// back by the cache.
+
+/// A confirmed mapping row of the cache tests' preview.
+fn cached_row(preview_id: AiImportJobId, draft_ref: &str, version: u64) -> AiImportMapping {
+    AiImportMapping {
+        preview_id,
+        draft_ref: draft_ref.to_owned(),
+        aggregate_kind: breakdown_core::ai::mapping_kind::SCENE.to_owned(),
+        ordinal: breakdown_core::ai::PRIMARY_ORDINAL,
+        aggregate_id: Uuid::now_v7(),
+        aggregate_version: breakdown_core::shared::AggregateVersion(version),
+    }
+}
+
+#[tokio::test]
+async fn a_listed_preview_answers_every_find_without_the_store() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    let row = cached_row(preview_id, "scene-a", 3);
+    store.insert(row.clone()).await.unwrap();
+    let cache = CachedMappings::new(store.clone());
+
+    // The apply's first act (`resolved_decisions`) lists the preview. Not
+    // audit-context resolution: the idempotency rows ARE the apply's own state,
+    // which is why the production call site carries the same suppression.
+    let listed = cache
+        .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1, "the listing primes the cache");
+    assert_eq!(
+        store.find_calls(),
+        0,
+        "a listing is one query, never one per row"
+    );
+
+    // Every later lookup — the hit and the miss — is answered in memory. The
+    // miss matters most: 8 of 10 lookups in a fresh apply are "no row yet".
+    for _ in 0..10 {
+        assert_eq!(
+            cache
+                .find(
+                    preview_id,
+                    "scene-a",
+                    breakdown_core::ai::mapping_kind::SCENE,
+                    0
+                )
+                .await
+                .unwrap(),
+            Some(row.clone())
+        );
+        assert_eq!(
+            cache
+                .find(
+                    preview_id,
+                    "scene-z",
+                    breakdown_core::ai::mapping_kind::SCENE,
+                    0
+                )
+                .await
+                .unwrap(),
+            None
+        );
+    }
+    assert_eq!(
+        store.find_calls(),
+        0,
+        "a listed preview never sends the store a per-row find"
+    );
+}
+
+#[tokio::test]
+async fn an_unlisted_preview_still_asks_the_store_for_an_absent_row() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    let cache = CachedMappings::new(store.clone());
+
+    // Nothing listed yet: a miss does NOT prove absence (another run may
+    // confirm that row), so the answer must come from the store.
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(store.find_calls(), 1, "an unprimed miss asks the store");
+}
+
+#[tokio::test]
+async fn reserve_and_confirm_mirror_into_the_cache_and_never_roll_back() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    let cache = CachedMappings::new(store.clone());
+    cache
+        .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+        .await
+        .unwrap();
+
+    let reserved = cache
+        .reserve(AiImportMapping::reservation(
+            preview_id,
+            "scene-a".to_owned(),
+            breakdown_core::ai::mapping_kind::SCENE.to_owned(),
+            breakdown_core::ai::PRIMARY_ORDINAL,
+            Uuid::now_v7(),
+        ))
+        .await
+        .unwrap();
+    assert!(reserved.is_reserved(), "the reservation is visible as such");
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap()
+            .map(|mapping| mapping.aggregate_id),
+        Some(reserved.aggregate_id),
+        "the reserved id is what the next step drives"
+    );
+
+    let mut confirmed = reserved.clone();
+    confirmed.aggregate_version = breakdown_core::shared::AggregateVersion(4);
+    cache.insert(confirmed.clone()).await.unwrap();
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap()
+            .map(|mapping| mapping.aggregate_version.0),
+        Some(4)
+    );
+
+    // A late duplicate must not roll the confirmed row back to its reservation
+    // (the SQL upsert guards this with `WHERE ... < EXCLUDED`; the cache has to
+    // mirror it or a re-dispatch would drive the wrong expected version).
+    let mut stale = confirmed.clone();
+    stale.aggregate_version = breakdown_core::shared::AggregateVersion(1);
+    cache.insert(stale).await.unwrap();
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap()
+            .map(|mapping| mapping.aggregate_version.0),
+        Some(4),
+        "a non-advancing confirm leaves the cached version alone"
+    );
+    assert_eq!(
+        store.find_calls(),
+        0,
+        "not one of these steps re-reads the table"
+    );
+}
+
+#[tokio::test]
+async fn a_relisting_replaces_the_cached_slice() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    store
+        .insert(cached_row(preview_id, "scene-a", 1))
+        .await
+        .unwrap();
+    let cache = CachedMappings::new(store.clone());
+    cache
+        .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+        .await
+        .unwrap();
+
+    // A dev reset (or a rolled-back reservation) drops the row from the table.
+    store.remove(preview_id, "scene-a");
+    assert_eq!(
+        cache
+            .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+            .await
+            .unwrap()
+            .len(),
+        0,
+        "the second listing is the complete truth"
+    );
+    assert_eq!(
+        cache
+            .find(
+                preview_id,
+                "scene-a",
+                breakdown_core::ai::mapping_kind::SCENE,
+                0
+            )
+            .await
+            .unwrap(),
+        None,
+        "a row that vanished from the store vanishes from the cache"
+    );
+}
+
+// ===========================================================================
+// The per-run mapping cache inside the REAL workers
+// (`perf/ai-import-apply-mapping-cache` review findings 1, 3 and 4)
+//
+// The tests above exercise `CachedMappings` in isolation. These drive the
+// production workers with the cache the API handler wires, and count what the
+// workers actually asked the store and the season projection for — the gap that
+// let the schedule apply keep its N+1 reads go unnoticed.
+// ===========================================================================
+
+/// A script-apply worker wired exactly like `apply_ai_import`: the mapping port
+/// is the per-run read-through cache, not the raw repository.
+fn cached_script_apply_worker(
+    fixture: &ScriptApplyFixture,
+    mappings: Arc<CachedMappings<FakeMappings>>,
+) -> ApplyWorker<
+    FakeSceneCommands,
+    FakeCharacterCommands,
+    FakeWardrobeCommands,
+    FakeEpisodeCommands,
+    FakeShootingDayCommands,
+    FakeSceneShootCommands,
+    CachedMappings<FakeMappings>,
+    FakeQueue,
+    FakeSeasonRepo,
+> {
+    ApplyWorker {
+        scene_commands: Arc::clone(&fixture.scenes),
+        character_commands: Arc::clone(&fixture.characters),
+        wardrobe_commands: Arc::clone(&fixture.wardrobe),
+        episode_commands: Arc::clone(&fixture.episodes),
+        shooting_day_commands: Arc::clone(&fixture.shooting_days),
+        scene_shoot_commands: Arc::clone(&fixture.scene_shoots),
+        mappings,
+        queue: Arc::clone(&fixture.queue),
+        season_repo: Arc::clone(&fixture.seasons),
+    }
+}
+
+/// One apply run behind a **fresh** per-run cache — what a new HTTP request
+/// gets. The fakes are shared, so the store keeps every row the run confirms.
+async fn cached_script_apply(
+    fixture: &ScriptApplyFixture,
+    preview: &ScriptContext,
+    decisions: &[ApplyMapping],
+) -> Result<super::ScriptApplyResult, DomainError> {
+    let cache = Arc::new(CachedMappings::new((*fixture.mappings).clone()));
+    cached_script_apply_worker(fixture, cache)
+        .apply_script(ApplyScriptRequest {
+            acknowledged_uncertainties: Vec::new(),
+            categories: Vec::new(),
+            continuity_selections: Vec::new(),
+            actor: UserId::from_sub("apply-test-user"),
+            preview_id: fixture.preview_id,
+            preview,
+            decisions,
+            episode_id: fixture.episode_id,
+            season_id: fixture.season_id,
+            project_id: None,
+            block_id: fixture.block_id,
+            episode_groups: Vec::new(),
+            shooting_days: Vec::new(),
+            telemetry: None,
+            known_episodes: Vec::new(),
+        })
+        .await
+}
+
+/// Review finding 2: an unprimed cache must not roll a confirmed store row back
+/// to a version the SQL upsert rejected.
+#[tokio::test]
+async fn an_unlisted_insert_never_rolls_back_a_confirmed_store_row() {
+    let preview_id = AiImportJobId::new();
+    let store = FakeMappings::default();
+    let confirmed = cached_row(preview_id, "scene-a", 4);
+    let confirmed_id = confirmed.aggregate_id;
+    store.insert(confirmed).await.unwrap();
+
+    // A fresh, UNPRIMED cache: it has never listed this preview, so the key is
+    // unknown rather than known-absent.
+    let cache = CachedMappings::new(store.clone());
+    let mut stale = cached_row(preview_id, "scene-a", 1);
+    // Re-derive the kind/ordinal of `cached_row` but give it a DIFFERENT id, so
+    // a rollback is visible in the answer instead of hidden by an equal uuid.
+    stale.aggregate_id = Uuid::now_v7();
+    assert_ne!(stale.aggregate_id, confirmed_id);
+    cache.insert(stale).await.unwrap();
+
+    // The store kept version 4 (its `WHERE ... < EXCLUDED` guard rejected the
+    // stale write), so the cache must report the store's winner — not version 1
+    // under the wrong aggregate id.
+    let found = cache
+        .find(
+            preview_id,
+            "scene-a",
+            breakdown_core::ai::mapping_kind::SCENE,
+            0,
+        )
+        .await
+        .unwrap()
+        .expect("the store's confirmed row is the answer");
+    assert_eq!(
+        found.aggregate_version.0, 4,
+        "an unprovable insert must leave the confirmed version alone"
+    );
+    assert_eq!(
+        found.aggregate_id, confirmed_id,
+        "the confirmed aggregate id is the one every later step must drive"
+    );
+}
+
+/// Review findings 1 + 4 on `ApplyWorker`: primed cache ⇒ no per-aggregate store
+/// read, and the archived-season verdict is paid at most once per run.
+#[tokio::test]
+async fn script_apply_with_cached_mappings_reads_mappings_and_season_at_most_once() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            row_with_outfit(
+                "1. INT. OP",
+                &["BEN", "LEA"],
+                &[("Ben", "Kittel"), ("Lea", "Kasack")],
+            ),
+            row_with_outfit("2. INT. FLUR", &["BEN"], &[("Ben", "Mantel")]),
+        ],
+        ..Default::default()
+    };
+    let decisions = vec![
+        create_decision(&preview.scenes[0].draft_ref),
+        create_decision(&preview.scenes[1].draft_ref),
+    ];
+
+    let first = cached_script_apply(&fixture, &preview, &decisions)
+        .await
+        .expect("the first apply must succeed");
+    assert_eq!(first.created_outfits, 3);
+    assert_eq!(
+        fixture.mappings.find_calls(),
+        0,
+        "a primed cache answers every scene/character/piece/outfit/beat find in memory"
+    );
+    assert_eq!(
+        fixture.seasons.find_calls(),
+        1,
+        "three outfits, one archived-season read"
+    );
+
+    // A second request re-applies the same preview behind a FRESH cache; every
+    // mapping row is already confirmed, so nothing is created and nothing is
+    // re-read.
+    let second = cached_script_apply(&fixture, &preview, &decisions)
+        .await
+        .expect("the re-apply must converge");
+    assert_eq!(second.created_outfits, 0, "the re-apply creates no outfit");
+    assert_eq!(
+        fixture.mappings.find_calls(),
+        0,
+        "the second run primes instead of reading row by row"
+    );
+    assert_eq!(
+        fixture.seasons.find_calls(),
+        1,
+        "an already-created plan pays no season read at all"
+    );
+}
+
+/// Review finding 1: a preview that creates no outfit must never touch the
+/// season projection — otherwise a `projection_season` outage breaks a pure
+/// scene import that CR-002/D2 does not gate at all.
+#[tokio::test]
+async fn script_apply_without_outfits_never_queries_the_season_projection() {
+    let fixture = ScriptApplyFixture::new();
+    *fixture.seasons.failure.lock().unwrap() = Some(DomainError::service_unavailable(
+        "season projection offline",
+    ));
+    let preview = ScriptContext {
+        scenes: vec![DraftScene {
+            draft_ref: "1. INT. OP".to_owned(),
+            scene_number: Some(1),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let decisions = vec![create_decision("1. INT. OP")];
+
+    let applied = cached_script_apply(&fixture, &preview, &decisions)
+        .await
+        .expect("a scene-only apply must not depend on the season projection");
+    assert_eq!(applied.applied.len(), 1);
+    assert_eq!(fixture.scenes.created.lock().unwrap().len(), 1);
+    assert_eq!(
+        fixture.seasons.find_calls(),
+        0,
+        "no outfit step means no archived-season lookup"
+    );
+}
+
+/// Two-scene / two-day schedule fixture whose mapping port can be swapped for
+/// the per-run cache the API handler wires.
+struct CachedScheduleFixture {
+    scene_commands: Arc<FakeSceneCommands>,
+    shooting_days: Arc<FakeShootingDayCommands>,
+    scene_shoots: Arc<FakeSceneShootCommands>,
+    mappings: Arc<FakeMappings>,
+    preview: breakdown_core::ai::MergedPreview,
+    preview_id: AiImportJobId,
+}
+
+impl CachedScheduleFixture {
+    fn new() -> Self {
+        let episode_id = breakdown_core::shared::EpisodeId::new();
+        let mut scenes = Vec::new();
+        let mut rows = Vec::new();
+        for (number, label) in [(1, "Day 1"), (2, "Day 2")] {
+            scenes.push(breakdown_core::scene::views::SceneView {
+                scene_score: None,
+                synopsis_score: None,
+                id: Uuid::now_v7(),
+                episode_id,
+                scene_number: Some(number),
+                location: None,
+                mood: None,
+                is_schedule_set: false,
+                summary: None,
+                script_day: None,
+                shooting_day_ids: Vec::new(),
+                assigned_characters: Vec::new(),
+                outfit_beats: Vec::new(),
+                version: breakdown_core::shared::AggregateVersion::INITIAL,
+                updated_at: Utc::now(),
+                source: Some(SceneSource::Manual),
+            });
+            rows.push(ShootingScheduleRow {
+                row_ref: format!("row-{number}"),
+                scene_number: Some(number),
+                shooting_day_label: Some(label.to_owned()),
+                ..ShootingScheduleRow::default()
+            });
+        }
+        let schedule = ShootingSchedule {
+            block_id: None,
+            rows,
+        };
+        Self {
+            scene_commands: Arc::new(FakeSceneCommands::default()),
+            shooting_days: Arc::new(FakeShootingDayCommands::default()),
+            scene_shoots: Arc::new(FakeSceneShootCommands::default()),
+            mappings: Arc::new(FakeMappings::default()),
+            preview: merge_schedule_to_scenes(&schedule, &scenes, &HashMap::new()),
+            preview_id: AiImportJobId::new(),
+        }
+    }
+
+    /// A fresh per-run cache over the shared store — one HTTP request's view.
+    fn fresh_cache(&self) -> Arc<CachedMappings<FakeMappings>> {
+        Arc::new(CachedMappings::new((*self.mappings).clone()))
+    }
+
+    async fn apply_with<M>(
+        &self,
+        mappings: Arc<CachedMappings<M>>,
+    ) -> Result<super::ScheduleApplyResult, DomainError>
+    where
+        M: AiImportMappingRepository + 'static,
+    {
+        ScheduleApplyWorker {
+            scene_commands: Arc::clone(&self.scene_commands),
+            shooting_day_commands: Arc::clone(&self.shooting_days),
+            scene_shoot_commands: Arc::clone(&self.scene_shoots),
+            mappings,
+        }
+        .apply(ScheduleApplyRequest {
+            actor: UserId::from_sub("schedule-test-user"),
+            preview_id: self.preview_id,
+            preview: &self.preview,
+            project_id: None,
+        })
+        .await
+    }
+}
+
+/// Review findings 3 + 4 on `ScheduleApplyWorker`: the run primes the cache once
+/// (no N+1 pairs/day reads), and a cache that went stale between `list_by_preview`
+/// and `reserve` cannot make the run re-drive a pair the store already confirmed.
+#[tokio::test]
+async fn schedule_apply_with_cached_mappings_primes_once_and_skips_concurrent_confirms() {
+    let fixture = CachedScheduleFixture::new();
+
+    // What a concurrent apply that started first holds: it listed the preview
+    // while it was still empty, so it answers "no row" for everything.
+    let stale = fixture.fresh_cache();
+    stale
+        .list_by_preview(fixture.preview_id) // ast-grep-ignore: cqrs-boundary
+        .await
+        .unwrap();
+
+    let first = fixture
+        .apply_with(fixture.fresh_cache())
+        .await
+        .expect("the first schedule apply must succeed");
+    assert_eq!(first.created_days, 2);
+    assert_eq!(first.planned_scene_shoots, 2);
+    assert_eq!(
+        fixture.mappings.find_calls(),
+        0,
+        "priming once removes every per-day and per-pair find"
+    );
+
+    let second = fixture
+        .apply_with(fixture.fresh_cache())
+        .await
+        .expect("the re-apply must converge");
+    assert_eq!(
+        (second.created_days, second.planned_scene_shoots),
+        (0, 0),
+        "a confirmed pair and a confirmed day are not re-dispatched"
+    );
+    assert_eq!(
+        fixture.mappings.find_calls(),
+        0,
+        "the re-apply primes instead of reading row by row"
+    );
+
+    // The priming is unconditional, so a cache that went stale between two
+    // requests heals on the next request instead of answering outdated rows.
+    // (The narrower window — a confirm that lands *after* the prime but before
+    // the `reserve` — is pinned by
+    // `schedule_apply_skips_a_pair_a_concurrent_apply_confirmed_after_the_prime`.)
+    let third = fixture
+        .apply_with(stale)
+        .await
+        .expect("a stale cache must degrade to a no-op, never to a conflict");
+    assert_eq!(
+        (third.created_days, third.planned_scene_shoots),
+        (0, 0),
+        "a pair the store already confirmed is neither created nor planned twice"
+    );
+    assert_eq!(
+        fixture.scene_commands.scheduled.lock().unwrap().len(),
+        2,
+        "each (scene, day) pair is linked exactly once"
+    );
+    assert_eq!(
+        fixture.shooting_days.created.lock().unwrap().len(),
+        2,
+        "each day is created exactly once"
+    );
+}
+
+/// Mapping store that reproduces the race the schedule apply has no
+/// `claim_apply_run` lock against: a **concurrent** apply confirms a pair
+/// *after* this run's `list_by_preview` prime but *before* its `reserve`.
+#[derive(Clone, Default)]
+struct RacingMappings {
+    inner: FakeMappings,
+    /// `(aggregate_kind, aggregate_id)` a competing run confirmed; the first
+    /// `reserve` of that kind gets the confirm injected ahead of itself.
+    armed: Arc<Mutex<Option<(String, Uuid)>>>,
+}
+
+impl RacingMappings {
+    fn new(inner: FakeMappings) -> Self {
+        Self {
+            inner,
+            armed: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Arm "another run confirms this kind of row right before our reserve".
+    fn race(&self, aggregate_kind: &str, aggregate_id: Uuid) {
+        *self.armed.lock().unwrap() = Some((aggregate_kind.to_owned(), aggregate_id));
+    }
+}
+
+#[async_trait]
+impl AiImportMappingRepository for RacingMappings {
+    async fn find(
+        &self,
+        preview_id: AiImportJobId,
+        draft_ref: &str,
+        aggregate_kind: &str,
+        ordinal: i32,
+    ) -> Result<Option<AiImportMapping>, DomainError> {
+        self.inner
+            .find(preview_id, draft_ref, aggregate_kind, ordinal)
+            .await
+    }
+
+    async fn reserve(&self, mapping: AiImportMapping) -> Result<AiImportMapping, DomainError> {
+        let raced = {
+            let mut armed = self.armed.lock().unwrap();
+            match armed.as_ref() {
+                Some((kind, aggregate_id)) if *kind == mapping.aggregate_kind => {
+                    Some(*aggregate_id).inspect(|_| *armed = None)
+                }
+                _ => None,
+            }
+        };
+        if let Some(aggregate_id) = raced {
+            // The competing run's confirm lands first: durable id, confirmed
+            // version (so the row is no longer a bare reservation).
+            self.inner
+                .insert(AiImportMapping {
+                    aggregate_id,
+                    aggregate_version: breakdown_core::shared::AggregateVersion(1),
+                    ..mapping.clone()
+                })
+                .await?;
+        }
+        // Insert-if-absent: the confirmed row is what the caller gets back.
+        self.inner.reserve(mapping).await
+    }
+
+    async fn insert(&self, mapping: AiImportMapping) -> Result<(), DomainError> {
+        self.inner.insert(mapping).await
+    }
+
+    async fn list_by_preview(
+        &self,
+        preview_id: AiImportJobId,
+    ) -> Result<Vec<AiImportMapping>, DomainError> {
+        // Decorator delegate of the port itself, not a write-side consumer:
+        // it resolves no audit context (`project_id` never comes from here).
+        self.inner
+            .list_by_preview(preview_id) // ast-grep-ignore: cqrs-boundary
+            .await
+    }
+}
+
+/// Review finding 3: `reserve` returning an already-confirmed row must end the
+/// row's work. Without the check the run re-dispatches `schedule_scene` at the
+/// scene version it read before the race — a real aggregate answers that with
+/// `409 VersionConflict` and the client loses the whole apply.
+#[tokio::test]
+async fn schedule_apply_skips_a_pair_a_concurrent_apply_confirmed_after_the_prime() {
+    let fixture = CachedScheduleFixture::new();
+    let store = RacingMappings::new((*fixture.mappings).clone());
+    // The competing run's SceneShootId: a different id than this run derives, so
+    // the guard's skip is visible in the store's answer.
+    let competing_id = Uuid::now_v7();
+    store.race(mapping_kind::SCENE_SHOOT, competing_id);
+
+    let result = fixture
+        .apply_with(Arc::new(CachedMappings::new(store.clone())))
+        .await
+        .expect("a pair confirmed by a concurrent run must not fail the apply");
+
+    // Only the raced pair is skipped: its day is still created, its scene is
+    // never re-scheduled, and the other pair of the plan goes through.
+    assert_eq!(result.created_days, 2);
+    assert_eq!(
+        result.planned_scene_shoots, 1,
+        "the pair the competing run confirmed is not planned a second time"
+    );
+    assert_eq!(
+        fixture.scene_commands.scheduled.lock().unwrap().len(),
+        1,
+        "only the unraced pair is linked"
+    );
+    let pairs: Vec<AiImportMapping> = fixture
+        .mappings
+        .values
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|mapping| mapping.aggregate_kind == mapping_kind::SCENE_SHOOT)
+        .cloned()
+        .collect();
+    assert_eq!(pairs.len(), 2);
+    let raced = pairs
+        .iter()
+        .find(|mapping| mapping.aggregate_id == competing_id)
+        .expect("the competing confirm is what the store keeps");
+    assert_eq!(
+        raced.aggregate_version.0, 1,
+        "the run must leave the competing confirm untouched"
+    );
+}
+
+// ── Row concurrency (live-test finding: apply duration) ────────────────────
+//
+// Measured against a real single-node SierraDB: an `EAPPEND` returns only once
+// its partition watermark is confirmed, and the confirmation loop batches. Eight
+// concurrent appends were confirmed inside one ~0.3 s tick, while the same eight
+// appends serially paid up to ~2 s each — so the row loop must not dispatch one
+// row at a time. These tests pin that structurally, never by timing.
+
+#[tokio::test]
+async fn rows_dispatch_concurrently_up_to_the_bound_and_keep_plan_order() {
+    let queue = Arc::new(FakeQueue::default());
+    let mappings = Arc::new(FakeMappings::default());
+    let commands = Arc::new(FakeSceneCommands::default());
+    let worker = script_apply_worker(
+        Arc::clone(&commands),
+        Arc::clone(&mappings),
+        Arc::clone(&queue),
+    );
+
+    const ROWS: usize = 4;
+    const _: () = assert!(ROWS <= super::workers::APPLY_ROW_CONCURRENCY);
+
+    let preview = ScriptContext {
+        block_number: None,
+        title: Some("concurrency fixture".to_owned()),
+        scenes: (0..ROWS)
+            .map(|index| DraftScene {
+                draft_ref: format!("row-{index}"),
+                scene_number: Some(u32::try_from(index + 1).expect("row index fits u32")),
+                ..Default::default()
+            })
+            .collect(),
+        uncertainties: Vec::new(),
+        scenes_detected: 0,
+        scenes_extracted: 0,
+        scenes_synthesized: 0,
+    };
+    let decisions: Vec<ApplyMapping> = (0..ROWS)
+        .map(|index| create_decision(&format!("row-{index}")))
+        .collect();
+
+    // The barrier only releases once EVERY row sits in its scene reservation.
+    // A serial row loop would block on the first row forever, so passing this
+    // test IS the proof that the rows run at the same time.
+    mappings.arm_scene_reserve_barrier(ROWS);
+
+    let preview_id = AiImportJobId::new();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        worker.apply_script(ApplyScriptRequest {
+            continuity_selections: Vec::new(),
+            acknowledged_uncertainties: Vec::new(),
+            categories: Vec::new(),
+            actor: UserId::from_sub("ai-test-user"),
+            preview_id,
+            preview: &preview,
+            decisions: &decisions,
+            episode_id: breakdown_core::shared::EpisodeId::new(),
+            season_id: breakdown_core::shared::SeasonId::new(),
+            project_id: None,
+            block_id: breakdown_core::shared::BlockId::new(),
+            episode_groups: Vec::new(),
+            known_episodes: Vec::new(),
+            shooting_days: Vec::new(),
+            telemetry: None,
+        }),
+    )
+    .await
+    .expect("a serial row loop would deadlock on the barrier and time out")
+    .expect("apply succeeds");
+
+    // Every row created exactly one scene, and the summary carries them all —
+    // aggregated in PLAN order (the ids themselves are derived from the draft
+    // refs, so the plan's order is reproducible).
+    let created = commands.created.lock().unwrap().clone();
+    assert_eq!(created.len(), ROWS, "every row created exactly one scene");
+    assert_eq!(
+        result.applied.len(),
+        ROWS,
+        "each row contributes exactly one scene to the summary"
+    );
+    let planned: Vec<Uuid> = preview
+        .scenes
+        .iter()
+        .map(|scene| {
+            super::schedule_apply::derive_id(
+                preview_id,
+                &scene.draft_ref,
+                breakdown_core::ai::mapping_kind::SCENE,
+                breakdown_core::ai::PRIMARY_ORDINAL,
+            )
+        })
+        .collect();
+    let summarised: Vec<Uuid> = result
+        .applied
+        .iter()
+        .map(|scene| scene.aggregate_id)
+        .collect();
+    assert_eq!(
+        summarised, planned,
+        "the summary is aggregated in PLAN order, not completion order"
     );
 }

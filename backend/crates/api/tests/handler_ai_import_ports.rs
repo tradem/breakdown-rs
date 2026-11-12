@@ -2039,8 +2039,12 @@ async fn a_client_dropping_the_apply_request_leaves_no_summary_and_keeps_the_map
     );
     drop(response);
 
-    // The worker's durable record survived the dropped request: one CONFIRMED
-    // scene mapping (`aggregate_version > 0`), the row the read edge derives from.
+    // The worker's durable record survived the dropped request: the gated
+    // `scene` mapping is CONFIRMED (`aggregate_version > 0`) — the row the read
+    // edge derives its summary from. Rows are applied concurrently (bounded by
+    // `APPLY_ROW_CONCURRENCY`), so the gate parks exactly ONE row while its
+    // siblings keep running: the count is therefore "at least the parked row, at
+    // most the plan's two", never a claim about the scheduler.
     let stored = mappings
         .list_by_preview(job_id)
         .await
@@ -2049,10 +2053,11 @@ async fn a_client_dropping_the_apply_request_leaves_no_summary_and_keeps_the_map
         .iter()
         .filter(|mapping| mapping.aggregate_kind == "scene" && !mapping.is_reserved())
         .collect();
-    assert_eq!(
-        confirmed_rows.len(),
-        1,
-        "the gate parks the run at its first confirmed mapping"
+    assert!(
+        !confirmed_rows.is_empty() && confirmed_rows.len() <= 2,
+        "the gate parks the run at its first confirmed mapping, and no more rows\
+         than the plan carries can be confirmed: {}",
+        confirmed_rows.len()
     );
 
     // And the handler wrote no summary: the job the read edge serves is untouched.
