@@ -300,11 +300,53 @@ class _ImportTargetCard extends ConsumerWidget {
   final String? seasonId;
   final AsyncValue<BlockScopeResolution>? resolution;
 
+  /// The card's body while "Block extrahieren" is active (issue #898).
+  ///
+  /// The line states the season with the block as UNKNOWN, and the hint says
+  /// where the block will come from — the previously resolved block is
+  /// deliberately not repeated, because the dispatch no longer carries it (a
+  /// card saying `Block 1` beside a block-less dispatch is exactly the drift
+  /// issue #771 exists to forbid). The line keeps the shared
+  /// `ai-import-target-line` key, so "one target line" stays one node.
+  Widget _deferredTargetBody(BuildContext context, String? seasonNumber) {
+    final l10n = l10nOf(context);
+    final theme = Theme.of(context);
+    return Column(
+      key: const Key('ai-import-target-deferred'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.aiImportTargetLine(
+            seasonNumber == null
+                ? l10n.aiImportTargetUnknownSeason
+                : l10n.blockSeasonNumber(seasonNumber),
+            l10n.aiImportTargetUnknownBlock,
+          ),
+          key: const Key('ai-import-target-line'),
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          // What happens AFTER the upload, with both possible outcomes: at
+          // submit time neither the number nor the season's block list can
+          // decide between them, so the card must not imply one.
+          l10n.aiImportTargetExtractHint,
+          key: const Key('ai-import-target-extract-hint'),
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = l10nOf(context);
     final theme = Theme.of(context);
     final resolved = aiImportResolvedScope(resolution);
+    // Issue #898: "Block extrahieren" — the dispatch takes its target block
+    // from the script instead of the active block. Read here so the card and
+    // the dispatch cannot disagree about it.
+    final extracting = ref.watch(aiImportExtractBlockProvider);
     final seasonNumber = seasonId == null
         ? null
         : ref.watch(aiImportSeasonNumberProvider(seasonId!)).value;
@@ -345,6 +387,8 @@ class _ImportTargetCard extends ConsumerWidget {
     // Issue #828 affordances: which of the two a state can honestly offer.
     var canSwitch = false;
     var canCreate = false;
+    // Issue #898: the third choice (take the block from the script).
+    var canExtract = false;
     if (seasonId == null) {
       body = Text(
         l10n.aiImportTargetNoSeason,
@@ -456,7 +500,22 @@ class _ImportTargetCard extends ConsumerWidget {
           !alreadyPicking &&
           (blocks?.isNotEmpty ?? false);
       canCreate = resolvedValue != null;
+      // Issue #898: extracting needs no block list at all — only a season to
+      // extract INTO. In the empty arm the block-less dispatch is already the
+      // only target that exists (and applies without a tap), so a second way to
+      // say the same thing is not offered. A FAILED block-list fetch keeps the
+      // option: not knowing the season's blocks is exactly when the script's
+      // own block is the only target left (design D2).
+      canExtract =
+          resolution is AsyncError ||
+          (resolvedValue != null && !resolvedValue.isEmpty);
     }
+
+    // Issue #898: while the choice is active the card must not name a block the
+    // dispatch will not send — issue #771's single seam, applied to the line.
+    final displayBody = extracting && canExtract
+        ? _deferredTargetBody(context, seasonNumber)
+        : body;
 
     return Card(
       key: const Key('ai-import-target'),
@@ -472,7 +531,7 @@ class _ImportTargetCard extends ConsumerWidget {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
-            body,
+            displayBody,
             if (listError != null)
               Row(
                 key: const Key('ai-import-target-list-error'),
@@ -490,7 +549,7 @@ class _ImportTargetCard extends ConsumerWidget {
                   ),
                 ],
               ),
-            if (canSwitch || canCreate)
+            if (canSwitch || canCreate || canExtract)
               _ImportTargetActions(
                 onSwitch: canSwitch
                     ? () => _switchImportBlock(
@@ -504,6 +563,12 @@ class _ImportTargetCard extends ConsumerWidget {
                 onCreate: canCreate
                     ? () => _createImportBlock(context, ref, seasonId!)
                     : null,
+                onExtract: canExtract
+                    ? () => ref
+                          .read(aiImportExtractBlockProvider.notifier)
+                          .set(!extracting)
+                    : null,
+                extracting: extracting,
               ),
           ],
         ),
@@ -549,11 +614,27 @@ class _ImportTargetBlockTile extends StatelessWidget {
 /// anlegen" as VISIBLE text buttons (glossary "visible labels" rule — no
 /// icon-only affordance). Which one is rendered is the card's decision; this
 /// widget only lays them out.
+///
+/// Issue #898 adds the third choice, "Block extrahieren": the import takes its
+/// block from the script instead of the active block. While that choice is
+/// active the same control is its undo — one toggle, and the label always names
+/// the action the tap will perform.
 class _ImportTargetActions extends StatelessWidget {
-  const _ImportTargetActions({this.onSwitch, this.onCreate});
+  const _ImportTargetActions({
+    this.onSwitch,
+    this.onCreate,
+    this.onExtract,
+    this.extracting = false,
+  });
 
   final VoidCallback? onSwitch;
   final VoidCallback? onCreate;
+
+  /// Toggles "take the block from the script" for this dispatch.
+  final VoidCallback? onExtract;
+
+  /// `true` while the choice is active — the label flips to its undo.
+  final bool extracting;
 
   @override
   Widget build(BuildContext context) {
@@ -572,6 +653,16 @@ class _ImportTargetActions extends StatelessWidget {
             key: const Key('ai-import-target-create'),
             onPressed: onCreate,
             child: Text(l10n.aiImportTargetCreateBlock),
+          ),
+        if (onExtract != null)
+          TextButton(
+            key: const Key('ai-import-target-extract'),
+            onPressed: onExtract,
+            child: Text(
+              extracting
+                  ? l10n.aiImportTargetExtractBlockUndo
+                  : l10n.aiImportTargetExtractBlock,
+            ),
           ),
       ],
     );
@@ -639,6 +730,10 @@ Future<void> _switchImportBlock(
     currentBlockId: currentBlockId,
   );
   if (picked == null) return;
+  // Issue #898: an explicit block choice countermands a pending "Block
+  // extrahieren" — the user just named the block they want, so the dispatch
+  // must carry it instead of deferring to the script.
+  ref.read(aiImportExtractBlockProvider.notifier).set(false);
   ref
       .read(activeBlockProvider.notifier)
       .set(seasonId: seasonId, blockId: picked.id, blockNumber: picked.number);
@@ -682,6 +777,9 @@ Future<void> _createImportBlock(
   }
   final created = await showCreateBlockSheet(context, ref, season);
   if (created == null) return;
+  // Issue #898: same countermand as the switch above — a block the user just
+  // created is the one they want, not the script's.
+  ref.read(aiImportExtractBlockProvider.notifier).set(false);
   if (ref.read(activeBlockProvider) != selectionBefore) return;
   ref
       .read(activeBlockProvider.notifier)
@@ -729,7 +827,15 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
 
   /// The block-less dispatch applies when the season has no block to adopt and
   /// none is resolved — the one state in which no block-bearing target exists.
-  bool get _isBlockLess => widget.seasonHasNoBlock && widget.target == null;
+  bool get _seasonHasNothingToAdopt =>
+      widget.seasonHasNoBlock && widget.target == null;
+
+  /// Whether this dispatch goes without a target block: either the season has
+  /// none to adopt (issue #829), or the user asked for the script's block
+  /// (issue #898). Read from the provider rather than a widget field, so the
+  /// choice made on the card a frame ago is the one this dispatch sends.
+  bool get _isBlockLess =>
+      ref.read(aiImportExtractBlockProvider) || _seasonHasNothingToAdopt;
 
   Future<void> _submit() async {
     // Backstop (issue #831): the button below is disabled until a document
@@ -822,8 +928,11 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
     // It applies exactly when the season has NO block (then there is nothing to
     // pick) and no block is resolved; a season WITH blocks keeps the explicit
     // pick/create paths, so a dispatch never silently drops a block the user
-    // could have had.
-    final blockLess = _isBlockLess;
+    // could have had. Issue #898 adds the explicit choice: the user may ask for
+    // the script's block instead, and then the deferred target is the one the
+    // card shows.
+    final extractingBlock = ref.watch(aiImportExtractBlockProvider);
+    final blockLess = extractingBlock || _seasonHasNothingToAdopt;
     final hasTarget =
         widget.target != null || (blockLess && widget.seasonId != null);
     return Column(

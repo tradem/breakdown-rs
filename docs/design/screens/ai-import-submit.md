@@ -49,7 +49,7 @@ created season is not yet the ambient scope.
   {^ "Importziel"
      "Season 2 · Block 3"
      "Episoden, Szenen und Drehtage dieses Imports landen in diesem Block."
-     [Block wechseln]   [Block anlegen] }
+     [Block wechseln]   [Block anlegen]   [Block extrahieren] }
   --
   [Zum Import senden]
 }
@@ -61,6 +61,8 @@ The target card also renders two other static shapes: the **block picker**
 action) and the **blocked** state (the explanatory line **and** the create
 action, submit disabled). Issue #828: every RESOLVED state of the card carries
 at least one action, and the switch sheet lists the same rows as the picker.
+Issue #898 adds the third action and one more shape, the **deferred target by
+choice** (line with `Block unbekannt` + the extraction hint), below.
 Expanded (window width class ≥ medium): the same single column, constrained to
 a content max-width — the form never splits into panes.
 
@@ -81,6 +83,8 @@ a content max-width — the form never splits into panes.
 | Target blocked state | Body text | No block in the season → "create a block first" **plus the create action** (issue #828: the identical state used to be a dead end); no season context → "select a season first". Both disable the submit action | `aiImportTargetNoBlocks` / `aiImportTargetNoSeason` |
 | Target switch action | Text button in the target card | **"Block wechseln"** (issue #828), rendered in the resolved state too (before, only the unset-scope picker could switch). Opens a bottom sheet listing the target season's blocks with the current one marked; the pick writes `activeBlockProvider` — the same seam as the inline picker, so the line, the declared season and `X-Active-Block` stay one value | `aiImportTargetSwitchBlock` |
 | Target create action | Text button in the target card | **"Block anlegen"** (issue #828), the way out of a season without blocks and a secondary affordance everywhere else. Opens the EXISTING create-block form (never a second form) and adopts the acknowledged block as the target — the form resolves to the created `(id, number)` pair, because the create route answers with an id only | `aiImportTargetCreateBlock` |
+| Target extract action | Text button in the target card | **"Block extrahieren"** (issue #898): this dispatch takes its target block from the **script** instead of the active block. Offered whenever the target season is known and HAS a block — and also when the block-list fetch FAILED (not knowing the season's blocks is exactly when the script's own block is the only target left); in the no-block state the block-less dispatch is already the only target. Selecting it makes the dispatch omit `X-Active-Block` and declare only the season, so the preview attaches the script's block afterwards — the existing block carrying that number, or a block created with it. Per dispatch, never a mode: a kind switch and a successful submit clear it. It does NOT clear the ambient scope (that scope is the shell's block pill). While active the same control is its **undo** | `aiImportTargetExtractBlock` / `aiImportTargetExtractBlockUndo` |
+| Deferred target by choice | Card + `aiImportTargetLine` | While "Block extrahieren" is active: the season with the block stated as `Block unbekannt`, plus the extraction hint — the previously resolved block is NOT repeated, because the dispatch no longer carries it (a line naming `Block 3` beside a block-less dispatch is the drift issue #771 forbids). An explicit switch/create is the other way back and countermands the choice | `aiImportTargetUnknownBlock` / `aiImportTargetExtractHint` |
 | Season-unavailable report | Snackbar | The season row the create form pre-fills from could not be read: reported instead of opening a form with a guessed id | `aiImportTargetSeasonUnavailable` |
 | Target retry | Text button | The block-list fetch failed while the target itself could not resolve: retry re-runs the season's block fetch, error copy keyed on the problem `code` | `blocksFetchError` + `commonRetry` |
 | Target list-retry | Inline error line + text button | Review of #828: the block-list fetch failed but the sticky scope already matched the season, so the resolution is `ready` and the switch action would silently disappear. The failure is stated with the same code-keyed copy and a retry that re-runs the same season's fetch, so switching stays reachable without leaving the screen | `blocksFetchError` + `commonRetry` |
@@ -157,6 +161,35 @@ Semantics of the state:
   interceptor opt-out, never a blank or sentinel header value.
 - The submit action is enabled by a resolved block **or** by this choice; both
   are visible on the card, so the button's state always has a visible cause.
+
+## "Block extrahieren" — the script's block becomes the target (issue #898)
+
+The same block-less dispatch, made a **choice** instead of a derivation. The
+reported case: the target season already has a block (`Block 1`), the script's
+page header says `Block 98`, and the card resolved `Block 1` — the script's own
+block was only reported as a mismatch hint (#827), never used.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| Extract action | Text button in the target card | Marks THIS dispatch as block-less so the block comes from the script. Offered whenever the season is known and has a block; the no-block arm needs no second way to say the same thing | `aiImportTargetExtractBlock` |
+| Undo (same control) | Text button, label flipped | Restores the resolved target line. The ambient scope was never touched, so no restore logic is involved | `aiImportTargetExtractBlockUndo` |
+| Extraction hint | Body-small text | Names the two possible outcomes (adopt the script's block, or create it) and the `when` (after the upload) — the number cannot be known before extraction, so the card never prints one | `aiImportTargetExtractHint` |
+| Switch / create countermand | Existing actions | Any explicit switch or created block clears the choice: the user just named the block they want | `aiImportTargetSwitchBlock` / `aiImportTargetCreateBlock` |
+
+Semantics of the state (inherits every rule of the block-less section above):
+
+- The ambient block scope is **never** rewritten to express the choice — it is
+  the shell's block pill and the target of other screens.
+- After extraction the job is block-less, so `ScriptBlockScope.targetBlockUnset`
+  is true and the PREVIEW's card adopts the script's block with the established
+  rules (attach the block carrying that number, otherwise create it and attach).
+  No second adoption path exists for this entry point.
+- A script that states no block leaves the target unset: the preview keeps its
+  manual pick/create affordances and an apply without a target is refused with
+  `409 ai-import.target-missing` (unchanged, #829).
+- Copy is the reporter's own wording ("Block extrahieren") because it states
+  exactly what happens: the block is extracted from the document, not chosen
+  from the scope.
 
 ## Deliberately NO provider-degraded pre-warn (issue #822, recorded decision)
 

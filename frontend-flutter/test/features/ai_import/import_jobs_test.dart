@@ -110,6 +110,11 @@ class FakeAiImportRepository extends AiImportRepository {
   /// SUPPRESSED (issue #829) — `false` means the block travelled with it.
   bool lastSendActiveBlock = true;
 
+  /// Holds the upload open so a test can dispose the controller WHILE the
+  /// request is in flight (review of #898: the continuation must survive a
+  /// dead subscriber).
+  Completer<Result<AiUploadAck>>? uploadGate;
+
   /// The scripted watch stream (a controllable controller per test).
   StreamController<Result<AiImportJob>>? watchController;
 
@@ -130,6 +135,7 @@ class FakeAiImportRepository extends AiImportRepository {
     lastFileName = fileName;
     lastDeclaredSeasonId = declaredSeasonId;
     lastSendActiveBlock = sendActiveBlock;
+    if (uploadGate != null) return uploadGate!.future;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -145,6 +151,7 @@ class FakeAiImportRepository extends AiImportRepository {
     lastFileName = fileName;
     lastDeclaredSeasonId = declaredSeasonId;
     lastSendActiveBlock = sendActiveBlock;
+    if (uploadGate != null) return uploadGate!.future;
     return uploadResult ?? Right(AiUploadAck(jobId: 'job-1', duplicate: false));
   }
 
@@ -387,6 +394,65 @@ void main() {
       final res = await done;
       expect(res.getLeft().toNullable()!.code, 'membership.pending');
       expect(repo.uploadCalls, 0);
+      container.dispose();
+    });
+
+    test('a controller disposed MID-upload keeps the acknowledgement and '
+        'still consumes the extraction intent (review of #898)', () async {
+      await setupContainer();
+      // Keep the autoDispose controller alive explicitly, so the test can end
+      // its life at a chosen moment instead of at the container's.
+      final sub = container.listen(
+        aiImportSubmitControllerProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      final controller = container.read(
+        aiImportSubmitControllerProvider.notifier,
+      )..selectKind(AiImportKind.schedule);
+      // The intent is chosen AFTER the kind switch (which clears it).
+      container.read(aiImportExtractBlockProvider.notifier).set(true);
+      final gate = Completer<Result<AiUploadAck>>();
+      repo.uploadGate = gate;
+
+      final done = controller.submit(AiImportDocument.csv('x'));
+      await Future<void>.delayed(Duration.zero);
+      expect(repo.uploadCalls, 1, reason: 'the upload is in flight');
+
+      // The screen goes away mid-upload: the provider is disposed while the
+      // request is still open (the case the `ref.mounted` fallback covers).
+      sub.close();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        identical(
+          container.read(aiImportSubmitControllerProvider.notifier),
+          controller,
+        ),
+        isFalse,
+        reason:
+            'the controller is gone before the acknowledgement arrives (a read '
+            'builds a fresh one, so the in-flight dispatch belongs to a dead '
+            'provider)',
+      );
+
+      gate.complete(Right(AiUploadAck(jobId: 'job-1', duplicate: false)));
+      final res = await done;
+      expect(
+        res.isRight(),
+        isTrue,
+        reason:
+            'the ack survives a dead subscriber — a `ref.read` after the await '
+            'would throw UnmountedRefException and replace the created job '
+            'with an error the user never caused',
+      );
+      expect(res.getRight().toNullable()!.jobId, 'job-1');
+      expect(
+        container.read(aiImportExtractBlockProvider),
+        isFalse,
+        reason:
+            'a dead subscriber still consumes the block-less intent, so the '
+            'next dispatch cannot go block-less behind the user\'s back',
+      );
       container.dispose();
     });
 

@@ -849,6 +849,243 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('a season WITH a block offers "Block extrahieren", and the '
+        'choice makes THIS dispatch block-less while the ambient scope stays '
+        'put (issue #898)', (tester) async {
+      await setupContainer(
+        seasonId: 'season-1',
+        seasonNumber: '2',
+        blocks: Right([
+          blockView('block-1', seasonId: 'season-1', number: 3),
+          blockView('block-98', seasonId: 'season-1', number: 98),
+        ]),
+      );
+      await pumpScreen(tester, seasonId: 'season-1');
+      repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
+
+      // All three choices exist side by side — the missing one was the whole
+      // point of the issue: a season that already has a block could not hand
+      // the target to the script.
+      expect(find.byKey(const Key('ai-import-target-switch')), findsOneWidget);
+      expect(find.byKey(const Key('ai-import-target-create')), findsOneWidget);
+      final extract = find.byKey(const Key('ai-import-target-extract'));
+      expect(extract, findsOneWidget);
+      expect(
+        tester.widget<TextButton>(extract).child,
+        isA<Text>().having((t) => t.data, 'label', 'Extract block'),
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        'Season 2 · Block 3',
+      );
+
+      await tester.tap(extract);
+      await tester.pumpAndSettle();
+
+      // The card stops naming the block the dispatch will not send.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        contains('Block unknown'),
+      );
+      expect(
+        find.byKey(const Key('ai-import-target-extract-hint')),
+        findsOneWidget,
+        reason: 'the card states WHERE the block comes from after the upload',
+      );
+      expect(
+        tester.widget<TextButton>(extract).child,
+        isA<Text>().having((t) => t.data, 'label', 'Reset target block'),
+        reason: 'the same control is the undo while the choice is active',
+      );
+      expect(container.read(aiImportExtractBlockProvider), isTrue);
+
+      // The document is picked AFTER the choice: a kind switch clears both the
+      // document and the per-dispatch intent (design D1), so it must not run
+      // between them.
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      await tester.pumpAndSettle();
+      await tester.tap(extract);
+      await tester.pumpAndSettle();
+      expect(container.read(aiImportExtractBlockProvider), isTrue);
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
+      await tester.tap(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.uploadCalls, 1);
+      expect(
+        repo.lastSendActiveBlock,
+        isFalse,
+        reason:
+            'the chosen target is the script\'s block, so no '
+            'X-Active-Block may pin the job to block 3',
+      );
+      expect(
+        repo.lastDeclaredSeasonId,
+        'season-1',
+        reason: 'the season stays the upload authorization scope',
+      );
+      expect(
+        container.read(activeBlockProvider)?.blockId,
+        'block-1',
+        reason:
+            'the ambient scope (the shell block pill) is never rewritten '
+            'to express one import\'s intent',
+      );
+    });
+
+    testWidgets('the "Block extrahieren" undo restores the resolved line, and '
+        'the choice never outlives its dispatch (issue #898)', (tester) async {
+      await setupContainer(
+        seasonId: 'season-1',
+        seasonNumber: '2',
+        blocks: Right([blockView('block-1', seasonId: 'season-1', number: 3)]),
+      );
+      await pumpScreen(tester, seasonId: 'season-1');
+      repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
+
+      final extract = find.byKey(const Key('ai-import-target-extract'));
+      await tester.tap(extract);
+      await tester.pumpAndSettle();
+      expect(container.read(aiImportExtractBlockProvider), isTrue);
+
+      await tester.tap(extract);
+      await tester.pumpAndSettle();
+      expect(container.read(aiImportExtractBlockProvider), isFalse);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        'Season 2 · Block 3',
+        reason:
+            'the undo restores the resolved target without touching the '
+            'ambient scope',
+      );
+
+      // A kind switch drops the choice with the document it was chosen for.
+      await tester.tap(extract);
+      await tester.pumpAndSettle();
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(aiImportExtractBlockProvider),
+        isFalse,
+        reason: 'the intent is per dispatch, never a mode',
+      );
+
+      // A successful dispatch consumes it: the next upload carries the block.
+      await tester.tap(extract);
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
+      await tester.tap(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.uploadCalls, 1);
+      expect(repo.lastSendActiveBlock, isFalse);
+      expect(
+        container.read(aiImportExtractBlockProvider),
+        isFalse,
+        reason: 'a stale flag would turn the NEXT import block-less silently',
+      );
+    });
+
+    testWidgets('a season WITHOUT blocks offers no duplicate "Block '
+        'extrahieren" — the block-less dispatch is already implicit there '
+        '(issue #898)', (tester) async {
+      await setupContainer(
+        realActiveBlock: true,
+        seasonId: 'season-b',
+        seasonNumber: '2',
+        blocks: const Right([]),
+      );
+      await pumpScreen(tester, seasonId: 'season-b');
+
+      expect(
+        find.byKey(const Key('ai-import-target-no-blocks')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-import-target-extract')),
+        findsNothing,
+        reason:
+            'there is no block to extract away from — a second way to seek '
+            'the same state would read as an alternative that does not exist',
+      );
+      await tester.pump();
+    });
+
+    testWidgets('a FAILED block-list fetch still offers "Block extrahieren" '
+        '— not knowing the season\'s blocks is when the script\'s block is the '
+        'only target left (review of #898)', (tester) async {
+      // Design D2: extraction depends on no block list at all, so a fetch
+      // failure must not hide the one choice that still produces a target.
+      await setupContainer(
+        realActiveBlock: true,
+        seasonId: 'season-1',
+        seasonNumber: '2',
+        blocks: const Left(_networkDown),
+        // The season comes from the shell chip (no block scope), so the
+        // resolution has to FETCH the block list — and can fail doing it.
+        shellActiveSeason: seasonView('season-1'),
+      );
+      await pumpScreen(tester);
+      repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
+
+      expect(
+        find.byKey(const Key('ai-import-target-error')),
+        findsOneWidget,
+        reason: 'the failure is still stated with its retry',
+      );
+      final extract = find.byKey(const Key('ai-import-target-extract'));
+      expect(
+        extract,
+        findsOneWidget,
+        reason:
+            'switch/create need the block list; extraction needs only a season',
+      );
+
+      // The kind switch clears the per-dispatch intent, so it runs BEFORE the
+      // choice (the same order the screen's own flow allows).
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      await tester.pumpAndSettle();
+      await tester.tap(extract);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        contains('Block unknown'),
+      );
+
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
+      await tester.tap(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.uploadCalls, 1);
+      expect(repo.lastSendActiveBlock, isFalse);
+      expect(repo.lastDeclaredSeasonId, 'season-1');
+    });
+
     testWidgets('a season without blocks offers "Block anlegen", opens the '
         'SHARED create form and adopts the created block as the target '
         '(issue #828)', (tester) async {

@@ -1739,6 +1739,16 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiImportTargetCreateBlock => 'Block anlegen';
 
   @override
+  String get aiImportTargetExtractBlock => 'Block extrahieren';
+
+  @override
+  String get aiImportTargetExtractBlockUndo => 'Ziel-Block zurücksetzen';
+
+  @override
+  String get aiImportTargetExtractHint =>
+      'Der Block kommt aus dem Skript: Nach dem Hochladen wird der dort genannte Block als Ziel übernommen – oder neu angelegt, wenn die Season ihn noch nicht hat.';
+
+  @override
   String get aiImportTargetSeasonUnavailable =>
       'Die Season konnte nicht geladen werden. Versuch es erneut.';
 

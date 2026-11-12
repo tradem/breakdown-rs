@@ -1716,6 +1716,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiImportTargetCreateBlock => 'Create block';
 
   @override
+  String get aiImportTargetExtractBlock => 'Extract block';
+
+  @override
+  String get aiImportTargetExtractBlockUndo => 'Reset target block';
+
+  @override
+  String get aiImportTargetExtractHint =>
+      'The block comes from the script: after the upload, the block it names becomes the target — or is created when the season does not have it yet.';
+
+  @override
   String get aiImportTargetSeasonUnavailable =>
       'The season could not be loaded. Try again.';
 
