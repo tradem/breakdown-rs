@@ -99,6 +99,7 @@ AiImportJob _job(
   int maxRetries = 3,
   ApplyState? applyState,
   ApplyRunOutcome? applyResult,
+  String? applyRunId,
 }) => AiImportJob(
   (b) => b
     ..id = id
@@ -115,7 +116,8 @@ AiImportJob _job(
     ..updatedAt = DateTime.utc(2026, 1, 1)
     // Issue #899: the durable apply slot (absent on a pre-#899 row).
     ..applyState = applyState
-    ..applyResult = applyResult?.toBuilder(),
+    ..applyResult = applyResult?.toBuilder()
+    ..applyRunId = applyRunId,
 );
 
 /// A finished run's counters (issue #899) — the object the terminal frame, the
@@ -295,6 +297,23 @@ String _sseApplyFrame(String jobId, {int? applied, int? total}) =>
     'event: apply\ndata: ${jsonEncode({
       'job_id': jobId,
       'apply_progress': applied == null || total == null ? null : {'stage': 'applying', 'applied': applied, 'total': total, 'started_at': '2026-11-02T10:00:00Z', 'updated_at': '2026-11-02T10:00:31Z'},
+    })}\n\n';
+
+/// A terminal `event: apply` frame in its **wire** form — the shape the
+/// generated `ApplyProgressFrame` deserializes, `run_id` and externally tagged
+/// `apply_result` included. Used to prove the decoder itself carries the run
+/// identity (a purely flattened fake could pass while it drops the field).
+String _sseApplyOutcomeFrame(
+  String jobId, {
+  required String runId,
+  required ApplyImportSummary summary,
+}) =>
+    'event: apply\ndata: ${jsonEncode({
+      'job_id': jobId,
+      'run_id': runId,
+      'apply_progress': null,
+      'apply_state': 'done',
+      'apply_result': {'succeeded': standardSerializers.serializeWith(ApplyImportSummary.serializer, summary)},
     })}\n\n';
 
 /// Scriptable SSE transport: every open resolves with a `ResponseBody`
@@ -2309,6 +2328,82 @@ void main() {
         expect(outcome, isA<ApplySucceeded>());
       },
     );
+
+    test(
+      'apply watch: the wire decoder carries the run identity (own run)',
+      () async {
+        final interceptor = _SseInterceptor([
+          _sseApplyOutcomeFrame(
+            'j1',
+            runId: 'run-A',
+            summary: _outcome(appliedCount: 7),
+          ),
+        ]);
+        final repo = AiImportRepository(_api(interceptor), _dao());
+        final outcome = await repo.awaitRunOutcome(
+          'j1',
+          expectedRunId: 'run-A',
+        );
+        expect(outcome, isA<ApplySucceeded>());
+        expect((outcome! as ApplySucceeded).response.appliedCount, 7);
+      },
+    );
+
+    test(
+      'apply watch: the wire decoder carries the run identity (foreign run)',
+      () async {
+        // Same wire frame, another owner: without `run_id` in the decoded frame
+        // this would be served as this apply's result.
+        final interceptor = _SseInterceptor([
+          _sseApplyOutcomeFrame(
+            'j1',
+            runId: 'run-B',
+            summary: _outcome(appliedCount: 9),
+          ),
+        ]);
+        final repo = AiImportRepository(_api(interceptor), _dao());
+        final outcome = await repo.awaitRunOutcome(
+          'j1',
+          expectedRunId: 'run-A',
+        );
+        expect(outcome, isA<ApplyUnresolved>());
+        expect(
+          (outcome! as ApplyUnresolved).error.code,
+          'ai_import.apply_run_superseded',
+        );
+      },
+    );
+
+    test('apply watch: a superseded run is reported from the job row too', () async {
+      // The stream ends without a terminal frame, so the outcome comes from the
+      // persisted job row — the other reader, same identity rule. `getJobAndCache`
+      // reads through the API, so the row is scripted there.
+      final row = _job(
+        'j1',
+        status: JobStatus.succeeded,
+        applyState: ApplyState.done,
+        applyResult: _runOutcome(_outcome(appliedCount: 9)),
+        applyRunId: 'run-B',
+      );
+      final repo = _FrameRepository(
+        _api(
+          _scripted([
+            serializers.serializeWith(
+              AiImportJobResponse.serializer,
+              _jobResponse(row),
+            )!,
+          ]),
+        ),
+        _dao(),
+        const [],
+      );
+      final outcome = await repo.awaitRunOutcome('j1', expectedRunId: 'run-A');
+      expect(outcome, isA<ApplyUnresolved>());
+      expect(
+        (outcome! as ApplyUnresolved).error.code,
+        'ai_import.apply_run_superseded',
+      );
+    });
 
     test('clearCache wipes the job rows', () async {
       final dao = _dao();

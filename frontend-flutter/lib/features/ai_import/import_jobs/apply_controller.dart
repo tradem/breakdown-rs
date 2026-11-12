@@ -1433,6 +1433,11 @@ class AiApplyController extends _$AiApplyController {
     // applies (review of #899, AGENTS.md §5 / D6). A resolved denial issues zero
     // requests and renders the localized narrative; a pending membership keeps
     // the card waiting (never a 403 narrative, D3).
+    // Captured BEFORE the await: the gate can stay pending long enough for the
+    // auto-dispose notifier to be destroyed (the user leaves the preview), and
+    // a `ref.read` in the continuation would throw `UnmountedRefException` and
+    // fail the apply before it dispatches (review of #899).
+    final scheduler = ref.read(reconciliationSchedulerProvider);
     final denial = await ref.read(aiApplyStreamGateProvider(jobId).future);
     // Only a **resolved** denial blocks the dispatch. `membership.pending` is
     // "not resolved yet" (cold cache, offline, a season scope that did not
@@ -1450,7 +1455,7 @@ class AiApplyController extends _$AiApplyController {
     final outcome = await repo.applyWithReconciliation(
       jobId,
       request,
-      scheduler: ref.read(reconciliationSchedulerProvider),
+      scheduler: scheduler,
       // A retry is a NEW server-side run: the first run's end frame has
       // already closed the card's subscription, so re-arm it instead of
       // leaving the retry's progress unwatched. The POST is not cancelled —
