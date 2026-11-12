@@ -3954,6 +3954,14 @@ async fn script_apply_publishes_apply_progress_and_clears_it_at_the_end() {
         "the final row is published, got {applying:?}"
     );
     assert_eq!(applying.last(), Some(&2), "monotone, ending at the total");
+    // Rows of one batch finish out of order and `mark_apply_progress` only
+    // compares the run's status/id, so a lower count landing last would store a
+    // smaller `applied` and the bar would move backwards (CodeRabbit finding).
+    // The worker gates the compare-and-write, so the frame log is non-decreasing.
+    assert!(
+        applying.windows(2).all(|window| window[0] <= window[1]),
+        "published progress never moves backwards, got {applying:?}"
+    );
 
     // The trailing work announces itself instead of freezing the bar at 100 %.
     assert!(
@@ -6649,6 +6657,56 @@ async fn script_apply_binds_a_continuation_to_the_source_outfit() {
         "both scenes cast the same Outfit aggregate"
     );
     assert_eq!(beat_outfits[0], outfits[0].0);
+}
+
+/// A row that wears a CONTINUED look must not run concurrently with the row that
+/// creates the source outfit: `resolve_continued_outfit` reads that row's
+/// CONFIRMED `outfit` mapping, and a continuation that reads too early is
+/// reported as `ContinuityUnresolved` and never retried (design D3).
+///
+/// The plan lists the continuation FIRST, so nothing but the dependency ordering
+/// can make it resolve: under a plain row fan-out both rows start together and
+/// the continuation looks up an outfit that does not exist yet.
+#[tokio::test]
+async fn a_continuation_waits_for_the_row_that_creates_its_source_outfit() {
+    let fixture = ScriptApplyFixture::new();
+    let preview = ScriptContext {
+        scenes: vec![
+            continued_row("1. INT. WOHNUNG", "2. INT. OP"),
+            row_with_outfit("1. INT. WOHNUNG", &["BEN"], &[("BEN", "Zivil-Look")]),
+        ],
+        ..Default::default()
+    };
+    let decisions = [
+        create_decision("2. INT. OP"),
+        create_decision("1. INT. WOHNUNG"),
+    ];
+    let result = fixture.apply(&preview, &decisions).await.unwrap();
+
+    assert!(
+        result.unapplied_outfits.is_empty(),
+        "the continuation must wait for its source row, got {:?}",
+        result.unapplied_outfits
+    );
+    assert_eq!(
+        result.created_outfits, 1,
+        "a continuation creates no second Outfit"
+    );
+    let outfits = fixture.wardrobe.assigned.lock().unwrap().clone();
+    assert_eq!(outfits.len(), 1);
+    let mut beat_outfits: Vec<Uuid> = Vec::new();
+    for scene_id in fixture.scenes.created.lock().unwrap().clone() {
+        for (_, outfit_id) in fixture.scenes.beats_of(scene_id) {
+            beat_outfits.push(outfit_id);
+        }
+    }
+    assert_eq!(beat_outfits.len(), 2, "one beat per scene");
+    assert!(
+        beat_outfits
+            .iter()
+            .all(|outfit_id| *outfit_id == outfits[0].0),
+        "both scenes cast the source Outfit"
+    );
 }
 
 #[tokio::test]

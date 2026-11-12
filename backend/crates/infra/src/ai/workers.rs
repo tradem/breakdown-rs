@@ -1792,6 +1792,24 @@ struct RowApplyContext<'a> {
     season_archived: &'a tokio::sync::OnceCell<Option<bool>>,
 }
 
+/// The run-level progress state one finished row advances (issues #762, #800).
+///
+/// Bundled so [`ApplyWorker::note_row_completed`] stays under the
+/// `too_many_arguments` lint (AGENTS.md §3, cf. [`RowDayLink`]), and `Copy` so the
+/// concurrent row futures each take a cheap handle set instead of borrowing the
+/// locals through a closure.
+#[derive(Clone, Copy)]
+struct RowProgress<'a> {
+    preview_id: AiImportJobId,
+    run_id: ApplyRunId,
+    applied_counter: &'a std::sync::atomic::AtomicU32,
+    /// The highest `applied` value a frame has been published for.
+    published: &'a tokio::sync::Mutex<u32>,
+    progress_tx: &'a tokio::sync::watch::Sender<ApplyProgress>,
+    template: &'a ApplyProgress,
+    stride: u32,
+}
+
 /// The requested number/name an applied-episode summary entry may be labelled
 /// with: `None` unless THIS apply created the episode (issue #763 — on a
 /// reapply the mapping wins and the persisted episode keeps the first values).
@@ -2625,47 +2643,75 @@ where
             block_id,
             season_archived: &season_archived,
         });
-        let applied_counter = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let applied_counter = std::sync::atomic::AtomicU32::new(0);
+        // The highest `applied` value a frame was written for — see
+        // [`ApplyWorker::note_row_completed`] for why the write needs a gate.
+        let published_applied = tokio::sync::Mutex::new(0u32);
+        let row_progress = RowProgress {
+            preview_id,
+            run_id,
+            applied_counter: &applied_counter,
+            published: &published_applied,
+            progress_tx: &progress_tx,
+            template: &apply_progress,
+            stride: progress_stride,
+        };
         // Bounded, ordered concurrency without a stream combinator: rows are
         // applied in batches of `APPLY_ROW_CONCURRENCY`, and each batch is joined
         // before the next one starts. `try_join_all` preserves the input order, so
-        // `outcomes` is in PLAN order — the aggregation below depends on it — and
-        // a failing row aborts the run at its batch boundary (rows already
+        // `outcomes` is filled in PLAN order — the aggregation below depends on it
+        // — and a failing row aborts the run at its batch boundary (rows already
         // committed stay committed, exactly like the sequential abort did).
-        let mut outcomes: Vec<RowApplyOutcome> = Vec::with_capacity(plan.scenes.len());
-        let rows: Vec<(&SceneApplyPlan, Option<LexicalSortKey>)> =
-            plan.scenes.iter().zip(planned_orders).collect();
-        for batch in rows.chunks(APPLY_ROW_CONCURRENCY) {
-            let row_futures = batch.iter().map(|(row, planned_order)| {
+        //
+        // ONE exception, and it is a DATA dependency, not an ordering preference:
+        // a row that wears a CONTINUED look resolves the `Outfit` of the row that
+        // introduced it (`resolve_continued_outfit` reads that row's confirmed
+        // `outfit` mapping). A continuation that reads too early reports
+        // `ContinuityUnresolved` and never retries (design D3), so those rows run
+        // after the concurrent phase, in plan order — the order the sequential
+        // loop gave them, which is also what keeps a chain of continuations
+        // (`scene 5 → 4 → 3`) working: every row's source is either a plain row of
+        // the phase above or an earlier continuation row of this one.
+        let rows: Vec<(usize, &SceneApplyPlan, Option<LexicalSortKey>)> = plan
+            .scenes
+            .iter()
+            .zip(planned_orders)
+            .enumerate()
+            .map(|(index, (row, planned_order))| (index, row, planned_order))
+            .collect();
+        let (concurrent_rows, continuation_rows): (Vec<_>, Vec<_>) = rows
+            .into_iter()
+            .partition(|(_, row, _)| !row_needs_a_source_outfit(row));
+
+        let mut outcomes: Vec<Option<RowApplyOutcome>> =
+            (0..plan.scenes.len()).map(|_| None).collect();
+        for batch in concurrent_rows.chunks(APPLY_ROW_CONCURRENCY) {
+            let row_futures = batch.iter().map(|(index, row, planned_order)| {
+                let index = *index;
                 let row = *row;
                 let planned_order = planned_order.clone();
                 let row_ctx = std::sync::Arc::clone(&row_ctx);
-                let applied_counter = std::sync::Arc::clone(&applied_counter);
-                let progress_template = apply_progress.clone();
-                let progress_tx = progress_tx.clone();
                 async move {
                     let outcome = self.apply_row(&row_ctx, row, planned_order).await?;
-                    let applied = applied_counter
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                        .saturating_add(1);
-                    let snapshot = ApplyProgress {
-                        applied,
-                        ..progress_template
-                    };
-                    // The heartbeat follows the counters through the channel, so
-                    // it learns every row boundary (issue #800 #3) without a
-                    // per-row store write.
-                    progress_tx.send_replace(snapshot.clone());
-                    if applied >= snapshot.total || applied.is_multiple_of(progress_stride) {
-                        self.publish_apply_progress(preview_id, run_id, &snapshot)
-                            .await;
-                    }
-                    Ok::<RowApplyOutcome, DomainError>(outcome)
+                    self.note_row_completed(&row_progress).await;
+                    Ok::<(usize, RowApplyOutcome), DomainError>((index, outcome))
                 }
             });
-            outcomes.extend(futures::future::try_join_all(row_futures).await?);
+            for (index, outcome) in futures::future::try_join_all(row_futures).await? {
+                outcomes[index] = Some(outcome);
+            }
+        }
+        // The rows whose looks continue another row's: strictly after the phase
+        // above, and still in plan order.
+        for (index, row, planned_order) in continuation_rows {
+            let outcome = self.apply_row(&row_ctx, row, planned_order).await?;
+            self.note_row_completed(&row_progress).await;
+            outcomes[index] = Some(outcome);
         }
         for outcome in outcomes {
+            let outcome = outcome.ok_or_else(|| {
+                DomainError::validation("a planned row finished without an outcome")
+            })?;
             row_elapsed_total = row_elapsed_total.saturating_add(outcome.row_elapsed);
             row_elapsed_max = row_elapsed_max.max(outcome.row_elapsed);
             let scene = outcome
@@ -2717,6 +2763,10 @@ where
             unapplied_outfits = result.unapplied_outfits.len(),
             "AI import apply row phase finished",
         );
+        // Every row wrote only its OWN snapshot, so the template still says
+        // `applied: 0`: without this the finalizing frame (and the heartbeat that
+        // carries it) would report zero completed rows for the rest of the run.
+        apply_progress.applied = u32::try_from(result.applied.len()).unwrap_or(u32::MAX);
         apply_progress.stage = ApplyStage::Finalizing;
         apply_progress.updated_at = chrono::Utc::now();
         progress_tx.send_replace(apply_progress.clone());
@@ -2726,6 +2776,43 @@ where
             self.queue.record_telemetry(preview_id, telemetry).await?;
         }
         Ok(result)
+    }
+
+    /// Advance the run's own progress after one row finished (issues #762, #800).
+    ///
+    /// Two ordering facts this must respect now that rows run concurrently:
+    ///
+    /// * the heartbeat follows the counters through the watch channel, so it must
+    ///   never see a smaller `applied` than before;
+    /// * `mark_apply_progress` compares only the run's status and id, so a frame
+    ///   with a LOWER count that lands after a higher one is stored and the bar
+    ///   moves backwards until the next write. Rows of one batch finish out of
+    ///   order, so the comparison and the write happen under one lock: that is
+    ///   what makes the stored order follow the counter order.
+    ///
+    /// The `None` clear path is untouched by this (it never routes through here),
+    /// which is why the monotonic rule stays in the worker instead of the SQL.
+    async fn note_row_completed(&self, progress: &RowProgress<'_>) {
+        let applied = progress
+            .applied_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            .saturating_add(1);
+        let mut published = progress.published.lock().await;
+        if applied < *published {
+            return;
+        }
+        *published = applied;
+        let snapshot = ApplyProgress {
+            applied,
+            ..progress.template.clone()
+        };
+        // The heartbeat follows the counters through the channel, so it learns
+        // every row boundary (issue #800 #3) without a per-row store write.
+        progress.progress_tx.send_replace(snapshot.clone());
+        if applied >= snapshot.total || applied.is_multiple_of(progress.stride) {
+            self.publish_apply_progress(progress.preview_id, progress.run_id, &snapshot)
+                .await;
+        }
     }
 
     /// Publish one apply-progress frame, treating the write as **advisory**
@@ -4460,6 +4547,18 @@ struct RowDayLink<'a> {
     /// the arrival order is not the plan order, and a retry must reproduce the
     /// first attempt's allocation.
     planned_order: LexicalSortKey,
+}
+
+/// `true` when this row wears a look that CONTINUES another row's outfit.
+///
+/// Such a row may not run concurrently with the row that introduced the look: it
+/// resolves that row's confirmed `outfit` mapping, and reading before the confirm
+/// reports `ContinuityUnresolved` with no retry (design D3). The row loop in
+/// [`ApplyWorker::run_script_apply`] uses this to give those rows their own phase.
+fn row_needs_a_source_outfit(row: &SceneApplyPlan) -> bool {
+    row.outfits
+        .iter()
+        .any(|outfit| outfit.continuation.is_some())
 }
 
 /// A costume row that did not become a `Costume`, shaped for the reviewer.
