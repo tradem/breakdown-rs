@@ -172,7 +172,7 @@ class FakePipelineRepository extends AiImportRepository {
   @override
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
-    bool waitForTerminal = true,
+    String? expectedRunId,
   }) async => ApplySucceeded(
     ApplyImportSummary(
       (b) => b

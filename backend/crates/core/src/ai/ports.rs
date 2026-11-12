@@ -1105,6 +1105,32 @@ pub trait AiImportQueue: Send + Sync {
         telemetry: Telemetry,
     ) -> Result<(), DomainError>;
 
+    /// Record apply-time telemetry **fenced to the run that owns the slot**
+    /// (issue #899).
+    ///
+    /// The apply path is not owner-fenced the way a claim is: a run that went
+    /// silent long enough to be taken over can still finish afterwards and
+    /// reach the telemetry write last. Unfenced, that late write would stamp the
+    /// **new** run's slot with the old run's accept signal and edit distance,
+    /// and `applied` would describe a request the slot no longer holds. Hence
+    /// the fence: the write only lands while `run_id` still owns the slot.
+    ///
+    /// Returns `false` when the slot moved on (the caller logs it and keeps the
+    /// outcome it already persisted — telemetry is never part of the apply's
+    /// success contract).
+    ///
+    /// The default delegates to [`record_telemetry`](Self::record_telemetry)
+    /// and reports a landed write: a fake that does not model the slot keeps the
+    /// pre-#899 behaviour.
+    async fn record_run_telemetry(
+        &self,
+        id: AiImportJobId,
+        _run_id: ApplyRunId,
+        telemetry: Telemetry,
+    ) -> Result<bool, DomainError> {
+        self.record_telemetry(id, telemetry).await.map(|()| true)
+    }
+
     /// List a job's recorded attempt history, newest first (issue #637).
     ///
     /// Backs the `attempts` field of `GET /ai-import/jobs/{id}` so the reason

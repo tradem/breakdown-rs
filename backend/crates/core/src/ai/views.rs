@@ -725,6 +725,15 @@ pub struct AiImportJob {
     /// finished had no way to learn the outcome except by re-applying.
     #[serde(default)]
     pub apply_state: ApplyState,
+    /// The identity of the run that currently owns the slot (issue #899),
+    /// `None` before the first dispatch and after the payload was cleared.
+    ///
+    /// A slot is single-flight per job but **not** immutable: run A can finish
+    /// and run B take the slot before A's client re-subscribes. Without this
+    /// field that client cannot tell "my run's outcome" from "someone else's
+    /// later run", so it would report B's counters as A's result.
+    #[serde(default)]
+    pub apply_run_id: Option<ApplyRunId>,
     /// The persisted outcome of the last apply run that **finished** (issue
     /// #899). Additive with `serde(default)`.
     ///
@@ -851,6 +860,13 @@ impl ApplyProgress {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ApplyProgressFrame {
     pub job_id: AiImportJobId,
+    /// The identity of the run this frame describes (issue #899), `None` when
+    /// the slot has no owner. `apply_progress` carries the same id while a run
+    /// is publishing, but the **terminal** frame has no progress payload — so
+    /// without this field a client could not attribute the outcome it just
+    /// received to the run it dispatched.
+    #[serde(default)]
+    pub run_id: Option<ApplyRunId>,
     #[serde(default)]
     pub apply_progress: Option<ApplyProgress>,
     /// Lifecycle state of the job's apply slot at the moment of this frame

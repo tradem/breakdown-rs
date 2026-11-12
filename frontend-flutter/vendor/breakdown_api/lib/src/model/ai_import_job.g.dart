@@ -16,6 +16,8 @@ class _$AiImportJob extends AiImportJob {
   @override
   final ApplyRunOutcome? applyResult;
   @override
+  final String? applyRunId;
+  @override
   final ApplyState? applyState;
   @override
   final BuiltList<AiImportAttempt>? attempts;
@@ -78,6 +80,7 @@ class _$AiImportJob extends AiImportJob {
       this.appliedEpisodes,
       this.applyProgress,
       this.applyResult,
+      this.applyRunId,
       this.applyState,
       this.attempts,
       this.blockId,
@@ -121,6 +124,7 @@ class _$AiImportJob extends AiImportJob {
         appliedEpisodes == other.appliedEpisodes &&
         applyProgress == other.applyProgress &&
         applyResult == other.applyResult &&
+        applyRunId == other.applyRunId &&
         applyState == other.applyState &&
         attempts == other.attempts &&
         blockId == other.blockId &&
@@ -157,6 +161,7 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, appliedEpisodes.hashCode);
     _$hash = $jc(_$hash, applyProgress.hashCode);
     _$hash = $jc(_$hash, applyResult.hashCode);
+    _$hash = $jc(_$hash, applyRunId.hashCode);
     _$hash = $jc(_$hash, applyState.hashCode);
     _$hash = $jc(_$hash, attempts.hashCode);
     _$hash = $jc(_$hash, blockId.hashCode);
@@ -195,6 +200,7 @@ class _$AiImportJob extends AiImportJob {
           ..add('appliedEpisodes', appliedEpisodes)
           ..add('applyProgress', applyProgress)
           ..add('applyResult', applyResult)
+          ..add('applyRunId', applyRunId)
           ..add('applyState', applyState)
           ..add('attempts', attempts)
           ..add('blockId', blockId)
@@ -250,6 +256,10 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _$this._applyResult ??= ApplyRunOutcomeBuilder();
   set applyResult(ApplyRunOutcomeBuilder? applyResult) =>
       _$this._applyResult = applyResult;
+
+  String? _applyRunId;
+  String? get applyRunId => _$this._applyRunId;
+  set applyRunId(String? applyRunId) => _$this._applyRunId = applyRunId;
 
   ApplyState? _applyState;
   ApplyState? get applyState => _$this._applyState;
@@ -387,6 +397,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _appliedEpisodes = $v.appliedEpisodes?.toBuilder();
       _applyProgress = $v.applyProgress?.toBuilder();
       _applyResult = $v.applyResult?.toBuilder();
+      _applyRunId = $v.applyRunId;
       _applyState = $v.applyState;
       _attempts = $v.attempts?.toBuilder();
       _blockId = $v.blockId;
@@ -441,6 +452,7 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
             appliedEpisodes: _appliedEpisodes?.build(),
             applyProgress: _applyProgress?.build(),
             applyResult: _applyResult?.build(),
+            applyRunId: applyRunId,
             applyState: applyState,
             attempts: _attempts?.build(),
             blockId: blockId,

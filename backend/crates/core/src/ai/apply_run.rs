@@ -97,11 +97,21 @@ pub struct ScriptApplyRunRequest {
 }
 
 /// Everything a schedule apply needs, resolved and owned (issue #899).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+// No `PartialEq`/`Eq`: the telemetry the request now carries is float-valued
+// (`Telemetry`), and comparing two persisted requests is nothing the run does.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScheduleApplyRunRequest {
     pub actor: UserId,
     /// The project the schedule merges into.
     pub project_id: Option<ProjectId>,
+    /// Telemetry to record once the run ends — the same contract the script
+    /// branch carries. It exists because #899 moved the run out of the handler:
+    /// the handler used to record it after a successful schedule merge, and a
+    /// dispatched run has no handler left to do that. `None` when the edge
+    /// decided not to record any (it is never required for the apply to
+    /// succeed).
+    #[serde(default)]
+    pub telemetry: Option<Telemetry>,
 }
 
 /// The persisted request of one apply run (issue #899, design D2).

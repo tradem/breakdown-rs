@@ -46,6 +46,7 @@ export 'package:breakdown_api/src/model/apply_mapping_decision.dart';
 export 'package:breakdown_api/src/model/apply_mapping_decision_one_of.dart';
 export 'package:breakdown_api/src/model/apply_mapping_decision_one_of_update.dart';
 export 'package:breakdown_api/src/model/apply_progress.dart';
+export 'package:breakdown_api/src/model/apply_progress_frame.dart';
 export 'package:breakdown_api/src/model/apply_run_accepted.dart';
 export 'package:breakdown_api/src/model/apply_run_outcome.dart';
 export 'package:breakdown_api/src/model/apply_run_outcome_one_of.dart';

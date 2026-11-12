@@ -145,6 +145,7 @@ fn foreign_pending_job() -> AiImportJob {
         applied: false,
         // Issue #899: this literal never ran a durable apply run.
         apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
         apply_result: None,
     }
 }

@@ -2611,6 +2611,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 applied: false,
                 // Issue #899: a freshly stored job has never been applied.
                 apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_run_id: None,
                 apply_result: None,
             },
         );
@@ -2786,6 +2787,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 applied: false,
                 // Issue #899: a freshly stored job has never been applied.
                 apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_run_id: None,
                 apply_result: None,
             },
         );
@@ -2935,6 +2937,10 @@ impl AiImportQueue for FakeAiImportQueue {
             .insert(id.as_uuid(), request.clone());
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.apply_state = breakdown_core::ai::ApplyState::Requested;
+            // The row names its new owner, exactly like the adapter's
+            // `apply_run_id = $2`: a client compares it against the run id its
+            // `202` returned (#899 review).
+            job.apply_run_id = Some(run_id);
             // A new run never inherits the previous run's outcome (#899).
             job.apply_result = None;
             job.updated_at = Utc::now();
@@ -2944,8 +2950,21 @@ impl AiImportQueue for FakeAiImportQueue {
     }
 
     /// Mirror the adapter's `requested` → `running` adoption (issue #899).
-    /// The fake has no crash-recovery takeover path: a test that wants one
-    /// drives `claim_apply_run` + `mark_apply_progress(None)` itself.
+    ///
+    /// The adoption predicate is part of what the fake must model, or a test
+    /// cannot detect a duplicate adoption: **only a `requested` slot is
+    /// adoptable** (the production statement's `WHERE apply_state =
+    /// 'requested' OR stale-running`). Without the check a second
+    /// `begin_apply_run` would return the same running run, and a call after
+    /// completion would even turn `done` back into `running`.
+    ///
+    /// The state check, the run-id decision and the transition happen under one
+    /// lock: reading the state and writing it in two steps would let two
+    /// concurrent adopters both win, which is exactly what the single statement
+    /// in `queue.rs` prevents.
+    ///
+    /// No crash-recovery takeover path: a test that wants one drives
+    /// `claim_apply_run` + `mark_apply_progress(None)` itself.
     async fn begin_apply_run(
         &self,
         id: AiImportJobId,
@@ -2956,6 +2975,14 @@ impl AiImportQueue for FakeAiImportQueue {
         let Some(request) = request else {
             return Ok(None);
         };
+        let mut jobs = self.jobs.lock().await;
+        let Some(job) = jobs.get_mut(&id.as_uuid()) else {
+            return Ok(None);
+        };
+        // The adoption predicate: anything but `requested` is not adoptable.
+        if job.apply_state != breakdown_core::ai::ApplyState::Requested {
+            return Ok(None);
+        }
         let run_id = {
             let mut runs = self.apply_runs.lock().await;
             let slot = runs.entry(id.as_uuid()).or_default();
@@ -2963,11 +2990,8 @@ impl AiImportQueue for FakeAiImportQueue {
             slot.owner = Some(run_id);
             run_id
         };
-        let mut jobs = self.jobs.lock().await;
-        let Some(job) = jobs.get_mut(&id.as_uuid()) else {
-            return Ok(None);
-        };
         job.apply_state = breakdown_core::ai::ApplyState::Running;
+        job.apply_run_id = Some(run_id);
         job.updated_at = Utc::now();
         drop(jobs);
         self.hub.notify(id);
@@ -3092,6 +3116,31 @@ impl AiImportQueue for FakeAiImportQueue {
     ) -> Result<(), DomainError> {
         self.telemetry.lock().await.push((id, telemetry));
         Ok(())
+    }
+
+    /// The run-fenced twin (issue #899 review): the write only lands while
+    /// `run_id` still owns the slot, exactly like the adapter's
+    /// `WHERE id = $1 AND apply_run_id = $2`. Recording the call means a test
+    /// can assert that a run's telemetry landed **under the fence** rather than
+    /// through the unfenced API-path method.
+    async fn record_run_telemetry(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+        telemetry: Telemetry,
+    ) -> Result<bool, DomainError> {
+        locked(&self.call_log).push("record_run_telemetry");
+        let owns = self
+            .apply_runs
+            .lock()
+            .await
+            .get(&id.as_uuid())
+            .is_some_and(|slot| slot.owner == Some(run_id));
+        if !owns {
+            return Ok(false);
+        }
+        self.record_telemetry(id, telemetry).await?;
+        Ok(true)
     }
 }
 

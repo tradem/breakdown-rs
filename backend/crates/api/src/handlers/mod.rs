@@ -7328,6 +7328,11 @@ where
                 state.last_emitted = Some(watermark);
                 let frame = breakdown_core::ai::ApplyProgressFrame {
                     job_id: state.id,
+                    // The slot's owner, not `payload.run_id`: the terminal
+                    // frame carries no progress payload, and attributing an
+                    // outcome to the wrong run is exactly what a re-entering
+                    // client must not do (issue #899 review).
+                    run_id: snapshot.owner,
                     apply_progress: payload,
                     apply_state: snapshot.state,
                     apply_result: outcome,
@@ -8144,6 +8149,11 @@ pub async fn apply_ai_import<P: Ports>(
                 breakdown_core::ai::ScheduleApplyRunRequest {
                     actor: current_user.sub,
                     project_id: request.project_id,
+                    // The pre-#899 handler recorded the apply's telemetry right
+                    // after the merge; with the run dispatched there is no
+                    // handler left, so the review signal travels WITH the run
+                    // and the worker writes it under the run fence (issue #899).
+                    telemetry: Some(telemetry),
                 },
             );
             dispatch_apply_run(&state, id, dispatch).await

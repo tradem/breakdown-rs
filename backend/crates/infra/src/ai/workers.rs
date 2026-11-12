@@ -2793,7 +2793,22 @@ where
         self.publish_apply_progress(preview_id, run_id, &apply_progress)
             .await;
         if let Some(telemetry) = telemetry {
-            self.queue.record_telemetry(preview_id, telemetry).await?;
+            // Fenced to THIS run (issue #899): a run that went silent long
+            // enough to be taken over can still finish afterwards, and its
+            // unfenced write would stamp the new run's slot with the old run's
+            // accept signal. Telemetry is never part of the apply's success
+            // contract, so a lost fence is logged, not fatal.
+            let landed = self
+                .queue
+                .record_run_telemetry(preview_id, run_id, telemetry)
+                .await?;
+            if !landed {
+                tracing::warn!(
+                    job_id = %preview_id.as_uuid(),
+                    run_id = %run_id.as_uuid(),
+                    "skipped AI import apply telemetry: the run no longer owns the slot"
+                );
+            }
         }
         Ok(result)
     }

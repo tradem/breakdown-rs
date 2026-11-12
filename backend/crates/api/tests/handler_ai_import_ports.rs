@@ -203,6 +203,7 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         applied: false,
         // Issue #899: no durable apply slot on this literal.
         apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
         apply_result: None,
     }
 }
@@ -2062,18 +2063,38 @@ async fn a_dispatched_apply_survives_the_client_dropping_the_request() {
 
     // And the run still executes — through the runner, exactly like production.
     let summary = run_dispatched_apply(&ports).await;
+    // The run's telemetry is recorded **under the run fence** (#899 review): the
+    // worker must not reach the unfenced API-path write, or a run that went
+    // silent and was taken over could stamp the new run's slot with its own
+    // accept signal.
+    assert!(
+        ports
+            .ai_import_queue
+            .call_log
+            .lock()
+            .expect("call log")
+            .iter()
+            .any(|call| *call == "record_run_telemetry"),
+        "the dispatched run records its telemetry through the fenced transition"
+    );
     assert_eq!(summary.applied_count, 2);
-    let confirmed_rows = mappings
+    // One confirmed mapping per requested scene row — asserted by identity, not
+    // by a count: `0 < n <= 2` would also pass with only `scene-0` confirmed
+    // while `scene-1` silently failed to apply (issue #899 review).
+    let confirmed: Vec<String> = mappings
         .list_by_preview(job_id)
         .await
         .expect("mapping read should succeed")
         .into_iter()
         .filter(|mapping| mapping.aggregate_kind == "scene" && !mapping.is_reserved())
-        .count();
-    assert!(
-        confirmed_rows > 0 && confirmed_rows <= 2,
-        "the executed run confirms the plan's scene mappings: {confirmed_rows}"
-    );
+        .map(|mapping| mapping.draft_ref)
+        .collect();
+    for expected in ["scene-0", "scene-1"] {
+        assert!(
+            confirmed.iter().any(|draft_ref| draft_ref == expected),
+            "the executed run must confirm {expected}: {confirmed:?}"
+        );
+    }
 }
 
 /// Issue #763: a successful apply reports the episodes its rows landed in, so

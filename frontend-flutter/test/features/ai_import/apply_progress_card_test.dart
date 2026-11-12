@@ -13,7 +13,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:breakdown_api/breakdown_api.dart';
+// `hide`: the app's flattened frame (ai_import_repository.dart) is the one
+// these tests build — the generated wire model is the decoder's business.
+import 'package:breakdown_api/breakdown_api.dart' hide ApplyProgressFrame;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

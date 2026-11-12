@@ -93,6 +93,7 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         applied: false,
         // Issue #899: no durable apply slot on this literal.
         apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
         apply_result: None,
     }
 }

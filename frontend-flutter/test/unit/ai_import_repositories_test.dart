@@ -21,16 +21,21 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:breakdown_api/breakdown_api.dart';
+// `hide`: this file builds the app's flattened `ApplyProgressFrame`; the
+// generated wire model is only the decoder's business.
+import 'package:breakdown_api/breakdown_api.dart' hide ApplyProgressFrame;
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:one_of/one_of.dart';
 
 import 'package:built_collection/built_collection.dart' show BuiltList;
+import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_config_repository.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
@@ -153,13 +158,31 @@ class _AttachingRepository extends AiImportRepository {
   @override
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
-    bool waitForTerminal = true,
+    String? expectedRunId,
   }) async {
     if (outcomes.isEmpty) return null;
     final index = outcomeCalls.clamp(0, outcomes.length - 1);
     outcomeCalls++;
     return outcomes[index];
   }
+}
+
+/// Repository whose **stream** is scripted, so the real `awaitRunOutcome` runs
+/// (the run-identity logic under review must not be re-implemented by a fake).
+class _FrameRepository extends AiImportRepository {
+  _FrameRepository(super.api, super.cache, this.frames);
+
+  final List<Result<ApplyProgressFrame>> frames;
+
+  @override
+  Stream<Result<ApplyProgressFrame>> watchApplyProgress(
+    String jobId, {
+    ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
+    int maxAttempts = kMaxJobWatchAttempts,
+    int maxIdleReconnects = kMaxApplyIdleReconnects,
+    Duration receiveTimeout = kSseReceiveTimeout,
+    CancelToken? cancelToken,
+  }) => Stream.fromIterable(frames);
 }
 
 AiImportJobResponse _jobResponse(AiImportJob job) =>
@@ -2228,6 +2251,64 @@ void main() {
       expect(decisionTelemetryFromWire('not json'), isNull);
       expect(decisionTelemetryFromWire(null), isNull);
     });
+
+    test(
+      "a later run's outcome is reported as superseded, never as this apply's",
+      () async {
+        // Run A was dispatched (the `202` named it); run B took the slot and
+        // finished before A's client re-subscribed. Serving B's counters as A's
+        // result would silently report someone else's import (review of #899).
+        final repo = _FrameRepository(_api(_scripted([null])), _dao(), [
+          Right<ProblemError, ApplyProgressFrame>(
+            ApplyProgressFrame(
+              summary: _outcome(appliedCount: 9),
+              runId: 'run-B',
+            ),
+          ),
+        ]);
+        final outcome = await repo.awaitRunOutcome(
+          'j1',
+          expectedRunId: 'run-A',
+        );
+        expect(outcome, isA<ApplyUnresolved>());
+        expect(
+          (outcome! as ApplyUnresolved).error.code,
+          'ai_import.apply_run_superseded',
+        );
+      },
+    );
+
+    test("the dispatched run's own outcome is returned", () async {
+      final repo = _FrameRepository(_api(_scripted([null])), _dao(), [
+        Right<ProblemError, ApplyProgressFrame>(
+          ApplyProgressFrame(
+            summary: _outcome(appliedCount: 3),
+            runId: 'run-A',
+          ),
+        ),
+      ]);
+      final outcome = await repo.awaitRunOutcome('j1', expectedRunId: 'run-A');
+      expect(outcome, isA<ApplySucceeded>());
+      expect((outcome! as ApplySucceeded).response.appliedCount, 3);
+    });
+
+    test(
+      'a caller with no dispatch of its own accepts whatever run finished',
+      () async {
+        // A re-entered screen asks "what did the last run do?" — it has no run
+        // identity to compare against, so nothing can be foreign to it.
+        final repo = _FrameRepository(_api(_scripted([null])), _dao(), [
+          Right<ProblemError, ApplyProgressFrame>(
+            ApplyProgressFrame(
+              summary: _outcome(appliedCount: 4),
+              runId: 'run-B',
+            ),
+          ),
+        ]);
+        final outcome = await repo.awaitRunOutcome('j1');
+        expect(outcome, isA<ApplySucceeded>());
+      },
+    );
 
     test('clearCache wipes the job rows', () async {
       final dao = _dao();

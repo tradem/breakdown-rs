@@ -2233,6 +2233,34 @@ impl AiImportQueue for PgAiImportQueue {
         Ok(())
     }
 
+    /// Run-fenced apply telemetry (issue #899): the same two columns as
+    /// [`Self::record_telemetry`], written only while `run_id` still owns the
+    /// slot. A stolen run finishing late therefore reports `false` instead of
+    /// stamping the new run's accept signal.
+    async fn record_run_telemetry(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+        telemetry: Telemetry,
+    ) -> Result<bool, DomainError> {
+        let values = TelemetryValues::try_from_telemetry(telemetry)?;
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET accept_as_is = $2, edit_distance = $3, updated_at = now()
+            WHERE id = $1 AND apply_run_id = $4
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(values.accept_as_is)
+        .bind(values.edit_distance)
+        .bind(run_id.as_uuid())
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn list_attempts(
         &self,
         id: AiImportJobId,
@@ -2698,6 +2726,13 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
                 breakdown_core::ai::ApplyState::from_stored(raw)
             }),
         apply_result: decode_apply_result(&row),
+        // The run that owns the slot (issue #899), so a client can tell its own
+        // run's outcome from a later run's. A NULL owner (pre-#899 row, cleared
+        // slot) decodes as `None`, never as an invented id.
+        apply_run_id: row
+            .try_get::<Option<Uuid>, _>("apply_run_id")
+            .map_err(map_sqlx_error)?
+            .map(breakdown_core::ai::ApplyRunId::from_uuid),
         // Whether an apply ever landed for this preview (issue #800). The
         // telemetry write records `Applied` (`accept_as_is` set) on the first
         // successful apply and never resets it, so this is the persisted

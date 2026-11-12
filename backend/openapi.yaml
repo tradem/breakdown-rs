@@ -443,6 +443,18 @@ components:
               client branches on `code` like it does for every other apply failure
               (ADR-031).
           - type: 'null'
+        apply_run_id:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyRunId'
+            description: |-
+              The identity of the run that currently owns the slot (issue #899),
+              `None` before the first dispatch and after the payload was cleared.
+
+              A slot is single-flight per job but **not** immutable: run A can finish
+              and run B take the slot before A's client re-subscribes. Without this
+              field that client cannot tell "my run's outcome" from "someone else's
+              later run", so it would report B's counters as A's result.
+          - type: 'null'
         apply_state:
           $ref: '#/components/schemas/ApplyState'
           description: |-
@@ -1331,6 +1343,51 @@ components:
       - stage
       - started_at
       - updated_at
+      type: object
+    ApplyProgressFrame:
+      description: |-
+        Wire payload of one apply-progress frame (issue #762).
+
+        Deliberately narrower than [`AiImportJob`]: the apply does not change the
+        job row's status, so a client watching an apply needs the run's own numbers
+        and nothing else. `apply_progress: None` is the run's **end** signal.
+
+        Since issue #899 the frame also carries the run slot's own state and — once
+        the run is over — its **persisted outcome**, so a stream that the client
+        attaches to *after* the run finished still learns what committed instead of
+        only learning that nothing is running any more (design D4).
+      properties:
+        apply_progress:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyProgress'
+          - type: 'null'
+        apply_result:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyRunOutcome'
+            description: |-
+              The persisted outcome of the last finished run, `None` while none has
+              finished. Additive with `serde(default)`.
+          - type: 'null'
+        apply_state:
+          $ref: '#/components/schemas/ApplyState'
+          description: |-
+            Lifecycle state of the job's apply slot at the moment of this frame
+            (issue #899). Additive with `serde(default)`: a pre-#899 frame decodes
+            as [`ApplyState::Idle`], which is exactly what such a frame described.
+        job_id:
+          $ref: '#/components/schemas/AiImportJobId'
+        run_id:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyRunId'
+            description: |-
+              The identity of the run this frame describes (issue #899), `None` when
+              the slot has no owner. `apply_progress` carries the same id while a run
+              is publishing, but the **terminal** frame has no progress payload — so
+              without this field a client could not attribute the outcome it just
+              received to the run it dispatched.
+          - type: 'null'
+      required:
+      - job_id
       type: object
     ApplyRunAccepted:
       description: |-

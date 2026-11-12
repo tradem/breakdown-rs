@@ -460,6 +460,7 @@ mod apply_run_state_default {
             cost: None,
             // Issue #899: a pre-#899 row carries no durable apply slot.
             apply_state: ApplyState::Idle,
+            apply_run_id: None,
             apply_result: None,
             applied_episodes: Vec::new(),
             decision_telemetry: None,

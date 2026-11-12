@@ -104,6 +104,7 @@ impl RecordingQueue {
                 applied: false,
                 // Issue #899: no durable apply slot on a pre-change job literal.
                 apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_run_id: None,
                 apply_result: None,
             },
             handed_out: Arc::new(Mutex::new(false)),

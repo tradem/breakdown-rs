@@ -48,6 +48,7 @@ import 'package:breakdown_api/src/model/apply_mapping_decision.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of_update.dart';
 import 'package:breakdown_api/src/model/apply_progress.dart';
+import 'package:breakdown_api/src/model/apply_progress_frame.dart';
 import 'package:breakdown_api/src/model/apply_run_accepted.dart';
 import 'package:breakdown_api/src/model/apply_run_outcome.dart';
 import 'package:breakdown_api/src/model/apply_run_outcome_one_of.dart';
@@ -252,6 +253,7 @@ part 'serializers.g.dart';
   ApplyMappingDecisionOneOf,
   ApplyMappingDecisionOneOfUpdate,
   ApplyProgress,
+  ApplyProgressFrame,
   ApplyRunAccepted,
   ApplyRunOutcome,
   ApplyRunOutcomeOneOf,

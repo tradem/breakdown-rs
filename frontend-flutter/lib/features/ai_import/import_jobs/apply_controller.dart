@@ -6,7 +6,9 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:breakdown_api/breakdown_api.dart';
+// `hide`: this file folds the app's flattened `ApplyProgressFrame`
+// (ai_import_repository.dart), not the generated wire model of the same name.
+import 'package:breakdown_api/breakdown_api.dart' hide ApplyProgressFrame;
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
@@ -1424,6 +1426,27 @@ class AiApplyController extends _$AiApplyController {
             ? null
             : continuitySelections.toBuilder(),
     );
+    // `// AUTHZ-GATE:` both endpoints this flow touches are handler-internally
+    // gated (`POST /apply` writes, `GET /apply-events` reads), so the client
+    // mirror runs BEFORE the first network call — including the run watch the
+    // reconciliation opens, which used to bypass the gate the stream provider
+    // applies (review of #899, AGENTS.md §5 / D6). A resolved denial issues zero
+    // requests and renders the localized narrative; a pending membership keeps
+    // the card waiting (never a 403 narrative, D3).
+    final denial = await ref.read(aiApplyStreamGateProvider(jobId).future);
+    // Only a **resolved** denial blocks the dispatch. `membership.pending` is
+    // "not resolved yet" (cold cache, offline, a season scope that did not
+    // load), and refusing on it would hide the server's own answer behind a
+    // local one: the endpoint is handler-gated, so an actual denial still comes
+    // back as the same registered code. Zero requests are issued for the case
+    // this gate exists for — a membership that resolved to *denied* while the
+    // dispatch was being prepared (review of #899).
+    if (denial != null && denial.code != 'membership.pending') {
+      if (ref.mounted) {
+        state = state.copyWith(outcome: null, commandError: denial);
+      }
+      return Left(denial);
+    }
     final outcome = await repo.applyWithReconciliation(
       jobId,
       request,

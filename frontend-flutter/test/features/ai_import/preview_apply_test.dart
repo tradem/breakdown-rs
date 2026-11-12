@@ -404,7 +404,7 @@ class FakeAiImportRepository extends AiImportRepository {
   @override
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
-    bool waitForTerminal = true,
+    String? expectedRunId,
   }) async {
     final index = applyQueue.indexWhere((event) => event.isRight());
     if (index < 0) return null;

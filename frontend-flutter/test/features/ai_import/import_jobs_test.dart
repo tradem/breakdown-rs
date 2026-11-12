@@ -198,7 +198,7 @@ class FakeAiImportRepository extends AiImportRepository {
   @override
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
-    bool waitForTerminal = true,
+    String? expectedRunId,
   }) async {
     final summary = applyResult?.getRight().toNullable();
     return summary == null ? null : ApplySucceeded(summary);

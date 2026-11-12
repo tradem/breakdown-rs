@@ -72,6 +72,19 @@ const EMPTY_APPLY_SLEEP: Duration = Duration::from_secs(2);
 /// a real apply (minutes of writes), and single-flight is per preview anyway.
 const APPLY_POLL_BATCH: i64 = 4;
 
+/// How many apply runs one replica executes **concurrently** (issue #899
+/// review).
+///
+/// The poll batch alone is not a bound: a tick claims up to
+/// [`APPLY_POLL_BATCH`] rows, and claiming a row moves it out of `requested`, so
+/// the next tick two seconds later claims the next four — a backlog of previews
+/// would otherwise fan out to hundreds of concurrent applies on one replica,
+/// each with its own command-service traffic and pool connections. The batch is
+/// therefore additionally capped by the free capacity of this bound, and a full
+/// runner skips claiming entirely (the rows stay `requested` and are adopted by
+/// the next tick with capacity, or by another replica).
+const APPLY_MAX_CONCURRENCY: usize = 4;
+
 /// The script apply worker this app's port set produces.
 ///
 /// A named alias, not an inline nine-parameter type: the type is instantiated in
@@ -204,7 +217,7 @@ impl<P: Ports> ApplyRunner<P> {
                 self.run_script(job_id, run_id, *script, &payload).await
             }
             ApplyRunRequest::Schedule(schedule) => {
-                self.run_schedule(job_id, schedule, &payload).await
+                self.run_schedule(job_id, run_id, schedule, &payload).await
             }
         }
     }
@@ -276,9 +289,15 @@ impl<P: Ports> ApplyRunner<P> {
     }
 
     /// Execute a schedule apply and record its telemetry (issue #899).
+    ///
+    /// The schedule worker publishes no progress frames (a merge is one row
+    /// loop without the script path's per-row protocol), so the telemetry write
+    /// that the handler used to do after the merge happens here — fenced to this
+    /// run, and never fatal: the merge already committed.
     async fn run_schedule(
         &self,
         job_id: AiImportJobId,
+        run_id: ApplyRunId,
         request: ScheduleApplyRunRequest,
         payload: &[u8],
     ) -> Result<ApplyImportSummary, DomainError> {
@@ -304,6 +323,35 @@ impl<P: Ports> ApplyRunner<P> {
             project_id: request.project_id,
         })
         .await?;
+        // Telemetry is not part of the apply success contract (the merge is
+        // committed): log a failed or fenced-out record so the caller still
+        // gets its summary — the same non-fatal rule the handler followed.
+        if let Some(telemetry) = request.telemetry {
+            match self
+                .state
+                .ports
+                .ai_import_queue()
+                .record_run_telemetry(job_id, run_id, telemetry)
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    warn!(
+                        job_id = %job_id.as_uuid(),
+                        run_id = %run_id.as_uuid(),
+                        "skipped the schedule apply telemetry: the run no longer owns the slot"
+                    );
+                }
+                Err(error) => {
+                    warn!(
+                        job_id = %job_id.as_uuid(),
+                        run_id = %run_id.as_uuid(),
+                        %error,
+                        "failed to record AI import telemetry after a successful schedule apply"
+                    );
+                }
+            }
+        }
         Ok(ApplyImportSummary {
             applied_count: 0,
             created_days: result.created_days,
@@ -389,16 +437,28 @@ pub fn spawn_apply_run_worker(
             if *shutdown.borrow() {
                 break;
             }
-            let waiting = match state
-                .ports
-                .ai_import_queue()
-                .requested_apply_runs(APPLY_POLL_BATCH)
-                .await
-            {
-                Ok(waiting) => waiting,
-                Err(error) => {
-                    warn!(%error, "failed to poll the AI import apply-run slot");
-                    Vec::new()
+            // A full runner claims nothing: the rows stay `requested` and the
+            // next tick with free capacity (or another replica) adopts them.
+            // Without this the batch bound would only pace the fan-out, never
+            // cap it (see APPLY_MAX_CONCURRENCY).
+            let free = APPLY_MAX_CONCURRENCY.saturating_sub(in_flight.len());
+            let waiting = if free == 0 {
+                Vec::new()
+            } else {
+                let batch = i64::try_from(free)
+                    .unwrap_or(APPLY_POLL_BATCH)
+                    .min(APPLY_POLL_BATCH);
+                match state
+                    .ports
+                    .ai_import_queue()
+                    .requested_apply_runs(batch)
+                    .await
+                {
+                    Ok(waiting) => waiting,
+                    Err(error) => {
+                        warn!(%error, "failed to poll the AI import apply-run slot");
+                        Vec::new()
+                    }
                 }
             };
             for job_id in waiting {

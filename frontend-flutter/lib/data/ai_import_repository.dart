@@ -7,6 +7,9 @@
 import 'dart:convert';
 
 import 'package:breakdown_api/breakdown_api.dart';
+// Prefixed: the generated `ApplyProgressFrame` is the WIRE model, the local one
+// below is the flattened view the card folds (issue #899 review).
+import 'package:breakdown_api/breakdown_api.dart' as wire;
 import 'package:dio/dio.dart';
 import 'package:fpdart/fpdart.dart';
 
@@ -149,7 +152,16 @@ class ApplyProgressFrame {
     this.state,
     this.summary,
     this.failureCode,
+    this.runId,
   });
+
+  /// The run this frame describes, as the server named it (`null` for a frame
+  /// of a slot without an owner, and for a pre-#899 server).
+  ///
+  /// It exists so a client that dispatched run A never reports run B's outcome
+  /// as A's: the slot is single-flight but not immutable — A can finish and B
+  /// take the slot before A's client re-subscribes (issue #899 review).
+  final String? runId;
 
   /// Live row progress, `null` when the run published none (before its first
   /// frame, after it cleared the slot, or on the terminal frame).
@@ -807,11 +819,16 @@ class AiImportRepository extends BaseRepository {
 
   /// Decodes one `event: apply` SSE data payload (issues #762, #899).
   ///
-  /// The frame is `{ job_id, apply_progress, apply_state, apply_result }`. A
-  /// nested `apply_progress: null` is the progress payload being absent (the
-  /// run's end on a pre-#899 server, or its terminal frame now); a body the
-  /// serializers reject is `ai_import.dto_invalid`. Same never-throw discipline
-  /// as [_decodeJobFrame].
+  /// The envelope is the **generated** [wire.ApplyProgressFrame], not a
+  /// hand-written map of keys: the frame is a published schema
+  /// (`components.schemas.ApplyProgressFrame`), so the generated serializer is
+  /// the one place the wire shape lives (review of #899 — "never manually type
+  /// API responses"). Only the flattening into the client's own
+  /// [ApplyProgressFrame] happens here: the card wants `summary`/`failureCode`
+  /// rather than the externally tagged `apply_result` union.
+  ///
+  /// Same never-throw discipline as [_decodeJobFrame]: a body the serializer
+  /// rejects is `ai_import.dto_invalid`.
   static Result<ApplyProgressFrame> _decodeApplyFrame(String data) {
     const malformed = Left<ProblemError, ApplyProgressFrame>(
       ProblemError(code: 'ai_import.dto_invalid'),
@@ -819,50 +836,39 @@ class AiImportRepository extends BaseRepository {
     try {
       final decoded = jsonDecode(data);
       if (decoded is! Map<String, dynamic>) return malformed;
-      final progress = switch (decoded['apply_progress']) {
-        null => null,
-        final Object raw => standardSerializers.deserializeWith(
-          ApplyProgress.serializer,
-          raw,
-        ),
-      };
-      final state = switch (decoded['apply_state']) {
-        final String raw => ApplyState.values.firstWhere(
-          (value) => value.name == raw,
-          orElse: () => ApplyState.idle,
-        ),
-        _ => null,
-      };
-      // Externally tagged, like every other enum on this wire:
-      // `{"succeeded": {...}}` / `{"failed": {"code": …}}` (core
-      // `ApplyRunOutcome`).
-      ApplyImportSummary? summary;
-      String? failureCode;
-      if (decoded['apply_result'] case final Map<String, dynamic> result) {
-        switch (result['succeeded']) {
-          case final Object raw:
-            summary = standardSerializers.deserializeWith(
-              ApplyImportSummary.serializer,
-              raw,
-            );
-          case null:
-            if (result['failed'] case final Map<String, dynamic> failed) {
-              failureCode = failed['code'] as String?;
-            }
-        }
-      }
+      final frame = standardSerializers.deserializeWith(
+        wire.ApplyProgressFrame.serializer,
+        decoded,
+      );
+      if (frame == null) return malformed;
+      final (summary, failureCode) = _outcomeParts(frame.applyResult);
       return Right<ProblemError, ApplyProgressFrame>(
         ApplyProgressFrame(
-          progress: progress,
-          state: state,
+          progress: frame.applyProgress,
+          state: frame.applyState,
           summary: summary,
           failureCode: failureCode,
+          runId: frame.runId,
         ),
       );
     } on Object {
       return malformed;
     }
   }
+
+  /// The counters, or the registered code, of a persisted `apply_result`.
+  ///
+  /// The wire shape is externally tagged (`{"succeeded": {...}}` /
+  /// `{"failed": {"code": …}}`), which the generated `oneOf` model decodes into
+  /// `ApplyRunOutcomeOneOf` / `ApplyRunOutcomeOneOf1` — so the outcome is
+  /// unpacked in exactly one place for both readers (frame and job row).
+  static (ApplyImportSummary?, String?) _outcomeParts(
+    ApplyRunOutcome? result,
+  ) => switch (result?.oneOf.value) {
+    final ApplyRunOutcomeOneOf succeeded => (succeeded.succeeded, null),
+    final ApplyRunOutcomeOneOf1 failure => (null, failure.failed.code),
+    _ => (null, null),
+  };
 
   /// Decodes one `event: job` SSE data payload into the generated
   /// [AiImportJob]. A body the serializers reject (unknown future field
@@ -1047,8 +1053,13 @@ class AiImportRepository extends BaseRepository {
       final accepted = res.getRight().toNullable();
       if (accepted != null) {
         // Dispatched: the run is durable from here on, so this client only has
-        // to follow it to its terminal frame.
-        final settled = await awaitRunOutcome(jobId);
+        // to follow it to its terminal frame — and it names the run it expects,
+        // so a later run that replaced the slot is reported as superseded
+        // instead of being served as this apply's result (review of #899).
+        final settled = await awaitRunOutcome(
+          jobId,
+          expectedRunId: accepted.runId,
+        );
         if (settled != null) return settled;
         // The watch ended without the run's outcome AND the job row has none
         // yet: the run is still going. Report that honestly instead of
@@ -1090,17 +1101,20 @@ class AiImportRepository extends BaseRepository {
           );
           refusedAt = clock.now();
         }
-        // Attach to the run that owns the slot. Nothing to wait out locally: if
-        // it is this device's own earlier dispatch, its stream is exactly what
-        // reports the outcome.
-        final attached = await awaitRunOutcome(jobId, waitForTerminal: false);
+        // Attach to the run that owns the slot and FOLLOW it — never
+        // re-dispatch. The refusal is not an error to retry past: the run is
+        // alive, and its stream is what reports the outcome this client is
+        // after (review of #899: the old `continue` re-POSTed a live run, which
+        // came back as this same refusal and, past the staleness window, would
+        // have requested a takeover without the user asking for one).
+        final attached = await awaitRunOutcome(jobId);
         if (attached != null) return attached;
-        // The run is alive and has not finished yet. The server NAMED it, so
-        // that is the answer: the card reports the blocking run (with the age
-        // and window the refusal carried) instead of consuming the dispatch
-        // budget — re-dispatching would only be refused again.
+        // The run is still going (or outlived the reconnect budget). The server
+        // NAMED it, so that is the answer: the card reports the blocking run
+        // (with the age and window the refusal carried).
         if (inFlight != null) return inFlight;
-        continue;
+        // `lastError` is the refusal this branch just classified.
+        return ApplyUnresolved(lastError);
       }
       if (!isResumableDispatch(error)) {
         // Definitive failure (403/404/validation) — surface it; nothing was
@@ -1140,9 +1154,20 @@ class AiImportRepository extends BaseRepository {
             );
       }
       if (state == ApplyState.requested || state == ApplyState.running) {
-        final attached = await awaitRunOutcome(jobId, waitForTerminal: false);
+        // A run is live: follow it to its terminal frame. A peek would have
+        // returned `null` on the first progress frame and the loop would have
+        // re-POSTed into `apply-in-flight` — the caller then got a refusal
+        // instead of the report of the run it had already started (review of
+        // #899).
+        final attached = await awaitRunOutcome(jobId);
         if (attached != null) return attached;
-        continue;
+        return ApplyUnresolved(
+          ProblemError(
+            code: 'ai_import.apply_still_running',
+            detail: state?.name,
+            status: 202,
+          ),
+        );
       }
       // `idle`: nothing was dispatched, so the next attempt is a fresh one.
     }
@@ -1155,15 +1180,22 @@ class AiImportRepository extends BaseRepository {
   /// Follow the run that owns this job's slot to its terminal frame (issue
   /// #899).
   ///
-  /// No run id is matched on purpose: the slot is single-flight per job, so the
-  /// outcome that lands on it *is* this apply's outcome — whether the run was
-  /// dispatched by this device or (after a suspend) by a peer, the reviewer gets
-  /// one answer instead of "unknown".
+  /// [expectedRunId] is the identity the dispatch (`202`) returned. When it is
+  /// given and the frame or the job row names a **different** run, that run is
+  /// not this apply: it replaces A's slot with B's outcome, which the caller
+  /// must report as superseded rather than serve as its own result (review of
+  /// #899). Pass `null` when the caller has no dispatch of its own to attribute
+  /// (a re-entered screen that just wants "what did the last run do").
+  ///
+  /// Always follows to the **terminal** frame: an apply is minutes long, and a
+  /// caller that only peeked would either report "unknown" while the run it
+  /// cares about is alive or re-dispatch a POST the server answers with
+  /// `apply-in-flight`.
   ///
   /// Returns the finished outcome, or `null` when the stream ended without one
-  /// (a run still going, a dead watch) — the caller then decides between the
-  /// job-row fallback, another attach, or an honest [ApplyUnresolved]. Never
-  /// throws: a broken watch is not an apply failure.
+  /// (a dead watch, a run that outlived the reconnect budget) — the caller then
+  /// reports a live run honestly instead of a failure. Never throws: a broken
+  /// watch is not an apply failure.
   ///
   /// Public for the same reason [watchApplyProgress] and [apply] are
   /// overridable: a repository fake must be able to script "the run finished
@@ -1171,10 +1203,8 @@ class AiImportRepository extends BaseRepository {
   /// that decides it.
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
-    bool waitForTerminal = true,
+    String? expectedRunId,
   }) async {
-    ApplyImportSummary? summary;
-    String? failureCode;
     await for (final event in watchApplyProgress(jobId)) {
       final frame = event.getRight().toNullable();
       if (frame == null) {
@@ -1182,20 +1212,12 @@ class AiImportRepository extends BaseRepository {
         // run is durable, so keep consuming instead of calling it a failure.
         continue;
       }
-      if (frame.summary != null || frame.failureCode != null) {
-        summary = frame.summary;
-        failureCode = frame.failureCode;
-        break;
+      if (!frame.isTerminal) continue;
+      if (_isForeignRun(frame.runId, expectedRunId)) {
+        return _superseded(expectedRunId: expectedRunId, found: frame.runId);
       }
-      // A caller that is only *checking* a run it did not dispatch must not
-      // block for the run's lifetime (an apply is minutes, and a refusal is
-      // rendered as the blocked-run notice, not as a frozen button): its first
-      // frame answers "already finished?" and nothing more.
-      if (!waitForTerminal) break;
-    }
-    if (summary != null) return ApplySucceeded(summary);
-    if (failureCode != null) {
-      return ApplyBlocked(ProblemError(code: failureCode));
+      if (frame.summary != null) return ApplySucceeded(frame.summary!);
+      return ApplyBlocked(ProblemError(code: frame.failureCode!));
     }
     // No terminal frame. The job row carries the same outcome, so ask it before
     // claiming the outcome is unknown — the run may simply have finished
@@ -1205,31 +1227,51 @@ class AiImportRepository extends BaseRepository {
     if (read == null) return null;
     final state = read.applyState;
     if (state == ApplyState.done || state == ApplyState.failed) {
-      return _outcomeOf(read);
+      return _outcomeOf(read, expectedRunId: expectedRunId);
     }
     // A run still going (or requested): the caller attaches again or reports a
     // live run — never a failure, and never a second dispatch.
     return null;
   }
 
+  /// Whether [owner] names a run other than the one this caller dispatched.
+  ///
+  /// `null` on either side means "no identity to compare" (a pre-#899 server, a
+  /// slot without an owner, or a caller that has no dispatch of its own) — the
+  /// honest answer there is "cannot tell", not "superseded".
+  static bool _isForeignRun(String? owner, String? expectedRunId) =>
+      owner != null && expectedRunId != null && owner != expectedRunId;
+
+  /// The honest answer for "the slot now belongs to a later run".
+  static ApplyReconciliation _superseded({
+    required String? expectedRunId,
+    required String? found,
+  }) => ApplyUnresolved(
+    ProblemError(
+      code: 'ai_import.apply_run_superseded',
+      detail:
+          'expected ${expectedRunId ?? 'unknown'}, slot holds '
+          '${found ?? 'unknown'}',
+    ),
+  );
+
   /// The persisted outcome of a terminal run on [job], as a reconciled result.
   ///
   /// `null` when the job carries no decodable outcome: the caller then reports
   /// the honest "finished, no report available" instead of inventing counters.
-  ApplyReconciliation? _outcomeOf(AiImportJob job) {
-    // The wire shape is externally tagged (`{"succeeded": {...}}` /
-    // `{"failed": {"code": …}}`), which the generated `oneOf` model decodes
-    // into `ApplyRunOutcomeOneOf` / `ApplyRunOutcomeOneOf1`.
-    final value = job.applyResult?.oneOf.value;
-    return switch (value) {
-      final ApplyRunOutcomeOneOf succeeded => ApplySucceeded(
-        succeeded.succeeded,
-      ),
-      final ApplyRunOutcomeOneOf1 failure => ApplyBlocked(
-        ProblemError(code: failure.failed.code),
-      ),
-      _ => null,
-    };
+  /// A row whose owning run is not [expectedRunId] is a **later** run's outcome
+  /// and is reported as superseded, never served as this apply's result.
+  ApplyReconciliation? _outcomeOf(AiImportJob job, {String? expectedRunId}) {
+    final owner = job.applyRunId;
+    if (_isForeignRun(owner, expectedRunId)) {
+      return _superseded(expectedRunId: expectedRunId, found: owner);
+    }
+    final (summary, failureCode) = _outcomeParts(job.applyResult);
+    if (summary != null) return ApplySucceeded(summary);
+    if (failureCode != null) {
+      return ApplyBlocked(ProblemError(code: failureCode));
+    }
+    return null;
   }
 }
 

@@ -168,6 +168,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 applied: false,
                 // Issue #899: no durable apply slot on a pre-change job literal.
                 apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_run_id: None,
                 apply_result: None,
             };
             Ok(Some(job))
@@ -444,6 +445,7 @@ async fn merge_worker_success_records_telemetry() {
         applied: false,
         // Issue #899: no durable apply slot on a pre-change job literal.
         apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
         apply_result: None,
     };
     let queue = Arc::new(MergeCaptureQueue {
@@ -916,6 +918,7 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         applied: false,
         // Issue #899: no durable apply slot on a pre-change job literal.
         apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
         apply_result: None,
     }
 }
@@ -1025,6 +1028,7 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         applied: false,
         // Issue #899: no durable apply slot on a pre-change job literal.
         apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
         apply_result: None,
     }
 }
