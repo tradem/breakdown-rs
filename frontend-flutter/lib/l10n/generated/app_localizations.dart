@@ -2754,6 +2754,24 @@ abstract class AppLocalizations {
   /// **'Block anlegen'**
   String get aiImportTargetCreateBlock;
 
+  /// No description provided for @aiImportTargetExtractBlock.
+  ///
+  /// In de, this message translates to:
+  /// **'Block extrahieren'**
+  String get aiImportTargetExtractBlock;
+
+  /// No description provided for @aiImportTargetExtractBlockUndo.
+  ///
+  /// In de, this message translates to:
+  /// **'Ziel-Block zurücksetzen'**
+  String get aiImportTargetExtractBlockUndo;
+
+  /// No description provided for @aiImportTargetExtractHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Block kommt aus dem Skript: Nach dem Hochladen wird der dort genannte Block als Ziel übernommen – oder neu angelegt, wenn die Season ihn noch nicht hat.'**
+  String get aiImportTargetExtractHint;
+
   /// No description provided for @aiImportTargetSeasonUnavailable.
   ///
   /// In de, this message translates to:
