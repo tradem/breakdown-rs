@@ -24,6 +24,7 @@ You are the primary coding agent for `breakdown-rs` – a collaborative costume 
 - **Hexagonal Architecture / Poor Man's DI:** No DI frameworks. External dependencies are defined as traits (ports) in `core` and manually injected in the composition root (`main.rs`).
 - **CQRS & Event Sourcing:** All state changes occur via **Commands** sent to **Aggregates** (which validate and emit **Events**; state is rebuilt by replay). **Queries** read from flat PostgreSQL **Projections**; event handlers update projections asynchronously. Never query aggregates directly for views.
 - **CQRS Boundary (hard rule):** Write-side code (Command adapters, Sagas, Aggregates) must **never** query a read-model projection (`*Repository::find_by_id`) to resolve audit/derived context (e.g. `series_id`) — that context comes from **event data** or a **command field** populated at the API edge (the only legitimate read-model consumer). Exceptions only with `// ast-grep-ignore: cqrs-boundary` + justification (rule `backend/rules/cqrs-boundary.yml`, job `cqrs-boundary`). Audit metadata must never block command processing: resolve best-effort, `None`/default on projection misses. → Long form: `.github/instructions/architecture-hard-rules.instructions.md`
+- **Authorization scopes (openspec change `project-scoped-membership`):** a costume-department role is held **block-scoped** (`projection_membership`, joins `projection_block`, rotates at block boundaries) **or project-scoped** (`projection_project_membership`, one stream per project, PK `(project_id, user_id)`, bootstrapped on season creation). Every season-scoped costume check resolves the **effective** role through one port method, `MembershipRepository::effective_costume_role_in_season`: block scope first, else the season's `project_id`, else deny — fail-closed on a projection miss, an unresolvable season or a repository error. Handlers and policies must not re-implement that precedence. Deliberate exceptions (do not "fix"): `has_active_report_archive_role_in_season` keeps the block-only resolution plus its narrower two-role list, and the credential/ops gates are untouched. Motivating case: a season with no block is role-less in the block scope, so the block-less AI-import upload (`829` D1) was refused even for the production's costume designer. → `docs/security/security-architecture.md` §"Project-scoped costume roles"
 - **kameo_es (Actors):** Event-sourced aggregates are `kameo::Actor`s implementing `kameo_es::Entity`; commands act as `kameo_es::Command` (see §5).
 - **Cross-aggregate invariant doctrine (issues #404/#37, ADR-036):** Global invariants spanning multiple aggregates (e.g. uniqueness) MUST specify four things: (a) an **authoritative enforcement point** (a projection unique constraint as backstop is legitimate), (b) a **client-facing 409** via an API-edge pre-check *before* dispatch (the handler is the only legitimate read-model consumer), (c) **projector failure behavior** — a permanent constraint violation must never panic-kill the projector (shipped: #404 savepoint-skip for the authoritative constraints + #37 generic dead-letter — durable `projection_dead_letter` row + checkpoint advance + health signal), and since **ADR-036 / issue #586** (d) an **ES-native reservation claim at the write boundary** for the four migrated invariants (episode/season/block numbering `(series_id, number)`, scene_shoot pair-uniqueness): the command adapter claims a synthetic `reservation-*` key stream (`ExpectedVersion::Empty`) BEFORE the aggregate append — a racing command answers the same registered 409 with NO losing aggregate event, and the reaper (`infra::reservations::reaper`) releases crash orphans / consumes realized claims. Do not release claims on unknown-append-state failures; do not adopt the mechanism for NEW invariants without noting which three layers the claim rides on. → Long form: `.github/instructions/architecture-hard-rules.instructions.md`, ADR: `docs/architecture/adrs/ADR-036-es-native-reservation-streams-cross-aggregate-uniqueness.md`
 
@@ -65,26 +66,52 @@ Aggregate details and invariants (`shooting_day`/`wrapped_at`, `scene_shoot` lif
 - **CI hardening (hard rule):** SHA-pin third-party actions (40-char SHA + `# vX` comment); never interpolate `${{ github.event.* }}` into `run:` — pass via `env:`. → Workflow detail: `../.github/instructions/workflow-hardening.instructions.md`
 
 ## 5. Code Example: kameo_es Aggregate
-```rust
-#[derive(Actor, Default)]
-pub struct CostumeAggregate { id: Uuid, is_assigned: bool }
 
-impl Entity for CostumeAggregate {
-    type ID = Uuid; type Event = CostumeEvent; type Metadata = ();
-    fn category() -> &'static str { "costume" }
+The shape below is the one the vendored `kameo_es` 0.2.0 actually enforces
+(`.patches/kameo_es/core/src/lib.rs`, trait `Command`). Note the direction: the
+**command is the trait's type parameter**, the **aggregate is the impl target** —
+`impl Command<AssignPiece> for PieceAggregate`. An earlier revision of this file
+showed `impl Command<Aggregate> for Command` with `type Reply`/`execute`; that
+signature does not exist in this version and will not compile.
+
+```rust
+pub struct PieceAggregate { id: PieceId, name: String /* ... */ }
+
+impl Entity for PieceAggregate {
+    type ID = Uuid; type Event = PieceEvent; type Metadata = EventMetadata;
+    fn category() -> &'static str { "piece" }
 }
 
-impl Command<CostumeAggregate> for AssignCostume {
-    type Reply = Result<(), DomainError>;
-    fn execute(self, state: &CostumeAggregate) -> Self::Reply {
-        if state.is_assigned { return Err(DomainError::AlreadyAssigned); }
-        Ok(CostumeEvent::CostumeAssigned { id: state.id })
+// State rebuild. MUST be idempotent: the projector redelivers events.
+impl Apply for PieceAggregate {
+    fn apply(&mut self, event: Self::Event, _metadata: Metadata<EventMetadata>) {
+        if let PieceEvent::PieceCreated { name, .. } = event { self.name = name; }
     }
-    fn apply(event: Self::Event, state: &mut CostumeAggregate) {
-        if let CostumeEvent::CostumeAssigned { .. } = event { state.is_assigned = true; }
+}
+
+// The command carries a name for causation/idempotency bookkeeping.
+impl CommandName for RenamePiece {
+    fn command_name() -> &'static str { "rename_piece" }
+}
+
+impl Command<RenamePiece> for PieceAggregate {
+    type Error = PieceError;
+
+    // `handle` takes `&self` (state is already rebuilt) and returns a Vec:
+    // one command may emit several events.
+    fn handle(&self, cmd: RenamePiece, _ctx: Context<'_, Self>) -> Result<Vec<Self::Event>, Self::Error> {
+        if cmd.name.trim().is_empty() { return Err(PieceError::BlankName); }
+        Ok(vec![PieceEvent::PieceRenamed { id: self.id, name: cmd.name }])
+    }
+
+    // Optional state-based idempotency hook (this is how a repeat command
+    // becomes a no-op — a rejected command is NOT the idiom here).
+    fn is_state_idempotent(&self, cmd: &RenamePiece, _ctx: Context<'_, Self>) -> bool {
+        self.name == cmd.name
     }
 }
 ```
+
 
 ## 6. Reference Register (on-demand instructions)
 Detailed documentation lives as glob-scoped rule files (Markdown with YAML frontmatter,

@@ -98,37 +98,34 @@ abstract final class BreakdownMaterialIcons {
     };
   }
 
-  /// Scene mood icons for the canonical set shorthand (`I/T`, `A/N`, `I/D`,
-  /// `I/M`, `I/AB`, the `A/*` counterparts, combined `I/A/T` — issue #721).
+  /// Scene mood icons for the set shorthand (`I/T`, `A/N`, `I/D`, `I/M`,
+  /// `I/AB`, the `A/*` counterparts, and the MIXED forms such as `I/A/T` or
+  /// `A/I/T` — issues #721, #834 follow-up).
   ///
-  /// Returns `(interior/exterior icon, time-of-day icon)` or `null` when the
-  /// value is not a parsable shorthand (including `null` itself — a scene
-  /// without a mood simply renders no icons). The combined `I/A` component of
-  /// the only canonical three-component value `I/A/T` resolves to the
-  /// sensor-door icon instead of the plain interior/exterior pair.
+  /// Returns the LOCATION icons (one per named location component, in the
+  /// shorthand's own order) plus the time-of-day icon, or `null` when the value
+  /// is not a parsable shorthand (including `null` itself — a scene without a
+  /// mood simply renders no icons).
   ///
-  /// Glossary rule: the icons REINFORCE the visible `I/T` text label and
-  /// never replace it — always render them next to the text, never alone.
-  static (IconData, IconData)? forSceneMood(String? mood) {
+  /// A shorthand naming exactly the two DISTINCT locations `I` and `A` (either
+  /// order — the canonical `I/A/T` from `INT./EXT.`, and the `A/I/T` a script
+  /// uses for "shot outside, then inside") resolves to ONE sensor-door icon:
+  /// the scene crosses the threshold, which is a single fact, not two. Every
+  /// other combination renders one icon per component, e.g. `A/A/T` → two park
+  /// icons.
+  ///
+  /// Glossary rule: the icons REINFORCE the visible `I/T` text label and never
+  /// replace it — always render them next to the text, never alone.
+  static ({List<IconData> locations, IconData time})? forSceneMood(
+    String? mood,
+  ) {
     final value = mood?.trim().toUpperCase();
     if (value == null || value.isEmpty) {
       return null;
     }
     final parts = value.split('/');
-    if (parts.isEmpty || parts.length > 3) {
-      return null;
-    }
-    final IconData location;
-    if (parts.length == 3) {
-      if (parts[0] != 'I' || parts[1] != 'A') {
-        return null;
-      }
-      location = Icons.sensor_door_outlined;
-    } else if (parts.first == 'I') {
-      location = Icons.home_outlined;
-    } else if (parts.first == 'A') {
-      location = Icons.park_outlined;
-    } else {
+    // One time-of-day component plus 1..3 location components.
+    if (parts.length < 2 || parts.length > 4) {
       return null;
     }
     final IconData time;
@@ -144,6 +141,19 @@ abstract final class BreakdownMaterialIcons {
       default:
         return null;
     }
-    return (location, time);
+    final namedLocations = parts.sublist(0, parts.length - 1);
+    if (namedLocations.any((part) => part != 'I' && part != 'A')) {
+      return null;
+    }
+    final List<IconData> locations;
+    if (namedLocations.length == 2 && namedLocations.toSet().length == 2) {
+      locations = const [Icons.sensor_door_outlined];
+    } else {
+      locations = [
+        for (final part in namedLocations)
+          part == 'I' ? Icons.home_outlined : Icons.park_outlined,
+      ];
+    }
+    return (locations: locations, time: time);
   }
 }

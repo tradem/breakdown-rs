@@ -21,9 +21,9 @@ rust-version.workspace = true
 test-support = []
 
 [dependencies]
-api = { path = "../api", version = "0.66.0" }
+api = { path = "../api", version = "0.67.0" }
 breakdown_core = { path = "../core", version = "0.68.0" }
-infra = { path = "../infra", version = "0.78.0" }
+infra = { path = "../infra", version = "0.79.0" }
 rust_arkitect = "0.3.7"
 toml = "1.1"
 

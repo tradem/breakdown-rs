@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Hexagonal ports for the membership context.
 //!
@@ -11,6 +12,7 @@
 //! owned by the `kameo_es` adapter in `infra`.
 
 use crate::error::DomainError;
+use crate::membership::Role;
 use crate::shared::{BlockId, ProjectId, SeasonId, UserId};
 
 use super::commands::{
@@ -122,11 +124,56 @@ pub trait MembershipRepository: Send + Sync {
     ///
     /// Costume-dept roles are `costume_designer`, `wardrobe_supervisor`,
     /// and `costume_assistant`.
+    ///
+    /// **Block scope only.** This predicate joins `projection_block`, so a
+    /// season without blocks has no roles at all. Any season-scoped costume
+    /// check that must also accept a project-scoped grant has to call
+    /// [`Self::effective_costume_role_in_season`] instead — the report-archive
+    /// predicate below is the deliberate exception that keeps this narrower
+    /// resolution.
     async fn has_active_costume_role_in_season(
         &self,
         season_id: SeasonId,
         user_id: UserId,
     ) -> Result<bool, DomainError>;
+
+    /// The caller's **effective** costume-department role in `season_id`.
+    ///
+    /// This is the one place the two authorization scopes are resolved, in
+    /// order (design D2 of `openspec/changes/project-scoped-membership`):
+    ///
+    /// 1. an active block membership with a costume-dept role in any block of
+    ///    `season_id` — [`Self::has_active_costume_role_in_season`], unchanged;
+    /// 2. else an active **project-scoped** costume role on the project the
+    ///    season belongs to ([`Self::has_active_costume_role_in_project`], with
+    ///    the project resolved *from the season*, never from the request);
+    /// 3. else `None`.
+    ///
+    /// It exists because a season without blocks is role-less by construction
+    /// in the block scope: a block-less AI-import upload (`X-Declared-Season`,
+    /// issue #829) could never authorize, not even for a costume designer of
+    /// the production.
+    ///
+    /// Returns the **role itself**, not a boolean, because that is the only
+    /// form in which the precedence is observable: a holder of a block-scoped
+    /// `costume_assistant` and a project-scoped `costume_designer` resolves to
+    /// the former inside that block's season (the spec's "both rows coexist,
+    /// block first" scenario) and to the latter in a block-less season of the
+    /// same project. A boolean would collapse the two.
+    ///
+    /// Fail-closed: a projection miss (neither scope has a row, or the season's
+    /// `project_id` is not projected) and an unparsable role token are
+    /// `Ok(None)`, and a repository error is `Err` — neither is ever an
+    /// authorization. Deny-on-error is the caller's decision: the fallible
+    /// policy surface keeps surfacing a read-model failure as a server error
+    /// instead of disguising it as a `403`.
+    ///
+    /// Handlers and policies MUST NOT re-implement this precedence.
+    async fn effective_costume_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<Option<Role>, DomainError>;
 
     /// Check whether `user_id` holds a role permitted to manually enqueue
     /// report archival (`costume_designer` or `wardrobe_supervisor` only).

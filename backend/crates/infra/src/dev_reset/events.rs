@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Keep-list export and verbatim replay (issue #770, level `business`).
 //!
@@ -130,6 +131,12 @@ pub const fn keep_id_sql(category: AggregateCategory) -> Option<&'static str> {
         AggregateCategory::Settings => Some("SELECT id FROM projection_settings"),
         AggregateCategory::Membership => {
             Some("SELECT DISTINCT block_id FROM projection_membership")
+        }
+        // One stream per PROJECT (openspec change `project-scoped-membership`):
+        // the project-membership aggregate is keyed by its project id, so the
+        // distinct ids of the projection's `project_id` column are the streams.
+        AggregateCategory::ProjectMembership => {
+            Some("SELECT DISTINCT project_id FROM projection_project_membership")
         }
         _ => None,
     }
@@ -494,9 +501,12 @@ mod tests {
     }
 
     #[test]
-    fn keep_categories_are_the_configuration_triple() {
+    fn keep_categories_are_the_configuration_set() {
         let categories: Vec<&str> = keep_categories().map(|c| c.as_str()).collect();
-        assert_eq!(categories, vec!["ai_config", "settings", "membership"]);
+        assert_eq!(
+            categories,
+            vec!["ai_config", "settings", "membership", "project_membership"]
+        );
     }
 
     #[test]
@@ -536,6 +546,25 @@ mod tests {
         assert!(
             !sql.contains("SELECT id "),
             "projection_membership has no id: {sql}"
+        );
+    }
+
+    /// The project-scoped membership aggregate is keyed by its **project** id
+    /// (`projection_project_membership` has the composite PK
+    /// `(project_id, user_id)` and no `id` column), so the keep ids are the
+    /// distinct project ids — the same reasoning as the block-scoped twin.
+    #[test]
+    fn project_membership_keep_ids_are_project_ids() {
+        let sql = keep_id_sql(AggregateCategory::ProjectMembership)
+            .expect("project_membership is a keep category");
+        assert!(
+            sql.contains("project_id"),
+            "project_membership must select project_id: {sql}"
+        );
+        assert!(sql.contains("DISTINCT"), "one stream per project: {sql}");
+        assert!(
+            !sql.contains("SELECT id "),
+            "projection_project_membership has no id: {sql}"
         );
     }
 

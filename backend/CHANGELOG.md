@@ -26,6 +26,20 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An inline `(OT)` marker classifies a figure as `extra`, whatever section it
+  stands in.** The default script prompt called a figure that is listed under
+  `Darsteller`/`Hauptrollen` **and** marked `(OT)` a genuine conflict, so the
+  section won: the marker became a hint ("… which may indicate an extra or guest
+  role"), the figure defaulted back to `main_cast`, and every such row was a
+  blocking checkbox in the #663 apply gate. The rule is now deterministic — an
+  inline marker attached to the NAME outranks the section (always `extra`, no
+  uncertainty, no `main_cast` fallback, no hedged note), while a name without a
+  marker keeps its section. Crates: `infra` 0.78.0 → 0.79.0, `api` 0.66.0 → 0.67.0
+  (lockstep dependency); `core` unchanged — the classification is the prompt's,
+  not a domain rule, and no wire shape moved.
+
 ### Added
 
 - **A repeated LLM-provider outage is attributable, and the jobs list can read it (issue #822).**
@@ -187,6 +201,23 @@ tag. Never edit a released entry afterwards.
   so no version bump.
 
 ### Fixed
+
+- **The dev reset no longer dies on a stale dev schema (follow-up to #770).**
+  `./scripts/reset-dev-data.sh business` aborted in its `export` phase with
+  `relation "ai_import.ai_import_job_chunk" does not exist` (migration
+  `20261110000002`). The plan enumerates the schema **by name** —
+  `plan::BOOKKEEPING_TABLES` plus one projection table per aggregate category —
+  but the only caller of `sqlx::migrate!` is `main.rs` at API boot, and the
+  wrapper stops the API before that phase, so a database that fell behind
+  `crates/infra/migrations` could never be reset: the failure named a table and
+  nothing told the operator that the schema, not the data, was the problem.
+  Every phase now applies the pending migrations **before** building the plan —
+  through `MIGRATOR_DATABASE_URL` when set (the schema-owning role under role
+  separation, refused by the guard if it is not a loopback target) and
+  `DATABASE_URL` otherwise, exactly like the API boot. `--dry-run` migrates too,
+  because a plan cannot count a table that does not exist yet, and the applied
+  versions are printed as the first report line instead of being hidden inside
+  a dry run. No version bump (dev tooling only).
 
 - **A completed AI apply can no longer lose its target-episode summary (issue
   #864, follow-up to #805).** After a completed apply of the live episode-300

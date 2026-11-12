@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: glm-5.3 (neuralwatt) -->
 <!-- Co-authored-by: glm-5.3-flash-flex (neuralwatt) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # SceneDetail — Screen Spec
 
@@ -55,9 +56,14 @@ tests/goldens push without the argument — the strip stays hidden.
     ★★★☆☆ "Synopsis"
   }
   ==
-  {^ "Figuren (2)" [▸]}
-  {^ "Looks (2)" [▸]}
   {^ "Drehtage (1)" [▸]}
+  {^ "Figuren (2) · Looks (2)" [▸]}
+  {
+    "Figur" | "Look"
+    "Anna" | "* OP-Kleidung → KHK"
+    "Bea"  | "Kein Look in dieser Szene"
+    "Figur und Look zuweisen"
+  }
 }
 @endsalt
 ```
@@ -66,21 +72,33 @@ Static structure only (rule box): the app bar carries the scene NUMBER
 („Szene {n}") and the edit affordance; the identity block (numeral +
 location + metadata chips) reads as page identity — no card border, no
 `SliverAppBar`. The synopsis renders as an always-visible card; the
-three list sections are `SectionCard`s (card surface, no divider
-chrome) COLLAPSED by default, counts in the header. Ratings render only
-when a score exists (honest absence).
+TWO list sections are `SectionCard`s (card surface, no divider chrome)
+COLLAPSED by default, counts in the header. Ratings render only when a
+score exists (honest absence).
+
+**Order (issue #834 follow-up):** the shooting days come FIRST — a scene is
+planned before it is cast, and the dispo is built from the days, not from the
+looks. Figuren and Looks share ONE section: separate lists made the reader join
+them by hand, and a figure without a look was a dead end one section away from
+the affordance that fixes it. Every row is one (figure, look) pair, the header
+carries both counts, and a figure with several looks renders one row per look
+(`→` = change step) so each look stays removable on its own.
 
 ## Components & Semantics
 | Element | M3 component | Semantics | Copy key |
 |---|---|---|---|
 | App-bar title | AppBar title | `Szene {number}` — the summary is page content | `sceneDetailTitle` |
 | Edit affordance | AppBar IconButton | Opens the one edit sheet (all fields) | `sceneDetailEditTooltip` |
-| Identity block | Column (numeral, title, chip row) | Page identity: number, location, mood (#721 icons), script day, geplant/ungeplant | `sceneDetailTitle`, `sceneLoc`, `sceneMood`, `sceneDay`, `sceneScheduled` |
+| Identity block | Column (numeral, title, chip row) | Page identity: number, location, mood (#721 icons — one per named location, so the MIXED `A/I/T` renders too), script day (+ its day-binding icon), geplant/ungeplant | `sceneDetailTitle`, `sceneLoc`, `sceneMood`, `sceneDay`, `sceneScheduled` |
 | Provenance badge | `AiProvenanceBadge` | `SceneView.source = AiExtracted` → „KI-extrahiert"; Manual/absent → nothing | `aiProvenanceBadge` |
 | Synopsis card | Card + title row | Full `summary`; empty state „Keine Synopsis" (never a fabricated line) | `sceneDetailSynopsisTitle`, `sceneDetailNoSynopsis` |
 | Rating rows | `AiScoreStars` | `synopsisScore` / `sceneScore` as stars; `null` renders nothing | `sceneDetailRatingSynopsis`, `sceneDetailRatingScene`, `aiScoreStarsLabel` |
-| Section headers | `SectionCard` title | Collapsed-by-default sections; count stays visible | `sceneDetailCharactersTitle`, `sceneDetailOutfitsTitle`, `sceneDetailShootingDaysTitle` |
-| Beat row | ListTile | One (character, beat): outfit identity + wardrobe cue | `pieceTileLabelFallback` fallback |
+| Section headers | `SectionCard` title | Collapsed-by-default sections; counts stay visible („Figuren 2 · Looks 3") | `sceneDetailCastTitle`, `sceneDetailShootingDaysTitle` |
+| Cast table header | Row of `labelSmall` cells | Names the two cells („Figur" / „Look") so the row reads as a table | `sceneDetailCastColumnCharacter`, `sceneDetailCastColumnLook` |
+| Cast row | Row (2 cells + icons) | One (figure, look) pair: the figure, its look (category icon + wardrobe cue), the change arrow for further looks. Trailing: edit (→ Cast screen), remove look, remove figure, add look | `sceneDetailEditCharacterTooltip`, `sceneDetailRemoveOutfitTooltip`, `sceneDetailRemoveCharacterTooltip`, `sceneDetailAddChange` |
+| Assign figure + look | `FilledButton.tonalIcon` | The section's one assign flow: pick an unassigned figure, then its look (a cancelled look picker leaves the figure cast — a role without a costume is a real state) | `sceneDetailAssignCharacterAndLook` |
+| Script-day chip | `_HeaderChip` + IconButton | Binds the day the SCRIPT states („Tag 1") to a real shooting day of the episode; disabled when no candidate exists | `sceneDay`, `sceneDetailAssignScriptDayTooltip` |
+| Move-day icon | IconButton (per day row) | Schedules the picked day FIRST, releases the current one only after that ack | `sceneDetailMoveToOtherDay` |
 | Change arrow | `→` prefix text | Change from the previous beat of the character | — (punctuation, not copy) |
 | Remove beat / unassign / unschedule | IconButton (confirm-first) | Removes the relation from the scene | `sceneDetailRemoveOutfitTooltip`, `sceneDetailRemoveCharacterTooltip`, `shootingDayUnscheduleButton` |
 | Empty states | ListTile + button | Honest empty copy per section | `sceneDetailNoCharacters`, `sceneDetailNoOutfitInScene`, `sceneDetailNoShootingDays` |
@@ -107,9 +125,9 @@ narrative, sign-in/network/generic fallbacks).
   `SceneView` (optimistic locking, #473). 2xx → optimistic overlay +
   bounded-retry refetch; `409 concurrency.version-mismatch` → localized
   retry narrative + projection refresh, never an automatic re-dispatch.
-  Mood: canonical chips (`I/T` … `I/A/AB`) plus a free-text fallback; a
-  stored value outside the canonical set renders as its own selected
-  chip and is echoed verbatim unless replaced — never destroyed. Number
+  Mood: canonical chips (`I/T` … `I/A/AB` and the `A/I/*` mixed forms) plus a
+  free-text fallback; a stored value outside the canonical set renders as its
+  own selected chip and is echoed verbatim unless replaced — never destroyed. Number
   editing warns (hint line) but invents no uniqueness rule (no backend
   invariant exists; a separate issue owns the cross-aggregate
   doctrine).
@@ -121,7 +139,19 @@ narrative, sign-in/network/generic fallbacks).
   the clear-all, otherwise the per-order removal.
 * Assign/unassign character, schedule/unschedule day: picker + version
   echo, optimistic-after-2xx (see the characters/shooting-days change
-  specs).
+  specs). „Figur und Look zuweisen" chains two commands (assign, then the
+  look picker) because that is the aggregate order; a look removal on a
+  two-look figure removes one beat, the LAST one clears all.
+* Move to another day: `scheduleScene` first, then `unscheduleScene` with
+  the ACK version — a refused schedule leaves the scene on the day it had,
+  and a refused release leaves it on both (two visible, removable rows)
+  instead of on none.
+* Edit a cast figure: pushes the Cast screen (character detail) with the
+  season row from the route's `SceneLocation` (the DTO the user navigated
+  from), falling back to the fenced `seasonsView` projection — never a
+  second projection lookup. When no row resolves, the edit icon renders
+  disabled instead of disappearing. Returning refreshes the scene so a
+  renamed/removed look does not keep its old label.
 * Pull-to-refresh: reconciliation pass (single-flight, bounded retries).
 
 ## Input & Validation

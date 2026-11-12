@@ -35,6 +35,7 @@ import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_target.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
@@ -324,6 +325,30 @@ AiImportPreviewResponse _previewResponse(AiPreviewPayload payload) =>
         ..status = JobStatus.succeeded
         ..preview.replace(payload),
     );
+
+/// Block-write fake for the silent target adoption (issue #829 follow-up).
+///
+/// The card CREATES the script's block when the target season does not have it,
+/// so the preview's tests need the write path offline. `createResult` is what
+/// that silent create answers; `createCalls`/`lastCreateRequest` are the proof
+/// that the adoption asked for the number the script states.
+class _FakePreviewBlockRepository extends BlockRepository {
+  _FakePreviewBlockRepository(super.api, super.cache);
+
+  Result<IdVersionResponse>? createResult;
+  int createCalls = 0;
+  CreateBlockRequest? lastCreateRequest;
+
+  @override
+  Future<Result<IdVersionResponse>> create(CreateBlockRequest request) async {
+    createCalls++;
+    lastCreateRequest = request;
+    return createResult ??
+        const Left<ProblemError, IdVersionResponse>(
+          ProblemError(code: 'block.number-already-exists'),
+        );
+  }
+}
 
 /// Repository fake with scripted, QUEUED apply outcomes (the
 /// reconciliation round-trip driver).
@@ -1023,6 +1048,7 @@ void main() {
   group('Preview + apply widget tests (task 4.4)', () {
     late CacheDatabase db;
     late FakeAiImportRepository repo;
+    late _FakePreviewBlockRepository blockRepo;
     late AiImportJobsCacheDao dao;
     late ValueNotifier<Result<AiImportPreviewResponse>> preview;
     late ValueNotifier<Result<List<SceneView>>> scenes;
@@ -1095,6 +1121,12 @@ void main() {
       /// The target season row the shared create-block form pre-fills from.
       SeasonView? seasonRow,
 
+      /// The answer of the block CREATE the silent adoption issues when the
+      /// target season lacks the script's block (issue #829 follow-up). `null`
+      /// keeps the realistic refusal (`block.number-already-exists`), which is
+      /// what leaves the manual create affordance reachable.
+      Result<IdVersionResponse>? createResult,
+
       /// `true` makes the job read FAIL (issue #827 review): the block scope
       /// then cannot know the target, which must not render as "not recorded".
       bool jobReadFails = false,
@@ -1118,6 +1150,13 @@ void main() {
       addTearDown(db.close);
       dao = AiImportJobsCacheDao(db);
       repo = FakeAiImportRepository(BreakdownApi(), dao);
+      blockRepo = _FakePreviewBlockRepository(BreakdownApi(), BlockCacheDao(db))
+        // The silent adoption (issue #829 follow-up) CREATES a block when the
+        // target season lacks the script's one, so this group needs the block
+        // write path faked: the default answer is the realistic refusal (the
+        // number is taken), which is also the state in which the manual create
+        // form stays reachable.
+        ..createResult = createResult;
       // The preview screen reads its job's Decision-Model outcome line (issue
       // #767). A reachable preview means the job EXISTS, so the fixture answers
       // `getJobAndCache` — that keeps these tests on the line's silent state
@@ -1200,6 +1239,7 @@ void main() {
           if (seasonRow != null)
             aiImportSeasonViewProvider(targetSeasonId ?? 'season-1')
                 .overrideWith((ref) async => seasonRow),
+          blockRepositoryProvider.overrideWithValue(blockRepo),
           configuredAiNamingProvider.overrideWith((ref) {
             if (namingDiscoveryFails) {
               final Future<AiConfigView?> failed = Future.error(
@@ -2230,7 +2270,9 @@ void main() {
     ) async {
       // `_pick` used to read the list with `ref.watch` from a tap handler, which
       // asserts outside `build` — the sheet never opened. Driving the tap is the
-      // only way to see that.
+      // only way to see that. The payload states NO block number: a script block
+      // is adopted silently (issue #829 follow-up), so the manual picker is the
+      // state a block-less schedule leaves.
       final blockTwo = blockView(
         id: 'block-2',
         seasonId: 'season-2',
@@ -2242,7 +2284,7 @@ void main() {
         number: 9,
       );
       await setupContainer(
-        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        previewValue: Right(_previewResponse(_preMergePayload())),
         targetSeasonId: 'season-2',
         seasonBlocks: Right([blockTwo, blockNine]),
       );
@@ -2265,8 +2307,76 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('the script\'s block is adopted WITHOUT a tap when the target '
+        'season has it (issue #829 follow-up)', (tester) async {
+      // The reported dead end: the card offered "take block 2 from the script",
+      // the reviewer never tapped it, and the apply then answered
+      // `409 ai-import.target-missing`. Adoption is therefore automatic.
+      final blockTwo = blockView(
+        id: 'block-2',
+        seasonId: 'season-2',
+        number: 2,
+      );
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: Right([blockTwo]),
+      );
+      await pumpPreview(tester);
+      await tester.pumpAndSettle();
+
+      expect(repo.attachCalls, [
+        ('job-1', blockTwo.id),
+      ], reason: 'the target is attached without any interaction');
+      expect(blockRepo.createCalls, 0, reason: 'the block already exists');
+      await tester.pump();
+    });
+
+    testWidgets('the script\'s block is CREATED and attached without a tap '
+        'when the target season lacks it (issue #829 follow-up)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
+        targetSeasonId: 'season-2',
+        seasonBlocks: const Right([]),
+        seasonRow: seasonView('season-2'),
+        createResult: Right(
+          IdVersionResponse(
+            (b) => b
+              ..id = 'block-new'
+              ..version = 1,
+          ),
+        ),
+      );
+      await pumpPreview(tester);
+      await tester.pumpAndSettle();
+
+      expect(blockRepo.createCalls, 1);
+      expect(
+        blockRepo.lastCreateRequest?.number,
+        2,
+        reason: 'the created block carries the number the script states',
+      );
+      expect(
+        blockRepo.lastCreateRequest?.startDate,
+        isNull,
+        reason:
+            'the script states no shooting window, so none is invented for '
+            'the block',
+      );
+      expect(repo.attachCalls, [
+        ('job-1', 'block-new'),
+      ], reason: 'the created block becomes the job\'s target');
+      await tester.pump();
+    });
+
     testWidgets('the picker\'s "create block" row opens the SHARED form '
         'instead of silently closing (review finding)', (tester) async {
+      // The block the script states is CREATED silently when it is missing
+      // (issue #829 follow-up). This is the fallback: the silent create was
+      // refused (here: the number is already taken), so the reviewer\'s own tap
+      // opens the shared form prefilled with the script\'s number.
       await setupContainer(
         previewValue: Right(_previewResponse(_scriptPayload(blockNumber: 2))),
         targetSeasonId: 'season-2',
@@ -2274,6 +2384,12 @@ void main() {
         seasonRow: seasonView('season-2'),
       );
       await pumpPreview(tester);
+
+      expect(
+        blockRepo.createCalls,
+        1,
+        reason: 'the silent adoption tried once and was refused',
+      );
 
       await tester.tap(find.byKey(const Key('ai-preview-target-attach-pick')));
       await tester.pumpAndSettle();

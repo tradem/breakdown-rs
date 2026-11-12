@@ -12,6 +12,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -686,6 +687,17 @@ pub struct FakeMembershipRepo {
     /// handler tests exercise the allow/deny/error branches of the series-scoped
     /// photo gate (issue #535). `None` = resolve from seeded data.
     pub series_piece_role_override: Arc<Mutex<Option<Result<bool, DomainError>>>>,
+    /// **Project-scoped** grants (openspec change `project-scoped-membership`):
+    /// `(project_id, user_id) → role`, the in-memory mirror of
+    /// `projection_project_membership`. Deliberately separate from `detailed`
+    /// (which is block-scoped): the two scopes coexist and the effective
+    /// resolution reads both, block first.
+    pub project_roles: Arc<Mutex<HashMap<(ProjectId, UserId), Role>>>,
+    /// Season → project attribution, mirroring `projection_season.project_id`.
+    /// The project fallback resolves the project *from the season*, never from
+    /// the request; a season absent from this map cannot fall back (fail
+    /// closed), exactly like a missing season projection row.
+    pub season_projects: Arc<Mutex<HashMap<Uuid, ProjectId>>>,
 }
 
 #[allow(dead_code)]
@@ -730,6 +742,38 @@ impl FakeMembershipRepo {
             .lock()
             .await
             .insert(block_id, (season_id, project_id));
+        self.season_projects
+            .lock()
+            .await
+            .insert(season_id.0, project_id);
+    }
+
+    /// Seed an active **project-scoped** costume grant — the in-memory mirror
+    /// of a `projection_project_membership` row.
+    ///
+    /// Use it for the block-less cases: a season without blocks is role-less in
+    /// the block scope, so only a project grant can authorize it.
+    pub async fn seed_project_role(&self, project_id: ProjectId, user_id: UserId, role: Role) {
+        self.project_roles
+            .lock()
+            .await
+            .insert((project_id, user_id), role);
+    }
+
+    /// The project a seeded season belongs to, if any block was attributed to
+    /// it through [`Self::seed_active`] / [`Self::seed_with_state`].
+    async fn project_of_season(&self, season_id: &SeasonId) -> Option<ProjectId> {
+        if let Some(project) = self.season_projects.lock().await.get(&season_id.0) {
+            return Some(*project);
+        }
+        // Fall back to the block attribution: `scopes` is what the seeding
+        // helpers always populate.
+        self.scopes
+            .lock()
+            .await
+            .values()
+            .find(|(season, _)| season == season_id)
+            .map(|(_, project)| *project)
     }
 
     /// Seed an active credential-role membership (designer) for `user_id`
@@ -936,6 +980,65 @@ impl MembershipRepository for FakeMembershipRepo {
                 ],
             )
             .await)
+    }
+
+    async fn effective_costume_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<Option<Role>, DomainError> {
+        // Scope 1 — the block-scoped predicate, unchanged (its overrides and
+        // seeded rows still decide). The winning ROLE is re-derived from the
+        // seeded rows so tests can observe the precedence, not just a verdict.
+        if self
+            .has_active_costume_role_in_season(season_id, user_id.clone())
+            .await?
+        {
+            let rows = self.rows().await;
+            let scopes = self.scopes.lock().await;
+            let block_role = rows
+                .into_iter()
+                .find(|(block_id, row_user, role, state)| {
+                    row_user == &user_id
+                        && *state == MembershipStateKind::Active
+                        && matches!(
+                            role,
+                            Role::CostumeDesigner
+                                | Role::WardrobeSupervisor
+                                | Role::CostumeAssistant
+                        )
+                        && scopes
+                            .get(block_id)
+                            .is_some_and(|(season, _)| season == &season_id)
+                })
+                .map(|(_, _, role, _)| role);
+            if block_role.is_some() {
+                return Ok(block_role);
+            }
+            // The block scope said "allow" through an override without a
+            // matching seeded row (allow-injection tests): answer with a
+            // representative role rather than a bogus deny.
+            return Ok(Some(Role::CostumeDesigner));
+        }
+        // Scope 2 — a project-scoped grant on the project this season belongs
+        // to. An unattributed season cannot fall back (fail closed).
+        let Some(project_id) = self.project_of_season(&season_id).await else {
+            return Ok(None);
+        };
+        Ok(self
+            .project_roles
+            .lock()
+            .await
+            .iter()
+            .find(|((project, user), role)| {
+                *project == project_id
+                    && user == &user_id
+                    && matches!(
+                        role,
+                        Role::CostumeDesigner | Role::WardrobeSupervisor | Role::CostumeAssistant
+                    )
+            })
+            .map(|(_, role)| *role))
     }
 
     async fn has_active_report_archive_role_in_season(

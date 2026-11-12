@@ -45,9 +45,14 @@ class SceneMoodLabel extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icons.$1, size: 16),
-              const SizedBox(width: 2),
-              Icon(icons.$2, size: 16),
+              // One icon per named location (`A/I/T` names two, the canonical
+              // INT./EXT. pair collapses to the threshold icon), then the
+              // time-of-day icon — the same set the import preview renders.
+              for (final location in icons.locations) ...[
+                Icon(location, size: 16),
+                const SizedBox(width: 2),
+              ],
+              Icon(icons.time, size: 16),
               const SizedBox(width: 4),
             ],
           ),
@@ -79,4 +84,14 @@ const canonicalSceneMoods = <String>[
   'I/A/D',
   'I/A/M',
   'I/A/AB',
+  // `A/I/*` is the same mixed scene from the script's other side ("Erfurt /
+  // Straße" outside, then "Eingang + Flur / vor OP" inside). The parser only
+  // ever produces `I/A/*` (from `INT./EXT.`), so these are the values a script
+  // such as the one above states verbatim — offering them keeps the editor from
+  // forcing `I/A` onto a scene that plays A→I.
+  'A/I/T',
+  'A/I/N',
+  'A/I/D',
+  'A/I/M',
+  'A/I/AB',
 ];

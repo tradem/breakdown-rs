@@ -120,7 +120,15 @@ class AiImportSubmitScreen extends ConsumerWidget {
             // fact that decides where every imported row lands.
             _ImportTargetCard(seasonId: targetSeasonId, resolution: resolution),
             const SizedBox(height: 24),
-            _SubmitButton(seasonId: targetSeasonId, target: target),
+            _SubmitButton(
+              seasonId: targetSeasonId,
+              target: target,
+              // Issue #829 follow-up: a season with no block at all leaves the
+              // block-less dispatch as the ONLY target that exists, so it needs
+              // no extra tap — the card has just said that the block comes from
+              // the script.
+              seasonHasNoBlock: resolution?.value?.isEmpty ?? false,
+            ),
           ],
         ),
       ),
@@ -330,9 +338,9 @@ class _ImportTargetCard extends ConsumerWidget {
     // narrative, so this only covers the arms that are `data`.
     final listError = resolution is AsyncError ? null : blockListProblem;
 
-    // Issue #829: a deliberate block-less dispatch has no block to show, so the
-    // card states exactly that — with a way back to a block-bearing target.
-    final blockLess = ref.watch(blockLessImportProvider);
+    // Issue #829: a block-less dispatch has no block to show, so the card
+    // states exactly that. It is the SEASON's fact (no block exists), never a
+    // choice the user has to make — see the submit affordance below.
     final Widget body;
     // Issue #828 affordances: which of the two a state can honestly offer.
     var canSwitch = false;
@@ -370,23 +378,25 @@ class _ImportTargetCard extends ConsumerWidget {
           key: const Key('ai-import-target-no-blocks'),
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // The deferred target, stated as such: the season is known and IS
+            // the authorization scope, the block comes from the script (#827).
+            Text(
+              l10n.aiImportTargetLine(
+                seasonNumber == null
+                    ? l10n.aiImportTargetUnknownSeason
+                    : l10n.blockSeasonNumber(seasonNumber),
+                l10n.aiImportTargetUnknownBlock,
+              ),
+              key: const Key('ai-import-target-line'),
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
             Text(l10n.aiImportTargetNoBlocks),
             const SizedBox(height: 4),
             Text(
               l10n.aiImportTargetBlockLess,
               key: const Key('ai-import-target-blockless-hint'),
               style: theme.textTheme.bodySmall,
-            ),
-            TextButton.icon(
-              key: const Key('ai-import-target-blockless'),
-              onPressed: () =>
-                  ref.read(blockLessImportProvider.notifier).set(true),
-              icon: const Icon(Icons.playlist_add_check),
-              label: Text(
-                l10n.aiImportTargetAttachFromScript(
-                  l10n.aiImportTargetUnknownBlock,
-                ),
-              ),
             ),
           ],
         ),
@@ -446,54 +456,6 @@ class _ImportTargetCard extends ConsumerWidget {
           !alreadyPicking &&
           (blocks?.isNotEmpty ?? false);
       canCreate = resolvedValue != null;
-    }
-
-    // Review finding: the choice is a SESSION flag, so it can outlive the state
-    // that justified it (pick block-less, leave, come back to a season that now
-    // has a block). It only ever means "there is no block to attach to", so a
-    // resolved block makes it obsolete — rendering the normal target instead of
-    // silently ignoring the block the user has.
-    if (blockLess && seasonId != null && resolved == null) {
-      return Card(
-        key: const Key('ai-import-target'),
-        color: theme.colorScheme.surfaceContainerHighest,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.aiImportTargetTitle,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                l10n.aiImportTargetLine(
-                  seasonNumber == null
-                      ? l10n.aiImportTargetUnknownSeason
-                      : l10n.blockSeasonNumber(seasonNumber),
-                  l10n.aiImportTargetUnknownBlock,
-                ),
-                key: const Key('ai-import-target-line'),
-                style: theme.textTheme.titleMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                l10n.aiImportTargetBlockLess,
-                key: const Key('ai-import-target-blockless-hint'),
-                style: theme.textTheme.bodySmall,
-              ),
-              TextButton.icon(
-                key: const Key('ai-import-target-blockless-undo'),
-                onPressed: () =>
-                    ref.read(blockLessImportProvider.notifier).set(false),
-                icon: const Icon(Icons.undo),
-                label: Text(l10n.aiImportTargetPickBlock),
-              ),
-            ],
-          ),
-        ),
-      );
     }
 
     return Card(
@@ -734,7 +696,11 @@ Future<void> _createImportBlock(
 /// upload is in flight; on a 200 duplicate the status screen opens with the
 /// duplicate callout; on a 202 the plain status screen opens.
 class _SubmitButton extends ConsumerStatefulWidget {
-  const _SubmitButton({this.seasonId, this.target});
+  const _SubmitButton({
+    this.seasonId,
+    this.target,
+    this.seasonHasNoBlock = false,
+  });
 
   final String? seasonId;
 
@@ -746,12 +712,24 @@ class _SubmitButton extends ConsumerStatefulWidget {
   /// season has no block yet.
   final ActiveScope? target;
 
+  /// `true` when the target season has **no block at all** (issue #829
+  /// follow-up). Then the block-less dispatch is not a choice to opt into: it
+  /// is the only target that exists, and the card has already stated that the
+  /// block comes from the script — so requiring a tap only read as "create a
+  /// block first", which is exactly what sent the reporter back to the block
+  /// form. A season WITH blocks keeps the explicit paths (pick / create).
+  final bool seasonHasNoBlock;
+
   @override
   ConsumerState<_SubmitButton> createState() => _SubmitButtonState();
 }
 
 class _SubmitButtonState extends ConsumerState<_SubmitButton> {
   bool _busy = false;
+
+  /// The block-less dispatch applies when the season has no block to adopt and
+  /// none is resolved — the one state in which no block-bearing target exists.
+  bool get _isBlockLess => widget.seasonHasNoBlock && widget.target == null;
 
   Future<void> _submit() async {
     // Backstop (issue #831): the button below is disabled until a document
@@ -774,10 +752,9 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
       // The upload progress ride: the controller dispatches without the
       // progress hook (the document is fixed); the indeterminate-to-
       // determinate progress is surfaced via the linear indicator below.
-      // A resolved block wins over a stale block-less choice (review finding):
+      // A resolved block always wins over the block-less arm (review finding):
       // the dispatch must send the target the card showed.
-      final blockLess =
-          ref.read(blockLessImportProvider) && widget.target == null;
+      final blockLess = _isBlockLess;
       final res = await ref
           .read(aiImportSubmitControllerProvider.notifier)
           .submit(
@@ -803,7 +780,6 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
         },
         (ack) {
           ref.read(pendingDocumentProvider.notifier).set(null);
-          ref.read(blockLessImportProvider.notifier).set(false);
           // Non-fatal stamp warning (review): the job EXISTS — navigate
           // regardless; the warning rides on top of the status screen.
           final stampWarning = ref.read(aiStampWarningProvider);
@@ -843,15 +819,11 @@ class _SubmitButtonState extends ConsumerState<_SubmitButton> {
     final hasDocument = ref.watch(pendingDocumentProvider) != null;
     // Issue #829: a block-less dispatch is a resolved target too — the season
     // is mandatory and IS the authorization scope, only the block is deferred.
-    // The season is therefore part of the condition (review of #857): the
-    // block-less choice survives in a provider, and a scope that went away
-    // (sign-out, backend switch, dev data reset) must not leave a button that
-    // can only answer `ai_import.scope_missing`.
-    // Same rule at the dispatch point: a resolved block always wins over a
-    // stale block-less choice, so the upload cannot silently drop the block the
-    // card showed.
-    final blockLess =
-        ref.watch(blockLessImportProvider) && widget.target == null;
+    // It applies exactly when the season has NO block (then there is nothing to
+    // pick) and no block is resolved; a season WITH blocks keeps the explicit
+    // pick/create paths, so a dispatch never silently drops a block the user
+    // could have had.
+    final blockLess = _isBlockLess;
     final hasTarget =
         widget.target != null || (blockLess && widget.seasonId != null);
     return Column(

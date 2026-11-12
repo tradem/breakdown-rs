@@ -9,6 +9,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../auth/active_block.dart';
 import '../../../data/cache/seasons_cache_providers.dart';
 import '../../blocks/active_block_gate.dart';
+import '../../shell/shell_controller.dart';
 
 part 'import_target.g.dart';
 
@@ -16,7 +17,21 @@ part 'import_target.g.dart';
 ///
 /// The entry point decides it: the season-setup wizard's completion CTA passes
 /// the created season explicitly, every other entry has no season of its own and
-/// inherits the ambient scope's season (the block pill's minimum requirement).
+/// inherits the season the user is acting in.
+///
+/// "Acting in" has two sources, in this order:
+///
+/// 1. the ambient block scope ([activeBlockProvider]) — the acted-on block,
+///    which is also what the request carries as `X-Active-Block`;
+/// 2. the shell's ACTIVE SEASON ([ShellController.activeSeason]) — the season
+///    the season chip shows and every tab renders. Picking a season there sets
+///    no block (a block is picked later, or not at all), so without this
+///    fallback the very common "pick a season, then import" path reached a
+///    screen that claimed no season was selected at all and could never enable
+///    the submit affordance. The block the target still needs is resolved by
+///    [blockScopeResolution] from this season, so the card keeps offering its
+///    picker / create / block-less arms.
+///
 /// `null` means "no season context at all" — the import then has NO resolvable
 /// target and must not dispatch, which is the honest state the screen renders
 /// instead of sending an upload blindly.
@@ -26,7 +41,9 @@ part 'import_target.g.dart';
 /// user is shown and the season the request declares cannot drift apart.
 @riverpod
 String? aiImportSeasonContext(Ref ref, String? explicitSeasonId) =>
-    explicitSeasonId ?? ref.watch(activeBlockProvider)?.seasonId;
+    explicitSeasonId ??
+    ref.watch(activeBlockProvider)?.seasonId ??
+    ref.watch(shellControllerProvider).activeSeason?.id;
 
 /// The season NUMBER of the import target, resolved CACHE-ONLY.
 ///

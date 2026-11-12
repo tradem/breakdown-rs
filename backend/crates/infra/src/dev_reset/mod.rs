@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Dev-only data reset (issue #770) — safe, repeatable, configuration-preserving.
 //!
@@ -27,6 +28,21 @@
 //!   outside the process (SierraDB 0.3.1 has no delete command), so the
 //!   `business` level is split into the [`ResetPhase`]s that
 //!   `scripts/reset-dev-data.sh` drives around the volume drop.
+//!
+//! ## Schema before the plan
+//!
+//! The plan enumerates the schema **by name** ([`plan::BOOKKEEPING_TABLES`] plus
+//! one projection table per aggregate category), so it needs a database at the
+//! head of `crates/infra/migrations`. Only `main.rs` migrates (at API boot), and
+//! the wrapper stops the API before the `export` phase — so a dev database that
+//! fell behind the checked-in migrations failed the plan with a bare
+//! `relation "…" does not exist` instead of resetting (observed with
+//! `ai_import.ai_import_job_chunk`, migration `20261110000002`). Every phase
+//! therefore applies the pending migrations first, through
+//! `MIGRATOR_DATABASE_URL` when set (the schema owner under role separation)
+//! and `DATABASE_URL` otherwise — `--dry-run` included, because the plan cannot
+//! count a table that does not exist yet. What was applied is the first report
+//! line.
 //!
 //! ## Safety (non-negotiable, issue #770)
 //!
@@ -153,11 +169,18 @@ impl ResetReport {
     }
 }
 
-/// Runs a reset: guard, plan, dry-run, confirmation, execution.
+/// Runs a reset: guard, schema, plan, dry-run, confirmation, execution.
 pub async fn run(options: ResetOptions) -> Result<ResetReport> {
     let environment = DevEnvironment::from_env();
     guard::check(&environment, options.dev_ack)
         .map_err(|refusal| anyhow::anyhow!(refusal.reason()))?;
+
+    // Before the plan, because the plan reads the schema by name and nothing
+    // else in this flow migrates (the wrapper stops the API first).
+    let applied_migrations = apply_pending_migrations(&environment)
+        .await
+        .context("apply the pending PostgreSQL migrations")?;
+    let schema_line = schema_note(&applied_migrations);
 
     let database_target = environment.target_label();
     let event_store_target = event_store_label(&environment.sierradb_url);
@@ -190,6 +213,7 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
             dry_run: true,
             ..ResetReport::default()
         };
+        report.lines.extend(schema_line);
         report.lines.push(plan.render());
         if plan.level == ResetLevel::Business {
             report
@@ -243,13 +267,101 @@ pub async fn run(options: ResetOptions) -> Result<ResetReport> {
         event_store_target,
     };
 
-    let report = match options.level {
+    let mut report = match options.level {
         ResetLevel::Imports => imports::execute(&mut context, &plan, &options).await?,
         ResetLevel::Business => business::execute(&mut context, &plan, &options).await?,
     };
+    if let Some(line) = schema_line {
+        report.lines.insert(0, line);
+    }
 
     tracing::info!("{}", report.audit_line());
     Ok(report)
+}
+
+/// Applies the checked-in migrations the connected database is missing.
+///
+/// Returns the applied `version_description` list (empty when the schema was
+/// current) so the report can name what changed instead of hiding a schema
+/// write inside a `--dry-run`.
+async fn apply_pending_migrations(environment: &DevEnvironment) -> Result<Vec<String>> {
+    let migrator = sqlx::migrate!("./migrations");
+    let url = environment.migrator_url();
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(url)
+        .await
+        .with_context(|| format!("connect the migrator pool at {}", guard::redact_url(url)))?;
+    let pending = pending_migrations(&migrator, &pool).await?;
+    if !pending.is_empty() {
+        migrator
+            .run(&pool)
+            .await
+            .map_err(|error| anyhow::anyhow!("apply the pending migrations: {error}"))?;
+    }
+    pool.close().await;
+    Ok(pending)
+}
+
+/// The checked-in migrations the database has not recorded as applied.
+async fn pending_migrations(
+    migrator: &sqlx::migrate::Migrator,
+    pool: &PgPool,
+) -> Result<Vec<String>> {
+    let applied: Vec<i64> =
+        match sqlx::query_scalar::<_, i64>("SELECT version FROM _sqlx_migrations WHERE success")
+            .fetch_all(pool)
+            .await
+        {
+            Ok(applied) => applied,
+            // A database that never booted the API has no bookkeeping table
+            // yet; sqlx creates it when it first runs, so "untouched" is not a
+            // failure.
+            Err(error) if is_undefined_table(&error) => Vec::new(),
+            Err(error) => return Err(anyhow::anyhow!("read _sqlx_migrations: {error}")),
+        };
+    Ok(migrator
+        .iter()
+        // `V.up.sql` and `V.down.sql` are two entries with the same version;
+        // sqlx applies only forward migrations, so the plan must count only
+        // those — otherwise every pending version is reported (and expected)
+        // twice.
+        .filter(|migration| !migration.migration_type.is_down_migration())
+        .filter(|migration| !applied.contains(&migration.version))
+        .map(|migration| format!("{}_{}", migration.version, migration.description))
+        .collect())
+}
+
+/// SQLSTATE `42P01` — the relation (here: `_sqlx_migrations`) does not exist.
+fn is_undefined_table(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(database) => database.code().as_deref() == Some("42P01"),
+        _ => false,
+    }
+}
+
+/// The first report line, when the schema had to be brought up to date.
+fn schema_note(applied: &[String]) -> Option<String> {
+    if applied.is_empty() {
+        return None;
+    }
+    // A fresh database applies the whole history; naming all of it drowns the
+    // plan it is supposed to annotate, so the newest ones lead and the count
+    // carries the rest.
+    const LISTED: usize = 8;
+    let listed = if applied.len() <= LISTED {
+        applied.join(", ")
+    } else {
+        format!(
+            "{} … (+{} older)",
+            applied[applied.len() - LISTED..].join(", "),
+            applied.len() - LISTED
+        )
+    };
+    Some(format!(
+        "schema: applied {} pending migration(s) before the plan: {listed}",
+        applied.len()
+    ))
 }
 
 /// Best-effort keep-event probe for `--dry-run` (issue #810).
@@ -317,6 +429,31 @@ pub async fn count(pool: &PgPool, sql: &'static str) -> Result<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_note_is_silent_on_a_current_schema_and_names_what_it_applied() {
+        assert_eq!(schema_note(&[]), None);
+        assert_eq!(
+            schema_note(&["20261110000002_ai import chunk resume".to_string()]),
+            Some(
+                "schema: applied 1 pending migration(s) before the plan: \
+                 20261110000002_ai import chunk resume"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn schema_note_keeps_the_newest_versions_when_the_history_is_long() {
+        let applied: Vec<String> = (0..12)
+            .map(|index| format!("202611100000{index:02}_m{index}"))
+            .collect();
+        let note = schema_note(&applied).unwrap_or_default();
+        assert!(note.contains("applied 12 pending migration(s)"), "{note}");
+        assert!(note.contains("… (+4 older)"), "{note}");
+        assert!(note.contains("20261110000011_m11"), "{note}");
+        assert!(!note.contains("20261110000003_m3,"), "{note}");
+    }
 
     #[test]
     fn event_store_label_hides_credentials_and_keeps_the_port() {

@@ -25,11 +25,12 @@ import '../../design/scene_mood_label.dart';
 import '../../design/spacing.dart';
 import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
-import '../../l10n/generated/app_localizations.dart';
 import '../characters/characters_controller.dart';
+import '../characters/role_extract_screen.dart';
 import '../outfits/outfits_controller.dart';
 import '../pieces/piece_identity.dart';
 import '../pieces/widgets/pieces_widgets.dart';
+import '../../data/cache/seasons_cache_providers.dart';
 import '../scene_shoots/scene_shoots_screen.dart';
 import '../shell/planning_location.dart';
 import '../shooting_days/create_shooting_day_sheet.dart';
@@ -111,39 +112,10 @@ class SceneDetailScreen extends ConsumerWidget {
       ),
       body: switch ((scene, scenesState.projected)) {
         // Resolved scene with its collapsible sections.
-        (final s?, _) => RefreshIndicator(
-          onRefresh: () =>
-              ref.read(scenesControllerProvider(episodeId).notifier).refresh(),
-          child: ListView(
-            key: Key('scene-detail-$sceneId'),
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            children: [
-              // Page identity, not a tile (issue #834): no card border
-              // around the header block.
-              _SceneHeader(scene: s),
-              const SizedBox(height: AppSpacing.space12),
-              _SceneSynopsisSection(scene: s),
-              const SizedBox(height: AppSpacing.space8),
-              _SceneCharactersSection(
-                seasonId: seasonId,
-                episodeId: episodeId,
-                scene: s,
-              ),
-              const SizedBox(height: AppSpacing.space8),
-              _SceneOutfitsSection(
-                seasonId: seasonId,
-                episodeId: episodeId,
-                scene: s,
-              ),
-              const SizedBox(height: AppSpacing.space8),
-              _SceneShootingDaysSection(
-                seasonId: seasonId,
-                episode: episode,
-                scene: s,
-              ),
-            ],
-          ),
+        (final s?, _) => _SceneDetailBody(
+          seasonId: seasonId,
+          episode: episode,
+          scene: s,
         ),
         // First snapshot still in flight.
         (null, AsyncLoading()) => const Center(
@@ -206,14 +178,92 @@ class SceneDetailScreen extends ConsumerWidget {
   }
 }
 
+/// The scene's body: identity, synopsis, then the two operational sections —
+/// **shooting days FIRST** (a scene is planned before it is cast, and the day
+/// is what the dispo is built from), then the merged cast/look table (issue
+/// #834 follow-up).
+///
+/// It owns the day-candidate resolution because two places need it: the
+/// section's own actions and the script-day chip in the header, which binds the
+/// day the SCRIPT states ("Tag 1") to a real shooting day of this episode. One
+/// list feeds both, so the affordances cannot disagree about what is available.
+class _SceneDetailBody extends ConsumerWidget {
+  const _SceneDetailBody({
+    required this.seasonId,
+    required this.episode,
+    required this.scene,
+  });
+
+  final String seasonId;
+  final EpisodeView episode;
+  final SceneView scene;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final days = ref.watch(shootingDaysViewProvider(episode.id));
+    final candidates = _realDayCandidates(days.rows, scene);
+    return RefreshIndicator(
+      onRefresh: () =>
+          ref.read(scenesControllerProvider(episode.id).notifier).refresh(),
+      child: ListView(
+        key: Key('scene-detail-${scene.id}'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Page identity, not a tile (issue #834): no card border around the
+          // header block. The script day's assign affordance lives on the chip.
+          _SceneHeader(
+            scene: scene,
+            onAssignScriptDay: candidates.isEmpty
+                ? null
+                : () => unawaited(
+                    _pickDayAndSchedule(
+                      context,
+                      ref,
+                      episodeId: episode.id,
+                      scene: scene,
+                      candidates: candidates,
+                    ),
+                  ),
+          ),
+          const SizedBox(height: AppSpacing.space12),
+          _SceneSynopsisSection(scene: scene),
+          const SizedBox(height: AppSpacing.space8),
+          _SceneShootingDaysSection(
+            seasonId: seasonId,
+            episode: episode,
+            scene: scene,
+            candidates: candidates,
+          ),
+          const SizedBox(height: AppSpacing.space8),
+          _SceneCastLooksSection(
+            seasonId: seasonId,
+            episodeId: episode.id,
+            scene: scene,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The identity block (issue #834): the number as a large numeral, the
 /// location as the title line, and the metadata chip row — mood (#721
 /// icons), script day, geplant/ungeplant, and the AI-provenance badge from
 /// `SceneView.source`. No card border: this reads as page identity.
 class _SceneHeader extends StatelessWidget {
-  const _SceneHeader({required this.scene});
+  const _SceneHeader({required this.scene, this.onAssignScriptDay});
 
   final SceneView scene;
+
+  /// Binds the day the SCRIPT states ("Tag 1") to a **real** shooting day of
+  /// the episode (issue #834 follow-up): the chip is the only place the script's
+  /// own wording is visible, so the affordance that maps it onto a planned day
+  /// belongs next to it — not only inside the days section, which a scene
+  /// without a day never shows. `null` disables it (no candidate day, or the
+  /// day projection is unreadable): the icon never opens a picker that cannot
+  /// offer anything.
+  final VoidCallback? onAssignScriptDay;
 
   @override
   Widget build(BuildContext context) {
@@ -249,7 +299,19 @@ class _SceneHeader extends StatelessWidget {
                 label: l10n.sceneMood(mood),
               ),
             if (scene.scriptDay case final day?)
-              _HeaderChip(label: l10n.sceneDay(day)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _HeaderChip(label: l10n.sceneDay(day)),
+                  IconButton(
+                    key: Key('scene-script-day-assign-${scene.id}'),
+                    icon: const Icon(Icons.event_available_outlined, size: 18),
+                    tooltip: l10n.sceneDetailAssignScriptDayTooltip,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onAssignScriptDay,
+                  ),
+                ],
+              ),
             _HeaderChip(
               key: Key('scene-schedule-flag-${scene.id}'),
               label: scene.isScheduleSet
@@ -390,12 +452,26 @@ class _SceneSynopsisSection extends StatelessWidget {
   }
 }
 
-/// Characters section: assigned list (read-DTO join) + assign/remove.
+/// The scene's CAST: one row per (figure, look) — the figure and the look it
+/// wears in THIS scene in the same table row (issue #834 follow-up).
 ///
-/// // AUTHZ-GATE: assign/unassign run the membership capability check
-/// inside the characters controller before any network call.
-class _SceneCharactersSection extends ConsumerWidget {
-  const _SceneCharactersSection({
+/// The separate "Figuren" and "Looks" sections made the reader join two lists
+/// by hand: a look row named only the look, and a figure without a look was a
+/// dead end one section away from the affordance that fixes it. One card
+/// answers both questions at a glance, and the header keeps both counts
+/// ("Figuren (2) · Looks (3)") so even the collapsed state is informative.
+///
+/// A figure with several looks (a change inside the scene) renders one row per
+/// look: the first carries the figure's own actions (edit in the Cast view,
+/// remove from the scene), every further row is its change step (`→`), and each
+/// look row carries its own removal — both targets stay removable, and the
+/// counts stay honest.
+///
+/// // AUTHZ-GATE: assign/unassign and the beat commands run the membership
+/// capability check inside the controllers BEFORE any network call (same
+/// send-as-read story as the piece-assign surface).
+class _SceneCastLooksSection extends ConsumerWidget {
+  const _SceneCastLooksSection({
     required this.seasonId,
     required this.episodeId,
     required this.scene,
@@ -407,70 +483,220 @@ class _SceneCharactersSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
     final characters = ref.watch(charactersViewProvider(seasonId));
     final names = {for (final c in characters.rows) c.id: c.name};
-    // Defensive dedup (issue #550): the read-model fan-out is fixed backend-
-    // side, but a future regression must not render a contradictory screen —
-    // count, row keys, and the picker filter all share one distinct list.
-    final assigned = scene.assignedCharacters.toSet().toList();
-    // Eligible picker candidates (mirrors `_pickCharacter`): the action
-    // disables when everybody is already assigned.
-    final assignable = assigned.toSet();
-    final hasCandidates = characters.rows.any(
-      (c) => !assignable.contains(c.id),
+    // Defensive dedup (issue #550): the read-model fan-out is fixed
+    // backend-side, but a future regression must not render a contradictory
+    // screen — count, rows and the picker filter share one distinct list.
+    final groups = groupSceneBeats(
+      assignedCharacters: scene.assignedCharacters,
+      beats: scene.outfitBeats?.toList() ?? const [],
     );
+    final lookCount = [for (final g in groups) ...g.beats].length;
+    final assigned = scene.assignedCharacters.toSet();
+    final hasCandidates = characters.rows.any((c) => !assigned.contains(c.id));
+    // The Cast route dispatches commands that take a `SeasonView`. Every
+    // hierarchy push carries the acted-on `SeasonView` in its route
+    // `SceneLocation` (CQRS boundary — zero extra reads); direct-pumped tests
+    // and cold routes fall back to the fenced `seasonsView` cache/list
+    // projection. `null` disables the edit icon without hiding it.
+    final routeLocation = locationFromArguments(
+      ModalRoute.of(context)?.settings.arguments,
+    );
+    final routeSeason = switch (routeLocation) {
+      SceneLocation(:final season) when season.id == seasonId => season,
+      _ => null,
+    };
+    final season =
+        routeSeason ??
+        ref.watch(seasonsView).rows.where((s) => s.id == seasonId).firstOrNull;
+    // Ephemeral reconciliation indicator for this scene's optimistic beat
+    // overlay (reconciling spinner / stale cloud-off + warning).
+    final beatOverlay = ref
+        .watch(scenesControllerProvider(episodeId))
+        .beatOverlays
+        .where((o) => o.id == scene.id)
+        .firstOrNull;
 
-    // SectionCard (issue #834): no divider chrome, collapsed by default —
-    // the count in the header keeps the collapsed state informative.
     return SectionCard(
-      key: Key('scene-characters-${scene.id}'),
-      pageStorageKey: 'scene-section-characters',
-      header: Text(
-        l10nOf(context).sceneDetailCharactersTitle('${assigned.length}'),
-      ),
+      key: Key('scene-cast-${scene.id}'),
+      pageStorageKey: 'scene-section-cast',
+      header: Text(l10n.sceneDetailCastTitle('${groups.length}', '$lookCount')),
       children: [
-        if (assigned.isEmpty)
+        if (groups.isEmpty)
           ListTile(
-            key: const Key('scene-characters-empty'),
-            title: Text(l10nOf(context).sceneDetailNoCharacters),
+            key: const Key('scene-cast-empty'),
+            title: Text(l10n.sceneDetailNoCharacters),
           )
-        else
-          for (final id in assigned)
+        else ...[
+          const _CastTableHeader(),
+          for (final group in groups) ...[
+            if (group.beats.isEmpty)
+              // A cast figure without a look: the look column states that
+              // honestly and offers the one action that fixes it.
+              _CastRow(
+                key: Key('scene-character-${group.characterId}'),
+                characterId: group.characterId,
+                characterName:
+                    names[group.characterId] ??
+                    l10n.sceneDetailUnknownCharacter,
+                lookLabel: l10n.sceneDetailNoOutfitInScene,
+                lookKey: Key('scene-piece-empty-${group.characterId}'),
+                lookIsPlaceholder: true,
+                onEdit: season == null
+                    ? null
+                    : () => _openCharacter(context, ref, season, group),
+                onRemoveCharacter: () => _confirmRemoveCharacter(
+                  context,
+                  ref,
+                  group.characterId,
+                  names[group.characterId],
+                ),
+                trailingExtra: IconButton(
+                  key: Key('scene-piece-assign-${group.characterId}'),
+                  icon: const Icon(Icons.add),
+                  tooltip: l10n.sceneDetailAssignOutfit,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _assignLook(
+                    context,
+                    ref,
+                    group.characterId,
+                    names[group.characterId],
+                  ),
+                ),
+              )
+            else
+              for (var index = 0; index < group.beats.length; index++)
+                _CastRow(
+                  key: index == 0
+                      ? Key('scene-character-${group.characterId}')
+                      : null,
+                  characterId: group.characterId,
+                  isFirstRow: index == 0,
+                  beatOrder: group.beats[index].order,
+                  // The figure cell is written once per figure; the change
+                  // steps below it keep the column empty, like a table.
+                  characterName: index == 0
+                      ? (names[group.characterId] ??
+                            l10n.sceneDetailUnknownCharacter)
+                      : '',
+                  lookLabel: sceneBeatOutfitLabel(
+                    outfitName: group.beats[index].outfitName,
+                    genericFallback: l10n.pieceTileLabelFallback,
+                  ),
+                  lookIcon: BreakdownMaterialIcons.forCostumeCategory(
+                    group.beats[index].outfitName,
+                  ),
+                  lookNote: group.beats[index].note,
+                  changeArrow: group.beats[index].order > 0,
+                  onEdit: index != 0 || season == null
+                      ? null
+                      : () => _openCharacter(context, ref, season, group),
+                  onRemoveCharacter: index != 0
+                      ? null
+                      : () => _confirmRemoveCharacter(
+                          context,
+                          ref,
+                          group.characterId,
+                          names[group.characterId],
+                        ),
+                  onRemoveLook: () => _confirmRemoveLook(
+                    context,
+                    ref,
+                    group,
+                    group.beats[index],
+                  ),
+                  trailingExtra: index == group.beats.length - 1
+                      ? IconButton(
+                          key: Key(
+                            'scene-piece-add-change-'
+                            '${group.characterId}',
+                          ),
+                          icon: const Icon(Icons.add),
+                          tooltip: l10n.sceneDetailAddChange,
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _assignLook(
+                            context,
+                            ref,
+                            group.characterId,
+                            names[group.characterId],
+                          ),
+                        )
+                      : null,
+                ),
+          ],
+          if (beatOverlay != null &&
+              beatOverlay.status != OverlayStatus.acknowledged)
             ListTile(
-              key: Key('scene-character-$id'),
+              key: const Key('scene-pieces-overlay-status'),
+              leading: beatOverlay.status == OverlayStatus.stale
+                  ? const Icon(
+                      Icons.cloud_off,
+                      key: Key('scene-pieces-overlay-warning'),
+                    )
+                  : const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+              // Status-specific copy keyed on the overlay status: the
+              // "Created" stale warning would lie for piece updates and
+              // removals, and the raw `warning` CODE is never user copy.
               title: Text(
-                names[id] ?? l10nOf(context).sceneDetailUnknownCharacter,
-              ),
-              trailing: IconButton(
-                key: Key('scene-character-remove-$id'),
-                icon: const Icon(Icons.person_remove_outlined),
-                tooltip: l10nOf(context).sceneDetailRemoveCharacterTooltip,
-                // Confirm-first (destructive actions confirm-first, §5).
-                onPressed: () => _confirmRemove(context, ref, id, names[id]),
+                beatOverlay.status == OverlayStatus.stale
+                    ? l10n.sceneBeatOverlayStale
+                    : l10n.sceneBeatOverlaySyncing,
               ),
             ),
+        ],
         Align(
           alignment: Alignment.centerRight,
-          child: FilledButton.tonal(
+          child: FilledButton.tonalIcon(
             key: Key('scene-character-assign-${scene.id}'),
             onPressed: hasCandidates
-                ? () => _pickCharacter(context, ref, characters.rows)
+                ? () => _assignFigureAndLook(context, ref, characters.rows)
                 : null,
-            child: Text(l10nOf(context).sceneDetailAssignCharacter),
+            icon: const Icon(Icons.person_add_alt_1),
+            label: Text(l10n.sceneDetailAssignCharacterAndLook),
           ),
         ),
       ],
     );
   }
 
-  Future<void> _pickCharacter(
+  /// Opens the figure's Cast screen (the character detail behind the Cast
+  /// view's entry point, issue #611) so the look itself is edited where looks
+  /// live. On return the scene projection is refreshed: a renamed or removed
+  /// look must not keep rendering its old label here.
+  Future<void> _openCharacter(
+    BuildContext context,
+    WidgetRef ref,
+    SeasonView season,
+    SceneBeatGroup group,
+  ) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            RoleExtractScreen(season: season, characterId: group.characterId),
+      ),
+    );
+    if (!context.mounted) return;
+    await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+  }
+
+  /// The ONE assign flow of this section: figure first, then its look.
+  ///
+  /// The two commands stay two commands (a figure can legitimately be cast
+  /// without a look — the planner knows the role, not yet the costume), so a
+  /// cancelled look picker leaves the figure assigned instead of silently
+  /// rolling the assignment back. The order is the aggregate's: a beat belongs
+  /// to an assigned character, so the look can only be added afterwards.
+  Future<void> _assignFigureAndLook(
     BuildContext context,
     WidgetRef ref,
     List<CharacterView> characters,
   ) async {
-    // Only unassigned characters are eligible: re-picking an assigned one
-    // would 409 (`CharacterAlreadyAssigned`) on a request the client can
-    // see coming.
     final assigned = scene.assignedCharacters.toSet();
     final candidates = [
       for (final c in characters)
@@ -501,16 +727,12 @@ class _SceneCharactersSection extends ConsumerWidget {
           sceneVersion: scene.version,
           characterId: picked,
         );
-    if (result.isRight()) {
-      // Optimistic-after-2xx on the scene row's id list: refresh the
-      // scene projection so the assigned list reconciles.
+    if (!context.mounted) return;
+    final newVersion = result.match((_) => null, (version) => version);
+    if (newVersion == null) {
+      // Reconcile the version even on conflict: the next action must echo the
+      // current projection version, not the rejected one (no re-dispatch).
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
-    } else if (context.mounted) {
-      // Reconcile the version even on conflict: the next action must echo
-      // the current projection version, not the rejected one. The command
-      // itself is never re-dispatched automatically.
-      await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
-      // Navigation or sign-out can unmount while the refresh is pending.
       if (!context.mounted) return;
       result.match(
         (err) => ScaffoldMessenger.of(context).showSnackBar(
@@ -518,10 +740,95 @@ class _SceneCharactersSection extends ConsumerWidget {
         ),
         (_) {},
       );
+      return;
     }
+    await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+    if (!context.mounted) return;
+    final name = candidates
+        .where((c) => c.id == picked)
+        .map((c) => c.name)
+        .firstOrNull;
+    // The assignment ACK advanced the scene version: the second command must
+    // echo THAT version, never the one the row was rendered from (a projector
+    // that has not caught up yet would answer 409 otherwise).
+    final updatedScene = scene.rebuild(
+      (b) => b
+        ..version = newVersion
+        ..assignedCharacters.add(picked),
+    );
+    // Straight into the look picker: the reviewer asked for "Figur UND Look",
+    // so the second half must not need a second trip.
+    await _assignLook(context, ref, picked, name, actingScene: updatedScene);
   }
 
-  Future<void> _confirmRemove(
+  /// Picks a look of [characterId] and appends it as that figure's next beat.
+  ///
+  /// [actingScene] overrides the rendered row for the beat command's version
+  /// echo (the combined assign flow casts first and must not send the
+  /// pre-assignment version).
+  Future<void> _assignLook(
+    BuildContext context,
+    WidgetRef ref,
+    String characterId,
+    String? characterName, {
+    SceneView? actingScene,
+  }) async {
+    // The picker lists the character's own looks (a scene casts an outfit,
+    // never a bare piece). The list is the API edge's read model — fetched
+    // lazily here, cached per character.
+    final outfitsResult = await ref.read(
+      characterOutfitsProvider(characterId).future,
+    );
+    if (!context.mounted) return;
+    final outfits = outfitsResult.match((err) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(sceneBeatErrorCopy(l10nOf(context), err))),
+      );
+      return null;
+    }, (r) => r);
+    // A failed read is NOT an empty wardrobe: reporting "no look yet" for a
+    // transport failure would send the user to create a look that exists.
+    if (outfits == null) return;
+    if (outfits.isEmpty) {
+      // No look to pick is stated, not silent: the looks live in the Cast view.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10nOf(context).sceneDetailNoLooksForFigure)),
+      );
+      return;
+    }
+    final targetScene = actingScene ?? scene;
+    final picked = await showPickOutfitSheet(context, outfits);
+    if (picked == null || !context.mounted) return;
+    final pickedOutfit = outfits
+        .where((o) => o.id == picked.outfitId)
+        .firstOrNull;
+    final result = await ref
+        .read(scenesControllerProvider(episodeId).notifier)
+        .addOutfitBeat(
+          seasonId: seasonId,
+          scene: targetScene,
+          characterId: characterId,
+          outfitId: picked.outfitId,
+          note: picked.note,
+          characterName: characterName,
+          outfitName: pickedOutfit?.name,
+        );
+    if (result.isRight()) return; // optimistic overlay + reconcile own the UI.
+    if (!context.mounted) return;
+    // Reconcile the version even on conflict: the next action must echo the
+    // current projection version, not the rejected one. The command itself is
+    // never re-dispatched automatically.
+    await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+    if (!context.mounted) return;
+    result.match(
+      (err) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(sceneBeatErrorCopy(l10nOf(context), err))),
+      ),
+      (_) {},
+    );
+  }
+
+  Future<void> _confirmRemoveCharacter(
     BuildContext context,
     WidgetRef ref,
     String characterId,
@@ -552,9 +859,9 @@ class _SceneCharactersSection extends ConsumerWidget {
                     sceneVersion: scene.version,
                     characterId: characterId,
                   );
-              // A failed command (non-2xx) leaves the projected id in place
-              // — no local edit was made before the ack, so there is nothing
-              // to roll back — and surfaces the error keyed on `code`.
+              // A failed command (non-2xx) leaves the projected id in place —
+              // no local edit was made before the ack, so there is nothing to
+              // roll back — and surfaces the error keyed on `code`.
               if (result.isRight()) {
                 await ref
                     .read(scenesControllerProvider(episodeId).notifier)
@@ -567,7 +874,9 @@ class _SceneCharactersSection extends ConsumerWidget {
                 result.match(
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
-                      content: Text(characterErrorCopy(l10nOf(context), err)),
+                      // The captured copy: the section may be gone after the
+                      // refresh, and `l10nOf(context)` would throw then.
+                      content: Text(characterErrorCopy(l10n, err)),
                     ),
                   ),
                   (_) {},
@@ -583,220 +892,18 @@ class _SceneCharactersSection extends ConsumerWidget {
       ),
     );
   }
-}
 
-/// Pieces section (issue #546): one row per (character, beat), grouped
-/// in the characters' assignment order; multiple beats of a character
-/// render as a change sequence (`Kostüm A → Kostüm B`). Common case stays
-/// trivial: one row per character, no sequence editor, no drag-and-drop.
-///
-/// // AUTHZ-GATE: beat commands run the membership capability check inside
-/// the scenes controller BEFORE any network call (same send-as-read story
-/// as the piece-assign surface).
-class _SceneOutfitsSection extends ConsumerWidget {
-  const _SceneOutfitsSection({
-    required this.seasonId,
-    required this.episodeId,
-    required this.scene,
-  });
-
-  final String seasonId;
-  final String episodeId;
-  final SceneView scene;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // The pieces projection already serves plain read DTOs (the view
-    // selector flattened the overlay rows) — no row unwrapping here.
-    final characters = ref.watch(charactersViewProvider(seasonId));
-    final names = {for (final c in characters.rows) c.id: c.name};
-    final groups = groupSceneBeats(
-      assignedCharacters: scene.assignedCharacters,
-      beats: scene.outfitBeats?.toList() ?? const [],
-    );
-    final totalBeats = [for (final g in groups) ...g.beats].length;
-    // Ephemeral reconciliation indicator for this scene's optimistic
-    // beat overlay (reconciling spinner / stale cloud-off + warning).
-    final beatOverlay = ref
-        .watch(scenesControllerProvider(episodeId))
-        .beatOverlays
-        .where((o) => o.id == scene.id)
-        .firstOrNull;
-    final l10n = l10nOf(context);
-
-    // SectionCard (issue #834): no divider chrome, collapsed by default.
-    return SectionCard(
-      key: Key('scene-pieces-${scene.id}'),
-      pageStorageKey: 'scene-section-outfits',
-      header: Text(l10n.sceneDetailOutfitsTitle('$totalBeats')),
-      children: [
-        if (scene.assignedCharacters.isEmpty)
-          ListTile(
-            key: const Key('scene-pieces-empty'),
-            title: Text(l10n.sceneDetailNoCharacters),
-          )
-        else ...[
-          for (final group in groups) ...[
-            for (final beat in group.beats)
-              _buildBeatTile(context, ref, group, beat, l10n),
-            if (group.beats.isEmpty)
-              ListTile(
-                key: Key('scene-piece-empty-${group.characterId}'),
-                title: Text(l10n.sceneDetailNoOutfitInScene),
-                trailing: FilledButton.tonal(
-                  key: Key('scene-piece-assign-${group.characterId}'),
-                  onPressed: () => _pickOutfit(
-                    context,
-                    ref,
-                    group.characterId,
-                    names[group.characterId],
-                  ),
-                  child: Text(l10n.sceneDetailAssignOutfit),
-                ),
-              )
-            else
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonal(
-                  key: Key('scene-piece-add-change-${group.characterId}'),
-                  onPressed: () => _pickOutfit(
-                    context,
-                    ref,
-                    group.characterId,
-                    names[group.characterId],
-                  ),
-                  child: Text(l10n.sceneDetailAddChange),
-                ),
-              ),
-          ],
-          if (beatOverlay != null &&
-              beatOverlay.status != OverlayStatus.acknowledged)
-            ListTile(
-              key: const Key('scene-pieces-overlay-status'),
-              leading: beatOverlay.status == OverlayStatus.stale
-                  ? const Icon(
-                      Icons.cloud_off,
-                      key: Key('scene-pieces-overlay-warning'),
-                    )
-                  : const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-              // Status-specific copy keyed on the overlay status: the
-              // "Created" stale warning would lie for piece updates and
-              // removals, and the raw `warning` CODE is never user copy.
-              title: Text(
-                beatOverlay.status == OverlayStatus.stale
-                    ? l10n.sceneBeatOverlayStale
-                    : l10n.sceneBeatOverlaySyncing,
-              ),
-            ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildBeatTile(
+  Future<void> _confirmRemoveLook(
     BuildContext context,
     WidgetRef ref,
     SceneBeatGroup group,
     SceneOutfitBeatView beat,
-    AppLocalizations l10n,
   ) {
-    // A beat casts an OUTFIT (a composed look), so its label is the look's own
-    // name as joined by the backend; no extra projection lookup is needed and
-    // a projection miss degrades to the generic label.
+    final l10n = l10nOf(context);
     final label = sceneBeatOutfitLabel(
       outfitName: beat.outfitName,
       genericFallback: l10n.pieceTileLabelFallback,
     );
-    final iconCategory = beat.outfitName;
-    return ListTile(
-      key: Key('scene-piece-beat-${group.characterId}-${beat.order}'),
-      leading: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (beat.order > 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Text(
-                '→',
-                key: Key(
-                  'scene-piece-arrow-${group.characterId}-${beat.order}',
-                ),
-              ),
-            ),
-          Icon(BreakdownMaterialIcons.forCostumeCategory(iconCategory)),
-        ],
-      ),
-      title: Text(label),
-      subtitle: beat.note == null || beat.note!.isEmpty
-          ? null
-          : Text(beat.note!),
-      trailing: IconButton(
-        key: Key('scene-piece-remove-${group.characterId}-${beat.order}'),
-        icon: const Icon(Icons.delete_outline),
-        tooltip: l10n.sceneDetailRemoveOutfitTooltip,
-        // Confirm-first (destructive actions confirm-first, §5).
-        onPressed: () => _confirmRemove(context, ref, group, beat, label),
-      ),
-    );
-  }
-
-  Future<void> _pickOutfit(
-    BuildContext context,
-    WidgetRef ref,
-    String characterId,
-    String? characterName,
-  ) async {
-    // The picker lists the character's own looks (a scene casts an outfit,
-    // never a bare piece). The list is the API edge's read model — fetched
-    // lazily here, cached per character.
-    final outfitsResult = await ref.read(
-      characterOutfitsProvider(characterId).future,
-    );
-    final outfits = outfitsResult.match((_) => const <OutfitView>[], (r) => r);
-    if (outfits.isEmpty || !context.mounted) return;
-    final picked = await showPickOutfitSheet(context, outfits);
-    if (picked == null || !context.mounted) return;
-    final pickedOutfit = outfits
-        .where((o) => o.id == picked.outfitId)
-        .firstOrNull;
-    final result = await ref
-        .read(scenesControllerProvider(episodeId).notifier)
-        .addOutfitBeat(
-          seasonId: seasonId,
-          scene: scene,
-          characterId: characterId,
-          outfitId: picked.outfitId,
-          note: picked.note,
-          characterName: characterName,
-          outfitName: pickedOutfit?.name,
-        );
-    if (result.isRight()) return; // optimistic overlay + reconcile own the UI.
-    if (!context.mounted) return;
-    // Reconcile the version even on conflict: the next action must echo
-    // the current projection version, not the rejected one. The command
-    // itself is never re-dispatched automatically.
-    await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
-    if (!context.mounted) return;
-    result.match(
-      (err) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(sceneBeatErrorCopy(l10nOf(context), err))),
-      ),
-      (_) {},
-    );
-  }
-
-  Future<void> _confirmRemove(
-    BuildContext context,
-    WidgetRef ref,
-    SceneBeatGroup group,
-    SceneOutfitBeatView beat,
-    String label,
-  ) {
-    final l10n = l10nOf(context);
     return showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -809,17 +916,14 @@ class _SceneOutfitsSection extends ConsumerWidget {
           ),
           FilledButton(
             key: Key(
-              'scene-piece-remove-confirm-'
-              '${group.characterId}-${beat.order}',
+              'scene-piece-remove-confirm-${group.characterId}-${beat.order}',
             ),
             onPressed: () async {
-              // The controller on this scene (the section is keyed to the
-              // episode the scene belongs to).
               final controller = ref.read(
                 scenesControllerProvider(episodeId).notifier,
               );
-              // The only remaining beat IS the clear-all ("no piece in
-              // this scene"); otherwise a single-beat removal.
+              // The only remaining beat IS the clear-all ("no look in this
+              // scene"); otherwise a single-beat removal.
               final result = group.beats.length <= 1
                   ? await controller.clearOutfitBeats(
                       seasonId: seasonId,
@@ -842,7 +946,9 @@ class _SceneOutfitsSection extends ConsumerWidget {
                 result.match(
                   (err) => ScaffoldMessenger.of(dialogContext).showSnackBar(
                     SnackBar(
-                      content: Text(sceneBeatErrorCopy(l10nOf(context), err)),
+                      // The captured copy: the section may be gone after the
+                      // refresh, and `l10nOf(context)` would throw then.
+                      content: Text(sceneBeatErrorCopy(l10n, err)),
                     ),
                   ),
                   (_) {},
@@ -860,13 +966,247 @@ class _SceneOutfitsSection extends ConsumerWidget {
   }
 }
 
-/// Shooting-days section: scheduled list (read-DTO join) + schedule/
-/// unschedule pickers over the parent episode's not-yet-archived days.
+/// Column labels of the cast table (issue #834 follow-up): the two-cell row
+/// reads as a table only when it says what the cells are.
+class _CastTableHeader extends StatelessWidget {
+  const _CastTableHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final style = theme.textTheme.labelSmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.space4),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(
+              l10n.sceneDetailCastColumnCharacter,
+              key: const Key('scene-cast-column-character'),
+              style: style,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.space8),
+          Expanded(
+            flex: 6,
+            child: Text(
+              l10n.sceneDetailCastColumnLook,
+              key: const Key('scene-cast-column-look'),
+              style: style,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One table row of the cast section: the figure cell, the look cell and the
+/// actions. The look cell carries the beat identity (`AUTHZ`-free read DTO —
+/// `scene-piece-beat-<character>-<order>`), the arrow of a change step, the
+/// category icon and the wardrobe cue.
+class _CastRow extends StatelessWidget {
+  const _CastRow({
+    super.key,
+    required this.characterId,
+    required this.characterName,
+    required this.lookLabel,
+    this.isFirstRow = true,
+    this.beatOrder,
+    this.lookKey,
+    this.lookIcon,
+    this.lookNote,
+    this.lookIsPlaceholder = false,
+    this.changeArrow = false,
+    this.onEdit,
+    this.onRemoveCharacter,
+    this.onRemoveLook,
+    this.trailingExtra,
+  });
+
+  final String characterId;
+  final String characterName;
+  final String lookLabel;
+
+  /// Whether this row is the FIRST row of its figure. The figure cell (name
+  /// and its actions) is written once per figure — the change steps below it
+  /// keep the column empty, like a table.
+  final bool isFirstRow;
+  final int? beatOrder;
+
+  /// Explicit key for the LOOK cell, for the rows that name no beat (the
+  /// "no look yet" placeholder keeps its own stable key).
+  final Key? lookKey;
+  final IconData? lookIcon;
+  final String? lookNote;
+  final bool lookIsPlaceholder;
+  final bool changeArrow;
+  final VoidCallback? onEdit;
+  final VoidCallback? onRemoveCharacter;
+  final VoidCallback? onRemoveLook;
+  final Widget? trailingExtra;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final lookStyle = lookIsPlaceholder
+        ? theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          )
+        : theme.textTheme.bodyMedium;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.space4),
+      child: Row(
+        // The look column of every row starts at the same x as the header's:
+        // the figure's actions ride INSIDE column 1, never beside the table.
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Column 1 — the figure and its actions.
+          Expanded(
+            flex: 4,
+            child: isFirstRow
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        characterName,
+                        style: theme.textTheme.bodyMedium,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Wrap(
+                        children: [
+                          // Always rendered on the figure's first row: with
+                          // `onPressed: null` it is DISABLED when the season
+                          // row could not be resolved — an absent control is
+                          // indistinguishable from "not supported".
+                          IconButton(
+                            key: Key('scene-character-edit-$characterId'),
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            tooltip: l10n.sceneDetailEditCharacterTooltip,
+                            visualDensity: VisualDensity.compact,
+                            onPressed: onEdit,
+                          ),
+                          if (onRemoveCharacter != null)
+                            IconButton(
+                              key: Key('scene-character-remove-$characterId'),
+                              icon: const Icon(
+                                Icons.person_remove_outlined,
+                                size: 18,
+                              ),
+                              tooltip: l10n.sceneDetailRemoveCharacterTooltip,
+                              visualDensity: VisualDensity.compact,
+                              onPressed: onRemoveCharacter,
+                            ),
+                        ],
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
+          const SizedBox(width: AppSpacing.space8),
+          // Column 2 — the look and its actions.
+          Expanded(
+            flex: 6,
+            child: Row(
+              key:
+                  lookKey ??
+                  (beatOrder == null
+                      ? null
+                      : Key('scene-piece-beat-$characterId-$beatOrder')),
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      if (changeArrow)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Text(
+                            '→',
+                            key: Key(
+                              'scene-piece-arrow-$characterId-$beatOrder',
+                            ),
+                          ),
+                        ),
+                      if (lookIcon != null) ...[
+                        Icon(lookIcon, size: 18),
+                        const SizedBox(width: AppSpacing.space4),
+                      ],
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              lookLabel,
+                              style: lookStyle,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (lookNote case final note? when note.isNotEmpty)
+                              Text(note, style: theme.textTheme.bodySmall),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (onRemoveLook != null)
+                  IconButton(
+                    key: Key('scene-piece-remove-$characterId-$beatOrder'),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    tooltip: l10n.sceneDetailRemoveOutfitTooltip,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onRemoveLook,
+                  ),
+                ?trailingExtra,
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The episode's **real** shooting days this scene is not planned on yet:
+/// not archived, and not already on the scene's own list.
+///
+/// One function feeds every affordance that schedules this scene (the section's
+/// button, a row's "move" icon and the script-day chip), so none of them can
+/// offer a day another one would filter out.
+List<ShootingDayView> _realDayCandidates(
+  List<ShootingDayView> rows,
+  SceneView scene,
+) {
+  // Defensive dedup (issue #550): a duplicated id would inflate the header
+  // count and render the day twice while the set-based filter saw no candidate.
+  final scheduled = scene.shootingDayIds.toSet();
+  return [
+    for (final day in rows)
+      if (!day.archived && !scheduled.contains(day.id)) day,
+  ];
+}
+
+/// Shooting-days section — the FIRST operational section (issue #834
+/// follow-up: a scene is planned before it is cast, and the dispo is built from
+/// the days, not from the looks).
+///
+/// Lists the days from `SceneView.shootingDayIds` resolved against the
+/// episode's day projection (read-DTO join only). Per row: the day board, the
+/// "move to another day" action and unscheduling; at the bottom the schedule
+/// action. A scene whose days are all ineligible states why instead of leaving
+/// a silently disabled button.
 class _SceneShootingDaysSection extends ConsumerWidget {
   const _SceneShootingDaysSection({
     required this.seasonId,
     required this.episode,
     required this.scene,
+    required this.candidates,
   });
 
   final String seasonId;
@@ -874,48 +1214,43 @@ class _SceneShootingDaysSection extends ConsumerWidget {
   String get episodeId => episode.id;
   final SceneView scene;
 
+  /// The days the scene can be scheduled on — resolved ONCE by the body so the
+  /// script-day chip in the header offers exactly the same list.
+  final List<ShootingDayView> candidates;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = l10nOf(context);
     final days = ref.watch(shootingDaysViewProvider(episodeId));
     final byId = {for (final d in days.rows) d.id: d};
-    // Defensive dedup (issue #550): a duplicated id would inflate the header
-    // count and render the day twice while the set-based picker filter saw no
-    // candidate — count, list, and picker share one distinct list.
     final scheduled = scene.shootingDayIds.toSet().toList();
-    final candidates = [
-      for (final d in days.rows)
-        if (!d.archived && !scheduled.contains(d.id)) d,
-    ];
 
     // SectionCard (issue #834): no divider chrome, collapsed by default.
     return SectionCard(
       key: Key('scene-shooting-days-${scene.id}'),
       pageStorageKey: 'scene-section-shooting-days',
-      header: Text(
-        l10nOf(context).sceneDetailShootingDaysTitle('${scheduled.length}'),
-      ),
+      header: Text(l10n.sceneDetailShootingDaysTitle('${scheduled.length}')),
       children: [
         if (scheduled.isEmpty)
           ListTile(
             key: const Key('scene-shooting-days-empty'),
-            title: Text(l10nOf(context).sceneDetailNoShootingDays),
+            title: Text(l10n.sceneDetailNoShootingDays),
             // Report provenance (issue #549): the reports entry lives on the
-            // day board, and the day board is reachable only from a
-            // scheduled day — so a 0-day scene showed no reports affordance
-            // and no reason to expect one. The hint NAMES what becomes
-            // available once a day is planned. It invents no report and adds
-            // no season-level entry: the report routes are day-scoped in the
-            // contract itself, so this stays copy, not an affordance that
-            // leads nowhere (`flutter-reports-screen`,
-            // Report-Provenance Empty State).
-            subtitle: Text(l10nOf(context).sceneDetailNoShootingDaysReportHint),
+            // day board, and the day board is reachable only from a scheduled
+            // day — so a 0-day scene showed no reports affordance and no reason
+            // to expect one. The hint NAMES what becomes available once a day is
+            // planned. It invents no report and adds no season-level entry: the
+            // report routes are day-scoped in the contract itself, so this stays
+            // copy, not an affordance that leads nowhere
+            // (`flutter-reports-screen`, Report-Provenance Empty State).
+            subtitle: Text(l10n.sceneDetailNoShootingDaysReportHint),
           )
         else
           for (final id in scheduled)
             ListTile(
               key: Key('scene-shooting-day-$id'),
-              // Provenance badge keyed like the day list #538 — the
-              // scheduled read-DTO join renders the day's wire source.
+              // Provenance badge keyed like the day list #538 — the scheduled
+              // read-DTO join renders the day's wire source.
               title: switch (byId[id] == null
                   ? AiProvenanceVariant.absent
                   : dayProvenance(byId[id]!.source_)) {
@@ -925,40 +1260,56 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                     AiProvenanceBadge(semanticKey: 'shooting-day-ai-badge-$id'),
                     Flexible(
                       child: Text(
-                        byId[id]?.label ??
-                            l10nOf(context).sceneShootDayFallback,
+                        byId[id]?.label ?? l10n.sceneShootDayFallback,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
-                _ => Text(
-                  byId[id]?.label ?? l10nOf(context).sceneShootDayFallback,
-                ),
+                _ => Text(byId[id]?.label ?? l10n.sceneShootDayFallback),
               },
               subtitle: byId[id]?.date != null
-                  ? Text(l10nOf(context).shootingDayDate('${byId[id]!.date}'))
+                  ? Text(l10n.shootingDayDate('${byId[id]!.date}'))
                   : null,
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // Day-board entry (`flutter-shoot-day-execution` 2.1):
-                  // opens the Soll/Ist execution board with the acted-on
-                  // day + scene DTOs (never a second projection lookup).
-                  // Gherkin contract key (`open-day-board-<day>`) for the
-                  // shoot-day execution critical scenarios.
+                  // opens the Soll/Ist execution board with the acted-on day +
+                  // scene DTOs (never a second projection lookup). Gherkin
+                  // contract key (`open-day-board-<day>`) for the shoot-day
+                  // execution critical scenarios.
                   IconButton(
                     key: Key('open-day-board-$id'),
                     icon: const Icon(Icons.view_agenda_outlined),
-                    tooltip: l10nOf(context).sceneDetailOpenDayBoard,
+                    tooltip: l10n.sceneDetailOpenDayBoard,
                     onPressed: byId[id] == null
                         ? null
                         : () => _openBoard(context, byId[id]!),
                   ),
+                  // "Move to another day" (issue #834 follow-up): the reported
+                  // gap was having to unschedule and re-schedule by hand, which
+                  // left the scene without a day in between (and the Soll/Ist
+                  // report without a row). Disabled when no other day exists.
+                  IconButton(
+                    key: Key('scene-shooting-day-move-$id'),
+                    icon: const Icon(Icons.swap_horiz),
+                    tooltip: l10n.sceneDetailMoveToOtherDay,
+                    onPressed: candidates.isEmpty
+                        ? null
+                        : () => _pickDayAndSchedule(
+                            context,
+                            ref,
+                            episodeId: episodeId,
+                            scene: scene,
+                            candidates: candidates,
+                            replaceDayId: id,
+                          ),
+                  ),
                   IconButton(
                     key: Key('scene-shooting-day-unschedule-$id'),
                     icon: const Icon(Icons.event_busy),
-                    tooltip: l10nOf(context).shootingDayUnscheduleButton,
+                    tooltip: l10n.shootingDayUnscheduleButton,
                     onPressed: () => _unschedule(context, ref, id),
                   ),
                 ],
@@ -966,24 +1317,30 @@ class _SceneShootingDaysSection extends ConsumerWidget {
             ),
         Align(
           alignment: Alignment.centerRight,
-          child: FilledButton.tonal(
+          child: FilledButton.tonalIcon(
             key: Key('scene-shooting-day-schedule-${scene.id}'),
             onPressed: candidates.isEmpty
                 ? null
-                : () => _pickDay(context, ref, candidates),
-            child: Text(l10nOf(context).sceneDetailScheduleOnDay),
+                : () => _pickDayAndSchedule(
+                    context,
+                    ref,
+                    episodeId: episodeId,
+                    scene: scene,
+                    candidates: candidates,
+                  ),
+            icon: const Icon(Icons.event_available_outlined),
+            label: Text(l10n.sceneDetailScheduleOnDay),
           ),
         ),
-        // Issue #669: a fresh script import creates scenes but NO shooting
-        // days, so the picker candidates are empty for every imported
-        // episode — the disabled button was silent and non-actionable
-        // (same UX-defect class as #665). When there is nothing to pick,
-        // keep the button disabled BUT make the state explain itself.
-        // Two DISTINCT empty states (CodeRabbit review): the episode has
-        // NO days at all → the hint names the missing prerequisite and
-        // offers the quick-create path directly; the episode HAS days but
-        // none eligible (already scheduled on this scene or archived) → a
-        // factual note without the create affordance (creating another day
+        // Issue #669: a fresh script import creates scenes but NO shooting days,
+        // so the picker candidates are empty for every imported episode — the
+        // disabled button was silent and non-actionable (same UX-defect class as
+        // #665). When there is nothing to pick, keep the button disabled BUT make
+        // the state explain itself. Two DISTINCT empty states (CodeRabbit
+        // review): the episode has NO days at all → the hint names the missing
+        // prerequisite and offers the quick-create path directly; the episode HAS
+        // days but none eligible (already scheduled on this scene or archived) →
+        // a factual note without the create affordance (creating another day
         // would not change anything).
         if (candidates.isEmpty)
           Padding(
@@ -1004,8 +1361,8 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                     Expanded(
                       child: Text(
                         days.rows.isEmpty
-                            ? l10nOf(context).sceneDetailNoDayCandidatesHint
-                            : l10nOf(context).sceneDetailAllDaysScheduled,
+                            ? l10n.sceneDetailNoDayCandidatesHint
+                            : l10n.sceneDetailAllDaysScheduled,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
@@ -1013,19 +1370,13 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                     ),
                   ],
                 ),
-                // The create affordance only makes sense when the episode
-                // genuinely has NO shooting days — with days present but
-                // ineligible, creating another would not enable the picker
-                // (the new day would also be a candidate, though — BUT the
-                // accurate note without the CTA is the honest state; the
-                // user can always use the episode's day screen).
                 if (days.rows.isEmpty) ...[
                   const SizedBox(height: 8),
                   FilledButton.tonal(
                     key: Key('scene-shooting-day-create-${scene.id}'),
                     onPressed: () =>
                         unawaited(showCreateShootingDaySheet(context, episode)),
-                    child: Text(l10nOf(context).sceneDetailCreateFirstDay),
+                    child: Text(l10n.sceneDetailCreateFirstDay),
                   ),
                 ],
               ],
@@ -1037,9 +1388,9 @@ class _SceneShootingDaysSection extends ConsumerWidget {
 
   void _openBoard(BuildContext context, ShootingDayView day) {
     // Fire-and-forget navigation (route push has no consumable result).
-    // Issue #548: the day board rides on the SAME scene-level location
-    // chain (from the route arguments) — display context only, the screen
-    // keeps resolving its scene from the acted-on ids.
+    // Issue #548: the day board rides on the SAME scene-level location chain
+    // (from the route arguments) — display context only, the screen keeps
+    // resolving its scene from the acted-on ids.
     final location = locationFromArguments(
       ModalRoute.of(context)?.settings.arguments,
     );
@@ -1054,91 +1405,6 @@ class _SceneShootingDaysSection extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _pickDay(
-    BuildContext context,
-    WidgetRef ref,
-    List<ShootingDayView> candidates,
-  ) async {
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                l10nOf(context).sceneDetailScheduleTitle,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: candidates.length,
-                itemBuilder: (context, i) {
-                  final d = candidates[i];
-                  return ListTile(
-                    key: Key('schedule-day-${d.id}'),
-                    // Day picker provenance badge (issue #538): the picker
-                    // carries the same AI framing as the day list.
-                    title: switch (dayProvenance(d.source_)) {
-                      AiProvenanceVariant.aiExtracted => Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AiProvenanceBadge(
-                            semanticKey: 'shooting-day-ai-badge-${d.id}',
-                          ),
-                          Flexible(
-                            child: Text(
-                              d.label ?? l10nOf(context).shootingDayUntitled,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      _ => Text(d.label ?? l10nOf(context).shootingDayUntitled),
-                    },
-                    subtitle: d.date != null
-                        ? Text(l10nOf(context).shootingDayDate('${d.date}'))
-                        : null,
-                    onTap: () => Navigator.of(context).pop(d.id),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (picked == null || !context.mounted) return;
-    final result = await ref
-        .read(shootingDaysControllerProvider(episodeId).notifier)
-        .scheduleScene(
-          sceneId: scene.id,
-          sceneVersion: scene.version,
-          shootingDayId: picked,
-        );
-    if (result.isRight()) {
-      // Optimistic-after-2xx on the scene row's id list.
-      await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
-    } else if (context.mounted) {
-      // Reconcile the version even on conflict (never re-dispatch).
-      await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
-      // Navigation or sign-out can unmount while the refresh is pending.
-      if (!context.mounted) return;
-      result.match(
-        (err) => ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(shootingDayErrorCopy(l10nOf(context), err))),
-        ),
-        (_) {},
-      );
-    }
   }
 
   Future<void> _unschedule(
@@ -1156,10 +1422,10 @@ class _SceneShootingDaysSection extends ConsumerWidget {
     if (result.isRight()) {
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
     } else if (context.mounted) {
-      // 409 (scene changed elsewhere): the local edit rolls back (nothing
-      // was applied before the ack), the projection refreshes so the next
-      // action echoes the current version, and conflict copy renders keyed
-      // on `code`; no automatic version bump re-dispatch.
+      // 409 (scene changed elsewhere): the local edit rolls back (nothing was
+      // applied before the ack), the projection refreshes so the next action
+      // echoes the current version, and conflict copy renders keyed on `code`;
+      // no automatic version bump re-dispatch.
       await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
       if (!context.mounted) return;
       result.match(
@@ -1170,6 +1436,117 @@ class _SceneShootingDaysSection extends ConsumerWidget {
       );
     }
   }
+}
+
+/// Opens the day picker over [candidates] and schedules the scene on the picked
+/// day (issue #834 follow-up).
+///
+/// [replaceDayId] names a day the scene sits on RIGHT NOW — the "move" action.
+/// It is unscheduled only AFTER the new schedule was acknowledged, so a refused
+/// command leaves the scene where it was instead of on no day at all. The two
+/// commands are chained on the ACK versions the API returns, never on the
+/// stale one the row was rendered from.
+Future<void> _pickDayAndSchedule(
+  BuildContext context,
+  WidgetRef ref, {
+  required String episodeId,
+  required SceneView scene,
+  required List<ShootingDayView> candidates,
+  String? replaceDayId,
+}) async {
+  final picked = await showModalBottomSheet<String>(
+    context: context,
+    builder: (_) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              l10nOf(context).sceneDetailScheduleTitle,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: candidates.length,
+              itemBuilder: (context, i) {
+                final d = candidates[i];
+                return ListTile(
+                  key: Key('schedule-day-${d.id}'),
+                  // Day picker provenance badge (issue #538): the picker
+                  // carries the same AI framing as the day list.
+                  title: switch (dayProvenance(d.source_)) {
+                    AiProvenanceVariant.aiExtracted => Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AiProvenanceBadge(
+                          semanticKey: 'shooting-day-ai-badge-${d.id}',
+                        ),
+                        Flexible(
+                          child: Text(
+                            d.label ?? l10nOf(context).shootingDayUntitled,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    _ => Text(d.label ?? l10nOf(context).shootingDayUntitled),
+                  },
+                  subtitle: d.date != null
+                      ? Text(l10nOf(context).shootingDayDate('${d.date}'))
+                      : null,
+                  onTap: () => Navigator.of(context).pop(d.id),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (picked == null || !context.mounted) return;
+  final controller = ref.read(
+    shootingDaysControllerProvider(episodeId).notifier,
+  );
+  final scheduled = await controller.scheduleScene(
+    sceneId: scene.id,
+    sceneVersion: scene.version,
+    shootingDayId: picked,
+  );
+  final newVersion = scheduled.match((_) => null, (version) => version);
+  if (newVersion == null) {
+    // Reconcile the version even on conflict (never re-dispatch).
+    await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
+    if (!context.mounted) return;
+    scheduled.match(
+      (err) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(shootingDayErrorCopy(l10nOf(context), err))),
+      ),
+      (_) {},
+    );
+    return;
+  }
+  if (replaceDayId != null && replaceDayId != picked) {
+    final moved = await controller.unscheduleScene(
+      sceneId: scene.id,
+      sceneVersion: newVersion,
+      shootingDayId: replaceDayId,
+    );
+    // The new day is acknowledged, so the scene IS planned either way. A failed
+    // removal leaves it on both days — visible in the list (two rows, each
+    // removable) instead of silently dropped — and says so with its code.
+    if (moved.isLeft() && context.mounted) {
+      moved.match(
+        (err) => ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(shootingDayErrorCopy(l10nOf(context), err))),
+        ),
+        (_) {},
+      );
+    }
+  }
+  await ref.read(scenesControllerProvider(episodeId).notifier).refresh();
 }
 
 class _SceneDetailErrorView extends StatelessWidget {

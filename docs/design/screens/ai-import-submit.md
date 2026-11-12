@@ -92,8 +92,11 @@ a content max-width — the form never splits into panes.
 Loading: the target card states `Importziel wird ermittelt …` and the submit
 action is disabled. Data: the target line (or the picker, when the season has
 several blocks) plus the hint, and the switch/create actions. Empty (no block):
-the "create a block first" line with the create action **and** the block-less
-choice (issue #829, below), submit disabled until one of them is taken. Empty
+the target line with the block stated as `Block unbekannt` (the deferred target,
+issue #829, below), the "no block yet" line with the create action — and the
+submit action enabled: the block comes from the script, so no separate
+confirmation is asked for (follow-up to #829, the button read as "create a block
+first"). Empty
 (no season): the "select a season first" line, submit disabled. No file picked:
 the file row states `Keine Datei gewählt` and the submit action is disabled —
 for BOTH kinds (script PDF and schedule CSV/PDF), because one button and one
@@ -121,7 +124,8 @@ scope captured when the create interaction started must still be current, so a
 scope change that landed while the form was open (a restore, or the shell's
 block pill) is never overwritten by the created block.
 Submit resolves the target first (one block → adopted automatically, several →
-picker, none → blocked), then runs the AUTHZ-GATE, then dispatches the upload
+picker, none → the block-less dispatch, no extra tap), then runs the AUTHZ-GATE,
+then dispatches the upload
 with the declared season (`X-Declared-Season`). If the active block belongs to a
 **different** season than the resolved target, the dispatch is refused
 client-side with `ai-import.scope-mismatch` and zero requests — the server
@@ -202,7 +206,9 @@ exactly one block adopts it and the dispatch declares that season; several
 blocks render the picker, keep the submit disabled, and a pick publishes the
 line and adopts the scope; the resolved state offers `Block wechseln` and
 switching in the sheet re-targets the line **and** the dispatched scope (the
-single seam, issue #828); a season without blocks offers `Block anlegen`, opens
+single seam, issue #828); a season without blocks states the deferred block and
+enables the block-less upload with no further tap, while a season WITH a block
+never turns the dispatch block-less (follow-up to #829); `Block anlegen` opens
 the shared form and adopts the created block as the target; an unreadable season
 row is reported instead of opening a form it cannot fill; a failed block-list
 fetch on a RESOLVED target states the failure with a retry that brings the

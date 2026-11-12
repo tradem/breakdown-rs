@@ -2297,9 +2297,32 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String sceneDetailCharactersTitle(Object count) {
-    return 'Figuren ($count)';
+  String sceneDetailCastTitle(Object characters, Object looks) {
+    return 'Figuren ($characters) · Looks ($looks)';
   }
+
+  @override
+  String get sceneDetailCastColumnCharacter => 'Figur';
+
+  @override
+  String get sceneDetailCastColumnLook => 'Look';
+
+  @override
+  String get sceneDetailAssignCharacterAndLook => 'Figur und Look zuweisen';
+
+  @override
+  String get sceneDetailEditCharacterTooltip => 'Figur bearbeiten (Cast)';
+
+  @override
+  String get sceneDetailNoLooksForFigure =>
+      'Diese Figur hat noch keinen Look – lege ihn in der Cast-Ansicht an.';
+
+  @override
+  String get sceneDetailMoveToOtherDay => 'Auf anderen Drehtag umhängen';
+
+  @override
+  String get sceneDetailAssignScriptDayTooltip =>
+      'Skript-Tag einem Drehtag zuweisen';
 
   @override
   String get sceneDetailNoCharacters => 'Noch keine Figuren zugewiesen.';
@@ -2363,11 +2386,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get sceneDetailGone => 'Diese Szene ist nicht mehr verfügbar.';
-
-  @override
-  String sceneDetailOutfitsTitle(Object count) {
-    return 'Looks ($count)';
-  }
 
   @override
   String get sceneDetailAssignOutfit => 'Look zuweisen';

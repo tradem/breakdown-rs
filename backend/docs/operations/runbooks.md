@@ -888,7 +888,17 @@ The tooling is a maintenance **binary**, never an HTTP route:
 
 `plan` is `--dry-run`: it prints every keep/reset category with its row count,
 the operational tables, the object-storage buckets and the level's notes, and
-writes nothing.
+writes no **data**.
+
+The plan counts the schema **by name** (every projection table and every
+operational table), so all four phases first apply the PostgreSQL migrations the
+database is missing — via `MIGRATOR_DATABASE_URL` when set, else
+`DATABASE_URL`; `--dry-run` included, and the applied versions are printed as
+the first report line. Without that step a dev database that fell behind
+`crates/infra/migrations` failed with a bare `relation "…" does not exist`
+(e.g. `ai_import.ai_import_job_chunk`, migration `20261110000002`): the API is
+stopped during `business`, and `main.rs` is otherwise the only caller of
+`sqlx::migrate!`.
 
 ### Level `imports` (the usual re-import case)
 

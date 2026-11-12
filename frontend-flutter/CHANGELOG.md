@@ -23,6 +23,88 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The scene view plans before it casts, and shows a figure with its look in
+  one row** (`0.4.0-beta.51+143 → 0.4.0-beta.52+144`).
+  - **Shooting days come first.** The days section moved above the cast: a scene
+    is planned before it is cast, and the dispo is built from the days. Its
+    actions are icons now — each day row carries "move to another day" (schedule
+    the picked day FIRST, release the current one only after that ack, so a
+    refusal never leaves the scene on no day) next to the board and the
+    unschedule action, and the script day's chip in the header gained the
+    affordance that binds "Tag 1" to a real shooting day of the episode.
+  - **Figuren and Looks are one section.** Two lists made the reader join them by
+    hand, and a figure without a look was a dead end one section away from the
+    fix. One card now renders a table — one row per (figure, look), the header
+    carries both counts ("Figuren 2 · Looks 3") — with column labels, per-row
+    removal of either target, an edit icon that opens the Cast screen (character
+    detail, season row from the route's `SceneLocation`, falling back to the
+    fenced `seasonsView` projection; disabled when neither resolves) and one
+    bottom action, "Figur und Look zuweisen", that casts the figure and then
+    opens its look picker.
+  - **Moods like `A/I/T` render their icons.** `forSceneMood` only accepted a
+    single location component plus the canonical `I/A`, so a mixed scene ("Erfurt
+    / Straße" outside, then "Eingang + Flur / vor OP" inside) rendered its mood as
+    bare text. It now returns one location icon per named component — the
+    distinct `I`+`A` pair (either order) stays the single threshold icon — and the
+    editor's chip set also offers the `A/I/*` forms the parser never produces.
+  - No wire change, no new screen. Widget tests pin the section order, the
+    script-day binding, the move ordering (refused schedule ⇒ no release), the
+    one-row-per-(figure, look) table, the edit route and the mixed-mood icons; the
+    scene-detail golden is rebaselined.
+
+- **A script import needs no block up front — and it takes its block from the
+  script on its own** (`0.4.0-beta.50+142 → 0.4.0-beta.51+143`). Reported from the
+  live workflow: a season picked in the shell still could not import a script
+  without creating a block first, and when the block the script states was never
+  confirmed in the preview the apply refused with `ai-import.target-missing`.
+  - **The block-less dispatch is the season's fact, not a choice.** A target
+    season with no block at all now enables the submit action directly: the card
+    states the deferred target (`Block unbekannt`, block comes from the script)
+    and the upload declares its season without `X-Active-Block`. The old
+    "Block aus Skript anhängen" button and its undo — plus the session flag behind
+    them — are gone; they read as "create a block first", which is exactly the
+    detour that sent the reporter back to the block form for a block the import
+    never needed. A season WITH a block behaves unchanged and never silently
+    drops it.
+  - **The preview adopts the script's block without a tap.** As soon as the card
+    knows both the script's block (#827) and the season's block list, it attaches
+    that block — or, when the season has no such block, creates it with the
+    script's number and no dates (the script states no shooting window) and
+    attaches it. One attempt per card, and opening the picker ends the
+    automatic path: a refusal (`block.number-already-exists`, a failed attach)
+    keeps the manual actions and their code-keyed copy instead of retrying, and a
+    reviewer's own pick is never overruled. Only a block list the client actually
+    holds may decide — a pending or failed read is "unknown", never "no such
+    block", so a flaky list cannot create a duplicate.
+  - No wire change, no new screen. Widget tests cover the auto-adoption (existing
+    and created block, silent refusal), the block-less dispatch without a tap, and
+    the "season WITH a block never turns block-less" guard; the blocked-target
+    golden is rebaselined.
+
+- **A season picked in the shell is the import target — the AI-import screen no
+  longer claims none was selected** (`0.4.0-beta.49+141 → 0.4.0-beta.50+142`).
+  The target seam (issue #771) resolved the season from the ambient BLOCK scope
+  alone, but picking a season in the season chip sets no block: every
+  non-wizard entry (the shell's Import action, the production overview's
+  AI-import row, the jobs screen's plus, the empty-state CTA) pushes the plain
+  screen, so the card rendered "Wähle zuerst eine Season aus …" for a season the
+  chip plainly showed — and the submit affordance stayed disabled whatever file
+  was picked.
+  - **One seam, one fallback.** `aiImportSeasonContext` now reads
+    `explicitSeasonId → block-scope season → shell active season`, so the target
+    line names the season the chip names. The block scope keeps precedence
+    because it is what the request carries as `X-Active-Block`: a chip season
+    never silently re-targets a dispatch that still acts in another season's
+    block (the `ai_import.scope_mismatch` case).
+  - **The block is still resolved, never assumed.** With the season known,
+    `blockScopeResolution` runs its ordinary arms — one block is adopted,
+    several render the visible picker, none offers the block-less upload
+    (#829) — so the affordance enables on the documented sequence and a dispatch
+    never carries a block the user was not shown.
+  - No wire change, no new screen, no API surface. Widget tests cover the
+    shell-season entry (target line, block adoption, enabled affordance,
+    declared season) and the block-scope precedence.
+
 - **A resumed import says where it continues, and its estimate stops lying**
   (issue #871, `0.4.0-beta.47+139 → 0.4.0-beta.48+140`). A retried attempt now
   continues at the first chunk that never completed instead of re-extracting

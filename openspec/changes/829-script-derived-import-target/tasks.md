@@ -159,6 +159,17 @@ after PR 1 + PR 2 only, and PR 4 may ride along with PR 2.
       freeze predicate), widget + golden (adopt, create-first, frozen, target
       missing), integration smoke (blind upload → attach → apply).
 - [x] 3.10 `pubspec.yaml` version bump + `CHANGELOG.md` entry.
+- [x] 3.11 **Follow-up (live report):** the adoption no longer waits for a tap.
+      `_PreviewTargetActions` adopts the script's block on its own — the existing
+      block when the season has that number, otherwise a block created with the
+      script's number and **no dates** — once per card, through the same attach
+      seam; a manual picker interaction ends the automation so a failed silent
+      create keeps the shared form (prefilled) as the fallback.
+- [x] 3.12 **Follow-up (live report):** the block-less dispatch no longer needs a
+      confirmation tap. `_SubmitButton` derives it from the season's (empty) block
+      list, so a season with no block can be imported into immediately; the
+      `blockLessImportProvider` session flag and its undo affordance are gone, and
+      a season WITH a block still dispatches that block.
 
 ## 4. Docs: the decision, the screen, the copy — size S
 

@@ -238,6 +238,14 @@ fn script_prompt_element(prompt: &str, element: &str) -> String {
 /// issue comes from answered `"OP-PERSONAL is marked as (OT) … may indicate
 /// extra or guest role"`, i.e. the model invented an uncertainty because the
 /// prompt never named the marker.
+///
+/// Follow-up (the same live import, second reading): #826 still called a figure
+/// that stands under `Darsteller` AND carries an inline `(OT)` a genuine
+/// conflict, so the section won and the figure fell back to `main_cast` behind
+/// a blocking uncertainty. An inline marker attached to the NAME now outranks
+/// the section — `(OT)` is always `extra`, never hedged, never `main_cast`. A
+/// name WITHOUT a marker keeps following its section, so the grounded default
+/// survives where the document states nothing about the figure itself.
 #[test]
 fn script_prompt_classifies_ot_markers_as_extras_without_an_uncertainty() {
     let prompt = embedded_script_prompt();
@@ -257,14 +265,25 @@ fn script_prompt_classifies_ot_markers_as_extras_without_an_uncertainty() {
          off-screen-voice homonym `Off-Ton`: {characters}"
     );
     assert!(
-        characters.contains("a plain `(ot)` marker is a stated signal")
-            && characters.contains("record no uncertainty for it"),
-        "a plain `(OT)` must be classified without an uncertainty: {characters}"
+        characters.contains("attached to the name outranks the section")
+            && characters.contains("no fallback to `main_cast`"),
+        "an inline `(OT)` must outrank the section and never fall back to \
+         `main_cast`: {characters}"
     );
     assert!(
-        characters.contains("\"darsteller\"") && characters.contains("conflict"),
-        "the grounded-only discipline must survive: a figure the document ALSO \
-         lists under `Darsteller` stays a genuine conflict: {characters}"
+        characters.contains("\"may indicate\""),
+        "the rule must name the hedged wording it forbids (the live answer \
+         said \"may indicate extra or guest role\"): {characters}"
+    );
+    assert!(
+        !characters.contains("and marked \"(ot)\""),
+        "a `Darsteller` figure with an inline `(OT)` must no longer be listed as \
+         a conflict — that reading demoted the marker to a hint: {characters}"
+    );
+    assert!(
+        characters.contains("a name with no inline marker follows its section"),
+        "the section must stay authoritative for a name the document does not \
+         mark: {characters}"
     );
 }
 

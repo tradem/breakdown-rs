@@ -3,6 +3,8 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: hy3 (opencode-go)
 
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 /// A typed client-side representation of an RFC 9457 problem document
@@ -69,7 +71,7 @@ class ProblemError {
 /// surfaced. Otherwise a transport-level error is reported under the
 /// `transport.*` pseudo-namespace so the caller can still branch on [code].
 ProblemError problemErrorFromDio(DioException e) {
-  final data = e.response?.data;
+  final data = _decodeProblemBody(e.response?.data);
   if (data is Map<String, dynamic> && data['code'] is String) {
     return ProblemError.fromJson(data);
   }
@@ -78,4 +80,28 @@ ProblemError problemErrorFromDio(DioException e) {
     detail: e.message,
     status: e.response?.statusCode,
   );
+}
+
+/// Decodes a problem document that Dio handed back as **text**.
+///
+/// Callers that ask for `Response<String>` (the AI-import uploads: the success
+/// body is a JSON string) receive the raw body text on an error status as well,
+/// so the `Map` check above can never see the backend's problem `code` and every
+/// 4xx/413 collapses into `transport.badResponse` — which the UI renders as
+/// "network problem", hiding the real reason (observed: a refused
+/// `ai-import.forbidden` upload looked like a connectivity failure while the
+/// health checks were green). Decoding the text first keeps the stable `code`.
+///
+/// A body that is not a JSON object (a proxy's HTML error page, Axum's plain
+/// `Failed to buffer …` text) stays as it is, so `transport.badResponse` keeps
+/// meaning "the backend answered with something unusable".
+Object? _decodeProblemBody(Object? data) {
+  if (data is! String) return data;
+  final text = data.trim();
+  if (!text.startsWith('{')) return data;
+  try {
+    return jsonDecode(text);
+  } on FormatException {
+    return data;
+  }
 }

@@ -31,15 +31,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use breakdown_core::ai::{
-    AiImportJobId, ApplyMapping, ApplyMappingDecision, DraftScene, DraftShootingDay, ScriptContext,
-    ShootingDayPlan,
+    AiImportEnqueueRequest, AiImportJobId, AiImportQueue as _, ApplyMapping, ApplyMappingDecision,
+    DocumentKind, DraftScene, DraftShootingDay, ScriptContext, ShootingDayPlan,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::scene_shoot::ports::SceneShootRepository as _;
 use breakdown_core::shared::{EpisodeId, ProjectId, SeasonId, ShootingDayId};
 use breakdown_core::shooting_day::ports::ShootingDayRepository;
 use fixtures::{spawn_postgres_with_connections, spawn_sierradb};
-use infra::ai::{ApplyScriptRequest, ApplyWorker, PgAiImportMappingRepository};
+use infra::ai::{ApplyScriptRequest, ApplyWorker, PgAiImportMappingRepository, PgAiImportQueue};
 use infra::event_store::{
     CharacterCommandsImpl, EpisodeCommandsImpl, SceneCommandsImpl, SceneShootCommandsImpl,
     ShootingDayCommandsImpl, WardrobeCommandsImpl, WrapFinalityGate,
@@ -146,6 +146,11 @@ async fn harness() -> Result<Harness> {
     )
     .await?;
 
+    let queue = PgAiImportQueue::new(pool.clone());
+    // The apply path claims a terminal job's single-flight slot (issue #800), so
+    // the fixture seeds the row the production import would have left behind:
+    // enqueued, claimed by a worker, then succeeded.
+    let preview_id = seed_succeeded_job(&queue, "day-round-trip-user").await?;
     let worker = ApplyWorker {
         scene_commands: Arc::new(SceneCommandsImpl::new(cmd_service.clone())),
         character_commands: Arc::new(CharacterCommandsImpl::new(cmd_service.clone())),
@@ -162,7 +167,7 @@ async fn harness() -> Result<Harness> {
             finality_gate,
         )),
         mappings: Arc::new(PgAiImportMappingRepository::new(pool.clone())),
-        queue: Arc::new(infra::ai::PgAiImportQueue::new(pool.clone())),
+        queue: Arc::new(queue),
         // CR-002/D2: the worker refuses the outfit step of an archived season.
         season_repo: Arc::new(SeasonRepositoryImpl::new(pool.clone())),
     };
@@ -170,13 +175,53 @@ async fn harness() -> Result<Harness> {
         _pg: pg_container,
         _sierra: sierra_container,
         worker,
-        preview_id: AiImportJobId::new(),
+        preview_id,
         episode_id: EpisodeId::new(),
         pool,
     })
 }
 
+/// An enqueue request for a script import (mirrors the fixture of the
+/// job-progress tests): one fresh job, no payload storage configured.
+fn make_enqueue_request(user_id: &str) -> AiImportEnqueueRequest {
+    AiImportEnqueueRequest {
+        // Issue #871: no breaker snapshot in this fixture — the job is
+        // never breaker-filtered, which is the honest degradation.
+        provider: None,
+        model: None,
+        id: AiImportJobId::new(),
+        user_id: breakdown_core::shared::UserId::from_sub(user_id),
+        document_kind: DocumentKind::Script,
+        source_format: breakdown_core::ai::SourceFormat::Pdf,
+        block_id: None,
+        dedup_key: format!("dedup-{user_id}-{}", Uuid::now_v7()),
+        document_digest: format!("digest-{}", Uuid::now_v7()),
+        source_handle: format!("handle-{}", Uuid::now_v7()),
+        source_file_name: None,
+        target: None,
+    }
+}
+
+/// Seed a `succeeded` import job whose id the apply can claim — the
+/// single-flight slot (`claim_apply_run`, issue #800) only admits applies of
+/// terminal jobs, mirroring the production flow (import ran, then apply).
+async fn seed_succeeded_job(queue: &PgAiImportQueue, user: &str) -> Result<AiImportJobId> {
+    let request = make_enqueue_request(user);
+    let id = request.id;
+    queue.enqueue(request).await?;
+    let _claimed = queue.claim_next("worker-1").await?.expect("claimable");
+    queue
+        .mark_succeeded(id, "worker-1", "ai-preview/handle")
+        .await?;
+    Ok(id)
+}
+
 impl Harness {
+    /// Both applies drive the SAME terminal job: the mapping rows the first run
+    /// writes are keyed by the preview id, which is what makes the second run
+    /// converge instead of re-creating the day. The run slot itself is released
+    /// when a run ends (`mark_apply_progress(.., None)` clears `apply_run_id`),
+    /// so the re-apply claims the job again — no 409.
     async fn apply(&self) -> Result<infra::ai::ScriptApplyResult, DomainError> {
         let preview = preview();
         self.worker

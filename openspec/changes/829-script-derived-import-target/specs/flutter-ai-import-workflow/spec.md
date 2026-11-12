@@ -11,40 +11,59 @@ resolves its target; the dispatch declares what it resolved) and consumes issue
 
 ## ADDED Requirements
 
-### Requirement: The target card adopts the script's block, and creates it when missing
-The import target card SHALL offer adopting the block the script states (issue
-#827's value) as the import target, labelled with the block number
-(`aiImportTargetAdoptScriptBlock`, e.g. "Aus Skript übernehmen – Block 2"), from
-the state in which the client knows both the script's block and a target season.
+### Requirement: The target card adopts the script's block on its own, and creates it when missing
+The import target card SHALL adopt the block the script states (issue #827's
+value) **without an interaction** as soon as the client knows both that block and
+the target season's block list. The reviewed alternative — an "Aus Skript
+übernehmen" affordance the reviewer had to tap — left the target unset in the
+observed flow (the reviewer reviewed rows, never the card), and the apply then
+answered `409 ai-import.target-missing`: the refusal the card exists to pre-empt.
+A tap SHALL therefore not be required for any adoption the client can decide on
+its own.
 
-Adoption SHALL resolve the block number to a block of the target season through
-the block list the card already fetches. When the target season has no block with
-that number, the affordance SHALL become "Block anlegen"
-(`aiImportTargetCreateBlock`) routing into the existing create-block sheet
-(`showCreateBlockSheet`) with the number prefilled, and SHALL adopt the freshly
-created block.
+Adoption SHALL resolve the block number against the block list the card already
+fetches, and only against a list the client actually holds — a pending or FAILED
+read is "unknown", never "the season has no such block".
+
+- When a block of the target season carries that number, it SHALL be attached.
+- When the season has no block with that number, a block with the script's number
+  SHALL be created through the shared blocks write path (`BlocksController.create`)
+  and attached. The created block carries the script's number and **no dates**:
+  the script states no shooting window, and inventing one would put a fabricated
+  fact into every later block list.
 
 Both paths SHALL go through **one** seam — the job's target attach (see the
 `ai-import` delta) — so the value the card renders, the value the apply guard
-uses and the value the job view reports cannot differ. No affordance SHALL submit
-a block id that the seam did not accept, and no dead end SHALL remain: every
-target state renders either an action or an honest explanation.
+uses and the value the job view reports cannot differ. No path SHALL submit a
+block id that the seam did not accept.
+
+The adoption SHALL be attempted **once** per card lifetime, and a manual
+interaction (opening the picker) SHALL end it: a failed attach or create keeps
+the manual affordances and their code-keyed error instead of retrying, and the
+reviewer's own choice is never overruled by a later automatic one.
 
 #### Scenario: The script's block exists in the target season
 - **WHEN** the script states block 2, the target season has a block 2 and the
   job has no attached target
-- **THEN** the card offers "Aus Skript übernehmen – Block 2", and tapping it
-  attaches that block and re-renders the target line as `Staffel {n} · Block 2`
+- **THEN** the card attaches that block without any tap, re-renders the target
+  line as `Staffel {n} · Block 2`, and offers no further adoption
 
 #### Scenario: The script's block must be created first
 - **WHEN** the script states block 2 and the target season has no block 2
-- **THEN** the card offers "Block anlegen", opens the create-block sheet with
-  number 2 prefilled, and the created block becomes the attached target
+- **THEN** the card creates a block numbered 2 without dates, attaches it, and
+  the job's target line names it
+
+#### Scenario: The silent adoption fails
+- **WHEN** the create or the attach is refused (e.g. `block.number-already-exists`)
+- **THEN** the card keeps the manual affordances (`Aus Skript übernehmen`,
+  `Block anlegen` via the shared sheet prefilled with the script's number, and
+  the picker) and reports the refusal with its stable code — it never retries on
+  its own
 
 #### Scenario: The script states no block
 - **WHEN** the extracted script carries no block number
-- **THEN** no adopt affordance renders, and the card keeps the switch/create
-  actions from the #828 contract — the association is stated, not omitted
+- **THEN** nothing is adopted, and the card keeps the switch/create actions from
+  the #828 contract plus the picker — the association is stated, not omitted
 
 ### Requirement: A block-less dispatch sends no target block and declares its season
 The submit dispatch SHALL be able to upload with **no** `X-Active-Block`. Because
@@ -54,9 +73,16 @@ sentinel header value, and SHALL always send `X-Declared-Season`.
 
 The submit action's guard SHALL keep holding: a resolved block target is
 dispatched with `X-Active-Block` (today's behaviour, including the client-side
-`ai_import.scope_mismatch` refusal), and a block-less dispatch is only offered
-where the client deliberately resolves a season without a block. In both cases
-the season the user sees SHALL be the season that is sent.
+`ai_import.scope_mismatch` refusal), and a block-less dispatch is offered exactly
+where the target season has **no block at all** — then no block-bearing target
+exists, and the deferred block is the fact the card states.
+
+A block-less dispatch SHALL NOT require a separate confirmation tap: the reviewed
+"explicitly choose the block-less path" button read as "create a block first" in
+the observed flow, which sent the reporter back to the block form for a block the
+import did not need. The season is still mandatory (it is the upload's
+authorization scope), so a client with no season context dispatches nothing. In
+every case the season the user sees SHALL be the season that is sent.
 
 #### Scenario: A block-less upload carries only the declaration
 - **WHEN** the dispatch runs with a target season and no chosen block

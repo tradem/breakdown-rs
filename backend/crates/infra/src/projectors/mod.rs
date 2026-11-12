@@ -23,6 +23,7 @@ mod invariant_skip;
 mod membership;
 mod outfit;
 mod piece;
+mod project_membership;
 mod reservation;
 mod scene;
 mod scene_shoot;
@@ -52,6 +53,7 @@ pub use health::ProjectorHealthRepository;
 pub use membership::MembershipProjector;
 pub use outfit::OutfitProjector;
 pub use piece::PieceProjector;
+pub use project_membership::ProjectMembershipProjector;
 pub use reservation::ReservationProjector;
 pub use scene::SceneProjector;
 pub use scene_shoot::SceneShootProjector;
@@ -71,6 +73,7 @@ use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::outfit::aggregate::OutfitAggregate;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::piece::aggregate::PieceAggregate;
+use breakdown_core::project_membership::ProjectMembership;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::season::aggregate::SeasonAggregate;
@@ -179,6 +182,11 @@ type SeasonProcessor = PostgresProcessor<(SeasonAggregate,), SeasonProjector>;
 type BlockProcessor = PostgresProcessor<(BlockAggregate,), BlockProjector>;
 type EpisodeProcessor = PostgresProcessor<(EpisodeAggregate,), EpisodeProjector>;
 type MembershipProcessor = PostgresProcessor<(BlockMembership,), MembershipProjector>;
+// Project-scoped costume membership: one stream per PROJECT (`project_membership`
+// category, stream id = project id) — the additive second scope that a
+// block-less season can be authorized against.
+type ProjectMembershipProcessor =
+    PostgresProcessor<(ProjectMembership,), ProjectMembershipProjector>;
 type SettingsProcessor = PostgresProcessor<(SettingsAggregate,), SettingsProjector>;
 type AiConfigProcessor = PostgresProcessor<(AiConfig,), AiConfigProjector>;
 // Category-specific audit processors (one per aggregate).
@@ -495,6 +503,38 @@ pub async fn spawn_episode_projector(
     );
     let actor_ref = EpisodeProcessor::spawn(processor);
     run_projection_stream!(EpisodeAggregate, "episode", redis_client, actor_ref.clone())?;
+    Ok(actor_ref)
+}
+
+/// Spawn the project-membership projector actor and start its SierraDB
+/// subscription loop.
+///
+/// Separate from [`spawn_membership_projector`] on purpose: the block-scoped
+/// and project-scoped memberships are two aggregates with their own streams,
+/// checkpoints and lifecycles (design D1).
+pub async fn spawn_project_membership_projector(
+    pool: PgPool,
+    redis_client: Arc<RedisClient>,
+    config: ProjectorFlushConfig,
+) -> Result<ActorRef<ProjectMembershipProcessor>> {
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let processor = config.apply(
+        ProjectMembershipProcessor::new(
+            pool.clone(),
+            conn,
+            CHECKPOINTS_TABLE,
+            "project_membership",
+            ProjectMembershipProjector,
+        )
+        .await?,
+    );
+    let actor_ref = ProjectMembershipProcessor::spawn(processor);
+    run_projection_stream!(
+        ProjectMembership,
+        "project_membership",
+        redis_client,
+        actor_ref.clone()
+    )?;
     Ok(actor_ref)
 }
 

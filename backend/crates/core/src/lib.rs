@@ -27,6 +27,7 @@ pub mod ops;
 pub mod outfit;
 pub mod photo;
 pub mod piece;
+pub mod project_membership;
 pub mod reporting;
 pub mod scene;
 pub mod scene_shoot;

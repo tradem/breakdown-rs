@@ -127,7 +127,7 @@ exclude_re = [
     "replace \\+ with - in PgReportArchivalQueue::mark_failure",
     "RestrictedWorld>::font -> Option<Font> with None",
     "replace > with (>=|<|==) in TypstReportRenderer>::render",
-    "load_system_fonts -> Result<Vec<Font>, String> with Ok\\(vec!\\[\\]\\)",
+    "FontSet>::font -> Option<Font> with None",
     # --- Batch 5 / P5.1: photo-thumbnail saga live-DB / SierraDB mutants (see tasks.md) ---
     # handle / process_upload / process_upload_with_recovery dispatch storage +
     # command operations that need live Garage + SierraDB. Covered end-to-end by

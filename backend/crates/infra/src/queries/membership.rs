@@ -3,6 +3,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! `sqlx`-backed implementation of the `MembershipRepository` port.
 
@@ -171,6 +172,64 @@ impl MembershipRepository for MembershipRepositoryImpl {
         .map_err(|e| DomainError::internal(e.to_string()))?;
 
         Ok(row.is_some())
+    }
+
+    async fn effective_costume_role_in_season(
+        &self,
+        season_id: SeasonId,
+        user_id: UserId,
+    ) -> Result<Option<Role>, DomainError> {
+        // Scope 1 — block membership in the season (the pre-existing
+        // resolution, unchanged). Two statements instead of a UNION on purpose:
+        // the block scope stays exactly the query it always was, and the
+        // project scope is only paid for when the block scope misses.
+        let block_row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT m.role
+            FROM projection_membership m
+            JOIN projection_block b ON b.id = m.block_id
+            WHERE m.user_id = $1
+              AND b.season_id = $2
+              AND m.role IN ('costume_designer', 'wardrobe_supervisor', 'costume_assistant')
+              AND m.state = 'active'
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(season_id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        if let Some((token,)) = block_row {
+            // The token already passed the SQL allowlist; `Role::from_token`
+            // only guards against a hand-edited row, and an unparsable token is
+            // treated as "no role" (fail closed).
+            return Ok(Role::from_token(&token));
+        }
+
+        // Scope 2 — a project-scoped grant on the project this season belongs
+        // to. The `projection_season` join is what makes an unresolvable
+        // season fail CLOSED: no projected season row ⇒ no project ⇒ no match,
+        // so a season the read model does not know can never authorize.
+        let project_row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT pm.role
+            FROM projection_project_membership pm
+            JOIN projection_season s ON s.id = $2 AND s.project_id = pm.project_id
+            WHERE pm.user_id = $1
+              AND pm.role IN ('costume_designer', 'wardrobe_supervisor', 'costume_assistant')
+              AND pm.state = 'active'
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id.as_str())
+        .bind(season_id.0)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::internal(e.to_string()))?;
+
+        Ok(project_row.and_then(|(token,)| Role::from_token(&token)))
     }
 
     async fn has_active_report_archive_role_in_season(

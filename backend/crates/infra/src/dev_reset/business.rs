@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Level `business` — full business-data reset, configuration preserved.
 //!
@@ -105,6 +106,7 @@ const WIPE_ORDER: &[AggregateCategory] = &[
     AggregateCategory::Piece,
     AggregateCategory::CostumeCategory,
     AggregateCategory::Reservation,
+    AggregateCategory::ProjectMembership,
     AggregateCategory::Membership,
     AggregateCategory::Settings,
     AggregateCategory::AiConfig,

@@ -12,7 +12,21 @@ part of 'import_target.dart';
 ///
 /// The entry point decides it: the season-setup wizard's completion CTA passes
 /// the created season explicitly, every other entry has no season of its own and
-/// inherits the ambient scope's season (the block pill's minimum requirement).
+/// inherits the season the user is acting in.
+///
+/// "Acting in" has two sources, in this order:
+///
+/// 1. the ambient block scope ([activeBlockProvider]) — the acted-on block,
+///    which is also what the request carries as `X-Active-Block`;
+/// 2. the shell's ACTIVE SEASON ([ShellController.activeSeason]) — the season
+///    the season chip shows and every tab renders. Picking a season there sets
+///    no block (a block is picked later, or not at all), so without this
+///    fallback the very common "pick a season, then import" path reached a
+///    screen that claimed no season was selected at all and could never enable
+///    the submit affordance. The block the target still needs is resolved by
+///    [blockScopeResolution] from this season, so the card keeps offering its
+///    picker / create / block-less arms.
+///
 /// `null` means "no season context at all" — the import then has NO resolvable
 /// target and must not dispatch, which is the honest state the screen renders
 /// instead of sending an upload blindly.
@@ -28,7 +42,21 @@ final aiImportSeasonContextProvider = AiImportSeasonContextFamily._();
 ///
 /// The entry point decides it: the season-setup wizard's completion CTA passes
 /// the created season explicitly, every other entry has no season of its own and
-/// inherits the ambient scope's season (the block pill's minimum requirement).
+/// inherits the season the user is acting in.
+///
+/// "Acting in" has two sources, in this order:
+///
+/// 1. the ambient block scope ([activeBlockProvider]) — the acted-on block,
+///    which is also what the request carries as `X-Active-Block`;
+/// 2. the shell's ACTIVE SEASON ([ShellController.activeSeason]) — the season
+///    the season chip shows and every tab renders. Picking a season there sets
+///    no block (a block is picked later, or not at all), so without this
+///    fallback the very common "pick a season, then import" path reached a
+///    screen that claimed no season was selected at all and could never enable
+///    the submit affordance. The block the target still needs is resolved by
+///    [blockScopeResolution] from this season, so the card keeps offering its
+///    picker / create / block-less arms.
+///
 /// `null` means "no season context at all" — the import then has NO resolvable
 /// target and must not dispatch, which is the honest state the screen renders
 /// instead of sending an upload blindly.
@@ -44,7 +72,21 @@ final class AiImportSeasonContextProvider
   ///
   /// The entry point decides it: the season-setup wizard's completion CTA passes
   /// the created season explicitly, every other entry has no season of its own and
-  /// inherits the ambient scope's season (the block pill's minimum requirement).
+  /// inherits the season the user is acting in.
+  ///
+  /// "Acting in" has two sources, in this order:
+  ///
+  /// 1. the ambient block scope ([activeBlockProvider]) — the acted-on block,
+  ///    which is also what the request carries as `X-Active-Block`;
+  /// 2. the shell's ACTIVE SEASON ([ShellController.activeSeason]) — the season
+  ///    the season chip shows and every tab renders. Picking a season there sets
+  ///    no block (a block is picked later, or not at all), so without this
+  ///    fallback the very common "pick a season, then import" path reached a
+  ///    screen that claimed no season was selected at all and could never enable
+  ///    the submit affordance. The block the target still needs is resolved by
+  ///    [blockScopeResolution] from this season, so the card keeps offering its
+  ///    picker / create / block-less arms.
+  ///
   /// `null` means "no season context at all" — the import then has NO resolvable
   /// target and must not dispatch, which is the honest state the screen renders
   /// instead of sending an upload blindly.
@@ -104,13 +146,27 @@ final class AiImportSeasonContextProvider
 }
 
 String _$aiImportSeasonContextHash() =>
-    r'5d9f63dc1962e564915ed785307feb03edf88c4a';
+    r'd676291c0bfe175ff59cf7676fd7ac311dc9b6ce';
 
 /// The season the AI import screen acts in (issue #771).
 ///
 /// The entry point decides it: the season-setup wizard's completion CTA passes
 /// the created season explicitly, every other entry has no season of its own and
-/// inherits the ambient scope's season (the block pill's minimum requirement).
+/// inherits the season the user is acting in.
+///
+/// "Acting in" has two sources, in this order:
+///
+/// 1. the ambient block scope ([activeBlockProvider]) — the acted-on block,
+///    which is also what the request carries as `X-Active-Block`;
+/// 2. the shell's ACTIVE SEASON ([ShellController.activeSeason]) — the season
+///    the season chip shows and every tab renders. Picking a season there sets
+///    no block (a block is picked later, or not at all), so without this
+///    fallback the very common "pick a season, then import" path reached a
+///    screen that claimed no season was selected at all and could never enable
+///    the submit affordance. The block the target still needs is resolved by
+///    [blockScopeResolution] from this season, so the card keeps offering its
+///    picker / create / block-less arms.
+///
 /// `null` means "no season context at all" — the import then has NO resolvable
 /// target and must not dispatch, which is the honest state the screen renders
 /// instead of sending an upload blindly.
@@ -134,7 +190,21 @@ final class AiImportSeasonContextFamily extends $Family
   ///
   /// The entry point decides it: the season-setup wizard's completion CTA passes
   /// the created season explicitly, every other entry has no season of its own and
-  /// inherits the ambient scope's season (the block pill's minimum requirement).
+  /// inherits the season the user is acting in.
+  ///
+  /// "Acting in" has two sources, in this order:
+  ///
+  /// 1. the ambient block scope ([activeBlockProvider]) — the acted-on block,
+  ///    which is also what the request carries as `X-Active-Block`;
+  /// 2. the shell's ACTIVE SEASON ([ShellController.activeSeason]) — the season
+  ///    the season chip shows and every tab renders. Picking a season there sets
+  ///    no block (a block is picked later, or not at all), so without this
+  ///    fallback the very common "pick a season, then import" path reached a
+  ///    screen that claimed no season was selected at all and could never enable
+  ///    the submit affordance. The block the target still needs is resolved by
+  ///    [blockScopeResolution] from this season, so the card keeps offering its
+  ///    picker / create / block-less arms.
+  ///
   /// `null` means "no season context at all" — the import then has NO resolvable
   /// target and must not dispatch, which is the honest state the screen renders
   /// instead of sending an upload blindly.
