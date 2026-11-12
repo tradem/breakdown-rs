@@ -3336,6 +3336,7 @@ impl breakdown_core::ops::ProjectorHealthRepository for FakeProjectorHealthRepo 
 /// test on any other outcome. Kept in the shared harness so the tests keep
 /// reading as "apply this preview" while the wire contract is the new one.
 #[allow(dead_code)]
+#[allow(clippy::expect_used)] // test harness: a malformed answer must fail the test, not return a Result
 pub async fn dispatch_apply(
     result: Result<axum::response::Response, api::problems::ApiError>,
 ) -> (axum::http::StatusCode, breakdown_core::ai::ApplyRunAccepted) {
@@ -3357,6 +3358,8 @@ pub async fn dispatch_apply(
 /// validate + persist + dispatch, and the run's job is to apply the rows — the
 /// test drives both halves end to end.
 #[allow(dead_code)]
+#[allow(clippy::expect_used)] // test harness: the run helper must fail the test, not return a Result
+#[allow(clippy::panic)] // …and a failed run has to surface its code as a test failure
 pub async fn run_dispatched_apply(ports: &FakePorts) -> breakdown_core::ai::ApplyImportSummary {
     let queue = ports.ai_import_queue.clone();
     let job_id = {

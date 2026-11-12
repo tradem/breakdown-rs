@@ -63,7 +63,7 @@ use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use chrono::Utc;
-use common::{FakePorts, dispatch_apply, run_dispatched_apply};
+use common::{FakePorts, run_dispatched_apply};
 use infra::ai::{AiDocumentStore, AiPreviewStore};
 use std::collections::HashMap;
 use std::sync::Arc;
