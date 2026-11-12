@@ -26,6 +26,27 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Added
+
+- **The AI-import apply's Postgres time is attributed, not guessed (issue #900 M1).**
+  A 49-scene apply takes ≈7 minutes, and the two plausible explanations both failed
+  arithmetic: ~740 appends at the measured group-commit rate are single-digit seconds, and
+  ~1,100 Postgres writes at 0.34 ms are under one. What was never measured is *where* the
+  per-row Postgres time goes — and the apply's `reserve → append → confirm` chain competes
+  with 16–18 in-process projectors and sagas for **one pool of 20 connections**, while the
+  apply itself manufactures the projection backlog they are writing. So "the write is slow"
+  and "the write queued behind projection catch-up" were indistinguishable.
+  `PgAiImportMappingRepository::{reserve,insert}` now acquire the connection explicitly and
+  measure the wait and the statement separately, log both per write
+  (`histogram.mapping_acquire_duration` / `histogram.mapping_statement_duration` plus the
+  pool's `size`/`num_idle` in that instant), and feed process-wide counters. The apply's
+  existing row-phase summary (`"AI import apply row phase finished"`) gains that phase's
+  delta — `mapping_reserve_ops`, `mapping_insert_ops`, `mapping_acquire_ms_total`,
+  `mapping_statement_ms_total`, the `*_ms_per_row` decomposition of `row_ms_avg`, and the
+  last observed pool gauges. Additive instrumentation only: no behaviour, wire or SQL change.
+  Crates: `infra` 0.80.0 → 0.80.1 (PATCH — internal observability, public surface
+  unchanged); `api`/`architecture`/`integration-tests` re-pin the path dep.
+
 ### Changed
 
 - **The AI-import apply is a DURABLE run: `POST /apply` dispatches (`202`) instead
