@@ -30,6 +30,7 @@ pub mod events;
 pub mod gdrive_source;
 pub mod heartbeat;
 pub mod mapping;
+mod mapping_metrics;
 pub mod merge_worker;
 pub mod ollama;
 pub mod outfit_continuity;
