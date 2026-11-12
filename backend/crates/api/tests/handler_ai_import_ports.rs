@@ -2024,13 +2024,10 @@ async fn a_dispatched_apply_survives_the_client_dropping_the_request() {
 
     // The response future IS the HTTP service future. It answers as soon as the
     // run is persisted — the row loop is not in it.
-    let response = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        app.oneshot(request),
-    )
-    .await
-    .expect("the dispatch must answer without running the apply (issue #899)")
-    .expect("the dispatch answers");
+    let response = tokio::time::timeout(std::time::Duration::from_secs(10), app.oneshot(request))
+        .await
+        .expect("the dispatch must answer without running the apply (issue #899)")
+        .expect("the dispatch answers");
 
     // Read the wire answer: `202` + the descriptor.
     let (parts, body) = response.into_parts();

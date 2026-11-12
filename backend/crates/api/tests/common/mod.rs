@@ -2609,9 +2609,9 @@ impl AiImportQueue for FakeAiImportQueue {
                 decision_telemetry: None,
                 apply_progress: None,
                 applied: false,
-            // Issue #899: a freshly stored job has never been applied.
-            apply_state: breakdown_core::ai::ApplyState::Idle,
-            apply_result: None,
+                // Issue #899: a freshly stored job has never been applied.
+                apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_result: None,
             },
         );
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -2784,9 +2784,9 @@ impl AiImportQueue for FakeAiImportQueue {
                 decision_telemetry: None,
                 apply_progress: None,
                 applied: false,
-            // Issue #899: a freshly stored job has never been applied.
-            apply_state: breakdown_core::ai::ApplyState::Idle,
-            apply_result: None,
+                // Issue #899: a freshly stored job has never been applied.
+                apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_result: None,
             },
         );
         self.hub.notify(request.id);

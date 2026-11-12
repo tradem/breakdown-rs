@@ -84,10 +84,10 @@ pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
     AiImportTarget, AiImportTargetRequest, AppliedEpisode, ApplyImportSummary, ApplyProgress,
-    ApplyProgressFrame, ApplyRunAccepted, ApplyRunId, ApplyRunOutcome, ApplyRunState, ApplyState,
-    ApplyStage, CostBreakdown, CostDisplayPreference, CostStatus,
-    CostTotal, CostTotalStatus, Currency, DecisionCostBreakdown, DecisionOutcome,
-    DecisionTelemetry, DocumentKind, EnergyCostBreakdown, ImageCostBreakdown, JobStatus,
-    JobTelemetrySummary, ModelPricing, PricingSource, ProviderBreakerState, ProviderHold,
-    SourceFormat, Telemetry, TelemetryApplyState, TokenCostBreakdown,
+    ApplyProgressFrame, ApplyRunAccepted, ApplyRunId, ApplyRunOutcome, ApplyRunState, ApplyStage,
+    ApplyState, CostBreakdown, CostDisplayPreference, CostStatus, CostTotal, CostTotalStatus,
+    Currency, DecisionCostBreakdown, DecisionOutcome, DecisionTelemetry, DocumentKind,
+    EnergyCostBreakdown, ImageCostBreakdown, JobStatus, JobTelemetrySummary, ModelPricing,
+    PricingSource, ProviderBreakerState, ProviderHold, SourceFormat, Telemetry,
+    TelemetryApplyState, TokenCostBreakdown,
 };

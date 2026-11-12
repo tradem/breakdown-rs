@@ -47,8 +47,8 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     AiImportJobId, ApplyImportSummary, ApplyRunAccepted, ApplyRunId, ApplyRunOutcome,
-    ApplyRunRequest, ApplyStage, ClaimedApplyRun, ScheduleApplyRunRequest,
-    ScriptApplyRunRequest, ScriptContext,
+    ApplyRunRequest, ApplyStage, ClaimedApplyRun, ScheduleApplyRunRequest, ScriptApplyRunRequest,
+    ScriptContext,
 };
 use breakdown_core::error::DomainError;
 use infra::ai::worker_loop::ShutdownSignal;
@@ -93,7 +93,10 @@ impl<P: Ports> ApplyRunner<P> {
     /// write of the terminal state is logged and swallowed: the slot then stays
     /// `running` and the takeover path re-drives it — the documented backstop,
     /// which is strictly better than a panic in a detached task.
-    pub async fn run_claimed(&self, claimed: ClaimedApplyRun) -> Result<ApplyRunOutcome, DomainError> {
+    pub async fn run_claimed(
+        &self,
+        claimed: ClaimedApplyRun,
+    ) -> Result<ApplyRunOutcome, DomainError> {
         let ClaimedApplyRun {
             job_id,
             run_id,
@@ -168,9 +171,10 @@ impl<P: Ports> ApplyRunner<P> {
             .get(job_id)
             .await?
             .ok_or_else(|| DomainError::not_found("ai import job"))?;
-        let handle = job.preview_handle.as_deref().ok_or_else(|| {
-            DomainError::not_found("ai import preview")
-        })?;
+        let handle = job
+            .preview_handle
+            .as_deref()
+            .ok_or_else(|| DomainError::not_found("ai import preview"))?;
         let payload = self
             .state
             .ports
@@ -339,7 +343,10 @@ impl<P: Ports> ApplyRunner<P> {
 }
 
 /// Build the `202 Accepted` descriptor for a dispatched run (design D2).
-pub fn accepted_run(run_id: ApplyRunId, started_at: chrono::DateTime<chrono::Utc>) -> ApplyRunAccepted {
+pub fn accepted_run(
+    run_id: ApplyRunId,
+    started_at: chrono::DateTime<chrono::Utc>,
+) -> ApplyRunAccepted {
     ApplyRunAccepted {
         run_id,
         stage: ApplyStage::Applying,
