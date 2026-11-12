@@ -21,6 +21,8 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
+import 'package:frontend_flutter/data/ai_import_repository.dart'
+    show ApplyProgressFrame;
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
@@ -133,12 +135,14 @@ void main() {
   // --- Tier 1: the fold that decides what the card renders ----------------
 
   group('foldApplyRun', () {
-    Future<List<AiApplyRunState>> fold(List<Result<ApplyProgress?>> events) =>
+    Future<List<AiApplyRunState>> fold(
+      List<Result<ApplyProgressFrame>> events,
+    ) =>
         foldApplyRun(Stream.fromIterable(events)).toList();
 
     test('a progress frame is a running state', () async {
       final progress = _run(startedAt: now, applied: 3);
-      final out = await fold([Right(progress)]);
+      final out = await fold([Right(ApplyProgressFrame(progress: progress))]);
       expect(out, hasLength(1));
       expect(out.single, isA<AiApplyRunRunning>());
       expect((out.single as AiApplyRunRunning).progress.applied, 3);
@@ -148,7 +152,7 @@ void main() {
       'the end frame after a run KEEPS the run (never "nothing started")',
       () async {
         final progress = _run(startedAt: now, applied: 7);
-        final out = await fold([Right(progress), const Right(null)]);
+        final out = await fold([Right(ApplyProgressFrame(progress: progress)), const Right(ApplyProgressFrame())]);
         expect(out, hasLength(2));
         expect(out.first, isA<AiApplyRunRunning>());
         expect(out.last, isA<AiApplyRunFinished>());
@@ -161,7 +165,7 @@ void main() {
     );
 
     test('a null frame BEFORE any run stays idle', () async {
-      final out = await fold([const Right(null)]);
+      final out = await fold([const Right(ApplyProgressFrame())]);
       expect(out.single, isA<AiApplyRunIdle>());
     });
 
@@ -170,7 +174,7 @@ void main() {
       () async {
         final progress = _run(startedAt: now, applied: 5);
         final out = await fold([
-          Right(progress),
+          Right(ApplyProgressFrame(progress: progress)),
           const Left(ProblemError(code: 'ai_import.watch_exhausted')),
         ]);
         expect(out.last, isA<AiApplyRunFailed>());

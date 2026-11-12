@@ -53,6 +53,19 @@ const int kMaxApplyIdleReconnects = 30;
 /// bounded `Last-Event-ID` reconnect instead of hanging the watch.
 const Duration kSseReceiveTimeout = Duration(seconds: 65);
 
+/// Upper bound on the **apply dispatch** `POST` (issue #899).
+///
+/// The answer is `202 ApplyRunAccepted` — validation plus one claim, i.e.
+/// milliseconds, because the row loop no longer runs inside the request. A
+/// socket that delivers nothing for this long is therefore dead, and treating it
+/// as one is what makes a dropped dispatch *detectable*: with no bound at all
+/// (the pre-#899 client set no receive timeout), a black-holed POST kept a
+/// spinner alive forever and the resumable classification never fired.
+///
+/// Deliberately generous relative to the server work it covers: it must not
+/// race a slow validation (a 60-scene preview is still only read, not applied).
+const Duration kApplyDispatchTimeout = Duration(seconds: 60);
+
 /// The declared raw-body content types the schedule upload accepts
 /// (backend `upload_ai_schedule` contract; anything else is a 415).
 enum AiScheduleSource { csv, pdf, plainText }
@@ -121,16 +134,58 @@ class AiUploadAck {
   final bool duplicate;
 }
 
+/// One frame of the apply stream (`GET /jobs/{id}/apply-events`, issues
+/// #762/#899).
+///
+/// The frame used to carry only the progress payload; since the run is durable
+/// it also says **which lifecycle state** the slot is in and — once the run is
+/// over — its **persisted outcome**. That terminal outcome is how a client
+/// learns what an apply committed: the `POST` dispatches (`202`) and answers no
+/// counters at all, and a client that attaches after the fact gets the same
+/// frame immediately.
+class ApplyProgressFrame {
+  const ApplyProgressFrame({
+    this.progress,
+    this.state,
+    this.summary,
+    this.failureCode,
+  });
+
+  /// Live row progress, `null` when the run published none (before its first
+  /// frame, after it cleared the slot, or on the terminal frame).
+  final ApplyProgress? progress;
+
+  /// The slot's lifecycle state as the server reported it (`null` only for a
+  /// frame from a pre-#899 server, which the client treats as "unknown").
+  final ApplyState? state;
+
+  /// The counters of a run that finished successfully.
+  final ApplyImportSummary? summary;
+
+  /// The registered problem code of a run that failed (ADR-031: clients branch
+  /// on `code`, never on a prose detail).
+  final String? failureCode;
+
+  /// Whether this frame reports the run's **end**.
+  bool get isTerminal => summary != null || failureCode != null;
+}
+
 /// The reconciled outcome of an ambiguous apply dispatch (task 1.2).
 sealed class ApplyReconciliation {
   const ApplyReconciliation();
 }
 
-/// The apply 200'd (first attempt or a reconciled retry).
+/// The apply **finished** and its persisted outcome is known (issue #899).
+///
+/// The counters no longer come from the `POST`: the request dispatches
+/// (`202 ApplyRunAccepted`) and the run reports them on the apply stream's
+/// terminal frame — or, for a run that finished before this client attached, on
+/// `GET /jobs/{id}` (`apply_result`). Either way this carries the same summary
+/// the 200 body used to.
 class ApplySucceeded extends ApplyReconciliation {
   const ApplySucceeded(this.response);
 
-  final ApplyAiImportResponse response;
+  final ApplyImportSummary response;
 }
 
 /// The job re-read after an ambiguous timeout proves the apply cannot
@@ -649,7 +704,7 @@ class AiImportRepository extends BaseRepository {
   ///
   /// Nothing is cached: an apply run is transient state, and a stale
   /// "applying 12/57" in Drift would outlive its run.
-  Stream<Result<ApplyProgress?>> watchApplyProgress(
+  Stream<Result<ApplyProgressFrame>> watchApplyProgress(
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = kMaxJobWatchAttempts,
@@ -709,16 +764,21 @@ class AiImportRepository extends BaseRepository {
           if (event.id != null) lastEventId = event.id;
           if (event.event != 'apply' || event.data.isEmpty) continue;
           sawFrame = true;
-          final decoded = _decodeApplyProgressFrame(event.data);
-          final progress = decoded.fold<ApplyProgress?>((_) => null, (p) => p);
+          final decoded = _decodeApplyFrame(event.data);
           // A malformed body must not look like "no run": yield the error and
           // keep the stream open (the next frame may be well-formed).
           if (!decoded.isRight()) {
             yield decoded;
             continue;
           }
-          yield Right(progress);
-          if (progress == null) finished = true;
+          final frame = decoded.getRight().toNullable()!;
+          yield Right(frame);
+          // The run is over when the SLOT says so (a terminal state, whose
+          // frame also carries the persisted outcome) or when an older server
+          // cleared the payload without a state — the pre-#899 end signal.
+          if (frame.isTerminal || (frame.progress == null && frame.state == null)) {
+            finished = true;
+          }
         }
       } on DioException catch (e) {
         yield Left(problemErrorFromDio(e));
@@ -744,29 +804,60 @@ class AiImportRepository extends BaseRepository {
     yield const Left(ProblemError(code: 'ai_import.watch_exhausted'));
   }
 
-  /// Decodes one `event: apply` SSE data payload (issue #762).
+  /// Decodes one `event: apply` SSE data payload (issues #762, #899).
   ///
-  /// The frame is `{ "job_id": …, "apply_progress": … }`, and only the nested
-  /// progress is needed: the stream is per-job already. Decoding it by hand
-  /// keeps a nested `null` distinguishable from a malformed body — the former
-  /// is the run's end signal, the latter is `ai_import.dto_invalid`. Same
-  /// never-throw discipline as [_decodeJobFrame].
-  static Result<ApplyProgress?> _decodeApplyProgressFrame(String data) {
-    const malformed = Left<ProblemError, ApplyProgress?>(
+  /// The frame is `{ job_id, apply_progress, apply_state, apply_result }`. A
+  /// nested `apply_progress: null` is the progress payload being absent (the
+  /// run's end on a pre-#899 server, or its terminal frame now); a body the
+  /// serializers reject is `ai_import.dto_invalid`. Same never-throw discipline
+  /// as [_decodeJobFrame].
+  static Result<ApplyProgressFrame> _decodeApplyFrame(String data) {
+    const malformed = Left<ProblemError, ApplyProgressFrame>(
       ProblemError(code: 'ai_import.dto_invalid'),
     );
     try {
       final decoded = jsonDecode(data);
       if (decoded is! Map<String, dynamic>) return malformed;
-      if (!decoded.containsKey('apply_progress')) return malformed;
-      final raw = decoded['apply_progress'];
-      if (raw == null) return const Right<ProblemError, ApplyProgress?>(null);
-      final progress = standardSerializers.deserializeWith(
-        ApplyProgress.serializer,
-        raw,
+      final progress = switch (decoded['apply_progress']) {
+        null => null,
+        final Object raw => standardSerializers.deserializeWith(
+          ApplyProgress.serializer,
+          raw,
+        ),
+      };
+      final state = switch (decoded['apply_state']) {
+        final String raw => ApplyState.values.firstWhere(
+          (value) => value.name == raw,
+          orElse: () => ApplyState.idle,
+        ),
+        _ => null,
+      };
+      // Externally tagged, like every other enum on this wire:
+      // `{"succeeded": {...}}` / `{"failed": {"code": …}}` (core
+      // `ApplyRunOutcome`).
+      ApplyImportSummary? summary;
+      String? failureCode;
+      if (decoded['apply_result'] case final Map<String, dynamic> result) {
+        switch (result['succeeded']) {
+          case final Object raw:
+            summary = standardSerializers.deserializeWith(
+              ApplyImportSummary.serializer,
+              raw,
+            );
+          case null:
+            if (result['failed'] case final Map<String, dynamic> failed) {
+              failureCode = failed['code'] as String?;
+            }
+        }
+      }
+      return Right<ProblemError, ApplyProgressFrame>(
+        ApplyProgressFrame(
+          progress: progress,
+          state: state,
+          summary: summary,
+          failureCode: failureCode,
+        ),
       );
-      if (progress == null) return malformed;
-      return Right<ProblemError, ApplyProgress?>(progress);
     } on Object {
       return malformed;
     }
@@ -829,41 +920,89 @@ class AiImportRepository extends BaseRepository {
   // --- Apply -------------------------------------------------------------------
 
   /// `POST /v1/ai-import/jobs/{id}/apply` — the explicit write path (D1:
-  /// no preview editing exists server-side). Returns the outcome summary
-  /// (`applied_count`, `created_days`, `planned_scene_shoots`).
+  /// no preview editing exists server-side).
+  ///
+  /// Since issue #899 this **dispatches**: the answer is `202
+  /// ApplyRunAccepted` (the run id, its stage and the slot state), and the
+  /// counters arrive on the apply stream's terminal frame (see
+  /// [applyWithReconciliation], which is what callers should use).
   ///
   /// // AUTHZ-GATE: callers check the season piece-dept membership via
   /// `currentMembershipProvider` BEFORE invoking; denial issues zero calls.
-  Future<Result<ApplyAiImportResponse>> apply(
+  /// Goes through the pinned Dio client directly (not the generated method) for
+  /// one reason: the generated call pins its own `Options`, so the **bounded
+  /// receive timeout** this dispatch needs ([kApplyDispatchTimeout], issue #899)
+  /// could not be applied — and an unbounded socket is exactly how a
+  /// black-holed POST spins forever while the resumable classification, which is
+  /// what finds the run again, never fires.
+  Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
   ) => run(
-    () => api.getHandlersApi().applyAiImport(
-      id: jobId,
-      applyAiImportRequest: request,
-    ),
+    () async {
+      final response = await api.dio.post<Object?>(
+        '/v1/ai-import/jobs/$jobId/apply',
+        // `standardSerializers` carries the `StandardJsonPlugin`, so the body
+        // is JSON rather than the bare pair-list form the bare instance emits.
+        data: standardSerializers.serializeWith(
+          ApplyAiImportRequest.serializer,
+          request,
+        ),
+        options: Options(
+          contentType: 'application/json',
+          receiveTimeout: kApplyDispatchTimeout,
+        ),
+      );
+      final body = response.data;
+      if (body is! Map<String, dynamic>) {
+        throw const FormatException('the apply answer is not an object');
+      }
+      final accepted = standardSerializers.deserializeWith(
+        ApplyRunAccepted.serializer,
+        body,
+      );
+      if (accepted == null) {
+        throw const FormatException(
+          'the apply answer is not an ApplyRunAccepted',
+        );
+      }
+      return Response<ApplyRunAccepted>(
+        requestOptions: response.requestOptions,
+        statusCode: response.statusCode,
+        data: accepted,
+      );
+    },
     dtoInvalidCode: 'ai_import.dto_invalid',
   );
 
-  /// Apply with the ambiguous-timeout reconciliation (task 1.2, design
-  /// §1/§2.3): on a timeout-class failure the job is re-read FIRST — a
-  /// still-`succeeded` job with a live preview re-enters the bounded
-  /// retry (safe: the server-side apply is idempotent, reserve-before-
-  /// create, backend issue #338 / PR #351); any other re-read outcome
-  /// surfaces as [ApplyBlocked]; a budget exhausted with the outcome
-  /// unknown surfaces as [ApplyUnresolved]. Non-timeout failures
-  /// (403/409/…) surface immediately — never retried, never re-dispatched
-  /// blindly.
+  /// Dispatch an apply and follow the **durable run** to its outcome (issues
+  /// #899, #805).
   ///
-  /// [onAttempt] fires with the 1-based index of every attempt after the
-  /// first, **before** that attempt is dispatched: a retry is a NEW
-  /// server-side run (the first one's stream has already seen its end
-  /// frame), so a live progress view has to re-open its watch to follow it.
+  /// The `POST` no longer performs the apply, so there is nothing to
+  /// "reconcile" about a lost response any more — the run is on the server
+  /// either way. What this method does is the client half of that contract:
+  ///
+  /// 1. **dispatch it** (`202 ApplyRunAccepted`);
+  /// 2. **attach** to the run through the apply stream and wait for its
+  ///    terminal frame, which is where the counters live now;
+  /// 3. when the dispatch itself died ambiguously (a resumable transport
+  ///    failure, [isResumableDispatch]), **re-read the job first**: its
+  ///    `apply_state` answers whether a run exists (`requested`/`running` →
+  ///    attach), already finished (`done`/`failed` → its persisted
+  ///    `apply_result`), or never started (`idle` → dispatch again, within the
+  ///    bounded budget);
+  /// 4. when the server refused with `409 ai-import.apply-in-flight`, treat it
+  ///    as **attach, don't retry** — unless the server's own window says that
+  ///    owner is abandoned, in which case the takeover stays the user's
+  ///    decision (issue #805).
+  ///
+  /// [onAttempt] fires with the index of every attempt after the first, before
+  /// that attempt dispatches: a retry is a NEW server-side run, so the live
+  /// progress card has to re-arm its watch.
   ///
   /// [clock] measures the LOCAL wait after a refusal that named its blocking
-  /// run (issue #805 review): the bounded budget may not run past the server's
-  /// own window, or a retry would steal an abandoned claim without the user
-  /// asking for it. Injected so the bound is testable without waiting.
+  /// run: the bounded budget may not run past the server's own window, or a
+  /// retry would steal an abandoned claim without the user asking for it.
   Future<ApplyReconciliation> applyWithReconciliation(
     String jobId,
     ApplyAiImportRequest request, {
@@ -902,36 +1041,43 @@ class AiImportRepository extends BaseRepository {
         onAttempt?.call(attempt);
       }
       final res = await apply(jobId, request);
-      final response = res.getRight().toNullable();
-      if (response != null) return ApplySucceeded(response);
+      final accepted = res.getRight().toNullable();
+      if (accepted != null) {
+        // Dispatched: the run is durable from here on, so this client only has
+        // to follow it to its terminal frame.
+        final settled = await awaitRunOutcome(jobId);
+        if (settled != null) return settled;
+        // The watch ended without the run's outcome AND the job row has none
+        // yet: the run is still going. Report that honestly instead of
+        // dispatching a second one (the slot is single-flight — a retry would
+        // come straight back as `409 apply-in-flight`).
+        return ApplyUnresolved(
+          ProblemError(
+            code: 'ai_import.apply_still_running',
+            detail: accepted.runId,
+            status: 202,
+          ),
+        );
+      }
       final error = res.getLeft().toNullable()!;
       if (isApplyInFlight(error)) {
-        // Issue #800: another run of this job owns the progress slot, so the
-        // server refused this dispatch with `409 ai-import.apply-in-flight`.
-        // That is not a failure — it is this client's own earlier POST still
-        // running (the ambiguous-timeout retry legitimately lands here) or a
-        // second device.
+        // Issue #800: another run of this job owns the slot, so the server
+        // refused this dispatch. With a durable run that is **attach, don't
+        // retry** — the refusal names a run this client can follow.
         final window = applyInFlightWindow(error);
         final age = window?.age;
         if (window != null && age != null && age > window.staleAfter) {
           // Issue #805: the owning run has been silent for longer than the
           // server's own staleness window, so the server itself considers the
-          // payload abandoned and the next claim would steal the slot. Stop
-          // consuming the budget: the takeover is a USER decision (the run may
-          // be this person's other device, and a blind automatic steal is
-          // exactly what the single-flight contract forbids), so the caller
-          // gets the classification and offers the explicit re-run.
+          // claim abandoned. The takeover stays a USER decision (the run may be
+          // this person's other device), so the caller gets the classification
+          // and offers the explicit re-run.
           //
           // Strictly `>`: the server's predicate is `payload.updated_at <
           // now - STALE_AFTER`, so at exactly the window the claim still refuses
-          // and the run is live. `>=` would claim an abandonment the server does
-          // not act on.
+          // and the run is live.
           return ApplyInFlight(error, age: age, staleAfter: window.staleAfter);
         }
-        // A live run (or one with nothing published to age) keeps the bounded
-        // budget: once it ends, the next claim goes through and this client's
-        // own apply lands. The refusal is remembered so a budget that ends
-        // here is reported as "a run is live", never as "outcome unknown".
         lastError = error;
         if (window != null) {
           inFlight = ApplyInFlight(
@@ -941,25 +1087,30 @@ class AiImportRepository extends BaseRepository {
           );
           refusedAt = clock.now();
         }
+        // Attach to the run that owns the slot. Nothing to wait out locally: if
+        // it is this device's own earlier dispatch, its stream is exactly what
+        // reports the outcome.
+        final attached = await awaitRunOutcome(jobId, waitForTerminal: false);
+        if (attached != null) return attached;
+        // The run is alive and has not finished yet. The server NAMED it, so
+        // that is the answer: the card reports the blocking run (with the age
+        // and window the refusal carried) instead of consuming the dispatch
+        // budget — re-dispatching would only be refused again.
+        if (inFlight != null) return inFlight;
         continue;
       }
-      if (!isAmbiguousTimeout(error)) {
-        // Definitive failure (403/409/404/validation) — surface it; a
-        // re-dispatch would be blind (never allowed, task 1.2).
+      if (!isResumableDispatch(error)) {
+        // Definitive failure (403/404/validation) — surface it; nothing was
+        // dispatched, so a retry would be blind.
         return ApplyBlocked(error);
       }
       lastError = error;
-      // Issue #805 review: an ambiguous timeout makes the outcome UNKNOWN again,
-      // so the earlier refusal no longer describes what blocks this job — a
-      // resolved run may have finished, or the dispatch may even have landed.
-      // Dropping it keeps the final report honest: a budget that ends on an
-      // unknown outcome is `ApplyUnresolved`, not a live-run card with a stale
-      // takeover action.
+      // The earlier refusal no longer describes what blocks this job: the
+      // dispatch may have landed after all.
       inFlight = null;
       refusedAt = null;
-      // Re-read the job reality BEFORE any re-dispatch. A failed re-read
-      // is itself an unknown outcome — keep consuming the budget; only a
-      // successful read with a non-succeeded status is a definitive block.
+      // Re-read the job reality BEFORE any re-dispatch. A failed re-read is
+      // itself an unknown outcome — keep consuming the budget.
       final job = await getJobAndCache(jobId, clock: clock);
       final read = job.getRight().toNullable();
       if (read == null) continue;
@@ -972,11 +1123,108 @@ class AiImportRepository extends BaseRepository {
           ),
         );
       }
+      final state = read.applyState;
+      if (state == ApplyState.done || state == ApplyState.failed) {
+        // The dispatch DID land and the run already finished: the job row is
+        // the outcome, no attach necessary.
+        return _outcomeOf(read) ??
+            ApplyBlocked(
+              ProblemError(
+                code: 'ai_import.apply_outcome_unavailable',
+                detail: state?.name,
+                status: 503,
+              ),
+            );
+      }
+      if (state == ApplyState.requested || state == ApplyState.running) {
+        final attached = await awaitRunOutcome(jobId, waitForTerminal: false);
+        if (attached != null) return attached;
+        continue;
+      }
+      // `idle`: nothing was dispatched, so the next attempt is a fresh one.
     }
     return inFlight ??
         ApplyUnresolved(
           lastError ?? const ProblemError(code: 'ai_import.apply_unresolved'),
         );
+  }
+
+  /// Follow the run that owns this job's slot to its terminal frame (issue
+  /// #899).
+  ///
+  /// No run id is matched on purpose: the slot is single-flight per job, so the
+  /// outcome that lands on it *is* this apply's outcome — whether the run was
+  /// dispatched by this device or (after a suspend) by a peer, the reviewer gets
+  /// one answer instead of "unknown".
+  ///
+  /// Returns the finished outcome, or `null` when the stream ended without one
+  /// (a run still going, a dead watch) — the caller then decides between the
+  /// job-row fallback, another attach, or an honest [ApplyUnresolved]. Never
+  /// throws: a broken watch is not an apply failure.
+  ///
+  /// Public for the same reason [watchApplyProgress] and [apply] are
+  /// overridable: a repository fake must be able to script "the run finished
+  /// with these counters" without an SSE socket, and this is the only place
+  /// that decides it.
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    bool waitForTerminal = true,
+  }) async {
+    ApplyImportSummary? summary;
+    String? failureCode;
+    await for (final event in watchApplyProgress(jobId)) {
+      final frame = event.getRight().toNullable();
+      if (frame == null) {
+        // A transient stream failure: the stream owns the retry budget and the
+        // run is durable, so keep consuming instead of calling it a failure.
+        continue;
+      }
+      if (frame.summary != null || frame.failureCode != null) {
+        summary = frame.summary;
+        failureCode = frame.failureCode;
+        break;
+      }
+      // A caller that is only *checking* a run it did not dispatch must not
+      // block for the run's lifetime (an apply is minutes, and a refusal is
+      // rendered as the blocked-run notice, not as a frozen button): its first
+      // frame answers "already finished?" and nothing more.
+      if (!waitForTerminal) break;
+    }
+    if (summary != null) return ApplySucceeded(summary);
+    if (failureCode != null) {
+      return ApplyBlocked(ProblemError(code: failureCode));
+    }
+    // No terminal frame. The job row carries the same outcome, so ask it before
+    // claiming the outcome is unknown — the run may simply have finished
+    // between two connections.
+    final job = await getJobAndCache(jobId);
+    final read = job.getRight().toNullable();
+    if (read == null) return null;
+    final state = read.applyState;
+    if (state == ApplyState.done || state == ApplyState.failed) {
+      return _outcomeOf(read);
+    }
+    // A run still going (or requested): the caller attaches again or reports a
+    // live run — never a failure, and never a second dispatch.
+    return null;
+  }
+
+  /// The persisted outcome of a terminal run on [job], as a reconciled result.
+  ///
+  /// `null` when the job carries no decodable outcome: the caller then reports
+  /// the honest "finished, no report available" instead of inventing counters.
+  ApplyReconciliation? _outcomeOf(AiImportJob job) {
+    // The wire shape is externally tagged (`{"succeeded": {...}}` /
+    // `{"failed": {"code": …}}`), which the generated `oneOf` model decodes
+    // into `ApplyRunOutcomeOneOf` / `ApplyRunOutcomeOneOf1`.
+    final value = job.applyResult?.oneOf.value;
+    return switch (value) {
+      final ApplyRunOutcomeOneOf succeeded => ApplySucceeded(succeeded.succeeded),
+      final ApplyRunOutcomeOneOf1 failure => ApplyBlocked(
+        ProblemError(code: failure.failed.code),
+      ),
+      _ => null,
+    };
   }
 }
 
@@ -988,13 +1236,26 @@ bool isTerminalJobStatus(JobStatus status) =>
     status == JobStatus.deadLetter ||
     status == JobStatus.payloadUnavailable;
 
-/// True when [error] is an ambiguous-timeout transport failure (the
-/// dispatch may or may not have committed server-side). Only these unlock
-/// the apply reconciliation path; every other failure is definitive.
-bool isAmbiguousTimeout(ProblemError error) => switch (error.code) {
+/// True when a failed **dispatch** leaves the outcome unknown, i.e. the
+/// request may or may not have reached the server (issue #899, design D5).
+///
+/// Renamed from `isAmbiguousTimeout` because the class got wider, not narrower:
+/// pointing the device at a dying connection costs more than it saves, so a
+/// Doze/handover suspend surfaces as `transport.connectionError` — which used to
+/// be classified *definitive* and rendered as "the apply failed" while a run was
+/// alive on the server. `transport.unknown` covers a failure while the streamed
+/// body was being consumed (Dio cannot tell a protocol error from a socket that
+/// vanished mid-body).
+///
+/// Since a run is durable, "resumable" no longer means "safe to retry the
+/// POST": it means "go find out what the server has" — see
+/// [AiImportRepository.applyWithReconciliation].
+bool isResumableDispatch(ProblemError error) => switch (error.code) {
   'transport.connectionTimeout' ||
   'transport.sendTimeout' ||
-  'transport.receiveTimeout' => true,
+  'transport.receiveTimeout' ||
+  'transport.connectionError' ||
+  'transport.unknown' => true,
   _ => false,
 };
 

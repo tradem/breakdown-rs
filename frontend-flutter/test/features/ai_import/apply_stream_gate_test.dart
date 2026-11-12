@@ -41,10 +41,10 @@ class _FakeApplyRepository extends AiImportRepository {
   _FakeApplyRepository(super.api, super.cache);
 
   int watchCalls = 0;
-  List<Result<ApplyProgress?>> frames = const [];
+  List<Result<ApplyProgressFrame>> frames = const [];
 
   @override
-  Stream<Result<ApplyProgress?>> watchApplyProgress(
+  Stream<Result<ApplyProgressFrame>> watchApplyProgress(
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
     int maxAttempts = kMaxJobWatchAttempts,
@@ -132,7 +132,11 @@ void main() {
   }
 
   test('a member with the season role lets the watch open', () async {
-    repo.frames = [Right<ProblemError, ApplyProgress?>(_progress())];
+    repo.frames = [
+      Right<ProblemError, ApplyProgressFrame>(
+        ApplyProgressFrame(progress: _progress()),
+      ),
+    ];
     final c = container(costumeRole: true);
     final first = await firstState(c);
     expect(first, isA<AiApplyRunRunning>());

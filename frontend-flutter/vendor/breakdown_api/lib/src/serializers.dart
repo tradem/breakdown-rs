@@ -52,6 +52,7 @@ import 'package:breakdown_api/src/model/apply_run_accepted.dart';
 import 'package:breakdown_api/src/model/apply_run_outcome.dart';
 import 'package:breakdown_api/src/model/apply_run_outcome_one_of.dart';
 import 'package:breakdown_api/src/model/apply_run_outcome_one_of1.dart';
+import 'package:breakdown_api/src/model/apply_run_outcome_one_of1_failed.dart';
 import 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/apply_stage.dart';
 import 'package:breakdown_api/src/model/apply_state.dart';
@@ -255,6 +256,7 @@ part 'serializers.g.dart';
   ApplyRunOutcome,
   ApplyRunOutcomeOneOf,
   ApplyRunOutcomeOneOf1,
+  ApplyRunOutcomeOneOf1Failed,
   ApplyShootingDayRequest,
   ApplyStage,
   ApplyState,

@@ -71,7 +71,7 @@ class _$ShootingDaySourceSerializer
     final result = ShootingDaySourceBuilder();
     Object? oneOfDataSrc;
     final targetType = const FullType(OneOf, [
-      FullType(OneOf0Enum),
+      FullType(String),
       FullType(SceneSourceOneOf),
     ]);
     oneOfDataSrc = serialized;

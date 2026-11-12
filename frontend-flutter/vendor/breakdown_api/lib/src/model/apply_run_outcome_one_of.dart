@@ -5,7 +5,6 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/apply_import_summary.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -15,17 +14,13 @@ part 'apply_run_outcome_one_of.g.dart';
 /// The run completed and applied its plan (fully or partially — the summary reports the difference through `unapplied_outfits`).
 ///
 /// Properties:
-/// * [outcome]
-/// * [summary]
+/// * [succeeded] - The run completed and applied its plan (fully or partially — the summary reports the difference through `unapplied_outfits`).
 @BuiltValue()
 abstract class ApplyRunOutcomeOneOf
     implements Built<ApplyRunOutcomeOneOf, ApplyRunOutcomeOneOfBuilder> {
-  @BuiltValueField(wireName: r'outcome')
-  ApplyRunOutcomeOneOfOutcomeEnum get outcome;
-  // enum outcomeEnum {  succeeded,  };
-
-  @BuiltValueField(wireName: r'summary')
-  ApplyImportSummary get summary;
+  /// The run completed and applied its plan (fully or partially — the summary reports the difference through `unapplied_outfits`).
+  @BuiltValueField(wireName: r'succeeded')
+  ApplyImportSummary get succeeded;
 
   ApplyRunOutcomeOneOf._();
 
@@ -56,14 +51,9 @@ class _$ApplyRunOutcomeOneOfSerializer
     ApplyRunOutcomeOneOf object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'outcome';
+    yield r'succeeded';
     yield serializers.serialize(
-      object.outcome,
-      specifiedType: const FullType(ApplyRunOutcomeOneOfOutcomeEnum),
-    );
-    yield r'summary';
-    yield serializers.serialize(
-      object.summary,
+      object.succeeded,
       specifiedType: const FullType(ApplyImportSummary),
     );
   }
@@ -91,19 +81,12 @@ class _$ApplyRunOutcomeOneOfSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'outcome':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(ApplyRunOutcomeOneOfOutcomeEnum),
-          ) as ApplyRunOutcomeOneOfOutcomeEnum;
-          result.outcome = valueDes;
-          break;
-        case r'summary':
+        case r'succeeded':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(ApplyImportSummary),
           ) as ApplyImportSummary;
-          result.summary.replace(valueDes);
+          result.succeeded.replace(valueDes);
           break;
         default:
           unhandled.add(key);
@@ -132,20 +115,4 @@ class _$ApplyRunOutcomeOneOfSerializer
     );
     return result.build();
   }
-}
-
-class ApplyRunOutcomeOneOfOutcomeEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'succeeded')
-  static const ApplyRunOutcomeOneOfOutcomeEnum succeeded =
-      _$applyRunOutcomeOneOfOutcomeEnum_succeeded;
-
-  static Serializer<ApplyRunOutcomeOneOfOutcomeEnum> get serializer =>
-      _$applyRunOutcomeOneOfOutcomeEnumSerializer;
-
-  const ApplyRunOutcomeOneOfOutcomeEnum._(String name) : super(name);
-
-  static BuiltSet<ApplyRunOutcomeOneOfOutcomeEnum> get values =>
-      _$applyRunOutcomeOneOfOutcomeEnumValues;
-  static ApplyRunOutcomeOneOfOutcomeEnum valueOf(String name) =>
-      _$applyRunOutcomeOneOfOutcomeEnumValueOf(name);
 }

@@ -196,13 +196,14 @@ Future<ProblemError?> aiApplyStreamGate(Ref ref, String jobId) async {
 /// vs. a failed stream — is unit-testable without a repository, a container or
 /// a socket.
 Stream<AiApplyRunState> foldApplyRun(
-  Stream<Result<ApplyProgress?>> events,
+  Stream<Result<ApplyProgressFrame>> events,
 ) async* {
   ApplyProgress? last;
   await for (final event in events) {
     yield event.match<AiApplyRunState>(
       (error) => AiApplyRunFailed(error, last: last),
-      (progress) {
+      (frame) {
+        final progress = frame.progress;
         if (progress == null) {
           // The run's end signal — or, before any run, "nothing started yet".
           final ended = last;
@@ -601,7 +602,7 @@ class AiApplyState {
 
   /// The 200 outcome summary card (`applied_count`, `created_days`,
   /// `planned_scene_shoots`).
-  final ApplyAiImportResponse? outcome;
+  final ApplyImportSummary? outcome;
 
   /// The last command failure, keyed on the stable problem `code`.
   final ProblemError? commandError;
@@ -709,7 +710,7 @@ class AiApplyState {
         : context as AiJobContext?,
     outcome: identical(outcome, _unset)
         ? this.outcome
-        : outcome as ApplyAiImportResponse?,
+        : outcome as ApplyImportSummary?,
     commandError: identical(commandError, _unset)
         ? this.commandError
         : commandError as ProblemError?,
@@ -1376,7 +1377,7 @@ class AiApplyController extends _$AiApplyController {
   /// job/outcome first and reconciles (bounded retry — the server-side
   /// apply is idempotent, reserve-before-create, backend issue #338);
   /// never a blind re-dispatch, never a duplicate import implied.
-  Future<Result<ApplyAiImportResponse>> apply() async {
+  Future<Result<ApplyImportSummary>> apply() async {
     final context = state.context;
     if (context == null) {
       // Structural impossibility: the button is disabled without context;

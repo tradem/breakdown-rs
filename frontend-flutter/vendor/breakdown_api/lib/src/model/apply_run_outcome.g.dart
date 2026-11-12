@@ -6,53 +6,6 @@ part of 'apply_run_outcome.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
-const ApplyRunOutcomeOutcomeEnum _$applyRunOutcomeOutcomeEnum_failed =
-    const ApplyRunOutcomeOutcomeEnum._('failed');
-
-ApplyRunOutcomeOutcomeEnum _$applyRunOutcomeOutcomeEnumValueOf(String name) {
-  switch (name) {
-    case 'failed':
-      return _$applyRunOutcomeOutcomeEnum_failed;
-    default:
-      throw ArgumentError(name);
-  }
-}
-
-final BuiltSet<ApplyRunOutcomeOutcomeEnum> _$applyRunOutcomeOutcomeEnumValues =
-    BuiltSet<ApplyRunOutcomeOutcomeEnum>(const <ApplyRunOutcomeOutcomeEnum>[
-  _$applyRunOutcomeOutcomeEnum_failed,
-]);
-
-Serializer<ApplyRunOutcomeOutcomeEnum> _$applyRunOutcomeOutcomeEnumSerializer =
-    _$ApplyRunOutcomeOutcomeEnumSerializer();
-
-class _$ApplyRunOutcomeOutcomeEnumSerializer
-    implements PrimitiveSerializer<ApplyRunOutcomeOutcomeEnum> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'failed': 'failed',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'failed': 'failed',
-  };
-
-  @override
-  final Iterable<Type> types = const <Type>[ApplyRunOutcomeOutcomeEnum];
-  @override
-  final String wireName = 'ApplyRunOutcomeOutcomeEnum';
-
-  @override
-  Object serialize(Serializers serializers, ApplyRunOutcomeOutcomeEnum object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
-
-  @override
-  ApplyRunOutcomeOutcomeEnum deserialize(
-          Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      ApplyRunOutcomeOutcomeEnum.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
-}
-
 class _$ApplyRunOutcome extends ApplyRunOutcome {
   @override
   final OneOf oneOf;

@@ -106,27 +106,33 @@ class _$UpdateAiConfigRequestSerializer
         specifiedType: const FullType.nullable(CostDisplayPreference),
       );
     }
-    if (object.decisionModel != null) {
-      yield r'decision_model';
-      yield serializers.serialize(
-        object.decisionModel,
-        specifiedType: const FullType.nullable(String),
-      );
-    }
-    if (object.decisionProvider != null) {
-      yield r'decision_provider';
-      yield serializers.serialize(
-        object.decisionProvider,
-        specifiedType: const FullType.nullable(LlmProvider),
-      );
-    }
-    if (object.decisionVaultKeyId != null) {
-      yield r'decision_vault_key_id';
-      yield serializers.serialize(
-        object.decisionVaultKeyId,
-        specifiedType: const FullType.nullable(String),
-      );
-    }
+    // Tri-state field (issue #722): an unset value serializes as an
+    // explicit JSON `null` — the backend's clear signal. Never guarded.
+    yield r'decision_model';
+    yield object.decisionModel == null
+        ? null
+        : serializers.serialize(
+            object.decisionModel,
+            specifiedType: const FullType.nullable(String),
+          );
+    // Tri-state field (issue #722): an unset value serializes as an
+    // explicit JSON `null` — the backend's clear signal. Never guarded.
+    yield r'decision_provider';
+    yield object.decisionProvider == null
+        ? null
+        : serializers.serialize(
+            object.decisionProvider,
+            specifiedType: const FullType.nullable(LlmProvider),
+          );
+    // Tri-state field (issue #722): an unset value serializes as an
+    // explicit JSON `null` — the backend's clear signal. Never guarded.
+    yield r'decision_vault_key_id';
+    yield object.decisionVaultKeyId == null
+        ? null
+        : serializers.serialize(
+            object.decisionVaultKeyId,
+            specifiedType: const FullType.nullable(String),
+          );
     if (object.imageModel != null) {
       yield r'image_model';
       yield serializers.serialize(

@@ -5,7 +5,7 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/apply_run_outcome_one_of1_failed.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -14,18 +14,12 @@ part 'apply_run_outcome_one_of1.g.dart';
 /// The run stopped on an error the client can branch on.
 ///
 /// Properties:
-/// * [code] - Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).
-/// * [outcome]
+/// * [failed]
 @BuiltValue()
 abstract class ApplyRunOutcomeOneOf1
     implements Built<ApplyRunOutcomeOneOf1, ApplyRunOutcomeOneOf1Builder> {
-  /// Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).
-  @BuiltValueField(wireName: r'code')
-  String get code;
-
-  @BuiltValueField(wireName: r'outcome')
-  ApplyRunOutcomeOneOf1OutcomeEnum get outcome;
-  // enum outcomeEnum {  failed,  };
+  @BuiltValueField(wireName: r'failed')
+  ApplyRunOutcomeOneOf1Failed get failed;
 
   ApplyRunOutcomeOneOf1._();
 
@@ -56,15 +50,10 @@ class _$ApplyRunOutcomeOneOf1Serializer
     ApplyRunOutcomeOneOf1 object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'code';
+    yield r'failed';
     yield serializers.serialize(
-      object.code,
-      specifiedType: const FullType(String),
-    );
-    yield r'outcome';
-    yield serializers.serialize(
-      object.outcome,
-      specifiedType: const FullType(ApplyRunOutcomeOneOf1OutcomeEnum),
+      object.failed,
+      specifiedType: const FullType(ApplyRunOutcomeOneOf1Failed),
     );
   }
 
@@ -91,19 +80,12 @@ class _$ApplyRunOutcomeOneOf1Serializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'code':
+        case r'failed':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.code = valueDes;
-          break;
-        case r'outcome':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(ApplyRunOutcomeOneOf1OutcomeEnum),
-          ) as ApplyRunOutcomeOneOf1OutcomeEnum;
-          result.outcome = valueDes;
+            specifiedType: const FullType(ApplyRunOutcomeOneOf1Failed),
+          ) as ApplyRunOutcomeOneOf1Failed;
+          result.failed.replace(valueDes);
           break;
         default:
           unhandled.add(key);
@@ -132,20 +114,4 @@ class _$ApplyRunOutcomeOneOf1Serializer
     );
     return result.build();
   }
-}
-
-class ApplyRunOutcomeOneOf1OutcomeEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'failed')
-  static const ApplyRunOutcomeOneOf1OutcomeEnum failed =
-      _$applyRunOutcomeOneOf1OutcomeEnum_failed;
-
-  static Serializer<ApplyRunOutcomeOneOf1OutcomeEnum> get serializer =>
-      _$applyRunOutcomeOneOf1OutcomeEnumSerializer;
-
-  const ApplyRunOutcomeOneOf1OutcomeEnum._(String name) : super(name);
-
-  static BuiltSet<ApplyRunOutcomeOneOf1OutcomeEnum> get values =>
-      _$applyRunOutcomeOneOf1OutcomeEnumValues;
-  static ApplyRunOutcomeOneOf1OutcomeEnum valueOf(String name) =>
-      _$applyRunOutcomeOneOf1OutcomeEnumValueOf(name);
 }

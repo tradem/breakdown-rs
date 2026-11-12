@@ -72,10 +72,28 @@ tag. Never edit a released entry afterwards.
     handler had already run the apply". `backend/openapi.yaml` and the generated
     Dart client (`frontend-flutter/vendor/breakdown_api/`, `1.7.0 → 1.8.0`) are
     regenerated.
-  - Not in this change: the Flutter **re-entry** UX (`isResumableDispatch`, the
-    D5 lifecycle gate on the apply stream, `_applying` out of screen state, a
-    bounded apply `POST`) and the progress-card honesty work (issue #899 §B/§C) —
-    tracked on the issue, and required before this backend lands in the app.
+  - **Client (same PR, design D2):** the Flutter repository **dispatches and
+    attaches** instead of reading counters off the POST — `apply()` returns the
+    `202` descriptor through a bounded request (`kApplyDispatchTimeout`; the
+    generated call pins its own `Options`, so the dispatch goes through the
+    configured Dio client), `isAmbiguousTimeout` became `isResumableDispatch`
+    (`transport.connectionError`/`unknown` join the three timeout codes), the
+    apply stream's frame carries `apply_state` + the persisted outcome, and
+    `applyWithReconciliation` keeps its signature while its body becomes
+    *dispatch → attach*: a dropped dispatch re-reads the job first
+    (`requested`/`running` → attach, `done`/`failed` → the row's
+    `apply_result`, `idle` → re-dispatch within the budget), and a `409
+    ai-import.apply-in-flight` attaches to the named run instead of consuming
+    the budget (which also removes the "a backoff can land past the server
+    window" hazard: a live refusal now never dispatches again). The wire shape
+    of `apply_result` is **externally tagged** (`{"succeeded": {...}}` /
+    `{"failed": {"code": …}}`) on purpose — the generated Dart client's `oneOf`
+    decodes that shape, so an internally tagged payload would have made the
+    field unreadable on `GET /jobs/{id}`.
+  - Still open on the issue (deliberately not in this PR): the Flutter **UX**
+    half — `_applying` lifted out of screen state so re-entering the screen
+    mounts the progress card from `apply_state`, the D5 lifecycle gate on the
+    apply stream, and the progress-card honesty work (§C).
 
 ### Fixed
 

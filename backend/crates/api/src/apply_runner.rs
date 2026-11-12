@@ -106,7 +106,7 @@ impl<P: Ports> ApplyRunner<P> {
         );
         let outcome = self.execute(job_id, run_id, request).await;
         let outcome = match outcome {
-            Ok(summary) => ApplyRunOutcome::Succeeded { summary },
+            Ok(summary) => ApplyRunOutcome::Succeeded(summary),
             Err(error) => {
                 // Classify once, persist the registered code: the client
                 // branches on `code`, never on a prose detail (ADR-031).
@@ -123,7 +123,7 @@ impl<P: Ports> ApplyRunner<P> {
             }
         };
         let persisted = match &outcome {
-            ApplyRunOutcome::Succeeded { summary } => {
+            ApplyRunOutcome::Succeeded(summary) => {
                 self.state
                     .ports
                     .ai_import_queue()

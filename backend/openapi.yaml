@@ -1398,33 +1398,39 @@ components:
         A failed run carries the **registered problem `code`** (ADR-031), never a
         `detail`-only string, so the client's error narrative is code-driven exactly
         like every other apply failure. The human-readable detail stays in the log.
+
+        Serialized as an **externally tagged** enum (`{"succeeded": {...}}` /
+        `{"failed": {"code": ...}}`), the same shape [`crate::ai::SceneSource`]
+        uses. That is deliberate, not cosmetic: the generated Dart client's `oneOf`
+        support decodes externally-tagged variants, so an internally tagged payload
+        (`{"outcome": …, "summary": …}`) would make `apply_result` undecodable on
+        `GET /ai-import/jobs/{id}` — the field the re-entry path depends on.
       oneOf:
       - description: |-
           The run completed and applied its plan (fully or partially — the summary
           reports the difference through `unapplied_outfits`).
         properties:
-          outcome:
-            enum:
-            - succeeded
-            type: string
-          summary:
+          succeeded:
             $ref: '#/components/schemas/ApplyImportSummary'
+            description: |-
+              The run completed and applied its plan (fully or partially — the summary
+              reports the difference through `unapplied_outfits`).
         required:
-        - summary
-        - outcome
+        - succeeded
         type: object
       - description: The run stopped on an error the client can branch on.
         properties:
-          code:
-            description: Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).
-            type: string
-          outcome:
-            enum:
-            - failed
-            type: string
+          failed:
+            description: The run stopped on an error the client can branch on.
+            properties:
+              code:
+                description: Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).
+                type: string
+            required:
+            - code
+            type: object
         required:
-        - code
-        - outcome
+        - failed
         type: object
     ApplyShootingDayRequest:
       description: |-

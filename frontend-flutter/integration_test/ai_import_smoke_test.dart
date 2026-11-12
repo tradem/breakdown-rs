@@ -107,7 +107,7 @@ class FakePipelineRepository extends AiImportRepository {
   FakePipelineRepository(super.api, super.cache);
 
   Result<AiImportJob>? jobResult;
-  Result<ApplyAiImportResponse>? applyResult;
+  Result<ApplyImportSummary>? applyResult;
 
   @override
   Future<Result<AiUploadAck>> uploadSchedule({
@@ -155,17 +155,33 @@ class FakePipelineRepository extends AiImportRepository {
   );
 
   @override
-  Future<Result<ApplyAiImportResponse>> apply(
+  Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
   ) async => Right(
-    ApplyAiImportResponse(
+    ApplyRunAccepted(
       (b) => b
-        ..appliedCount = 1
-        ..createdDays = 1
-        ..plannedSceneShoots = 2,
+        ..runId = 'run-e2e'
+        ..stage = ApplyStage.applying
+        ..startedAt = DateTime.utc(2026, 11, 2, 10)
+        ..applyState = ApplyState.requested,
     ),
   );
+
+  /// Issue #899: the counters arrive when the run finishes, not from the POST.
+  @override
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    bool waitForTerminal = true,
+  }) async =>
+      ApplySucceeded(
+        ApplyImportSummary(
+          (b) => b
+            ..appliedCount = 1
+            ..createdDays = 1
+            ..plannedSceneShoots = 2,
+        ),
+      );
 }
 
 /// Immediate scheduler (deterministic, no wall-clock on-device).

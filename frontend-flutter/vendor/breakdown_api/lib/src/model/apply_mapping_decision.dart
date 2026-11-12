@@ -17,7 +17,7 @@ part 'apply_mapping_decision.g.dart';
 /// ApplyMappingDecision
 ///
 /// Properties:
-/// * [update]
+/// * [decisionUpdate]
 @BuiltValue()
 abstract class ApplyMappingDecision
     implements Built<ApplyMappingDecision, ApplyMappingDecisionBuilder> {
@@ -74,7 +74,7 @@ class _$ApplyMappingDecisionSerializer
     final result = ApplyMappingDecisionBuilder();
     Object? oneOfDataSrc;
     final targetType = const FullType(OneOf, [
-      FullType(OneOf0Enum),
+      FullType(String),
       FullType(ApplyMappingDecisionOneOf),
     ]);
     oneOfDataSrc = serialized;

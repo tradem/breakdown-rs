@@ -50,6 +50,7 @@ export 'package:breakdown_api/src/model/apply_run_accepted.dart';
 export 'package:breakdown_api/src/model/apply_run_outcome.dart';
 export 'package:breakdown_api/src/model/apply_run_outcome_one_of.dart';
 export 'package:breakdown_api/src/model/apply_run_outcome_one_of1.dart';
+export 'package:breakdown_api/src/model/apply_run_outcome_one_of1_failed.dart';
 export 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
 export 'package:breakdown_api/src/model/apply_stage.dart';
 export 'package:breakdown_api/src/model/apply_state.dart';

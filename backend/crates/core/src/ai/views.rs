@@ -983,12 +983,19 @@ pub struct ApplyImportSummary {
 /// A failed run carries the **registered problem `code`** (ADR-031), never a
 /// `detail`-only string, so the client's error narrative is code-driven exactly
 /// like every other apply failure. The human-readable detail stays in the log.
+///
+/// Serialized as an **externally tagged** enum (`{"succeeded": {...}}` /
+/// `{"failed": {"code": ...}}`), the same shape [`crate::ai::SceneSource`]
+/// uses. That is deliberate, not cosmetic: the generated Dart client's `oneOf`
+/// support decodes externally-tagged variants, so an internally tagged payload
+/// (`{"outcome": …, "summary": …}`) would make `apply_result` undecodable on
+/// `GET /ai-import/jobs/{id}` — the field the re-entry path depends on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ApplyRunOutcome {
     /// The run completed and applied its plan (fully or partially — the summary
     /// reports the difference through `unapplied_outfits`).
-    Succeeded { summary: ApplyImportSummary },
+    Succeeded(ApplyImportSummary),
     /// The run stopped on an error the client can branch on.
     Failed {
         /// Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).
@@ -1001,7 +1008,7 @@ impl ApplyRunOutcome {
     #[must_use]
     pub fn problem_code(&self) -> Option<&str> {
         match self {
-            Self::Succeeded { .. } => None,
+            Self::Succeeded(_) => None,
             Self::Failed { code } => Some(code),
         }
     }
@@ -1010,7 +1017,7 @@ impl ApplyRunOutcome {
     #[must_use]
     pub fn summary(&self) -> Option<&ApplyImportSummary> {
         match self {
-            Self::Succeeded { summary } => Some(summary),
+            Self::Succeeded(summary) => Some(summary),
             Self::Failed { .. } => None,
         }
     }

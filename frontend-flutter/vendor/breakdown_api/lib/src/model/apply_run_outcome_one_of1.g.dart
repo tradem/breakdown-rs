@@ -6,70 +6,15 @@ part of 'apply_run_outcome_one_of1.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
-const ApplyRunOutcomeOneOf1OutcomeEnum
-    _$applyRunOutcomeOneOf1OutcomeEnum_failed =
-    const ApplyRunOutcomeOneOf1OutcomeEnum._('failed');
-
-ApplyRunOutcomeOneOf1OutcomeEnum _$applyRunOutcomeOneOf1OutcomeEnumValueOf(
-    String name) {
-  switch (name) {
-    case 'failed':
-      return _$applyRunOutcomeOneOf1OutcomeEnum_failed;
-    default:
-      throw ArgumentError(name);
-  }
-}
-
-final BuiltSet<ApplyRunOutcomeOneOf1OutcomeEnum>
-    _$applyRunOutcomeOneOf1OutcomeEnumValues = BuiltSet<
-        ApplyRunOutcomeOneOf1OutcomeEnum>(const <ApplyRunOutcomeOneOf1OutcomeEnum>[
-  _$applyRunOutcomeOneOf1OutcomeEnum_failed,
-]);
-
-Serializer<ApplyRunOutcomeOneOf1OutcomeEnum>
-    _$applyRunOutcomeOneOf1OutcomeEnumSerializer =
-    _$ApplyRunOutcomeOneOf1OutcomeEnumSerializer();
-
-class _$ApplyRunOutcomeOneOf1OutcomeEnumSerializer
-    implements PrimitiveSerializer<ApplyRunOutcomeOneOf1OutcomeEnum> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'failed': 'failed',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'failed': 'failed',
-  };
-
-  @override
-  final Iterable<Type> types = const <Type>[ApplyRunOutcomeOneOf1OutcomeEnum];
-  @override
-  final String wireName = 'ApplyRunOutcomeOneOf1OutcomeEnum';
-
-  @override
-  Object serialize(
-          Serializers serializers, ApplyRunOutcomeOneOf1OutcomeEnum object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
-
-  @override
-  ApplyRunOutcomeOneOf1OutcomeEnum deserialize(
-          Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      ApplyRunOutcomeOneOf1OutcomeEnum.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
-}
-
 class _$ApplyRunOutcomeOneOf1 extends ApplyRunOutcomeOneOf1 {
   @override
-  final String code;
-  @override
-  final ApplyRunOutcomeOneOf1OutcomeEnum outcome;
+  final ApplyRunOutcomeOneOf1Failed failed;
 
   factory _$ApplyRunOutcomeOneOf1(
           [void Function(ApplyRunOutcomeOneOf1Builder)? updates]) =>
       (ApplyRunOutcomeOneOf1Builder()..update(updates))._build();
 
-  _$ApplyRunOutcomeOneOf1._({required this.code, required this.outcome})
-      : super._();
+  _$ApplyRunOutcomeOneOf1._({required this.failed}) : super._();
   @override
   ApplyRunOutcomeOneOf1 rebuild(
           void Function(ApplyRunOutcomeOneOf1Builder) updates) =>
@@ -82,16 +27,13 @@ class _$ApplyRunOutcomeOneOf1 extends ApplyRunOutcomeOneOf1 {
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is ApplyRunOutcomeOneOf1 &&
-        code == other.code &&
-        outcome == other.outcome;
+    return other is ApplyRunOutcomeOneOf1 && failed == other.failed;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, code.hashCode);
-    _$hash = $jc(_$hash, outcome.hashCode);
+    _$hash = $jc(_$hash, failed.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -99,8 +41,7 @@ class _$ApplyRunOutcomeOneOf1 extends ApplyRunOutcomeOneOf1 {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ApplyRunOutcomeOneOf1')
-          ..add('code', code)
-          ..add('outcome', outcome))
+          ..add('failed', failed))
         .toString();
   }
 }
@@ -109,14 +50,11 @@ class ApplyRunOutcomeOneOf1Builder
     implements Builder<ApplyRunOutcomeOneOf1, ApplyRunOutcomeOneOf1Builder> {
   _$ApplyRunOutcomeOneOf1? _$v;
 
-  String? _code;
-  String? get code => _$this._code;
-  set code(String? code) => _$this._code = code;
-
-  ApplyRunOutcomeOneOf1OutcomeEnum? _outcome;
-  ApplyRunOutcomeOneOf1OutcomeEnum? get outcome => _$this._outcome;
-  set outcome(ApplyRunOutcomeOneOf1OutcomeEnum? outcome) =>
-      _$this._outcome = outcome;
+  ApplyRunOutcomeOneOf1FailedBuilder? _failed;
+  ApplyRunOutcomeOneOf1FailedBuilder get failed =>
+      _$this._failed ??= ApplyRunOutcomeOneOf1FailedBuilder();
+  set failed(ApplyRunOutcomeOneOf1FailedBuilder? failed) =>
+      _$this._failed = failed;
 
   ApplyRunOutcomeOneOf1Builder() {
     ApplyRunOutcomeOneOf1._defaults(this);
@@ -125,8 +63,7 @@ class ApplyRunOutcomeOneOf1Builder
   ApplyRunOutcomeOneOf1Builder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _code = $v.code;
-      _outcome = $v.outcome;
+      _failed = $v.failed.toBuilder();
       _$v = null;
     }
     return this;
@@ -146,13 +83,23 @@ class ApplyRunOutcomeOneOf1Builder
   ApplyRunOutcomeOneOf1 build() => _build();
 
   _$ApplyRunOutcomeOneOf1 _build() {
-    final _$result = _$v ??
-        _$ApplyRunOutcomeOneOf1._(
-          code: BuiltValueNullFieldError.checkNotNull(
-              code, r'ApplyRunOutcomeOneOf1', 'code'),
-          outcome: BuiltValueNullFieldError.checkNotNull(
-              outcome, r'ApplyRunOutcomeOneOf1', 'outcome'),
-        );
+    _$ApplyRunOutcomeOneOf1 _$result;
+    try {
+      _$result = _$v ??
+          _$ApplyRunOutcomeOneOf1._(
+            failed: failed.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'failed';
+        failed.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'ApplyRunOutcomeOneOf1', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

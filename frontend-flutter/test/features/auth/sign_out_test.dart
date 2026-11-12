@@ -210,7 +210,7 @@ void main() {
             .read(aiPostImportReportProvider.notifier)
             .publish(
               PostImportReport(
-                outcome: ApplyAiImportResponse(
+                outcome: ApplyImportSummary(
                   (b) => b
                     ..appliedCount = 3
                     ..createdDays = 1
@@ -488,7 +488,7 @@ void main() {
             .read(aiPostImportReportProvider.notifier)
             .publish(
               PostImportReport(
-                outcome: ApplyAiImportResponse(
+                outcome: ApplyImportSummary(
                   (b) => b
                     ..appliedCount = 7
                     ..createdDays = 1

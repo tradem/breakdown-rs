@@ -367,7 +367,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
   /// honestly keeps the user HERE with the full outcome card plus an explicit
   /// hint — a half-navigation (wrong season, no episode scope) would show the
   /// imported rows nowhere while pretending to have opened them.
-  Future<void> _openImportedEpisode(ApplyAiImportResponse outcome) async {
+  Future<void> _openImportedEpisode(ApplyImportSummary outcome) async {
     final state = ref.read(aiApplyControllerProvider(widget.jobId));
     final (:target, :hadCandidates) = await resolvePostImportTarget(
       ref,
@@ -461,7 +461,7 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
       // The result is consumed explicitly: an `Err` renders the code-keyed
       // narrative (controller state), a `Ok` opens the imported material and
       // carries the report along (issue #759).
-      final response = applied.match<ApplyAiImportResponse?>(
+      final response = applied.match<ApplyImportSummary?>(
         (_) => null,
         (value) => value,
       );
@@ -1161,7 +1161,7 @@ class _OutcomeCard extends StatelessWidget {
     this.navigationUnresolved = false,
   });
 
-  final ApplyAiImportResponse outcome;
+  final ApplyImportSummary outcome;
 
   /// The reviewer-rejected day groups (issue #706), already resolved to
   /// their display labels — reported, never silent.
@@ -1225,7 +1225,8 @@ class _OutcomeCard extends StatelessWidget {
       // `ai-import` — "report the row as partially applied with the reason").
       // `reason` is a typed wire enum, so this copy is keyed on it and never
       // parsed out of server prose.
-      for (final unapplied in outcome.unappliedOutfits)
+      for (final unapplied in outcome.unappliedOutfits?.toList() ??
+          const <UnappliedOutfit>[])
         Text(
           key: Key(
             'ai-apply-unapplied-outfit-${unapplied.draftRef}'
