@@ -8104,7 +8104,14 @@ pub async fn apply_ai_import<P: Ports>(
                 episode_commands: Arc::new(state.ports.episode_commands().clone()),
                 shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
                 scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
-                mappings: Arc::new(state.ports.ai_import_mapping().clone()),
+                // Per-run read-through cache (live-test finding): the apply is an
+                // idempotency-checked write loop whose per-aggregate `find` used
+                // to be its own SQL round trip — hundreds of sequential trips
+                // answering a table this run lists once anyway. Correctness rides
+                // on the run being single-flight per preview (`claim_apply_run`).
+                mappings: Arc::new(infra::ai::CachedMappings::new(
+                    state.ports.ai_import_mapping().clone(),
+                )),
                 queue: Arc::new(state.ports.ai_import_queue().clone()),
                 // CR-002/D2: the worker refuses the outfit step of an archived
                 // target season itself (the piece steps stay valid).
@@ -8214,7 +8221,11 @@ pub async fn apply_ai_import<P: Ports>(
                 scene_commands: Arc::new(state.ports.scene_commands().clone()),
                 shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
                 scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
-                mappings: Arc::new(state.ports.ai_import_mapping().clone()),
+                // Same per-run cache as the script branch: the schedule apply
+                // resolves its pair rows through the same protocol.
+                mappings: Arc::new(infra::ai::CachedMappings::new(
+                    state.ports.ai_import_mapping().clone(),
+                )),
             };
             let result = worker
                 .apply(ScheduleApplyRequest {

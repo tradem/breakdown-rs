@@ -63,7 +63,7 @@ pub use decision_client::{HttpDecisionClient, decision_endpoint};
 pub use events::{AiJobEventHub, JOB_EVENTS_CHANNEL, spawn_pg_job_event_listener};
 pub use gdrive_source::{GDriveDocument, GDriveDocumentSource};
 pub use heartbeat::{LeaseHeartbeat, renewal_interval};
-pub use mapping::PgAiImportMappingRepository;
+pub use mapping::{CachedMappings, PgAiImportMappingRepository};
 pub use merge_worker::{QueueMergeWorker, merge_loaded_schedule};
 pub use ollama::OllamaChatClient;
 pub use payload_cleanup::AiPayloadGcConfig;
