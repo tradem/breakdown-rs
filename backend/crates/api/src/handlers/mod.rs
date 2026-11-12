@@ -8114,7 +8114,7 @@ pub async fn apply_ai_import<P: Ports>(
             // asked for it (design D2/D3). The counters therefore leave the
             // POST body: they are served by the run's terminal frame on
             // `apply-events` and by `GET /ai-import/jobs/{id}` (design D4).
-            let dispatch = breakdown_core::ai::ApplyRunRequest::Script(
+            let dispatch = breakdown_core::ai::ApplyRunRequest::Script(Box::new(
                 breakdown_core::ai::ScriptApplyRunRequest {
                     actor: current_user.sub,
                     episode_id: request.episode_id,
@@ -8132,7 +8132,7 @@ pub async fn apply_ai_import<P: Ports>(
                     continuity_selections: request.continuity_selections,
                     telemetry: Some(telemetry),
                 },
-            );
+            ));
             dispatch_apply_run(&state, id, dispatch).await
         }
         DocumentKind::Schedule => {

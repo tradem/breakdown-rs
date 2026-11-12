@@ -184,7 +184,7 @@ impl<P: Ports> ApplyRunner<P> {
             .ok_or_else(|| DomainError::not_found("ai import preview"))?;
         match request {
             ApplyRunRequest::Script(script) => {
-                self.run_script(job_id, run_id, script, &payload).await
+                self.run_script(job_id, run_id, *script, &payload).await
             }
             ApplyRunRequest::Schedule(schedule) => {
                 self.run_schedule(job_id, schedule, &payload).await

@@ -113,7 +113,12 @@ pub struct ScheduleApplyRunRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ApplyRunRequest {
-    Script(ScriptApplyRunRequest),
+    /// A script apply's reviewer request. Boxed for the same reason as
+    /// [`ApplyRunOutcome::Succeeded`]: the script payload is ~15× the schedule
+    /// one (decisions, groups, day plans, category vocabulary), and the enum
+    /// travels by value through the queue and the runner
+    /// (`clippy::large_enum_variant`).
+    Script(Box<ScriptApplyRunRequest>),
     Schedule(ScheduleApplyRunRequest),
 }
 
