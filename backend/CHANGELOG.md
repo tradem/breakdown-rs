@@ -95,6 +95,22 @@ tag. Never edit a released entry afterwards.
     mounts the progress card from `apply_state`, the D5 lifecycle gate on the
     apply stream, and the progress-card honesty work (§C).
 
+- **SierraDB idle sync interval pinned to 4 ms in both compose runtimes (issue #901).**
+  One append was acked only after the store's sync poll, whose idle backoff defaults to
+  `10 × sync.interval_ms` = **50 ms**, so a chatty sequential write path (create scene →
+  assign 3 characters → 2 beats) paid up to ~50 ms per append. The tail has two layers,
+  both measured against a throwaway instance of the pinned image: a single append costs
+  `1 + N` fsyncs (`N` = events in the append — segment data plus one confirmation-header
+  rewrite per event; structural, unchanged) *and* the poll schedule (configurable).
+  `docker-compose.dev.yml` and `docker-compose.prod.yml` now set
+  `SIERRA_SYNC.IDLE_INTERVAL_MS=4`, which is **not** a durability downgrade — the store
+  still fsyncs before it acks; the knob only shortens the wait for the next poll.
+  Measured: isolated append p50 49.97 ms → 9.12 ms, sustained 639 → 790 appends/s.
+  Baseline + script committed (`scripts/bench-sierradb-append.py`), decision in
+  ADR-016 §6, cost model in
+  `.github/instructions/write-path-cost-model.instructions.md`. Crates unchanged
+  (`core`/`infra`/`api`): docs, compose and one dev script, no crate code.
+
 ### Fixed
 
 - **An inline `(OT)` marker classifies a figure as `extra`, whatever section it
