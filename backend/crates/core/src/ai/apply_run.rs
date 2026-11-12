@@ -129,7 +129,11 @@ pub enum ApplyRunRequest {
     /// travels by value through the queue and the runner
     /// (`clippy::large_enum_variant`).
     Script(Box<ScriptApplyRunRequest>),
-    Schedule(ScheduleApplyRunRequest),
+    /// Boxed for the same reason as [`Self::Script`]: with the run's telemetry
+    /// it carries ~544 bytes against the boxed script variant's pointer, and the
+    /// request travels by value through the queue into the runner
+    /// (`clippy::large_enum_variant`).
+    Schedule(Box<ScheduleApplyRunRequest>),
 }
 
 /// A run a worker has just taken ownership of (issue #899).

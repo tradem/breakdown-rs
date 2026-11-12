@@ -2073,8 +2073,7 @@ async fn a_dispatched_apply_survives_the_client_dropping_the_request() {
             .call_log
             .lock()
             .expect("call log")
-            .iter()
-            .any(|call| *call == "record_run_telemetry"),
+            .contains(&"record_run_telemetry"),
         "the dispatched run records its telemetry through the fenced transition"
     );
     assert_eq!(summary.applied_count, 2);

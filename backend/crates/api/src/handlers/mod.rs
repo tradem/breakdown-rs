@@ -8145,7 +8145,7 @@ pub async fn apply_ai_import<P: Ports>(
             // preview must still be readable here: a payload the worker cannot
             // parse would otherwise be dispatched and fail far from its cause.
             let _ = preview;
-            let dispatch = breakdown_core::ai::ApplyRunRequest::Schedule(
+            let dispatch = breakdown_core::ai::ApplyRunRequest::Schedule(Box::new(
                 breakdown_core::ai::ScheduleApplyRunRequest {
                     actor: current_user.sub,
                     project_id: request.project_id,
@@ -8155,7 +8155,7 @@ pub async fn apply_ai_import<P: Ports>(
                     // and the worker writes it under the run fence (issue #899).
                     telemetry: Some(telemetry),
                 },
-            );
+            ));
             dispatch_apply_run(&state, id, dispatch).await
         }
     }

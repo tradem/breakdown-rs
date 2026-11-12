@@ -217,7 +217,7 @@ impl<P: Ports> ApplyRunner<P> {
                 self.run_script(job_id, run_id, *script, &payload).await
             }
             ApplyRunRequest::Schedule(schedule) => {
-                self.run_schedule(job_id, run_id, schedule, &payload).await
+                self.run_schedule(job_id, run_id, *schedule, &payload).await
             }
         }
     }
