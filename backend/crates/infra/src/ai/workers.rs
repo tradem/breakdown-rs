@@ -2712,6 +2712,13 @@ where
         // interleaved rows — the phase delta divided by the row count is the honest
         // per-row figure, and that is exactly what decomposes `row_ms_avg`.
         let mapping_writes_before = MAPPING_WRITES.snapshot();
+        // (issue #900 M2) The append counters are taken at the same boundaries:
+        // the decision table compares this run's append count against the ≈740 its
+        // mapping rows imply, and a count far above it means duplicate writes. The
+        // counters are process-wide (an append happens inside an actor task the
+        // dispatcher no longer owns), so on a quiet instance the delta is this run
+        // — see `kameo_es::write_metrics` for why it cannot be per-run exactly.
+        let appends_before = kameo_es::append_metrics();
         let mut outcomes: Vec<Option<RowApplyOutcome>> =
             (0..plan.scenes.len()).map(|_| None).collect();
         for batch in concurrent_rows.chunks(APPLY_ROW_CONCURRENCY) {
@@ -2778,6 +2785,7 @@ where
         // pool gauges are the instant the last write observed, because the worker
         // holds no pool of its own (the repository owns it).
         let mapping_writes = MAPPING_WRITES.snapshot().since(mapping_writes_before);
+        let appends = kameo_es::append_metrics().since(appends_before);
         let planned_rows = u64::from(apply_progress.total);
         let per_row_divisor = (planned_rows.max(1)) as f64;
         tracing::info!(
@@ -2800,6 +2808,10 @@ where
                 / per_row_divisor,
             db_pool_size = mapping_writes.pool_size,
             db_pool_num_idle = mapping_writes.pool_num_idle,
+            event_appends = appends.append_attempts,
+            appended_events = appends.appended_events,
+            append_conflicts = appends.version_conflicts,
+            event_appends_per_row = appends.append_attempts as f64 / per_row_divisor,
             applied = result.applied.len(),
             created_episodes = result.created_episodes,
             created_characters = result.created_characters,
