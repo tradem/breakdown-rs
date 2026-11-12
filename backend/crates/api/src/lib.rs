@@ -21,6 +21,7 @@
 // below — compile-time absence in release binaries.
 #[cfg(feature = "test-support")]
 pub mod ai_import_fixture;
+pub mod apply_runner;
 pub mod auth;
 // Issue #443: the deterministic fault-injection machinery (middleware +
 // control routes) exists ONLY in `test-support` builds — compile-time
@@ -261,7 +262,10 @@ use utoipa::OpenApi;
         breakdown_core::ai::AiImportProgress,
         breakdown_core::ai::AiImportStage,
         handlers::ApplyAiImportRequest,
-        handlers::ApplyAiImportResponse,
+        breakdown_core::ai::ApplyImportSummary,
+        breakdown_core::ai::ApplyRunAccepted,
+        breakdown_core::ai::ApplyRunOutcome,
+        breakdown_core::ai::ApplyState,
         breakdown_core::ai::AiImportJob,
         breakdown_core::ai::AiImportTargetRequest,
         breakdown_core::ai::AiImportAttempt,

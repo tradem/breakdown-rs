@@ -14,6 +14,7 @@
 //! belong to `infra`/`api`.
 
 pub mod aggregate;
+pub mod apply_run;
 pub mod bounds;
 pub mod commands;
 pub mod continuity;
@@ -28,6 +29,10 @@ pub mod source_name;
 pub mod views;
 
 pub use aggregate::AiConfig;
+pub use apply_run::{
+    AppliedEpisodeIdentity, ApplyRunRequest, ClaimedApplyRun, ScheduleApplyRunRequest,
+    ScriptApplyRunRequest,
+};
 pub use bounds::{
     AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, OLLAMA_INNER_RETRIES,
 };
@@ -78,8 +83,9 @@ pub use provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,
-    AiImportTarget, AiImportTargetRequest, AppliedEpisode, ApplyProgress, ApplyProgressFrame,
-    ApplyRunId, ApplyRunState, ApplyStage, CostBreakdown, CostDisplayPreference, CostStatus,
+    AiImportTarget, AiImportTargetRequest, AppliedEpisode, ApplyImportSummary, ApplyProgress,
+    ApplyProgressFrame, ApplyRunAccepted, ApplyRunId, ApplyRunOutcome, ApplyRunState, ApplyState,
+    ApplyStage, CostBreakdown, CostDisplayPreference, CostStatus,
     CostTotal, CostTotalStatus, Currency, DecisionCostBreakdown, DecisionOutcome,
     DecisionTelemetry, DocumentKind, EnergyCostBreakdown, ImageCostBreakdown, JobStatus,
     JobTelemetrySummary, ModelPricing, PricingSource, ProviderBreakerState, ProviderHold,

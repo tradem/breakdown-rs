@@ -20,6 +20,7 @@ use breakdown_core::ai::{
     Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
+use breakdown_core::error_registry::AI_IMPORT_APPLY_IN_FLIGHT;
 use breakdown_core::shared::{BlockId, UserId};
 use chrono::{DateTime, Utc};
 use futures::Stream;
@@ -302,6 +303,60 @@ impl PgAiImportQueue {
             }
         }
         history
+    }
+
+    /// The one owner-fenced statement pair both terminal transitions share
+    /// (issue #899, design D4).
+    ///
+    /// Kept private and shared on purpose: `done` and `failed` differ only in
+    /// the state word and the outcome payload, and duplicating the fence is how
+    /// one of them drifts out of owner-fencing (a displaced run would then
+    /// overwrite the new owner's outcome).
+    ///
+    /// The state and the outcome are written in ONE statement, so the row can
+    /// never be read as "terminal with the previous run's result", and the
+    /// progress payload is cleared in the same breath — the invariant the
+    /// design pins: a terminal `apply_state` cannot coexist with a live
+    /// progress payload.
+    async fn finish_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: ApplyRunId,
+        state: &str,
+        outcome: &breakdown_core::ai::ApplyRunOutcome,
+    ) -> Result<(), DomainError> {
+        let payload = serde_json::to_value(outcome).map_err(|error| {
+            DomainError::validation(format!("AI apply outcome is not serializable: {error}"))
+        })?;
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET apply_state = $3,
+                apply_result = $4,
+                apply_progress = NULL,
+                apply_run_id = NULL,
+                updated_at = now()
+            WHERE id = $1 AND apply_run_id = $2
+            RETURNING pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(run_id.as_uuid())
+        .bind(state)
+        .bind(payload)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        if result.is_none() {
+            // A displaced owner: the slot was taken over after this run went
+            // silent. Its outcome must not land on the new owner's row.
+            return Err(DomainError::Conflict {
+                code: &AI_IMPORT_APPLY_IN_FLIGHT,
+                reason: "this apply run no longer owns the job's progress slot".to_string(),
+            });
+        }
+        self.hub.notify(id);
+        Ok(())
     }
 }
 
@@ -1754,7 +1809,8 @@ impl AiImportQueue for PgAiImportQueue {
     ) -> Result<Option<ApplyRunState>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT apply_progress, apply_run_id, apply_run_seq, apply_claim_at
+            SELECT apply_progress, apply_run_id, apply_run_seq, apply_claim_at,
+                   apply_state, apply_result
             FROM ai_import.ai_import_job
             WHERE id = $1
             "#,
@@ -1775,6 +1831,17 @@ impl AiImportQueue for PgAiImportQueue {
             // NULL for a claim made before the column existed: no age, rather
             // than a stamp another run's write could have moved.
             owner_claimed_at: row.try_get("apply_claim_at").map_err(map_sqlx_error)?,
+            // The durable slot (issue #899). A row that predates the migration
+            // (or carries an unreadable word) reads as `idle` — never as
+            // `running`: the stream must not wait on a run nobody started.
+            state: row
+                .try_get::<Option<String>, _>("apply_state")
+                .map_err(map_sqlx_error)?
+                .as_deref()
+                .map_or(breakdown_core::ai::ApplyState::Idle, |raw| {
+                    breakdown_core::ai::ApplyState::from_stored(raw)
+                }),
+            result: decode_apply_result(&row),
         }))
     }
 
@@ -1826,6 +1893,240 @@ impl AiImportQueue for PgAiImportQueue {
         .map_err(map_sqlx_error)?;
         self.hub.notify(id);
         Ok(())
+    }
+
+    /// Persist a validated apply request and leave the slot `requested`
+    /// (issue #899, design D2).
+    ///
+    /// The claim predicate is the #800 one, unchanged — slot free, or the
+    /// current owner demonstrably dead — so the single-flight refusal and this
+    /// dispatch cannot disagree about who owns the slot. What is new is that
+    /// the same statement also records the **work to do** (`apply_request`),
+    /// flips `apply_state` and drops any previous outcome: a run a client
+    /// cannot see is worse than one that failed, which is exactly the defect
+    /// #899 fixes.
+    ///
+    /// The request is bound as `serde_json::Value` (JSONB) so the worker on any
+    /// replica can execute it after a rolling deploy — the alternative (holding
+    /// it in the request that accepted it) is the request-bound lifetime this
+    /// issue removes.
+    async fn request_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: ApplyRunId,
+        request: &breakdown_core::ai::ApplyRunRequest,
+    ) -> Result<bool, DomainError> {
+        let payload = serde_json::to_value(request).map_err(|error| {
+            DomainError::validation(format!("AI apply request is not serializable: {error}"))
+        })?;
+        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET apply_run_id = $2,
+                -- A new run never inherits the previous run's payload or its
+                -- outcome (issue #800 review + #899): the slot starts empty.
+                apply_progress = NULL,
+                apply_result = NULL,
+                apply_state = 'requested',
+                apply_request = $4,
+                apply_run_seq = apply_run_seq + 1,
+                apply_claim_at = now(),
+                updated_at = now()
+            WHERE id = $1
+              AND status = 'succeeded'
+              AND (
+                  apply_run_id IS NULL
+                  OR (apply_progress IS NULL
+                      AND COALESCE(apply_claim_at, updated_at) < $3)
+                  OR (apply_progress->>'updated_at')::timestamptz < $3
+              )
+            RETURNING pg_notify('ai_import_job_events', id::text)
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(run_id.as_uuid())
+        .bind(stale_before)
+        .bind(payload)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        if result.is_some() {
+            self.hub.notify(id);
+        }
+        Ok(result.is_some())
+    }
+
+    /// Take ownership of a `requested` (or stale-`running`) run (issue #899).
+    ///
+    /// One statement covers both recovery shapes, and the distinction matters:
+    ///
+    /// * a `requested` slot is **adopted** — the `run_id` the dispatching client
+    ///   was told about stays authoritative, so the frames it already attached
+    ///   to keep describing the same run;
+    /// * a stale `running` slot is **taken over** under `takeover_run_id`, so the
+    ///   dead owner's next fenced write (`mark_apply_progress`,
+    ///   `complete_apply_run`) affects 0 rows instead of corrupting the new
+    ///   run. It also bumps the run counter and clears the payload, exactly like
+    ///   a stealing claim.
+    async fn begin_apply_run(
+        &self,
+        id: AiImportJobId,
+        takeover_run_id: ApplyRunId,
+    ) -> Result<Option<breakdown_core::ai::ClaimedApplyRun>, DomainError> {
+        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let row = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET apply_run_id = CASE
+                    WHEN apply_state = 'requested' THEN apply_run_id
+                    ELSE $2
+                END,
+                apply_state = 'running',
+                apply_progress = CASE
+                    WHEN apply_state = 'requested' THEN apply_progress
+                    ELSE NULL
+                END,
+                apply_run_seq = CASE
+                    WHEN apply_state = 'requested' THEN apply_run_seq
+                    ELSE apply_run_seq + 1
+                END,
+                apply_claim_at = now(),
+                updated_at = now()
+            WHERE id = $1
+              AND status = 'succeeded'
+              AND (
+                  apply_state = 'requested'
+                  OR (
+                      apply_state = 'running'
+                      AND COALESCE(
+                          (apply_progress->>'updated_at')::timestamptz,
+                          apply_claim_at,
+                          updated_at
+                      ) < $3
+                  )
+              )
+            RETURNING apply_run_id, apply_request
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(takeover_run_id.as_uuid())
+        .bind(stale_before)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let run: Option<Uuid> = row.try_get("apply_run_id").map_err(map_sqlx_error)?;
+        // A claimed row without a run id or without a request is a row in a
+        // state this build cannot execute. Reported as no-work rather than
+        // guessed: executing an empty request would write nothing and then
+        // report a success.
+        let Some(run) = run else {
+            return Ok(None);
+        };
+        let request: Option<serde_json::Value> =
+            row.try_get("apply_request").map_err(map_sqlx_error)?;
+        let Some(request) = request else {
+            tracing::warn!(
+                job_id = %id.as_uuid(),
+                run_id = %run,
+                "an AI apply run was claimed without a persisted request; skipping it"
+            );
+            return Ok(None);
+        };
+        let request = serde_json::from_value::<breakdown_core::ai::ApplyRunRequest>(request)
+            .map_err(|error| {
+                tracing::error!(
+                    job_id = %id.as_uuid(),
+                    run_id = %run,
+                    %error,
+                    "the persisted AI apply request is not decodable"
+                );
+                DomainError::validation(format!("AI apply request is not decodable: {error}"))
+            })?;
+        self.hub.notify(id);
+        Ok(Some(breakdown_core::ai::ClaimedApplyRun {
+            job_id: id,
+            run_id: ApplyRunId::from_uuid(run),
+            request,
+        }))
+    }
+
+    /// Persist a successful run's outcome and land the slot in `done`
+    /// (issue #899).
+    ///
+    /// The **only** success path that clears `apply_progress` — a dropped
+    /// connection can no longer do it, because the run lives in a worker task,
+    /// not in the request.
+    async fn complete_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: ApplyRunId,
+        summary: &breakdown_core::ai::ApplyImportSummary,
+    ) -> Result<(), DomainError> {
+        let outcome = breakdown_core::ai::ApplyRunOutcome::Succeeded {
+            summary: summary.clone(),
+        };
+        self.finish_apply_run(id, run_id, "done", &outcome).await
+    }
+
+    /// Persist a failed run's registered problem `code` and land the slot in
+    /// `failed` (issue #899).
+    async fn fail_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: ApplyRunId,
+        code: &str,
+    ) -> Result<(), DomainError> {
+        let outcome = breakdown_core::ai::ApplyRunOutcome::Failed {
+            code: code.to_owned(),
+        };
+        self.finish_apply_run(id, run_id, "failed", &outcome).await
+    }
+
+    /// List the apply slots that await execution (issue #899).
+    ///
+    /// Both recovery shapes in one poll: `requested` (dispatched, never picked
+    /// up — the crash-between-claim-and-dispatch case) and stale `running` (the
+    /// crashed-worker case). The staleness cutoff is `ApplyProgress::STALE_AFTER`
+    /// computed in Rust, so the poll and the single-flight steal share ONE
+    /// window definition.
+    async fn requested_apply_runs(&self, limit: i64) -> Result<Vec<AiImportJobId>, DomainError> {
+        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let rows = sqlx::query(
+            r#"
+            SELECT id
+            FROM ai_import.ai_import_job
+            WHERE status = 'succeeded'
+              AND apply_request IS NOT NULL
+              AND (
+                  apply_state = 'requested'
+                  OR (
+                      apply_state = 'running'
+                      AND COALESCE(
+                          (apply_progress->>'updated_at')::timestamptz,
+                          apply_claim_at,
+                          updated_at
+                      ) < $2
+                  )
+              )
+            ORDER BY updated_at
+            LIMIT $1
+            "#,
+        )
+        .bind(limit.clamp(1, 100))
+        .bind(stale_before)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        rows.into_iter()
+            .map(|row| {
+                let id: Uuid = row.try_get("id").map_err(map_sqlx_error)?;
+                Ok(AiImportJobId::from_uuid(id))
+            })
+            .collect()
     }
 
     async fn mark_progress(
@@ -2388,6 +2689,17 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
         // column (no apply in flight) or an undecodable payload degrades to
         // `None`, which the stream reads as "run finished".
         apply_progress: decode_apply_progress(&row),
+        // The durable run slot (issue #899). A column added mid-flight or an
+        // undecodable state degrades to `idle` — the honest "nothing durable
+        // recorded", never a guessed `running`.
+        apply_state: row
+            .try_get::<Option<String>, _>("apply_state")
+            .map_err(map_sqlx_error)?
+            .as_deref()
+            .map_or(breakdown_core::ai::ApplyState::Idle, |raw| {
+                breakdown_core::ai::ApplyState::from_stored(raw)
+            }),
+        apply_result: decode_apply_result(&row),
         // Whether an apply ever landed for this preview (issue #800). The
         // telemetry write records `Applied` (`accept_as_is` set) on the first
         // successful apply and never resets it, so this is the persisted
@@ -2411,6 +2723,24 @@ fn decode_apply_progress(row: &sqlx::postgres::PgRow) -> Option<ApplyProgress> {
         Ok(progress) => Some(progress),
         Err(err) => {
             tracing::warn!(error = %err, "failed to decode ai_import apply progress payload");
+            None
+        }
+    }
+}
+
+/// Decode the nullable `apply_result` JSONB column (issue #899).
+///
+/// Advisory visibility data exactly like the progress payload: an undecodable
+/// outcome degrades to `None` instead of failing the whole job read. `None`
+/// next to a terminal `apply_state` is then the honest "the outcome could not
+/// be read", which the client renders as "finished, no report available"
+/// rather than inventing counters.
+fn decode_apply_result(row: &sqlx::postgres::PgRow) -> Option<breakdown_core::ai::ApplyRunOutcome> {
+    let value: Option<serde_json::Value> = row.try_get("apply_result").ok().flatten()?;
+    match serde_json::from_value::<breakdown_core::ai::ApplyRunOutcome>(value?) {
+        Ok(result) => Some(result),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to decode the ai_import apply run outcome");
             None
         }
     }

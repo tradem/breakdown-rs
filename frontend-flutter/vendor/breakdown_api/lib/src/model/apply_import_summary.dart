@@ -11,13 +11,13 @@ import 'package:breakdown_api/src/model/unapplied_outfit.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'apply_ai_import_response.g.dart';
+part 'apply_import_summary.g.dart';
 
-/// ApplyAiImportResponse
+/// The counters a finished apply run leaves behind (issues #762, #899).  This is the `POST /ai-import/jobs/{id}/apply` response body of releases before #899 moved it: the run now dispatches (`202 ApplyRunAccepted`) and the outcome is persisted on the run slot, served by the apply stream's terminal frame and by `GET /ai-import/jobs/{id}` (design D4). The type keeps the wire field names it always had.
 ///
 /// Properties:
 /// * [appliedCount]
-/// * [appliedEpisodes] - The episodes THIS request dispatched rows into, each with its own row count (issue #763). Merged into the job's persisted summary, so the jobs list can name the import's target afterwards. Empty for a schedule apply (it merges onto the project's existing scenes and days), and for a re-apply that found every row already applied — such a retry contributes nothing, and the job keeps the earlier, correctly attributed summary.
+/// * [appliedEpisodes] - The episodes THIS request dispatched rows into, each with its own row count (issue #763).
 /// * [createdCharacters] - Figures the script apply created. A figure named by several draft rows is created once, so this is not `applied_count`-related. `0` for a schedule apply, which has no figures.
 /// * [createdDays]
 /// * [createdEpisodes] - Episodes the script apply created for draft episode groups the reviewer mapped to a NEW episode (issue #581). `0` for a schedule apply.
@@ -27,12 +27,12 @@ part 'apply_ai_import_response.g.dart';
 /// * [skippedDayGroups] - Day groups the reviewer rejected — their rows applied unscheduled (issue #706). Reported so the reviewer sees the deliberate omission, never a silent one.
 /// * [unappliedOutfits] - Outfit rows that were **not** fully applied, each with the reason. An apply that created a piece but could not assemble the look reports the row here while `created_pieces` still counts the pieces — a partially applied row must never look like a fully applied one.
 @BuiltValue()
-abstract class ApplyAiImportResponse
-    implements Built<ApplyAiImportResponse, ApplyAiImportResponseBuilder> {
+abstract class ApplyImportSummary
+    implements Built<ApplyImportSummary, ApplyImportSummaryBuilder> {
   @BuiltValueField(wireName: r'applied_count')
   int get appliedCount;
 
-  /// The episodes THIS request dispatched rows into, each with its own row count (issue #763). Merged into the job's persisted summary, so the jobs list can name the import's target afterwards. Empty for a schedule apply (it merges onto the project's existing scenes and days), and for a re-apply that found every row already applied — such a retry contributes nothing, and the job keeps the earlier, correctly attributed summary.
+  /// The episodes THIS request dispatched rows into, each with its own row count (issue #763).
   @BuiltValueField(wireName: r'applied_episodes')
   BuiltList<AppliedEpisode>? get appliedEpisodes;
 
@@ -64,35 +64,32 @@ abstract class ApplyAiImportResponse
 
   /// Outfit rows that were **not** fully applied, each with the reason. An apply that created a piece but could not assemble the look reports the row here while `created_pieces` still counts the pieces — a partially applied row must never look like a fully applied one.
   @BuiltValueField(wireName: r'unapplied_outfits')
-  BuiltList<UnappliedOutfit> get unappliedOutfits;
+  BuiltList<UnappliedOutfit>? get unappliedOutfits;
 
-  ApplyAiImportResponse._();
+  ApplyImportSummary._();
 
-  factory ApplyAiImportResponse(
-      [void updates(ApplyAiImportResponseBuilder b)]) = _$ApplyAiImportResponse;
+  factory ApplyImportSummary([void updates(ApplyImportSummaryBuilder b)]) =
+      _$ApplyImportSummary;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(ApplyAiImportResponseBuilder b) => b;
+  static void _defaults(ApplyImportSummaryBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<ApplyAiImportResponse> get serializer =>
-      _$ApplyAiImportResponseSerializer();
+  static Serializer<ApplyImportSummary> get serializer =>
+      _$ApplyImportSummarySerializer();
 }
 
-class _$ApplyAiImportResponseSerializer
-    implements PrimitiveSerializer<ApplyAiImportResponse> {
+class _$ApplyImportSummarySerializer
+    implements PrimitiveSerializer<ApplyImportSummary> {
   @override
-  final Iterable<Type> types = const [
-    ApplyAiImportResponse,
-    _$ApplyAiImportResponse
-  ];
+  final Iterable<Type> types = const [ApplyImportSummary, _$ApplyImportSummary];
 
   @override
-  final String wireName = r'ApplyAiImportResponse';
+  final String wireName = r'ApplyImportSummary';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    ApplyAiImportResponse object, {
+    ApplyImportSummary object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
     yield r'applied_count';
@@ -144,17 +141,19 @@ class _$ApplyAiImportResponseSerializer
         specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
-    yield r'unapplied_outfits';
-    yield serializers.serialize(
-      object.unappliedOutfits,
-      specifiedType: const FullType(BuiltList, [FullType(UnappliedOutfit)]),
-    );
+    if (object.unappliedOutfits != null) {
+      yield r'unapplied_outfits';
+      yield serializers.serialize(
+        object.unappliedOutfits,
+        specifiedType: const FullType(BuiltList, [FullType(UnappliedOutfit)]),
+      );
+    }
   }
 
   @override
   Object serialize(
     Serializers serializers,
-    ApplyAiImportResponse object, {
+    ApplyImportSummary object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -167,7 +166,7 @@ class _$ApplyAiImportResponseSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required ApplyAiImportResponseBuilder result,
+    required ApplyImportSummaryBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
@@ -245,8 +244,9 @@ class _$ApplyAiImportResponseSerializer
           final valueDes = serializers.deserialize(
             value,
             specifiedType:
-                const FullType(BuiltList, [FullType(UnappliedOutfit)]),
-          ) as BuiltList<UnappliedOutfit>;
+                const FullType.nullable(BuiltList, [FullType(UnappliedOutfit)]),
+          ) as BuiltList<UnappliedOutfit>?;
+          if (valueDes == null) continue;
           result.unappliedOutfits.replace(valueDes);
           break;
         default:
@@ -258,12 +258,12 @@ class _$ApplyAiImportResponseSerializer
   }
 
   @override
-  ApplyAiImportResponse deserialize(
+  ApplyImportSummary deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = ApplyAiImportResponseBuilder();
+    final result = ApplyImportSummaryBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

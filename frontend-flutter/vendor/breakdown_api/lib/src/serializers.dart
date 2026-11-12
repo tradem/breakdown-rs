@@ -41,15 +41,20 @@ import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/appearance_outfit_view.dart';
 import 'package:breakdown_api/src/model/applied_episode.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
-import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
 import 'package:breakdown_api/src/model/apply_episode_group_request.dart';
+import 'package:breakdown_api/src/model/apply_import_summary.dart';
 import 'package:breakdown_api/src/model/apply_mapping.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of.dart';
 import 'package:breakdown_api/src/model/apply_mapping_decision_one_of_update.dart';
 import 'package:breakdown_api/src/model/apply_progress.dart';
+import 'package:breakdown_api/src/model/apply_run_accepted.dart';
+import 'package:breakdown_api/src/model/apply_run_outcome.dart';
+import 'package:breakdown_api/src/model/apply_run_outcome_one_of.dart';
+import 'package:breakdown_api/src/model/apply_run_outcome_one_of1.dart';
 import 'package:breakdown_api/src/model/apply_shooting_day_request.dart';
 import 'package:breakdown_api/src/model/apply_stage.dart';
+import 'package:breakdown_api/src/model/apply_state.dart';
 import 'package:breakdown_api/src/model/assign_character_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
 import 'package:breakdown_api/src/model/block_view.dart';
@@ -239,15 +244,20 @@ part 'serializers.g.dart';
   AppearanceOutfitView,
   AppliedEpisode,
   ApplyAiImportRequest,
-  ApplyAiImportResponse,
   ApplyEpisodeGroupRequest,
+  ApplyImportSummary,
   ApplyMapping,
   ApplyMappingDecision,
   ApplyMappingDecisionOneOf,
   ApplyMappingDecisionOneOfUpdate,
   ApplyProgress,
+  ApplyRunAccepted,
+  ApplyRunOutcome,
+  ApplyRunOutcomeOneOf,
+  ApplyRunOutcomeOneOf1,
   ApplyShootingDayRequest,
   ApplyStage,
+  ApplyState,
   AssignCharacterRequest,
   AuditEntry,
   BlockView,

@@ -8,13 +8,13 @@ part of 'apply_mapping_decision_one_of.dart';
 
 class _$ApplyMappingDecisionOneOf extends ApplyMappingDecisionOneOf {
   @override
-  final ApplyMappingDecisionOneOfUpdate decisionUpdate;
+  final ApplyMappingDecisionOneOfUpdate update;
 
   factory _$ApplyMappingDecisionOneOf(
           [void Function(ApplyMappingDecisionOneOfBuilder)? updates]) =>
       (ApplyMappingDecisionOneOfBuilder()..update(updates))._build();
 
-  _$ApplyMappingDecisionOneOf._({required this.decisionUpdate}) : super._();
+  _$ApplyMappingDecisionOneOf._({required this.update}) : super._();
   @override
   ApplyMappingDecisionOneOf rebuild(
           void Function(ApplyMappingDecisionOneOfBuilder) updates) =>
@@ -27,14 +27,13 @@ class _$ApplyMappingDecisionOneOf extends ApplyMappingDecisionOneOf {
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is ApplyMappingDecisionOneOf &&
-        decisionUpdate == other.decisionUpdate;
+    return other is ApplyMappingDecisionOneOf && update == other.update;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, decisionUpdate.hashCode);
+    _$hash = $jc(_$hash, update.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -42,7 +41,7 @@ class _$ApplyMappingDecisionOneOf extends ApplyMappingDecisionOneOf {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ApplyMappingDecisionOneOf')
-          ..add('decisionUpdate', decisionUpdate))
+          ..add('update', update))
         .toString();
   }
 }
@@ -52,11 +51,11 @@ class ApplyMappingDecisionOneOfBuilder
         Builder<ApplyMappingDecisionOneOf, ApplyMappingDecisionOneOfBuilder> {
   _$ApplyMappingDecisionOneOf? _$v;
 
-  ApplyMappingDecisionOneOfUpdateBuilder? _decisionUpdate;
-  ApplyMappingDecisionOneOfUpdateBuilder get decisionUpdate =>
-      _$this._decisionUpdate ??= ApplyMappingDecisionOneOfUpdateBuilder();
-  set decisionUpdate(ApplyMappingDecisionOneOfUpdateBuilder? decisionUpdate) =>
-      _$this._decisionUpdate = decisionUpdate;
+  ApplyMappingDecisionOneOfUpdateBuilder? _update;
+  ApplyMappingDecisionOneOfUpdateBuilder get update =>
+      _$this._update ??= ApplyMappingDecisionOneOfUpdateBuilder();
+  set update(ApplyMappingDecisionOneOfUpdateBuilder? update) =>
+      _$this._update = update;
 
   ApplyMappingDecisionOneOfBuilder() {
     ApplyMappingDecisionOneOf._defaults(this);
@@ -65,7 +64,7 @@ class ApplyMappingDecisionOneOfBuilder
   ApplyMappingDecisionOneOfBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _decisionUpdate = $v.decisionUpdate.toBuilder();
+      _update = $v.update.toBuilder();
       _$v = null;
     }
     return this;
@@ -89,13 +88,13 @@ class ApplyMappingDecisionOneOfBuilder
     try {
       _$result = _$v ??
           _$ApplyMappingDecisionOneOf._(
-            decisionUpdate: decisionUpdate.build(),
+            update: update.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
-        _$failedField = 'decisionUpdate';
-        decisionUpdate.build();
+        _$failedField = 'update';
+        update.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApplyMappingDecisionOneOf', _$failedField, e.toString());

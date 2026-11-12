@@ -330,7 +330,7 @@ mod apply_run_state_default {
         ApplyProgress, ApplyRunId, DocumentKind, Telemetry,
     };
     // The view types are re-exported on `ai`, not on the port module.
-    use crate::ai::{ApplyStage, JobStatus, SourceFormat};
+    use crate::ai::{ApplyStage, ApplyState, JobStatus, SourceFormat};
     use crate::error::DomainError;
     use crate::shared::UserId;
     use chrono::Utc;
@@ -458,6 +458,9 @@ mod apply_run_state_default {
             attempts: Vec::new(),
             telemetry: None,
             cost: None,
+            // Issue #899: a pre-#899 row carries no durable apply slot.
+            apply_state: ApplyState::Idle,
+            apply_result: None,
             applied_episodes: Vec::new(),
             decision_telemetry: None,
             apply_progress: payload,
@@ -529,7 +532,7 @@ mod apply_run_state_default {
 mod owner_silence {
     use super::super::{ApplyProgress, ApplyRunId, ApplyRunState};
     // The view types are re-exported on `ai`, not on the port module.
-    use crate::ai::ApplyStage;
+    use crate::ai::{ApplyStage, ApplyState};
     use chrono::{Duration, Utc};
 
     fn payload(run_id: ApplyRunId, updated_at: chrono::DateTime<Utc>) -> ApplyProgress {
@@ -557,6 +560,8 @@ mod owner_silence {
             // A younger claim instant must NOT shorten the payload's age: only
             // the payload's column is the claim's comparison for this state.
             owner_claimed_at: Some(now - Duration::seconds(5)),
+            state: ApplyState::Running,
+            result: None,
         };
         assert_eq!(state.owner_silence_at(now), Some(Duration::minutes(4)));
     }
@@ -571,6 +576,8 @@ mod owner_silence {
             owner: Some(ApplyRunId::new()),
             seq: 1,
             progress: None,
+            state: ApplyState::Idle,
+            result: None,
             owner_claimed_at: Some(now - Duration::minutes(12)),
         };
         assert_eq!(
@@ -589,6 +596,8 @@ mod owner_silence {
             owner: Some(ApplyRunId::new()),
             seq: 1,
             progress: None,
+            state: ApplyState::Idle,
+            result: None,
             owner_claimed_at: None,
         };
         assert_eq!(state.owner_silence_at(now), None);
@@ -602,6 +611,8 @@ mod owner_silence {
             owner: None,
             seq: 3,
             progress: None,
+            state: ApplyState::Idle,
+            result: None,
             owner_claimed_at: Some(now - Duration::minutes(30)),
         };
         assert_eq!(state.owner_silence_at(now), None);
@@ -616,6 +627,8 @@ mod owner_silence {
             owner: Some(ApplyRunId::new()),
             seq: 1,
             progress: None,
+            state: ApplyState::Idle,
+            result: None,
             owner_claimed_at: Some(now + Duration::minutes(3)),
         };
         assert_eq!(state.owner_silence_at(now), Some(Duration::zero()));

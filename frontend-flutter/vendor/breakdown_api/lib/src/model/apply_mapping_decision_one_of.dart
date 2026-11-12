@@ -14,13 +14,13 @@ part 'apply_mapping_decision_one_of.g.dart';
 /// ApplyMappingDecisionOneOf
 ///
 /// Properties:
-/// * [decisionUpdate]
+/// * [update]
 @BuiltValue()
 abstract class ApplyMappingDecisionOneOf
     implements
         Built<ApplyMappingDecisionOneOf, ApplyMappingDecisionOneOfBuilder> {
   @BuiltValueField(wireName: r'Update')
-  ApplyMappingDecisionOneOfUpdate get decisionUpdate;
+  ApplyMappingDecisionOneOfUpdate get update;
 
   ApplyMappingDecisionOneOf._();
 
@@ -54,7 +54,7 @@ class _$ApplyMappingDecisionOneOfSerializer
   }) sync* {
     yield r'Update';
     yield serializers.serialize(
-      object.decisionUpdate,
+      object.update,
       specifiedType: const FullType(ApplyMappingDecisionOneOfUpdate),
     );
   }
@@ -87,7 +87,7 @@ class _$ApplyMappingDecisionOneOfSerializer
             value,
             specifiedType: const FullType(ApplyMappingDecisionOneOfUpdate),
           ) as ApplyMappingDecisionOneOfUpdate;
-          result.decisionUpdate.replace(valueDes);
+          result.update.replace(valueDes);
           break;
         default:
           unhandled.add(key);

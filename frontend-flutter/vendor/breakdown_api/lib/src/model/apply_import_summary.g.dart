@@ -1,12 +1,12 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'apply_ai_import_response.dart';
+part of 'apply_import_summary.dart';
 
 // **************************************************************************
 // BuiltValueGenerator
 // **************************************************************************
 
-class _$ApplyAiImportResponse extends ApplyAiImportResponse {
+class _$ApplyImportSummary extends ApplyImportSummary {
   @override
   final int appliedCount;
   @override
@@ -26,13 +26,13 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   @override
   final BuiltList<String>? skippedDayGroups;
   @override
-  final BuiltList<UnappliedOutfit> unappliedOutfits;
+  final BuiltList<UnappliedOutfit>? unappliedOutfits;
 
-  factory _$ApplyAiImportResponse(
-          [void Function(ApplyAiImportResponseBuilder)? updates]) =>
-      (ApplyAiImportResponseBuilder()..update(updates))._build();
+  factory _$ApplyImportSummary(
+          [void Function(ApplyImportSummaryBuilder)? updates]) =>
+      (ApplyImportSummaryBuilder()..update(updates))._build();
 
-  _$ApplyAiImportResponse._(
+  _$ApplyImportSummary._(
       {required this.appliedCount,
       this.appliedEpisodes,
       required this.createdCharacters,
@@ -42,21 +42,21 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
       required this.createdPieces,
       required this.plannedSceneShoots,
       this.skippedDayGroups,
-      required this.unappliedOutfits})
+      this.unappliedOutfits})
       : super._();
   @override
-  ApplyAiImportResponse rebuild(
-          void Function(ApplyAiImportResponseBuilder) updates) =>
+  ApplyImportSummary rebuild(
+          void Function(ApplyImportSummaryBuilder) updates) =>
       (toBuilder()..update(updates)).build();
 
   @override
-  ApplyAiImportResponseBuilder toBuilder() =>
-      ApplyAiImportResponseBuilder()..replace(this);
+  ApplyImportSummaryBuilder toBuilder() =>
+      ApplyImportSummaryBuilder()..replace(this);
 
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is ApplyAiImportResponse &&
+    return other is ApplyImportSummary &&
         appliedCount == other.appliedCount &&
         appliedEpisodes == other.appliedEpisodes &&
         createdCharacters == other.createdCharacters &&
@@ -88,7 +88,7 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
 
   @override
   String toString() {
-    return (newBuiltValueToStringHelper(r'ApplyAiImportResponse')
+    return (newBuiltValueToStringHelper(r'ApplyImportSummary')
           ..add('appliedCount', appliedCount)
           ..add('appliedEpisodes', appliedEpisodes)
           ..add('createdCharacters', createdCharacters)
@@ -103,9 +103,9 @@ class _$ApplyAiImportResponse extends ApplyAiImportResponse {
   }
 }
 
-class ApplyAiImportResponseBuilder
-    implements Builder<ApplyAiImportResponse, ApplyAiImportResponseBuilder> {
-  _$ApplyAiImportResponse? _$v;
+class ApplyImportSummaryBuilder
+    implements Builder<ApplyImportSummary, ApplyImportSummaryBuilder> {
+  _$ApplyImportSummary? _$v;
 
   int? _appliedCount;
   int? get appliedCount => _$this._appliedCount;
@@ -158,11 +158,11 @@ class ApplyAiImportResponseBuilder
   set unappliedOutfits(ListBuilder<UnappliedOutfit>? unappliedOutfits) =>
       _$this._unappliedOutfits = unappliedOutfits;
 
-  ApplyAiImportResponseBuilder() {
-    ApplyAiImportResponse._defaults(this);
+  ApplyImportSummaryBuilder() {
+    ApplyImportSummary._defaults(this);
   }
 
-  ApplyAiImportResponseBuilder get _$this {
+  ApplyImportSummaryBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
       _appliedCount = $v.appliedCount;
@@ -174,51 +174,49 @@ class ApplyAiImportResponseBuilder
       _createdPieces = $v.createdPieces;
       _plannedSceneShoots = $v.plannedSceneShoots;
       _skippedDayGroups = $v.skippedDayGroups?.toBuilder();
-      _unappliedOutfits = $v.unappliedOutfits.toBuilder();
+      _unappliedOutfits = $v.unappliedOutfits?.toBuilder();
       _$v = null;
     }
     return this;
   }
 
   @override
-  void replace(ApplyAiImportResponse other) {
-    _$v = other as _$ApplyAiImportResponse;
+  void replace(ApplyImportSummary other) {
+    _$v = other as _$ApplyImportSummary;
   }
 
   @override
-  void update(void Function(ApplyAiImportResponseBuilder)? updates) {
+  void update(void Function(ApplyImportSummaryBuilder)? updates) {
     if (updates != null) updates(this);
   }
 
   @override
-  ApplyAiImportResponse build() => _build();
+  ApplyImportSummary build() => _build();
 
-  _$ApplyAiImportResponse _build() {
-    _$ApplyAiImportResponse _$result;
+  _$ApplyImportSummary _build() {
+    _$ApplyImportSummary _$result;
     try {
       _$result = _$v ??
-          _$ApplyAiImportResponse._(
+          _$ApplyImportSummary._(
             appliedCount: BuiltValueNullFieldError.checkNotNull(
-                appliedCount, r'ApplyAiImportResponse', 'appliedCount'),
+                appliedCount, r'ApplyImportSummary', 'appliedCount'),
             appliedEpisodes: _appliedEpisodes?.build(),
             createdCharacters: BuiltValueNullFieldError.checkNotNull(
-                createdCharacters,
-                r'ApplyAiImportResponse',
-                'createdCharacters'),
+                createdCharacters, r'ApplyImportSummary', 'createdCharacters'),
             createdDays: BuiltValueNullFieldError.checkNotNull(
-                createdDays, r'ApplyAiImportResponse', 'createdDays'),
+                createdDays, r'ApplyImportSummary', 'createdDays'),
             createdEpisodes: BuiltValueNullFieldError.checkNotNull(
-                createdEpisodes, r'ApplyAiImportResponse', 'createdEpisodes'),
+                createdEpisodes, r'ApplyImportSummary', 'createdEpisodes'),
             createdOutfits: BuiltValueNullFieldError.checkNotNull(
-                createdOutfits, r'ApplyAiImportResponse', 'createdOutfits'),
+                createdOutfits, r'ApplyImportSummary', 'createdOutfits'),
             createdPieces: BuiltValueNullFieldError.checkNotNull(
-                createdPieces, r'ApplyAiImportResponse', 'createdPieces'),
+                createdPieces, r'ApplyImportSummary', 'createdPieces'),
             plannedSceneShoots: BuiltValueNullFieldError.checkNotNull(
                 plannedSceneShoots,
-                r'ApplyAiImportResponse',
+                r'ApplyImportSummary',
                 'plannedSceneShoots'),
             skippedDayGroups: _skippedDayGroups?.build(),
-            unappliedOutfits: unappliedOutfits.build(),
+            unappliedOutfits: _unappliedOutfits?.build(),
           );
     } catch (_) {
       late String _$failedField;
@@ -229,10 +227,10 @@ class ApplyAiImportResponseBuilder
         _$failedField = 'skippedDayGroups';
         _skippedDayGroups?.build();
         _$failedField = 'unappliedOutfits';
-        unappliedOutfits.build();
+        _unappliedOutfits?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
-            r'ApplyAiImportResponse', _$failedField, e.toString());
+            r'ApplyImportSummary', _$failedField, e.toString());
       }
       rethrow;
     }

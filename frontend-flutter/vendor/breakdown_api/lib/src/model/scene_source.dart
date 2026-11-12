@@ -67,7 +67,7 @@ class _$SceneSourceSerializer implements PrimitiveSerializer<SceneSource> {
     final result = SceneSourceBuilder();
     Object? oneOfDataSrc;
     final targetType = const FullType(OneOf, [
-      FullType(String),
+      FullType(OneOf0Enum),
       FullType(SceneSourceOneOf),
     ]);
     oneOfDataSrc = serialized;

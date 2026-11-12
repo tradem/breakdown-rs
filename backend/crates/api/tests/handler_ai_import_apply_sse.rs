@@ -84,6 +84,9 @@ fn succeeded_job(id: AiImportJobId) -> AiImportJob {
         decision_telemetry: None,
         apply_progress: None,
         applied: false,
+        // Issue #899: no durable apply slot on this literal.
+        apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_result: None,
     }
 }
 
@@ -114,6 +117,8 @@ fn run_state(
         // (issue #863); the slot reports no claim instant, which the core read
         // treats as "nothing to age" rather than inventing one.
         owner_claimed_at: None,
+        state: breakdown_core::ai::ApplyState::Idle,
+        result: None,
     }
 }
 

@@ -89,6 +89,9 @@ impl MockQueue {
             decision_telemetry: None,
             apply_progress: None,
             applied: false,
+            // Issue #899: no durable apply slot on a pre-change job literal.
+            apply_state: breakdown_core::ai::ApplyState::Idle,
+            apply_result: None,
         };
         self.jobs.lock().await.push(job);
         id
@@ -133,6 +136,9 @@ impl AiImportQueue for MockQueue {
             decision_telemetry: None,
             apply_progress: None,
             applied: false,
+            // Issue #899: no durable apply slot on a pre-change job literal.
+            apply_state: breakdown_core::ai::ApplyState::Idle,
+            apply_result: None,
         };
         self.jobs.lock().await.push(job);
         Ok(AiImportEnqueueResult::Enqueued(request.id))

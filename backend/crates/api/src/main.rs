@@ -733,6 +733,9 @@ async fn main() -> Result<()> {
         let limiter_arc = Arc::new(limiter);
         let runtime = Arc::new(AiWorkerRuntime::new(Arc::clone(&limiter_arc)));
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
+        // A receiver of its own for the apply-run loop (issue #899): the import
+        // workers below consume `shutdown_rx` by value in their spawn order.
+        let apply_shutdown_rx = shutdown_rx.clone();
 
         // `ai_runtime` keeps a clone for the drain() call during shutdown;
         // the workers get their own clones inside `WorkerDeps`.
@@ -854,10 +857,20 @@ async fn main() -> Result<()> {
             listener_shutdown_rx,
         ));
         ai_listener_shutdown_tx = Some(listener_shutdown_tx);
+        // Issue #899: the durable apply-run loop. `POST /apply` only dispatches
+        // now, so the run needs an owner that is not the request: this loop
+        // claims `requested` (and stale-`running`) slots and executes them,
+        // which is what makes an apply survive an Android suspend, a socket
+        // drop or a rolling deploy. Joined in the shutdown sequence below, so a
+        // dispatched run never writes into a torn-down pool.
+        ai_worker_handles.push(api::apply_runner::spawn_apply_run_worker(
+            app_state.clone(),
+            apply_shutdown_rx,
+        ));
         info!(
             max_global = bounds.max_concurrent_jobs_global,
             max_per_user = bounds.max_concurrent_jobs_per_user,
-            "AI import concurrency limiter + workers + job event listener spawned"
+            "AI import concurrency limiter + workers + job event listener + apply runner spawned"
         );
     }
 

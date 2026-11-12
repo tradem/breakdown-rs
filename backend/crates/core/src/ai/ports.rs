@@ -22,12 +22,13 @@ mod ports_tests;
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
+use super::apply_run::{ApplyRunRequest, ClaimedApplyRun};
 use super::preview::{ScriptContext, ShootingSchedule};
 use super::provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 use super::views::{
-    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget, ApplyProgress,
-    ApplyRunId, ApplyRunState, DocumentKind, ModelPricing, ProviderBreakerState, ProviderHold,
-    SourceFormat, Telemetry,
+    AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget,
+    ApplyImportSummary, ApplyProgress, ApplyRunId, ApplyRunState, DocumentKind, ModelPricing,
+    ProviderBreakerState, ProviderHold, SourceFormat, Telemetry,
 };
 
 /// Curated providers. The enum is intentionally non-exhaustive so adding a
@@ -888,6 +889,12 @@ pub trait AiImportQueue: Send + Sync {
                 // owner is derived from the payload here, so an age comes from
                 // that payload anyway.
                 owner_claimed_at: None,
+                // The fallback adapter tracks no durable slot: it can report
+                // the payload it published (#800) but not the state machine
+                // #899 added, so `idle`/`None` is the honest answer — the same
+                // "nothing comparable recorded" posture as the claim instant.
+                state: job.apply_state,
+                result: job.apply_result,
                 progress,
             }
         }))
@@ -919,6 +926,116 @@ pub trait AiImportQueue: Send + Sync {
         _progress: Option<&ApplyProgress>,
     ) -> Result<(), DomainError> {
         Ok(())
+    }
+
+    /// Persist a validated apply request and leave the slot **`requested`**
+    /// (issue #899, design D2).
+    ///
+    /// This replaces "run the apply here" with "record that a run was asked
+    /// for": the body is the resolved reviewer request (see
+    /// [`ApplyRunRequest`]), the `run_id` is the identity the caller already
+    /// answered to its client, and the state is what a worker loop polls. The
+    /// claim itself keeps the #800 predicate unchanged — slot free, or the
+    /// current owner demonstrably dead — so a second dispatch while a live run
+    /// owns the slot still answers `409 ai-import.apply-in-flight` (issue #805)
+    /// and the client's reaction stays *attach*, not *retry*.
+    ///
+    /// `false` means a live run owns the slot (the caller refuses); `true` means
+    /// the slot is now `requested` under `run_id` and a worker may pick it up on
+    /// **any** replica — including after a rolling deploy, because the request
+    /// lives on the row instead of in the request that accepted it.
+    ///
+    /// The claim also clears any previous `apply_result`: a new run must never
+    /// be readable as the outcome of the one before it.
+    ///
+    /// The default delegates to [`claim_apply_run`](Self::claim_apply_run) and
+    /// discards the request: an adapter that does not track the slot (in-memory
+    /// and test queues) keeps its old single-flight behaviour and simply has no
+    /// durable work item to hand out.
+    async fn request_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: ApplyRunId,
+        _request: &ApplyRunRequest,
+    ) -> Result<bool, DomainError> {
+        self.claim_apply_run(id, run_id).await
+    }
+
+    /// Claim one **`requested`** (or stale-`running`) apply run for execution
+    /// and flip it to `running` (issue #899, design D1/D3).
+    ///
+    /// One atomic transition, deliberately not two calls: the adopt case
+    /// (`requested` → `running`) must keep the `run_id` the client was told
+    /// about, while the takeover case (a `running` slot whose owner went silent
+    /// for [`ApplyProgress::STALE_AFTER`]) must mint a **new** identity — the
+    /// dead owner's late write has to fail the fence. `takeover_run_id` is what
+    /// the caller supplies for the second case and what the return value
+    /// reports as authoritative.
+    ///
+    /// `None` when the row is neither requested nor stale-running (another
+    /// worker won the race, or the run already finished).
+    ///
+    /// The default reports no work item, which is the pre-#899 behaviour: a
+    /// queue that has no durable slot has nothing to hand out.
+    async fn begin_apply_run(
+        &self,
+        _id: AiImportJobId,
+        _takeover_run_id: ApplyRunId,
+    ) -> Result<Option<ClaimedApplyRun>, DomainError> {
+        Ok(None)
+    }
+
+    /// Persist a successful run's outcome, clear the progress payload and land
+    /// the slot in `done` (issue #899, design D4).
+    ///
+    /// Owner-fenced: a displaced owner (its slot was taken over) gets
+    /// [`DomainError::Conflict`] instead of overwriting the new owner's state.
+    /// This is the **only** success path that clears `apply_progress` — a
+    /// dropped connection no longer can, because the run outlives the request.
+    ///
+    /// The default is a no-op for adapters without a durable slot.
+    async fn complete_apply_run(
+        &self,
+        _id: AiImportJobId,
+        _run_id: ApplyRunId,
+        _summary: &ApplyImportSummary,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// Persist a failed run's registered problem `code`, clear the progress
+    /// payload and land the slot in `failed` (issue #899, design D4).
+    ///
+    /// The code — never a prose detail — is what the client branches on
+    /// (ADR-031), and it is the only failure fact that survives the request.
+    /// Owner-fenced like [`complete_apply_run`](Self::complete_apply_run).
+    ///
+    /// The default is a no-op for adapters without a durable slot.
+    async fn fail_apply_run(
+        &self,
+        _id: AiImportJobId,
+        _run_id: ApplyRunId,
+        _code: &str,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// List the job ids whose apply slot awaits execution (issue #899).
+    ///
+    /// Covers both recovery shapes in one poll: a `requested` row (nobody has
+    /// picked it up yet — the crash-between-claim-and-dispatch case) and a
+    /// `running` row whose owner has been silent for longer than
+    /// [`ApplyProgress::STALE_AFTER`] (the crashed-worker case, the same window
+    /// the single-flight steal uses, so the two can never disagree).
+    ///
+    /// The claim itself is [`begin_apply_run`](Self::begin_apply_run): this list
+    /// is advisory, and a row another worker already took must not be executed
+    /// twice — which is exactly what the atomic transition guarantees.
+    ///
+    /// The default returns nothing, so an adapter without a durable slot never
+    /// spawns work.
+    async fn requested_apply_runs(&self, _limit: i64) -> Result<Vec<AiImportJobId>, DomainError> {
+        Ok(Vec::new())
     }
 
     /// Subscribe to wake-up notifications for one job (issue #664).

@@ -2266,12 +2266,13 @@ fn record_applied_episode(
 /// Resolved where a projection read is legitimate — the API edge — and carried
 /// into the apply so the write path never queries one (CQRS boundary). The
 /// worker only ever *labels* with it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppliedEpisodeIdentity {
-    pub id: EpisodeId,
-    pub number: i32,
-    pub name: Option<String>,
-}
+///
+/// Since issue #899 the type lives in `core` next to the **persisted** apply
+/// request ([`breakdown_core::ai::ApplyRunRequest`]): the durable run carries it
+/// across a request boundary, so it has to be a serializable domain type rather
+/// than an infra-local one. Re-exported here so the worker's own signature
+/// keeps reading in its historical vocabulary.
+pub use breakdown_core::ai::AppliedEpisodeIdentity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UuidVersion {
@@ -2445,6 +2446,25 @@ where
             }
         }
         result
+    }
+
+    /// Execute a script apply under a slot the CALLER already owns (issue #899).
+    ///
+    /// The durable run path claims the slot with `begin_apply_run` before this
+    /// is called, so the worker must not claim again — the single-flight
+    /// predicate would refuse its own owner. What stays here is the work
+    /// itself and the run-scoped `run_id` every fenced progress write carries.
+    ///
+    /// The progress payload is **not** cleared here: the terminal transition
+    /// (`complete_apply_run` / `fail_apply_run`) does that, so a run whose task
+    /// dies leaves a stale payload for the takeover path to reclaim instead of
+    /// erasing the evidence that work was asked for (design D3).
+    pub async fn apply_script_run(
+        &self,
+        request: ApplyScriptRequest<'_>,
+        run_id: ApplyRunId,
+    ) -> Result<ScriptApplyResult, DomainError> {
+        self.run_script_apply(request, run_id).await
     }
 
     /// The actual script apply (see [`Self::apply_script`] for the public

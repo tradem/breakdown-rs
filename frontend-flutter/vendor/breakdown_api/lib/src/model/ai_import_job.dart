@@ -11,10 +11,12 @@ import 'package:breakdown_api/src/model/source_format.dart';
 import 'package:breakdown_api/src/model/ai_import_progress.dart';
 import 'package:breakdown_api/src/model/cost_breakdown.dart';
 import 'package:breakdown_api/src/model/ai_import_attempt.dart';
+import 'package:breakdown_api/src/model/apply_state.dart';
 import 'package:breakdown_api/src/model/job_telemetry_summary.dart';
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:breakdown_api/src/model/job_status.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/apply_run_outcome.dart';
 import 'package:breakdown_api/src/model/decision_telemetry.dart';
 import 'package:breakdown_api/src/model/provider_hold.dart';
 import 'package:breakdown_api/src/model/ai_import_target.dart';
@@ -30,6 +32,8 @@ part 'ai_import_job.g.dart';
 /// * [applied] - Whether this preview has ever been **applied** (issue #800). Additive with `serde(default)`: `false` for a job no apply has run for yet, and for every job created before the field existed.  Derived server-side from the persisted apply telemetry (`TelemetryApplyState::Applied`), never inferred from [`Self::applied_episodes`] — that summary is empty for a schedule apply by design, so it cannot answer \"was this imported?\". Its purpose is the honest \"already imported\" badge and the re-apply confirmation: a second apply stays *possible* (idempotent recovery of an interrupted run), but it must never look like a first one.
 /// * [appliedEpisodes] - The episodes a successful **script** apply landed this job's rows in (issue #763), so the jobs list can name the import's target instead of only its date. Additive with `serde(default)`: empty for a job no apply has run for yet, and for a schedule apply (which merges onto the project's existing scenes and days and therefore has no single target episode).  **Derived at the read edge from the durable apply mappings** (issue #864), never written by the apply path: every applied scene row owns a `projection_ai_import_mapping` row whose `aggregate_kind` is `scene`, and the scene's own `episode_id` says where it landed. An apply that commits rows therefore leaves the summary resolvable **even when the client disconnected mid-run** and no handler code ever ran to completion — the property the previous best-effort column could not offer, because a cancelled handler future simply never reached its post-apply write.  Consequences of deriving instead of recording:  * the `number`/`name` labels are the persisted episode's own, i.e.   authoritative rather than the request's target. A row reconciled onto   an existing scene is attributed to **that** scene's episode, not to the   episode the request named; * the list is ordered by episode number (id as the tiebreak), so two   reads of an unchanged job agree; * empty means \"no **scene** row of this job is mapped to a projected   scene\" — NOT \"this job applied nothing\". A schedule apply is the   standing example of the difference: it does commit work (shooting days,   scene-shoot links) while naming no episode, so its list is empty by   design. An empty list is also what a job no apply has run for answers,   and what an apply cancelled before its first scene commit leaves   behind.  The derivation is display metadata: a failure to read it degrades to an empty list (the client renders its kind/date copy) and never makes the job unreachable — so an empty list can also mean \"the derivation could not be read just now\". A client therefore never treats empty as proof that no work happened, only as \"no target to name\".
 /// * [applyProgress] - Live progress of an **apply run** for this (already `succeeded`) job (issue #762). Additive with `serde(default)`: `None` whenever no apply is in flight — for every job created before the field existed, for a preview nobody has applied yet, and again once a run has finished (the run clears the column, so a stale \"applying 3/57\" can never outlive its run).  Advisory, so `None` alone is **not** proof that nothing is running: every progress write (the run's first one included) is best-effort — a failed write must never abort an apply — so an active run can be invisible here until the next throttled write lands, and for a whole run if the store keeps failing. A client therefore renders `None` as \"no progress published\", never as \"idle\" (issue #762).  Its presence is what keeps the apply stream open: the job itself is terminal the whole time, because an apply is a POST against a job that already succeeded.
+/// * [applyResult] - The persisted outcome of the last apply run that **finished** (issue #899). Additive with `serde(default)`.  `Some` exactly when [`Self::apply_state`] is terminal, so a client never has to distinguish \"no result yet\" from \"a result of `idle`\". A failed run carries its registered problem code here, not a prose detail — the client branches on `code` like it does for every other apply failure (ADR-031).
+/// * [applyState] - Lifecycle state of this job's **apply slot** (issue #899). Additive with `serde(default)`: every pre-#899 row decodes as [`ApplyState::Idle`].  This is the field a re-entering client decides from (design D5): `idle` offers an apply, `requested`/`running` means \"attach to the live run\" (the `POST` no longer does the work — it dispatches), and `done`/`failed` means the run is over and [`Self::apply_result`] holds what it committed. Without it, a screen that was away when the run finished had no way to learn the outcome except by re-applying.
 /// * [attempts] - Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`) with the full history limit, and — since issue #822 — on the list read (`GET /ai-import/jobs`) with **the same** per-job bound, so a client derives an identical aggregate (repeated provider failures, keyed on `AiImportAttempt::code`) from either read without opening a job. A shorter list window would make the compact row undercount what the status card shows. Empty in claim contexts, and empty for a job no attempt was recorded for, so it stays additive on the wire.
 /// * [blockId] - Opaque identifier for a `Block` aggregate.
 /// * [cost] - Immutable per-import cost snapshot persisted at completion time (issue #675). Never recomputed when pricing changes later.
@@ -69,6 +73,15 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   /// Live progress of an **apply run** for this (already `succeeded`) job (issue #762). Additive with `serde(default)`: `None` whenever no apply is in flight — for every job created before the field existed, for a preview nobody has applied yet, and again once a run has finished (the run clears the column, so a stale \"applying 3/57\" can never outlive its run).  Advisory, so `None` alone is **not** proof that nothing is running: every progress write (the run's first one included) is best-effort — a failed write must never abort an apply — so an active run can be invisible here until the next throttled write lands, and for a whole run if the store keeps failing. A client therefore renders `None` as \"no progress published\", never as \"idle\" (issue #762).  Its presence is what keeps the apply stream open: the job itself is terminal the whole time, because an apply is a POST against a job that already succeeded.
   @BuiltValueField(wireName: r'apply_progress')
   ApplyProgress? get applyProgress;
+
+  /// The persisted outcome of the last apply run that **finished** (issue #899). Additive with `serde(default)`.  `Some` exactly when [`Self::apply_state`] is terminal, so a client never has to distinguish \"no result yet\" from \"a result of `idle`\". A failed run carries its registered problem code here, not a prose detail — the client branches on `code` like it does for every other apply failure (ADR-031).
+  @BuiltValueField(wireName: r'apply_result')
+  ApplyRunOutcome? get applyResult;
+
+  /// Lifecycle state of this job's **apply slot** (issue #899). Additive with `serde(default)`: every pre-#899 row decodes as [`ApplyState::Idle`].  This is the field a re-entering client decides from (design D5): `idle` offers an apply, `requested`/`running` means \"attach to the live run\" (the `POST` no longer does the work — it dispatches), and `done`/`failed` means the run is over and [`Self::apply_result`] holds what it committed. Without it, a screen that was away when the run finished had no way to learn the outcome except by re-applying.
+  @BuiltValueField(wireName: r'apply_state')
+  ApplyState? get applyState;
+  // enum applyStateEnum {  idle,  requested,  running,  done,  failed,  };
 
   /// Per-attempt failure history, newest first (issue #637).  `last_error` is overwritten by every `mark_failed`, so the reason an *earlier* attempt failed is lost. This list keeps each attempt's outcome retrievable. Populated on the single-job read (`GET /ai-import/jobs/{id}`) with the full history limit, and — since issue #822 — on the list read (`GET /ai-import/jobs`) with **the same** per-job bound, so a client derives an identical aggregate (repeated provider failures, keyed on `AiImportAttempt::code`) from either read without opening a job. A shorter list window would make the compact row undercount what the status card shows. Empty in claim contexts, and empty for a job no attempt was recorded for, so it stays additive on the wire.
   @BuiltValueField(wireName: r'attempts')
@@ -208,6 +221,20 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
       yield serializers.serialize(
         object.applyProgress,
         specifiedType: const FullType.nullable(ApplyProgress),
+      );
+    }
+    if (object.applyResult != null) {
+      yield r'apply_result';
+      yield serializers.serialize(
+        object.applyResult,
+        specifiedType: const FullType.nullable(ApplyRunOutcome),
+      );
+    }
+    if (object.applyState != null) {
+      yield r'apply_state';
+      yield serializers.serialize(
+        object.applyState,
+        specifiedType: const FullType(ApplyState),
       );
     }
     if (object.attempts != null) {
@@ -417,6 +444,22 @@ class _$AiImportJobSerializer implements PrimitiveSerializer<AiImportJob> {
           ) as ApplyProgress?;
           if (valueDes == null) continue;
           result.applyProgress.replace(valueDes);
+          break;
+        case r'apply_result':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(ApplyRunOutcome),
+          ) as ApplyRunOutcome?;
+          if (valueDes == null) continue;
+          result.applyResult.replace(valueDes);
+          break;
+        case r'apply_state':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(ApplyState),
+          ) as ApplyState?;
+          if (valueDes == null) continue;
+          result.applyState = valueDes;
           break;
         case r'attempts':
           final valueDes = serializers.deserialize(

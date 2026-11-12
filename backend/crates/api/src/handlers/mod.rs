@@ -7092,6 +7092,11 @@ pub async fn stream_ai_import_apply_events<P: Ports>(
             seq: 0,
             progress: job.apply_progress.clone(),
             owner_claimed_at: None,
+            // The slot state and its persisted outcome come straight from the
+            // job view (issue #899): an adapter without a slot still has to be
+            // able to tell a finished run from a pending one.
+            state: job.apply_state,
+            result: job.apply_result.clone(),
         },
     };
     let stream = sse_apply_stream(queue, id, run_state, baseline_seq, wakeups);
@@ -7158,8 +7163,16 @@ type ApplyWatermark = (
 pub enum ApplyStreamVerdict {
     /// A live run is in flight: emit the payload.
     Running(breakdown_core::ai::ApplyProgress),
-    /// The run ended (or its payload went stale): emit a final `null` frame
-    /// and close.
+    /// The run ended: emit the terminal frame carrying the **persisted
+    /// outcome** and close (issue #899, design D4).
+    ///
+    /// This is what a late attach reads: a client that opens the stream after
+    /// the run finished gets the counters (or the failure code) immediately
+    /// instead of an idle window followed by nothing.
+    Terminal(Option<breakdown_core::ai::ApplyRunOutcome>),
+    /// The run ended without a persisted outcome (or its payload went stale —
+    /// the process died): emit a final `null` frame and close. The pre-#899
+    /// behaviour, kept for the states the slot cannot describe.
     Finished,
     /// Nothing started yet: wait for a wake-up or the next tick.
     Idle,
@@ -7173,6 +7186,14 @@ pub fn classify_apply_run(
     saw_run: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> ApplyStreamVerdict {
+    // A finished run is decided by the SLOT, before any payload heuristic: the
+    // persisted outcome outlives the run (design D4), and a stream that
+    // attached after the fact must get it without waiting out an idle window.
+    // This also covers the case the payload heuristics cannot describe — a run
+    // that failed before its first frame and still owes its `code`.
+    if run_state.state.is_terminal() {
+        return ApplyStreamVerdict::Terminal(run_state.result.clone());
+    }
     // Cloned because the verdict owns the payload it emits; the state itself
     // stays borrowed so the caller keeps its counters.
     match run_state.progress.clone() {
@@ -7275,8 +7296,9 @@ where
                     ApplyStreamVerdict::Running(progress) => {
                         (true, Some(progress.run_id), Some(progress.updated_at))
                     }
-                    ApplyStreamVerdict::Finished => (false, None, None),
-                    ApplyStreamVerdict::Idle => (false, None, None),
+                    ApplyStreamVerdict::Terminal(_)
+                    | ApplyStreamVerdict::Finished
+                    | ApplyStreamVerdict::Idle => (false, None, None),
                 };
                 if matches!(verdict, ApplyStreamVerdict::Idle) {
                     // Nothing started: do not emit an empty frame forever, and
@@ -7295,12 +7317,24 @@ where
                     ApplyStreamVerdict::Running(progress) => Some(progress.clone()),
                     _ => None,
                 };
+                // The terminal frame's outcome (issue #899). `None` for a run
+                // whose slot carries no persisted result — the honest "ended,
+                // no report available" the client renders as such.
+                let outcome = match &verdict {
+                    ApplyStreamVerdict::Terminal(outcome) => outcome.clone(),
+                    _ => None,
+                };
                 state.saw_run = state.saw_run || payload.is_some();
-                state.done = matches!(verdict, ApplyStreamVerdict::Finished);
+                state.done = matches!(
+                    verdict,
+                    ApplyStreamVerdict::Finished | ApplyStreamVerdict::Terminal(_)
+                );
                 state.last_emitted = Some(watermark);
                 let frame = breakdown_core::ai::ApplyProgressFrame {
                     job_id: state.id,
                     apply_progress: payload,
+                    apply_state: snapshot.state,
+                    apply_result: outcome,
                 };
                 let event_id = frame
                     .apply_progress
@@ -7704,43 +7738,15 @@ pub struct ApplyShootingDayRequest {
     pub accepted: bool,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct ApplyAiImportResponse {
-    pub applied_count: u32,
-    pub created_days: u32,
-    pub planned_scene_shoots: u32,
-    /// Figures the script apply created. A figure named by several draft rows is
-    /// created once, so this is not `applied_count`-related. `0` for a schedule
-    /// apply, which has no figures.
-    pub created_characters: u32,
-    /// Fundus pieces the script apply created — the garments of the extracted
-    /// outfits.
-    pub created_pieces: u32,
-    /// Outfits the script apply created — one look per accepted outfit row,
-    /// bound to its figure and referencing the pieces above.
-    pub created_outfits: u32,
-    /// Episodes the script apply created for draft episode groups the reviewer
-    /// mapped to a NEW episode (issue #581). `0` for a schedule apply.
-    pub created_episodes: u32,
-    /// Day groups the reviewer rejected — their rows applied unscheduled
-    /// (issue #706). Reported so the reviewer sees the deliberate omission,
-    /// never a silent one.
-    #[serde(default)]
-    pub skipped_day_groups: Vec<String>,
-    /// Outfit rows that were **not** fully applied, each with the reason. An
-    /// apply that created a piece but could not assemble the look reports the
-    /// row here while `created_pieces` still counts the pieces — a partially
-    /// applied row must never look like a fully applied one.
-    pub unapplied_outfits: Vec<breakdown_core::ai::UnappliedOutfit>,
-    /// The episodes THIS request dispatched rows into, each with its own row
-    /// count (issue #763). Merged into the job's persisted summary, so the jobs
-    /// list can name the import's target afterwards. Empty for a schedule apply
-    /// (it merges onto the project's existing scenes and days), and for a
-    /// re-apply that found every row already applied — such a retry contributes
-    /// nothing, and the job keeps the earlier, correctly attributed summary.
-    #[serde(default)]
-    pub applied_episodes: Vec<breakdown_core::ai::AppliedEpisode>,
-}
+/// The counters a finished apply run leaves behind.
+///
+/// Since issue #899 this is a **core** type ([`breakdown_core::ai::
+/// ApplyImportSummary`]) and no longer the `POST /apply` body: the POST
+/// dispatches (`202 ApplyRunAccepted`) and the outcome is persisted on the job's
+/// run slot, served by the apply stream's terminal frame and by
+/// `GET /ai-import/jobs/{id}`. The alias keeps the openapi/response vocabulary
+/// this module has always used.
+pub type ApplyAiImportResponse = breakdown_core::ai::ApplyImportSummary;
 
 #[utoipa::path(
     post,
@@ -7748,11 +7754,14 @@ pub struct ApplyAiImportResponse {
     params(("id" = Uuid, Path)),
     request_body = ApplyAiImportRequest,
     responses(
-        (status = 200, body = ApplyAiImportResponse),
+        (status = 202, body = breakdown_core::ai::ApplyRunAccepted,
+            description = "The apply run was claimed and dispatched (issue #899). The counters \
+                arrive later: on the apply stream's terminal frame and on GET /ai-import/jobs/{id}."),
         (status = 403, body = ProblemDetails),
         (status = 409, body = ProblemDetails,
             description = "A live apply run already owns this job's progress slot \
-                (`ai-import.apply-in-flight`), or the apply gate refused the preview")
+                (`ai-import.apply-in-flight` — the client attaches to it instead of retrying), \
+                or the apply gate refused the preview")
     )
 )]
 pub async fn apply_ai_import<P: Ports>(
@@ -7760,7 +7769,7 @@ pub async fn apply_ai_import<P: Ports>(
     current_user: CurrentUser,
     Path(id): Path<AiImportJobId>,
     Json(request): Json<ApplyAiImportRequest>,
-) -> ApiResult<ApplyAiImportResponse> {
+) -> ApiResult<breakdown_core::ai::ApplyRunAccepted> {
     // AUTHZ-GATE: applying an AI preview is a privileged production mutation.
     let job = state.ports.ai_import_queue().get(id).await?;
     let job = job.ok_or(ApiError::AiImportNotFound("AI import job not found"))?;
@@ -8097,180 +8106,106 @@ pub async fn apply_ai_import<P: Ports>(
                     id: CostumeCategoryId::from_uuid(category.id),
                 })
                 .collect();
-            let worker = ApplyWorker {
-                scene_commands: Arc::new(state.ports.scene_commands().clone()),
-                character_commands: Arc::new(state.ports.character_commands().clone()),
-                wardrobe_commands: Arc::new(state.ports.wardrobe_commands().clone()),
-                episode_commands: Arc::new(state.ports.episode_commands().clone()),
-                shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
-                scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
-                // Per-run read-through cache (live-test finding): the apply is an
-                // idempotency-checked write loop whose per-aggregate `find` used
-                // to be its own SQL round trip — hundreds of sequential trips
-                // answering a table this run lists once anyway. Correctness rides
-                // on the run being single-flight per preview (`claim_apply_run`).
-                mappings: Arc::new(infra::ai::CachedMappings::new(
-                    state.ports.ai_import_mapping().clone(),
-                )),
-                queue: Arc::new(state.ports.ai_import_queue().clone()),
-                // CR-002/D2: the worker refuses the outfit step of an archived
-                // target season itself (the piece steps stay valid).
-                season_repo: Arc::new(state.ports.season_repo().clone()),
-            };
-            let applied = match worker
-                .apply_script(ApplyScriptRequest {
+            // Issue #899: the apply is DISPATCHED, not executed in this
+            // request. Everything above has validated the reviewer's request
+            // against the preview and resolved the write target; what leaves
+            // this handler is the *persisted* request — the piece a worker on
+            // any replica needs to execute the run without the connection that
+            // asked for it (design D2/D3). The counters therefore leave the
+            // POST body: they are served by the run's terminal frame on
+            // `apply-events` and by `GET /ai-import/jobs/{id}` (design D4).
+            let dispatch = breakdown_core::ai::ApplyRunRequest::Script(
+                breakdown_core::ai::ScriptApplyRunRequest {
                     actor: current_user.sub,
-                    preview_id: id,
-                    preview: &preview,
-                    decisions: &request.mappings,
                     episode_id: request.episode_id,
                     season_id,
                     project_id,
                     // Created episodes live under the target episode's block —
                     // the same block the AUTHZ-GATE above tied to the job.
                     block_id: episode.block_id,
+                    decisions: request.mappings,
                     episode_groups,
                     known_episodes,
                     shooting_days,
-                    acknowledged_uncertainties: request.uncertainty_acknowledgements.clone(),
-                    continuity_selections: request.continuity_selections.clone(),
+                    acknowledged_uncertainties: request.uncertainty_acknowledgements,
                     categories,
+                    continuity_selections: request.continuity_selections,
                     telemetry: Some(telemetry),
-                })
-                .await
-            {
-                Ok(applied) => applied,
-                // Issue #805: the claim refused because a live run owns the
-                // progress slot. The refusal is enriched with the two facts the
-                // client needs to tell a live run from a dead one — the owner's
-                // silence and the server's own staleness window (the single
-                // definition of it, never a constant a client mirrors).
-                // `age >= window` is the server's own "abandoned" verdict; the
-                // client asks the user before acting on it.
-                Err(DomainError::Conflict { code, reason })
-                    if code.code == AI_IMPORT_APPLY_IN_FLIGHT.code =>
-                {
-                    tracing::debug!(
-                        job_id = %id.as_uuid(),
-                        %reason,
-                        "AI import apply refused: a live run owns the progress slot"
-                    );
-                    // The owner's silence, read from the same slot the claim
-                    // judged AND aged by the same owner-scoped column that
-                    // judgement used (issues #863): `owner_silence_at` falls
-                    // back to the claim instant the steal compares while no
-                    // payload exists, so a run that died before its first
-                    // published frame is no longer unageable. A read failure
-                    // must not turn the refusal into a different error: the
-                    // window still travels and the age is simply absent, which
-                    // the client renders as "a live run, nothing to age".
-                    let age_seconds = state
-                        .ports
-                        .ai_import_queue()
-                        .apply_run_state(id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .and_then(|run| run.owner_silence_at(chrono::Utc::now()))
-                        .map(|silence| silence.num_seconds().unsigned_abs());
-                    return Err(ApiError::AiImportApplyInFlight {
-                        age_seconds,
-                        stale_after_seconds: breakdown_core::ai::ApplyProgress::STALE_AFTER
-                            .num_seconds()
-                            .unsigned_abs(),
-                    });
-                }
-                Err(error) => return Err(error.into()),
-            };
-            // The applied-episode summary is NOT written here (issue #864). It
-            // used to be a best-effort post-apply write, which a cancelled
-            // handler future skipped entirely — committed rows, no summary, no
-            // retry. The job's read edge now derives it from the durable apply
-            // mappings the worker confirmed per row, so the response below
-            // carries what THIS request dispatched while every later read
-            // answers from what actually committed.
-            Ok((
-                StatusCode::OK,
-                Json(ApplyAiImportResponse {
-                    applied_count: applied.applied.len() as u32,
-                    created_days: applied.created_days,
-                    planned_scene_shoots: applied.planned_scene_shoots,
-                    created_characters: applied.created_characters,
-                    created_pieces: applied.created_pieces,
-                    created_outfits: applied.created_outfits,
-                    created_episodes: applied.created_episodes,
-                    // Day groups the reviewer rejected: their rows applied
-                    // unscheduled — reported, never silent (issue #706).
-                    skipped_day_groups: request
-                        .shooting_days
-                        .iter()
-                        .filter(|day| !day.accepted)
-                        .map(|day| day.day_ref.clone())
-                        .collect(),
-                    unapplied_outfits: applied.unapplied_outfits,
-                    applied_episodes: applied.applied_episodes,
-                }),
-            ))
+                },
+            );
+            dispatch_apply_run(&state, id, dispatch).await
         }
         DocumentKind::Schedule => {
             let preview: MergedPreview = serde_json::from_slice(&payload).map_err(|error| {
                 tracing::error!(error = %error, "invalid merged preview");
                 ApiError::Validation("invalid merged preview")
             })?;
-            let worker = ScheduleApplyWorker {
-                scene_commands: Arc::new(state.ports.scene_commands().clone()),
-                shooting_day_commands: Arc::new(state.ports.shooting_day_commands().clone()),
-                scene_shoot_commands: Arc::new(state.ports.scene_shoot_commands().clone()),
-                // Same per-run cache as the script branch: the schedule apply
-                // resolves its pair rows through the same protocol.
-                mappings: Arc::new(infra::ai::CachedMappings::new(
-                    state.ports.ai_import_mapping().clone(),
-                )),
-            };
-            let result = worker
-                .apply(ScheduleApplyRequest {
+            // The schedule path needs nothing but the project seam, but the
+            // preview must still be readable here: a payload the worker cannot
+            // parse would otherwise be dispatched and fail far from its cause.
+            let _ = preview;
+            let dispatch = breakdown_core::ai::ApplyRunRequest::Schedule(
+                breakdown_core::ai::ScheduleApplyRunRequest {
                     actor: current_user.sub,
-                    preview_id: id,
-                    preview: &preview,
                     project_id: request.project_id,
-                })
-                .await?;
-            // Telemetry is not part of the apply success contract: the mutation
-            // already committed. Log a failed record so the client still sees
-            // the successful apply result (mirrors the script branch).
-            if let Err(error) = state
-                .ports
-                .ai_import_queue()
-                .record_telemetry(id, telemetry)
-                .await
-            {
-                tracing::warn!(
-                    %error,
-                    "failed to record AI import telemetry after successful schedule apply"
-                );
-            }
-            Ok((
-                StatusCode::OK,
-                Json(ApplyAiImportResponse {
-                    applied_count: 0,
-                    created_days: result.created_days,
-                    planned_scene_shoots: result.planned_scene_shoots,
-                    // A schedule apply touches no figures, pieces or episodes.
-                    created_characters: 0,
-                    created_pieces: 0,
-                    created_outfits: 0,
-                    created_episodes: 0,
-                    // A schedule apply decides no script day groups.
-                    skipped_day_groups: Vec::new(),
-                    unapplied_outfits: Vec::new(),
-                    // A schedule merge lands rows in the project's existing
-                    // scenes and days; it names no target episode, so it
-                    // records none (issue #763 — never an invented one).
-                    applied_episodes: Vec::new(),
-                }),
-            ))
+                },
+            );
+            dispatch_apply_run(&state, id, dispatch).await
         }
     }
+}
+
+/// Claim the run slot, persist the resolved request and answer `202` (issue
+/// #899, design D2).
+///
+/// The claim is the #800 single-flight predicate, unchanged: a live run on the
+/// slot still refuses this dispatch with `409 ai-import.apply-in-flight`, now
+/// enriched with the owner's silence and the server's own staleness window so a
+/// client can tell "attach to it" from "offer a takeover". Nothing is executed
+/// here — that is the whole point of the change.
+async fn dispatch_apply_run<P: Ports>(
+    state: &AppState<P>,
+    id: AiImportJobId,
+    request: breakdown_core::ai::ApplyRunRequest,
+) -> ApiResult<breakdown_core::ai::ApplyRunAccepted> {
+    let run_id = breakdown_core::ai::ApplyRunId::new();
+    let claimed = state
+        .ports
+        .ai_import_queue()
+        .request_apply_run(id, run_id, &request)
+        .await?;
+    if !claimed {
+        // A live run owns the slot. The refusal carries the two facts the
+        // client needs to tell a live run from a dead one — the owner's
+        // silence and the server's own window (the single definition of it,
+        // never a constant a client mirrors; issue #805/#863).
+        let age_seconds = state
+            .ports
+            .ai_import_queue()
+            .apply_run_state(id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|run| run.owner_silence_at(chrono::Utc::now()))
+            .map(|silence| silence.num_seconds().unsigned_abs());
+        tracing::debug!(
+            job_id = %id.as_uuid(),
+            "AI import apply refused: a live run owns the progress slot"
+        );
+        return Err(ApiError::AiImportApplyInFlight {
+            age_seconds,
+            stale_after_seconds: breakdown_core::ai::ApplyProgress::STALE_AFTER
+                .num_seconds()
+                .unsigned_abs(),
+        });
+    }
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(crate::apply_runner::accepted_run(
+            run_id,
+            chrono::Utc::now(),
+        )),
+    ))
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]

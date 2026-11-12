@@ -166,6 +166,9 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 decision_telemetry: None,
                 apply_progress: None,
                 applied: false,
+                // Issue #899: no durable apply slot on a pre-change job literal.
+                apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_result: None,
             };
             Ok(Some(job))
         }
@@ -439,6 +442,9 @@ async fn merge_worker_success_records_telemetry() {
         decision_telemetry: None,
         apply_progress: None,
         applied: false,
+        // Issue #899: no durable apply slot on a pre-change job literal.
+        apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_result: None,
     };
     let queue = Arc::new(MergeCaptureQueue {
         job: job.clone(),
@@ -683,6 +689,10 @@ impl AiImportQueue for FakeQueue {
             seq: state.apply_run_seq,
             progress: state.apply_progress.last().cloned().flatten(),
             owner_claimed_at: state.apply_run_claimed_at,
+            // Issue #899: this double tracks the pre-change slot (owner +
+            // payload), so the durable state machine reads as `idle`.
+            state: breakdown_core::ai::ApplyState::Idle,
+            result: None,
         }))
     }
 
@@ -904,6 +914,9 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         decision_telemetry: None,
         apply_progress: None,
         applied: false,
+        // Issue #899: no durable apply slot on a pre-change job literal.
+        apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_result: None,
     }
 }
 
@@ -1010,6 +1023,9 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         decision_telemetry: None,
         apply_progress: None,
         applied: false,
+        // Issue #899: no durable apply slot on a pre-change job literal.
+        apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_result: None,
     }
 }
 
