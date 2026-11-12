@@ -1528,7 +1528,7 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
     seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
 
-    let (status, Json(accepted)) = apply_ai_import::<FakePorts>(
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
         State(state(ports.clone())),
         user(),
         Path(job_id),
@@ -1722,7 +1722,7 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
         },
     );
 
-    let (status, Json(accepted)) = apply_ai_import::<FakePorts>(
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
         State(state(ports.clone())),
         user(),
         Path(job_id),
@@ -1830,7 +1830,7 @@ async fn apply_ai_import_labels_an_existing_group_target() {
         );
     }
 
-    let (status, Json(accepted)) = apply_ai_import::<FakePorts>(
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
         State(state(ports.clone())),
         user(),
         Path(job_id),
@@ -2105,7 +2105,7 @@ async fn apply_ai_import_reports_the_target_episode() {
         },
     );
 
-    let (status, Json(accepted)) = apply_ai_import::<FakePorts>(
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
         State(state(ports.clone())),
         user(),
         Path(job_id),
@@ -2170,7 +2170,7 @@ async fn apply_ai_import_records_every_target_episode() {
     let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
     let default_episode = EpisodeId::new();
 
-    let (status, Json(accepted)) = apply_ai_import::<FakePorts>(
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
         State(state(ports.clone())),
         user(),
         Path(job_id),
@@ -4208,7 +4208,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
         .await
         .insert(target.id, target.clone());
 
-    let (status, Json(accepted)) = apply_ai_import::<FakePorts>(
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
         State(state(ports.clone())),
         user(),
         Path(job_id),
