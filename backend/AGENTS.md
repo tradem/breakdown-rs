@@ -130,6 +130,7 @@ descriptive goes to the instruction that scopes it** — backend-relative globs 
 |---|---|---|
 | `backend/.github/instructions/architecture-hard-rules.instructions.md` | `backend/crates/**/*.rs` | Hard-rules long form (CQRS boundary, no panics, SQL, AUTHZ-GATE, ADR-031, reliability) |
 | `backend/.github/instructions/domain-model.instructions.md` | `backend/crates/{core,infra,api}/src/**` | Domain model: hierarchy, aggregates, invariants, seeding saga |
+| `backend/.github/instructions/write-path-cost-model.instructions.md` | `backend/crates/{core,infra,api}/src/**` | What one append costs (`1 + N` fsyncs), batching guidance, no durability relaxation (ADR-016 §6, issue #901) |
 | `backend/.github/instructions/photo-context.instructions.md` | `backend/crates/*/src/photo/**`, backend compose/scripts | Photo bounded context, sagas, Garage/S3 env, GC |
 | `backend/.github/instructions/ai-import.instructions.md` | `backend/crates/*/src/ai/**`, `backend/config/default_ai_prompts.toml` | AI import: env, concurrency permits, payload storage/GC, restart recovery |
 | `backend/.github/instructions/integration-tests.instructions.md` | `backend/crates/integration-tests/**` | Tiers, local execution, troubleshooting, gotchas, CI prerequisites |
