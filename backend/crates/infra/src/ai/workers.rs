@@ -9,7 +9,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Error as AnyhowError;
 use std::collections::HashMap;
@@ -2513,25 +2513,10 @@ where
             ApplyRunHeartbeat::spawn(Arc::clone(&self.queue), preview_id, run_id, progress_rx);
 
         // CR-002/D2 wants the outfit step refused on an archived target season.
-        // Resolved ONCE here instead of per outfit (one SQL trip per look, which
-        // a script apply paid hundreds of times for one row that cannot change
-        // within a run) — see `OutfitDispatch::season_archived`.
-        let season_archived = match self
-            .season_repo
-            .find_by_id(season_id.0) // ast-grep-ignore: cqrs-boundary
-            .await
-        {
-            Ok(season) => Some(season.archived),
-            Err(error) if is_infra_outage(&error) => return Err(error),
-            Err(error) => {
-                tracing::warn!(
-                    %error,
-                    season = %season_id.0,
-                    "AI apply could not resolve the target season; every outfit step will be refused",
-                );
-                None
-            }
-        };
+        // Resolved lazily on the FIRST outfit create (`version < OUTFIT_CREATED`),
+        // then reused for the rest of the run: at most one SQL trip per script
+        // apply, and zero when the plan creates no new outfits.
+        let mut season_archived: Option<Option<bool>> = None;
 
         // Wall-clock accounting for the live-test question "why does an import
         // of 50-60 scenes take so long". One line at the end answers it without
@@ -2539,8 +2524,8 @@ where
         // response reports. Read it before tuning anything (the rows are strictly
         // sequential today, so per-row time × rows is the whole story).
         let apply_started = Instant::now();
-        let mut row_ms_total: u128 = 0;
-        let mut row_ms_max: u128 = 0;
+        let mut row_elapsed_total = Duration::ZERO;
+        let mut row_elapsed_max = Duration::ZERO;
 
         for row in &plan.scenes {
             let row_started = Instant::now();
@@ -2829,7 +2814,7 @@ where
                                 outfit,
                                 character_id,
                                 piece_ids: pieces.piece_ids,
-                                season_archived,
+                                season_archived: &mut season_archived,
                             },
                         )
                         .await?
@@ -2959,9 +2944,9 @@ where
             // One completed row (issue #762). Throttled: the stride keeps the
             // write count bounded for a large preview, the last row and the
             // finalizing boundary always write.
-            let row_ms = row_started.elapsed().as_millis();
-            row_ms_total = row_ms_total.saturating_add(row_ms);
-            row_ms_max = row_ms_max.max(row_ms);
+            let row_elapsed = row_started.elapsed();
+            row_elapsed_total = row_elapsed_total.saturating_add(row_elapsed);
+            row_elapsed_max = row_elapsed_max.max(row_elapsed);
             apply_progress.applied = apply_progress.applied.saturating_add(1);
             // The heartbeat publishes whatever the counters say right now, so it
             // learns every row boundary (issue #800 #3); `send_replace` has no
@@ -2982,12 +2967,11 @@ where
             run_id = %run_id.as_uuid(),
             rows = apply_progress.total,
             elapsed_ms = apply_started.elapsed().as_millis() as u64,
-            row_ms_avg = if apply_progress.total == 0 {
-                0
-            } else {
-                (row_ms_total / u128::from(apply_progress.total)) as u64
-            },
-            row_ms_max = row_ms_max as u64,
+            row_ms_avg = row_elapsed_total
+                .checked_div(apply_progress.total)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            row_ms_max = row_elapsed_max.as_millis() as u64,
             applied = result.applied.len(),
             created_episodes = result.created_episodes,
             created_characters = result.created_characters,
@@ -3564,7 +3548,33 @@ where
         let notes_pending = version < OUTFIT_NOTED;
 
         if version < OUTFIT_CREATED {
-            match season_archived {
+            let archived = match *season_archived {
+                Some(verdict) => verdict,
+                None => {
+                    // CR-002/D2: non-audit dispatch precondition (refuse outfit
+                    // creation on an archived season; `project_id` comes from
+                    // the API edge request, AGENTS.md §1).
+                    let verdict = match self
+                        .season_repo
+                        .find_by_id(season_id.0) // ast-grep-ignore: cqrs-boundary
+                        .await
+                    {
+                        Ok(season) => Some(season.archived),
+                        Err(error) if is_infra_outage(&error) => return Err(error),
+                        Err(error) => {
+                            tracing::warn!(
+                                %error,
+                                season = %season_id.0,
+                                "AI apply could not resolve the target season; every outfit step will be refused",
+                            );
+                            None
+                        }
+                    };
+                    *season_archived = Some(verdict);
+                    verdict
+                }
+            };
+            match archived {
                 Some(true) => {
                     tracing::info!(
                         season = %season_id.0,
@@ -3577,10 +3587,6 @@ where
                 }
                 Some(false) => {}
                 None => {
-                    tracing::warn!(
-                        season = %season_id.0,
-                        "AI apply could not resolve the target season; refusing the outfit step"
-                    );
                     return Ok(ChainStep::Refused(
                         UnappliedOutfitReason::BindingRejected,
                         DomainError::conflict("target season could not be resolved").to_string(),
@@ -4230,15 +4236,18 @@ struct OutfitDispatch<'a> {
     character_id: Uuid,
     /// The ids of the outfit's pieces, created in the step before.
     piece_ids: Vec<Uuid>,
-    /// The archived verdict of the target season, resolved ONCE per apply run
-    /// (`None` = the read failed permanently, so every outfit step refuses).
+    /// The archived verdict of the target season, resolved lazily ONCE on the
+    /// first outfit create (`None` outer = not queried yet; `Some(None)` =
+    /// permanent lookup failure, so every outfit step refuses).
     ///
     /// CR-002/D2 requires the outfit step to refuse an archived season; it used
     /// to re-read the same season row per outfit (one SQL round trip per look,
-    /// hundreds per script). The read is now taken once at the start of the run:
-    /// the verdict can only go stale *within* one apply, and every other phase
-    /// of the same run already works against the season it resolved then.
-    season_archived: Option<bool>,
+    /// hundreds per script). The read is now taken on the first outfit the run
+    /// actually creates and then reused: the verdict can only go stale *within*
+    /// one apply, and every other phase of the same run already works against
+    /// the season it resolved then. A plan that creates no outfit never pays the
+    /// read at all.
+    season_archived: &'a mut Option<Option<bool>>,
 }
 
 /// The per-row day-link context of the script apply (issue #706). Bundled so

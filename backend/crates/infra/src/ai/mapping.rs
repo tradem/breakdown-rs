@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -296,10 +297,15 @@ impl<M: AiImportMappingRepository> AiImportMappingRepository for CachedMappings<
         let next = mapping.clone();
         self.inner.insert(mapping).await?;
         let mut snapshot = self.write();
-        let advances = snapshot
-            .rows
-            .get(&key)
-            .is_none_or(|current| current.aggregate_version < next.aggregate_version);
+        // Only mirror `next` when the cache can prove the SQL `WHERE
+        // aggregate_version < EXCLUDED.aggregate_version` guard accepted it:
+        // either we already hold the row at a lower version, or `complete`
+        // proves no row existed in the store. For an unprimed unknown key,
+        // leave the cache empty so a later `find` reads the store's winner.
+        let advances = match snapshot.rows.get(&key) {
+            Some(current) => current.aggregate_version < next.aggregate_version,
+            None => snapshot.complete.contains(&key.0),
+        };
         if advances {
             snapshot.rows.insert(key, next);
         }
