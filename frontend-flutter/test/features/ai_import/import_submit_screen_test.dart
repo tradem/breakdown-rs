@@ -1028,6 +1028,64 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('a FAILED block-list fetch still offers "Block extrahieren" '
+        '— not knowing the season\'s blocks is when the script\'s block is the '
+        'only target left (review of #898)', (tester) async {
+      // Design D2: extraction depends on no block list at all, so a fetch
+      // failure must not hide the one choice that still produces a target.
+      await setupContainer(
+        realActiveBlock: true,
+        seasonId: 'season-1',
+        seasonNumber: '2',
+        blocks: const Left(_networkDown),
+        // The season comes from the shell chip (no block scope), so the
+        // resolution has to FETCH the block list — and can fail doing it.
+        shellActiveSeason: seasonView('season-1'),
+      );
+      await pumpScreen(tester);
+      repo.uploadResult = Right(AiUploadAck(jobId: 'job-1', duplicate: false));
+
+      expect(
+        find.byKey(const Key('ai-import-target-error')),
+        findsOneWidget,
+        reason: 'the failure is still stated with its retry',
+      );
+      final extract = find.byKey(const Key('ai-import-target-extract'));
+      expect(
+        extract,
+        findsOneWidget,
+        reason:
+            'switch/create need the block list; extraction needs only a season',
+      );
+
+      // The kind switch clears the per-dispatch intent, so it runs BEFORE the
+      // choice (the same order the screen's own flow allows).
+      container
+          .read(aiImportSubmitControllerProvider.notifier)
+          .selectKind(AiImportKind.schedule);
+      await tester.pumpAndSettle();
+      await tester.tap(extract);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('ai-import-target-line')))
+            .data,
+        contains('Block unknown'),
+      );
+
+      container
+          .read(pendingDocumentProvider.notifier)
+          .set(AiImportDocument.csv('day,scene\n1,12'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('ai-import-submit')));
+      await tester.tap(find.byKey(const Key('ai-import-submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.uploadCalls, 1);
+      expect(repo.lastSendActiveBlock, isFalse);
+      expect(repo.lastDeclaredSeasonId, 'season-1');
+    });
+
     testWidgets('a season without blocks offers "Block anlegen", opens the '
         'SHARED create form and adopts the created block as the target '
         '(issue #828)', (tester) async {

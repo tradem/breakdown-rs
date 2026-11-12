@@ -139,8 +139,13 @@ season's block list can decide between them.
   unchanged from #829.
 - **Repeated uploads of the same document**: the dedup key is
   `user|kind|format|document-digest` (no block), so the block-less dispatch does
-  not break duplicate detection — the second upload answers the duplicate
-  callout as before.
+  not break duplicate detection. The consequence is worth stating: a block-less
+  re-upload of a document already imported into a block returns the EXISTING job
+  with its original block target, so the extraction choice does not apply to
+  that job and the preview does not adopt the script's block. Getting the
+  script's block for that document needs the old job gone first — delete the
+  terminal job (`DELETE /v1/ai-import/jobs/{id}`, terminal-only, #671) and
+  upload again.
 - **Episode-number collisions** in a newly created block (numbers are
   project-unique) stay a visible `409 episode.number-already-exists` at apply
   time — a pre-existing outcome of #829's adoption, not introduced here.

@@ -164,6 +164,13 @@ class AiImportSubmitController extends _$AiImportSubmitController {
     // `application/pdf` — a non-PDF source (pasted text, CSV picked
     // before a kind switch) is rejected CLIENT-side with the stable
     // 415 code instead of sending mismatched bytes to the backend.
+    // Review of #898: the extraction intent is consumed AFTER the upload
+    // resolves, so the notifier is captured BEFORE the await. Riverpod 3
+    // throws `UnmountedRefException` on a disposed `ref`, and the screen may
+    // drop this controller while the upload is in flight — a `ref.read` in the
+    // continuation would replace the successful acknowledgement (the very case
+    // the `ref.mounted` fallback below exists to keep).
+    final extractBlock = ref.read(aiImportExtractBlockProvider.notifier);
     final ack = await switch (state) {
       AiImportKind.schedule => repo.uploadSchedule(
         body: document.body,
@@ -198,8 +205,10 @@ class AiImportSubmitController extends _$AiImportSubmitController {
       uploaded,
     ) async {
       // Issue #898: the extraction intent is consumed by the dispatch it was
-      // chosen for — a later upload must not go block-less because of it.
-      ref.read(aiImportExtractBlockProvider.notifier).set(false);
+      // chosen for — a later upload must not go block-less because of it. The
+      // notifier was captured before the await, so this also runs for a
+      // controller that died mid-upload.
+      extractBlock.set(false);
       if (!ref.mounted) {
         // The screen went away mid-upload; the job exists server-side
         // and is remembered nowhere — the honest state for a dead
@@ -309,16 +318,17 @@ final pendingDocumentProvider =
 /// expressed by clearing `activeBlockProvider`** — that scope is the shell's
 /// block pill and the target of other screens, so dropping it to mean "this
 /// import" would silently re-target them.
-class ImportExtractBlock extends Notifier<bool> {
+///
+/// `keepAlive` because the flag outlives its subscriber: the dispatch resets it
+/// through a captured notifier after the upload resolves, and a controller the
+/// screen dropped mid-upload must still consume the intent (review of #898).
+@Riverpod(keepAlive: true)
+class AiImportExtractBlock extends _$AiImportExtractBlock {
   @override
   bool build() => false;
 
   void set(bool value) => state = value;
 }
-
-final aiImportExtractBlockProvider = NotifierProvider<ImportExtractBlock, bool>(
-  ImportExtractBlock.new,
-);
 
 /// Non-fatal context-stamp warning (design §2.3): the upload ack was
 /// accepted and the job exists server-side, but the client-local

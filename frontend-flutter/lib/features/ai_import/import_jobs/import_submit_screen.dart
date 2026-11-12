@@ -500,11 +500,15 @@ class _ImportTargetCard extends ConsumerWidget {
           !alreadyPicking &&
           (blocks?.isNotEmpty ?? false);
       canCreate = resolvedValue != null;
-      // Issue #898: extracting needs no block list at all — only a season that
-      // HAS a block to extract away from. In the empty arm the block-less
-      // dispatch is already the only target that exists (and applies without a
-      // tap), so a second way to say the same thing is not offered.
-      canExtract = resolvedValue != null && !resolvedValue.isEmpty;
+      // Issue #898: extracting needs no block list at all — only a season to
+      // extract INTO. In the empty arm the block-less dispatch is already the
+      // only target that exists (and applies without a tap), so a second way to
+      // say the same thing is not offered. A FAILED block-list fetch keeps the
+      // option: not knowing the season's blocks is exactly when the script's
+      // own block is the only target left (design D2).
+      canExtract =
+          resolution is AsyncError ||
+          (resolvedValue != null && !resolvedValue.isEmpty);
     }
 
     // Issue #898: while the choice is active the card must not name a block the
