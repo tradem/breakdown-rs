@@ -173,15 +173,14 @@ class FakePipelineRepository extends AiImportRepository {
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
     bool waitForTerminal = true,
-  }) async =>
-      ApplySucceeded(
-        ApplyImportSummary(
-          (b) => b
-            ..appliedCount = 1
-            ..createdDays = 1
-            ..plannedSceneShoots = 2,
-        ),
-      );
+  }) async => ApplySucceeded(
+    ApplyImportSummary(
+      (b) => b
+        ..appliedCount = 1
+        ..createdDays = 1
+        ..plannedSceneShoots = 2,
+    ),
+  );
 }
 
 /// Immediate scheduler (deterministic, no wall-clock on-device).

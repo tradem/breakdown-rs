@@ -141,8 +141,11 @@ ApplyRunOutcome _runOutcome(ApplyImportSummary summary) => ApplyRunOutcome(
 /// dispatch failure is testable without an SSE socket (issue #899). The seam
 /// exists on the real class for exactly this: `awaitRunOutcome`.
 class _AttachingRepository extends AiImportRepository {
-  _AttachingRepository(super.api, super.cache, {List<ApplyReconciliation?>? outcomes})
-    : outcomes = outcomes ?? const [];
+  _AttachingRepository(
+    super.api,
+    super.cache, {
+    List<ApplyReconciliation?>? outcomes,
+  }) : outcomes = outcomes ?? const [];
 
   final List<ApplyReconciliation?> outcomes;
   int outcomeCalls = 0;
@@ -1409,7 +1412,11 @@ void main() {
       final jobBody = serializers.serializeWith(
         AiImportJobResponse.serializer,
         _jobResponse(
-          _job('j1', status: JobStatus.succeeded, applyState: ApplyState.running),
+          _job(
+            'j1',
+            status: JobStatus.succeeded,
+            applyState: ApplyState.running,
+          ),
         ),
       )!;
       final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
@@ -1528,14 +1535,11 @@ void main() {
       );
       expect(outcome, isA<ApplySucceeded>());
       expect(attempts, [1], reason: 'the retry re-arms the progress watch');
-      expect(
-        requests.map((r) => r.uri.path).toList(),
-        [
-          '/v1/ai-import/jobs/j1/apply',
-          '/v1/ai-import/jobs/j1',
-          '/v1/ai-import/jobs/j1/apply',
-        ],
-      );
+      expect(requests.map((r) => r.uri.path).toList(), [
+        '/v1/ai-import/jobs/j1/apply',
+        '/v1/ai-import/jobs/j1',
+        '/v1/ai-import/jobs/j1/apply',
+      ]);
     });
 
     test('409 ai-import.apply-in-flight is an ATTACH, not a retry '
@@ -1580,11 +1584,9 @@ void main() {
       );
       expect(outcome, isA<ApplySucceeded>());
       expect(repo.outcomeCalls, 1, reason: 'the refusal attaches to the run');
-      expect(
-        requests.map((r) => r.uri.path).toList(),
-        ['/v1/ai-import/jobs/j1/apply'],
-        reason: 'attach, don\'t repeat: exactly one dispatch',
-      );
+      expect(requests.map((r) => r.uri.path).toList(), [
+        '/v1/ai-import/jobs/j1/apply',
+      ], reason: 'attach, don\'t repeat: exactly one dispatch');
       expect(scheduler.ticks, 0);
     });
 
@@ -1801,7 +1803,6 @@ void main() {
       expect(requests, hasLength(1));
       expect(repo.outcomeCalls, 0);
     });
-
 
     test('apply watch: an IDLE close does not consume the failure budget '
         '(CodeRabbit review)', () async {

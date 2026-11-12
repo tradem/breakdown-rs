@@ -204,7 +204,6 @@ class FakeAiImportRepository extends AiImportRepository {
     return summary == null ? null : ApplySucceeded(summary);
   }
 
-
   @override
   Stream<Result<AiImportJob>> watch(
     String jobId, {

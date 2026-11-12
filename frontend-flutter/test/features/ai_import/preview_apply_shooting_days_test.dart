@@ -166,7 +166,6 @@ class FakeAiImportRepository extends AiImportRepository {
     if (index < 0) return null;
     return ApplySucceeded(applyQueue.removeAt(index).getRight().toNullable()!);
   }
-
 }
 
 class _ImmediateScheduler extends ReconciliationScheduler {

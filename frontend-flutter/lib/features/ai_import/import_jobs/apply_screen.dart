@@ -1225,8 +1225,8 @@ class _OutcomeCard extends StatelessWidget {
       // `ai-import` — "report the row as partially applied with the reason").
       // `reason` is a typed wire enum, so this copy is keyed on it and never
       // parsed out of server prose.
-      for (final unapplied in outcome.unappliedOutfits?.toList() ??
-          const <UnappliedOutfit>[])
+      for (final unapplied
+          in outcome.unappliedOutfits?.toList() ?? const <UnappliedOutfit>[])
         Text(
           key: Key(
             'ai-apply-unapplied-outfit-${unapplied.draftRef}'

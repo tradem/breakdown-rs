@@ -411,7 +411,6 @@ class FakeAiImportRepository extends AiImportRepository {
     return ApplySucceeded(applyQueue.removeAt(index).getRight().toNullable()!);
   }
 
-
   @override
   Future<Result<AiImportJob>> getJobAndCache(
     String id, {

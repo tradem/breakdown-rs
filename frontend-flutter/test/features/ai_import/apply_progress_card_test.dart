@@ -137,8 +137,7 @@ void main() {
   group('foldApplyRun', () {
     Future<List<AiApplyRunState>> fold(
       List<Result<ApplyProgressFrame>> events,
-    ) =>
-        foldApplyRun(Stream.fromIterable(events)).toList();
+    ) => foldApplyRun(Stream.fromIterable(events)).toList();
 
     test('a progress frame is a running state', () async {
       final progress = _run(startedAt: now, applied: 3);
@@ -152,7 +151,10 @@ void main() {
       'the end frame after a run KEEPS the run (never "nothing started")',
       () async {
         final progress = _run(startedAt: now, applied: 7);
-        final out = await fold([Right(ApplyProgressFrame(progress: progress)), const Right(ApplyProgressFrame())]);
+        final out = await fold([
+          Right(ApplyProgressFrame(progress: progress)),
+          const Right(ApplyProgressFrame()),
+        ]);
         expect(out, hasLength(2));
         expect(out.first, isA<AiApplyRunRunning>());
         expect(out.last, isA<AiApplyRunFinished>());

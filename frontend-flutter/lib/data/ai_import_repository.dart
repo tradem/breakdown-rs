@@ -776,7 +776,8 @@ class AiImportRepository extends BaseRepository {
           // The run is over when the SLOT says so (a terminal state, whose
           // frame also carries the persisted outcome) or when an older server
           // cleared the payload without a state — the pre-#899 end signal.
-          if (frame.isTerminal || (frame.progress == null && frame.state == null)) {
+          if (frame.isTerminal ||
+              (frame.progress == null && frame.state == null)) {
             finished = true;
           }
         }
@@ -938,42 +939,39 @@ class AiImportRepository extends BaseRepository {
   Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
-  ) => run(
-    () async {
-      final response = await api.dio.post<Object?>(
-        '/v1/ai-import/jobs/$jobId/apply',
-        // `standardSerializers` carries the `StandardJsonPlugin`, so the body
-        // is JSON rather than the bare pair-list form the bare instance emits.
-        data: standardSerializers.serializeWith(
-          ApplyAiImportRequest.serializer,
-          request,
-        ),
-        options: Options(
-          contentType: 'application/json',
-          receiveTimeout: kApplyDispatchTimeout,
-        ),
+  ) => run(() async {
+    final response = await api.dio.post<Object?>(
+      '/v1/ai-import/jobs/$jobId/apply',
+      // `standardSerializers` carries the `StandardJsonPlugin`, so the body
+      // is JSON rather than the bare pair-list form the bare instance emits.
+      data: standardSerializers.serializeWith(
+        ApplyAiImportRequest.serializer,
+        request,
+      ),
+      options: Options(
+        contentType: 'application/json',
+        receiveTimeout: kApplyDispatchTimeout,
+      ),
+    );
+    final body = response.data;
+    if (body is! Map<String, dynamic>) {
+      throw const FormatException('the apply answer is not an object');
+    }
+    final accepted = standardSerializers.deserializeWith(
+      ApplyRunAccepted.serializer,
+      body,
+    );
+    if (accepted == null) {
+      throw const FormatException(
+        'the apply answer is not an ApplyRunAccepted',
       );
-      final body = response.data;
-      if (body is! Map<String, dynamic>) {
-        throw const FormatException('the apply answer is not an object');
-      }
-      final accepted = standardSerializers.deserializeWith(
-        ApplyRunAccepted.serializer,
-        body,
-      );
-      if (accepted == null) {
-        throw const FormatException(
-          'the apply answer is not an ApplyRunAccepted',
-        );
-      }
-      return Response<ApplyRunAccepted>(
-        requestOptions: response.requestOptions,
-        statusCode: response.statusCode,
-        data: accepted,
-      );
-    },
-    dtoInvalidCode: 'ai_import.dto_invalid',
-  );
+    }
+    return Response<ApplyRunAccepted>(
+      requestOptions: response.requestOptions,
+      statusCode: response.statusCode,
+      data: accepted,
+    );
+  }, dtoInvalidCode: 'ai_import.dto_invalid');
 
   /// Dispatch an apply and follow the **durable run** to its outcome (issues
   /// #899, #805).
@@ -1219,7 +1217,9 @@ class AiImportRepository extends BaseRepository {
     // into `ApplyRunOutcomeOneOf` / `ApplyRunOutcomeOneOf1`.
     final value = job.applyResult?.oneOf.value;
     return switch (value) {
-      final ApplyRunOutcomeOneOf succeeded => ApplySucceeded(succeeded.succeeded),
+      final ApplyRunOutcomeOneOf succeeded => ApplySucceeded(
+        succeeded.succeeded,
+      ),
       final ApplyRunOutcomeOneOf1 failure => ApplyBlocked(
         ProblemError(code: failure.failed.code),
       ),

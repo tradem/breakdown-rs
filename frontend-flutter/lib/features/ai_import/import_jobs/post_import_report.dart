@@ -160,10 +160,7 @@ class AiPostImportReport extends _$AiPostImportReport {
 ///
 /// Both the review screen's inline outcome card and the destination banner use
 /// it, so the two can never tell different stories about the same apply.
-String aiApplyOutcomeLine(
-  AppLocalizations l10n,
-  ApplyImportSummary outcome,
-) =>
+String aiApplyOutcomeLine(AppLocalizations l10n, ApplyImportSummary outcome) =>
     outcome.createdCharacters > 0 ||
         outcome.createdPieces > 0 ||
         outcome.createdOutfits > 0 ||
