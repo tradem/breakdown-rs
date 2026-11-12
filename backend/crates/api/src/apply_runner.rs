@@ -72,6 +72,23 @@ const EMPTY_APPLY_SLEEP: Duration = Duration::from_secs(2);
 /// a real apply (minutes of writes), and single-flight is per preview anyway.
 const APPLY_POLL_BATCH: i64 = 4;
 
+/// The script apply worker this app's port set produces.
+///
+/// A named alias, not an inline nine-parameter type: the type is instantiated in
+/// exactly one place (`ApplyRunner::script_worker`) and named once, which keeps
+/// `clippy::type_complexity` quiet without an `#[allow]`.
+type ScriptApplyWorker<P> = ApplyWorker<
+    <P as Ports>::SceneCommands,
+    <P as Ports>::CharacterCommands,
+    <P as Ports>::WardrobeCommands,
+    <P as Ports>::EpisodeCommands,
+    <P as Ports>::ShootingDayCommands,
+    <P as Ports>::SceneShootCommands,
+    infra::ai::CachedMappings<<P as Ports>::AiImportMappingRepo>,
+    <P as Ports>::AiImportQueue,
+    <P as Ports>::SeasonRepo,
+>;
+
 /// Execute one claimed apply run (issue #899).
 ///
 /// Assembles the same infra worker the handler used to build, so the write path
@@ -308,19 +325,7 @@ impl<P: Ports> ApplyRunner<P> {
 
     /// The script apply worker over this app's ports (same wiring the handler
     /// used before #899 moved the run out of the request).
-    fn script_worker(
-        &self,
-    ) -> ApplyWorker<
-        P::SceneCommands,
-        P::CharacterCommands,
-        P::WardrobeCommands,
-        P::EpisodeCommands,
-        P::ShootingDayCommands,
-        P::SceneShootCommands,
-        infra::ai::CachedMappings<P::AiImportMappingRepo>,
-        P::AiImportQueue,
-        P::SeasonRepo,
-    > {
+    fn script_worker(&self) -> ScriptApplyWorker<P> {
         ApplyWorker {
             scene_commands: Arc::new(self.state.ports.scene_commands().clone()),
             character_commands: Arc::new(self.state.ports.character_commands().clone()),

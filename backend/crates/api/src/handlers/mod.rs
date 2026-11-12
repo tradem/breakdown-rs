@@ -66,9 +66,9 @@ use breakdown_core::episode::ports::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::{
-    AI_IMPORT_APPLY_IN_FLIGHT, BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED,
-    MEMBERSHIP_NOT_FOUND, PIECE_CONTAINER_UNRESOLVED, SCENE_SHOOT_PAIR_ALREADY_EXISTS,
-    SEASON_ARCHIVED, SEASON_NOT_FOUND, SEASON_NUMBER_ALREADY_EXISTS, SHOOTING_DAY_EPISODE_MISMATCH,
+    BLOCK_NUMBER_ALREADY_EXISTS, COSTUME_CATEGORY_ARCHIVED, MEMBERSHIP_NOT_FOUND,
+    PIECE_CONTAINER_UNRESOLVED, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SEASON_ARCHIVED, SEASON_NOT_FOUND,
+    SEASON_NUMBER_ALREADY_EXISTS, SHOOTING_DAY_EPISODE_MISMATCH,
 };
 use breakdown_core::membership::policy::{Action, PolicyDecision, SeasonAuthContext};
 use breakdown_core::membership::views::MembershipView;
@@ -150,10 +150,7 @@ use uuid::Uuid;
 // The `AiDocumentStore` / `AiPreviewStore` traits are imported for method
 // resolution on the generic `P::AiDocumentStore` / `P::AiPreviewStore`
 // associated types (issue #176).
-use infra::ai::{
-    AiDocumentStore, AiPreviewStore, AppliedEpisodeIdentity, ApplyScriptRequest, ApplyWorker,
-    ScheduleApplyRequest, ScheduleApplyWorker,
-};
+use infra::ai::{AiDocumentStore, AiPreviewStore, AppliedEpisodeIdentity};
 
 use crate::auth::{ActiveBlock, CurrentUser};
 use crate::state::{AppState, Ports, ProductionPorts};
