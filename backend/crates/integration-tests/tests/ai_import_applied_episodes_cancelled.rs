@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Tier-4 proof for the acceptance criterion of issue #864: **an apply whose
 //! caller disappears mid-run still leaves its applied-episode summary
@@ -19,9 +20,9 @@
 //!
 //! 1. at least one scene mapping survived the cancellation (otherwise the test
 //!    would prove nothing about a partial run);
-//! 2. the job read derives EXACTLY those committed rows — one entry for the
-//!    target episode whose `applied_count` equals the number of confirmed scene
-//!    mappings at read time.
+//! 2. the job read derives a NON-EMPTY summary for that work — one entry for the
+//!    target episode, whose `applied_count` covers at least every confirmed
+//!    scene mapping and never exceeds the preview's row count.
 //!
 //! Why the risk is real and the test worth its cost: the summary used to be a
 //! post-apply write in the handler, which this cancellation skips by
@@ -31,9 +32,18 @@
 //! pass.
 //!
 //! Determinism: no poll races the worker and no wall-clock budget is involved.
-//! The gate blocks the worker until the test drops the future, so exactly ONE
-//! scene mapping is committed when the run is cancelled, and the summary must
-//! report exactly that.
+//! The gate holds the run inside its FIRST row, so the cancellation always
+//! interrupts a run whose work is partially durable.
+//!
+//! The counts are asserted as BOUNDS, not as an equality, because the row loop
+//! applies up to `APPLY_ROW_CONCURRENCY` rows concurrently: every in-flight row
+//! appends its scene, while only the rows that also reached their confirm have a
+//! confirmed mapping. The derivation counts a row as soon as its scene is in the
+//! read model (`mapping JOIN projection_scene`, no version filter — a reservation
+//! whose scene exists is real work), so `applied_count` may legitimately exceed
+//! the confirmed mappings at the moment of the abort. What must never happen is
+//! the opposite: a confirmed row missing from the summary, or a count larger
+//! than the plan.
 
 #![allow(
     clippy::unwrap_used,
@@ -134,6 +144,10 @@ async fn confirmed_scene_mappings(pool: &sqlx::PgPool, job: AiImportJobId) -> Re
 /// apply future. Without such a gate "cancel an in-flight apply" is a race: a
 /// three-row preview can finish between the test's observation and its `abort()`,
 /// and the assertion would then pass without ever exercising cancellation.
+///
+/// Only that one `insert` is parked. Rows the bounded fan-out runs beside it keep
+/// going until the test aborts the future, which is why the test counts
+/// confirmed mappings as a range instead of assuming a single one.
 struct GatedMappings<M> {
     inner: M,
     /// Signalled once the first scene mapping is durably confirmed.
@@ -184,18 +198,41 @@ impl<M: AiImportMappingRepository> AiImportMappingRepository for GatedMappings<M
     }
 }
 
-/// Wait until the scene projector has projected every committed scene row.
-async fn await_scene_projection(pool: &sqlx::PgPool, expected: i64) -> Result<()> {
+/// Wait until the scene projector has projected every CONFIRMED scene mapping of
+/// this job — the derivation's join, read backwards.
+///
+/// A bare `count(*) FROM projection_scene` is not enough: rows of the batch that
+/// the cancel interrupted also append their scenes, so "enough scenes exist" says
+/// nothing about the rows whose mapping is confirmed. This wait makes
+/// `applied_count >= committed` a fact instead of a hope.
+async fn await_confirmed_scene_projection(
+    pool: &sqlx::PgPool,
+    job: AiImportJobId,
+    expected: i64,
+) -> Result<()> {
     let deadline = std::time::Instant::now() + DEADLINE;
     loop {
-        let projected: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM projection_scene"#)
-            .fetch_one(pool)
-            .await?;
+        let projected: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*)
+            FROM ai_import.projection_ai_import_mapping AS mapping
+            JOIN projection_scene AS scene ON scene.id = mapping.aggregate_id
+            WHERE mapping.preview_id = $1
+              AND mapping.aggregate_kind = 'scene'
+              AND mapping.aggregate_version > 0
+            "#,
+        )
+        .bind(job.as_uuid())
+        .fetch_one(pool)
+        .await?;
         if projected >= expected {
             return Ok(());
         }
         if std::time::Instant::now() >= deadline {
-            anyhow::bail!("scene projection never caught up ({projected} of {expected})");
+            anyhow::bail!(
+                "the confirmed scene rows never reached the projection \
+                 ({projected} of {expected})"
+            );
         }
         tokio::time::sleep(POLL).await;
     }
@@ -271,6 +308,10 @@ async fn a_cancelled_apply_still_leaves_its_summary_resolvable() -> Result<()> {
         .await?;
 
     let preview = preview();
+    // The plan's row count: what the run can commit at most, however many rows
+    // the bounded fan-out has in flight when the cancel lands. Taken before the
+    // preview moves into the spawned apply.
+    let planned = i64::try_from(preview.scenes.len()).unwrap_or(i64::MAX);
     let decisions = decisions();
     let episode_id = EpisodeId::new();
     let season_id = SeasonId::new();
@@ -323,13 +364,19 @@ async fn a_cancelled_apply_still_leaves_its_summary_resolvable() -> Result<()> {
         Ok(Err(domain)) => panic!("the apply failed instead of being cancelled: {domain}"),
     }
 
+    // The plan's row count: what the run can commit at most, however many rows
+    // the fan-out has in flight when the cancel lands.
     let committed = confirmed_scene_mappings(&pool, job).await?;
-    assert_eq!(
-        committed, 1,
-        "the gate parks the run at its FIRST confirmed scene mapping, so exactly \
-         one row is committed"
+    assert!(
+        committed >= 1,
+        "the gate parks the run at its FIRST confirmed scene mapping, so at least \
+         one row is durable"
     );
-    await_scene_projection(&pool, committed).await?;
+    assert!(
+        committed <= planned,
+        "no more rows can confirm than the plan has: {committed} of {planned}"
+    );
+    await_confirmed_scene_projection(&pool, job, committed).await?;
 
     let read = queue.get(job).await?.expect("the seeded job exists");
     assert_eq!(
@@ -343,10 +390,19 @@ async fn a_cancelled_apply_still_leaves_its_summary_resolvable() -> Result<()> {
         entry.id, episode_id.0,
         "the entry names the episode the committed rows landed in"
     );
-    assert_eq!(
-        i64::from(entry.applied_count),
-        committed,
-        "the derived count is exactly the rows that committed before the cancel"
+    // Bounds, deliberately not an equality: the rows the fan-out had in flight
+    // append their scenes before their mapping is confirmed, and the derivation
+    // counts a row as soon as its scene is in the read model. Every confirmed row
+    // must be covered, and the summary must never claim more rows than the plan.
+    assert!(
+        i64::from(entry.applied_count) >= committed,
+        "the derived count must cover every confirmed row: {} < {committed}",
+        entry.applied_count
+    );
+    assert!(
+        i64::from(entry.applied_count) <= planned,
+        "the derived count must never exceed the plan: {} > {planned}",
+        entry.applied_count
     );
     assert_eq!(
         entry.number, None,
