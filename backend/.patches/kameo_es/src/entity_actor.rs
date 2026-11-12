@@ -313,6 +313,11 @@ impl<E: Entity + Apply> EntityActor<E> {
         );
 
         let emappend_start = Instant::now();
+        // (issue #900, M2) Count the attempt at the one place an append happens,
+        // so a caller can read "how many appends did my run issue" from the
+        // counters instead of guessing from its dispatch count (a conflict
+        // retry appends twice for one command).
+        crate::write_metrics::record_append(new_events.len());
         let info = match self.conn.emappend(self.partition_key, &new_events).await {
             Ok(info) => info,
             Err(err) => return Err(AppendEventsError::from_sierra_err(err, events, metadata)),
@@ -691,6 +696,12 @@ impl<E, M> AppendEventsError<E, M> {
                 code: ErrorCode::WrongVer,
                 message,
             } => {
+                // (issue #900, M2) A `WRONGVER` is a cost the caller pays for:
+                // the transaction actor resyncs the stream and retries, so one
+                // command can issue several appends. Counted here, the single
+                // detection point, rather than in the retry arm — a conflict
+                // answered outside `execute` must not be invisible.
+                crate::write_metrics::record_version_conflict();
                 let ParsedStream {
                     partition_key,
                     stream_id,

@@ -7,8 +7,11 @@ pub mod entity_actor;
 pub mod error;
 pub mod event_handler;
 pub mod transaction;
+// Append counters for the caller's own attribution (issue #900, M2).
+pub mod write_metrics;
 
 pub use connection_pool::ConnectionPool;
+pub use write_metrics::{append_metrics, AppendMetrics};
 
 use std::{convert::Infallible, io};
 
