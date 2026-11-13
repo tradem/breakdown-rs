@@ -38,6 +38,11 @@ class ProjectedRow {
 ///   row) retries on the acknowledged aggregate version instead of on id
 ///   presence, so a lagging projector cannot leave a stale `version` behind
 ///   (issue #916);
+/// - an **update** overlay (a row-level edit of an already-projected row, so
+///   id presence is true before the fetch) drops only when the fetched row
+///   reaches its acknowledged version — the runner hands the fresh
+///   [ProjectedRow] rows to the owning overlay store, which fences by version
+///   (issue #917);
 /// - late acknowledgements during a pass get a dedicated follow-up pass so
 ///   every acknowledgement gets a post-ack projection fetch.
 ///
@@ -50,7 +55,7 @@ class ReconciliationCoordinator {
     required this._refetchProjection,
     required this._hasOverlays,
     required this._markAllReconciling,
-    required this._dropProjectedIds,
+    required this._dropProjectedRows,
     required this._markAllStale,
     required this._scheduler,
     required this._isAlive,
@@ -65,7 +70,14 @@ class ReconciliationCoordinator {
   /// access so a disposed/rebuilt notifier is never cached across passes).
   final bool Function() _hasOverlays;
   final void Function() _markAllReconciling;
-  final void Function(Set<String> ids) _dropProjectedIds;
+
+  /// Hands the rows a successful refetch produced to the owning overlay store,
+  /// which drops the overlays the projection has caught up with. The rows
+  /// carry the aggregate `version`, so an update overlay is fenced by its
+  /// acknowledged version while a create overlay still completes on id
+  /// presence (issue #917).
+  final void Function(List<ProjectedRow> rows) _dropProjectedRows;
+
   final void Function(String warning) _markAllStale;
 
   /// Resolves the (injectable, fakeable) backoff scheduler.
@@ -119,10 +131,12 @@ class ReconciliationCoordinator {
   }
 
   /// Bounded-retry reconciliation pass: refetch the projection up to
-  /// [kMaxReconcileAttempts] times, dropping overlays whose id the
-  /// projection now carries (or, for an overlay-less acknowledgement, whose
-  /// version has caught up). On exhaustion the overlays are retained and
-  /// marked `stale` — Drift still contains no unprojected row.
+  /// [kMaxReconcileAttempts] times, dropping the overlays the projection has
+  /// caught up with (by version for a row-level update overlay, by id for a
+  /// create overlay) — or, for an overlay-less acknowledgement, once the
+  /// projected version reaches the acknowledged one. On exhaustion the
+  /// overlays are retained and marked `stale` — Drift still contains no
+  /// unprojected row.
   ///
   /// Also used by pull-to-refresh: a stale overlay gets a fresh bounded
   /// pass. Single-flight: concurrent callers join the in-flight pass.
@@ -173,7 +187,7 @@ class ReconciliationCoordinator {
       final rows = await _refetchProjection();
       if (!_isAlive()) return;
       if (rows != null) {
-        _dropProjectedIds(rows.map((row) => row.id).toSet());
+        _dropProjectedRows(rows);
       }
       if (!_hasOverlays()) return;
     }

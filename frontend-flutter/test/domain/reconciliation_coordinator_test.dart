@@ -8,6 +8,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:frontend_flutter/domain/reconciliation/overlay_store.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconcile_coordinator.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 
@@ -33,6 +34,41 @@ class _ManualScheduler extends ReconciliationScheduler {
   }
 }
 
+class _TestOverlay implements ReconciliationOverlay {
+  const _TestOverlay({
+    required this.id,
+    required this.acknowledgedVersion,
+    required this.status,
+    this.warning,
+  });
+
+  @override
+  final String id;
+
+  /// `null` for a create overlay (id presence completes it), the acked
+  /// aggregate version for an update overlay (version fence, issue #917).
+  @override
+  final int? acknowledgedVersion;
+
+  @override
+  final OverlayStatus status;
+
+  @override
+  final String? warning;
+
+  @override
+  _TestOverlay copyWithStatus({
+    OverlayStatus? status,
+    String? warning,
+    bool clearWarning = false,
+  }) => _TestOverlay(
+    id: id,
+    acknowledgedVersion: acknowledgedVersion,
+    status: status ?? this.status,
+    warning: clearWarning ? null : (warning ?? this.warning),
+  );
+}
+
 class _Harness {
   _Harness({Map<String, int>? projected, this.fetchError = false, this.script})
     : projected = projected ?? {};
@@ -46,7 +82,11 @@ class _Harness {
   final List<Map<String, int>>? script;
   bool fetchError;
   bool alive = true;
-  final overlays = <String, String>{}; // id -> status
+
+  /// The overlay store, with the REAL generic helpers under test: a create
+  /// overlay (`acknowledgedVersion == null`) completes on id presence, an
+  /// update overlay only on the version fence (issue #917).
+  final overlays = <String, _TestOverlay>{};
   final scheduler = _ManualScheduler();
   int refetches = 0;
   int _scriptCursor = 0;
@@ -62,13 +102,21 @@ class _Harness {
       ];
     },
     hasOverlays: () => overlays.isNotEmpty,
-    markAllReconciling: () => overlays.updateAll((_, _) => 'reconciling'),
-    dropProjectedIds: (ids) =>
-        overlays.removeWhere((id, _) => ids.contains(id)),
-    markAllStale: (warning) => overlays.updateAll((_, _) => 'stale:$warning'),
+    markAllReconciling: () =>
+        _replace(overlayMarkAllReconciling(overlays.values.toList())),
+    dropProjectedRows: (rows) =>
+        _replace(overlayDropProjectedRows(overlays.values.toList(), rows)),
+    markAllStale: (warning) =>
+        _replace(overlayMarkAllStale(overlays.values.toList(), warning)),
     scheduler: () => scheduler,
     isAlive: () => alive,
   );
+
+  void _replace(List<_TestOverlay> next) {
+    overlays
+      ..clear()
+      ..addEntries(next.map((o) => MapEntry(o.id, o)));
+  }
 
   Map<String, int> _nextProjection() {
     final scripted = script;
@@ -78,8 +126,25 @@ class _Harness {
     return snapshot;
   }
 
+  /// A create overlay: its id only appears in the projection once the create
+  /// reached the read model, so id presence is the completion signal.
   void ack(String id) {
-    overlays[id] = 'acknowledged';
+    overlays[id] = _TestOverlay(
+      id: id,
+      acknowledgedVersion: null,
+      status: OverlayStatus.acknowledged,
+    );
+    coordinator.ackReceived();
+  }
+
+  /// An UPDATE overlay: the row is already projected, so only the acked
+  /// version can confirm it (issue #917).
+  void ackUpdate(String id, {required int version}) {
+    overlays[id] = _TestOverlay(
+      id: id,
+      acknowledgedVersion: version,
+      status: OverlayStatus.acknowledged,
+    );
     coordinator.ackReceived();
   }
 
@@ -128,7 +193,8 @@ void main() {
         h.ack('n1');
         await h.drain(h.coordinator.reconcile());
         expect(h.overlays.keys, ['n1']);
-        expect(h.overlays['n1'], 'stale:$kReconcileStaleWarningCode');
+        expect(h.overlays['n1']?.status, OverlayStatus.stale);
+        expect(h.overlays['n1']?.warning, kReconcileStaleWarningCode);
         // Bounded budget: attempts 1..3 each requested one tick.
         expect(h.scheduler.ticks, kMaxReconcileAttempts - 1);
         expect(h.refetches, kMaxReconcileAttempts);
@@ -164,7 +230,7 @@ void main() {
       h.ack('n1');
       h.alive = false; // the owner was recycled before the pass ran
       await h.coordinator.reconcile(); // must not throw
-      expect(h.overlays['n1'], 'acknowledged');
+      expect(h.overlays['n1']?.status, OverlayStatus.acknowledged);
       expect(h.scheduler.ticks, 0);
     });
 
@@ -290,5 +356,89 @@ void main() {
         expect(h.scheduler.ticks, 0);
       },
     );
+  });
+
+  // Issue #917: an UPDATE overlay is the sibling gap of #916. Its id is in the
+  // projection BEFORE the fetch, so an id-presence drop discarded it after the
+  // first fetch even though the projection still served the pre-command
+  // version — the screen fell back to the old value and the old `version`.
+  group('update-overlay version fence (issue #917)', () {
+    test(
+      'a lagging projection keeps the overlay and its value through the whole '
+      'budget, then retains it as stale',
+      () async {
+        final h = _Harness(
+          script: [
+            {'s1': 1},
+          ],
+        );
+        h.ackUpdate('s1', version: 2);
+        await h.drain(h.coordinator.reconcile());
+        // The existing budget, not a new one, and never a wall-clock loop.
+        expect(h.refetches, kMaxReconcileAttempts);
+        expect(h.scheduler.ticks, kMaxReconcileAttempts - 1);
+        // Never dropped on a stale row: the optimistic value stays visible
+        // and is retained (not discarded) when the budget is spent.
+        expect(h.overlays['s1']?.status, OverlayStatus.stale);
+        expect(h.overlays['s1']?.warning, kReconcileStaleWarningCode);
+        expect(h.overlays['s1']?.acknowledgedVersion, 2);
+      },
+    );
+
+    test('an in-budget freshening drops the overlay', () async {
+      // Attempt 0 sees the pre-command version, attempt 1 has caught up.
+      final h = _Harness(
+        script: [
+          {'s1': 1},
+          {'s1': 2},
+        ],
+      );
+      h.ackUpdate('s1', version: 2);
+      await h.drain(h.coordinator.reconcile());
+      expect(h.refetches, 2);
+      expect(h.scheduler.ticks, 1);
+      expect(h.overlays, isEmpty);
+    });
+
+    test(
+      'a row already at the acknowledged version drops on the first fetch',
+      () async {
+        final h = _Harness(
+          script: [
+            {'s1': 3},
+          ],
+        );
+        h.ackUpdate('s1', version: 2);
+        await h.drain(h.coordinator.reconcile());
+        expect(h.refetches, 1);
+        expect(h.scheduler.ticks, 0);
+        expect(h.overlays, isEmpty);
+      },
+    );
+
+    test('a create overlay keeps completing on id presence', () async {
+      final h = _Harness(
+        script: [
+          {'c1': 1},
+        ],
+      );
+      // No acknowledged version: the id only appears once the create is
+      // projected, so presence IS the signal (issue #917 criteria 2).
+      h.ack('c1');
+      await h.drain(h.coordinator.reconcile());
+      expect(h.refetches, 1);
+      expect(h.overlays, isEmpty);
+    });
+
+    test('a row the projection does not carry keeps the overlay', () async {
+      final h = _Harness(
+        script: [
+          {'other': 1},
+        ],
+      );
+      h.ackUpdate('s1', version: 2);
+      await h.drain(h.coordinator.reconcile());
+      expect(h.overlays['s1']?.status, OverlayStatus.stale);
+    });
   });
 }

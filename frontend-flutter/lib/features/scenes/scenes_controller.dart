@@ -185,8 +185,10 @@ class ScenesOverlays extends _$ScenesOverlays {
 
   void markAllReconciling() => state = overlayMarkAllReconciling(state);
 
-  void dropProjectedIds(Set<String> projectedIds) =>
-      state = overlayDropProjectedIds(state, projectedIds);
+  /// Version-fenced drop against the rows the pass fetched (issue #917):
+  /// [SceneOverlay] is create-only, so id presence completes it.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 
   void markAllStale(String warning) =>
       state = overlayMarkAllStale(state, warning);
@@ -206,15 +208,14 @@ class SceneBeatOverlays extends _$SceneBeatOverlays {
   void markAllStale(String warning) =>
       state = overlayMarkAllStale(state, warning);
 
-  /// Version-fence drop: an overlay survives until the projected scene row
-  /// carries `version >= overlay.version`. A lagging projection NEVER
+  /// Version-fence drop (issue #917): an overlay survives until the projected
+  /// scene row carries `version >= overlay.version`. A lagging projection NEVER
   /// discards the optimistic render — bounded-retry reconciliation keeps
   /// refetching; exhaustion marks the overlay stale instead (no silent
-  /// discard).
-  void dropProjected(Map<String, int> projectedVersions) => state = [
-    for (final o in state)
-      if ((projectedVersions[o.id] ?? -1) < o.version) o,
-  ];
+  /// discard). An overlay whose scene id the projection no longer carries is
+  /// kept (a create that has not reached the read model).
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 }
 
 /// Controller-state optimistic DETAILS-overlay store per episode (issue
@@ -235,10 +236,8 @@ class SceneDetailsOverlays extends _$SceneDetailsOverlays {
       state = overlayMarkAllStale(state, warning);
 
   /// Version-fence drop: identical contract to [SceneBeatOverlays].
-  void dropProjected(Map<String, int> projectedVersions) => state = [
-    for (final o in state)
-      if ((projectedVersions[o.id] ?? -1) < o.version) o,
-  ];
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 }
 
 /// Last command failure per episode, surfaced to the screen keyed on `code`.
@@ -295,28 +294,18 @@ class ScenesController extends _$ScenesController {
   /// No overlay-less version acknowledgement is recorded here (issue #916
   /// audit): every scene write (create, details, outfit beats) re-acks an
   /// optimistic overlay, so the overlay branch owns reconciliation. The
-  /// id+version rows this seam returns already feed the version-fenced
-  /// beat/details drops below.
+  /// `id` + `version` rows this seam returns feed the runner's version-fenced
+  /// drop (issue #917).
   ReconciliationCoordinator? _coordinator;
-
-  /// Aggregate versions from the latest successful projection refetch
-  /// (capture for the version-fence drop below — the drop callback must
-  /// compare against the EXACT rows this pass fetched, not a later rebuild's
-  /// view).
-  Map<String, int> _lastProjectedVersions = const {};
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
         refetchProjection: () async {
           final rows = await _refetchProjection();
           if (rows == null) return null;
-          final projected = [
+          return [
             for (final s in rows) ProjectedRow(id: s.id, version: s.version),
           ];
-          _lastProjectedVersions = {
-            for (final row in projected) row.id: row.version,
-          };
-          return projected;
         },
         hasOverlays: () =>
             ref.read(scenesOverlaysProvider(episodeId)).isNotEmpty ||
@@ -333,21 +322,21 @@ class ScenesController extends _$ScenesController {
               .read(sceneDetailsOverlaysProvider(episodeId).notifier)
               .markAllReconciling();
         },
-        dropProjectedIds: (ids) {
-          ref
-              .read(scenesOverlaysProvider(episodeId).notifier)
-              .dropProjectedIds(ids);
+        dropProjectedRows: (rows) {
           // Beat and DETAILS overlays drop ONLY on a version-fenced
           // projection row: an id-presence drop would discard the optimistic
           // render on a lagging row (pre-ack aggregate version) — and for
           // details updates the scene row EXISTS from the start, so an
-          // id-presence drop would fire immediately (issue #834).
+          // id-presence drop would fire immediately (issues #834, #917).
+          ref
+              .read(scenesOverlaysProvider(episodeId).notifier)
+              .dropProjectedRows(rows);
           ref
               .read(sceneBeatOverlaysProvider(episodeId).notifier)
-              .dropProjected(_lastProjectedVersions);
+              .dropProjectedRows(rows);
           ref
               .read(sceneDetailsOverlaysProvider(episodeId).notifier)
-              .dropProjected(_lastProjectedVersions);
+              .dropProjectedRows(rows);
         },
         markAllStale: (warning) {
           ref

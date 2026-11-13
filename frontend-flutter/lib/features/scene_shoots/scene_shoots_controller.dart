@@ -21,8 +21,7 @@ import '../../data/cache/cache_generation.dart';
 import '../../data/cache/scene_shoot_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/scene_shoot_repository.dart';
-import '../../domain/reconciliation/reconcile_coordinator.dart';
-import '../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../domain/reconciliation/reconciliation.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../pieces/pieces_controller.dart';
 import 'scene_shoots_state.dart';
@@ -172,26 +171,12 @@ class SceneShootsOverlays extends _$SceneShootsOverlays {
     for (final o in state) o.copyWithStatus(status: OverlayStatus.reconciling),
   ];
 
-  /// Drops overlays whose version fence the fresh [projection] passes.
-  void pruneWithProjection(List<SceneShootView> projection) {
-    final byId = {for (final s in projection) s.id: s};
-    state = state.where((o) {
-      final row = byId[o.id];
-      // Create-path overlays (id absent) clear once the id projects.
-      if (row == null) return true;
-      return !shouldClearSceneShootOverlay(
-        projection: row,
-        acknowledgedVersion: o.acknowledgedVersion,
-      );
-    }).toList();
-  }
-
-  void dropProjectedIds(Set<String> projectedIds) {
-    // Id-based drops never apply to row-level edits (same id before and
-    // after); the fence in [pruneWithProjection] owns clearing. Create-path
-    // overlays are pruned there too once the projection carries the id
-    // with a satisfying version.
-  }
+  /// Version-fenced drop against the rows the reconciliation pass just fetched
+  /// (issues #834, #917): a row-level edit keeps its id, so only the projected
+  /// version can confirm it. A create-path overlay (id absent from the
+  /// projection) survives, and a lagging row keeps the optimistic render.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 
   void markAllStale(String warning) => state = [
     for (final o in state)
@@ -253,9 +238,9 @@ class SceneShootsController extends _$SceneShootsController {
         markAllReconciling: () => ref
             .read(sceneShootsOverlaysProvider(scope).notifier)
             .markAllReconciling(),
-        dropProjectedIds: (ids) => ref
+        dropProjectedRows: (rows) => ref
             .read(sceneShootsOverlaysProvider(scope).notifier)
-            .dropProjectedIds(ids),
+            .dropProjectedRows(rows),
         markAllStale: (warning) => ref
             .read(sceneShootsOverlaysProvider(scope).notifier)
             .markAllStale(warning),
@@ -757,15 +742,8 @@ class SceneShootsController extends _$SceneShootsController {
     ref.invalidate(sceneShootsListFetchProvider(scope));
     ref.invalidate(sceneShootsCacheStaleProvider(scope));
     final res = await ref.read(sceneShootsListFetchProvider(scope).future);
-    return res.match((_) => null, (rows) {
-      // The version fence owns overlay clearing: prune against the fresh
-      // projection here so a stale row never restores pre-command state.
-      if (ref.mounted) {
-        ref
-            .read(sceneShootsOverlaysProvider(scope).notifier)
-            .pruneWithProjection(rows);
-      }
-      return rows;
-    });
+    // The runner's version-fenced drop owns overlay clearing (issue #917), so
+    // a stale row never restores pre-command state.
+    return res.match((_) => null, (rows) => rows);
   }
 }

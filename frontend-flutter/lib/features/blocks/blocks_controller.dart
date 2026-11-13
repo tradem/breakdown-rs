@@ -199,8 +199,10 @@ class BlocksOverlays extends _$BlocksOverlays {
 
   void markAllReconciling() => state = overlayMarkAllReconciling(state);
 
-  void dropProjectedIds(Set<String> projectedIds) =>
-      state = overlayDropProjectedIds(state, projectedIds);
+  /// Version-fenced drop against the rows the pass fetched (issue #917):
+  /// these are create-only overlays, so id presence completes them.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 
   void markAllStale(String warning) =>
       state = overlayMarkAllStale(state, warning);
@@ -241,9 +243,9 @@ class BlocksController extends _$BlocksController {
         markAllReconciling: () => ref
             .read(blocksOverlaysProvider(seasonId).notifier)
             .markAllReconciling(),
-        dropProjectedIds: (ids) => ref
+        dropProjectedRows: (rows) => ref
             .read(blocksOverlaysProvider(seasonId).notifier)
-            .dropProjectedIds(ids),
+            .dropProjectedRows(rows),
         markAllStale: (warning) => ref
             .read(blocksOverlaysProvider(seasonId).notifier)
             .markAllStale(warning),

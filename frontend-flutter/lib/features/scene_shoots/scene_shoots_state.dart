@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3 (opencode)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -79,6 +80,7 @@ class SceneShootRowOverlay implements ReconciliationOverlay {
 
   /// The `AggregateVersion` the command acknowledgement returned. The fence
   /// clears this overlay only when the projection reaches it.
+  @override
   final int acknowledgedVersion;
 
   @override

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +24,14 @@ class ShootingDayOverlay implements ReconciliationOverlay {
 
   @override
   final String id;
+
+  /// Create-only overlay: the id appears in the projection only once the
+  /// create reached the read model, so id presence IS the completion signal
+  /// (issue #917). The day mutations (reschedule / rename / reorder /
+  /// unschedule / archive) insert no overlay and reconcile on the
+  /// acknowledged version instead (issue #916).
+  @override
+  int? get acknowledgedVersion => null;
 
   final String? label;
   final String? orderKey;

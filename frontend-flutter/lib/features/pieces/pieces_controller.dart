@@ -24,9 +24,8 @@ import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/piece_repository.dart';
 import '../../data/photo_repository.dart';
 import '../../l10n/generated/app_localizations.dart';
-import '../../domain/reconciliation/reconcile_coordinator.dart';
+import '../../domain/reconciliation/reconciliation.dart';
 import '../photos/widgets/photo_gallery.dart';
-import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'pieces_state.dart';
 
 part 'pieces_controller.g.dart';
@@ -172,26 +171,12 @@ class PiecesOverlays extends _$PiecesOverlays {
     for (final o in state) o.copyWithStatus(status: OverlayStatus.reconciling),
   ];
 
-  /// Drops overlays whose version fence the fresh [projection] passes.
-  void pruneWithProjection(List<PieceView> projection) {
-    final byId = {for (final c in projection) c.id: c};
-    state = state.where((o) {
-      final row = byId[o.id];
-      // Create-path overlays (id absent) clear once the id projects.
-      if (row == null) return true;
-      return !shouldClearPieceOverlay(
-        projection: row,
-        acknowledgedVersion: o.acknowledgedVersion,
-      );
-    }).toList();
-  }
-
-  void dropProjectedIds(Set<String> projectedIds) {
-    // Id-based drops never apply to row-level edits (same id before and
-    // after); the fence in [pruneWithProjection] owns clearing. Create-path
-    // overlays are pruned there too once the projection carries the id
-    // with a satisfying version.
-  }
+  /// Version-fenced drop against the rows the reconciliation pass just fetched
+  /// (issues #834, #917): a row-level edit keeps its id, so only the projected
+  /// version can confirm it. A create-path overlay (id absent from the
+  /// projection) survives, and a lagging row keeps the optimistic render.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 
   void markAllStale(String warning) => state = [
     for (final o in state)
@@ -293,9 +278,9 @@ class PiecesController extends _$PiecesController {
         markAllReconciling: () => ref
             .read(piecesOverlaysProvider(seasonId).notifier)
             .markAllReconciling(),
-        dropProjectedIds: (ids) => ref
+        dropProjectedRows: (rows) => ref
             .read(piecesOverlaysProvider(seasonId).notifier)
-            .dropProjectedIds(ids),
+            .dropProjectedRows(rows),
         markAllStale: (warning) => ref
             .read(piecesOverlaysProvider(seasonId).notifier)
             .markAllStale(warning),
@@ -1139,16 +1124,9 @@ class PiecesController extends _$PiecesController {
     ref.invalidate(piecesListFetchProvider(seasonId));
     ref.invalidate(piecesCacheStaleProvider(seasonId));
     final res = await ref.read(piecesListFetchProvider(seasonId).future);
-    return res.match((_) => null, (rows) {
-      // The version fence owns overlay clearing: prune against the fresh
-      // projection here so a stale row never restores pre-command state.
-      if (ref.mounted) {
-        ref
-            .read(piecesOverlaysProvider(seasonId).notifier)
-            .pruneWithProjection(rows);
-      }
-      return rows;
-    });
+    // The runner's version-fenced drop owns overlay clearing (issue #917), so
+    // a stale row never restores pre-command state.
+    return res.match((_) => null, (rows) => rows);
   }
 }
 

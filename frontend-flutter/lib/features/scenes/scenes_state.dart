@@ -29,6 +29,14 @@ class SceneOverlay implements ReconciliationOverlay {
   /// Summary carried from the submitted form (display-only field).
   final String? summary;
 
+  /// Create-only overlay: the id appears in the projection only once the
+  /// create reached the read model, so id presence IS the completion signal
+  /// (issue #917). The beat and details UPDATE overlays below carry the
+  /// acknowledged version instead — an existing scene row is projected from
+  /// the start, so their id presence says nothing.
+  @override
+  int? get acknowledgedVersion => null;
+
   /// Scene number carried from the submitted form (display-only field).
   final int? sceneNumber;
 
@@ -90,6 +98,12 @@ class SceneBeatOverlay implements ReconciliationOverlay {
   /// The aggregate version echoed by the command's 2xx ack — the new
   /// scene version (optimistic fence + version source for follow-ups).
   final int version;
+
+  /// Implements [ReconciliationOverlay.acknowledgedVersion]: a row-level
+  /// edit keeps the scene id, so id presence can never signal completion —
+  /// the acknowledged version is the fence (issue #917).
+  @override
+  int get acknowledgedVersion => version;
 
   /// The complete optimistic beat list of the scene (display rendering
   /// only; the projected list replaces it once the projection catches up).
@@ -157,6 +171,12 @@ class SceneDetailsOverlay implements ReconciliationOverlay {
 
   /// The aggregate version echoed by the command's 2xx ack.
   final int version;
+
+  /// Implements [ReconciliationOverlay.acknowledgedVersion]: a row-level
+  /// edit keeps the scene id, so id presence can never signal completion —
+  /// the acknowledged version is the fence (issue #917).
+  @override
+  int get acknowledgedVersion => version;
 
   /// The complete optimistic details payload (display rendering only; the
   /// projected row replaces it once the projection catches up).

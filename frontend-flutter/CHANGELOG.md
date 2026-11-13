@@ -23,6 +23,30 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **An inline edit no longer flashes the old value back while the projector
+  catches up** (`0.4.0-beta.56+148 → 0.4.0-beta.57+149`, issue #917). The
+  sibling gap of #916, on the other branch of the shared reconciliation runner:
+  an overlay that carries an *update* to an already-projected row was dropped by
+  **id presence** — which is already true before the fetch — so a lagging
+  projector discarded it after a single fetch. The screen fell back to the stale
+  projected row (old value **and** old `version`), and that stale version became
+  the echo of the next command.
+  - **The overlay contract states its completion signal.** Every optimistic
+    overlay now declares whether it is a *create* overlay (its id only appears
+    once the create is projected → id presence completes it) or an *update*
+    overlay (it carries the acknowledged aggregate version). One shared
+    version-fenced drop replaces the id-based one and keeps an update overlay
+    visible until the fetched row reaches that version — through the existing
+    retry budget, marked stale on exhaustion, never silently discarded.
+  - **One mechanism instead of four.** `pieces`, `scene_shoots` and `outfits`
+    lose their bespoke typed prune inside the refetch seam, and `scenes` loses
+    the controller-side capture of the last projected versions: all of them now
+    route through the shared drop, so a new aggregate cannot regress to the
+    id-presence defect.
+  - **Nothing else changed.** Create overlays keep today's id-based completion,
+    the #916 overlay-less path is untouched, and no wire, Drift-schema or copy
+    change is involved.
+
 - **A command that adds no optimistic row now waits for the projection
   instead of trusting one fetch** (`0.4.0-beta.55+147 → 0.4.0-beta.56+148`,
   issue #916). Found by the CodeRabbit review of #915 and pre-existing on the

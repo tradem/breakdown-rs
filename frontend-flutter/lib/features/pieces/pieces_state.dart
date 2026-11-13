@@ -63,6 +63,7 @@ class PieceRowOverlay implements ReconciliationOverlay {
 
   /// The `AggregateVersion` the command acknowledgement returned. The fence
   /// clears this overlay only when the projection reaches it.
+  @override
   final int acknowledgedVersion;
 
   @override
