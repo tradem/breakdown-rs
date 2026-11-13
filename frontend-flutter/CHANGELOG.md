@@ -23,6 +23,35 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The scene's cast is a real table, and its actions moved into a row menu**
+  (`0.4.0-beta.53+145 → 0.4.0-beta.54+146`). Reported from the scene detail
+  (German UI, dark mode): the cast was hidden behind an expand step, four
+  icon-only buttons squeezed the look column down to a stub, and in dark mode
+  nothing separated one row from the next.
+  - **The cast is always visible.** A cast list is page content — "who is in this
+    scene, in which look" — so the section renders a plain header (counts kept:
+    "Figuren 2 · Looks 3") followed by the table, with no expand step. Sections
+    that legitimately collapse (the shooting days) keep their card.
+  - **The table reads as a table, in both schemes.** A label band on
+    `surfaceContainerHighest`, zebra rows (`surface` / `surfaceContainerLow`) and
+    an `outlineVariant` hairline now give the rows a column axis and row identity
+    — drawn only from `ColorScheme` roles, and the separator is a border, not a
+    `Divider` (the #834 no-divider rule keeps holding for section chrome).
+  - **Four labelled actions instead of four icon buttons.** Tapping (or
+    long-pressing) a row opens a menu: *Figur bearbeiten (Cast)* (disabled, never
+    absent, when no season row resolves), *Look zuweisen* / *+ Lookwechsel*,
+    *Look entfernen* (only where the row carries a beat) and *Figur entfernen*
+    (only on the figure's first row). The row is one tap target of at least
+    48 dp with a chevron cue and a screen-reader hint; long look labels wrap to a
+    second line instead of ellipsizing.
+  - **Nothing else moved.** The confirm dialogs, the version echo, the optimistic
+    overlay with bounded-retry reconciliation, the AUTHZ-GATE and the localized
+    per-`code` error copy are untouched; the reconciling and stale status rows
+    still render below the table.
+  - No wire change, no new provider, no new token. Widget tests pin the chrome in
+    both brightnesses, the per-row item availability and every menu path; the
+    scene-detail golden is re-baselined and gains an explicit dark-mode twin.
+
 - **Applying an import survives the app going away**
   (`0.4.0-beta.52+144 → 0.4.0-beta.53+145`; generated client
   `breakdown_api` 1.7.0 → 1.8.0).

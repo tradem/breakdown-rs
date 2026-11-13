@@ -433,6 +433,32 @@ Future<void> _pumpFrames(WidgetTester tester, {int n = 20}) async {
   }
 }
 
+/// The background an issue #902 cast row is banded with: the `Material` the
+/// row's tap target sits in (`surface` / `surfaceContainerLow`).
+Color? _castRowBand(WidgetTester tester, String rowKey) => tester
+    .widget<Material>(
+      find
+          .ancestor(
+            of: find.byKey(Key(rowKey)),
+            matching: find.byType(Material),
+          )
+          .first,
+    )
+    .color;
+
+/// The row separator decoration (a border, never a `Divider` widget).
+BoxBorder? _castRowBorder(WidgetTester tester, String rowKey) {
+  final decorated = tester.widget<DecoratedBox>(
+    find
+        .descendant(
+          of: find.byKey(Key(rowKey)),
+          matching: find.byType(DecoratedBox),
+        )
+        .first,
+  );
+  return (decorated.decoration as BoxDecoration).border;
+}
+
 void main() {
   late CacheDatabase db;
   late _FakeCharacterRepository characters;
@@ -440,6 +466,10 @@ void main() {
   late ProviderContainer container;
 
   late _FakeSceneRepository sceneRepo;
+
+  /// The manual (never self-settling) reconciliation scheduler — a test that
+  /// needs the bounded retry pass to advance or exhaust drives it explicitly.
+  late ManualReconciliationScheduler scheduler;
 
   Future<void> setupContainer({
     SceneView? scene,
@@ -471,6 +501,7 @@ void main() {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     sceneRepo = _FakeSceneRepository(BreakdownApi(), SceneCacheDao(db));
+    scheduler = ManualReconciliationScheduler();
     characters = _FakeCharacterRepository(
       BreakdownApi(),
       CharacterCacheDao(db),
@@ -502,9 +533,7 @@ void main() {
           (ref) async => Right(seasonRows ?? [_seasonView()]),
         ),
         shootingDayRepositoryProvider.overrideWithValue(days),
-        reconciliationSchedulerProvider.overrideWith(
-          (ref) => ManualReconciliationScheduler(),
-        ),
+        reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         membershipFetchProvider('season-1').overrideWith(
           (ref) async =>
               Right(_membership(capabilities: membershipCapabilities)),
@@ -539,7 +568,7 @@ void main() {
     await container.read(authSessionControllerProvider.notifier).signIn();
   }
 
-  Future<void> pumpDetail(WidgetTester tester) async {
+  Future<void> pumpDetail(WidgetTester tester, {ThemeData? theme}) async {
     tester.view.physicalSize = const Size(800, 1200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -547,6 +576,8 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
+          // Issue #902: the table banding is asserted in BOTH brightnesses.
+          theme: theme,
           home: SceneDetailScreen(
             seasonId: 'season-1',
             // Issue #669: the screen carries the parent EpisodeView the
@@ -621,6 +652,46 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Issue #902: the cast table renders WITHOUT an expand step — a test only
+  /// scrolls the section into the viewport.
+  Future<void> revealCast(WidgetTester tester) async {
+    await revealInDetail(tester, find.byKey(const Key('scene-cast-scene-1')));
+  }
+
+  /// Issue #902: the four row actions are LABELLED items of a context menu —
+  /// every action flow opens its row first, then taps its item. Both helpers
+  /// pump FIXED frames instead of `pumpAndSettle`: a reconciling overlay's
+  /// indeterminate spinner (or a SnackBar) would never settle
+  /// (deterministic-tests rule, AGENTS §6).
+  Future<void> openCastMenu(WidgetTester tester, String rowKey) async {
+    final row = find.byKey(Key(rowKey));
+    await revealInDetail(tester, row);
+    await tester.tap(row);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  /// Taps one item of the row menu the previous [openCastMenu] opened.
+  ///
+  /// The sheet's exit animation runs on FIXED frames (never `pumpAndSettle`):
+  /// several flows end in a SnackBar or a spinner the assertion still has to
+  /// see (deterministic-tests rule, AGENTS §6).
+  Future<void> tapCastMenu(WidgetTester tester, String itemKey) async {
+    await tester.tap(find.byKey(Key(itemKey)));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  /// Dismisses an open row menu without choosing an action (barrier tap).
+  Future<void> closeCastMenu(WidgetTester tester) async {
+    await tester.tapAt(const Offset(5, 5));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
   group('SceneDetailScreen characters (5.2)', () {
     testWidgets('assigned list resolves names via read-DTO join', (
       tester,
@@ -631,7 +702,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       expect(find.text('Ada'), findsOneWidget);
       expect(find.byKey(const Key('scene-character-ch-1')), findsOneWidget);
     });
@@ -642,7 +713,7 @@ void main() {
       await setupContainer(scene: _scene());
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       expect(find.byKey(const Key('scene-cast-empty')), findsOneWidget);
     });
 
@@ -659,7 +730,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       await tester.tap(find.byKey(const Key('scene-character-assign-scene-1')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('assign-character-ch-9')));
@@ -687,8 +758,9 @@ void main() {
         ),
       );
       await pumpDetail(tester);
-      await expandSection(tester, 'scene-cast-scene-1');
-      await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
       await _pumpFrames(tester);
       // A failed read is not an empty wardrobe: no command, and the network
       // copy instead of the "create the look in the Cast view" hint.
@@ -714,10 +786,10 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       characters.nextWrite = const Left(_conflict);
-      await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
-      await tester.pumpAndSettle();
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-remove-character-ch-1');
       // Confirm-first: no dispatch before confirmation.
       expect(characters.sceneUnassignCalls, 0);
       await tester.tap(
@@ -739,7 +811,7 @@ void main() {
       await setupContainer(scene: null, characterRows: const []);
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       expect(find.byKey(const Key('scene-detail-gone')), findsOneWidget);
       expect(find.byKey(const Key('scene-detail-loading')), findsNothing);
     });
@@ -753,11 +825,11 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       final baseline = fetchLog.length;
       characters.nextWrite = const Left(_conflict);
-      await tester.tap(find.byKey(const Key('scene-character-remove-ch-1')));
-      await tester.pumpAndSettle();
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-remove-character-ch-1');
       await tester.tap(
         find.byKey(const Key('scene-character-remove-confirm-ch-1')),
       );
@@ -778,7 +850,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       final button = tester.widget<FilledButton>(
         find.byKey(const Key('scene-character-assign-scene-1')),
       );
@@ -1087,7 +1159,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
 
       expect(find.text('Characters (1) · Looks (0)'), findsOneWidget);
       expect(find.byKey(const Key('scene-character-c-1')), findsOneWidget);
@@ -1118,7 +1190,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
       // The beat casts an OUTFIT, so its label is the look's joined name.
       expect(find.text('Hut'), findsOneWidget);
@@ -1151,7 +1223,7 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
       expect(find.byKey(const Key('scene-piece-beat-ch-1-1')), findsOneWidget);
       // The `→` prefix marks the change from the previous beat of the
@@ -1171,12 +1243,22 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       expect(find.byKey(const Key('scene-piece-empty-ch-1')), findsOneWidget);
-      expect(find.byKey(const Key('scene-piece-assign-ch-1')), findsOneWidget);
-      // No add-change affordance without an existing beat.
+      // Issue #902: the one action that fixes a missing look is an item of the
+      // row menu, not a button in the row — and it exists ONLY in the open
+      // menu; nothing to remove on a row that carries no beat.
       expect(
-        find.byKey(const Key('scene-piece-add-change-ch-1')),
+        find.byKey(const Key('scene-cast-menu-add-look-ch-1')),
+        findsNothing,
+      );
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      expect(
+        find.byKey(const Key('scene-cast-menu-add-look-ch-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-cast-menu-remove-look-ch-1-none')),
         findsNothing,
       );
     });
@@ -1194,9 +1276,9 @@ void main() {
         );
         await pumpDetail(tester);
         // Issue #834: the section is collapsed by default — expand first.
-        await expandSection(tester, 'scene-cast-scene-1');
-        await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
-        await tester.pumpAndSettle();
+        await revealCast(tester);
+        await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+        await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
         await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
         // Pump PAST the sheet's exit animation with a FIXED duration —
         // never `pumpAndSettle`: the reconciling optimistic overlay shows
@@ -1230,9 +1312,9 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
-      await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
-      await tester.pumpAndSettle();
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
       await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
       await _pumpFrames(tester);
       // The capability check denied before any network call: fake repo call
@@ -1259,11 +1341,11 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       final baseline = fetchLog.length;
       sceneRepo.nextWrite = const Left(_conflict);
-      await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
-      await tester.pumpAndSettle();
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
       await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
       await _pumpFrames(tester);
       expect(sceneRepo.addCalls, 1);
@@ -1285,9 +1367,9 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
-      await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
-      await tester.pumpAndSettle();
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+      await tapCastMenu(tester, 'scene-cast-menu-remove-look-ch-1-0');
       // Confirm-first: no dispatch before confirmation.
       expect(sceneRepo.clearCalls, 0);
       expect(sceneRepo.removeCalls, 0);
@@ -1322,9 +1404,9 @@ void main() {
       );
       await pumpDetail(tester);
       // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-cast-scene-1');
-      await tester.tap(find.byKey(const Key('scene-piece-remove-ch-1-0')));
-      await tester.pumpAndSettle();
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+      await tapCastMenu(tester, 'scene-cast-menu-remove-look-ch-1-0');
       await tester.tap(
         find.byKey(const Key('scene-piece-remove-confirm-ch-1-0')),
       );
@@ -1333,52 +1415,63 @@ void main() {
       expect(sceneRepo.clearCalls, 0);
     });
 
-    testWidgets('SceneDetailScreen golden (pieces section, German)', (
-      tester,
-    ) async {
-      await setupContainer(
-        scene: _scene(
-          characters: ['ch-1', 'ch-2'],
-          beats: [
-            _beat('ch-1', 0, note: 'Trench, guanti'),
-            _beat('ch-1', 1, pieceId: 'piece-2'),
+    // Issue #902: the cast table is the reported defect, so it needs a
+    // picture — in BOTH schemes. The M3 default card colour is
+    // indistinguishable from `surface` in dark mode, which is exactly what
+    // the light-only baseline could not show.
+    for (final (goldenName, theme) in [
+      ('scene_detail_screen.png', AppThemes.light()),
+      ('scene_detail_screen_dark.png', AppThemes.dark()),
+    ]) {
+      testWidgets('SceneDetailScreen golden ($goldenName, German)', (
+        tester,
+      ) async {
+        await setupContainer(
+          scene: _scene(
+            characters: ['ch-1', 'ch-2'],
+            beats: [
+              _beat('ch-1', 0, note: 'Trench, guanti'),
+              _beat('ch-1', 1, pieceId: 'piece-2'),
+            ],
+          ),
+          characterRows: [
+            _character('ch-1'),
+            _character('ch-2', name: 'Bea'),
           ],
-        ),
-        characterRows: [
-          _character('ch-1'),
-          _character('ch-2', name: 'Bea'),
-        ],
-        pieceRows: [
-          _piece('piece-1', subject: 'Mantel', categoryName: 'Jacke'),
-          _piece('piece-2', subject: 'Hut', categoryName: 'Accessoires'),
-        ],
-      );
-      // The golden harness renders the German template locale (AGENTS.md §6).
-      tester.view.physicalSize = const Size(800, 1200);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp(
-            theme: AppThemes.light(),
-            locale: const Locale('de'),
-            supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            home: SceneDetailScreen(
-              seasonId: 'season-1',
-              episode: _episode(),
-              sceneId: 'scene-1',
+          pieceRows: [
+            _piece('piece-1', subject: 'Mantel', categoryName: 'Jacke'),
+            _piece('piece-2', subject: 'Hut', categoryName: 'Accessoires'),
+          ],
+        );
+        // The golden harness renders the German template locale (AGENTS.md
+        // §6). Tall enough that the always-visible cast table is IN the
+        // picture, not below the fold.
+        tester.view.physicalSize = const Size(800, 1600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: theme,
+              locale: const Locale('de'),
+              supportedLocales: AppLocalizations.supportedLocales,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              home: SceneDetailScreen(
+                seasonId: 'season-1',
+                episode: _episode(),
+                sceneId: 'scene-1',
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await expectLater(
-        find.byType(SceneDetailScreen),
-        matchesGoldenFile('goldens/scene_detail_screen.png'),
-      );
-    });
+        );
+        await tester.pumpAndSettle();
+        await expectLater(
+          find.byType(SceneDetailScreen),
+          matchesGoldenFile('goldens/$goldenName'),
+        );
+      });
+    }
   });
 
   // CodeRabbit #4172169333 (Major): the aggregate computes the dense
@@ -1406,9 +1499,9 @@ void main() {
     );
     await pumpDetail(tester);
     // Issue #834: the section is collapsed by default — expand first.
-    await expandSection(tester, 'scene-cast-scene-1');
-    await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
-    await tester.pumpAndSettle();
+    await revealCast(tester);
+    await openCastMenu(tester, 'scene-cast-row-ch-1-2');
+    await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
@@ -1435,10 +1528,10 @@ void main() {
     );
     await pumpDetail(tester);
     // Issue #834: the section is collapsed by default — expand first.
-    await expandSection(tester, 'scene-cast-scene-1');
+    await revealCast(tester);
     // First beat: acked version 2, optimistic row 0.
-    await tester.tap(find.byKey(const Key('scene-piece-assign-ch-1')));
-    await tester.pumpAndSettle();
+    await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+    await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
@@ -1448,7 +1541,8 @@ void main() {
     // lands at order 1 and row 0 survives. Fixed pumps throughout: the
     // first overlay is still reconciling (indeterminate spinner), so
     // pumpAndSettle would never settle (AGENTS §6 deterministic tests).
-    await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
+    await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+    await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -1476,23 +1570,23 @@ void main() {
       expect(find.byKey(const Key('scene-synopsis-text')), findsOneWidget);
     });
 
-    testWidgets('sections are collapsed by default, counts stay visible', (
-      tester,
-    ) async {
+    testWidgets('the day section is collapsed by default, the cast table is '
+        'not (issues #834, #902)', (tester) async {
       await setupContainer(
         scene: _scene(characters: ['ch-1'], days: ['d-1']),
         characterRows: [_character('ch-1')],
         dayRows: [_day('d-1')],
       );
       await pumpDetail(tester);
-      // Collapsed: no character/day rows in the tree…
-      expect(find.byKey(const Key('scene-character-ch-1')), findsNothing);
-      expect(find.byKey(const Key('scene-shooting-day-d-1')), findsNothing);
-      // …but the header counts tell the story. The day section sits below
-      // the fold: the ListView builds slivers lazily, so DRAG it into the
-      // viewport before asserting (skipOffstage cannot find unbuilt
-      // children).
+      // Issue #902: the CAST is page content — table and rows render on a
+      // cold open, with no expand step…
+      expect(find.byKey(const Key('scene-character-ch-1')), findsOneWidget);
       expect(find.text('Characters (1) · Looks (0)'), findsOneWidget);
+      // …while the day rows stay behind their section's expand step.
+      expect(find.byKey(const Key('scene-shooting-day-d-1')), findsNothing);
+      // The day section sits below the fold: the ListView builds slivers
+      // lazily, so DRAG it into the viewport before asserting (skipOffstage
+      // cannot find unbuilt children).
       expect(find.text('Shooting days (1)'), findsOneWidget);
     });
 
@@ -1500,11 +1594,12 @@ void main() {
       await setupContainer(scene: _scene(characters: ['ch-1']));
       await pumpDetail(tester);
       expect(find.byType(Divider), findsNothing);
-      // Expand every section, assert again (the M3 ExpansionTile used to
-      // draw its default top+bottom borders while expanded — issue #834).
-      for (final key in ['scene-shooting-days-scene-1', 'scene-cast-scene-1']) {
-        await expandSection(tester, key);
-      }
+      // Expand the day section (the M3 ExpansionTile used to draw its default
+      // top+bottom borders while expanded — issue #834) and reveal the cast
+      // table, then assert again: its row separator is a `DecoratedBox`
+      // border, never a `Divider` widget (issue #902).
+      await expandSection(tester, 'scene-shooting-days-scene-1');
+      await revealCast(tester);
       expect(find.byType(Divider), findsNothing);
       // The M3 ExpansionTile paints its divider LINES from `shape` — not
       // from `Divider` widgets. If the shape default ever returns, the
@@ -1516,15 +1611,17 @@ void main() {
         expect(tile.shape, const Border());
         expect(tile.collapsedShape, const Border());
       }
-      // And each section owns a stable, UNIQUE PageStorageKey so an
-      // expanded section survives scroll-out/in of the retained viewport.
+      // And the section that still collapses owns a stable, UNIQUE
+      // PageStorageKey so an expanded section survives scroll-out/in of the
+      // retained viewport (the cast table has no ExpansionTile any more —
+      // issue #902).
       final storageKeys = tester
           .widgetList<ExpansionTile>(find.byType(ExpansionTile))
           .map((t) => t.key)
           .whereType<PageStorageKey>()
           .map((k) => k.value)
           .toSet();
-      expect(storageKeys, hasLength(2));
+      expect(storageKeys, hasLength(1));
     });
 
     testWidgets('header block: numeral, location, mood + schedule chips', (
@@ -1791,12 +1888,7 @@ void main() {
         characterRows: [_character('ch-1')],
       );
       await pumpDetail(tester);
-      if (find
-          .byKey(const Key('scene-piece-add-change-ch-1'))
-          .evaluate()
-          .isEmpty) {
-        await expandSection(tester, 'scene-cast-scene-1');
-      }
+      await revealCast(tester);
 
       // 1) Details ack (v2): the fake echoes request.version + 1.
       await tester.tap(find.byKey(const Key('scene-detail-edit')));
@@ -1811,7 +1903,8 @@ void main() {
 
       // 2) Beat ack (v3, newer than the details overlay).
       sceneRepo.nextWrite = const Right(3);
-      await tester.tap(find.byKey(const Key('scene-piece-add-change-ch-1')));
+      await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+      await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
@@ -1995,7 +2088,7 @@ void main() {
         characterRows: [_character('ch-1')],
       );
       await pumpDetail(tester);
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       // Figure cell and look cell live in the SAME row.
       final row = find.byKey(const Key('scene-character-ch-1'));
       expect(
@@ -2010,7 +2103,8 @@ void main() {
       expect(find.text('Character'), findsOneWidget);
       expect(find.text('Look'), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('scene-character-edit-ch-1')));
+      await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+      await tapCastMenu(tester, 'scene-cast-menu-edit-ch-1');
       await tester.pumpAndSettle();
       expect(find.byType(CharacterDetailScreen), findsOneWidget);
     });
@@ -2024,20 +2118,25 @@ void main() {
       expect(find.byIcon(Icons.wb_sunny_outlined), findsOneWidget);
     });
 
-    testWidgets('an unresolved season row DISABLES the edit icon instead of '
-        'hiding it (issue #834 follow-up)', (tester) async {
+    testWidgets('an unresolved season row DISABLES the edit item instead of '
+        'hiding it (issue #902)', (tester) async {
       await setupContainer(
         scene: _scene(characters: ['ch-1']),
         characterRows: [_character('ch-1')],
         // The fenced projection resolved no season row: the edit route cannot
-        // be filled, so the control states that instead of vanishing.
+        // be filled, so the item states that instead of vanishing.
         seasonRows: const [],
       );
       await pumpDetail(tester);
-      await expandSection(tester, 'scene-cast-scene-1');
-      final edit = find.byKey(const Key('scene-character-edit-ch-1'));
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      final edit = find.byKey(const Key('scene-cast-menu-edit-ch-1'));
       expect(edit, findsOneWidget);
-      expect(tester.widget<IconButton>(edit).onPressed, isNull);
+      expect(
+        tester.widget<ListTile>(edit).enabled,
+        isFalse,
+        reason: 'disabled is a state; absent would read as "not supported"',
+      );
     });
 
     testWidgets('the route location resolves the season row with no projection '
@@ -2050,10 +2149,11 @@ void main() {
         seasonRows: const [],
       );
       await pumpDetailFromRoute(tester);
-      await expandSection(tester, 'scene-cast-scene-1');
-      final edit = find.byKey(const Key('scene-character-edit-ch-1'));
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      final edit = find.byKey(const Key('scene-cast-menu-edit-ch-1'));
       expect(edit, findsOneWidget);
-      expect(tester.widget<IconButton>(edit).onPressed, isNotNull);
+      expect(tester.widget<ListTile>(edit).enabled, isTrue);
     });
 
     testWidgets('the look column of every row starts at the header column on a '
@@ -2066,13 +2166,14 @@ void main() {
         characterRows: [_character('ch-1')],
       );
       await pumpDetail(tester);
-      // A 360dp phone: the figure's actions live INSIDE column 1, so the
-      // look column never shifts against the header's label.
+      // A 360dp phone: the look column starts at the same x as the label
+      // band's, and the row's trailing chevron column has the same width in
+      // both (issue #902).
       tester.view.physicalSize = const Size(360, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pump();
-      await expandSection(tester, 'scene-cast-scene-1');
+      await revealCast(tester);
       expect(tester.takeException(), isNull);
       final headerX = tester
           .getTopLeft(find.byKey(const Key('scene-cast-column-look')))
@@ -2085,6 +2186,321 @@ void main() {
         tester.getTopLeft(find.byKey(const Key('scene-piece-beat-ch-1-1'))).dx,
         headerX,
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #902 — the cast is an always-visible TABLE with a row context menu:
+  // no expand step, table chrome from ColorScheme roles in both brightnesses,
+  // one ≥ 48 dp tap target per row, four LABELLED actions, per-row availability.
+  // -------------------------------------------------------------------------
+  group('SceneDetailScreen cast table + row menu (issue #902)', () {
+    testWidgets('the cast table renders without an expand step', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+      // The counts stay in the section header; the table is open already.
+      expect(find.text('Characters (1) · Looks (1)'), findsOneWidget);
+      expect(find.byKey(const Key('scene-cast-table')), findsOneWidget);
+      // The label band and its two column labels.
+      expect(find.byKey(const Key('scene-cast-header-band')), findsOneWidget);
+      expect(
+        find.byKey(const Key('scene-cast-column-character')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('scene-cast-column-look')), findsOneWidget);
+      // Rows need no tap — and the CAST has no ExpansionTile any more (only
+      // the shooting-days section legitimately collapses).
+      expect(find.byKey(const Key('scene-cast-row-ch-1-0')), findsOneWidget);
+      expect(find.byType(ExpansionTile), findsOneWidget);
+    });
+
+    for (final (label, theme) in [
+      ('light', AppThemes.light()),
+      ('dark', AppThemes.dark()),
+    ]) {
+      testWidgets('table chrome comes from ColorScheme roles ($label mode)', (
+        tester,
+      ) async {
+        await setupContainer(
+          scene: _scene(
+            characters: ['ch-1'],
+            beats: [
+              _beat('ch-1', 0),
+              _beat('ch-1', 1, pieceId: 'piece-2'),
+            ],
+          ),
+          characterRows: [_character('ch-1')],
+        );
+        await pumpDetail(tester, theme: theme);
+        await revealCast(tester);
+        final scheme = theme.colorScheme;
+        // The label band is a SCHEME role (contrast is a scheme property),
+        // not a drawn stroke — the reported dark-mode defect in one assert.
+        expect(
+          tester
+              .widget<Container>(
+                find.byKey(const Key('scene-cast-header-band')),
+              )
+              .color,
+          scheme.surfaceContainerHighest,
+        );
+        // Zebra banding: alternating scheme roles, so the two rows differ.
+        expect(_castRowBand(tester, 'scene-cast-row-ch-1-0'), scheme.surface);
+        expect(
+          _castRowBand(tester, 'scene-cast-row-ch-1-1'),
+          scheme.surfaceContainerLow,
+        );
+        expect(scheme.surface, isNot(scheme.surfaceContainerLow));
+        // The separator is a border decoration, NEVER a `Divider` (#834).
+        expect(find.byType(Divider), findsNothing);
+        expect(_castRowBorder(tester, 'scene-cast-row-ch-1-0'), isNotNull);
+      });
+    }
+
+    testWidgets('a row is ONE accessible tap target with a chevron cue', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+      final row = find.byKey(const Key('scene-cast-row-ch-1-0'));
+      // ≥ 48 dp: the four inline icon buttons it replaces measured ~32 dp.
+      expect(tester.getSize(row).height, greaterThanOrEqualTo(48));
+      // Nothing in the row is icon-ONLY any more.
+      expect(
+        find.descendant(of: row, matching: find.byType(IconButton)),
+        findsNothing,
+      );
+      // The chevron is the affordance cue, not an action.
+      expect(
+        find.descendant(of: row, matching: find.byIcon(Icons.chevron_right)),
+        findsOneWidget,
+      );
+      final semantics = tester.widget<Semantics>(
+        find.ancestor(of: row, matching: find.byType(Semantics)).first,
+      );
+      expect(semantics.properties.button, isTrue);
+      expect(semantics.properties.hint, "Opens this row's actions");
+    });
+
+    testWidgets('tap and long-press open the same labelled menu', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+      expect(find.byKey(const Key('scene-cast-menu-ch-1-0')), findsOneWidget);
+      // Labelled items, in the documented order.
+      expect(find.text('Actions for Ada'), findsOneWidget);
+      expect(find.text('Edit character (Cast)'), findsOneWidget);
+      expect(find.text('+ Look change'), findsOneWidget);
+      expect(find.text('Remove look'), findsOneWidget);
+      expect(find.text('Remove character'), findsOneWidget);
+      // Dismiss without choosing, then long-press: the SAME menu.
+      await closeCastMenu(tester);
+      expect(find.byKey(const Key('scene-cast-menu-ch-1-0')), findsNothing);
+      await tester.longPress(find.byKey(const Key('scene-cast-row-ch-1-0')));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.byKey(const Key('scene-cast-menu-ch-1-0')), findsOneWidget);
+    });
+
+    testWidgets('the menu offers only the actions valid for that row', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(
+          characters: ['ch-1', 'ch-2'],
+          beats: [
+            _beat('ch-1', 0),
+            _beat('ch-1', 1, pieceId: 'piece-2'),
+          ],
+        ),
+        characterRows: [
+          _character('ch-1'),
+          _character('ch-2', name: 'Bea'),
+        ],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+
+      // First row of a figure WITH a look: everything, and the add item is the
+      // change label.
+      await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+      expect(
+        find.byKey(const Key('scene-cast-menu-edit-ch-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-cast-menu-remove-character-ch-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-cast-menu-remove-look-ch-1-0')),
+        findsOneWidget,
+      );
+      expect(find.text('+ Look change'), findsOneWidget);
+      await closeCastMenu(tester);
+
+      // A change step: its OWN beat removal, but no figure-level action.
+      await openCastMenu(tester, 'scene-cast-row-ch-1-1');
+      expect(find.byKey(const Key('scene-cast-menu-edit-ch-1')), findsNothing);
+      expect(
+        find.byKey(const Key('scene-cast-menu-remove-character-ch-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('scene-cast-menu-remove-look-ch-1-1')),
+        findsOneWidget,
+      );
+      // The OTHER row's beat is never the target.
+      expect(
+        find.byKey(const Key('scene-cast-menu-remove-look-ch-1-0')),
+        findsNothing,
+      );
+      await closeCastMenu(tester);
+
+      // A figure WITHOUT a look: nothing to remove, and the add item is the
+      // assign label — the pre-#834 dead end does not come back.
+      await openCastMenu(tester, 'scene-cast-row-ch-2-none');
+      expect(
+        find.byKey(const Key('scene-cast-menu-edit-ch-2')),
+        findsOneWidget,
+      );
+      expect(find.text('Assign look'), findsOneWidget);
+      expect(find.text('+ Look change'), findsNothing);
+      expect(
+        find.byKey(const Key('scene-cast-menu-remove-look-ch-2-none')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('Look entfernen opens the existing confirm dialog, then the '
+        'clear-all', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], beats: [_beat('ch-1', 0)]),
+        characterRows: [_character('ch-1')],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-0');
+      await tapCastMenu(tester, 'scene-cast-menu-remove-look-ch-1-0');
+      // Confirm-first: the command path is unchanged, only its trigger moved.
+      expect(
+        find.byKey(const Key('scene-piece-remove-confirm-ch-1-0')),
+        findsOneWidget,
+      );
+      expect(sceneRepo.clearCalls, 0);
+      await tester.tap(
+        find.byKey(const Key('scene-piece-remove-confirm-ch-1-0')),
+      );
+      await _pumpFrames(tester);
+      // The single remaining beat still dispatches the clear-all.
+      expect(sceneRepo.clearCalls, 1);
+      expect(sceneRepo.removeCalls, 0);
+    });
+
+    testWidgets('Figur entfernen opens the existing unassign confirm dialog', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1', 'ch-2']),
+        characterRows: [
+          _character('ch-1'),
+          _character('ch-2', name: 'Bea'),
+        ],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-remove-character-ch-1');
+      expect(
+        find.byKey(const Key('scene-character-remove-confirm-ch-1')),
+        findsOneWidget,
+      );
+      expect(characters.sceneUnassignCalls, 0);
+      await tester.tap(
+        find.byKey(const Key('scene-character-remove-confirm-ch-1')),
+      );
+      await _pumpFrames(tester);
+      expect(characters.sceneUnassignCalls, 1);
+    });
+
+    testWidgets('the reconciling overlay row still renders BELOW the table', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        pieceRows: [_piece('piece-9', subject: 'Hut')],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
+      await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await _pumpFrames(tester);
+      final overlay = find.byKey(const Key('scene-pieces-overlay-status'));
+      expect(overlay, findsOneWidget);
+      expect(
+        tester.getTopLeft(overlay).dy,
+        greaterThan(
+          tester.getBottomLeft(find.byKey(const Key('scene-cast-table'))).dy,
+        ),
+        reason: 'the status belongs to the table, not inside a row',
+      );
+    });
+
+    testWidgets('an exhausted pass keeps the optimistic row and renders the '
+        'cloud-off status below the table', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1']),
+        characterRows: [_character('ch-1')],
+        pieceRows: [_piece('piece-9', subject: 'Hut')],
+      );
+      await pumpDetail(tester);
+      await revealCast(tester);
+      await openCastMenu(tester, 'scene-cast-row-ch-1-none');
+      await tapCastMenu(tester, 'scene-cast-menu-add-look-ch-1');
+      await tester.tap(find.byKey(const Key('pick-outfit-outfit-9')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await _pumpFrames(tester);
+      // The fake projection never carries the acked beat, so the bounded pass
+      // can never drop the overlay: drive the parked ticks to the retry budget
+      // (deterministic — no wall clock, AGENTS §6) and it is retained STALE.
+      for (var i = 0; i <= kMaxReconcileAttempts; i++) {
+        scheduler.advanceAll();
+        await _pumpFrames(tester, n: 5);
+      }
+      expect(
+        find.byKey(const Key('scene-pieces-overlay-warning')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .getTopLeft(find.byKey(const Key('scene-pieces-overlay-status')))
+            .dy,
+        greaterThan(
+          tester.getBottomLeft(find.byKey(const Key('scene-cast-table'))).dy,
+        ),
+      );
+      // The optimistic beat row is retained, not silently discarded.
+      expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
     });
   });
 }

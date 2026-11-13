@@ -2318,6 +2318,14 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneDetailCastColumnLook => 'Look';
 
   @override
+  String sceneDetailCastMenuTitle(Object name) {
+    return 'Aktionen für $name';
+  }
+
+  @override
+  String get sceneDetailCastMenuHint => 'Öffnet die Aktionen dieser Zeile';
+
+  @override
   String get sceneDetailAssignCharacterAndLook => 'Figur und Look zuweisen';
 
   @override
@@ -2341,7 +2349,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneDetailUnknownCharacter => 'Unbekannte Figur';
 
   @override
-  String get sceneDetailRemoveCharacterTooltip => 'Entfernen';
+  String get sceneDetailRemoveCharacterTooltip => 'Figur entfernen';
 
   @override
   String get sceneDetailAssignCharacter => 'Figur zuweisen';
