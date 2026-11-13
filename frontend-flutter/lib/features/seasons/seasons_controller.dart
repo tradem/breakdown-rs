@@ -83,8 +83,8 @@ class SeasonsController extends _$SeasonsController {
         hasOverlays: () => ref.read(seasonOverlaysProvider).isNotEmpty,
         markAllReconciling: () =>
             ref.read(seasonOverlaysProvider.notifier).markAllReconciling(),
-        dropProjectedIds: (ids) =>
-            ref.read(seasonOverlaysProvider.notifier).dropProjectedIds(ids),
+        dropProjectedRows: (rows) =>
+            ref.read(seasonOverlaysProvider.notifier).dropProjectedRows(rows),
         markAllStale: (warning) =>
             ref.read(seasonOverlaysProvider.notifier).markAllStale(warning),
         scheduler: () => ref.read(reconciliationSchedulerProvider),

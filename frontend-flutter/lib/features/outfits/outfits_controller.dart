@@ -19,7 +19,7 @@ import '../../data/cache/piece_domains_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/outfit_repository.dart';
 import '../../data/photo_repository.dart';
-import '../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../domain/reconciliation/reconciliation.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../photos/widgets/photo_gallery.dart';
 import 'outfits_state.dart';
@@ -183,18 +183,11 @@ class OutfitsOverlays extends _$OutfitsOverlays {
       o.copyWithStatus(status: OverlayStatus.stale, warning: warning),
   ];
 
-  /// Drops the overlays whose version fence the fresh [projection] passes.
-  void pruneWithProjection(List<OutfitView> projection) {
-    final byId = {for (final o in projection) o.id: o};
-    state = state.where((overlay) {
-      final row = byId[overlay.id];
-      if (row == null) return true;
-      return !shouldClearOutfitOverlay(
-        projection: row,
-        acknowledgedVersion: overlay.acknowledgedVersion,
-      );
-    }).toList();
-  }
+  /// Version-fenced drop against the rows the resync fetched (issues #834,
+  /// #917) — the same contract the shared runner's drop applies, so a lagging
+  /// projection never restores the pre-command look.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 }
 
 /// Last command failure per character (surfaced keyed on the problem `code`).
@@ -638,9 +631,12 @@ class OutfitsController extends _$OutfitsController {
       final rows = fetched.match((_) => null, (value) => value);
       if (rows == null) continue;
       ref.read(outfitsPrevRowsProvider(characterId).notifier).set(rows);
-      ref
-          .read(outfitsOverlaysProvider(characterId).notifier)
-          .pruneWithProjection(rows);
+      ref.read(outfitsOverlaysProvider(characterId).notifier).dropProjectedRows(
+        [
+          for (final row in rows)
+            ProjectedRow(id: row.id, version: row.version),
+        ],
+      );
       if (ref.read(outfitsOverlaysProvider(characterId)).isEmpty) return;
     }
     // Budget exhausted: retain the optimistic rows and tell the user to

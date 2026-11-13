@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,6 +29,14 @@ class SeasonOverlay implements ReconciliationOverlay {
   /// Server-assigned id (from the command's 2xx acknowledgement).
   @override
   final String id;
+
+  /// Create-only overlay: the id appears in the projection only once the
+  /// create reached the read model, so id presence IS the completion signal
+  /// (issue #917). The archive/restore commands of this screen are
+  /// overlay-less and reconcile on the acknowledged version instead
+  /// (issue #916).
+  @override
+  int? get acknowledgedVersion => null;
 
   /// Display name carried from the Create Season form so the row renders
   /// immediately; the authoritative value arrives with the projected row.

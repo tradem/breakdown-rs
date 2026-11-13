@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +27,14 @@ class CharacterOverlay implements ReconciliationOverlay {
 
   @override
   final String id;
+
+  /// Create-only overlay: the id appears in the projection only once the
+  /// create reached the read model, so id presence IS the completion signal
+  /// (issue #917). The character corrections (contact, measurements,
+  /// category) insert no overlay and reconcile on the acknowledged version
+  /// instead (issue #916).
+  @override
+  int? get acknowledgedVersion => null;
 
   final String? name;
 
