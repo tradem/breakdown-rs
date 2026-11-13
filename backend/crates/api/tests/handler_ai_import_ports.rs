@@ -2172,17 +2172,19 @@ async fn a_failed_telemetry_write_keeps_the_apply_successful() {
 }
 
 /// Review of #899: the fake takes the two locks in a DEADLOCK-FREE order, and
-/// this test proves the order instead of only asserting that nothing hangs.
+/// this test proves the order **deterministically** (no sleep, no timeout that
+/// a slow runner could trip).
 ///
-/// The technique is the reviewer's: hold the job-row lock from the test, start
-/// an adoption, and watch the slot lock. A correct `begin_apply_run` takes the
-/// slot **first** and then blocks on the job row, so `apply_runs.try_lock()`
-/// reports "held" while the adoption is in flight. Taking them the other way
-/// round (the order `claim_apply_run` must not meet) leaves the slot free and
-/// the adoption blocked on the row — the assertion fails rather than the suite
-/// hanging.
+/// The technique: hold the job-row lock from the test, then poll the adoption
+/// future **once**, by hand, with a no-op waker. An adoption that takes the run
+/// slot first locks the (uncontended) slot, parks on the held row and reports
+/// `Pending` — so `apply_runs.try_lock()` must then fail with `WouldBlock`. The
+/// reversed order parks on the row *before* touching the slot, leaving it free,
+/// and this assertion fails instead of the suite hanging.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn begin_apply_run_takes_the_run_slot_before_the_job_row() {
+    use std::future::Future;
+
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
@@ -2207,27 +2209,23 @@ async fn begin_apply_run_takes_the_run_slot_before_the_job_row() {
         "the free slot accepts the dispatch"
     );
 
-    // Hold the job row, so any acquisition of it blocks.
+    // Hold the job row, so any acquisition of it parks.
     let jobs = Arc::clone(&queue.jobs);
     let held = jobs.lock().await;
 
-    let runner = tokio::spawn({
-        let queue = queue.clone();
-        async move {
-            queue
-                .begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new())
-                .await
-        }
-    });
-
-    // Give the adoption a moment to reach its first lock, then inspect the slot.
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let slot_is_held = queue.apply_runs.try_lock().map(|_| false).unwrap_or(true);
+    let waker = std::task::Waker::noop();
+    let mut cx = std::task::Context::from_waker(waker);
+    let mut adoption =
+        std::pin::pin!(queue.begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new()));
+    assert!(
+        adoption.as_mut().poll(&mut cx).is_pending(),
+        "the adoption must park on the job row the test is holding"
+    );
+    let slot_is_held = queue.apply_runs.try_lock().is_err();
     drop(held);
-    let adopted = tokio::time::timeout(std::time::Duration::from_secs(5), runner)
+    let adopted = tokio::time::timeout(std::time::Duration::from_secs(5), adoption)
         .await
         .expect("the adoption completes once the job row is released")
-        .expect("the task does not panic")
         .expect("the transitions do not fail");
     assert!(
         slot_is_held,
@@ -2244,11 +2242,11 @@ async fn begin_apply_run_takes_the_run_slot_before_the_job_row() {
 /// Review of #899: two concurrent adopters of one `requested` slot — exactly
 /// one wins, and the two locks they take cannot deadlock.
 ///
-/// The fake mirrors the production statement (`WHERE apply_state = 'requested'`)
-/// and therefore has to model its *lock order* too: `claim_apply_run` and
-/// `finish_fake_run` take the run slot before the job row, so `begin_apply_run`
-/// must do the same. A reverse order deadlocks against a concurrent claim — the
-/// timeout below is what turns that into a failing test instead of a hung suite.
+/// The fake mirrors the production statement (`WHERE apply_state = 'requested'`),
+/// so exactly one of two racing adopters may win. The *lock order* it must keep
+/// (slot before row, like `claim_apply_run`) is proven separately and
+/// deterministically by `begin_apply_run_takes_the_run_slot_before_the_job_row`;
+/// the timeout here only bounds "two adopters complete at all".
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_concurrent_adoptions_adopt_one_run_and_do_not_deadlock() {
     let ports = FakePorts::default();

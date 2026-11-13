@@ -1169,8 +1169,13 @@ class AiImportRepository extends BaseRepository {
       // dispatch may have landed after all.
       inFlight = null;
       refusedAt = null;
-      // Re-read the job reality BEFORE any re-dispatch. A failed re-read is
-      // itself an unknown outcome — keep consuming the budget.
+      // Re-read the job reality BEFORE any re-dispatch — and only while the
+      // gate still allows network calls (review of #899: this read used to run
+      // after a denial).
+      final blockedBeforeRead = await denied();
+      if (blockedBeforeRead != null) return blockedBeforeRead;
+      // A failed re-read is itself an unknown outcome — reported, never retried
+      // into a blind dispatch.
       final job = await getJobAndCache(jobId, clock: clock);
       final read = job.getRight().toNullable();
       if (read == null) {
@@ -1262,11 +1267,14 @@ class AiImportRepository extends BaseRepository {
     String? expectedRunId,
     Future<ProblemError?> Function()? gate,
   }) async {
+    ProblemError? streamError;
     await for (final event in watchApplyProgress(jobId, gate: gate)) {
       final frame = event.getRight().toNullable();
       if (frame == null) {
         // A transient stream failure: the stream owns the retry budget and the
-        // run is durable, so keep consuming instead of calling it a failure.
+        // run is durable, so keep consuming instead of calling it a failure —
+        // but remember it, because a *denial* is terminal (review of #899).
+        streamError = event.getLeft().toNullable() ?? streamError;
         continue;
       }
       if (!frame.isTerminal) continue;
@@ -1276,9 +1284,23 @@ class AiImportRepository extends BaseRepository {
       if (frame.summary != null) return ApplySucceeded(frame.summary!);
       return ApplyBlocked(ProblemError(code: frame.failureCode!));
     }
-    // No terminal frame. The job row carries the same outcome, so ask it before
-    // claiming the outcome is unknown — the run may simply have finished
-    // between two connections.
+    // No terminal frame. A denial is not a transient fault: reading the job row
+    // after one would still issue a request the gate refused, and could even
+    // return an outcome for a preview this member may no longer read (review of
+    // #899).
+    if (streamError != null && _isDenial(streamError)) {
+      return ApplyBlocked(streamError);
+    }
+    // The row read is a network call of its own: ask the gate before it too.
+    if (gate != null) {
+      final denial = await gate();
+      if (denial != null && denial.code != 'membership.pending') {
+        return ApplyBlocked(denial);
+      }
+    }
+    // The job row carries the same outcome, so ask it before claiming the
+    // outcome is unknown — the run may simply have finished between two
+    // connections.
     final job = await getJobAndCache(jobId);
     final read = job.getRight().toNullable();
     if (read == null) return null;
@@ -1290,6 +1312,17 @@ class AiImportRepository extends BaseRepository {
     // live run — never a failure, and never a second dispatch.
     return null;
   }
+
+  /// Whether a stream error is a **denial** rather than a transport fault.
+  ///
+  /// The watch reports both on the same `Left` channel: `transport.*` codes and
+  /// `ai_import.watch_exhausted` are transient (the run is durable, keep
+  /// waiting), everything else is an authorization answer or a definitive
+  /// refusal — and those must stop the reconciliation instead of being read
+  /// past (review of #899).
+  static bool _isDenial(ProblemError error) =>
+      !error.code.startsWith('transport.') &&
+      error.code != 'ai_import.watch_exhausted';
 
   /// Whether [owner] names a run other than the one this caller dispatched.
   ///

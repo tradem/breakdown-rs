@@ -2563,6 +2563,79 @@ void main() {
       );
     });
 
+    test('a denial from the watch is terminal: no job read after it (review of '
+        '#899)', () async {
+      // The gate refuses before the stream even connects. `awaitRunOutcome`
+      // must answer with the denial instead of falling through to the job row
+      // — that read is another request on a route the gate just refused.
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          // Would be the job GET; it must never be reached.
+          return serializers.serializeWith(
+            AiImportJobResponse.serializer,
+            _jobResponse(_job('j1', status: JobStatus.succeeded)),
+          );
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.awaitRunOutcome(
+        'j1',
+        gate: () async =>
+            const ProblemError(code: 'ai_import.forbidden', status: 403),
+      );
+      expect(outcome, isA<ApplyBlocked>());
+      expect((outcome! as ApplyBlocked).error.code, 'ai_import.forbidden');
+      expect(
+        interceptor.requests,
+        isEmpty,
+        reason:
+            'a denial stops the watch before connecting and skips the '
+            'fallback job read',
+      );
+    });
+
+    test('a denial before the fallback job read issues no request (review of '
+        '#899)', () async {
+      // The watch ends without a terminal frame (an idle close, budget spent),
+      // and the gate denies before the row is read. The row read must not
+      // happen, and the caller gets the denial rather than "unknown".
+      var calls = 0;
+      final interceptor = _ScriptInterceptor(
+        respond: (options) => serializers.serializeWith(
+          AiImportJobResponse.serializer,
+          _jobResponse(_job('j1', status: JobStatus.succeeded)),
+        ),
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.awaitRunOutcome(
+        'j1',
+        gate: () async {
+          calls++;
+          // First call lets the watch connect, the later one denies.
+          return calls == 1
+              ? null
+              : const ProblemError(
+                  code: 'ai_import.apply_unmounted',
+                  status: 409,
+                );
+        },
+      );
+      expect(outcome, isA<ApplyBlocked>());
+      expect(
+        (outcome! as ApplyBlocked).error.code,
+        'ai_import.apply_unmounted',
+      );
+      expect(
+        interceptor.requests.where(
+          (request) => !request.uri.path.endsWith('/apply-events'),
+        ),
+        isEmpty,
+        reason:
+            'the first watch connection was allowed, but the fallback '
+            'job read is a network call and the gate denies before it',
+      );
+    });
+
     test('clearCache wipes the job rows', () async {
       final dao = _dao();
       await dao.upsertAll([_job('j1')], DateTime.utc(2026, 1, 1));
