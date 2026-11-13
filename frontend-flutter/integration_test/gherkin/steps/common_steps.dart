@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 //Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
@@ -299,13 +300,23 @@ StepDefinitionGeneric whenOpenScene() => when1<String, FlutterWorld>(
   },
 );
 
-/// Opens the shoot-day execution board from the scene detail's
-/// shooting-days section (`open-day-board-<day>`).
+/// Opens the shoot-day execution board from the scene detail's shooting-days
+/// table (`scene-shooting-day-row-<day>` → its menu item
+/// `scene-shooting-day-menu-board-<day>`).
+///
+/// Issue #903: the day row is ONE tap target whose labelled menu carries the
+/// board entry — the inline `open-day-board-<day>` icon is retired, and the days
+/// section no longer collapses, so no expand step is needed either.
 StepDefinitionGeneric whenOpenDayBoard() => when1<String, FlutterWorld>(
   'I open the day board for shooting day {string}',
   (String dayId, context) async {
-    final locator = find.byValueKey('open-day-board-$dayId');
-    await FlutterDriverUtils.tap(context.world.driver!, locator);
+    final driver = context.world.driver!;
+    final row = find.byValueKey('scene-shooting-day-row-$dayId');
+    await driver.waitFor(row, timeout: const Duration(seconds: 30));
+    await FlutterDriverUtils.tap(driver, row);
+    final menuItem = find.byValueKey('scene-shooting-day-menu-board-$dayId');
+    await driver.waitFor(menuItem, timeout: const Duration(seconds: 20));
+    await FlutterDriverUtils.tap(driver, menuItem);
   },
 );
 

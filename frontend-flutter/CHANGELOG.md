@@ -23,6 +23,45 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The scene's shooting days are a real table, and the row's action is the
+  date** (`0.4.0-beta.54+146 → 0.4.0-beta.55+147`). Reported from the same
+  scene-detail review that produced the cast table (issue #902): the days
+  section hid behind an expand step, three inline icon buttons squeezed the
+  payload column, two of the three affordances ran the same picker under the
+  same icon, and a script-imported day — which carries no date — rendered a
+  title and nothing else.
+  - **The button says what it does.** „Auf Drehtag planen" → **„Drehtag
+    hinzufügen"**: `scheduleScene` APPENDS the scene to a day (a scene is shot
+    over several days); „Drehtag anlegen" keeps creating the day aggregate. The
+    picker's title is now neutral over its three entry points („Drehtag
+    wählen") and a theme role instead of an inline `TextStyle`.
+  - **The row's action is the DATE, re-used rather than invented.** A menu item
+    opens the shooting-days screen's own Material date chooser and dispatches
+    the existing `reschedule` with the day's version — the fix now sits where
+    the missing date is visible. The date cell renders the LOCALIZED date under
+    the same copy key both screens use; without a date it says **„Noch kein
+    Datum"** instead of rendering nothing, and a day the projection did not
+    resolve renders the fallback label with the board/date items disabled, never
+    a fake date.
+  - **The three inline icon buttons are four labelled menu items.** Tapping (or
+    long-pressing) the row opens: Day-Board öffnen, Datum festlegen / Datum
+    ändern, Auf anderen Drehtag umhängen, Termin entfernen. The row is one tap
+    target of at least 48 dp with a chevron cue and a screen-reader hint.
+  - **The days section is a table now, visible by default.** A label band
+    („Drehtag" / „Datum"), zebra rows and an `outlineVariant` hairline give the
+    section a column axis and row identity — from `ColorScheme` roles only, and
+    the separator is a border, not a `Divider` (the #834 no-divider rule keeps
+    holding for section chrome). The expand step is gone: the days are the first
+    operational fact of a planned scene.
+  - **Nothing else moved.** The schedule-then-release ordering, the version
+    echo, the optimistic overlay with bounded-retry reconciliation, the
+    AUTHZ-GATE and the localized per-`code` error copy are untouched; the
+    empty-candidate explanation and the quick-create path keep their keys and
+    their copy.
+  - No wire change, no new provider, no new token, no new controller method.
+    Widget tests pin the chrome in both brightnesses, the date/missing/unresolved
+    states and the date dispatch; both scene-detail goldens are re-baselined.
+
 - **The scene's cast is a real table, and its actions moved into a row menu**
   (`0.4.0-beta.53+145 → 0.4.0-beta.54+146`). Reported from the scene detail
   (German UI, dark mode): the cast was hidden behind an expand step, four

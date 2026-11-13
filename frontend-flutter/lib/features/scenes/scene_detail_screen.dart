@@ -19,12 +19,12 @@ import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
 import '../../design/components/ai_provenance_badge.dart';
 import '../../design/components/ai_score_stars.dart';
-import '../../design/components/section_card.dart';
 import '../../design/material_icons.dart';
 import '../../design/scene_mood_label.dart';
 import '../../design/spacing.dart';
 import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
+import '../../l10n/locale_formatters.dart';
 import '../characters/characters_controller.dart';
 import '../characters/role_extract_screen.dart';
 import '../outfits/outfits_controller.dart';
@@ -995,15 +995,15 @@ class _SceneCastLooksSection extends ConsumerWidget {
   }
 }
 
-/// The trailing affordance column of a cast row (issue #902): ONE width,
-/// shared by the row's chevron and the label band's trailing spacer, so the
-/// look column starts at the same x under its label at every screen width.
-const double _castActionColumnWidth = AppSpacing.space24;
+/// The trailing affordance column of a table row (issues #902 and #903): ONE
+/// width, shared by the row's chevron and the label band's trailing spacer, so
+/// the last column starts at the same x under its label at every screen width.
+const double _rowActionColumnWidth = AppSpacing.space24;
 
-/// The interactive minimum height of a cast row (issue #902): the row is ONE
-/// tap target, and the four inline icon buttons it replaces measured ~32 dp —
-/// below the 48 dp minimum (AGENTS §5).
-const double _castRowMinHeight = 48;
+/// The interactive minimum height of a table row (issues #902 and #903): the
+/// row is ONE tap target, and the inline icon buttons it replaces measured
+/// ~32 dp — below the 48 dp minimum (AGENTS §5).
+const double _tableRowMinHeight = 48;
 
 /// The `<order>` segment of the row/menu keys for the row that carries NO beat
 /// (a figure without a look): it has no beat order to name.
@@ -1070,7 +1070,7 @@ class _CastTableHeader extends StatelessWidget {
           ),
           // Same trailing width as a row's chevron column, so the labels sit
           // EXACTLY over their columns.
-          const SizedBox(width: _castActionColumnWidth),
+          const SizedBox(width: _rowActionColumnWidth),
         ],
       ),
     );
@@ -1185,7 +1185,9 @@ class _CastRow extends StatelessWidget {
                 vertical: AppSpacing.space8,
               ),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: _castRowMinHeight),
+                constraints: const BoxConstraints(
+                  minHeight: _tableRowMinHeight,
+                ),
                 child: Row(
                   // The figure's row identity for the widget tests and the
                   // Gherkin steps (unchanged key, issue #669).
@@ -1261,7 +1263,7 @@ class _CastRow extends StatelessWidget {
                     // The affordance cue of the tap target — decorative, never
                     // an action (issue #902).
                     SizedBox(
-                      width: _castActionColumnWidth,
+                      width: _rowActionColumnWidth,
                       child: Icon(
                         Icons.chevron_right,
                         size: 20,
@@ -1413,6 +1415,372 @@ class _CastRowMenu extends StatelessWidget {
   }
 }
 
+/// The four actions a shooting-day row offers (issue #903): labelled items of
+/// the row's context menu instead of three icon-only buttons squeezed into the
+/// payload columns.
+enum _ShootingDayMenuAction { board, date, move, remove }
+
+/// Column labels of the days table (issue #903), built exactly like the cast
+/// table's band (issue #902) so both tables share one look: the band names the
+/// two cells AND carries the table's own surface treatment.
+///
+/// Contrast is a SCHEME property (`surfaceContainerHighest` vs
+/// `onSurfaceVariant`), never a drawn stroke — the same band reads in light and
+/// dark mode, where the M3 default card colour stops implying a surface.
+class _ShootingDayTableHeader extends StatelessWidget {
+  const _ShootingDayTableHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final style = theme.textTheme.labelSmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Container(
+      key: const Key('scene-shooting-day-header-band'),
+      color: theme.colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.space12,
+        vertical: AppSpacing.space8,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(
+              l10n.sceneDetailShootingDayColumnDay,
+              key: const Key('scene-shooting-day-column-day'),
+              style: style,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.space8),
+          Expanded(
+            flex: 3,
+            child: Text(
+              l10n.sceneDetailShootingDayColumnDate,
+              key: const Key('scene-shooting-day-column-date'),
+              style: style,
+            ),
+          ),
+          // Same trailing width as a row's chevron column, so the labels sit
+          // EXACTLY over their columns.
+          const SizedBox(width: _rowActionColumnWidth),
+        ],
+      ),
+    );
+  }
+}
+
+/// One table row of the days section (issue #903): the day cell, the DATE cell
+/// and ONE tap target that opens the row's labelled menu.
+///
+/// The date cell is the row's real payload and it STATES its state: a localized
+/// date when the day carries one, „Noch kein Datum" when the assignment is
+/// missing (the reported defect was a row that rendered a title and nothing
+/// else), and nothing at all when the day did not resolve — an unknown date is
+/// not "none yet". The hairline is a `DecoratedBox` border, NEVER a `Divider`
+/// widget, so issue #834's no-divider rule keeps holding for section chrome.
+class _ShootingDayRow extends StatelessWidget {
+  const _ShootingDayRow({
+    required this.shootingDayId,
+    required this.day,
+    required this.zebra,
+    required this.menuTitle,
+    required this.dateItemLabel,
+    required this.onRemove,
+    this.onOpenBoard,
+    this.onPickDate,
+    this.onMove,
+  });
+
+  final String shootingDayId;
+
+  /// The resolved day from the episode's projection — `null` when the scene
+  /// carries an id the projection does not know (projector lag, or a day that
+  /// was archived elsewhere).
+  final ShootingDayView? day;
+
+  /// Whether this row is banded (`surfaceContainerLow`) instead of `surface`.
+  final bool zebra;
+
+  /// The row's identity in the menu the sheet opens (`Aktionen für …` dropped:
+  /// the day's own label IS the identity the reader needs).
+  final String menuTitle;
+
+  /// „Datum festlegen" for a day without a date, „Datum ändern" for one with.
+  final String dateItemLabel;
+
+  /// `null` renders the menu item DISABLED, never absent.
+  final VoidCallback? onOpenBoard;
+  final VoidCallback? onPickDate;
+  final VoidCallback? onMove;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final scheme = theme.colorScheme;
+    return Semantics(
+      // The whole row is one button-like tap target (issue #903): a context
+      // menu without a cue is a hidden affordance, so the row also carries the
+      // decorative chevron below.
+      button: true,
+      hint: l10n.sceneDetailRowActions,
+      child: Material(
+        color: zebra ? scheme.surfaceContainerLow : scheme.surface,
+        child: InkWell(
+          key: Key('scene-shooting-day-row-$shootingDayId'),
+          // Tap and long-press open the SAME menu — one implementation, two
+          // triggers (long-press is the secondary habit, not a second menu).
+          onTap: () => unawaited(_openMenu(context)),
+          onLongPress: () => unawaited(_openMenu(context)),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: scheme.outlineVariant, width: 1),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.space12,
+                vertical: AppSpacing.space8,
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: _tableRowMinHeight,
+                ),
+                child: Row(
+                  children: [
+                    // Column 1 — the day.
+                    Expanded(flex: 4, child: _dayCell(context)),
+                    const SizedBox(width: AppSpacing.space8),
+                    // Column 2 — the DATE.
+                    Expanded(flex: 3, child: _dateCell(context)),
+                    // The affordance cue of the tap target — decorative.
+                    SizedBox(
+                      width: _rowActionColumnWidth,
+                      child: Icon(
+                        Icons.chevron_right,
+                        size: 20,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The day cell: the label (wrapping, never ellipsized) and the #538
+  /// provenance badge for an AI-extracted day. An unresolved day renders the
+  /// fallback label — the row still says what it is about.
+  Widget _dayCell(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final label = Text(
+      day?.label ?? l10n.sceneShootDayFallback,
+      key: Key('scene-shooting-day-$shootingDayId'),
+      style: theme.textTheme.bodyMedium,
+      // Wrapping, not ellipsis (issue #903): the payload no longer competes with
+      // three icon buttons, and a long day label gets a second line.
+      maxLines: 2,
+    );
+    return switch (day == null
+        ? AiProvenanceVariant.absent
+        : dayProvenance(day!.source_)) {
+      AiProvenanceVariant.aiExtracted => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AiProvenanceBadge(
+            semanticKey: 'shooting-day-ai-badge-$shootingDayId',
+          ),
+          Flexible(child: label),
+        ],
+      ),
+      _ => label,
+    };
+  }
+
+  /// The date cell (issue #903): one date format for both screens
+  /// (`formatMediumDate`, the shooting-days screen's own), or the explicit
+  /// "still missing" state.
+  Widget _dateCell(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final date = day?.date;
+    if (date == null) {
+      // An unresolved day says nothing about its date: its state is unknown,
+      // not "no date yet" — a fake placeholder would be a lie.
+      if (day == null) return const SizedBox.shrink();
+      return Row(
+        key: Key('scene-shooting-day-date-missing-$shootingDayId'),
+        children: [
+          Icon(
+            Icons.event_busy,
+            size: 16,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: AppSpacing.space4),
+          Flexible(
+            child: Text(
+              l10n.shootingDayNoDate,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return Text(
+      l10n.shootingDayDate(formatMediumDate(context, date.toDateTime())),
+      key: Key('scene-shooting-day-date-$shootingDayId'),
+      style: theme.textTheme.bodyMedium,
+      maxLines: 2,
+    );
+  }
+
+  /// Opens the row menu and dispatches the chosen action.
+  ///
+  /// The sheet closes BEFORE the action runs, so a date picker or a navigation
+  /// push never stacks on top of an animating sheet.
+  Future<void> _openMenu(BuildContext context) async {
+    final action = await showModalBottomSheet<_ShootingDayMenuAction>(
+      context: context,
+      builder: (_) => _ShootingDayRowMenu(
+        shootingDayId: shootingDayId,
+        title: menuTitle,
+        hasDate: day?.date != null,
+        dateItemLabel: dateItemLabel,
+        onOpenBoard: onOpenBoard,
+        onPickDate: onPickDate,
+        onMove: onMove,
+        onRemove: onRemove,
+      ),
+    );
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case _ShootingDayMenuAction.board:
+        onOpenBoard?.call();
+      case _ShootingDayMenuAction.date:
+        onPickDate?.call();
+      case _ShootingDayMenuAction.move:
+        onMove?.call();
+      case _ShootingDayMenuAction.remove:
+        onRemove();
+    }
+  }
+}
+
+/// The row's context menu (issue #903): the four actions as LABELLED items.
+///
+/// `showModalBottomSheet` with `ListTile`s is this screen's mobile-first
+/// pattern (issue #902's cast menu, `showPickOutfitSheet`,
+/// `AssignCharacterSheet`), and it is a net accessibility improvement over the
+/// inline icon row it replaces: every action carries a visible label (glossary
+/// rule, AGENTS §5) and nothing is icon-only any more.
+class _ShootingDayRowMenu extends StatelessWidget {
+  const _ShootingDayRowMenu({
+    required this.shootingDayId,
+    required this.title,
+    required this.hasDate,
+    required this.dateItemLabel,
+    required this.onRemove,
+    this.onOpenBoard,
+    this.onPickDate,
+    this.onMove,
+  });
+
+  final String shootingDayId;
+
+  /// The row's own day label — the identity of the row being acted on.
+  final String title;
+
+  /// Whether the day carries a date (the item's label follows it).
+  final bool hasDate;
+  final String dateItemLabel;
+
+  /// `null` disables the item (the day did not resolve / no candidate exists);
+  /// it stays visible.
+  final VoidCallback? onOpenBoard;
+  final VoidCallback? onPickDate;
+  final VoidCallback? onMove;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          key: Key('scene-shooting-day-menu-$shootingDayId'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.space16,
+                AppSpacing.space12,
+                AppSpacing.space16,
+                AppSpacing.space4,
+              ),
+              child: Text(title, style: theme.textTheme.titleSmall),
+            ),
+            ListTile(
+              key: Key('scene-shooting-day-menu-board-$shootingDayId'),
+              enabled: onOpenBoard != null,
+              leading: const Icon(Icons.view_agenda_outlined),
+              title: Text(l10n.sceneDetailOpenDayBoard),
+              onTap: onOpenBoard == null
+                  ? null
+                  : () =>
+                        Navigator.of(context).pop(_ShootingDayMenuAction.board),
+            ),
+            ListTile(
+              key: Key('scene-shooting-day-menu-date-$shootingDayId'),
+              enabled: onPickDate != null,
+              leading: const Icon(Icons.edit_calendar),
+              title: Text(dateItemLabel),
+              subtitle: hasDate ? null : Text(l10n.shootingDayNoDate),
+              onTap: onPickDate == null
+                  ? null
+                  : () =>
+                        Navigator.of(context).pop(_ShootingDayMenuAction.date),
+            ),
+            ListTile(
+              key: Key('scene-shooting-day-menu-move-$shootingDayId'),
+              enabled: onMove != null,
+              leading: const Icon(Icons.swap_horiz),
+              title: Text(l10n.sceneDetailMoveToOtherDay),
+              onTap: onMove == null
+                  ? null
+                  : () =>
+                        Navigator.of(context).pop(_ShootingDayMenuAction.move),
+            ),
+            ListTile(
+              key: Key('scene-shooting-day-menu-remove-$shootingDayId'),
+              leading: const Icon(Icons.event_busy),
+              title: Text(l10n.shootingDayUnscheduleButton),
+              // No confirm dialog: this removes the RELATION (reversible by
+              // re-scheduling), not the day or its date — the day-scoped
+              // destructive verb keeps its confirm on the shooting-days screen.
+              onTap: () =>
+                  Navigator.of(context).pop(_ShootingDayMenuAction.remove),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// The episode's **real** shooting days this scene is not planned on yet:
 /// not archived, and not already on the scene's own list.
 ///
@@ -1437,10 +1805,12 @@ List<ShootingDayView> _realDayCandidates(
 /// the days, not from the looks).
 ///
 /// Lists the days from `SceneView.shootingDayIds` resolved against the
-/// episode's day projection (read-DTO join only). Per row: the day board, the
-/// "move to another day" action and unscheduling; at the bottom the schedule
-/// action. A scene whose days are all ineligible states why instead of leaving
-/// a silently disabled button.
+/// episode's day projection (read-DTO join only). A row is ONE tap target that
+/// opens a labelled menu (issue #903): the day board, the day's DATE (the
+/// existing `reschedule` command behind a Material date chooser), "move to
+/// another day" and unscheduling; at the bottom the schedule action. A scene
+/// whose days are all ineligible states why instead of leaving a silently
+/// disabled button.
 class _SceneShootingDaysSection extends ConsumerWidget {
   const _SceneShootingDaysSection({
     required this.seasonId,
@@ -1465,96 +1835,61 @@ class _SceneShootingDaysSection extends ConsumerWidget {
     final byId = {for (final d in days.rows) d.id: d};
     final scheduled = scene.shootingDayIds.toSet().toList();
 
-    // SectionCard (issue #834): no divider chrome, collapsed by default.
-    return SectionCard(
+    // Always-visible section (issue #903): `Drehtage (n)` is the FIRST
+    // operational fact of a planned scene (#834 orders the section first), so
+    // the `SectionCard` expand step is gone — the count stays in the header and
+    // the table is in the picture on a cold open, exactly like the cast table
+    // (issue #902). `SectionCard` keeps its no-divider contract for the
+    // sections that legitimately collapse.
+    return Column(
       key: Key('scene-shooting-days-${scene.id}'),
-      pageStorageKey: 'scene-section-shooting-days',
-      header: Text(l10n.sceneDetailShootingDaysTitle('${scheduled.length}')),
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (scheduled.isEmpty)
-          ListTile(
-            key: const Key('scene-shooting-days-empty'),
-            title: Text(l10n.sceneDetailNoShootingDays),
-            // Report provenance (issue #549): the reports entry lives on the
-            // day board, and the day board is reachable only from a scheduled
-            // day — so a 0-day scene showed no reports affordance and no reason
-            // to expect one. The hint NAMES what becomes available once a day is
-            // planned. It invents no report and adds no season-level entry: the
-            // report routes are day-scoped in the contract itself, so this stays
-            // copy, not an affordance that leads nowhere
-            // (`flutter-reports-screen`, Report-Provenance Empty State).
-            subtitle: Text(l10n.sceneDetailNoShootingDaysReportHint),
-          )
-        else
-          for (final id in scheduled)
-            ListTile(
-              key: Key('scene-shooting-day-$id'),
-              // Provenance badge keyed like the day list #538 — the scheduled
-              // read-DTO join renders the day's wire source.
-              title: switch (byId[id] == null
-                  ? AiProvenanceVariant.absent
-                  : dayProvenance(byId[id]!.source_)) {
-                AiProvenanceVariant.aiExtracted => Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AiProvenanceBadge(semanticKey: 'shooting-day-ai-badge-$id'),
-                    Flexible(
-                      child: Text(
-                        byId[id]?.label ?? l10n.sceneShootDayFallback,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                _ => Text(byId[id]?.label ?? l10n.sceneShootDayFallback),
-              },
-              subtitle: byId[id]?.date != null
-                  ? Text(l10n.shootingDayDate('${byId[id]!.date}'))
-                  : null,
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Day-board entry (`flutter-shoot-day-execution` 2.1):
-                  // opens the Soll/Ist execution board with the acted-on day +
-                  // scene DTOs (never a second projection lookup). Gherkin
-                  // contract key (`open-day-board-<day>`) for the shoot-day
-                  // execution critical scenarios.
-                  IconButton(
-                    key: Key('open-day-board-$id'),
-                    icon: const Icon(Icons.view_agenda_outlined),
-                    tooltip: l10n.sceneDetailOpenDayBoard,
-                    onPressed: byId[id] == null
-                        ? null
-                        : () => _openBoard(context, byId[id]!),
+        Text(
+          l10n.sceneDetailShootingDaysTitle('${scheduled.length}'),
+          key: const Key('scene-shooting-days-title'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: AppSpacing.space8),
+        Card(
+          key: const Key('scene-shooting-day-table'),
+          margin: EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          // Table chrome from `ColorScheme` roles ONLY (issues #902 and #903,
+          // AGENTS §9): the card sits ON the page surface, so the label band
+          // and the zebra rows carry the structure. In dark mode the M3 default
+          // card colour (`surfaceContainerLow`) is indistinguishable from
+          // `surface` — that was the reported defect.
+          color: Theme.of(context).colorScheme.surface,
+          child: Column(
+            children: [
+              const _ShootingDayTableHeader(),
+              if (scheduled.isEmpty)
+                ListTile(
+                  key: const Key('scene-shooting-days-empty'),
+                  title: Text(l10n.sceneDetailNoShootingDays),
+                  // Report provenance (issue #549): the reports entry lives on the
+                  // day board, and the day board is reachable only from a scheduled
+                  // day — so a 0-day scene showed no reports affordance and no reason
+                  // to expect one. The hint NAMES what becomes available once a day is
+                  // planned. It invents no report and adds no season-level entry: the
+                  // report routes are day-scoped in the contract itself, so this stays
+                  // copy, not an affordance that leads nowhere
+                  // (`flutter-reports-screen`, Report-Provenance Empty State).
+                  subtitle: Text(l10n.sceneDetailNoShootingDaysReportHint),
+                )
+              else
+                for (final (index, id) in scheduled.indexed)
+                  _dayRowWidget(
+                    context,
+                    ref,
+                    shootingDayId: id,
+                    day: byId[id],
+                    zebra: index.isOdd,
                   ),
-                  // "Move to another day" (issue #834 follow-up): the reported
-                  // gap was having to unschedule and re-schedule by hand, which
-                  // left the scene without a day in between (and the Soll/Ist
-                  // report without a row). Disabled when no other day exists.
-                  IconButton(
-                    key: Key('scene-shooting-day-move-$id'),
-                    icon: const Icon(Icons.swap_horiz),
-                    tooltip: l10n.sceneDetailMoveToOtherDay,
-                    onPressed: candidates.isEmpty
-                        ? null
-                        : () => _pickDayAndSchedule(
-                            context,
-                            ref,
-                            episodeId: episodeId,
-                            scene: scene,
-                            candidates: candidates,
-                            replaceDayId: id,
-                          ),
-                  ),
-                  IconButton(
-                    key: Key('scene-shooting-day-unschedule-$id'),
-                    icon: const Icon(Icons.event_busy),
-                    tooltip: l10n.shootingDayUnscheduleButton,
-                    onPressed: () => _unschedule(context, ref, id),
-                  ),
-                ],
-              ),
-            ),
+            ],
+          ),
+        ),
         Align(
           alignment: Alignment.centerRight,
           child: FilledButton.tonalIcon(
@@ -1569,7 +1904,11 @@ class _SceneShootingDaysSection extends ConsumerWidget {
                     candidates: candidates,
                   ),
             icon: const Icon(Icons.event_available_outlined),
-            label: Text(l10n.sceneDetailScheduleOnDay),
+            // Issue #903: the command APPENDS the scene to a day (a scene is
+            // shot over several days) — it never "plans the scene on THE day".
+            // „Drehtag anlegen" (below) creates the day AGGREGATE itself; the
+            // two labels now say which of the two operations they run.
+            label: Text(l10n.sceneDetailAddShootingDay),
           ),
         ),
         // Issue #669: a fresh script import creates scenes but NO shooting days,
@@ -1623,6 +1962,90 @@ class _SceneShootingDaysSection extends ConsumerWidget {
             ),
           ),
       ],
+    );
+  }
+
+  /// One rendered row of the days table (issue #903).
+  ///
+  /// The row is ONE tap target: the day board, the day's date, "move to
+  /// another day" and "remove from this day" are LABELLED items of its menu,
+  /// never inline icon buttons (three of them ate 144 dp of the payload width).
+  /// Availability follows the resolved state, never convenience: a day the
+  /// projection did not resolve renders the fallback label and disables the
+  /// board/date items (never hides them), and the move item is disabled when no
+  /// other eligible day exists.
+  Widget _dayRowWidget(
+    BuildContext context,
+    WidgetRef ref, {
+    required String shootingDayId,
+    required ShootingDayView? day,
+    required bool zebra,
+  }) {
+    final l10n = l10nOf(context);
+    return _ShootingDayRow(
+      shootingDayId: shootingDayId,
+      day: day,
+      zebra: zebra,
+      menuTitle: day?.label ?? l10n.sceneShootDayFallback,
+      dateItemLabel: day?.date == null
+          ? l10n.sceneDetailSetDayDate
+          : l10n.sceneDetailChangeDayDate,
+      // Both are stateful about the ROW, not about the feature: a `null` day
+      // disables them without removing the affordance.
+      onOpenBoard: day == null ? null : () => _openBoard(context, day),
+      onPickDate: day == null
+          ? null
+          : () => unawaited(_pickDayDate(context, ref, day)),
+      onMove: candidates.isEmpty
+          ? null
+          : () => unawaited(
+              _pickDayAndSchedule(
+                context,
+                ref,
+                episodeId: episodeId,
+                scene: scene,
+                candidates: candidates,
+                replaceDayId: shootingDayId,
+              ),
+            ),
+      onRemove: () => unawaited(_unschedule(context, ref, shootingDayId)),
+    );
+  }
+
+  /// Opens the Material date chooser for ONE day and dispatches the EXISTING
+  /// `reschedule` command (issue #903) — the very path the shooting-days screen
+  /// uses (`_pickDate`), seeded the same way: the day's date when set, else
+  /// today.
+  ///
+  /// This is pure re-use: no new endpoint, provider or controller method, and no
+  /// new wire body. Failures are handled values — the localized
+  /// `shootingDayErrorCopy` is shown for the problem `code`, never discarded.
+  Future<void> _pickDayDate(
+    BuildContext context,
+    WidgetRef ref,
+    ShootingDayView day,
+  ) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: day.date == null
+          ? DateTime.now()
+          : DateTime(day.date!.year, day.date!.month, day.date!.day),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !context.mounted) return;
+    // The days projection is what this row reads, and the controller's `_intent`
+    // already refreshes it on the ack — no extra scene refresh (the scene
+    // projection does not carry a day's date).
+    final result = await ref
+        .read(shootingDaysControllerProvider(episodeId).notifier)
+        .reschedule(day: day, date: picked.toDate());
+    if (result.isRight() || !context.mounted) return;
+    result.match(
+      (err) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(shootingDayErrorCopy(l10nOf(context), err))),
+      ),
+      (_) {},
     );
   }
 
@@ -1701,10 +2124,16 @@ Future<void> _pickDayAndSchedule(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.space16),
+            // Neutral over its three entry points (issue #903: the section
+            // button, a row's move item and the script-day chip): the title
+            // used to repeat the button's copy, which made all three look like
+            // the same "plan the scene on THE day" action. A theme role, not an
+            // inline `TextStyle` (AGENTS §9).
             child: Text(
-              l10nOf(context).sceneDetailScheduleTitle,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              l10nOf(context).sceneDetailPickShootingDay,
+              key: const Key('schedule-day-title'),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
           Flexible(
@@ -1734,9 +2163,15 @@ Future<void> _pickDayAndSchedule(
                     ),
                     _ => Text(d.label ?? l10nOf(context).shootingDayUntitled),
                   },
-                  subtitle: d.date != null
-                      ? Text(l10nOf(context).shootingDayDate('${d.date}'))
-                      : null,
+                  subtitle: d.date == null
+                      // Issue #903: one date format for both screens, and the
+                      // missing date is said instead of rendered as nothing.
+                      ? Text(l10nOf(context).shootingDayNoDate)
+                      : Text(
+                          l10nOf(context).shootingDayDate(
+                            formatMediumDate(context, d.date!.toDateTime()),
+                          ),
+                        ),
                   onTap: () => Navigator.of(context).pop(d.id),
                 );
               },

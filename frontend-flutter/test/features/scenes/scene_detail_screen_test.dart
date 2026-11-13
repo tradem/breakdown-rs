@@ -219,22 +219,27 @@ CharacterView _character(String id, {String name = 'Ada'}) => CharacterView(
     ..version = 1,
 );
 
-ShootingDayView _day(String id, {String? label, bool archived = false}) =>
-    ShootingDayView(
-      (b) => b
-        ..id = id
-        ..episodeId = 'episode-1'
-        ..orderKey = '!'
-        ..source_.replace(
-          ShootingDaySource(
-            (s) => s..oneOf = OneOf.fromValue1(value: 'Manual'),
-          ),
-        )
-        ..label = label
-        ..archived = archived
-        ..updatedAt = DateTime.utc(2026, 1, 1)
-        ..version = 1,
-    );
+ShootingDayView _day(
+  String id, {
+  String? label,
+  bool archived = false,
+  DateTime? date,
+}) => ShootingDayView(
+  (b) => b
+    ..id = id
+    ..episodeId = 'episode-1'
+    ..orderKey = '!'
+    ..source_.replace(
+      ShootingDaySource((s) => s..oneOf = OneOf.fromValue1(value: 'Manual')),
+    )
+    ..label = label
+    // Issue #903: a script-imported day carries NO date, so both states are
+    // fixtures the rows have to render honestly.
+    ..date = date == null ? null : Date(date.year, date.month, date.day)
+    ..archived = archived
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    ..version = 1,
+);
 
 /// The parent episode the detail screen is navigated from (issue #669:
 /// the day empty-state's quick-create affordance is sourced from this
@@ -401,6 +406,22 @@ class _FakeShootingDayRepository extends ShootingDayRepository {
   int? lastScheduleVersion;
   int? lastUnscheduleVersion;
 
+  /// Issue #903: the day's DATE is set through the single-intent `update`
+  /// (`buildRescheduleRequest`), so the row's date item is pinned here.
+  int updateCalls = 0;
+  Date? lastRescheduleDate;
+  int? lastRescheduleVersion;
+
+  @override
+  Future<Result<int>> update(String id, UpdateShootingDayRequest request) {
+    updateCalls++;
+    lastRescheduleDate = request.date;
+    lastRescheduleVersion = request.version;
+    final scripted = nextWrite;
+    if (scripted != null) return Future.value(scripted);
+    return Future.value(Right(request.version + 1));
+  }
+
   @override
   Future<Result<int>> scheduleScene(
     String sceneId,
@@ -433,9 +454,9 @@ Future<void> _pumpFrames(WidgetTester tester, {int n = 20}) async {
   }
 }
 
-/// The background an issue #902 cast row is banded with: the `Material` the
-/// row's tap target sits in (`surface` / `surfaceContainerLow`).
-Color? _castRowBand(WidgetTester tester, String rowKey) => tester
+/// The background a table row (issues #902 and #903) is banded with: the
+/// `Material` the row's tap target sits in (`surface` / `surfaceContainerLow`).
+Color? _rowBand(WidgetTester tester, String rowKey) => tester
     .widget<Material>(
       find
           .ancestor(
@@ -447,7 +468,7 @@ Color? _castRowBand(WidgetTester tester, String rowKey) => tester
     .color;
 
 /// The row separator decoration (a border, never a `Divider` widget).
-BoxBorder? _castRowBorder(WidgetTester tester, String rowKey) {
+BoxBorder? _rowBorder(WidgetTester tester, String rowKey) {
   final decorated = tester.widget<DecoratedBox>(
     find
         .descendant(
@@ -640,22 +661,41 @@ void main() {
     }
   }
 
-  /// Issue #834: every section is COLLAPSED by default — a test asserting
-  /// section content reveals and then expands it (one tap on the header card).
-  Future<void> expandSection(WidgetTester tester, String sectionKey) async {
-    final header = find.byKey(Key(sectionKey));
-    // A scene that never resolved renders no sections at all — a tap would
-    // throw on the empty finder.
-    await revealInDetail(tester, header);
-    if (header.evaluate().isEmpty) return;
-    await tester.tap(header.first);
-    await tester.pumpAndSettle();
-  }
-
   /// Issue #902: the cast table renders WITHOUT an expand step — a test only
   /// scrolls the section into the viewport.
   Future<void> revealCast(WidgetTester tester) async {
     await revealInDetail(tester, find.byKey(const Key('scene-cast-scene-1')));
+  }
+
+  /// Issue #903: the shooting-days TABLE renders WITHOUT an expand step too —
+  /// a test only scrolls the section into the viewport.
+  Future<void> revealDays(WidgetTester tester) async {
+    await revealInDetail(
+      tester,
+      find.byKey(const Key('scene-shooting-days-scene-1')),
+    );
+  }
+
+  /// Issue #903: the three row actions are LABELLED items of a context menu —
+  /// every action flow opens its row first, then taps its item. Both helpers
+  /// pump FIXED frames instead of `pumpAndSettle`: a reconciling overlay's
+  /// indeterminate spinner (or a SnackBar) would never settle
+  /// (deterministic-tests rule, AGENTS §6).
+  Future<void> openDayMenu(WidgetTester tester, String rowKey) async {
+    final row = find.byKey(Key(rowKey));
+    await revealInDetail(tester, row);
+    await tester.tap(row);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  /// Taps one item of the day menu the previous [openDayMenu] opened.
+  Future<void> tapDayMenu(WidgetTester tester, String itemKey) async {
+    await tester.tap(find.byKey(Key(itemKey)));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
   }
 
   /// Issue #902: the four row actions are LABELLED items of a context menu —
@@ -867,8 +907,8 @@ void main() {
         dayRows: [_day('d-1', label: '1. Tag')],
       );
       await pumpDetail(tester);
-      // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Issue #903: the days table needs no expand step — scroll it in.
+      await revealDays(tester);
       expect(find.text('1. Tag'), findsOneWidget);
       expect(find.byKey(const Key('scene-shooting-day-d-1')), findsOneWidget);
     });
@@ -884,12 +924,21 @@ void main() {
         ],
       );
       await pumpDetail(tester);
-      // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Issue #903: the days table needs no expand step — scroll it in.
+      await revealDays(tester);
+      // The button ADDS a day to the scene (issue #903: `scheduleScene`
+      // appends to the id list; it never "plans on THE day").
+      // (the test locale is English; the German copy is the ARB template)
+      expect(find.text('Add shooting day'), findsOneWidget);
       await tester.tap(
         find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
       );
       await tester.pumpAndSettle();
+      // The sheet's title is NEUTRAL over its three entry points (issue #903).
+      expect(find.text('Pick shooting day'), findsOneWidget);
+      // The pre-rename copy is gone: the button ADDS a day, it never "plans on
+      // THE day".
+      expect(find.text('Schedule on day'), findsNothing);
       expect(find.byKey(const Key('schedule-day-d-1')), findsOneWidget);
       expect(find.byKey(const Key('schedule-day-d-2')), findsNothing);
       await tester.tap(find.byKey(const Key('schedule-day-d-1')));
@@ -905,12 +954,12 @@ void main() {
         dayRows: [_day('d-1', label: '1. Tag')],
       );
       await pumpDetail(tester);
-      // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Issue #903: the days table needs no expand step — scroll it in.
+      await revealDays(tester);
       days.nextWrite = const Left(_conflict);
-      await tester.tap(
-        find.byKey(const Key('scene-shooting-day-unschedule-d-1')),
-      );
+      // Issue #903: the removal is a LABELLED menu item, not an inline icon.
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      await tapDayMenu(tester, 'scene-shooting-day-menu-remove-d-1');
       await _pumpFrames(tester);
       expect(days.unscheduleCalls, 1);
       expect(
@@ -940,7 +989,7 @@ void main() {
         );
         await pumpDetail(tester);
         // Issue #834: the section is collapsed by default — expand first.
-        await expandSection(tester, 'scene-shooting-days-scene-1');
+        await revealDays(tester);
 
         final button = tester.widget<FilledButton>(
           find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
@@ -968,7 +1017,7 @@ void main() {
         await setupContainer(scene: _scene(), dayRows: const []);
         await pumpDetail(tester);
         // Issue #834: the section is collapsed by default — expand first.
-        await expandSection(tester, 'scene-shooting-days-scene-1');
+        await revealDays(tester);
 
         // The schedule button stays disabled (nothing to pick).
         final button = tester.widget<FilledButton>(
@@ -1001,7 +1050,7 @@ void main() {
         await setupContainer(scene: _scene(), dayRowsLive: dayRowsLive);
         await pumpDetail(tester);
         // Issue #834: the section is collapsed by default — expand first.
-        await expandSection(tester, 'scene-shooting-days-scene-1');
+        await revealDays(tester);
         expect(
           find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
           findsOneWidget,
@@ -1046,8 +1095,8 @@ void main() {
     ) async {
       await setupContainer(scene: _scene(), dayRows: [_day('d-1')]);
       await pumpDetail(tester);
-      // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Issue #903: the days table needs no expand step — scroll it in.
+      await revealDays(tester);
 
       final button = tester.widget<FilledButton>(
         find.byKey(const Key('scene-shooting-day-schedule-scene-1')),
@@ -1076,8 +1125,8 @@ void main() {
     ) async {
       await setupContainer(scene: _scene(), dayRows: []);
       await pumpDetail(tester);
-      // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Issue #903: the days table needs no expand step — scroll it in.
+      await revealDays(tester);
 
       expect(
         find.byKey(const Key('scene-shooting-days-empty')),
@@ -1101,8 +1150,8 @@ void main() {
         dayRows: [_day('d-1', label: '1. Tag')],
       );
       await pumpDetail(tester);
-      // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Issue #903: the days table needs no expand step — scroll it in.
+      await revealDays(tester);
 
       expect(find.byKey(const Key('scene-shooting-days-empty')), findsNothing);
       expect(
@@ -1129,15 +1178,18 @@ void main() {
         ],
       );
       await pumpDetail(tester);
-      // Issue #834: the section is collapsed by default — expand first.
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Issue #903: the days table needs no expand step — scroll it in.
+      await revealDays(tester);
 
       // Count reflects the distinct days, not the fan-out length.
       expect(find.text('Shooting days (1)'), findsOneWidget);
       // The day renders exactly once — no duplicated row, no duplicated
       // day-board entry key.
       expect(find.byKey(const Key('scene-shooting-day-d-1')), findsOneWidget);
-      expect(find.byKey(const Key('open-day-board-d-1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('scene-shooting-day-row-d-1')),
+        findsOneWidget,
+      );
       // ...and the picker still offers the unscheduled day: count and
       // availability cannot contradict each other.
       await tester.tap(
@@ -1429,11 +1481,19 @@ void main() {
         await setupContainer(
           scene: _scene(
             characters: ['ch-1', 'ch-2'],
+            // Issue #903: the days table is in the picture — with a dated day
+            // AND a script-imported one that carries no date, because that
+            // second state is what the reporter saw as an empty row.
+            days: ['d-1', 'd-2'],
             beats: [
               _beat('ch-1', 0, note: 'Trench, guanti'),
               _beat('ch-1', 1, pieceId: 'piece-2'),
             ],
           ),
+          dayRows: [
+            _day('d-1', label: '1. Tag', date: DateTime.utc(2026, 9, 14)),
+            _day('d-2', label: '2. Tag'),
+          ],
           characterRows: [
             _character('ch-1'),
             _character('ch-2', name: 'Bea'),
@@ -1570,58 +1630,42 @@ void main() {
       expect(find.byKey(const Key('scene-synopsis-text')), findsOneWidget);
     });
 
-    testWidgets('the day section is collapsed by default, the cast table is '
-        'not (issues #834, #902)', (tester) async {
+    testWidgets('both tables render with no expand step (issues #834, #902, '
+        '#903)', (tester) async {
       await setupContainer(
         scene: _scene(characters: ['ch-1'], days: ['d-1']),
         characterRows: [_character('ch-1')],
-        dayRows: [_day('d-1')],
+        dayRows: [_day('d-1', label: '1. Tag')],
       );
       await pumpDetail(tester);
       // Issue #902: the CAST is page content — table and rows render on a
       // cold open, with no expand step…
       expect(find.byKey(const Key('scene-character-ch-1')), findsOneWidget);
       expect(find.text('Characters (1) · Looks (0)'), findsOneWidget);
-      // …while the day rows stay behind their section's expand step.
-      expect(find.byKey(const Key('scene-shooting-day-d-1')), findsNothing);
-      // The day section sits below the fold: the ListView builds slivers
-      // lazily, so DRAG it into the viewport before asserting (skipOffstage
-      // cannot find unbuilt children).
+      // …and issue #903 gives the DAYS the same treatment: the first
+      // operational fact of a planned scene is visible without a tap, count in
+      // the header.
       expect(find.text('Shooting days (1)'), findsOneWidget);
+      await revealDays(tester);
+      expect(find.byKey(const Key('scene-shooting-day-d-1')), findsOneWidget);
+      // Neither table collapses: no ExpansionTile survives on this screen.
+      expect(find.byType(ExpansionTile), findsNothing);
     });
 
-    testWidgets('no Divider renders in any expansion state', (tester) async {
-      await setupContainer(scene: _scene(characters: ['ch-1']));
+    testWidgets('no Divider renders in either table', (tester) async {
+      await setupContainer(
+        scene: _scene(characters: ['ch-1'], days: ['d-1']),
+        characterRows: [_character('ch-1')],
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
       await pumpDetail(tester);
       expect(find.byType(Divider), findsNothing);
-      // Expand the day section (the M3 ExpansionTile used to draw its default
-      // top+bottom borders while expanded — issue #834) and reveal the cast
-      // table, then assert again: its row separator is a `DecoratedBox`
-      // border, never a `Divider` widget (issue #902).
-      await expandSection(tester, 'scene-shooting-days-scene-1');
+      // Both tables' row separators are `DecoratedBox` borders, never a
+      // `Divider` widget (issues #834, #902, #903).
+      await revealDays(tester);
       await revealCast(tester);
       expect(find.byType(Divider), findsNothing);
-      // The M3 ExpansionTile paints its divider LINES from `shape` — not
-      // from `Divider` widgets. If the shape default ever returns, the
-      // lines reappear without any Divider in the tree (CodeRabbit #868):
-      // assert the borderless CONFIG in both states.
-      for (final tile in tester.widgetList<ExpansionTile>(
-        find.byType(ExpansionTile),
-      )) {
-        expect(tile.shape, const Border());
-        expect(tile.collapsedShape, const Border());
-      }
-      // And the section that still collapses owns a stable, UNIQUE
-      // PageStorageKey so an expanded section survives scroll-out/in of the
-      // retained viewport (the cast table has no ExpansionTile any more —
-      // issue #902).
-      final storageKeys = tester
-          .widgetList<ExpansionTile>(find.byType(ExpansionTile))
-          .map((t) => t.key)
-          .whereType<PageStorageKey>()
-          .map((k) => k.value)
-          .toSet();
-      expect(storageKeys, hasLength(1));
+      expect(_rowBorder(tester, 'scene-shooting-day-row-d-1'), isNotNull);
     });
 
     testWidgets('header block: numeral, location, mood + schedule chips', (
@@ -2017,8 +2061,10 @@ void main() {
         dayRows: [_day('d-1'), _day('d-2')],
       );
       await pumpDetail(tester);
-      await expandSection(tester, 'scene-shooting-days-scene-1');
-      await tester.tap(find.byKey(const Key('scene-shooting-day-move-d-1')));
+      await revealDays(tester);
+      // Issue #903: "move to another day" is a labelled menu item.
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      await tapDayMenu(tester, 'scene-shooting-day-menu-move-d-1');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('schedule-day-d-2')));
       await _pumpFrames(tester);
@@ -2042,8 +2088,10 @@ void main() {
       // (visible, removable rows) instead of on none.
       days.nextUnscheduleWrite = const Left(_conflict);
       await pumpDetail(tester);
-      await expandSection(tester, 'scene-shooting-days-scene-1');
-      await tester.tap(find.byKey(const Key('scene-shooting-day-move-d-1')));
+      await revealDays(tester);
+      // Issue #903: "move to another day" is a labelled menu item.
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      await tapDayMenu(tester, 'scene-shooting-day-menu-move-d-1');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('schedule-day-d-2')));
       await _pumpFrames(tester);
@@ -2065,8 +2113,10 @@ void main() {
         ProblemError(code: 'concurrency.version-mismatch', status: 409),
       );
       await pumpDetail(tester);
-      await expandSection(tester, 'scene-shooting-days-scene-1');
-      await tester.tap(find.byKey(const Key('scene-shooting-day-move-d-1')));
+      await revealDays(tester);
+      // Issue #903: "move to another day" is a labelled menu item.
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      await tapDayMenu(tester, 'scene-shooting-day-menu-move-d-1');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('schedule-day-d-2')));
       await _pumpFrames(tester);
@@ -2214,10 +2264,11 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const Key('scene-cast-column-look')), findsOneWidget);
-      // Rows need no tap — and the CAST has no ExpansionTile any more (only
-      // the shooting-days section legitimately collapses).
+      // Rows need no tap — and the CAST has no ExpansionTile any more (nor,
+      // since issue #903, does the shooting-days section).
       expect(find.byKey(const Key('scene-cast-row-ch-1-0')), findsOneWidget);
-      expect(find.byType(ExpansionTile), findsOneWidget);
+      // Since issue #903 no scene-detail section collapses at all.
+      expect(find.byType(ExpansionTile), findsNothing);
     });
 
     for (final (label, theme) in [
@@ -2251,15 +2302,15 @@ void main() {
           scheme.surfaceContainerHighest,
         );
         // Zebra banding: alternating scheme roles, so the two rows differ.
-        expect(_castRowBand(tester, 'scene-cast-row-ch-1-0'), scheme.surface);
+        expect(_rowBand(tester, 'scene-cast-row-ch-1-0'), scheme.surface);
         expect(
-          _castRowBand(tester, 'scene-cast-row-ch-1-1'),
+          _rowBand(tester, 'scene-cast-row-ch-1-1'),
           scheme.surfaceContainerLow,
         );
         expect(scheme.surface, isNot(scheme.surfaceContainerLow));
         // The separator is a border decoration, NEVER a `Divider` (#834).
         expect(find.byType(Divider), findsNothing);
-        expect(_castRowBorder(tester, 'scene-cast-row-ch-1-0'), isNotNull);
+        expect(_rowBorder(tester, 'scene-cast-row-ch-1-0'), isNotNull);
       });
     }
 
@@ -2501,6 +2552,379 @@ void main() {
       );
       // The optimistic beat row is retained, not silently discarded.
       expect(find.byKey(const Key('scene-piece-beat-ch-1-0')), findsOneWidget);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #903 — the shooting days are an always-visible TABLE whose row menu
+  // carries the three former inline icon actions, plus the day's real DATE (the
+  // existing `reschedule` command behind a Material date chooser).
+  // -------------------------------------------------------------------------
+  group('SceneDetailScreen days table + row menu (issue #903)', () {
+    testWidgets('the days table renders without an expand step', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      // The count stays in the header; the table is open already.
+      expect(find.text('Shooting days (1)'), findsOneWidget);
+      expect(find.byKey(const Key('scene-shooting-day-table')), findsOneWidget);
+      // The label band and its two column labels.
+      expect(
+        find.byKey(const Key('scene-shooting-day-header-band')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-shooting-day-column-day')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-shooting-day-column-date')),
+        findsOneWidget,
+      );
+      // The row needs no tap, and nothing on this screen collapses any more.
+      expect(
+        find.byKey(const Key('scene-shooting-day-row-d-1')),
+        findsOneWidget,
+      );
+      expect(find.byType(ExpansionTile), findsNothing);
+      // The retired inline icon buttons are gone: every action is a labelled
+      // menu item now.
+      expect(find.byKey(const Key('open-day-board-d-1')), findsNothing);
+      expect(
+        find.byKey(const Key('scene-shooting-day-move-d-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('scene-shooting-day-unschedule-d-1')),
+        findsNothing,
+      );
+    });
+
+    for (final (label, theme) in [
+      ('light', AppThemes.light()),
+      ('dark', AppThemes.dark()),
+    ]) {
+      testWidgets('days table chrome comes from ColorScheme roles ($label)', (
+        tester,
+      ) async {
+        await setupContainer(
+          scene: _scene(days: ['d-1', 'd-2']),
+          dayRows: [
+            _day('d-1', label: '1. Tag'),
+            _day('d-2', label: '2. Tag'),
+          ],
+        );
+        await pumpDetail(tester, theme: theme);
+        await revealDays(tester);
+        final scheme = theme.colorScheme;
+        // Contrast is a SCHEME property, not a drawn stroke — the reported
+        // dark-mode defect in one assert.
+        expect(
+          tester
+              .widget<Container>(
+                find.byKey(const Key('scene-shooting-day-header-band')),
+              )
+              .color,
+          scheme.surfaceContainerHighest,
+        );
+        // Zebra banding: alternating scheme roles, so the two rows differ.
+        expect(_rowBand(tester, 'scene-shooting-day-row-d-1'), scheme.surface);
+        expect(
+          _rowBand(tester, 'scene-shooting-day-row-d-2'),
+          scheme.surfaceContainerLow,
+        );
+        expect(scheme.surface, isNot(scheme.surfaceContainerLow));
+        // The separator is a border decoration, NEVER a `Divider` (#834).
+        expect(find.byType(Divider), findsNothing);
+        expect(_rowBorder(tester, 'scene-shooting-day-row-d-1'), isNotNull);
+      });
+    }
+
+    testWidgets('the column labels sit over their cells', (tester) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      final dayLabelX = tester
+          .getTopLeft(find.byKey(const Key('scene-shooting-day-column-day')))
+          .dx;
+      final dateLabelX = tester
+          .getTopLeft(find.byKey(const Key('scene-shooting-day-column-date')))
+          .dx;
+      expect(
+        tester.getTopLeft(find.byKey(const Key('scene-shooting-day-d-1'))).dx,
+        dayLabelX,
+      );
+      expect(
+        tester
+            .getTopLeft(
+              find.byKey(const Key('scene-shooting-day-date-missing-d-1')),
+            )
+            .dx,
+        dateLabelX,
+      );
+    });
+
+    testWidgets('a day row is ONE accessible tap target with a chevron cue', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      final row = find.byKey(const Key('scene-shooting-day-row-d-1'));
+      // ≥ 48 dp: the three inline icon buttons it replaces ate 144 dp of the
+      // payload width.
+      expect(tester.getSize(row).height, greaterThanOrEqualTo(48));
+      // Nothing in the row is icon-ONLY any more.
+      expect(
+        find.descendant(of: row, matching: find.byType(IconButton)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: row, matching: find.byIcon(Icons.chevron_right)),
+        findsOneWidget,
+      );
+      final semantics = tester.widget<Semantics>(
+        find.ancestor(of: row, matching: find.byType(Semantics)).first,
+      );
+      expect(semantics.properties.button, isTrue);
+      expect(semantics.properties.hint, 'Row actions');
+    });
+
+    testWidgets('tap and long-press open the same labelled menu', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [
+          _day('d-1', label: '1. Tag'),
+          _day('d-2', label: '2. Tag'),
+        ],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      expect(
+        find.byKey(const Key('scene-shooting-day-menu-d-1')),
+        findsOneWidget,
+      );
+      // The row's own day label is the sheet identity; the four actions are
+      // LABELLED, in the documented order.
+      expect(find.text('1. Tag'), findsWidgets);
+      expect(find.text('Open day board'), findsOneWidget);
+      expect(find.text('Set date'), findsOneWidget);
+      expect(find.text('Move to another shooting day'), findsOneWidget);
+      expect(find.text('Unschedule'), findsOneWidget);
+      // Dismiss without choosing, then long-press: the SAME menu.
+      await tester.tapAt(const Offset(5, 5));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(
+        find.byKey(const Key('scene-shooting-day-menu-d-1')),
+        findsNothing,
+      );
+      await tester.longPress(
+        find.byKey(const Key('scene-shooting-day-row-d-1')),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(
+        find.byKey(const Key('scene-shooting-day-menu-d-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+      'the date cell renders the LOCALIZED date, not the ISO string',
+      (tester) async {
+        await setupContainer(
+          scene: _scene(days: ['d-1']),
+          dayRows: [
+            _day('d-1', label: '1. Tag', date: DateTime.utc(2026, 9, 14)),
+          ],
+        );
+        await pumpDetail(tester);
+        await revealDays(tester);
+        final cell = find.byKey(const Key('scene-shooting-day-date-d-1'));
+        expect(cell, findsOneWidget);
+        expect(find.text('Date: Sep 14, 2026'), findsOneWidget);
+        // The reported defect: the raw `Date.toString()` shape.
+        expect(find.textContaining('2026-09-14'), findsNothing);
+        // With a date the item CHANGES it (the label follows the state).
+        await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+        expect(find.text('Change date'), findsOneWidget);
+        expect(find.text('Set date'), findsNothing);
+      },
+    );
+
+    testWidgets('a date-less day SAYS the date is missing', (tester) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      // The reported defect: a title and NOTHING else, with no hint that the
+      // date is still missing.
+      expect(
+        find.byKey(const Key('scene-shooting-day-date-missing-d-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('scene-shooting-day-date-d-1')),
+        findsNothing,
+      );
+      expect(find.text('No date yet'), findsOneWidget);
+      // The fix sits right next to the state.
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      expect(find.text('Set date'), findsOneWidget);
+    });
+
+    testWidgets('an unresolved day renders the fallback label and DISABLES the '
+        'board and date items', (tester) async {
+      // The scene carries an id the episode projection does not know
+      // (projector lag, or a day archived elsewhere).
+      await setupContainer(
+        scene: _scene(days: ['d-x']),
+        dayRows: const [],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      final label = find.byKey(const Key('scene-shooting-day-d-x'));
+      expect(label, findsOneWidget);
+      // The fallback label, not an invented name (the column header carries the
+      // same word, so assert on the CELL).
+      expect(tester.widget<Text>(label).data, 'Shooting day');
+      // No fake date, no fake "no date yet": the state is UNKNOWN.
+      expect(
+        find.byKey(const Key('scene-shooting-day-date-d-x')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('scene-shooting-day-date-missing-d-x')),
+        findsNothing,
+      );
+      await openDayMenu(tester, 'scene-shooting-day-row-d-x');
+      // Present, never absent — disabled ("renders its state, never hidden").
+      for (final key in [
+        'scene-shooting-day-menu-board-d-x',
+        'scene-shooting-day-menu-date-d-x',
+      ]) {
+        final tile = tester.widget<ListTile>(find.byKey(Key(key)));
+        expect(tile.enabled, isFalse, reason: key);
+        expect(tile.onTap, isNull, reason: key);
+      }
+      // The removal needs no resolved day: it removes the id the scene carries.
+      final remove = tester.widget<ListTile>(
+        find.byKey(const Key('scene-shooting-day-menu-remove-d-x')),
+      );
+      expect(remove.enabled, isTrue);
+    });
+
+    testWidgets('the move item is DISABLED when no other day is eligible', (
+      tester,
+    ) async {
+      // The episode's only day is already planned on this scene.
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      final move = tester.widget<ListTile>(
+        find.byKey(const Key('scene-shooting-day-menu-move-d-1')),
+      );
+      expect(move.enabled, isFalse);
+      expect(
+        find.byKey(const Key('scene-shooting-day-no-candidates-scene-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the date item dispatches ONE reschedule echoing the day '
+        'version', (tester) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [
+          _day('d-1', label: '1. Tag', date: DateTime.utc(2026, 9, 14)),
+        ],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      await tapDayMenu(tester, 'scene-shooting-day-menu-date-d-1');
+      await tester.pumpAndSettle();
+      // The Material chooser is seeded with the day's own date, so confirming
+      // it unchanged is a deterministic pick (no month grid navigation).
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await _pumpFrames(tester);
+      expect(days.updateCalls, 1);
+      expect(days.lastRescheduleDate, Date(2026, 9, 14));
+      expect(days.lastRescheduleVersion, 1);
+    });
+
+    testWidgets('the date chooser starts TODAY for a day without a date', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [_day('d-1', label: '1. Tag')],
+      );
+      await pumpDetail(tester);
+      await revealDays(tester);
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      await tapDayMenu(tester, 'scene-shooting-day-menu-date-d-1');
+      await tester.pumpAndSettle();
+      final dialog = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      final today = DateTime.now();
+      final seeded = dialog.initialDate!;
+      expect(seeded.year, today.year);
+      expect(seeded.month, today.month);
+      expect(seeded.day, today.day);
+      // Bounds match the shooting-days screen's own chooser.
+      expect(dialog.firstDate, DateTime(2000));
+      expect(dialog.lastDate, DateTime(2100));
+    });
+
+    testWidgets('a refused reschedule reports the problem code', (
+      tester,
+    ) async {
+      await setupContainer(
+        scene: _scene(days: ['d-1']),
+        dayRows: [
+          _day('d-1', label: '1. Tag', date: DateTime.utc(2026, 9, 14)),
+        ],
+      );
+      days.nextWrite = const Left(_conflict);
+      await pumpDetail(tester);
+      await revealDays(tester);
+      await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      await tapDayMenu(tester, 'scene-shooting-day-menu-date-d-1');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await _pumpFrames(tester);
+      expect(days.updateCalls, 1);
+      // Handled value, localized by `code`, never a silent discard.
+      expect(
+        find.text('Changed elsewhere — refresh and try again.'),
+        findsOneWidget,
+      );
     });
   });
 }

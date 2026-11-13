@@ -3828,6 +3828,36 @@ abstract class AppLocalizations {
   /// **'Drehtage ({count})'**
   String sceneDetailShootingDaysTitle(Object count);
 
+  /// No description provided for @sceneDetailShootingDayColumnDay.
+  ///
+  /// In de, this message translates to:
+  /// **'Drehtag'**
+  String get sceneDetailShootingDayColumnDay;
+
+  /// No description provided for @sceneDetailShootingDayColumnDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Datum'**
+  String get sceneDetailShootingDayColumnDate;
+
+  /// No description provided for @sceneDetailRowActions.
+  ///
+  /// In de, this message translates to:
+  /// **'Zeilenaktionen'**
+  String get sceneDetailRowActions;
+
+  /// No description provided for @sceneDetailSetDayDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Datum festlegen'**
+  String get sceneDetailSetDayDate;
+
+  /// No description provided for @sceneDetailChangeDayDate.
+  ///
+  /// In de, this message translates to:
+  /// **'Datum ändern'**
+  String get sceneDetailChangeDayDate;
+
   /// No description provided for @sceneDetailNoShootingDays.
   ///
   /// In de, this message translates to:
@@ -3846,11 +3876,11 @@ abstract class AppLocalizations {
   /// **'Day-Board öffnen'**
   String get sceneDetailOpenDayBoard;
 
-  /// No description provided for @sceneDetailScheduleOnDay.
+  /// No description provided for @sceneDetailAddShootingDay.
   ///
   /// In de, this message translates to:
-  /// **'Auf Drehtag planen'**
-  String get sceneDetailScheduleOnDay;
+  /// **'Drehtag hinzufügen'**
+  String get sceneDetailAddShootingDay;
 
   /// No description provided for @sceneDetailNoDayCandidatesHint.
   ///
@@ -3870,11 +3900,11 @@ abstract class AppLocalizations {
   /// **'Drehtag anlegen'**
   String get sceneDetailCreateFirstDay;
 
-  /// No description provided for @sceneDetailScheduleTitle.
+  /// No description provided for @sceneDetailPickShootingDay.
   ///
   /// In de, this message translates to:
-  /// **'Auf Drehtag planen'**
-  String get sceneDetailScheduleTitle;
+  /// **'Drehtag wählen'**
+  String get sceneDetailPickShootingDay;
 
   /// No description provided for @sceneDetailFetchError.
   ///
