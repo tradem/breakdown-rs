@@ -162,7 +162,14 @@ impl Image for SierraDbImage {
             impl Into<std::borrow::Cow<'_, str>>,
         ),
     > {
-        HashMap::from([("SIERRADB_NETWORK__CLUSTER_ENABLED", "false")])
+        HashMap::from([
+            ("SIERRADB_NETWORK__CLUSTER_ENABLED", "false"),
+            // Mirror the dev/prod compose runtime (ADR-016 §6, issue #901): the
+            // idle sync poll defaults to 50 ms, which a sequential append pays in
+            // full. Nested keys use a literal dot; the value must stay strictly
+            // below `sync.interval_ms` (5 ms) because of the upstream validator.
+            ("SIERRA_SYNC.IDLE_INTERVAL_MS", "4"),
+        ])
     }
 }
 

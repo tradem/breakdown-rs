@@ -8,7 +8,7 @@
 **Date**: 2026-06-26
 **Author**: Tobias Rademacher (@tradem)
 **Supersedes**: the "SierraDB container image availability unknown" note in ADR-015
-**Related**: ADR-011 (observability / OpenTelemetry), ADR-014 (Testcontainers), ADR-015 (SierraDB event store + Postgres projections)
+**Related**: ADR-011 (observability / OpenTelemetry), ADR-014 (Testcontainers), ADR-015 (SierraDB event store + Postgres projections), ADR-036 (ES-native reservation streams), issue #901 (append-latency baseline)
 **Source change**: `openspec/changes/sierradb-runtime-and-round-trip`
 
 ---
@@ -126,6 +126,132 @@ segments against the real tiers — a deliberate workaround for the then-failing
 read path. The `EAPPEND`-based tests are retained as additional projector
 idempotency/redelivery coverage (the idempotency-under-redelivery variant requires
 raw appends by design).
+
+### 6. Append latency — sync scheduling and the per-event confirmation fsync (issue #901)
+
+Measured 2026-11-12 on the dev host (btrfs on NVMe), throwaway container, raw RESP3
+one connection, 1 KB payload, `EMAPPEND` with strict versioning. Root cause of the
+reported "one append costs ~50 ms" has **two layers**; both are measured and
+source-anchored, and the second one is configurable — which is why this section is
+a deployment decision, not a note.
+
+**Baseline (committed, reproducible):** `scripts/bench-sierradb-append.py` — raw
+RESP3, no `redis-cli`, asserts the RESP3 map reply shape before counting a sample
+(an `INVALIDARG` error reply is fast and would otherwise look like a great number).
+Run against a throwaway container, never the dev store:
+
+```bash
+docker run -d --rm --name bench-sierradb -p 19090:9090 \
+    tqwewe/sierradb:0.3.1 --dir /app/data
+scripts/bench-sierradb-append.py --iterations 300 --parallel-rounds 20
+```
+
+Pinned image at its **default** config (300 samples/case, ms):
+
+| Case | min | p50 | p95 |
+|---|---|---|---|
+| 1 event, isolated (100 ms idle gap) | 3.60 | 5.36 | 54.28 |
+| 5 events, isolated | 9.84 | 10.77 | 58.40 |
+| 20 events, isolated | 31.77 | 41.20 | 91.39 |
+| **1 event, back-to-back (no gap)** | 3.70 | **49.97** | 54.95 |
+| 8 appends in flight (burst wall) | 38.67 | 53.05 | 56.53 |
+| 16 appends in flight (burst wall) | 29.74 | 50.29 | 56.95 |
+| sustained, 8 connections | 3865 appends / 6 s → **639 appends/s** | | |
+
+With the adopted setting (`SIERRA_SYNC.IDLE_INTERVAL_MS=4`, same recipe):
+
+| Case | min | p50 | p95 |
+|---|---|---|---|
+| 1 event, isolated | 3.63 | 4.24 | 11.12 |
+| 5 events, isolated | 9.95 | 10.87 | 18.02 |
+| 20 events, isolated | 33.38 | 43.10 | 49.35 |
+| **1 event, back-to-back (no gap)** | 6.64 | **9.12** | 10.25 |
+| 8 appends in flight (burst wall) | 10.15 | 15.54 | 18.07 |
+| 16 appends in flight (burst wall) | 15.27 | 20.67 | 23.54 |
+| sustained, 8 connections | 4748 appends / 6 s → **790 appends/s** | | |
+
+**Layer 1 — the ack is gated on a durable write, and a single event costs *two*.**
+`writer_thread_pool.rs` sends the reply only after
+`sync_rx.wait_for(write_offset)` resolves, i.e. after the segment's
+`File::sync_data()`. On top of that, the cluster write path runs a
+"Phase 5: Write Confirmation" (`sierradb-cluster/src/write/transaction.rs`) that
+calls `set_confirmations` for **every event offset**; each of those rewrites the
+commit record's header and syncs again (`seglog::read::replace_header_with` →
+`file.sync_data()`), on a reader thread, before the ack. `strace` on the pinned
+image: 1 event → **2** `fdatasync` on `…/data.evts`, 5 events → **6**. So one
+append is `1 + N` fsyncs (`N` = events in that append). That is the floor: a
+20-event append cannot be faster than 21 syncs, and it is why the 20-event case
+stays ~40 ms even after tuning.
+
+**Layer 2 — the sync *schedule*, which is where the ~50 ms tail comes from.**
+`WriterSet::should_sync()` syncs inline only if `bytes_since_sync >=
+sync.min_bytes` (4096), or `unflushed_events >= sync.max_batch_size` (50), or
+`last_synced.elapsed() >= sync.interval_ms` (5 ms). Otherwise the append waits for
+the `writer-pool-syncer` poll, which sleeps `sync.interval_ms` (5 ms) when a write
+was seen between the poll and the flag swap and `sync.idle_interval_ms` otherwise
+— default `10 × interval_ms`, capped at 1 s, i.e. **50 ms**. A chatty sequential
+client (create scene → assign 3 characters → 2 beats) sits in the idle regime
+most of the time and pays a full tick per append; concurrent appends collapse into
+one tick, which is why bursts looked healthy (16 appends in ~50 ms).
+
+**Answers to the five questions from the issue:**
+
+1. **Is the tail periodic?** Yes — it is one sync tick, not per-byte work. A
+   *wall-clock* phase test does not see it (`ack mod 50` is uniform, mean
+   resultant `R ≈ 0`), because the syncer re-bases its own grid every loop
+   (`last_ran = Instant::now()`), so no absolute phase exists. The periodicity is
+   visible instead as (a) one ack per tick — sequential inter-ack spacing is
+   ~50 ms while the append itself needs ~4 ms — and (b) a sharp step in the
+   idle-gap sweep: gap 0 ms → 48.98 ms, gap 2 ms → 52.99 ms, gap ≥ 4 ms →
+   3.8–4.1 ms p50, i.e. the boundary is `sync.interval_ms` (5 ms), the difference
+   between "sync inline" and "wait for the poll".
+2. **How many durable writes per append?** `1 + N` fsyncs (above), counted with
+   `strace -f -y -e trace=fsync,fdatasync` on the container.
+3. **Is it the container filesystem?** It changes the fsync floor and which
+   regime dominates, but it is not the 50 ms. At an identical config
+   (`interval_ms=2`, `idle_interval_ms=1`): overlayfs (image's own `/app/data`)
+   3.94 ms, host bind mount 3.09 ms, tmpfs 2.05 ms p50. At the *default* config a
+   host bind mount happened to stay in the 5 ms active regime (5.04 ms p50, no
+   sample ≥ 10 ms), while both overlayfs and a named volume (the shape this repo's
+   compose files use) sat at 49.95–49.97 ms. We did not establish why the mount
+   type flips the regime; with the adopted setting the question is moot.
+4. **Is it configurable?** Yes. `sync.interval_ms`, `sync.idle_interval_ms`,
+   `sync.max_batch_size`, `sync.min_bytes` are config-file / env settings with no
+   CLI flags (hence absent from `--help`). Nested keys map from env as
+   `SIERRA_SYNC.IDLE_INTERVAL_MS` (literal dot — verified by feeding a value the
+   validator rejects). Two upstream quirks to know: (a) the validator's condition
+   is inverted relative to its own message — `idle_interval_ms` must be
+   **strictly less** than `interval_ms`, so 4 is the lowest accepted idle value
+   while `interval_ms` stays at its default 5; (b) there is **no upstream
+   release after v0.3.1** — GitHub `HEAD` is the v0.3.1 commit and Docker Hub has
+   no newer tag — so this is not fixed upstream.
+5. **Does it scale with data?** No. A 300 MB prefilled store (~1.1 GB on disk,
+   named volume, default config) measures 50.10 ms p50 on the same case that
+   measures 49.95 ms fresh. The store cost follows the sync schedule, not size.
+
+**Decision — adopt the idle interval, keep durability exactly as it is.**
+`docker-compose.dev.yml` and `docker-compose.prod.yml` set
+`SIERRA_SYNC.IDLE_INTERVAL_MS=4` on the `sierradb` service. This is **not** a
+durability downgrade: the store still fsyncs before it acks (Layer 1 is untouched)
+— the knob only shortens how long an idle append waits for the next poll, which
+removes the 50 ms regime (p50 49.97 → 9.12 on the sequential case) and raises
+sustained throughput (639 → 790 appends/s) because more appends share a tick
+instead of queueing behind a 50 ms backoff. The active-path batching
+(`interval_ms`, `max_batch_size`, `min_bytes`) is deliberately left at its
+defaults: lowering `interval_ms` to 2 as well would take the sequential case to
+~4 ms, but it shortens the inline-sync window on the hot path and bought no
+measurable throughput (789.7 vs 790.6 appends/s), so it is not adopted.
+
+**Explicitly rejected:** disabling fsync / relaxing durability in production for
+speed; moving writes off the event store; batching several commands into one
+append at the client (ADR-015 keeps one append per state change — the cost model
+now argues *for* the domain practice of one command per aggregate change with the
+command's full event batch, and *against* chatty per-beat / per-figure commands).
+
+**Consequences for write-path design:** the cost model is committed with the
+baseline — see `.github/instructions/write-path-cost-model.instructions.md`. Any
+change to the SierraDB pin, the two compose runtimes or the `sync.*` settings is
+measured against the tables above with `scripts/bench-sierradb-append.py`.
 
 ## Alternatives Considered
 

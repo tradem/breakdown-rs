@@ -124,6 +124,18 @@ docker compose -f docker-compose.prod.yml start sierradb
 Projector idempotency (ADR-015) makes it safe to replay events into a restored
 Postgres projection from a restored/older SierraDB checkpoint.
 
+#### Slow writes / append latency
+
+If command latency looks bimodal (a few ms for some writes, ~50 ms for many),
+SierraDB is waiting for its next sync poll, not working harder: an append is only
+acked after it is fsynced, and the poll's **idle** backoff defaults to
+`10 × sync.interval_ms` = 50 ms. Both compose files therefore set
+`SIERRA_SYNC.IDLE_INTERVAL_MS=4` (ADR-016 §6, issue #901) — it shortens the wait
+and does **not** touch durability. Re-measure with
+`scripts/bench-sierradb-append.py` against a throwaway container before and after
+any change to the tag or the `sync.*` settings; the recorded baseline and its
+root cause (one data fsync + one confirmation fsync per event) are in ADR-016 §6.
+
 #### Replaying pre-#404 invariant-violating events
 
 Deployments that ran a build older than the #404 fix may hold gift events that
