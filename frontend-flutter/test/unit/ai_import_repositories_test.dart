@@ -2596,29 +2596,25 @@ void main() {
 
     test('a denial before the fallback job read issues no request (review of '
         '#899)', () async {
-      // The watch ends without a terminal frame (an idle close, budget spent),
-      // and the gate denies before the row is read. The row read must not
-      // happen, and the caller gets the denial rather than "unknown".
-      var calls = 0;
+      // The watch ends WITHOUT an outcome and WITHOUT asking the gate again (an
+      // empty stream: it never connects, so it never yields a denial), which
+      // makes the fallback read the next thing that would touch the network.
+      // The gate denies there, and no job GET may happen.
       final interceptor = _ScriptInterceptor(
         respond: (options) => serializers.serializeWith(
           AiImportJobResponse.serializer,
           _jobResponse(_job('j1', status: JobStatus.succeeded)),
         ),
       );
-      final repo = AiImportRepository(_api(interceptor), _dao());
+      final repo = _FrameRepository(
+        _api(interceptor),
+        _dao(),
+        const <Result<ApplyProgressFrame>>[],
+      );
       final outcome = await repo.awaitRunOutcome(
         'j1',
-        gate: () async {
-          calls++;
-          // First call lets the watch connect, the later one denies.
-          return calls == 1
-              ? null
-              : const ProblemError(
-                  code: 'ai_import.apply_unmounted',
-                  status: 409,
-                );
-        },
+        gate: () async =>
+            const ProblemError(code: 'ai_import.apply_unmounted', status: 409),
       );
       expect(outcome, isA<ApplyBlocked>());
       expect(
@@ -2626,13 +2622,9 @@ void main() {
         'ai_import.apply_unmounted',
       );
       expect(
-        interceptor.requests.where(
-          (request) => !request.uri.path.endsWith('/apply-events'),
-        ),
+        interceptor.requests,
         isEmpty,
-        reason:
-            'the first watch connection was allowed, but the fallback '
-            'job read is a network call and the gate denies before it',
+        reason: 'the gate answered before the fallback read: no job GET',
       );
     });
 
