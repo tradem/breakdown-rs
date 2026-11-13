@@ -132,6 +132,20 @@ result this row does not read. So the date path refreshes nothing extra, and a
 failure surfaces as the localized `shootingDayErrorCopy` in a SnackBar — the same
 shape `_unschedule` uses on this screen.
 
+## Review follow-up (PR review)
+
+- **A `409` now re-reads the days projection.** `ShootingDaysController._intent`'s
+  error arm calls `_refetchProjection()` (never `refresh()`, which would clear the
+  command error it just set) on `concurrency.version-mismatch`, so the next
+  attempt echoes the fresh `version` instead of repeating the conflict. The
+  command itself is never re-dispatched.
+- **Deferred (issue #916):** the overlay-less reconciliation pass still performs
+  a single projection fetch without comparing the acknowledged version, so a
+  lagging projector can leave a row stale. That is the shared
+  `ReconciliationCoordinator` contract (nine controllers), pre-existing and
+  independent of this presentation change — it gets its own change proposal
+  rather than riding along here.
+
 ## Non-goals
 
 - No backend, contract or `backend/openapi.yaml` change; no

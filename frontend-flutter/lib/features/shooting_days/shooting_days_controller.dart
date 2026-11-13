@@ -4,6 +4,7 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -392,6 +393,15 @@ class ShootingDaysController extends _$ShootingDaysController {
     return res.match(
       (err) {
         ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).set(err);
+        // A 409 (`concurrency.version-mismatch`) says THIS row's version is
+        // stale, so the next attempt would conflict again — the reported defect
+        // once the scene detail grew a date affordance (issue #903 review).
+        // Re-read the projection so the next command echoes the fresh version.
+        // `_refetchProjection()`, never `refresh()`: the latter clears the
+        // command error that was just set and would hide it from the screen.
+        if (err.code == 'concurrency.version-mismatch') {
+          unawaited(_refetchProjection());
+        }
         return Left<ProblemError, int>(err);
       },
       (version) {

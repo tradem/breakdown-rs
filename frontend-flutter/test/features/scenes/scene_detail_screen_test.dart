@@ -484,6 +484,11 @@ void main() {
   late CacheDatabase db;
   late _FakeCharacterRepository characters;
   late _FakeShootingDayRepository days;
+
+  /// Every read of the episode's days projection (issue #903 review): a test
+  /// asserts that a `409` RE-READS it instead of leaving the row on a stale
+  /// `version`.
+  late List<int> daysFetch;
   late ProviderContainer container;
 
   late _FakeSceneRepository sceneRepo;
@@ -528,6 +533,7 @@ void main() {
       CharacterCacheDao(db),
     );
     days = _FakeShootingDayRepository(BreakdownApi(), ShootingDayCacheDao(db));
+    daysFetch = <int>[];
     container = ProviderContainer(
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
@@ -581,8 +587,10 @@ void main() {
         }),
         charactersListFetchProvider('season-1')
             .overrideWith((ref) async => Right(characterRows)),
-        shootingDaysListFetchProvider('episode-1')
-            .overrideWith((ref) async => Right(dayRowsLive?.value ?? dayRows)),
+        shootingDaysListFetchProvider('episode-1').overrideWith((ref) async {
+          daysFetch.add(1);
+          return Right(dayRowsLive?.value ?? dayRows);
+        }),
       ],
     );
     addTearDown(container.dispose);
@@ -2887,24 +2895,35 @@ void main() {
       await pumpDetail(tester);
       await revealDays(tester);
       await openDayMenu(tester, 'scene-shooting-day-row-d-1');
+      final before = DateTime.now();
       await tapDayMenu(tester, 'scene-shooting-day-menu-date-d-1');
       await tester.pumpAndSettle();
+      final after = DateTime.now();
       final dialog = tester.widget<DatePickerDialog>(
         find.byType(DatePickerDialog),
       );
-      final today = DateTime.now();
+      // The chooser seeds TODAY, read when the menu item ran. Re-reading the
+      // clock here would flake across a midnight rollover, so accept any day in
+      // [before, after] (issue #903 review: no fixed-date dependency, no new
+      // clock seam in the screen).
       final seeded = dialog.initialDate!;
-      expect(seeded.year, today.year);
-      expect(seeded.month, today.month);
-      expect(seeded.day, today.day);
+      expect(
+        seeded.isBefore(DateTime(before.year, before.month, before.day)),
+        isFalse,
+        reason: 'the seed is today, never yesterday',
+      );
+      expect(
+        seeded.isAfter(DateTime(after.year, after.month, after.day)),
+        isFalse,
+        reason: 'the seed is today, never tomorrow',
+      );
       // Bounds match the shooting-days screen's own chooser.
       expect(dialog.firstDate, DateTime(2000));
       expect(dialog.lastDate, DateTime(2100));
     });
 
-    testWidgets('a refused reschedule reports the problem code', (
-      tester,
-    ) async {
+    testWidgets('a refused reschedule reports the problem code AND re-reads the '
+        'projection (issue #903 review)', (tester) async {
       await setupContainer(
         scene: _scene(days: ['d-1']),
         dayRows: [
@@ -2914,6 +2933,7 @@ void main() {
       days.nextWrite = const Left(_conflict);
       await pumpDetail(tester);
       await revealDays(tester);
+      final fetchesBefore = daysFetch.length;
       await openDayMenu(tester, 'scene-shooting-day-row-d-1');
       await tapDayMenu(tester, 'scene-shooting-day-menu-date-d-1');
       await tester.pumpAndSettle();
@@ -2925,6 +2945,11 @@ void main() {
         find.text('Changed elsewhere — refresh and try again.'),
         findsOneWidget,
       );
+      // A 409 means THIS row's version is stale: the projection is re-read so
+      // the next attempt echoes the fresh version instead of conflicting again.
+      expect(daysFetch.length, greaterThan(fetchesBefore));
+      // The command is never re-dispatched automatically.
+      expect(days.updateCalls, 1);
     });
   });
 }

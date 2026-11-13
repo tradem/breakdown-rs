@@ -58,6 +58,11 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     AUTHZ-GATE and the localized per-`code` error copy are untouched; the
     empty-candidate explanation and the quick-create path keep their keys and
     their copy.
+  - **A refused date change no longer wedges the row.** `409
+    concurrency.version-mismatch` now re-reads the days projection in the shared
+    `_intent` error arm (keeping the command error visible), so the next attempt
+    echoes the fresh version instead of conflicting again — the stale-version
+    loop the new affordance would otherwise have exposed.
   - No wire change, no new provider, no new token, no new controller method.
     Widget tests pin the chrome in both brightnesses, the date/missing/unresolved
     states and the date dispatch; both scene-detail goldens are re-baselined.
