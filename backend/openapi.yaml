@@ -430,6 +430,48 @@ components:
               terminal the whole time, because an apply is a POST against a job that
               already succeeded.
           - type: 'null'
+        apply_result:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyRunOutcome'
+            description: |-
+              The persisted outcome of the last apply run that **finished** (issue
+              #899). Additive with `serde(default)`.
+
+              `Some` exactly when [`Self::apply_state`] is terminal, so a client never
+              has to distinguish "no result yet" from "a result of `idle`". A failed
+              run carries its registered problem code here, not a prose detail — the
+              client branches on `code` like it does for every other apply failure
+              (ADR-031).
+          - type: 'null'
+        apply_run_id:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyRunId'
+            description: |-
+              The run this job's outcome is attributable to (issue #899), `None` before
+              the first dispatch.
+
+              While a run is live this is its owner id; once it finished it is the run
+              recorded next to [`Self::apply_result`], because ownership is released at
+              the terminal transition (the slot must free up immediately) while the
+              attribution has to survive.
+
+              A slot is single-flight per job but **not** immutable: run A can finish
+              and run B take the slot before A's client re-subscribes. Without this
+              field that client cannot tell "my run's outcome" from "someone else's
+              later run", so it would report B's counters as A's result.
+          - type: 'null'
+        apply_state:
+          $ref: '#/components/schemas/ApplyState'
+          description: |-
+            Lifecycle state of this job's **apply slot** (issue #899). Additive with
+            `serde(default)`: every pre-#899 row decodes as [`ApplyState::Idle`].
+
+            This is the field a re-entering client decides from (design D5):
+            `idle` offers an apply, `requested`/`running` means "attach to the live
+            run" (the `POST` no longer does the work — it dispatches), and
+            `done`/`failed` means the run is over and [`Self::apply_result`] holds
+            what it committed. Without it, a screen that was away when the run
+            finished had no way to learn the outcome except by re-applying.
         attempts:
           description: |-
             Per-attempt failure history, newest first (issue #637).
@@ -1103,7 +1145,29 @@ components:
       - accept_as_is
       - edit_distance
       type: object
-    ApplyAiImportResponse:
+    ApplyEpisodeGroupRequest:
+      description: |-
+        One episode group's reviewer decision on the wire (issue #581). `target`
+        reuses the core [`EpisodeTarget`] (tagged `existing` / `create`).
+      properties:
+        episode_ref:
+          description: The group ref the preview carries on each row (`ep:<n>` / `ep-t:<title>`).
+          type: string
+        target:
+          $ref: '#/components/schemas/EpisodeTarget'
+      required:
+      - episode_ref
+      - target
+      type: object
+    ApplyImportSummary:
+      description: |-
+        The counters a finished apply run leaves behind (issues #762, #899).
+
+        This is the `POST /ai-import/jobs/{id}/apply` response body of releases
+        before #899 moved it: the run now dispatches (`202 ApplyRunAccepted`) and the
+        outcome is persisted on the run slot, served by the apply stream's terminal
+        frame and by `GET /ai-import/jobs/{id}` (design D4). The type keeps the wire
+        field names it always had.
       properties:
         applied_count:
           format: int32
@@ -1112,11 +1176,7 @@ components:
         applied_episodes:
           description: |-
             The episodes THIS request dispatched rows into, each with its own row
-            count (issue #763). Merged into the job's persisted summary, so the jobs
-            list can name the import's target afterwards. Empty for a schedule apply
-            (it merges onto the project's existing scenes and days), and for a
-            re-apply that found every row already applied — such a retry contributes
-            nothing, and the job keeps the earlier, correctly attributed summary.
+            count (issue #763).
           items:
             $ref: '#/components/schemas/AppliedEpisode'
           type: array
@@ -1182,21 +1242,6 @@ components:
       - created_pieces
       - created_outfits
       - created_episodes
-      - unapplied_outfits
-      type: object
-    ApplyEpisodeGroupRequest:
-      description: |-
-        One episode group's reviewer decision on the wire (issue #581). `target`
-        reuses the core [`EpisodeTarget`] (tagged `existing` / `create`).
-      properties:
-        episode_ref:
-          description: The group ref the preview carries on each row (`ep:<n>` / `ep-t:<title>`).
-          type: string
-        target:
-          $ref: '#/components/schemas/EpisodeTarget'
-      required:
-      - episode_ref
-      - target
       type: object
     ApplyMapping:
       description: |-
@@ -1304,6 +1349,89 @@ components:
       - started_at
       - updated_at
       type: object
+    ApplyProgressFrame:
+      description: |-
+        Wire payload of one apply-progress frame (issue #762).
+
+        Deliberately narrower than [`AiImportJob`]: the apply does not change the
+        job row's status, so a client watching an apply needs the run's own numbers
+        and nothing else. `apply_progress: None` is the run's **end** signal.
+
+        Since issue #899 the frame also carries the run slot's own state and — once
+        the run is over — its **persisted outcome**, so a stream that the client
+        attaches to *after* the run finished still learns what committed instead of
+        only learning that nothing is running any more (design D4).
+      properties:
+        apply_progress:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyProgress'
+          - type: 'null'
+        apply_result:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyRunOutcome'
+            description: |-
+              The persisted outcome of the last finished run, `None` while none has
+              finished. Additive with `serde(default)`.
+          - type: 'null'
+        apply_state:
+          $ref: '#/components/schemas/ApplyState'
+          description: |-
+            Lifecycle state of the job's apply slot at the moment of this frame
+            (issue #899). Additive with `serde(default)`: a pre-#899 frame decodes
+            as [`ApplyState::Idle`], which is exactly what such a frame described.
+        job_id:
+          $ref: '#/components/schemas/AiImportJobId'
+        run_id:
+          oneOf:
+          - $ref: '#/components/schemas/ApplyRunId'
+            description: |-
+              The identity of the run this frame describes (issue #899), `None` when
+              the slot has no owner. `apply_progress` carries the same id while a run
+              is publishing, but the **terminal** frame has no progress payload — so
+              without this field a client could not attribute the outcome it just
+              received to the run it dispatched.
+          - type: 'null'
+      required:
+      - job_id
+      type: object
+    ApplyRunAccepted:
+      description: |-
+        The `202 Accepted` body of `POST /ai-import/jobs/{id}/apply` (issue #899,
+        design D2).
+
+        The request no longer performs the apply: it validates, claims the run slot
+        and dispatches. The counters arrive later — on the apply stream's terminal
+        frame and on `GET /ai-import/jobs/{id}` — because the run must outlive the
+        connection that started it.
+      properties:
+        apply_state:
+          $ref: '#/components/schemas/ApplyState'
+          description: |-
+            The slot state at the moment of the answer (always
+            [`ApplyState::Requested`]). Explicit rather than implied, so a client
+            reads the re-entry state machine off one shape.
+        run_id:
+          $ref: '#/components/schemas/ApplyRunId'
+          description: |-
+            The identity of the run the slot now owns. Every progress frame of this
+            run carries it, so a client can tell "my run" from a later one.
+        stage:
+          $ref: '#/components/schemas/ApplyStage'
+          description: |-
+            The run's stage at dispatch time (always `applying`; it exists so the
+            descriptor stays additive if a later stage becomes dispatchable).
+        started_at:
+          description: |-
+            When the run was claimed — the anchor the client renders and the value a
+            re-attaching client compares against the frames it receives.
+          format: date-time
+          type: string
+      required:
+      - run_id
+      - stage
+      - started_at
+      - apply_state
+      type: object
     ApplyRunId:
       description: |-
         Identity of one **apply run** (issue #800).
@@ -1320,6 +1448,52 @@ components:
         *cleared* by a client-side or worker write.
       format: uuid
       type: string
+    ApplyRunOutcome:
+      description: |-
+        What a finished apply run left on the job's run slot (issue #899, design D4).
+
+        Persisted as `apply_result` JSONB by the worker, so the outcome outlives the
+        request that asked for it: a client that re-attaches after the run finished
+        reads it off `GET /ai-import/jobs/{id}` or off the apply stream's terminal
+        frame — no second `POST` needed.
+
+        A failed run carries the **registered problem `code`** (ADR-031), never a
+        `detail`-only string, so the client's error narrative is code-driven exactly
+        like every other apply failure. The human-readable detail stays in the log.
+
+        Serialized as an **externally tagged** enum (`{"succeeded": {...}}` /
+        `{"failed": {"code": ...}}`), the same shape [`crate::ai::SceneSource`]
+        uses. That is deliberate, not cosmetic: the generated Dart client's `oneOf`
+        support decodes externally-tagged variants, so an internally tagged payload
+        (`{"outcome": …, "summary": …}`) would make `apply_result` undecodable on
+        `GET /ai-import/jobs/{id}` — the field the re-entry path depends on.
+      oneOf:
+      - description: |-
+          The run completed and applied its plan (fully or partially — the summary
+          reports the difference through `unapplied_outfits`).
+        properties:
+          succeeded:
+            $ref: '#/components/schemas/ApplyImportSummary'
+            description: |-
+              The run completed and applied its plan (fully or partially — the summary
+              reports the difference through `unapplied_outfits`).
+        required:
+        - succeeded
+        type: object
+      - description: The run stopped on an error the client can branch on.
+        properties:
+          failed:
+            description: The run stopped on an error the client can branch on.
+            properties:
+              code:
+                description: Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).
+                type: string
+            required:
+            - code
+            type: object
+        required:
+        - failed
+        type: object
     ApplyShootingDayRequest:
       description: |-
         One shooting-day group's reviewer decision on the wire (issue #706).
@@ -1348,6 +1522,27 @@ components:
       enum:
       - applying
       - finalizing
+      type: string
+    ApplyState:
+      description: |-
+        Lifecycle state of one preview's **apply slot** (issue #899).
+
+        The apply used to have no durable state at all: "requested" was implicit in
+        "an HTTP request is in flight", so a dropped connection erased the only
+        trace that work had been asked for. This enum is that state — one slot per
+        job, written only through the owner-fenced transitions of the queue port
+        (`request_apply_run` → `mark_apply_running` → `complete_apply_run` /
+        `fail_apply_run`).
+
+        It is deliberately **not** [`crate::ai::JobStatus`]: the job is terminal
+        (`succeeded`) for the whole time an apply runs, because an apply is work
+        done *on* a finished preview.
+      enum:
+      - idle
+      - requested
+      - running
+      - done
+      - failed
       type: string
     AssignCharacterRequest:
       properties:
@@ -5764,11 +5959,12 @@ paths:
               $ref: '#/components/schemas/ApplyAiImportRequest'
         required: true
       responses:
-        '200':
+        '202':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApplyAiImportResponse'
+                $ref: '#/components/schemas/ApplyRunAccepted'
+          description: 'The apply run was claimed and dispatched (issue #899). The counters arrive later: on the apply stream''s terminal frame and on GET /ai-import/jobs/{id}.'
         '403':
           content:
             application/problem+json:
@@ -5779,7 +5975,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-          description: A live apply run already owns this job's progress slot (`ai-import.apply-in-flight`), or the apply gate refused the preview
+          description: A live apply run already owns this job's progress slot (`ai-import.apply-in-flight` — the client attaches to it instead of retrying), or the apply gate refused the preview
       tags:
       - handlers
   /v1/ai-import/jobs/{id}/apply-events:

@@ -143,6 +143,10 @@ fn foreign_pending_job() -> AiImportJob {
         decision_telemetry: None,
         apply_progress: None,
         applied: false,
+        // Issue #899: this literal never ran a durable apply run.
+        apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
+        apply_result: None,
     }
 }
 

@@ -2489,6 +2489,16 @@ pub struct FakeAiImportQueue {
     /// (issue #800 review): reproduces a run that claims and clears inside the
     /// subscribe-to-read window, deterministically.
     pub run_inside_window: Arc<std::sync::Mutex<Option<breakdown_core::ai::ApplyRunId>>>,
+    /// The persisted apply request per job (issue #899) — the in-memory analogue
+    /// of the `apply_request` JSONB column. `POST /apply` only writes this; the
+    /// run is executed by [`run_dispatched_apply`], exactly like production.
+    pub apply_requests: Arc<Mutex<HashMap<Uuid, breakdown_core::ai::ApplyRunRequest>>>,
+    /// Make [`AiImportQueue::record_run_telemetry`] fail (review of #899).
+    ///
+    /// A storage error there must never turn a run whose rows are committed into
+    /// a persisted `failed` outcome, and a test needs to be able to make it fail
+    /// on demand.
+    pub fail_run_telemetry: Arc<std::sync::Mutex<bool>>,
 }
 
 /// The apply-run slot of one fake job (issue #800).
@@ -2509,6 +2519,41 @@ impl FakeAiImportQueue {
     /// in any lifecycle state (e.g. `Succeeded` with a preview handle).
     pub async fn seed(&self, job: AiImportJob) {
         self.jobs.lock().await.insert(job.id.as_uuid(), job);
+    }
+
+    /// Owner-fenced terminal transition (issue #899): a displaced run must not
+    /// overwrite the new owner's outcome, exactly like the conditional
+    /// `UPDATE ... WHERE apply_run_id = $2` in production.
+    async fn finish_fake_run(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+        state: breakdown_core::ai::ApplyState,
+        outcome: breakdown_core::ai::ApplyRunOutcome,
+    ) -> Result<(), DomainError> {
+        let mut runs = self.apply_runs.lock().await;
+        if !runs
+            .get(&id.as_uuid())
+            .is_some_and(|slot| slot.owner == Some(run_id))
+        {
+            return Err(DomainError::conflict(
+                "this apply run no longer owns the job's progress slot",
+            ));
+        }
+        if let Some(slot) = runs.get_mut(&id.as_uuid()) {
+            slot.owner = None;
+        }
+        let mut jobs = self.jobs.lock().await;
+        if let Some(job) = jobs.get_mut(&id.as_uuid()) {
+            job.apply_state = state;
+            job.apply_result = Some(outcome);
+            job.apply_progress = None;
+            job.updated_at = Utc::now();
+        }
+        drop(jobs);
+        drop(runs);
+        self.hub.notify(id);
+        Ok(())
     }
 
     /// Overwrite a stored job and publish a wake-up for it (issue #664) —
@@ -2570,6 +2615,10 @@ impl AiImportQueue for FakeAiImportQueue {
                 decision_telemetry: None,
                 apply_progress: None,
                 applied: false,
+                // Issue #899: a freshly stored job has never been applied.
+                apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_run_id: None,
+                apply_result: None,
             },
         );
         Ok(AiImportEnqueueResult::Enqueued(request.id))
@@ -2742,6 +2791,10 @@ impl AiImportQueue for FakeAiImportQueue {
                 decision_telemetry: None,
                 apply_progress: None,
                 applied: false,
+                // Issue #899: a freshly stored job has never been applied.
+                apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_run_id: None,
+                apply_result: None,
             },
         );
         self.hub.notify(request.id);
@@ -2826,8 +2879,12 @@ impl AiImportQueue for FakeAiImportQueue {
         // A `std::sync::Mutex`: the log is also written from the non-async
         // `subscribe`, and it is never held across an await.
         locked(&self.call_log).push("apply_run_state");
-        let progress = match self.jobs.lock().await.get(&id.as_uuid()) {
-            Some(job) => job.apply_progress.clone(),
+        let (progress, job_state, job_result) = match self.jobs.lock().await.get(&id.as_uuid()) {
+            Some(job) => (
+                job.apply_progress.clone(),
+                job.apply_state,
+                job.apply_result.clone(),
+            ),
             None => return Ok(None),
         };
         let slot = self
@@ -2839,11 +2896,16 @@ impl AiImportQueue for FakeAiImportQueue {
             .unwrap_or_default();
         let state = breakdown_core::ai::ApplyRunState {
             owner: slot.owner,
+            result_run_id: None,
             seq: slot.seq,
             progress,
             // The slot's OWN claim instant, never the row's `updated_at` — a
             // late summary write must not be able to move it (issue #863).
             owner_claimed_at: slot.claimed_at,
+            // The durable slot (issue #899), read off the fake job row exactly
+            // as the Postgres adapter reads the two columns.
+            state: job_state,
+            result: job_result,
         };
         // Scripted window mutation (issue #800 review): one whole run lands
         // AFTER this read, i.e. before the stream's next read. A baseline taken
@@ -2862,6 +2924,147 @@ impl AiImportQueue for FakeAiImportQueue {
     /// Mirror the Postgres adapter's run-scoped apply-progress write
     /// (issues #762, #800): the payload lands only while the run owns the slot
     /// of a `succeeded` job, and every write wakes the stream.
+    /// Mirror the adapter's dispatch write (issue #899): claim the slot, then
+    /// persist the request and mark it `requested`. The two steps are separate
+    /// in this fake only because the claim helper is shared with the #800
+    /// tests; production does them in one statement.
+    async fn request_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+        request: &breakdown_core::ai::ApplyRunRequest,
+    ) -> Result<bool, DomainError> {
+        locked(&self.call_log).push("request_apply_run");
+        if !self.claim_apply_run(id, run_id).await? {
+            return Ok(false);
+        }
+        self.apply_requests
+            .lock()
+            .await
+            .insert(id.as_uuid(), request.clone());
+        if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
+            job.apply_state = breakdown_core::ai::ApplyState::Requested;
+            // The row names its new owner, exactly like the adapter's
+            // `apply_run_id = $2`: a client compares it against the run id its
+            // `202` returned (#899 review).
+            job.apply_run_id = Some(run_id);
+            // A new run never inherits the previous run's outcome (#899).
+            job.apply_result = None;
+            job.updated_at = Utc::now();
+        }
+        self.hub.notify(id);
+        Ok(true)
+    }
+
+    /// Mirror the adapter's `requested` → `running` adoption (issue #899).
+    ///
+    /// The adoption predicate is part of what the fake must model, or a test
+    /// cannot detect a duplicate adoption: **only a `requested` slot is
+    /// adoptable** (the production statement's `WHERE apply_state =
+    /// 'requested' OR stale-running`). Without the check a second
+    /// `begin_apply_run` would return the same running run, and a call after
+    /// completion would even turn `done` back into `running`.
+    ///
+    /// The state check, the run-id decision and the transition happen under one
+    /// lock: reading the state and writing it in two steps would let two
+    /// concurrent adopters both win, which is exactly what the single statement
+    /// in `queue.rs` prevents.
+    ///
+    /// No crash-recovery takeover path: a test that wants one drives
+    /// `claim_apply_run` + `mark_apply_progress(None)` itself.
+    async fn begin_apply_run(
+        &self,
+        id: AiImportJobId,
+        takeover_run_id: breakdown_core::ai::ApplyRunId,
+    ) -> Result<Option<breakdown_core::ai::ClaimedApplyRun>, DomainError> {
+        locked(&self.call_log).push("begin_apply_run");
+        let request = self.apply_requests.lock().await.get(&id.as_uuid()).cloned();
+        let Some(request) = request else {
+            return Ok(None);
+        };
+        // Lock order: slot FIRST, then the job row — the order every other
+        // method here takes them (`claim_apply_run`, `finish_fake_run`). Taking
+        // them the other way round deadlocks against a concurrent claim, even
+        // for different jobs (review of #899).
+        let mut runs = self.apply_runs.lock().await;
+        let mut jobs = self.jobs.lock().await;
+        let Some(job) = jobs.get_mut(&id.as_uuid()) else {
+            return Ok(None);
+        };
+        // The adoption predicate: anything but `requested` is not adoptable.
+        // Read and written under both locks, so no concurrent adopter can win
+        // the same run.
+        if job.apply_state != breakdown_core::ai::ApplyState::Requested {
+            return Ok(None);
+        }
+        let run_id = {
+            let slot = runs.entry(id.as_uuid()).or_default();
+            let run_id = slot.owner.unwrap_or(takeover_run_id);
+            slot.owner = Some(run_id);
+            run_id
+        };
+        job.apply_state = breakdown_core::ai::ApplyState::Running;
+        job.apply_run_id = Some(run_id);
+        job.updated_at = Utc::now();
+        drop(jobs);
+        drop(runs);
+        self.hub.notify(id);
+        Ok(Some(breakdown_core::ai::ClaimedApplyRun {
+            job_id: id,
+            run_id,
+            request,
+        }))
+    }
+
+    async fn complete_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+        summary: &breakdown_core::ai::ApplyImportSummary,
+    ) -> Result<(), DomainError> {
+        locked(&self.call_log).push("complete_apply_run");
+        self.finish_fake_run(
+            id,
+            run_id,
+            breakdown_core::ai::ApplyState::Done,
+            breakdown_core::ai::ApplyRunOutcome::Succeeded(Box::new(summary.clone())),
+        )
+        .await
+    }
+
+    async fn fail_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+        code: &str,
+    ) -> Result<(), DomainError> {
+        locked(&self.call_log).push("fail_apply_run");
+        self.finish_fake_run(
+            id,
+            run_id,
+            breakdown_core::ai::ApplyState::Failed,
+            breakdown_core::ai::ApplyRunOutcome::Failed {
+                code: code.to_owned(),
+            },
+        )
+        .await
+    }
+
+    async fn requested_apply_runs(&self, limit: i64) -> Result<Vec<AiImportJobId>, DomainError> {
+        let jobs = self.jobs.lock().await;
+        let mut ids: Vec<(chrono::DateTime<Utc>, AiImportJobId)> = jobs
+            .values()
+            .filter(|job| job.apply_state == breakdown_core::ai::ApplyState::Requested)
+            .map(|job| (job.updated_at, job.id))
+            .collect();
+        ids.sort_by_key(|(updated_at, _)| *updated_at);
+        Ok(ids
+            .into_iter()
+            .take(usize::try_from(limit.clamp(1, 100)).unwrap_or(1))
+            .map(|(_, id)| id)
+            .collect())
+    }
+
     async fn mark_apply_progress(
         &self,
         id: AiImportJobId,
@@ -2927,6 +3130,37 @@ impl AiImportQueue for FakeAiImportQueue {
     ) -> Result<(), DomainError> {
         self.telemetry.lock().await.push((id, telemetry));
         Ok(())
+    }
+
+    /// The run-fenced twin (issue #899 review): the write only lands while
+    /// `run_id` still owns the slot, exactly like the adapter's
+    /// `WHERE id = $1 AND apply_run_id = $2`. Recording the call means a test
+    /// can assert that a run's telemetry landed **under the fence** rather than
+    /// through the unfenced API-path method.
+    async fn record_run_telemetry(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+        telemetry: Telemetry,
+    ) -> Result<bool, DomainError> {
+        locked(&self.call_log).push("record_run_telemetry");
+        if *locked(&self.fail_run_telemetry) {
+            return Err(DomainError::ServiceUnavailable {
+                code: &breakdown_core::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
+                reason: "the telemetry write failed (test switch)".to_owned(),
+            });
+        }
+        let owns = self
+            .apply_runs
+            .lock()
+            .await
+            .get(&id.as_uuid())
+            .is_some_and(|slot| slot.owner == Some(run_id));
+        if !owns {
+            return Ok(false);
+        }
+        self.record_telemetry(id, telemetry).await?;
+        Ok(true)
     }
 }
 
@@ -3162,6 +3396,63 @@ impl breakdown_core::ops::ProjectorHealthRepository for FakeProjectorHealthRepo 
             .as_ref()
             .map(|s| s.checkpoints.clone())
             .unwrap_or_default())
+    }
+}
+
+/// Issue #899: `POST /apply` is a **dispatch** now.
+///
+/// Await the handler future and unwrap its `202 ApplyRunAccepted`, failing the
+/// test on any other outcome. Kept in the shared harness so the tests keep
+/// reading as "apply this preview" while the wire contract is the new one.
+#[allow(dead_code)]
+#[allow(clippy::expect_used)] // test harness: a malformed answer must fail the test, not return a Result
+pub async fn dispatch_apply(
+    result: Result<axum::response::Response, api::problems::ApiError>,
+) -> (axum::http::StatusCode, breakdown_core::ai::ApplyRunAccepted) {
+    use axum::body::to_bytes;
+    let response = result.expect("the apply handler should answer");
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("the apply answer body should be readable");
+    let accepted: breakdown_core::ai::ApplyRunAccepted =
+        serde_json::from_slice(&bytes).expect("the apply answer should be an ApplyRunAccepted");
+    (status, accepted)
+}
+
+/// Issue #899: run the slot the handler just dispatched, through the SAME
+/// runner production uses (`api::apply_runner::ApplyRunner`).
+///
+/// This keeps the pre-#899 coverage intact: the handler's job is now to
+/// validate + persist + dispatch, and the run's job is to apply the rows — the
+/// test drives both halves end to end.
+#[allow(dead_code)]
+#[allow(clippy::expect_used)] // test harness: the run helper must fail the test, not return a Result
+#[allow(clippy::panic)] // …and a failed run has to surface its code as a test failure
+pub async fn run_dispatched_apply(ports: &FakePorts) -> breakdown_core::ai::ApplyImportSummary {
+    let queue = ports.ai_import_queue.clone();
+    let job_id = {
+        let jobs = queue.jobs.lock().await;
+        jobs.values()
+            .find(|job| job.apply_state == breakdown_core::ai::ApplyState::Requested)
+            .map(|job| job.id)
+            .expect("the apply handler should have dispatched a requested run")
+    };
+    let claimed = queue
+        .begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new())
+        .await
+        .expect("the dispatched run should be claimable")
+        .expect("the dispatched run should still be requested");
+    let state = api::state::AppState::with_ai_import(ports.clone(), true, 4096, Vec::new());
+    let outcome = api::apply_runner::ApplyRunner::new(state)
+        .run_claimed(claimed)
+        .await
+        .expect("the dispatched run should report an outcome");
+    match outcome {
+        breakdown_core::ai::ApplyRunOutcome::Succeeded(summary) => *summary,
+        breakdown_core::ai::ApplyRunOutcome::Failed { code } => {
+            panic!("the dispatched apply run failed with code {code}")
+        }
     }
 }
 

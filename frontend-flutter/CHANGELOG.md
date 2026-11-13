@@ -23,6 +23,40 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Applying an import survives the app going away**
+  (`0.4.0-beta.52+144 → 0.4.0-beta.53+145`; generated client
+  `breakdown_api` 1.7.0 → 1.8.0).
+  - **The apply is dispatched, not performed by the request.** The backend now
+    answers `202` with the run descriptor and reports the counters on the run's
+    own stream, so a Doze, a Wi-Fi→cellular handover or a closed socket no
+    longer ends an apply mid-row. The client follows the run to its terminal
+    frame and renders the same outcome card as before.
+  - **A dropped dispatch is resumable.** `transport.connectionError` (the
+    suspend case) and the streamed-body `unknown` case join the three timeout
+    codes, so a vanished connection re-reads the job and **attaches** to the
+    live run instead of claiming "Netzwerkproblem – das Anwenden wurde
+    möglicherweise nicht abgeschlossen" while the server is still working.
+  - **`409 ai-import.apply-in-flight` attaches, never retries.** A refusal that
+    names a run is followed to that run's end; a live run is no longer
+    re-dispatched on a backoff, so the client can never steal a claim by simply
+    waiting.
+  - **The apply `POST` is bounded** (60 s). It answers after validation and the
+    claim, so a socket that delivers nothing is dead — previously there was no
+    receive timeout at all and a black-holed request kept the spinner alive
+    forever, which made the resumable path unreachable.
+  - **A finished run stays readable.** `GET /jobs/{id}` carries the persisted
+    `apply_state`/`apply_result`, so a re-entered screen can render what
+    committed instead of re-applying.
+  - Still open (next change): the progress card must stop claiming "Gleich
+    fertig …" for a resumed run whose completed rows are a cheap prefix, and
+    `_applying` moves out of screen state plus a lifecycle gate on the apply
+    stream.
+  - No new screen, no new permission. Tests pin the dispatch/attach
+    classification (`connectionError`, live refusal, dead refusal, idle
+    re-dispatch, finished-row fallback), the bounded POST, the frame decoding
+    of `apply_state`/`apply_result`, and the whole apply/attach flow through the
+    widget tests.
+
 - **The scene view plans before it casts, and shows a figure with its look in
   one row** (`0.4.0-beta.51+143 → 0.4.0-beta.52+144`).
   - **Shooting days come first.** The days section moved above the cast: a scene

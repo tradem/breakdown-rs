@@ -21,21 +21,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:breakdown_api/breakdown_api.dart';
+// `hide`: this file builds the app's flattened `ApplyProgressFrame`; the
+// generated wire model is only the decoder's business.
+import 'package:breakdown_api/breakdown_api.dart' hide ApplyProgressFrame;
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:one_of/one_of.dart';
 
 import 'package:built_collection/built_collection.dart' show BuiltList;
 import 'package:frontend_flutter/core/problem_error.dart';
+import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_config_repository.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
-import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 
@@ -94,6 +97,9 @@ AiImportJob _job(
   JobStatus status = JobStatus.pending,
   int retries = 0,
   int maxRetries = 3,
+  ApplyState? applyState,
+  ApplyRunOutcome? applyResult,
+  String? applyRunId,
 }) => AiImportJob(
   (b) => b
     ..id = id
@@ -107,8 +113,81 @@ AiImportJob _job(
     ..retries = retries
     ..maxRetries = maxRetries
     ..createdAt = DateTime.utc(2026, 1, 1)
-    ..updatedAt = DateTime.utc(2026, 1, 1),
+    ..updatedAt = DateTime.utc(2026, 1, 1)
+    // Issue #899: the durable apply slot (absent on a pre-#899 row).
+    ..applyState = applyState
+    ..applyResult = applyResult?.toBuilder()
+    ..applyRunId = applyRunId,
 );
+
+/// A finished run's counters (issue #899) — the object the terminal frame, the
+/// job row and the fake's scripted outcome all carry.
+ApplyImportSummary _outcome({int appliedCount = 1}) => ApplyImportSummary(
+  (b) => b
+    ..appliedCount = appliedCount
+    ..createdDays = 1
+    ..plannedSceneShoots = 2
+    ..createdCharacters = 0
+    ..createdPieces = 0
+    ..createdOutfits = 0
+    ..createdEpisodes = 0
+    ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
+);
+
+/// A finished run's outcome in its **wire** shape (`{"succeeded": {...}}`,
+/// issue #899), decoded through the generated serializers — the same path the
+/// job row and the terminal frame take.
+ApplyRunOutcome _runOutcome(ApplyImportSummary summary) => ApplyRunOutcome(
+  (b) => b
+    ..oneOf = OneOf.fromValue1(
+      value: ApplyRunOutcomeOneOf((o) => o..succeeded.replace(summary)),
+    ),
+);
+
+/// Repository whose run-following half is scripted, so the classification of a
+/// dispatch failure is testable without an SSE socket (issue #899). The seam
+/// exists on the real class for exactly this: `awaitRunOutcome`.
+class _AttachingRepository extends AiImportRepository {
+  _AttachingRepository(
+    super.api,
+    super.cache, {
+    List<ApplyReconciliation?>? outcomes,
+  }) : outcomes = outcomes ?? const [];
+
+  final List<ApplyReconciliation?> outcomes;
+  int outcomeCalls = 0;
+
+  @override
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
+  }) async {
+    if (outcomes.isEmpty) return null;
+    final index = outcomeCalls.clamp(0, outcomes.length - 1);
+    outcomeCalls++;
+    return outcomes[index];
+  }
+}
+
+/// Repository whose **stream** is scripted, so the real `awaitRunOutcome` runs
+/// (the run-identity logic under review must not be re-implemented by a fake).
+class _FrameRepository extends AiImportRepository {
+  _FrameRepository(super.api, super.cache, this.frames);
+
+  final List<Result<ApplyProgressFrame>> frames;
+
+  @override
+  Stream<Result<ApplyProgressFrame>> watchApplyProgress(
+    String jobId, {
+    ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
+    Future<ProblemError?> Function()? gate,
+    int maxAttempts = kMaxJobWatchAttempts,
+    int maxIdleReconnects = kMaxApplyIdleReconnects,
+    Duration receiveTimeout = kSseReceiveTimeout,
+    CancelToken? cancelToken,
+  }) => Stream.fromIterable(frames);
+}
 
 AiImportJobResponse _jobResponse(AiImportJob job) =>
     AiImportJobResponse((b) => b..job.replace(job));
@@ -222,6 +301,23 @@ String _sseApplyFrame(String jobId, {int? applied, int? total}) =>
       'apply_progress': applied == null || total == null ? null : {'stage': 'applying', 'applied': applied, 'total': total, 'started_at': '2026-11-02T10:00:00Z', 'updated_at': '2026-11-02T10:00:31Z'},
     })}\n\n';
 
+/// A terminal `event: apply` frame in its **wire** form — the shape the
+/// generated `ApplyProgressFrame` deserializes, `run_id` and externally tagged
+/// `apply_result` included. Used to prove the decoder itself carries the run
+/// identity (a purely flattened fake could pass while it drops the field).
+String _sseApplyOutcomeFrame(
+  String jobId, {
+  required String runId,
+  required ApplyImportSummary summary,
+}) =>
+    'event: apply\ndata: ${jsonEncode({
+      'job_id': jobId,
+      'run_id': runId,
+      'apply_progress': null,
+      'apply_state': 'done',
+      'apply_result': {'succeeded': standardSerializers.serializeWith(ApplyImportSummary.serializer, summary)},
+    })}\n\n';
+
 /// Scriptable SSE transport: every open resolves with a `ResponseBody`
 /// whose stream replays one script entry per connection (frames written
 /// verbatim). [closeStream] false leaves the stream open forever — the
@@ -306,61 +402,6 @@ class _FakeScheduler extends ReconciliationScheduler {
 
   @override
   Future<void> tick(int attempt) async => ticks++;
-}
-
-/// A scheduler that also runs [onTick], so a test can advance an injected clock
-/// by exactly the backoff it models (issue #805 review: the WAIT is what can
-/// cross the server's window).
-class _TickActionScheduler extends ReconciliationScheduler {
-  _TickActionScheduler(this.onTick);
-
-  final void Function() onTick;
-  int ticks = 0;
-
-  @override
-  Future<void> tick(int attempt) async {
-    ticks++;
-    onTick();
-  }
-}
-
-/// One scripted HTTP outcome for the reconciliation tests.
-class _Outcome {
-  _Outcome.ok(this.body) : timeout_ = false;
-  _Outcome.timeout() : body = null, timeout_ = true;
-
-  final Object? body;
-  final bool timeout_;
-  final List<RequestOptions> requests = [];
-
-  void apply(RequestOptions options, RequestInterceptorHandler handler) {
-    requests.add(options);
-    if (timeout_) {
-      handler.reject(
-        DioException(
-          requestOptions: options,
-          type: DioExceptionType.connectionTimeout,
-        ),
-      );
-      return;
-    }
-    handler.resolve(
-      Response(requestOptions: options, statusCode: 200, data: body),
-    );
-  }
-}
-
-/// Interceptor driven by a list of scripted outcomes (cycling).
-class _ScriptedOutcomes extends Interceptor {
-  _ScriptedOutcomes(this.outcomes);
-
-  final List<_Outcome> outcomes;
-  int index = 0;
-
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    outcomes[index++ % outcomes.length].apply(options, handler);
-  }
 }
 
 void main() {
@@ -1355,30 +1396,31 @@ void main() {
       expect(res.getLeft().toNullable()!.code, 'ai_import.preview_missing');
     });
 
-    test('apply Ok / 403 — definitive failures are never retried', () async {
+    test('apply Ok / 403 — the POST dispatches, it does not apply', () async {
+      // Issue #899: the answer is `202 ApplyRunAccepted` — the counters are no
+      // longer in the body, so this pins the descriptor (run id, stage, state)
+      // and leaves the counters to `applyWithReconciliation`/the stream.
       final api = _api(
+        // Raw wire JSON: the POST path decodes the Dio body directly (the
+        // generated method cannot carry the bounded receive timeout this
+        // dispatch needs, issue #899).
         _scripted([
-          serializers.serializeWith(
-            ApplyAiImportResponse.serializer,
-            ApplyAiImportResponse(
-              (b) => b
-                ..appliedCount = 3
-                ..createdDays = 2
-                ..plannedSceneShoots = 5
-                ..createdCharacters = 0
-                ..createdPieces = 0
-                ..createdOutfits = 0
-                ..createdEpisodes = 0
-                ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
-            ),
-          )!,
+          {
+            'run_id': 'run-7',
+            'stage': 'applying',
+            'started_at': '2026-11-12T00:00:00.000Z',
+            'apply_state': 'requested',
+          },
         ]),
       );
       final res = await AiImportRepository(
         api,
         _dao(),
       ).apply('j1', _applyRequest());
-      expect(res.getRight().toNullable()!.appliedCount, 3);
+      final accepted = res.getRight().toNullable()!;
+      expect(accepted.runId, 'run-7');
+      expect(accepted.applyState, ApplyState.requested);
+      expect(accepted.stage, ApplyStage.applying);
 
       final errApi = _api(
         _ScriptInterceptor(problem: 'ai-import.forbidden', status: 403),
@@ -1395,78 +1437,32 @@ void main() {
       );
     });
 
-    test('applyWithReconciliation: ambiguous timeout re-reads the job first, '
-        'then bounded-retries — never blind re-dispatch', () async {
-      // Script: apply #1 times out; job re-read → succeeded; apply #2 → 200.
-      final appliedBody = serializers.serializeWith(
-        ApplyAiImportResponse.serializer,
-        ApplyAiImportResponse(
-          (b) => b
-            ..appliedCount = 1
-            ..createdDays = 1
-            ..plannedSceneShoots = 2
-            ..createdCharacters = 1
-            ..createdPieces = 2
-            ..createdOutfits = 2
-            ..createdEpisodes = 0
-            ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
-        ),
-      )!;
+    // --- issue #899: the POST dispatches, the client ATTACHES -------------
+    //
+    // The old suite scripted "the apply 200'd with counters on attempt N". That
+    // wire contract is gone: `POST /apply` answers `202 ApplyRunAccepted` and
+    // the counters arrive on the run's terminal frame (or on the job row for a
+    // run that finished before this client attached). What is left to test is
+    // the classification: which failures mean "find out what the server has"
+    // and which mean "this is definitive", and that a refusal naming a live run
+    // is an attach, never a second dispatch.
+
+    test('a resumable dispatch re-reads the job, finds the run ALIVE and '
+        'attaches instead of re-dispatching', () async {
+      // A dropped connection (Android suspend, handover) used to be classified
+      // as a definitive failure. It is not: the run may own the slot already.
+      var call = 0;
+      final requests = <RequestOptions>[];
       final jobBody = serializers.serializeWith(
         AiImportJobResponse.serializer,
-        _jobResponse(_job('j1', status: JobStatus.succeeded)),
-      )!;
-      final outcomes = <_Outcome>[
-        _Outcome.timeout(),
-        _Outcome.ok(jobBody),
-        _Outcome.ok(appliedBody),
-      ];
-      final scripted = _ScriptedOutcomes(outcomes);
-      final repo = AiImportRepository(_api(scripted), _dao());
-      final scheduler = _FakeScheduler();
-      // The retry is a NEW server-side run: the progress view is told about
-      // every attempt after the first so it can re-open its watch (issue #762,
-      // CodeRabbit #798).
-      final attempts = <int>[];
-      final outcome = await repo.applyWithReconciliation(
-        'j1',
-        _applyRequest(),
-        scheduler: scheduler,
-        onAttempt: attempts.add,
-      );
-      expect(outcome, isA<ApplySucceeded>());
-      expect(scheduler.ticks, 1);
-      expect(attempts, [1], reason: 'attempt 0 needs no re-arm');
-      // Request order: apply (timeout) → GET job → apply (retry).
-      expect(
-        outcomes[0].requests.single.uri.path,
-        '/v1/ai-import/jobs/j1/apply',
-      );
-      expect(outcomes[1].requests.single.uri.path, '/v1/ai-import/jobs/j1');
-    });
-
-    test('applyWithReconciliation: 409 ai-import.apply-in-flight is a WAIT, '
-        'not a block (issue #800)', () async {
-      // The server refuses a second apply of one job while a live run owns the
-      // progress slot. That is exactly what the ambiguous-timeout retry hits
-      // (the first POST is still running), so it must consume the bounded
-      // budget and retry — never surface the blocking apply-error card.
-      final appliedBody = serializers.serializeWith(
-        ApplyAiImportResponse.serializer,
-        ApplyAiImportResponse(
-          (b) => b
-            ..appliedCount = 1
-            ..createdDays = 0
-            ..plannedSceneShoots = 0
-            ..createdCharacters = 0
-            ..createdPieces = 0
-            ..createdOutfits = 0
-            ..createdEpisodes = 0
-            ..unappliedOutfits.replace(const <UnappliedOutfit>[]),
+        _jobResponse(
+          _job(
+            'j1',
+            status: JobStatus.succeeded,
+            applyState: ApplyState.running,
+          ),
         ),
       )!;
-      final requests = <RequestOptions>[];
-      var call = 0;
       final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
       dio.interceptors.add(
         InterceptorsWrapper(
@@ -1477,16 +1473,7 @@ void main() {
               handler.reject(
                 DioException(
                   requestOptions: options,
-                  type: DioExceptionType.badResponse,
-                  response: Response<Object>(
-                    requestOptions: options,
-                    statusCode: 409,
-                    data: <String, dynamic>{
-                      'code': 'ai-import.apply-in-flight',
-                      'title': 'apply in flight',
-                      'status': 409,
-                    },
-                  ),
+                  type: DioExceptionType.connectionError,
                 ),
               );
               return;
@@ -1495,39 +1482,163 @@ void main() {
               Response<Object>(
                 requestOptions: options,
                 statusCode: 200,
-                data: appliedBody,
+                data: jobBody,
+              ),
+            );
+          },
+        ),
+      );
+      final repo = _AttachingRepository(
+        BreakdownApi(dio: dio),
+        _dao(),
+        outcomes: [ApplySucceeded(_outcome())],
+      );
+      final attempts = <int>[];
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        onAttempt: attempts.add,
+      );
+      expect(outcome, isA<ApplySucceeded>());
+      expect(
+        attempts,
+        isEmpty,
+        reason: 'a live run is attached to, never re-dispatched',
+      );
+      expect(repo.outcomeCalls, 1);
+      expect(
+        requests.map((r) => r.uri.path).toList(),
+        ['/v1/ai-import/jobs/j1/apply', '/v1/ai-import/jobs/j1'],
+        reason: 'one dispatch, then the job read that decides attach vs retry',
+      );
+    });
+
+    test('a resumable dispatch on an IDLE job re-dispatches within the budget '
+        '(the dispatch really was lost)', () async {
+      var call = 0;
+      final requests = <RequestOptions>[];
+      final idleJob = serializers.serializeWith(
+        AiImportJobResponse.serializer,
+        _jobResponse(
+          _job('j1', status: JobStatus.succeeded, applyState: ApplyState.idle),
+        ),
+      )!;
+      // Raw wire JSON (the POST decodes the Dio body directly).
+      final accepted = <String, Object?>{
+        'run_id': 'run-1',
+        'stage': 'applying',
+        'started_at': '2026-11-12T00:00:00.000Z',
+        'apply_state': 'requested',
+      };
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            call++;
+            switch (call) {
+              case 1:
+                handler.reject(
+                  DioException(
+                    requestOptions: options,
+                    type: DioExceptionType.receiveTimeout,
+                  ),
+                );
+              case 2:
+                handler.resolve(
+                  Response<Object>(
+                    requestOptions: options,
+                    statusCode: 200,
+                    data: idleJob,
+                  ),
+                );
+              default:
+                handler.resolve(
+                  Response<Object>(
+                    requestOptions: options,
+                    statusCode: 202,
+                    data: accepted,
+                  ),
+                );
+            }
+          },
+        ),
+      );
+      final repo = _AttachingRepository(
+        BreakdownApi(dio: dio),
+        _dao(),
+        outcomes: [ApplySucceeded(_outcome())],
+      );
+      final attempts = <int>[];
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        onAttempt: attempts.add,
+      );
+      expect(outcome, isA<ApplySucceeded>());
+      expect(attempts, [1], reason: 'the retry re-arms the progress watch');
+      expect(requests.map((r) => r.uri.path).toList(), [
+        '/v1/ai-import/jobs/j1/apply',
+        '/v1/ai-import/jobs/j1',
+        '/v1/ai-import/jobs/j1/apply',
+      ]);
+    });
+
+    test('409 ai-import.apply-in-flight is an ATTACH, not a retry '
+        '(issues #800/#899)', () async {
+      // The server named a live run. With a durable run the client follows it
+      // through the apply stream — no second dispatch, no job re-read.
+      final requests = <RequestOptions>[];
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response<Object>(
+                  requestOptions: options,
+                  statusCode: 409,
+                  data: <String, dynamic>{
+                    'code': 'ai-import.apply-in-flight',
+                    'status': 409,
+                  },
+                ),
               ),
             );
           },
         ),
       );
       final scheduler = _FakeScheduler();
-      final outcome = await AiImportRepository(
+      final repo = _AttachingRepository(
         BreakdownApi(dio: dio),
         _dao(),
-      ).applyWithReconciliation('j1', _applyRequest(), scheduler: scheduler);
+        // The refused run is the earlier dispatch of THIS client: attaching
+        // reports its outcome.
+        outcomes: [ApplySucceeded(_outcome())],
+      );
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: scheduler,
+      );
       expect(outcome, isA<ApplySucceeded>());
-      expect(
-        scheduler.ticks,
-        1,
-        reason: 'the in-flight 409 waits out a tick, then retries',
-      );
-      expect(
-        requests.map((r) => r.uri.path).toList(),
-        ['/v1/ai-import/jobs/j1/apply', '/v1/ai-import/jobs/j1/apply'],
-        reason:
-            'two applies and NO job re-read: an in-flight 409 is not an '
-            'ambiguous outcome, so the retry re-dispatches the (idempotent) '
-            'apply instead of guessing from a projection read',
-      );
+      expect(repo.outcomeCalls, 1, reason: 'the refusal attaches to the run');
+      expect(requests.map((r) => r.uri.path).toList(), [
+        '/v1/ai-import/jobs/j1/apply',
+      ], reason: 'attach, don\'t repeat: exactly one dispatch');
+      expect(scheduler.ticks, 0);
     });
 
-    test('applyWithReconciliation: a refusal naming a DEAD run stops at once '
-        'and hands the takeover to the user (issue #805)', () async {
+    test('a refusal naming a DEAD run stops at once and hands the takeover to '
+        'the user (issue #805)', () async {
       // The run's payload is older than the server's own window, so a second
       // attempt WOULD steal the slot. The client still does not steal on its
-      // own — the blocking run may be this person's other device — so one
-      // dispatch, then the decision.
+      // own — the blocking run may be this person's other device.
       final requests = <RequestOptions>[];
       final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
       dio.interceptors.add(
@@ -1556,10 +1667,16 @@ void main() {
         ),
       );
       final scheduler = _FakeScheduler();
-      final outcome = await AiImportRepository(
+      final repo = _AttachingRepository(
         BreakdownApi(dio: dio),
         _dao(),
-      ).applyWithReconciliation('j1', _applyRequest(), scheduler: scheduler);
+        outcomes: [ApplySucceeded(_outcome())],
+      );
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: scheduler,
+      );
       expect(outcome, isA<ApplyInFlight>());
       final inFlight = outcome as ApplyInFlight;
       expect(inFlight.age, const Duration(seconds: 700));
@@ -1569,11 +1686,18 @@ void main() {
         hasLength(1),
         reason: 'a dead claim is never stolen without the user\'s tap',
       );
+      expect(repo.outcomeCalls, 0, reason: 'a dead run is not followed');
       expect(scheduler.ticks, 0);
     });
 
-    test('applyWithReconciliation: a LIVE refusal keeps the budget and reports '
-        'the blocking run, never "outcome unknown" (issue #805)', () async {
+    test('a live refusal never dispatches again, so the server window can '
+        'never be crossed by a backoff (issue #805 review)', () async {
+      // Waiting long enough is not consent. The old loop retried a live refusal
+      // until the budget ran out, which is exactly how a backoff could land past
+      // the server's window and steal the claim. With a durable run the client
+      // stops dispatching at the first live refusal: it attaches, and reports
+      // the named run. No tick, no second POST — the hazard is gone, not merely
+      // bounded.
       final requests = <RequestOptions>[];
       final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
       dio.interceptors.add(
@@ -1602,30 +1726,89 @@ void main() {
         ),
       );
       final scheduler = _FakeScheduler();
-      final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
-          .applyWithReconciliation(
-            'j1',
-            _applyRequest(),
-            scheduler: scheduler,
-            maxAttempts: 2,
-          );
-      // The run is live, so the budget is consumed (it may end inside it — the
-      // ambiguous-timeout retry waits for its own POST)…
-      expect(scheduler.ticks, 1);
-      expect(requests, hasLength(2));
-      // …and the exhausted budget is NOT "outcome unknown": the server named
-      // the run that blocks the dispatch.
+      final repo = _AttachingRepository(
+        BreakdownApi(dio: dio),
+        _dao(),
+        // The live run publishes nothing terminal: the attach has no answer.
+        outcomes: const [null],
+      );
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: scheduler,
+      );
       expect(outcome, isA<ApplyInFlight>());
       expect((outcome as ApplyInFlight).age, const Duration(seconds: 30));
+      expect(repo.outcomeCalls, 1, reason: 'the refusal attaches exactly once');
+      expect(scheduler.ticks, 0, reason: 'no wait, because no retry follows');
+      expect(
+        requests,
+        hasLength(1),
+        reason:
+            'one dispatch, then attach: a live claim is never re-dispatched, so '
+            'no backoff can ever land past the server window',
+      );
     });
 
-    test('applyWithReconciliation: a live refusal stops before the local wait '
-        'crosses the server window (issue #805 review)', () async {
-      // Waiting long enough is not consent. The refusal arrives INSIDE the
-      // window, but the next backoff would land past it — and a dispatch then
-      // would STEAL the abandoned claim without the user ever asking for it.
-      var now = DateTime.utc(2026, 1, 1, 12);
-      final clock = Clock(() => now);
+    test('a dispatch that landed and already finished is read off the job row '
+        '(no attach needed)', () async {
+      // A run can finish between the lost response and the re-read. The job row
+      // is the second reader of the persisted outcome (design D4).
+      var call = 0;
+      final doneJob = serializers.serializeWith(
+        AiImportJobResponse.serializer,
+        _jobResponse(
+          _job(
+            'j1',
+            status: JobStatus.succeeded,
+            applyState: ApplyState.done,
+            applyResult: _runOutcome(_outcome()),
+          ),
+        ),
+      )!;
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            call++;
+            if (call == 1) {
+              handler.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.connectionError,
+                ),
+              );
+              return;
+            }
+            handler.resolve(
+              Response<Object>(
+                requestOptions: options,
+                statusCode: 200,
+                data: doneJob,
+              ),
+            );
+          },
+        ),
+      );
+      final repo = _AttachingRepository(
+        BreakdownApi(dio: dio),
+        _dao(),
+        outcomes: [ApplySucceeded(_outcome())],
+      );
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+      );
+      expect(outcome, isA<ApplySucceeded>());
+      expect(
+        repo.outcomeCalls,
+        0,
+        reason: 'the terminal job row answers without opening a stream',
+      );
+    });
+
+    test('a definitive dispatch failure is surfaced, never retried', () async {
       final requests = <RequestOptions>[];
       final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
       dio.interceptors.add(
@@ -1638,14 +1821,10 @@ void main() {
                 type: DioExceptionType.badResponse,
                 response: Response<Object>(
                   requestOptions: options,
-                  statusCode: 409,
+                  statusCode: 403,
                   data: <String, dynamic>{
-                    'code': 'ai-import.apply-in-flight',
-                    'status': 409,
-                    'extensions': <String, dynamic>{
-                      'apply_run_age_seconds': 30,
-                      'stale_after_seconds': 600,
-                    },
+                    'code': 'ai-import.forbidden',
+                    'status': 403,
                   },
                 ),
               ),
@@ -1653,185 +1832,10 @@ void main() {
           },
         ),
       );
-      // The backoff is where the window is crossed: the second attempt would be
-      // dispatched eleven minutes after the refusal.
-      final scheduler = _TickActionScheduler(
-        () => now = now.add(const Duration(minutes: 11)),
-      );
-      final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
-          .applyWithReconciliation(
-            'j1',
-            _applyRequest(),
-            scheduler: scheduler,
-            clock: clock,
-          );
-      expect(outcome, isA<ApplyInFlight>());
-      expect(scheduler.ticks, 1, reason: 'the tick happened, the POST did not');
-      expect(
-        requests,
-        hasLength(1),
-        reason:
-            'the loop must stop at the window instead of dispatching into a '
-            'claim the server would now hand over',
-      );
-    });
-
-    test('applyWithReconciliation: an ambiguous timeout after a live refusal '
-        'makes the outcome unknown again (issue #805 review)', () async {
-      // The earlier refusal described the job a moment ago; a timeout means the
-      // LAST observation is unknown, so a budget that ends here must report that
-      // — never a live-run card with a takeover action derived from stale news.
-      var call = 0;
-      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            call++;
-            if (call == 1) {
-              handler.reject(
-                DioException(
-                  requestOptions: options,
-                  type: DioExceptionType.badResponse,
-                  response: Response<Object>(
-                    requestOptions: options,
-                    statusCode: 409,
-                    data: <String, dynamic>{
-                      'code': 'ai-import.apply-in-flight',
-                      'status': 409,
-                      'extensions': <String, dynamic>{
-                        'apply_run_age_seconds': 30,
-                        'stale_after_seconds': 600,
-                      },
-                    },
-                  ),
-                ),
-              );
-              return;
-            }
-            handler.reject(
-              DioException(
-                requestOptions: options,
-                type: DioExceptionType.connectionTimeout,
-              ),
-            );
-          },
-        ),
-      );
-      final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
-          .applyWithReconciliation(
-            'j1',
-            _applyRequest(),
-            scheduler: _FakeScheduler(),
-            maxAttempts: 2,
-          );
-      expect(outcome, isA<ApplyUnresolved>());
-    });
-
-    test('applyWithReconciliation: the stale boundary follows the server\'s '
-        'STRICT predicate (issue #805 review)', () async {
-      // The server steals when `payload.updated_at < now - STALE_AFTER`, so a
-      // payload one second INSIDE the window is still live (both dispatches of
-      // the budget happen, none of them steals) …
-      Future<(ApplyReconciliation, int)> run(int ageSeconds) async {
-        final requests = <RequestOptions>[];
-        final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
-        dio.interceptors.add(
-          InterceptorsWrapper(
-            onRequest: (options, handler) {
-              requests.add(options);
-              handler.reject(
-                DioException(
-                  requestOptions: options,
-                  type: DioExceptionType.badResponse,
-                  response: Response<Object>(
-                    requestOptions: options,
-                    statusCode: 409,
-                    data: <String, dynamic>{
-                      'code': 'ai-import.apply-in-flight',
-                      'status': 409,
-                      'extensions': <String, dynamic>{
-                        'apply_run_age_seconds': ageSeconds,
-                        'stale_after_seconds': 600,
-                      },
-                    },
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-        final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
-            .applyWithReconciliation(
-              'j1',
-              _applyRequest(),
-              scheduler: _FakeScheduler(),
-              maxAttempts: 2,
-            );
-        return (outcome, requests.length);
-      }
-
-      final (inside, insideRequests) = await run(598);
-      expect(insideRequests, 2, reason: 'inside the window the run is live');
-      expect(inside, isA<ApplyInFlight>());
-      expect((inside as ApplyInFlight).age, const Duration(seconds: 598));
-
-      // … and one second PAST it the abandoned claim is never re-dispatched.
-      final (past, pastRequests) = await run(601);
-      expect(pastRequests, 1, reason: 'past the window a retry would steal');
-      expect(past, isA<ApplyInFlight>());
-      final pastInFlight = past as ApplyInFlight;
-      expect(pastInFlight.age, const Duration(seconds: 601));
-      expect(pastInFlight.staleAfter, const Duration(minutes: 10));
-    });
-
-    test('applyInFlightWindow: no window on the wire means no classification '
-        '(pre-#805 server keeps the wait)', () {
-      expect(
-        applyInFlightWindow(
-          const ProblemError(code: 'ai-import.apply-in-flight'),
-        ),
-        isNull,
-        reason: 'a server that names no window gets the pre-#805 behaviour',
-      );
-      expect(
-        applyInFlightWindow(
-          const ProblemError(
-            code: 'domain.conflict',
-            extensions: <String, dynamic>{'stale_after_seconds': 600},
-          ),
-        ),
-        isNull,
-        reason: 'only the in-flight code is parsed',
-      );
-      final window = applyInFlightWindow(
-        const ProblemError(
-          code: 'ai-import.apply-in-flight',
-          extensions: <String, dynamic>{'stale_after_seconds': 600},
-        ),
-      );
-      expect(window, isNotNull);
-      expect(window!.staleAfter, const Duration(minutes: 10));
-      expect(
-        window.age,
-        isNull,
-        reason: 'an owner that published nothing has no age — never zero',
-      );
-    });
-
-    test('applyWithReconciliation: job re-read not-succeeded blocks (no '
-        're-dispatch)', () async {
-      final outcomes = <_Outcome>[
-        _Outcome.timeout(),
-        _Outcome.ok(
-          serializers.serializeWith(
-            AiImportJobResponse.serializer,
-            _jobResponse(_job('j1', status: JobStatus.deadLetter)),
-          )!,
-        ),
-      ];
-      final repo = AiImportRepository(
-        _api(_ScriptedOutcomes(outcomes)),
+      final repo = _AttachingRepository(
+        BreakdownApi(dio: dio),
         _dao(),
+        outcomes: [ApplySucceeded(_outcome())],
       );
       final outcome = await repo.applyWithReconciliation(
         'j1',
@@ -1839,38 +1843,9 @@ void main() {
         scheduler: _FakeScheduler(),
       );
       expect(outcome, isA<ApplyBlocked>());
-      expect(
-        (outcome as ApplyBlocked).error.code,
-        'ai_import.apply_job_not_succeeded',
-      );
-      // Exactly two requests: the timed-out apply + the re-read. No retry.
-      expect(outcomes.expand((o) => o.requests).length, 2);
-    });
-
-    test('applyWithReconciliation: budget exhausted with the outcome unknown '
-        '→ ApplyUnresolved', () async {
-      final dio = Dio(BaseOptions(baseUrl: 'https://api.invalid'));
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            // Every call times out (job re-reads included).
-            handler.reject(
-              DioException(
-                requestOptions: options,
-                type: DioExceptionType.connectionTimeout,
-              ),
-            );
-          },
-        ),
-      );
-      final outcome = await AiImportRepository(BreakdownApi(dio: dio), _dao())
-          .applyWithReconciliation(
-            'j1',
-            _applyRequest(),
-            scheduler: _FakeScheduler(),
-            maxAttempts: 2,
-          );
-      expect(outcome, isA<ApplyUnresolved>());
+      expect((outcome as ApplyBlocked).error.code, 'ai-import.forbidden');
+      expect(requests, hasLength(1));
+      expect(repo.outcomeCalls, 0);
     });
 
     test('apply watch: an IDLE close does not consume the failure budget '
@@ -1899,11 +1874,11 @@ void main() {
         reason: 'idle closes are not failures — no watch_exhausted',
       );
       expect(events, hasLength(2));
-      expect(events.first.getRight().toNullable()!.applied, 3);
+      expect(events.first.getRight().toNullable()!.progress!.applied, 3);
       expect(
-        events.last.getRight().toNullable(),
+        events.last.getRight().toNullable()!.progress,
         isNull,
-        reason: 'the run ended with the explicit null frame',
+        reason: 'the run ended with the explicit null-progress frame',
       );
       expect(
         interceptor.requests
@@ -1951,7 +1926,7 @@ void main() {
             maxIdleReconnects: 5,
           )
           .toList();
-      expect(events.first.getRight().toNullable()!.applied, 1);
+      expect(events.first.getRight().toNullable()!.progress!.applied, 1);
       expect(
         events.last.getLeft().toNullable()!.code,
         'ai_import.watch_exhausted',
@@ -2296,6 +2271,361 @@ void main() {
       );
       expect(decisionTelemetryFromWire('not json'), isNull);
       expect(decisionTelemetryFromWire(null), isNull);
+    });
+
+    test(
+      'a denial that resolves between two watch connections stops the reopen '
+      '(review of #899)',
+      () async {
+        // The gate is re-asked before EVERY connection, not only before the
+        // first: an idle close reconnects, and a membership that resolved to
+        // denied in the meantime must not produce another `/apply-events`
+        // request.
+        var gateCalls = 0;
+        final interceptor = _SseInterceptor(['']); // one idle close
+        final events = await AiImportRepository(_api(interceptor), _dao())
+            .watchApplyProgress(
+              'j1',
+              scheduler: _FakeScheduler(),
+              maxAttempts: 5,
+              maxIdleReconnects: 5,
+              gate: () async {
+                gateCalls++;
+                return gateCalls == 1
+                    ? null
+                    : const ProblemError(
+                        code: 'ai_import.forbidden',
+                        status: 403,
+                      );
+              },
+            )
+            .toList();
+        expect(events, hasLength(1));
+        expect(
+          events.single.getLeft().toNullable()!.code,
+          'ai_import.forbidden',
+        );
+        expect(
+          interceptor.requests,
+          hasLength(1),
+          reason:
+              'the reconnect that would have followed the idle close is '
+              'skipped once the gate denies',
+        );
+      },
+    );
+
+    test('an UNKNOWN slot state never re-dispatches (review of #899)', () async {
+      // An ambiguous POST, then a job row with no `apply_state` (a server that
+      // predates the durable run). "Unknown" is not "free": a second POST
+      // could dispatch into a live run — or, past the staleness window,
+      // request a takeover nobody asked for.
+      final requests = <RequestOptions>[];
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          requests.add(options);
+          if (options.method == 'POST') {
+            // The POST itself dies ambiguously.
+            throw DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionTimeout,
+            );
+          }
+          return serializers.serializeWith(
+            AiImportJobResponse.serializer,
+            _jobResponse(_job('j1', status: JobStatus.succeeded)),
+          );
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        maxAttempts: 3,
+      );
+      expect(outcome, isA<ApplyUnresolved>());
+      expect(
+        requests.where((r) => r.method == 'POST'),
+        hasLength(1),
+        reason: 'an unknown slot state must not become a second dispatch',
+      );
+    });
+
+    test('a FAILED job re-read never re-dispatches (review of #899)', () async {
+      // The re-read is what proves the slot free. Without it, a retry is a
+      // blind dispatch (and a possible unconfirmed takeover).
+      var posts = 0;
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          if (options.method == 'POST') {
+            posts++;
+            throw DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionTimeout,
+            );
+          }
+          throw DioException(
+            requestOptions: options,
+            type: DioExceptionType.connectionError,
+          );
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        maxAttempts: 3,
+      );
+      expect(outcome, isA<ApplyUnresolved>());
+      expect(posts, 1, reason: 'no dispatch without a confirmed-free slot');
+    });
+
+    test('a denial that resolves WHILE the POST is in flight blocks the attach '
+        '(review of #899)', () async {
+      // The gate allows the dispatch, then denies. The outcome watch must not
+      // be opened: it is a handler-gated route like the POST.
+      var gateCalls = 0;
+      final streamRequests = <RequestOptions>[];
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          if (options.method == 'POST') {
+            return standardSerializers.serializeWith(
+              ApplyRunAccepted.serializer,
+              ApplyRunAccepted(
+                (b) => b
+                  ..runId = 'run-A'
+                  ..stage = ApplyStage.applying
+                  ..startedAt = DateTime.utc(2026, 1, 1)
+                  ..applyState = ApplyState.requested,
+              ),
+            );
+          }
+          streamRequests.add(options);
+          return null;
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        maxAttempts: 1,
+        gate: () async {
+          gateCalls++;
+          // Allowed before the dispatch, denied afterwards.
+          return gateCalls == 1
+              ? null
+              : const ProblemError(code: 'ai_import.forbidden', status: 403);
+        },
+      );
+      expect(outcome, isA<ApplyBlocked>());
+      expect((outcome as ApplyBlocked).error.code, 'ai_import.forbidden');
+      expect(
+        streamRequests,
+        isEmpty,
+        reason: 'a resolved denial issues zero outcome-stream requests',
+      );
+    });
+
+    test(
+      "a later run's outcome is reported as superseded, never as this apply's",
+      () async {
+        // Run A was dispatched (the `202` named it); run B took the slot and
+        // finished before A's client re-subscribed. Serving B's counters as A's
+        // result would silently report someone else's import (review of #899).
+        final repo = _FrameRepository(_api(_scripted([null])), _dao(), [
+          Right<ProblemError, ApplyProgressFrame>(
+            ApplyProgressFrame(
+              summary: _outcome(appliedCount: 9),
+              runId: 'run-B',
+            ),
+          ),
+        ]);
+        final outcome = await repo.awaitRunOutcome(
+          'j1',
+          expectedRunId: 'run-A',
+        );
+        expect(outcome, isA<ApplyUnresolved>());
+        expect(
+          (outcome! as ApplyUnresolved).error.code,
+          'ai_import.apply_run_superseded',
+        );
+      },
+    );
+
+    test("the dispatched run's own outcome is returned", () async {
+      final repo = _FrameRepository(_api(_scripted([null])), _dao(), [
+        Right<ProblemError, ApplyProgressFrame>(
+          ApplyProgressFrame(
+            summary: _outcome(appliedCount: 3),
+            runId: 'run-A',
+          ),
+        ),
+      ]);
+      final outcome = await repo.awaitRunOutcome('j1', expectedRunId: 'run-A');
+      expect(outcome, isA<ApplySucceeded>());
+      expect((outcome! as ApplySucceeded).response.appliedCount, 3);
+    });
+
+    test(
+      'a caller with no dispatch of its own accepts whatever run finished',
+      () async {
+        // A re-entered screen asks "what did the last run do?" — it has no run
+        // identity to compare against, so nothing can be foreign to it.
+        final repo = _FrameRepository(_api(_scripted([null])), _dao(), [
+          Right<ProblemError, ApplyProgressFrame>(
+            ApplyProgressFrame(
+              summary: _outcome(appliedCount: 4),
+              runId: 'run-B',
+            ),
+          ),
+        ]);
+        final outcome = await repo.awaitRunOutcome('j1');
+        expect(outcome, isA<ApplySucceeded>());
+      },
+    );
+
+    test(
+      'apply watch: the wire decoder carries the run identity (own run)',
+      () async {
+        final interceptor = _SseInterceptor([
+          _sseApplyOutcomeFrame(
+            'j1',
+            runId: 'run-A',
+            summary: _outcome(appliedCount: 7),
+          ),
+        ]);
+        final repo = AiImportRepository(_api(interceptor), _dao());
+        final outcome = await repo.awaitRunOutcome(
+          'j1',
+          expectedRunId: 'run-A',
+        );
+        expect(outcome, isA<ApplySucceeded>());
+        expect((outcome! as ApplySucceeded).response.appliedCount, 7);
+      },
+    );
+
+    test(
+      'apply watch: the wire decoder carries the run identity (foreign run)',
+      () async {
+        // Same wire frame, another owner: without `run_id` in the decoded frame
+        // this would be served as this apply's result.
+        final interceptor = _SseInterceptor([
+          _sseApplyOutcomeFrame(
+            'j1',
+            runId: 'run-B',
+            summary: _outcome(appliedCount: 9),
+          ),
+        ]);
+        final repo = AiImportRepository(_api(interceptor), _dao());
+        final outcome = await repo.awaitRunOutcome(
+          'j1',
+          expectedRunId: 'run-A',
+        );
+        expect(outcome, isA<ApplyUnresolved>());
+        expect(
+          (outcome! as ApplyUnresolved).error.code,
+          'ai_import.apply_run_superseded',
+        );
+      },
+    );
+
+    test('apply watch: a superseded run is reported from the job row too', () async {
+      // The stream ends without a terminal frame, so the outcome comes from the
+      // persisted job row — the other reader, same identity rule. `getJobAndCache`
+      // reads through the API, so the row is scripted there.
+      final row = _job(
+        'j1',
+        status: JobStatus.succeeded,
+        applyState: ApplyState.done,
+        applyResult: _runOutcome(_outcome(appliedCount: 9)),
+        applyRunId: 'run-B',
+      );
+      final repo = _FrameRepository(
+        _api(
+          _scripted([
+            serializers.serializeWith(
+              AiImportJobResponse.serializer,
+              _jobResponse(row),
+            )!,
+          ]),
+        ),
+        _dao(),
+        const [],
+      );
+      final outcome = await repo.awaitRunOutcome('j1', expectedRunId: 'run-A');
+      expect(outcome, isA<ApplyUnresolved>());
+      expect(
+        (outcome! as ApplyUnresolved).error.code,
+        'ai_import.apply_run_superseded',
+      );
+    });
+
+    test('a denial from the watch is terminal: no job read after it (review of '
+        '#899)', () async {
+      // The gate refuses before the stream even connects. `awaitRunOutcome`
+      // must answer with the denial instead of falling through to the job row
+      // — that read is another request on a route the gate just refused.
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          // Would be the job GET; it must never be reached.
+          return serializers.serializeWith(
+            AiImportJobResponse.serializer,
+            _jobResponse(_job('j1', status: JobStatus.succeeded)),
+          );
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.awaitRunOutcome(
+        'j1',
+        gate: () async =>
+            const ProblemError(code: 'ai_import.forbidden', status: 403),
+      );
+      expect(outcome, isA<ApplyBlocked>());
+      expect((outcome! as ApplyBlocked).error.code, 'ai_import.forbidden');
+      expect(
+        interceptor.requests,
+        isEmpty,
+        reason:
+            'a denial stops the watch before connecting and skips the '
+            'fallback job read',
+      );
+    });
+
+    test('a denial before the fallback job read issues no request (review of '
+        '#899)', () async {
+      // The watch ends WITHOUT an outcome and WITHOUT asking the gate again (an
+      // empty stream: it never connects, so it never yields a denial), which
+      // makes the fallback read the next thing that would touch the network.
+      // The gate denies there, and no job GET may happen.
+      final interceptor = _ScriptInterceptor(
+        respond: (options) => serializers.serializeWith(
+          AiImportJobResponse.serializer,
+          _jobResponse(_job('j1', status: JobStatus.succeeded)),
+        ),
+      );
+      final repo = _FrameRepository(
+        _api(interceptor),
+        _dao(),
+        const <Result<ApplyProgressFrame>>[],
+      );
+      final outcome = await repo.awaitRunOutcome(
+        'j1',
+        gate: () async =>
+            const ProblemError(code: 'ai_import.apply_unmounted', status: 409),
+      );
+      expect(outcome, isA<ApplyBlocked>());
+      expect(
+        (outcome! as ApplyBlocked).error.code,
+        'ai_import.apply_unmounted',
+      );
+      expect(
+        interceptor.requests,
+        isEmpty,
+        reason: 'the gate answered before the fallback read: no job GET',
+      );
     });
 
     test('clearCache wipes the job rows', () async {

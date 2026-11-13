@@ -92,7 +92,7 @@ class FakeAiImportRepository extends AiImportRepository {
 
   Result<AiUploadAck>? uploadResult;
   Result<AiImportJob>? jobResult;
-  Result<ApplyAiImportResponse>? applyResult;
+  Result<ApplyImportSummary>? applyResult;
 
   int uploadCalls = 0;
   int jobCalls = 0;
@@ -172,20 +172,37 @@ class FakeAiImportRepository extends AiImportRepository {
   }
 
   @override
-  Future<Result<ApplyAiImportResponse>> apply(
+  Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
   ) async {
     applyCalls++;
-    return applyResult ??
-        Right(
-          ApplyAiImportResponse(
-            (b) => b
-              ..appliedCount = 2
-              ..createdDays = 1
-              ..plannedSceneShoots = 3,
-          ),
-        );
+    // Issue #899: the POST dispatches; the scripted outcome is reported by
+    // [awaitRunOutcome], a scripted failure stays a dispatch failure.
+    final scripted = applyResult;
+    if (scripted != null) {
+      final error = scripted.getLeft().toNullable();
+      if (error != null) return Left(error);
+    }
+    return Right(_acceptedRun());
+  }
+
+  ApplyRunAccepted _acceptedRun() => ApplyRunAccepted(
+    (b) => b
+      ..runId = 'run-1'
+      ..stage = ApplyStage.applying
+      ..startedAt = DateTime.utc(2026, 11, 2, 10)
+      ..applyState = ApplyState.requested,
+  );
+
+  @override
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
+  }) async {
+    final summary = applyResult?.getRight().toNullable();
+    return summary == null ? null : ApplySucceeded(summary);
   }
 
   @override

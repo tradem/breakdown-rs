@@ -84,6 +84,10 @@ fn succeeded_job(id: AiImportJobId) -> AiImportJob {
         decision_telemetry: None,
         apply_progress: None,
         applied: false,
+        // Issue #899: no durable apply slot on this literal.
+        apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
+        apply_result: None,
     }
 }
 
@@ -108,12 +112,17 @@ fn run_state(
 ) -> ApplyRunState {
     ApplyRunState {
         owner,
+        // These stream tests never persist an outcome, so there is no
+        // attribution to report (issue #899 review).
+        result_run_id: None,
         seq,
         progress,
         // These stream tests are about frames, not about the refusal's age
         // (issue #863); the slot reports no claim instant, which the core read
         // treats as "nothing to age" rather than inventing one.
         owner_claimed_at: None,
+        state: breakdown_core::ai::ApplyState::Idle,
+        result: None,
     }
 }
 
@@ -183,6 +192,48 @@ async fn claimed_job(ports: &FakePorts, applied: u32, total: u32) -> (AiImportJo
 // The close/emit classification — pure, so the stream's conditions are testable
 // without a stream, a timer or a database.
 // ---------------------------------------------------------------------------
+
+/// Review of #899: the frame's run identity is the live owner while a run is
+/// going, and the persisted attribution once it finished.
+///
+/// This is the one expression that turns a PostgreSQL slot into the id a client
+/// compares against its `202` — the compose step between
+/// `a_finished_run_keeps_its_identity_and_frees_the_slot` (what the slot holds)
+/// and the wire frame (`ApplyProgressFrame.run_id`).
+#[test]
+fn the_frame_reports_the_owner_then_the_outcomes_run() {
+    let live = ApplyRunId::new();
+    let finished = ApplyRunId::new();
+
+    let running = breakdown_core::ai::ApplyRunState {
+        owner: Some(live),
+        result_run_id: Some(finished),
+        ..breakdown_core::ai::ApplyRunState::default()
+    };
+    assert_eq!(
+        api::handlers::apply_frame_run_id(&running),
+        Some(live),
+        "while a run is live, its ownership is the identity"
+    );
+
+    let terminal = breakdown_core::ai::ApplyRunState {
+        owner: None,
+        result_run_id: Some(finished),
+        ..breakdown_core::ai::ApplyRunState::default()
+    };
+    assert_eq!(
+        api::handlers::apply_frame_run_id(&terminal),
+        Some(finished),
+        "a finished run keeps its attribution even though ownership is released"
+    );
+
+    let idle = breakdown_core::ai::ApplyRunState::default();
+    assert_eq!(
+        api::handlers::apply_frame_run_id(&idle),
+        None,
+        "a slot nobody ever ran names no run — never an invented id"
+    );
+}
 
 #[test]
 fn classify_apply_run_reports_a_live_run() {

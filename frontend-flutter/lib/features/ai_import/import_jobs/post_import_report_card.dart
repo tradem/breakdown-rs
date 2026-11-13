@@ -113,7 +113,9 @@ class AiPostImportReportCard extends ConsumerWidget {
                     // Rows that did NOT become a look keep their reason here —
                     // the review screen's own report must not be the only place
                     // a partially applied import is visible (spec `ai-import`).
-                    for (final unapplied in report.outcome.unappliedOutfits)
+                    for (final unapplied
+                        in report.outcome.unappliedOutfits?.toList() ??
+                            const <UnappliedOutfit>[])
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(

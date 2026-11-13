@@ -26,6 +26,75 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Changed
+
+- **The AI-import apply is a DURABLE run: `POST /apply` dispatches (`202`) instead
+  of executing the row loop in the request (issue #899, OpenSpec change
+  `ai-import-durable-apply-run`; `core 0.68.0 → 0.69.0`, `infra 0.79.0 → 0.80.0`,
+  `api 0.67.0 → 0.68.0`; **BREAKING**, in place per ADR-021/ADR-035-B5).** A live
+  test of a 49-scene import showed the whole defect chain in one run: an Android
+  suspend mid-apply dropped the handler future, the apply stopped partway, and
+  the client told the user "Netzwerkproblem – das Anwenden wurde möglicherweise
+  nicht abgeschlossen" although the *work* — not the network — was lost. The root
+  cause was structural: the run's lifetime WAS the connection's.
+  - `POST /v1/ai-import/jobs/{id}/apply` validates, claims the single-flight slot
+    and **persists the resolved reviewer request** (`ai_import.ai_import_job`
+    gains `apply_state` (`idle`/`requested`/`running`/`done`/`failed`),
+    `apply_request`, `apply_result`), then answers `202 ApplyRunAccepted
+    { run_id, stage, started_at, apply_state }`. The counters leave the POST body:
+    they are served by the apply stream's **terminal frame** and by
+    `GET /v1/ai-import/jobs/{id}`, which carries `apply_state` + `apply_result`.
+  - A **worker-owned run** executes it (`api::apply_runner::spawn_apply_run_worker`
+    → `ApplyRunner`), not the request: the loop claims `requested` rows (and a
+    stale-`running` row whose owner is gone, `ApplyProgress::STALE_AFTER`),
+    adopts the dispatching run's id, writes `running` → `done`/`failed`, and
+    persists the outcome (the summary, or the registered problem `code` — never a
+    prose detail). A dropped connection can no longer cancel it, and any replica
+    can take a `requested` row over after a rolling deploy, because the request
+    lives on the row.
+  - `ApplyRunGuard`'s contract narrows to the legacy in-process entry point
+    (`apply_script`): the dispatched path's progress payload is cleared **only**
+    by `complete_apply_run` / `fail_apply_run`, so a run killed mid-flight leaves
+    a reclaimable slot instead of erasing the evidence that work was asked for.
+  - A second `POST` while a live run owns the slot still answers `409
+    ai-import.apply-in-flight` with the owner's silence and the server's own
+    window (issues #805/#863) — the documented client reaction is now **attach**,
+    not retry.
+  - Shutdown cancels and joins in-flight runs before the pool/limiter teardown; an
+    interrupted run stays `running` with a stale stamp and is recovered by the
+    takeover path (the crashed-replica behaviour, now also the SIGTERM one).
+  - **Tests:** the queue's four transitions are owner-fenced (`FakeAiImportQueue`
+    mirrors them), the handler suites assert the new wire contract (`202`, no
+    counters, the same validation codes as before) and drive the dispatched slot
+    through the production runner (`run_dispatched_apply`) so the pre-#899
+    end-to-end coverage is preserved; the client-dropped-request test now pins the
+    **opposite** property (the slot survives the vanished client) instead of "the
+    handler had already run the apply". `backend/openapi.yaml` and the generated
+    Dart client (`frontend-flutter/vendor/breakdown_api/`, `1.7.0 → 1.8.0`) are
+    regenerated.
+  - **Client (same PR, design D2):** the Flutter repository **dispatches and
+    attaches** instead of reading counters off the POST — `apply()` returns the
+    `202` descriptor through a bounded request (`kApplyDispatchTimeout`; the
+    generated call pins its own `Options`, so the dispatch goes through the
+    configured Dio client), `isAmbiguousTimeout` became `isResumableDispatch`
+    (`transport.connectionError`/`unknown` join the three timeout codes), the
+    apply stream's frame carries `apply_state` + the persisted outcome, and
+    `applyWithReconciliation` keeps its signature while its body becomes
+    *dispatch → attach*: a dropped dispatch re-reads the job first
+    (`requested`/`running` → attach, `done`/`failed` → the row's
+    `apply_result`, `idle` → re-dispatch within the budget), and a `409
+    ai-import.apply-in-flight` attaches to the named run instead of consuming
+    the budget (which also removes the "a backoff can land past the server
+    window" hazard: a live refusal now never dispatches again). The wire shape
+    of `apply_result` is **externally tagged** (`{"succeeded": {...}}` /
+    `{"failed": {"code": …}}`) on purpose — the generated Dart client's `oneOf`
+    decodes that shape, so an internally tagged payload would have made the
+    field unreadable on `GET /jobs/{id}`.
+  - Still open on the issue (deliberately not in this PR): the Flutter **UX**
+    half — `_applying` lifted out of screen state so re-entering the screen
+    mounts the progress card from `apply_state`, the D5 lifecycle gate on the
+    apply stream, and the progress-card honesty work (§C).
+
 ### Fixed
 
 - **An inline `(OT)` marker classifies a figure as `extra`, whatever section it

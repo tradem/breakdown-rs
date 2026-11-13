@@ -28,6 +28,7 @@ import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -107,7 +108,7 @@ class FakePipelineRepository extends AiImportRepository {
   FakePipelineRepository(super.api, super.cache);
 
   Result<AiImportJob>? jobResult;
-  Result<ApplyAiImportResponse>? applyResult;
+  Result<ApplyImportSummary>? applyResult;
 
   @override
   Future<Result<AiUploadAck>> uploadSchedule({
@@ -155,11 +156,27 @@ class FakePipelineRepository extends AiImportRepository {
   );
 
   @override
-  Future<Result<ApplyAiImportResponse>> apply(
+  Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
   ) async => Right(
-    ApplyAiImportResponse(
+    ApplyRunAccepted(
+      (b) => b
+        ..runId = 'run-e2e'
+        ..stage = ApplyStage.applying
+        ..startedAt = DateTime.utc(2026, 11, 2, 10)
+        ..applyState = ApplyState.requested,
+    ),
+  );
+
+  /// Issue #899: the counters arrive when the run finishes, not from the POST.
+  @override
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
+  }) async => ApplySucceeded(
+    ApplyImportSummary(
       (b) => b
         ..appliedCount = 1
         ..createdDays = 1

@@ -714,6 +714,41 @@ pub struct AiImportJob {
     /// it must never look like a first one.
     #[serde(default)]
     pub applied: bool,
+    /// Lifecycle state of this job's **apply slot** (issue #899). Additive with
+    /// `serde(default)`: every pre-#899 row decodes as [`ApplyState::Idle`].
+    ///
+    /// This is the field a re-entering client decides from (design D5):
+    /// `idle` offers an apply, `requested`/`running` means "attach to the live
+    /// run" (the `POST` no longer does the work — it dispatches), and
+    /// `done`/`failed` means the run is over and [`Self::apply_result`] holds
+    /// what it committed. Without it, a screen that was away when the run
+    /// finished had no way to learn the outcome except by re-applying.
+    #[serde(default)]
+    pub apply_state: ApplyState,
+    /// The run this job's outcome is attributable to (issue #899), `None` before
+    /// the first dispatch.
+    ///
+    /// While a run is live this is its owner id; once it finished it is the run
+    /// recorded next to [`Self::apply_result`], because ownership is released at
+    /// the terminal transition (the slot must free up immediately) while the
+    /// attribution has to survive.
+    ///
+    /// A slot is single-flight per job but **not** immutable: run A can finish
+    /// and run B take the slot before A's client re-subscribes. Without this
+    /// field that client cannot tell "my run's outcome" from "someone else's
+    /// later run", so it would report B's counters as A's result.
+    #[serde(default)]
+    pub apply_run_id: Option<ApplyRunId>,
+    /// The persisted outcome of the last apply run that **finished** (issue
+    /// #899). Additive with `serde(default)`.
+    ///
+    /// `Some` exactly when [`Self::apply_state`] is terminal, so a client never
+    /// has to distinguish "no result yet" from "a result of `idle`". A failed
+    /// run carries its registered problem code here, not a prose detail — the
+    /// client branches on `code` like it does for every other apply failure
+    /// (ADR-031).
+    #[serde(default)]
+    pub apply_result: Option<ApplyRunOutcome>,
 }
 
 /// Which part of an apply run is executing (issue #762).
@@ -822,11 +857,221 @@ impl ApplyProgress {
 /// Deliberately narrower than [`AiImportJob`]: the apply does not change the
 /// job row's status, so a client watching an apply needs the run's own numbers
 /// and nothing else. `apply_progress: None` is the run's **end** signal.
+///
+/// Since issue #899 the frame also carries the run slot's own state and — once
+/// the run is over — its **persisted outcome**, so a stream that the client
+/// attaches to *after* the run finished still learns what committed instead of
+/// only learning that nothing is running any more (design D4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ApplyProgressFrame {
     pub job_id: AiImportJobId,
+    /// The identity of the run this frame describes (issue #899), `None` when
+    /// the slot has no owner. `apply_progress` carries the same id while a run
+    /// is publishing, but the **terminal** frame has no progress payload — so
+    /// without this field a client could not attribute the outcome it just
+    /// received to the run it dispatched.
+    #[serde(default)]
+    pub run_id: Option<ApplyRunId>,
     #[serde(default)]
     pub apply_progress: Option<ApplyProgress>,
+    /// Lifecycle state of the job's apply slot at the moment of this frame
+    /// (issue #899). Additive with `serde(default)`: a pre-#899 frame decodes
+    /// as [`ApplyState::Idle`], which is exactly what such a frame described.
+    #[serde(default)]
+    pub apply_state: ApplyState,
+    /// The persisted outcome of the last finished run, `None` while none has
+    /// finished. Additive with `serde(default)`.
+    #[serde(default)]
+    pub apply_result: Option<ApplyRunOutcome>,
+}
+
+/// Lifecycle state of one preview's **apply slot** (issue #899).
+///
+/// The apply used to have no durable state at all: "requested" was implicit in
+/// "an HTTP request is in flight", so a dropped connection erased the only
+/// trace that work had been asked for. This enum is that state — one slot per
+/// job, written only through the owner-fenced transitions of the queue port
+/// (`request_apply_run` → `mark_apply_running` → `complete_apply_run` /
+/// `fail_apply_run`).
+///
+/// It is deliberately **not** [`crate::ai::JobStatus`]: the job is terminal
+/// (`succeeded`) for the whole time an apply runs, because an apply is work
+/// done *on* a finished preview.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyState {
+    /// No run has been asked for on this preview (the default, and what every
+    /// pre-#899 row decodes as).
+    #[default]
+    Idle,
+    /// A run was validated, claimed and persisted, but no worker has picked it
+    /// up yet. This is the state a client's `POST` leaves behind — and the
+    /// state a crashed replica leaves behind for the next worker to claim.
+    Requested,
+    /// A worker owns the slot and is executing the persisted request.
+    Running,
+    /// The run finished; [`AiImportJob::apply_result`] carries its outcome.
+    Done,
+    /// The run failed; [`AiImportJob::apply_result`] carries the registered
+    /// problem code the client branches on (ADR-031).
+    Failed,
+}
+
+impl ApplyState {
+    /// The storage/wire spelling (`idle`, `requested`, `running`, `done`,
+    /// `failed`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Requested => "requested",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// Decode the column spelling. An unrecognised value is [`Self::Idle`]: a
+    /// state machine this build cannot read must never be guessed into
+    /// "running".
+    #[must_use]
+    pub fn from_stored(raw: &str) -> Self {
+        match raw {
+            "requested" => Self::Requested,
+            "running" => Self::Running,
+            "done" => Self::Done,
+            "failed" => Self::Failed,
+            _ => Self::Idle,
+        }
+    }
+
+    /// Whether the run is over (successfully or not).
+    #[must_use]
+    pub const fn is_terminal(self) -> bool {
+        matches!(self, Self::Done | Self::Failed)
+    }
+}
+
+/// The counters a finished apply run leaves behind (issues #762, #899).
+///
+/// This is the `POST /ai-import/jobs/{id}/apply` response body of releases
+/// before #899 moved it: the run now dispatches (`202 ApplyRunAccepted`) and the
+/// outcome is persisted on the run slot, served by the apply stream's terminal
+/// frame and by `GET /ai-import/jobs/{id}` (design D4). The type keeps the wire
+/// field names it always had.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ApplyImportSummary {
+    pub applied_count: u32,
+    pub created_days: u32,
+    pub planned_scene_shoots: u32,
+    /// Figures the script apply created. A figure named by several draft rows is
+    /// created once, so this is not `applied_count`-related. `0` for a schedule
+    /// apply, which has no figures.
+    pub created_characters: u32,
+    /// Fundus pieces the script apply created — the garments of the extracted
+    /// outfits.
+    pub created_pieces: u32,
+    /// Outfits the script apply created — one look per accepted outfit row,
+    /// bound to its figure and referencing the pieces above.
+    pub created_outfits: u32,
+    /// Episodes the script apply created for draft episode groups the reviewer
+    /// mapped to a NEW episode (issue #581). `0` for a schedule apply.
+    pub created_episodes: u32,
+    /// Day groups the reviewer rejected — their rows applied unscheduled
+    /// (issue #706). Reported so the reviewer sees the deliberate omission,
+    /// never a silent one.
+    #[serde(default)]
+    pub skipped_day_groups: Vec<String>,
+    /// Outfit rows that were **not** fully applied, each with the reason. An
+    /// apply that created a piece but could not assemble the look reports the
+    /// row here while `created_pieces` still counts the pieces — a partially
+    /// applied row must never look like a fully applied one.
+    #[serde(default)]
+    pub unapplied_outfits: Vec<super::preview::UnappliedOutfit>,
+    /// The episodes THIS request dispatched rows into, each with its own row
+    /// count (issue #763).
+    #[serde(default)]
+    pub applied_episodes: Vec<AppliedEpisode>,
+}
+
+/// What a finished apply run left on the job's run slot (issue #899, design D4).
+///
+/// Persisted as `apply_result` JSONB by the worker, so the outcome outlives the
+/// request that asked for it: a client that re-attaches after the run finished
+/// reads it off `GET /ai-import/jobs/{id}` or off the apply stream's terminal
+/// frame — no second `POST` needed.
+///
+/// A failed run carries the **registered problem `code`** (ADR-031), never a
+/// `detail`-only string, so the client's error narrative is code-driven exactly
+/// like every other apply failure. The human-readable detail stays in the log.
+///
+/// Serialized as an **externally tagged** enum (`{"succeeded": {...}}` /
+/// `{"failed": {"code": ...}}`), the same shape [`crate::ai::SceneSource`]
+/// uses. That is deliberate, not cosmetic: the generated Dart client's `oneOf`
+/// support decodes externally-tagged variants, so an internally tagged payload
+/// (`{"outcome": …, "summary": …}`) would make `apply_result` undecodable on
+/// `GET /ai-import/jobs/{id}` — the field the re-entry path depends on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplyRunOutcome {
+    /// The run completed and applied its plan (fully or partially — the summary
+    /// reports the difference through `unapplied_outfits`).
+    // `Box` is an implementation detail, not contract: the summary is the only
+    // large variant here (a crate plus three vectors) and an outcome is stored
+    // INLINE in `AiImportJob` / `ApplyRunState`, so leaving it unboxed makes
+    // every job read carry the summary's full footprint plus the discriminant
+    // (`clippy::large_enum_variant`). Kept out of the doc comment on purpose —
+    // `utoipa` publishes doc text into the wire contract.
+    Succeeded(Box<ApplyImportSummary>),
+    /// The run stopped on an error the client can branch on.
+    Failed {
+        /// Stable problem code (e.g. `ai-import.apply-missing-shooting-day-group`).
+        code: String,
+    },
+}
+
+impl ApplyRunOutcome {
+    /// The registered problem code of a failed run, `None` for a success.
+    #[must_use]
+    pub fn problem_code(&self) -> Option<&str> {
+        match self {
+            Self::Succeeded(_) => None,
+            Self::Failed { code } => Some(code),
+        }
+    }
+
+    /// The persisted summary of a successful run.
+    #[must_use]
+    pub fn summary(&self) -> Option<&ApplyImportSummary> {
+        match self {
+            Self::Succeeded(summary) => Some(summary),
+            Self::Failed { .. } => None,
+        }
+    }
+}
+
+/// The `202 Accepted` body of `POST /ai-import/jobs/{id}/apply` (issue #899,
+/// design D2).
+///
+/// The request no longer performs the apply: it validates, claims the run slot
+/// and dispatches. The counters arrive later — on the apply stream's terminal
+/// frame and on `GET /ai-import/jobs/{id}` — because the run must outlive the
+/// connection that started it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ApplyRunAccepted {
+    /// The identity of the run the slot now owns. Every progress frame of this
+    /// run carries it, so a client can tell "my run" from a later one.
+    pub run_id: ApplyRunId,
+    /// The run's stage at dispatch time (always `applying`; it exists so the
+    /// descriptor stays additive if a later stage becomes dispatchable).
+    pub stage: ApplyStage,
+    /// When the run was claimed — the anchor the client renders and the value a
+    /// re-attaching client compares against the frames it receives.
+    pub started_at: DateTime<Utc>,
+    /// The slot state at the moment of the answer (always
+    /// [`ApplyState::Requested`]). Explicit rather than implied, so a client
+    /// reads the re-entry state machine off one shape.
+    pub apply_state: ApplyState,
 }
 
 /// The apply-run slot of one job: who owns it, how many runs have started, and
@@ -849,6 +1094,12 @@ pub struct ApplyProgressFrame {
 pub struct ApplyRunState {
     /// The run that currently owns the slot; `None` when no run is live.
     pub owner: Option<ApplyRunId>,
+    /// The run that produced the persisted [`Self::result`], if one has finished
+    /// (review of #899). Distinct from [`Self::owner`] on purpose: ownership is
+    /// cleared by the terminal transition so the slot frees up immediately,
+    /// while attribution must survive — a client that dispatched run A compares
+    /// this against its own run id before believing the outcome is its own.
+    pub result_run_id: Option<ApplyRunId>,
     /// Monotonic run counter of this job: bumped on every claim, never cleared.
     pub seq: i64,
     /// What the owning run last published; `None` before its first write and
@@ -876,6 +1127,21 @@ pub struct ApplyRunState {
     /// column existed, or an adapter that cannot report it): the refusal then
     /// reports no age at all rather than inventing one.
     pub owner_claimed_at: Option<DateTime<Utc>>,
+    /// Lifecycle state of the slot (issue #899) — the fact that turns "no
+    /// payload" into three distinguishable answers: nothing was ever asked for
+    /// ([`ApplyState::Idle`]), a run is queued or live
+    /// ([`ApplyState::Requested`]/[`ApplyState::Running`]) and its owner may
+    /// simply not have published yet, or the run is over
+    /// ([`ApplyState::Done`]/[`ApplyState::Failed`]) and [`Self::result`] says
+    /// what it left behind.
+    ///
+    /// Before it existed the stream had to infer "a run happened" from the
+    /// monotonic counter and had no way to deliver an outcome to a client that
+    /// arrived late — the defect #899 fixes.
+    pub state: ApplyState,
+    /// The persisted outcome of the run that finished on this slot, `None`
+    /// while no run has finished (issue #899, design D4).
+    pub result: Option<ApplyRunOutcome>,
 }
 
 impl ApplyRunState {

@@ -6,7 +6,9 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:breakdown_api/breakdown_api.dart';
+// `hide`: this file folds the app's flattened `ApplyProgressFrame`
+// (ai_import_repository.dart), not the generated wire model of the same name.
+import 'package:breakdown_api/breakdown_api.dart' hide ApplyProgressFrame;
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:fpdart/fpdart.dart';
@@ -196,13 +198,14 @@ Future<ProblemError?> aiApplyStreamGate(Ref ref, String jobId) async {
 /// vs. a failed stream — is unit-testable without a repository, a container or
 /// a socket.
 Stream<AiApplyRunState> foldApplyRun(
-  Stream<Result<ApplyProgress?>> events,
+  Stream<Result<ApplyProgressFrame>> events,
 ) async* {
   ApplyProgress? last;
   await for (final event in events) {
     yield event.match<AiApplyRunState>(
       (error) => AiApplyRunFailed(error, last: last),
-      (progress) {
+      (frame) {
+        final progress = frame.progress;
         if (progress == null) {
           // The run's end signal — or, before any run, "nothing started yet".
           final ended = last;
@@ -601,7 +604,7 @@ class AiApplyState {
 
   /// The 200 outcome summary card (`applied_count`, `created_days`,
   /// `planned_scene_shoots`).
-  final ApplyAiImportResponse? outcome;
+  final ApplyImportSummary? outcome;
 
   /// The last command failure, keyed on the stable problem `code`.
   final ProblemError? commandError;
@@ -709,7 +712,7 @@ class AiApplyState {
         : context as AiJobContext?,
     outcome: identical(outcome, _unset)
         ? this.outcome
-        : outcome as ApplyAiImportResponse?,
+        : outcome as ApplyImportSummary?,
     commandError: identical(commandError, _unset)
         ? this.commandError
         : commandError as ProblemError?,
@@ -1376,7 +1379,7 @@ class AiApplyController extends _$AiApplyController {
   /// job/outcome first and reconciles (bounded retry — the server-side
   /// apply is idempotent, reserve-before-create, backend issue #338);
   /// never a blind re-dispatch, never a duplicate import implied.
-  Future<Result<ApplyAiImportResponse>> apply() async {
+  Future<Result<ApplyImportSummary>> apply() async {
     final context = state.context;
     if (context == null) {
       // Structural impossibility: the button is disabled without context;
@@ -1423,10 +1426,52 @@ class AiApplyController extends _$AiApplyController {
             ? null
             : continuitySelections.toBuilder(),
     );
+    // `// AUTHZ-GATE:` both endpoints this flow touches are handler-internally
+    // gated (`POST /apply` writes, `GET /apply-events` reads), so the client
+    // mirror runs BEFORE the first network call — including the run watch the
+    // reconciliation opens, which used to bypass the gate the stream provider
+    // applies (review of #899, AGENTS.md §5 / D6). A resolved denial issues zero
+    // requests and renders the localized narrative; a pending membership keeps
+    // the card waiting (never a 403 narrative, D3).
+    // Captured BEFORE the await: the gate can stay pending long enough for the
+    // auto-dispose notifier to be destroyed (the user leaves the preview), and
+    // a `ref.read` in the continuation would throw `UnmountedRefException` and
+    // fail the apply before it dispatches (review of #899).
+    final scheduler = ref.read(reconciliationSchedulerProvider);
+    final denial = await ref.read(aiApplyStreamGateProvider(jobId).future);
+    // Only a **resolved** denial blocks the dispatch. `membership.pending` is
+    // "not resolved yet" (cold cache, offline, a season scope that did not
+    // load), and refusing on it would hide the server's own answer behind a
+    // local one: the endpoint is handler-gated, so an actual denial still comes
+    // back as the same registered code. Zero requests are issued for the case
+    // this gate exists for — a membership that resolved to *denied* while the
+    // dispatch was being prepared (review of #899).
+    if (denial != null && denial.code != 'membership.pending') {
+      if (ref.mounted) {
+        state = state.copyWith(outcome: null, commandError: denial);
+      }
+      return Left(denial);
+    }
     final outcome = await repo.applyWithReconciliation(
       jobId,
       request,
-      scheduler: ref.read(reconciliationSchedulerProvider),
+      scheduler: scheduler,
+      // The same mirror, re-asked before every network call the reconciliation
+      // makes — including the outcome stream it opens after the POST. The
+      // `ref.mounted` guard keeps a disposed notifier from throwing inside the
+      // callback; an unresolved gate then answers `membership.pending`, which
+      // blocks cleanly instead of pretending to be a 403 (review of #899).
+      gate: () async {
+        // A disposed notifier is not "pending" — it is **gone**, and the
+        // outcome watch must not be opened for a screen nobody is on anymore.
+        // Returning a blocking code (instead of `membership.pending`, which the
+        // reconciliation deliberately lets through) keeps this case distinct
+        // from "membership not resolved yet" (review of #899).
+        if (!ref.mounted) {
+          return const ProblemError(code: 'ai_import.apply_unmounted');
+        }
+        return ref.read(aiApplyStreamGateProvider(jobId).future);
+      },
       // A retry is a NEW server-side run: the first run's end frame has
       // already closed the card's subscription, so re-arm it instead of
       // leaving the retry's progress unwatched. The POST is not cancelled —

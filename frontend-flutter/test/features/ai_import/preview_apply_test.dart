@@ -355,7 +355,7 @@ class _FakePreviewBlockRepository extends BlockRepository {
 class FakeAiImportRepository extends AiImportRepository {
   FakeAiImportRepository(super.api, super.cache);
 
-  final List<Result<ApplyAiImportResponse>> applyQueue = [];
+  final List<Result<ApplyImportSummary>> applyQueue = [];
   final List<ApplyAiImportRequest> applyRequests = [];
   Result<AiImportJob>? jobResult;
 
@@ -376,13 +376,40 @@ class FakeAiImportRepository extends AiImportRepository {
   }
 
   @override
-  Future<Result<ApplyAiImportResponse>> apply(
+  Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
   ) async {
     applyRequests.add(request);
     lastRequest = request;
-    return applyQueue.removeAt(0);
+    if (applyQueue.isNotEmpty && applyQueue.first.isLeft()) {
+      return Left(applyQueue.removeAt(0).getLeft().toNullable()!);
+    }
+    return Right(_acceptedRun());
+  }
+
+  /// Issue #899: the `POST` dispatches now, so the fake answers the descriptor
+  /// and hands the scripted outcome over through [awaitRunOutcome].
+  ApplyRunAccepted _acceptedRun() => ApplyRunAccepted(
+    (b) => b
+      ..runId = 'run-1'
+      ..stage = ApplyStage.applying
+      ..startedAt = DateTime.utc(2026, 11, 2, 10)
+      ..applyState = ApplyState.requested,
+  );
+
+  /// The scripted OUTCOME (issue #899): `apply` reports dispatch failures, this
+  /// reports what the run left behind. Only a queued `Right` is an outcome — a
+  /// queued `Left` is the next dispatch's refusal, so it stays queued.
+  @override
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
+  }) async {
+    final index = applyQueue.indexWhere((event) => event.isRight());
+    if (index < 0) return null;
+    return ApplySucceeded(applyQueue.removeAt(index).getRight().toNullable()!);
   }
 
   @override
@@ -457,6 +484,10 @@ AiImportJob _succeededJob(
     ..sourceHandle = 'handle-$id'
     ..retries = 0
     ..maxRetries = 3
+    // Issue #899: a confirmed-free apply slot. `null` means "unknown", and the
+    // reconciliation refuses to re-dispatch from an unknown slot (review of
+    // #899) — so the fixture states the fact instead of leaving it absent.
+    ..applyState = ApplyState.idle
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1);
   // The job-level Decision Model outcome (issue #767) is absent unless a test
@@ -512,7 +543,7 @@ ProblemError _applyInFlight({
   },
 );
 
-ApplyAiImportResponse _outcome({
+ApplyImportSummary _outcome({
   int appliedCount = 2,
   int createdDays = 1,
   int plannedSceneShoots = 3,
@@ -524,7 +555,7 @@ ApplyAiImportResponse _outcome({
   // fixture pins the empty case explicitly.
   int createdEpisodes = 0,
   List<UnappliedOutfit> unappliedOutfits = const [],
-}) => ApplyAiImportResponse(
+}) => ApplyImportSummary(
   (b) => b
     ..appliedCount = appliedCount
     ..createdDays = createdDays
@@ -905,7 +936,7 @@ void main() {
       addTearDown(db.close);
     });
 
-    Future<Result<ApplyAiImportResponse>> seedAndApply() async {
+    Future<Result<ApplyImportSummary>> seedAndApply() async {
       final controller = container.read(
         aiApplyControllerProvider('job-1').notifier,
       );
@@ -1058,7 +1089,7 @@ void main() {
       Result<AiImportPreviewResponse>? previewValue,
       Result<List<SceneView>>? scenesValue,
       bool withPersistedContext = true,
-      List<Result<ApplyAiImportResponse>>? applyQueue,
+      List<Result<ApplyImportSummary>>? applyQueue,
 
       /// Overrides [cacheDatabaseProvider] so the episode-picker's legacy
       /// cache-wide fallback reads THIS test's in-memory Drift (the test
@@ -4141,7 +4172,7 @@ void main() {
     late ProviderContainer container;
 
     Future<void> setupContainer({
-      List<Result<ApplyAiImportResponse>> applyQueue = const [],
+      List<Result<ApplyImportSummary>> applyQueue = const [],
       AiPreviewPayload? payload,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());

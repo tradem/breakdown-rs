@@ -87,10 +87,10 @@ UnappliedOutfit _unappliedOutfit({int ordinal = 2}) => UnappliedOutfit(
     ..reason = UnappliedOutfitReason.pieceRejected,
 );
 
-ApplyAiImportResponse _outcome({
+ApplyImportSummary _outcome({
   required List<AppliedEpisode> appliedEpisodes,
   List<UnappliedOutfit> unappliedOutfits = const [],
-}) => ApplyAiImportResponse(
+}) => ApplyImportSummary(
   (b) => b
     ..appliedCount = appliedEpisodes.fold<int>(
       0,
@@ -178,13 +178,40 @@ AiImportJob _succeededJob({List<AppliedEpisode> appliedEpisodes = const []}) =>
 class _FakeAiImportRepository extends AiImportRepository {
   _FakeAiImportRepository(super.api, super.cache);
 
-  final List<Result<ApplyAiImportResponse>> applyQueue = [];
+  final List<Result<ApplyImportSummary>> applyQueue = [];
 
   @override
-  Future<Result<ApplyAiImportResponse>> apply(
+  Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
-  ) async => applyQueue.removeAt(0);
+  ) async {
+    if (applyQueue.isNotEmpty && applyQueue.first.isLeft()) {
+      return Left(applyQueue.removeAt(0).getLeft().toNullable()!);
+    }
+    return Right(_acceptedRun());
+  }
+
+  ApplyRunAccepted _acceptedRun() => ApplyRunAccepted(
+    (b) => b
+      ..runId = 'run-1'
+      ..stage = ApplyStage.applying
+      ..startedAt = DateTime.utc(2026, 11, 2, 10)
+      ..applyState = ApplyState.requested,
+  );
+
+  /// The scripted OUTCOME (issue #899): `apply` reports dispatch failures, this
+  /// reports what the run left behind. Only a queued `Right` is an outcome — a
+  /// queued `Left` is the next dispatch's refusal, so it stays queued.
+  @override
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
+  }) async {
+    final index = applyQueue.indexWhere((event) => event.isRight());
+    if (index < 0) return null;
+    return ApplySucceeded(applyQueue.removeAt(index).getRight().toNullable()!);
+  }
 }
 
 /// Season repository whose cache read is scripted (the post-apply resolution
@@ -295,7 +322,7 @@ void main() {
     });
 
     Future<void> setupContainer({
-      required List<Result<ApplyAiImportResponse>> applyQueue,
+      required List<Result<ApplyImportSummary>> applyQueue,
       bool seasonResolvable = true,
       bool seasonCached = true,
       // Seed the block's cached episode row (the number fallback's source).
@@ -946,7 +973,7 @@ void main() {
       final l10n = AppLocalizationsEn();
       final line = aiApplyOutcomeLine(
         l10n,
-        ApplyAiImportResponse(
+        ApplyImportSummary(
           (b) => b
             ..appliedCount = 57
             ..createdDays = 0

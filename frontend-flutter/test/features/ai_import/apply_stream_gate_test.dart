@@ -14,7 +14,9 @@
 
 import 'dart:async';
 
-import 'package:breakdown_api/breakdown_api.dart';
+// `hide`: the app's flattened frame (ai_import_repository.dart) is the one
+// these tests build — the generated wire model is the decoder's business.
+import 'package:breakdown_api/breakdown_api.dart' hide ApplyProgressFrame;
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/native.dart';
@@ -41,12 +43,13 @@ class _FakeApplyRepository extends AiImportRepository {
   _FakeApplyRepository(super.api, super.cache);
 
   int watchCalls = 0;
-  List<Result<ApplyProgress?>> frames = const [];
+  List<Result<ApplyProgressFrame>> frames = const [];
 
   @override
-  Stream<Result<ApplyProgress?>> watchApplyProgress(
+  Stream<Result<ApplyProgressFrame>> watchApplyProgress(
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
+    Future<ProblemError?> Function()? gate,
     int maxAttempts = kMaxJobWatchAttempts,
     int maxIdleReconnects = kMaxApplyIdleReconnects,
     Duration receiveTimeout = kSseReceiveTimeout,
@@ -132,7 +135,11 @@ void main() {
   }
 
   test('a member with the season role lets the watch open', () async {
-    repo.frames = [Right<ProblemError, ApplyProgress?>(_progress())];
+    repo.frames = [
+      Right<ProblemError, ApplyProgressFrame>(
+        ApplyProgressFrame(progress: _progress()),
+      ),
+    ];
     final c = container(costumeRole: true);
     final first = await firstState(c);
     expect(first, isA<AiApplyRunRunning>());

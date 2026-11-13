@@ -14,6 +14,12 @@ class _$AiImportJob extends AiImportJob {
   @override
   final ApplyProgress? applyProgress;
   @override
+  final ApplyRunOutcome? applyResult;
+  @override
+  final String? applyRunId;
+  @override
+  final ApplyState? applyState;
+  @override
   final BuiltList<AiImportAttempt>? attempts;
   @override
   final String? blockId;
@@ -73,6 +79,9 @@ class _$AiImportJob extends AiImportJob {
       {this.applied,
       this.appliedEpisodes,
       this.applyProgress,
+      this.applyResult,
+      this.applyRunId,
+      this.applyState,
       this.attempts,
       this.blockId,
       this.cost,
@@ -114,6 +123,9 @@ class _$AiImportJob extends AiImportJob {
         applied == other.applied &&
         appliedEpisodes == other.appliedEpisodes &&
         applyProgress == other.applyProgress &&
+        applyResult == other.applyResult &&
+        applyRunId == other.applyRunId &&
+        applyState == other.applyState &&
         attempts == other.attempts &&
         blockId == other.blockId &&
         cost == other.cost &&
@@ -148,6 +160,9 @@ class _$AiImportJob extends AiImportJob {
     _$hash = $jc(_$hash, applied.hashCode);
     _$hash = $jc(_$hash, appliedEpisodes.hashCode);
     _$hash = $jc(_$hash, applyProgress.hashCode);
+    _$hash = $jc(_$hash, applyResult.hashCode);
+    _$hash = $jc(_$hash, applyRunId.hashCode);
+    _$hash = $jc(_$hash, applyState.hashCode);
     _$hash = $jc(_$hash, attempts.hashCode);
     _$hash = $jc(_$hash, blockId.hashCode);
     _$hash = $jc(_$hash, cost.hashCode);
@@ -184,6 +199,9 @@ class _$AiImportJob extends AiImportJob {
           ..add('applied', applied)
           ..add('appliedEpisodes', appliedEpisodes)
           ..add('applyProgress', applyProgress)
+          ..add('applyResult', applyResult)
+          ..add('applyRunId', applyRunId)
+          ..add('applyState', applyState)
           ..add('attempts', attempts)
           ..add('blockId', blockId)
           ..add('cost', cost)
@@ -232,6 +250,20 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _$this._applyProgress ??= ApplyProgressBuilder();
   set applyProgress(ApplyProgressBuilder? applyProgress) =>
       _$this._applyProgress = applyProgress;
+
+  ApplyRunOutcomeBuilder? _applyResult;
+  ApplyRunOutcomeBuilder get applyResult =>
+      _$this._applyResult ??= ApplyRunOutcomeBuilder();
+  set applyResult(ApplyRunOutcomeBuilder? applyResult) =>
+      _$this._applyResult = applyResult;
+
+  String? _applyRunId;
+  String? get applyRunId => _$this._applyRunId;
+  set applyRunId(String? applyRunId) => _$this._applyRunId = applyRunId;
+
+  ApplyState? _applyState;
+  ApplyState? get applyState => _$this._applyState;
+  set applyState(ApplyState? applyState) => _$this._applyState = applyState;
 
   ListBuilder<AiImportAttempt>? _attempts;
   ListBuilder<AiImportAttempt> get attempts =>
@@ -364,6 +396,9 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
       _applied = $v.applied;
       _appliedEpisodes = $v.appliedEpisodes?.toBuilder();
       _applyProgress = $v.applyProgress?.toBuilder();
+      _applyResult = $v.applyResult?.toBuilder();
+      _applyRunId = $v.applyRunId;
+      _applyState = $v.applyState;
       _attempts = $v.attempts?.toBuilder();
       _blockId = $v.blockId;
       _cost = $v.cost?.toBuilder();
@@ -416,6 +451,9 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
             applied: applied,
             appliedEpisodes: _appliedEpisodes?.build(),
             applyProgress: _applyProgress?.build(),
+            applyResult: _applyResult?.build(),
+            applyRunId: applyRunId,
+            applyState: applyState,
             attempts: _attempts?.build(),
             blockId: blockId,
             cost: _cost?.build(),
@@ -461,6 +499,9 @@ class AiImportJobBuilder implements Builder<AiImportJob, AiImportJobBuilder> {
         _appliedEpisodes?.build();
         _$failedField = 'applyProgress';
         _applyProgress?.build();
+        _$failedField = 'applyResult';
+        _applyResult?.build();
+
         _$failedField = 'attempts';
         _attempts?.build();
 

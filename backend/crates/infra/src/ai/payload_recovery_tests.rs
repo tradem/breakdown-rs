@@ -102,6 +102,10 @@ impl RecordingQueue {
                 decision_telemetry: None,
                 apply_progress: None,
                 applied: false,
+                // Issue #899: no durable apply slot on a pre-change job literal.
+                apply_state: breakdown_core::ai::ApplyState::Idle,
+                apply_run_id: None,
+                apply_result: None,
             },
             handed_out: Arc::new(Mutex::new(false)),
             transitions: Arc::new(Mutex::new(Vec::new())),

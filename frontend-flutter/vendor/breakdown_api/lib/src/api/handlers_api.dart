@@ -25,7 +25,7 @@ import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
 import 'package:breakdown_api/src/model/ai_import_target_request.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
-import 'package:breakdown_api/src/model/apply_ai_import_response.dart';
+import 'package:breakdown_api/src/model/apply_run_accepted.dart';
 import 'package:breakdown_api/src/model/assign_character_request.dart';
 import 'package:breakdown_api/src/model/audit_entry.dart';
 import 'package:breakdown_api/src/model/block_view.dart';
@@ -669,9 +669,9 @@ class HandlersApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future] containing a [Response] with a [ApplyAiImportResponse] as data
+  /// Returns a [Future] containing a [Response] with a [ApplyRunAccepted] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<ApplyAiImportResponse>> applyAiImport({
+  Future<Response<ApplyRunAccepted>> applyAiImport({
     required String id,
     required ApplyAiImportRequest applyAiImportRequest,
     CancelToken? cancelToken,
@@ -725,7 +725,7 @@ class HandlersApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    ApplyAiImportResponse? _responseData;
+    ApplyRunAccepted? _responseData;
 
     try {
       final rawResponse = _response.data;
@@ -733,8 +733,8 @@ class HandlersApi {
           ? null
           : _serializers.deserialize(
               rawResponse,
-              specifiedType: const FullType(ApplyAiImportResponse),
-            ) as ApplyAiImportResponse;
+              specifiedType: const FullType(ApplyRunAccepted),
+            ) as ApplyRunAccepted;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _response.requestOptions,
@@ -745,7 +745,7 @@ class HandlersApi {
       );
     }
 
-    return Response<ApplyAiImportResponse>(
+    return Response<ApplyRunAccepted>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

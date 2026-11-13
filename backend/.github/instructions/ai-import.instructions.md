@@ -320,3 +320,38 @@ drift from the code it describes.
 > cost change, not a regression: an operator who wants the old ladder can set
 > `AI_IMPORT_MAX_ATTEMPT_RETRIES`, and `AI_IMPORT_MAX_RETRIES` keeps its job-level
 > meaning untouched.
+
+#### Durable apply run (issue #899)
+
+The **apply** used to be request-scoped: `apply_ai_import` awaited
+`ApplyWorker::apply_script` in the handler future, so a client that vanished
+(Android Doze, Wi-Fi→cellular handover, a closed socket) dropped the future and
+the run stopped mid-row. It is now a work item on the job row, exactly like the
+preview job.
+
+| Transition | Port method | Writes |
+|---|---|---|
+| dispatch | `request_apply_run(id, run_id, &ApplyRunRequest)` | `apply_state = requested`, `apply_request` (JSONB), `apply_result = NULL`, the claim (`apply_run_id`, `apply_claim_at`, `apply_run_seq + 1`) |
+| worker claim | `begin_apply_run(id, takeover_run_id)` | `requested` → `running` **adopting** the dispatching run id, or a stale `running` → `running` under `takeover_run_id` (the dead owner's writes then fail the fence) |
+| success / failure | `complete_apply_run(id, run_id, &summary)` / `fail_apply_run(id, run_id, code)` | `done`/`failed` + `apply_result` (`ApplyRunOutcome`), `apply_progress = NULL`, `apply_run_id = NULL` — owner-fenced, `Conflict` for a displaced run |
+| poll | `requested_apply_runs(limit)` | the rows a worker may claim: `requested`, or `running` silent for `ApplyProgress::STALE_AFTER` (the same window the single-flight steal uses) |
+
+Rules that must not drift:
+
+- **The handler never executes a run.** `POST /apply` validates, persists and
+  answers `202 ApplyRunAccepted`. Row work happens in
+  `api::apply_runner::spawn_apply_run_worker` → `ApplyRunner::run_claimed`.
+- **`apply_request` is the reviewer's decision set**, resolved at the API edge
+  (target episode/season/block, mapping decisions, group targets, day decisions,
+  acknowledgements, continuity selections, the season's category vocabulary, the
+  episode labels). The worker must never re-derive it from a projection (CQRS
+  boundary) and never read it back out to a client — it is not in the job DTO.
+- **The outcome is persisted, not returned.** The terminal frame of
+  `GET /jobs/{id}/apply-events` and `GET /jobs/{id}` serve it (`apply_state` +
+  `apply_result`); a failed run carries the registered problem **code**.
+- **`ApplyProgress` is cleared only by the terminal transitions.** A run killed
+  mid-flight leaves `running` + a stale stamp, which the takeover path reclaims —
+  do not re-introduce a drop guard on the dispatched path.
+- **Shutdown joins**: the loop aborts-and-joins its in-flight runs before the
+  pool teardown; an interrupted run is recovered by the staleness window, never
+  rolled back (the protocol stays idempotent-and-converging).

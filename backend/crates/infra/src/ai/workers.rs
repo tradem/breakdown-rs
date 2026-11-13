@@ -2266,12 +2266,13 @@ fn record_applied_episode(
 /// Resolved where a projection read is legitimate — the API edge — and carried
 /// into the apply so the write path never queries one (CQRS boundary). The
 /// worker only ever *labels* with it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppliedEpisodeIdentity {
-    pub id: EpisodeId,
-    pub number: i32,
-    pub name: Option<String>,
-}
+///
+/// Since issue #899 the type lives in `core` next to the **persisted** apply
+/// request ([`breakdown_core::ai::ApplyRunRequest`]): the durable run carries it
+/// across a request boundary, so it has to be a serializable domain type rather
+/// than an infra-local one. Re-exported here so the worker's own signature
+/// keeps reading in its historical vocabulary.
+pub use breakdown_core::ai::AppliedEpisodeIdentity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UuidVersion {
@@ -2445,6 +2446,25 @@ where
             }
         }
         result
+    }
+
+    /// Execute a script apply under a slot the CALLER already owns (issue #899).
+    ///
+    /// The durable run path claims the slot with `begin_apply_run` before this
+    /// is called, so the worker must not claim again — the single-flight
+    /// predicate would refuse its own owner. What stays here is the work
+    /// itself and the run-scoped `run_id` every fenced progress write carries.
+    ///
+    /// The progress payload is **not** cleared here: the terminal transition
+    /// (`complete_apply_run` / `fail_apply_run`) does that, so a run whose task
+    /// dies leaves a stale payload for the takeover path to reclaim instead of
+    /// erasing the evidence that work was asked for (design D3).
+    pub async fn apply_script_run(
+        &self,
+        request: ApplyScriptRequest<'_>,
+        run_id: ApplyRunId,
+    ) -> Result<ScriptApplyResult, DomainError> {
+        self.run_script_apply(request, run_id).await
     }
 
     /// The actual script apply (see [`Self::apply_script`] for the public
@@ -2773,7 +2793,37 @@ where
         self.publish_apply_progress(preview_id, run_id, &apply_progress)
             .await;
         if let Some(telemetry) = telemetry {
-            self.queue.record_telemetry(preview_id, telemetry).await?;
+            // Fenced to THIS run (issue #899): a run that went silent long
+            // enough to be taken over can still finish afterwards, and its
+            // unfenced write would stamp the new run's slot with the old run's
+            // accept signal. Telemetry is never part of the apply's success
+            // contract, so a lost fence is logged, not fatal.
+            // Never fatal (review of #899): a telemetry write that fails must
+            // not turn a run whose rows are already committed into a `failed`
+            // outcome the runner then persists. The schedule branch has always
+            // been warn-only here, and both now say the same thing.
+            match self
+                .queue
+                .record_run_telemetry(preview_id, run_id, telemetry)
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(
+                        job_id = %preview_id.as_uuid(),
+                        run_id = %run_id.as_uuid(),
+                        "skipped AI import apply telemetry: the run no longer owns the slot"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        job_id = %preview_id.as_uuid(),
+                        run_id = %run_id.as_uuid(),
+                        %error,
+                        "failed to record AI import apply telemetry after a successful apply"
+                    );
+                }
+            }
         }
         Ok(result)
     }

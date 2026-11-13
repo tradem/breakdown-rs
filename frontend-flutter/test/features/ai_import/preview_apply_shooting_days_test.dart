@@ -22,6 +22,7 @@ import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -110,8 +111,8 @@ AiImportJob _succeededJob(String id) => AiImportJob(
     ..updatedAt = DateTime.utc(2026, 1, 1),
 );
 
-ApplyAiImportResponse _outcome({List<String> skippedDayGroups = const []}) =>
-    ApplyAiImportResponse(
+ApplyImportSummary _outcome({List<String> skippedDayGroups = const []}) =>
+    ApplyImportSummary(
       (b) => b
         ..appliedCount = 2
         ..createdDays = 1
@@ -127,16 +128,45 @@ ApplyAiImportResponse _outcome({List<String> skippedDayGroups = const []}) =>
 class FakeAiImportRepository extends AiImportRepository {
   FakeAiImportRepository(super.api, super.cache);
 
-  final List<Result<ApplyAiImportResponse>> applyQueue = [];
+  final List<Result<ApplyImportSummary>> applyQueue = [];
   final List<ApplyAiImportRequest> applyRequests = [];
 
   @override
-  Future<Result<ApplyAiImportResponse>> apply(
+  Future<Result<ApplyRunAccepted>> apply(
     String jobId,
     ApplyAiImportRequest request,
   ) async {
     applyRequests.add(request);
-    return applyQueue.removeAt(0);
+    // A scripted failure stays a DISPATCH failure (the reconciliation
+    // classifies it); a scripted success is handed over by [awaitRunOutcome].
+    if (applyQueue.isNotEmpty && applyQueue.first.isLeft()) {
+      return Left(applyQueue.removeAt(0).getLeft().toNullable()!);
+    }
+    return Right(_acceptedRun());
+  }
+
+  /// Issue #899: the `POST` dispatches now, so the fake answers the descriptor
+  /// and hands the scripted outcome over through [awaitRunOutcome].
+  ApplyRunAccepted _acceptedRun() => ApplyRunAccepted(
+    (b) => b
+      ..runId = 'run-1'
+      ..stage = ApplyStage.applying
+      ..startedAt = DateTime.utc(2026, 11, 2, 10)
+      ..applyState = ApplyState.requested,
+  );
+
+  /// The scripted OUTCOME (issue #899): `apply` reports dispatch failures, this
+  /// reports what the run left behind. Only a queued `Right` is an outcome — a
+  /// queued `Left` is the next dispatch's refusal, so it stays queued.
+  @override
+  Future<ApplyReconciliation?> awaitRunOutcome(
+    String jobId, {
+    String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
+  }) async {
+    final index = applyQueue.indexWhere((event) => event.isRight());
+    if (index < 0) return null;
+    return ApplySucceeded(applyQueue.removeAt(index).getRight().toNullable()!);
   }
 }
 
@@ -157,7 +187,7 @@ void main() {
 
   Future<void> setupContainer({
     required AiPreviewPayload payload,
-    List<Result<ApplyAiImportResponse>> applyQueue = const [],
+    List<Result<ApplyImportSummary>> applyQueue = const [],
   }) async {
     db = CacheDatabase(NativeDatabase.memory());
     addTearDown(db.close);

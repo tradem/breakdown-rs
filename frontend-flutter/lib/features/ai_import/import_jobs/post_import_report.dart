@@ -127,7 +127,7 @@ class PostImportReport {
   });
 
   /// The apply's own 200 response (counts + `unapplied_outfits`).
-  final ApplyAiImportResponse outcome;
+  final ApplyImportSummary outcome;
 
   /// The episode the app opened.
   final String episodeId;
@@ -160,14 +160,12 @@ class AiPostImportReport extends _$AiPostImportReport {
 ///
 /// Both the review screen's inline outcome card and the destination banner use
 /// it, so the two can never tell different stories about the same apply.
-String aiApplyOutcomeLine(
-  AppLocalizations l10n,
-  ApplyAiImportResponse outcome,
-) =>
+String aiApplyOutcomeLine(AppLocalizations l10n, ApplyImportSummary outcome) =>
     outcome.createdCharacters > 0 ||
         outcome.createdPieces > 0 ||
         outcome.createdOutfits > 0 ||
-        outcome.unappliedOutfits.isNotEmpty
+        (outcome.unappliedOutfits?.toList() ?? const <UnappliedOutfit>[])
+            .isNotEmpty
     // The generated signature orders the placeholders alphabetically
     // (applied, characters, outfits, pieces), not in message order — pass
     // them in that order.
@@ -248,7 +246,7 @@ typedef PostImportResolution = ({
 Future<PostImportResolution> resolvePostImportTarget(
   WidgetRef ref, {
   required String jobId,
-  required ApplyAiImportResponse outcome,
+  required ApplyImportSummary outcome,
   String? requestEpisodeId,
 }) async {
   final wire = outcome.appliedEpisodes ?? const <AppliedEpisode>[];

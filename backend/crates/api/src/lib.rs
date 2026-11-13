@@ -21,6 +21,7 @@
 // below — compile-time absence in release binaries.
 #[cfg(feature = "test-support")]
 pub mod ai_import_fixture;
+pub mod apply_runner;
 pub mod auth;
 // Issue #443: the deterministic fault-injection machinery (middleware +
 // control routes) exists ONLY in `test-support` builds — compile-time
@@ -261,7 +262,17 @@ use utoipa::OpenApi;
         breakdown_core::ai::AiImportProgress,
         breakdown_core::ai::AiImportStage,
         handlers::ApplyAiImportRequest,
-        handlers::ApplyAiImportResponse,
+        breakdown_core::ai::ApplyImportSummary,
+        breakdown_core::ai::ApplyRunAccepted,
+        breakdown_core::ai::ApplyRunOutcome,
+        // The SSE apply frame (issue #899 review): published so the frame is a
+        // typed contract the generated clients decode instead of a hand-written
+        // map of keys. The route has no JSON body to derive it from, which is
+        // why the frame is registered directly.
+        breakdown_core::ai::ApplyProgressFrame,
+        breakdown_core::ai::ApplyState,
+        breakdown_core::ai::ApplyProgress,
+        breakdown_core::ai::ApplyStage,
         breakdown_core::ai::AiImportJob,
         breakdown_core::ai::AiImportTargetRequest,
         breakdown_core::ai::AiImportAttempt,

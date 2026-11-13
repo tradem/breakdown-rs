@@ -63,7 +63,7 @@ use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use chrono::Utc;
-use common::FakePorts;
+use common::{FakePorts, run_dispatched_apply};
 use infra::ai::{AiDocumentStore, AiPreviewStore};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -201,6 +201,10 @@ fn succeeded_job(preview_handle: &str) -> AiImportJob {
         decision_telemetry: None,
         apply_progress: None,
         applied: false,
+        // Issue #899: no durable apply slot on this literal.
+        apply_state: breakdown_core::ai::ApplyState::Idle,
+        apply_run_id: None,
+        apply_result: None,
     }
 }
 
@@ -1525,8 +1529,8 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
     seed_ai_block_access(&ports, block_id).await;
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
 
-    let (status, Json(response)) = apply_ai_import::<FakePorts>(
-        State(state(ports)),
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
+        State(state(ports.clone())),
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
@@ -1553,9 +1557,10 @@ async fn apply_ai_import_drives_the_script_worker_through_the_ports_seam() {
         }),
     )
     .await
-    .expect("an in-block apply should succeed");
+    .expect("the apply handler should answer");
+    let response = run_dispatched_apply(&ports).await;
 
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(response.applied_count, 2);
 
     // `ApplyWorker` received owned clones of the command/mapping/queue ports
@@ -1718,8 +1723,8 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
         },
     );
 
-    let (status, Json(response)) = apply_ai_import::<FakePorts>(
-        State(state(ports)),
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
+        State(state(ports.clone())),
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
@@ -1759,9 +1764,10 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
         }),
     )
     .await
-    .expect("an in-block grouped update should apply");
+    .expect("the apply handler should answer");
+    let response = run_dispatched_apply(&ports).await;
 
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(
         response.applied_episodes.len(),
         1,
@@ -1825,8 +1831,8 @@ async fn apply_ai_import_labels_an_existing_group_target() {
         );
     }
 
-    let (status, Json(response)) = apply_ai_import::<FakePorts>(
-        State(state(ports)),
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
+        State(state(ports.clone())),
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
@@ -1866,9 +1872,10 @@ async fn apply_ai_import_labels_an_existing_group_target() {
         }),
     )
     .await
-    .expect("an in-block existing target should apply");
+    .expect("the apply handler should answer");
+    let response = run_dispatched_apply(&ports).await;
 
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(response.applied_episodes.len(), 2);
     let applied = &response.applied_episodes[0];
     assert_eq!(
@@ -1958,31 +1965,25 @@ async fn apply_ai_import_rejects_an_existing_group_target_from_another_block() {
     );
 }
 
-/// Issue #864, acceptance criterion at the **HTTP** boundary: a client that
-/// drops the request while the apply is running.
+/// Issue #899, acceptance criterion at the **HTTP** boundary: the dispatch is
+/// durable, so a client that vanishes cannot cancel the run any more.
 ///
 /// The request is dispatched through a real `axum::Router` (the production route
-/// path, the handler, the real `auth_middleware`), and then the response future
-/// is **dropped** — which is precisely what hyper does when the connection goes
-/// away, so the cancellation point is the HTTP service future rather than a
-/// hand-picked `await` inside the handler.
+/// path, the handler, the real `auth_middleware`) and MUST answer `202` with the
+/// run descriptor — no counters, because the run is not executed inside the
+/// request. The response future is then dropped, which is exactly what hyper
+/// does when the connection goes away; what has to survive is the **slot**: the
+/// persisted `apply_request` plus an `apply_state` of `requested`, so any
+/// replica's worker can pick the run up (here: the same runner production uses).
 ///
-/// What this pins is the server-side half of the durability contract: the apply
-/// worker's confirmed mapping survives the dropped request, and the handler
-/// contributes NO summary (the port method that used to write one is gone, and the
-/// job row is untouched). The other half — that the read edge derives the summary
-/// from exactly those mapping rows after projector catch-up — needs a database and
-/// lives in the Tier-4 test
-/// `a_cancelled_apply_still_leaves_its_summary_resolvable`
-/// (`integration-tests/tests/ai_import_applied_episodes_cancelled.rs`), because
-/// this harness is deliberately fake-based and has no projection to derive from.
-///
-/// The cancellation is deterministic: the fake mapping repository is gated on the
-/// first confirmed `scene` mapping, so the request is provably in flight when the
-/// future is dropped — a request that answered first fails the test instead of
-/// passing it.
+/// Before #899 this test pinned the opposite property — the worker's confirmed
+/// mapping surviving a dropped request *because the request had already run the
+/// apply*. That is the request-bound lifetime this issue removes; the run now
+/// outlives the connection by construction, and the row-level convergence it
+/// relied on is unchanged (the mappings are still confirmed once the run
+/// executes, never by the handler).
 #[tokio::test]
-async fn a_client_dropping_the_apply_request_leaves_no_summary_and_keeps_the_mapping() {
+async fn a_dispatched_apply_survives_the_client_dropping_the_request() {
     let ports = FakePorts::default();
     let block_id = BlockId::from_uuid(Uuid::now_v7());
     *ports.episode_repo.block_id_override.lock().await = Some(block_id);
@@ -1991,9 +1992,6 @@ async fn a_client_dropping_the_apply_request_leaves_no_summary_and_keeps_the_map
     let mappings = ports.ai_import_mapping.clone();
     let job_id = seed_applyable_script_job(&ports, Some(block_id), 2).await;
     let episode_id = EpisodeId::new();
-
-    // Park the apply inside its first confirmed mapping.
-    let mut confirmed = mappings.arm_confirm_gate().await;
 
     let app = Router::new()
         .route(
@@ -2006,7 +2004,7 @@ async fn a_client_dropping_the_apply_request_leaves_no_summary_and_keeps_the_map
             Arc::new(AuthState::dev(user())),
             auth_middleware,
         ))
-        .with_state(state(ports));
+        .with_state(state(ports.clone()));
 
     let body = serde_json::json!({
         "episode_id": episode_id.0.to_string(),
@@ -2025,52 +2023,285 @@ async fn a_client_dropping_the_apply_request_leaves_no_summary_and_keeps_the_map
         .body(AxumBody::from(body.to_string()))
         .expect("request builds");
 
-    // The response future IS the HTTP service future: polling it is what runs the
-    // handler, and dropping it is the client disappearing.
-    let mut response = Box::pin(app.oneshot(request));
-    let answered = tokio::select! {
-        // The gate's own signal: a mapping is confirmed AND the apply is running.
-        _ = confirmed.recv() => false,
-        _ = &mut response => true,
-    };
-    assert!(
-        !answered,
-        "the request answered before the cancellation — the gate failed to hold it"
-    );
-    drop(response);
-
-    // The worker's durable record survived the dropped request: the gated
-    // `scene` mapping is CONFIRMED (`aggregate_version > 0`) — the row the read
-    // edge derives its summary from. Rows are applied concurrently (bounded by
-    // `APPLY_ROW_CONCURRENCY`), so the gate parks exactly ONE row while its
-    // siblings keep running: the count is therefore "at least the parked row, at
-    // most the plan's two", never a claim about the scheduler.
-    let stored = mappings
-        .list_by_preview(job_id)
+    // The response future IS the HTTP service future. It answers as soon as the
+    // run is persisted — the row loop is not in it.
+    let response = tokio::time::timeout(std::time::Duration::from_secs(10), app.oneshot(request))
         .await
-        .expect("mapping read should succeed");
-    let confirmed_rows: Vec<_> = stored
-        .iter()
-        .filter(|mapping| mapping.aggregate_kind == "scene" && !mapping.is_reserved())
-        .collect();
-    assert!(
-        !confirmed_rows.is_empty() && confirmed_rows.len() <= 2,
-        "the gate parks the run at its first confirmed mapping, and no more rows\
-         than the plan carries can be confirmed: {}",
-        confirmed_rows.len()
+        .expect("the dispatch must answer without running the apply (issue #899)")
+        .expect("the dispatch answers");
+
+    // Read the wire answer: `202` + the descriptor.
+    let (parts, body) = response.into_parts();
+    assert_eq!(parts.status, StatusCode::ACCEPTED);
+    let bytes = axum::body::to_bytes(body, 4096)
+        .await
+        .expect("the accepted body is readable");
+    let accepted: breakdown_core::ai::ApplyRunAccepted =
+        serde_json::from_slice(&bytes).expect("the answer is an ApplyRunAccepted");
+    assert_eq!(
+        accepted.apply_state,
+        breakdown_core::ai::ApplyState::Requested,
+        "the answer names the dispatched state, not a finished run"
     );
 
-    // And the handler wrote no summary: the job the read edge serves is untouched.
+    // The client is gone. The slot is not: the persisted request and state are
+    // what a worker on any replica claims.
     let job = queue
         .get(job_id)
         .await
         .expect("queue read should succeed")
         .expect("the job still exists");
+    assert_eq!(
+        job.apply_state,
+        breakdown_core::ai::ApplyState::Requested,
+        "a dropped connection must leave the run requested, not clear it"
+    );
     assert!(
-        job.applied_episodes.is_empty(),
-        "a dropped request must leave no summary of its own — the summary is the \
-         read edge's derivation, never a handler write: {:?}",
-        job.applied_episodes
+        job.apply_result.is_none(),
+        "no outcome is invented for a run nobody has executed yet"
+    );
+
+    // And the run still executes — through the runner, exactly like production.
+    let summary = run_dispatched_apply(&ports).await;
+    // The run's telemetry is recorded **under the run fence** (#899 review): the
+    // worker must not reach the unfenced API-path write, or a run that went
+    // silent and was taken over could stamp the new run's slot with its own
+    // accept signal.
+    assert!(
+        ports
+            .ai_import_queue
+            .call_log
+            .lock()
+            .expect("call log")
+            .contains(&"record_run_telemetry"),
+        "the dispatched run records its telemetry through the fenced transition"
+    );
+    assert_eq!(summary.applied_count, 2);
+    // One confirmed mapping per requested scene row — asserted by identity, not
+    // by a count: `0 < n <= 2` would also pass with only `scene-0` confirmed
+    // while `scene-1` silently failed to apply (issue #899 review).
+    let confirmed: Vec<String> = mappings
+        .list_by_preview(job_id)
+        .await
+        .expect("mapping read should succeed")
+        .into_iter()
+        .filter(|mapping| mapping.aggregate_kind == "scene" && !mapping.is_reserved())
+        .map(|mapping| mapping.draft_ref)
+        .collect();
+    for expected in ["scene-0", "scene-1"] {
+        assert!(
+            confirmed.iter().any(|draft_ref| draft_ref == expected),
+            "the executed run must confirm {expected}: {confirmed:?}"
+        );
+    }
+}
+
+/// Review of #899: a telemetry storage error must not turn a committed apply
+/// into a persisted `failed` outcome.
+///
+/// The script worker writes its telemetry *inside* the run, so a `?` there used
+/// to make the runner persist `failed` for rows that were already written. The
+/// write is warn-only now — the same contract the schedule branch always had.
+#[tokio::test]
+async fn a_failed_telemetry_write_keeps_the_apply_successful() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+    let episode_id = EpisodeId::new();
+
+    // Dispatch through the REAL handler: it is what validates the reviewer's
+    // request against the preview (an empty decision list is refused, and
+    // rightly so).
+    let app = Router::new()
+        .route(
+            "/v1/ai-import/jobs/{id}/apply",
+            post(apply_ai_import::<FakePorts>),
+        )
+        .layer(from_fn_with_state(
+            Arc::new(AuthState::dev(user())),
+            auth_middleware,
+        ))
+        .with_state(state(ports.clone()));
+    let body = serde_json::json!({
+        "episode_id": episode_id.0.to_string(),
+        "project_id": serde_json::Value::Null,
+        "mappings": [
+            {"draft_ref": "scene-0", "decision": "Create", "outfit_decisions": []},
+        ],
+        "accept_as_is": true,
+        "edit_distance": 0,
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/v1/ai-import/jobs/{}/apply", job_id.as_uuid()))
+        .header("content-type", "application/json")
+        .body(AxumBody::from(body.to_string()))
+        .expect("request builds");
+    let response = app.oneshot(request).await.expect("the dispatch answers");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // The telemetry write fails from here on.
+    *ports
+        .ai_import_queue
+        .fail_run_telemetry
+        .lock()
+        .expect("telemetry switch") = true;
+
+    let summary = run_dispatched_apply(&ports).await;
+    assert!(summary.applied_count >= 1, "the rows were written");
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("the job still exists");
+    assert_eq!(
+        job.apply_state,
+        breakdown_core::ai::ApplyState::Done,
+        "a failed telemetry write must not fail a committed apply"
+    );
+    assert!(
+        matches!(
+            job.apply_result,
+            Some(breakdown_core::ai::ApplyRunOutcome::Succeeded(_))
+        ),
+        "the persisted outcome is the successful one, not an invented failure"
+    );
+}
+
+/// Review of #899: the fake takes the two locks in a DEADLOCK-FREE order, and
+/// this test proves the order **deterministically** (no sleep, no timeout that
+/// a slow runner could trip).
+///
+/// The technique: hold the job-row lock from the test, then poll the adoption
+/// future **once**, by hand, with a no-op waker. An adoption that takes the run
+/// slot first locks the (uncontended) slot, parks on the held row and reports
+/// `Pending` — so `apply_runs.try_lock()` must then fail with `WouldBlock`. The
+/// reversed order parks on the row *before* touching the slot, leaving it free,
+/// and this assertion fails instead of the suite hanging.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn begin_apply_run_takes_the_run_slot_before_the_job_row() {
+    use std::future::Future;
+
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+    assert!(
+        queue
+            .request_apply_run(
+                job_id,
+                breakdown_core::ai::ApplyRunId::new(),
+                &breakdown_core::ai::ApplyRunRequest::Schedule(Box::new(
+                    breakdown_core::ai::ScheduleApplyRunRequest {
+                        actor: breakdown_core::shared::UserId::from_sub("lock-order"),
+                        project_id: None,
+                        telemetry: None,
+                    },
+                )),
+            )
+            .await
+            .expect("the dispatch lands"),
+        "the free slot accepts the dispatch"
+    );
+
+    // Hold the job row, so any acquisition of it parks.
+    let jobs = Arc::clone(&queue.jobs);
+    let held = jobs.lock().await;
+
+    let waker = std::task::Waker::noop();
+    let mut cx = std::task::Context::from_waker(waker);
+    let mut adoption =
+        std::pin::pin!(queue.begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new()));
+    assert!(
+        adoption.as_mut().poll(&mut cx).is_pending(),
+        "the adoption must park on the job row the test is holding"
+    );
+    let slot_is_held = queue.apply_runs.try_lock().is_err();
+    drop(held);
+    let adopted = tokio::time::timeout(std::time::Duration::from_secs(5), adoption)
+        .await
+        .expect("the adoption completes once the job row is released")
+        .expect("the transitions do not fail");
+    assert!(
+        slot_is_held,
+        "begin_apply_run must take the run slot BEFORE the job row: the slot \
+         was free while the adoption waited on the row, which is the lock order \
+         that deadlocks against claim_apply_run"
+    );
+    assert!(
+        adopted.is_some(),
+        "the adoption still succeeds on the requested slot"
+    );
+}
+
+/// Review of #899: two concurrent adopters of one `requested` slot — exactly
+/// one wins, and the two locks they take cannot deadlock.
+///
+/// The fake mirrors the production statement (`WHERE apply_state = 'requested'`),
+/// so exactly one of two racing adopters may win. The *lock order* it must keep
+/// (slot before row, like `claim_apply_run`) is proven separately and
+/// deterministically by `begin_apply_run_takes_the_run_slot_before_the_job_row`;
+/// the timeout here only bounds "two adopters complete at all".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_concurrent_adoptions_adopt_one_run_and_do_not_deadlock() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+
+    // A dispatched, not yet adopted run — the state both callers race for.
+    let run_id = breakdown_core::ai::ApplyRunId::new();
+    assert!(
+        queue
+            .request_apply_run(
+                job_id,
+                run_id,
+                &breakdown_core::ai::ApplyRunRequest::Script(Box::new(
+                    breakdown_core::ai::ScriptApplyRunRequest {
+                        actor: breakdown_core::shared::UserId::from_sub("ai-apply-race"),
+                        episode_id: EpisodeId::new(),
+                        season_id: breakdown_core::shared::SeasonId::new(),
+                        project_id: None,
+                        block_id,
+                        decisions: Vec::new(),
+                        episode_groups: Vec::new(),
+                        known_episodes: Vec::new(),
+                        shooting_days: Vec::new(),
+                        acknowledged_uncertainties: Vec::new(),
+                        categories: Vec::new(),
+                        continuity_selections: Vec::new(),
+                        telemetry: None,
+                    },
+                )),
+            )
+            .await
+            .expect("the request lands"),
+        "the free slot accepts the dispatch"
+    );
+
+    let left = queue.begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new());
+    let right = queue.begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new());
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(left, right)
+    })
+    .await
+    .expect("no deadlock between the two adopters");
+
+    let adopted = [first, second]
+        .into_iter()
+        .filter_map(|result| result.expect("the fake's transitions do not fail"))
+        .count();
+    assert_eq!(
+        adopted, 1,
+        "exactly one adopter wins a `requested` slot — a second one must not \
+         return the same (now running) run"
     );
 }
 
@@ -2103,8 +2334,8 @@ async fn apply_ai_import_reports_the_target_episode() {
         },
     );
 
-    let (status, Json(response)) = apply_ai_import::<FakePorts>(
-        State(state(ports)),
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
+        State(state(ports.clone())),
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
@@ -2131,9 +2362,10 @@ async fn apply_ai_import_reports_the_target_episode() {
         }),
     )
     .await
-    .expect("an in-block apply should succeed");
+    .expect("the apply handler should answer");
+    let response = run_dispatched_apply(&ports).await;
 
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(response.applied_episodes.len(), 1, "one target episode");
     let applied = &response.applied_episodes[0];
     assert_eq!(applied.id, episode_id.0);
@@ -2167,8 +2399,8 @@ async fn apply_ai_import_records_every_target_episode() {
     let job_id = seed_multi_episode_script_job(&ports, Some(block_id)).await;
     let default_episode = EpisodeId::new();
 
-    let (status, Json(response)) = apply_ai_import::<FakePorts>(
-        State(state(ports)),
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
+        State(state(ports.clone())),
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
@@ -2212,9 +2444,10 @@ async fn apply_ai_import_records_every_target_episode() {
         }),
     )
     .await
-    .expect("a multi-episode apply should succeed");
+    .expect("the apply handler should answer");
+    let response = run_dispatched_apply(&ports).await;
 
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::ACCEPTED);
     let numbers: Vec<Option<i32>> = response
         .applied_episodes
         .iter()
@@ -4204,7 +4437,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
         .await
         .insert(target.id, target.clone());
 
-    let (status, Json(response)) = apply_ai_import::<FakePorts>(
+    let (status, Json(_)) = apply_ai_import::<FakePorts>(
         State(state(ports.clone())),
         user(),
         Path(job_id),
@@ -4225,8 +4458,9 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
         }),
     )
     .await
-    .expect("free episode number applies");
-    assert_eq!(status, StatusCode::OK);
+    .expect("the apply handler should answer");
+    let response = run_dispatched_apply(&ports).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(response.created_episodes, 1);
     let created = ports.episode_commands.created.lock().await;
     assert_eq!(created.len(), 1);
@@ -4400,7 +4634,7 @@ async fn apply_with_acknowledged_uncertainties_reaches_the_worker() {
     let job_id = seed_blocking_uncertainty_job(&ports, Some(block_id)).await;
 
     let (status, _) = apply_ai_import::<FakePorts>(
-        State(state(ports)),
+        State(state(ports.clone())),
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
@@ -4421,8 +4655,10 @@ async fn apply_with_acknowledged_uncertainties_reaches_the_worker() {
         }),
     )
     .await
-    .expect("the acknowledged apply must pass the gate");
-    assert_eq!(status, StatusCode::OK);
+    .expect("the apply handler should answer");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    // Issue #899: the handler dispatches; the run is what writes the mappings.
+    let _summary = run_dispatched_apply(&ports).await;
     assert!(
         !mappings
             .list_by_preview(job_id)
@@ -4486,7 +4722,7 @@ async fn apply_accepts_a_duplicate_acknowledgement() {
         field: "location".to_owned(),
     };
     let (status, _) = apply_ai_import::<FakePorts>(
-        State(state(ports)),
+        State(state(ports.clone())),
         user(),
         Path(job_id),
         Json(ApplyAiImportRequest {
@@ -4502,8 +4738,11 @@ async fn apply_accepts_a_duplicate_acknowledgement() {
         }),
     )
     .await
-    .expect("a repeated acknowledgement is a no-op, not a client bug");
-    assert_eq!(status, StatusCode::OK);
+    .expect("the apply handler should answer");
+    assert_eq!(status, StatusCode::ACCEPTED);
+    // Issue #899: reaching the worker now means "the dispatch was accepted and
+    // the run wrote its mappings", not "the handler ran them inline".
+    let _summary = run_dispatched_apply(&ports).await;
     assert!(
         !mappings
             .list_by_preview(job_id)
