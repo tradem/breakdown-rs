@@ -49,6 +49,7 @@ class _FakeApplyRepository extends AiImportRepository {
   Stream<Result<ApplyProgressFrame>> watchApplyProgress(
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
+    Future<ProblemError?> Function()? gate,
     int maxAttempts = kMaxJobWatchAttempts,
     int maxIdleReconnects = kMaxApplyIdleReconnects,
     Duration receiveTimeout = kSseReceiveTimeout,

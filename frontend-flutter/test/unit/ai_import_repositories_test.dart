@@ -161,6 +161,7 @@ class _AttachingRepository extends AiImportRepository {
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
     String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
   }) async {
     if (outcomes.isEmpty) return null;
     final index = outcomeCalls.clamp(0, outcomes.length - 1);
@@ -180,6 +181,7 @@ class _FrameRepository extends AiImportRepository {
   Stream<Result<ApplyProgressFrame>> watchApplyProgress(
     String jobId, {
     ReconciliationScheduler scheduler = const ExponentialBackoffScheduler(),
+    Future<ProblemError?> Function()? gate,
     int maxAttempts = kMaxJobWatchAttempts,
     int maxIdleReconnects = kMaxApplyIdleReconnects,
     Duration receiveTimeout = kSseReceiveTimeout,
@@ -2270,6 +2272,48 @@ void main() {
       expect(decisionTelemetryFromWire('not json'), isNull);
       expect(decisionTelemetryFromWire(null), isNull);
     });
+
+    test(
+      'a denial that resolves between two watch connections stops the reopen '
+      '(review of #899)',
+      () async {
+        // The gate is re-asked before EVERY connection, not only before the
+        // first: an idle close reconnects, and a membership that resolved to
+        // denied in the meantime must not produce another `/apply-events`
+        // request.
+        var gateCalls = 0;
+        final interceptor = _SseInterceptor(['']); // one idle close
+        final events = await AiImportRepository(_api(interceptor), _dao())
+            .watchApplyProgress(
+              'j1',
+              scheduler: _FakeScheduler(),
+              maxAttempts: 5,
+              maxIdleReconnects: 5,
+              gate: () async {
+                gateCalls++;
+                return gateCalls == 1
+                    ? null
+                    : const ProblemError(
+                        code: 'ai_import.forbidden',
+                        status: 403,
+                      );
+              },
+            )
+            .toList();
+        expect(events, hasLength(1));
+        expect(
+          events.single.getLeft().toNullable()!.code,
+          'ai_import.forbidden',
+        );
+        expect(
+          interceptor.requests,
+          hasLength(1),
+          reason:
+              'the reconnect that would have followed the idle close is '
+              'skipped once the gate denies',
+        );
+      },
+    );
 
     test('an UNKNOWN slot state never re-dispatches (review of #899)', () async {
       // An ambiguous POST, then a job row with no `apply_state` (a server that

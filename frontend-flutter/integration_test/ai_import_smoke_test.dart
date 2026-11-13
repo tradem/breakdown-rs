@@ -28,6 +28,7 @@ import 'package:frontend_flutter/auth/active_block.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
+import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -173,6 +174,7 @@ class FakePipelineRepository extends AiImportRepository {
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
     String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
   }) async => ApplySucceeded(
     ApplyImportSummary(
       (b) => b

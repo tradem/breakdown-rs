@@ -206,6 +206,7 @@ class _FakeAiImportRepository extends AiImportRepository {
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
     String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
   }) async {
     final index = applyQueue.indexWhere((event) => event.isRight());
     if (index < 0) return null;

@@ -2096,6 +2096,151 @@ async fn a_dispatched_apply_survives_the_client_dropping_the_request() {
     }
 }
 
+/// Review of #899: a telemetry storage error must not turn a committed apply
+/// into a persisted `failed` outcome.
+///
+/// The script worker writes its telemetry *inside* the run, so a `?` there used
+/// to make the runner persist `failed` for rows that were already written. The
+/// write is warn-only now — the same contract the schedule branch always had.
+#[tokio::test]
+async fn a_failed_telemetry_write_keeps_the_apply_successful() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+    let episode_id = EpisodeId::new();
+
+    // Dispatch through the REAL handler: it is what validates the reviewer's
+    // request against the preview (an empty decision list is refused, and
+    // rightly so).
+    let app = Router::new()
+        .route(
+            "/v1/ai-import/jobs/{id}/apply",
+            post(apply_ai_import::<FakePorts>),
+        )
+        .layer(from_fn_with_state(
+            Arc::new(AuthState::dev(user())),
+            auth_middleware,
+        ))
+        .with_state(state(ports.clone()));
+    let body = serde_json::json!({
+        "episode_id": episode_id.0.to_string(),
+        "project_id": serde_json::Value::Null,
+        "mappings": [
+            {"draft_ref": "scene-0", "decision": "Create", "outfit_decisions": []},
+        ],
+        "accept_as_is": true,
+        "edit_distance": 0,
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/v1/ai-import/jobs/{}/apply", job_id.as_uuid()))
+        .header("content-type", "application/json")
+        .body(AxumBody::from(body.to_string()))
+        .expect("request builds");
+    let response = app.oneshot(request).await.expect("the dispatch answers");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    // The telemetry write fails from here on.
+    *ports
+        .ai_import_queue
+        .fail_run_telemetry
+        .lock()
+        .expect("telemetry switch") = true;
+
+    let summary = run_dispatched_apply(&ports).await;
+    assert!(summary.applied_count >= 1, "the rows were written");
+    let job = queue
+        .get(job_id)
+        .await
+        .expect("queue read should succeed")
+        .expect("the job still exists");
+    assert_eq!(
+        job.apply_state,
+        breakdown_core::ai::ApplyState::Done,
+        "a failed telemetry write must not fail a committed apply"
+    );
+    assert!(
+        matches!(
+            job.apply_result,
+            Some(breakdown_core::ai::ApplyRunOutcome::Succeeded(_))
+        ),
+        "the persisted outcome is the successful one, not an invented failure"
+    );
+}
+
+/// Review of #899: the fake takes the two locks in a DEADLOCK-FREE order, and
+/// this test proves the order instead of only asserting that nothing hangs.
+///
+/// The technique is the reviewer's: hold the job-row lock from the test, start
+/// an adoption, and watch the slot lock. A correct `begin_apply_run` takes the
+/// slot **first** and then blocks on the job row, so `apply_runs.try_lock()`
+/// reports "held" while the adoption is in flight. Taking them the other way
+/// round (the order `claim_apply_run` must not meet) leaves the slot free and
+/// the adoption blocked on the row — the assertion fails rather than the suite
+/// hanging.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn begin_apply_run_takes_the_run_slot_before_the_job_row() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+    assert!(
+        queue
+            .request_apply_run(
+                job_id,
+                breakdown_core::ai::ApplyRunId::new(),
+                &breakdown_core::ai::ApplyRunRequest::Schedule(Box::new(
+                    breakdown_core::ai::ScheduleApplyRunRequest {
+                        actor: breakdown_core::shared::UserId::from_sub("lock-order"),
+                        project_id: None,
+                        telemetry: None,
+                    },
+                )),
+            )
+            .await
+            .expect("the dispatch lands"),
+        "the free slot accepts the dispatch"
+    );
+
+    // Hold the job row, so any acquisition of it blocks.
+    let jobs = Arc::clone(&queue.jobs);
+    let held = jobs.lock().await;
+
+    let runner = tokio::spawn({
+        let queue = queue.clone();
+        async move {
+            queue
+                .begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new())
+                .await
+        }
+    });
+
+    // Give the adoption a moment to reach its first lock, then inspect the slot.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let slot_is_held = queue.apply_runs.try_lock().map(|_| false).unwrap_or(true);
+    drop(held);
+    let adopted = tokio::time::timeout(std::time::Duration::from_secs(5), runner)
+        .await
+        .expect("the adoption completes once the job row is released")
+        .expect("the task does not panic")
+        .expect("the transitions do not fail");
+    assert!(
+        slot_is_held,
+        "begin_apply_run must take the run slot BEFORE the job row: the slot \
+         was free while the adoption waited on the row, which is the lock order \
+         that deadlocks against claim_apply_run"
+    );
+    assert!(
+        adopted.is_some(),
+        "the adoption still succeeds on the requested slot"
+    );
+}
+
 /// Review of #899: two concurrent adopters of one `requested` slot — exactly
 /// one wins, and the two locks they take cannot deadlock.
 ///

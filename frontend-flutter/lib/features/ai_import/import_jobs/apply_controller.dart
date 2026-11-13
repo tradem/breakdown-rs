@@ -1462,8 +1462,13 @@ class AiApplyController extends _$AiApplyController {
       // callback; an unresolved gate then answers `membership.pending`, which
       // blocks cleanly instead of pretending to be a 403 (review of #899).
       gate: () async {
+        // A disposed notifier is not "pending" — it is **gone**, and the
+        // outcome watch must not be opened for a screen nobody is on anymore.
+        // Returning a blocking code (instead of `membership.pending`, which the
+        // reconciliation deliberately lets through) keeps this case distinct
+        // from "membership not resolved yet" (review of #899).
         if (!ref.mounted) {
-          return const ProblemError(code: 'membership.pending');
+          return const ProblemError(code: 'ai_import.apply_unmounted');
         }
         return ref.read(aiApplyStreamGateProvider(jobId).future);
       },

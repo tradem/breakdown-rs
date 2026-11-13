@@ -199,6 +199,7 @@ class FakeAiImportRepository extends AiImportRepository {
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
     String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
   }) async {
     final summary = applyResult?.getRight().toNullable();
     return summary == null ? null : ApplySucceeded(summary);

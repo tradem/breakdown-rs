@@ -319,14 +319,18 @@ impl PgAiImportQueue {
     /// design pins: a terminal `apply_state` cannot coexist with a live
     /// progress payload.
     ///
-    /// `apply_run_id` is deliberately **kept** (review of #899): it names the
-    /// run that *produced* the persisted outcome, and that is the identity a
-    /// client compares against the run id its `202` returned. Clearing it here
-    /// made the terminal frame and the job read unattributable — run A's client
-    /// could then be served run B's counters as its own import. The "slot is
-    /// free" signal moved to `apply_state` (`idle`/`done`/`failed`) in the claim
-    /// predicates below, so a re-apply after a finished run is still accepted
-    /// immediately (design D1: a re-apply overwrites the slot).
+    /// `apply_run_id` is **ownership** and is cleared here, so a finished run
+    /// frees the single-flight slot immediately (the claim predicates below key
+    /// on `apply_run_id IS NULL`, unchanged).
+    ///
+    /// Attribution is a separate column (review of #899):
+    /// `apply_result_run_id` is written by this same fenced statement and
+    /// survives, because it names the run that *produced* the persisted
+    /// outcome — the identity a client compares against the run id its `202`
+    /// returned. Without it the terminal frame and the job read were
+    /// unattributable, and run A's client could be served run B's counters as
+    /// its own import. See `decode_run_identity` and
+    /// `ApplyRunState::result_run_id` for the two readers.
     async fn finish_apply_run(
         &self,
         id: AiImportJobId,

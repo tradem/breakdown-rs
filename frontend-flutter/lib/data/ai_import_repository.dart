@@ -723,6 +723,7 @@ class AiImportRepository extends BaseRepository {
     int maxIdleReconnects = kMaxApplyIdleReconnects,
     Duration receiveTimeout = kSseReceiveTimeout,
     CancelToken? cancelToken,
+    Future<ProblemError?> Function()? gate,
   }) async* {
     String? lastEventId;
     // Two separate budgets: failures (a drop, a transport error, a close that
@@ -734,6 +735,18 @@ class AiImportRepository extends BaseRepository {
     var idle = 0;
     while (failures < maxAttempts && idle < maxIdleReconnects) {
       if (failures + idle > 0) await scheduler.tick(failures + idle - 1);
+      // The client-side authorization mirror is asked before **every**
+      // connection, not just the first: a membership that resolves to denied
+      // while the watch is reconnecting must stop the next `/apply-events`
+      // request (review of #899). A pending gate is "not resolved" and keeps the
+      // watch waiting, like the presentation stream does.
+      if (gate != null) {
+        final denial = await gate();
+        if (denial != null && denial.code != 'membership.pending') {
+          yield Left(denial);
+          return;
+        }
+      }
       Response<ResponseBody> response;
       try {
         response = await api.dio.get<ResponseBody>(
@@ -1086,6 +1099,7 @@ class AiImportRepository extends BaseRepository {
         final settled = await awaitRunOutcome(
           jobId,
           expectedRunId: accepted.runId,
+          gate: gate,
         );
         if (settled != null) return settled;
         // The watch ended without the run's outcome AND the job row has none
@@ -1136,7 +1150,7 @@ class AiImportRepository extends BaseRepository {
         // have requested a takeover without the user asking for one).
         final blockedBeforeAttach = await denied();
         if (blockedBeforeAttach != null) return blockedBeforeAttach;
-        final attached = await awaitRunOutcome(jobId);
+        final attached = await awaitRunOutcome(jobId, gate: gate);
         if (attached != null) return attached;
         // The run is still going (or outlived the reconnect budget). The server
         // NAMED it, so that is the answer: the card reports the blocking run
@@ -1195,7 +1209,7 @@ class AiImportRepository extends BaseRepository {
         // #899).
         final blockedBeforeAttach = await denied();
         if (blockedBeforeAttach != null) return blockedBeforeAttach;
-        final attached = await awaitRunOutcome(jobId);
+        final attached = await awaitRunOutcome(jobId, gate: gate);
         if (attached != null) return attached;
         return ApplyUnresolved(
           ProblemError(
@@ -1246,8 +1260,9 @@ class AiImportRepository extends BaseRepository {
   Future<ApplyReconciliation?> awaitRunOutcome(
     String jobId, {
     String? expectedRunId,
+    Future<ProblemError?> Function()? gate,
   }) async {
-    await for (final event in watchApplyProgress(jobId)) {
+    await for (final event in watchApplyProgress(jobId, gate: gate)) {
       final frame = event.getRight().toNullable();
       if (frame == null) {
         // A transient stream failure: the stream owns the retry budget and the

@@ -2493,6 +2493,12 @@ pub struct FakeAiImportQueue {
     /// of the `apply_request` JSONB column. `POST /apply` only writes this; the
     /// run is executed by [`run_dispatched_apply`], exactly like production.
     pub apply_requests: Arc<Mutex<HashMap<Uuid, breakdown_core::ai::ApplyRunRequest>>>,
+    /// Make [`AiImportQueue::record_run_telemetry`] fail (review of #899).
+    ///
+    /// A storage error there must never turn a run whose rows are committed into
+    /// a persisted `failed` outcome, and a test needs to be able to make it fail
+    /// on demand.
+    pub fail_run_telemetry: Arc<std::sync::Mutex<bool>>,
 }
 
 /// The apply-run slot of one fake job (issue #800).
@@ -3138,6 +3144,12 @@ impl AiImportQueue for FakeAiImportQueue {
         telemetry: Telemetry,
     ) -> Result<bool, DomainError> {
         locked(&self.call_log).push("record_run_telemetry");
+        if *locked(&self.fail_run_telemetry) {
+            return Err(DomainError::ServiceUnavailable {
+                code: &breakdown_core::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
+                reason: "the telemetry write failed (test switch)".to_owned(),
+            });
+        }
         let owns = self
             .apply_runs
             .lock()

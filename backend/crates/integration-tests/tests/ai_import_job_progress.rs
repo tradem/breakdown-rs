@@ -381,6 +381,22 @@ async fn a_finished_run_keeps_its_identity_and_frees_the_slot() -> Result<()> {
         Some(run_b),
         "the slot now names B — which is how A's client detects B"
     );
+    // Both readers agree, so the terminal frame (which reads the slot) and the
+    // job GET (which reads the row) cannot disagree about the identity.
+    assert_eq!(
+        queue
+            .apply_run_state(id)
+            .await?
+            .expect("slot")
+            .result_run_id,
+        Some(run_b),
+        "the stream's attribution names B while B holds the slot"
+    );
+    assert_eq!(
+        queue.get(id).await?.expect("job exists").apply_run_id,
+        Some(run_b),
+        "and the job read names B as well"
+    );
     Ok(())
 }
 
