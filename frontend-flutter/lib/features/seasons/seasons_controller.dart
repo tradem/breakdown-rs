@@ -74,9 +74,11 @@ class SeasonsController extends _$SeasonsController {
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((s) => s.id).toList();
+          return rows
+              ?.map((s) => ProjectedRow(id: s.id, version: s.version))
+              .toList();
         },
         hasOverlays: () => ref.read(seasonOverlaysProvider).isNotEmpty,
         markAllReconciling: () =>
@@ -257,7 +259,11 @@ class SeasonsController extends _$SeasonsController {
       },
       (version) {
         ref.read(seasonCommandErrorProvider.notifier).clear();
-        _reconcile.ackReceived();
+        // Overlay-less single-intent command (issue #916): the archived row
+        // stays projected (badge), so the pass must confirm the acknowledged
+        // version instead of stopping after one fetch — a lagging projector
+        // would otherwise leave the row on its pre-archive version.
+        _reconcile.ackReceived(id: season.id, version: version);
         unawaited(reconcile());
         return Right<ProblemError, int>(version);
       },

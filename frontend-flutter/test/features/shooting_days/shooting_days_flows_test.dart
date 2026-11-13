@@ -9,6 +9,7 @@
 // single-intent PATCHes, error dismiss.
 // Co-authored-by: glm-5.3-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -136,6 +137,8 @@ void main() {
   late CacheDatabase db;
   late _FakeShootingDayRepository repo;
   late ValueNotifier<Result<List<ShootingDayView>>> holder;
+  late ManualReconciliationScheduler scheduler;
+  var fetches = 0;
   late ProviderContainer container;
 
   Future<void> setupContainer({
@@ -145,15 +148,16 @@ void main() {
     addTearDown(db.close);
     repo = _FakeShootingDayRepository(BreakdownApi(), ShootingDayCacheDao(db));
     holder = ValueNotifier<Result<List<ShootingDayView>>>(Right(initialRows));
+    scheduler = ManualReconciliationScheduler();
+    fetches = 0;
     container = ProviderContainer(
       overrides: [
         appConfigProvider.overrideWithValue(devAuthConfig),
         cacheDatabaseProvider.overrideWithValue(db),
         shootingDayRepositoryProvider.overrideWithValue(repo),
-        reconciliationSchedulerProvider.overrideWith(
-          (ref) => ManualReconciliationScheduler(),
-        ),
+        reconciliationSchedulerProvider.overrideWith((ref) => scheduler),
         shootingDaysListFetchProvider('episode-1').overrideWith((ref) async {
+          fetches++;
           final dao = ShootingDayCacheDao(ref.watch(cacheDatabaseProvider));
           return holder.value.match((err) => Left(err), (rows) async {
             final ordered = rows.toList()
@@ -497,6 +501,67 @@ void main() {
       await _pumpFrames(tester);
 
       expect(repo.createCalls, 1);
+    });
+  });
+
+  // Issue #916: a single-intent day mutation inserts no overlay, so the
+  // reconciliation pass must confirm the ACKNOWLEDGED aggregate version
+  // instead of stopping after one fetch.
+  group('ShootingDaysController reconciliation (issue #916)', () {
+    /// The rows the last projection fetch produced (what the screen/Diff
+    /// cache serves), never the test's own holder snapshot.
+    List<ShootingDayView> projectedRows() {
+      final async = container.read(shootingDaysListFetchProvider('episode-1'));
+      final value = async.value;
+      expect(value, isNotNull, reason: 'the projection fetch must have run');
+      return value!.match(
+        (err) => fail('projection fetch failed: ${err.code}'),
+        (rows) => rows,
+      );
+    }
+
+    /// Releases the manual scheduler until the pass stops asking for ticks
+    /// (deterministic: the injectable scheduler drives every retry).
+    Future<void> drainPass() async {
+      for (var i = 0; i < kMaxReconcileAttempts; i++) {
+        scheduler.advanceAll();
+        await pumpEventQueue();
+      }
+    }
+
+    test('reschedule retries on the acknowledged version and keeps the '
+        'stale row when the projector lags', () async {
+      await setupContainer(initialRows: [_day('d-1', date: Date(2026, 5, 1))]);
+      final controller = container.read(
+        shootingDaysControllerProvider('episode-1').notifier,
+      );
+      await container.read(shootingDaysListFetchProvider('episode-1').future);
+      final before = fetches;
+
+      final res = await controller.reschedule(
+        day: _day('d-1', date: Date(2026, 5, 1)),
+        date: Date(2026, 5, 2),
+      );
+      expect(res.isRight(), isTrue);
+      expect(res.match((_) => 0, (version) => version), 2);
+
+      // The stub keeps serving the pre-command row (version 1): the pass
+      // spends the existing budget and then stops.
+      await drainPass();
+      expect(fetches - before, kMaxReconcileAttempts);
+      expect(scheduler.ticks, kMaxReconcileAttempts - 1);
+      // Nothing was dropped or invented — the stale row is retained as-is.
+      expect(projectedRows().single.version, 1);
+      expect(projectedRows().single.date, Date(2026, 5, 1));
+
+      // The projector catches up: the next bounded pass is a single fetch
+      // that swaps the row AND its version.
+      holder.value = Right([_day('d-1', date: Date(2026, 5, 2), version: 2)]);
+      final beforeCatchUp = fetches;
+      await controller.refresh();
+      expect(fetches - beforeCatchUp, 1);
+      expect(projectedRows().single.version, 2);
+      expect(projectedRows().single.date, Date(2026, 5, 2));
     });
   });
 }

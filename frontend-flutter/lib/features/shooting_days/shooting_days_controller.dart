@@ -221,9 +221,11 @@ class ShootingDaysController extends _$ShootingDaysController {
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((d) => d.id).toList();
+          return rows
+              ?.map((d) => ProjectedRow(id: d.id, version: d.version))
+              .toList();
         },
         hasOverlays: () =>
             ref.read(shootingDaysOverlaysProvider(episodeId)).isNotEmpty,
@@ -406,6 +408,16 @@ class ShootingDaysController extends _$ShootingDaysController {
       },
       (version) {
         ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).clear();
+        // Overlay-less single-intent update (issue #916): reschedule / rename /
+        // reorder / unschedule insert no optimistic row — the day is already
+        // projected — so the reconciliation pass must confirm the acknowledged
+        // version. Without it the pass stopped after ONE fetch, a lagging
+        // projector kept the day on its OLD date AND old `version`, and the
+        // next command built from that row failed with
+        // `409 concurrency.version-mismatch` although nothing conflicted.
+        // No overlay and no extra command: the version echo still comes from
+        // the acted-on DTO.
+        _reconcile.ackReceived(id: day.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },
@@ -432,6 +444,11 @@ class ShootingDaysController extends _$ShootingDaysController {
       },
       (version) {
         ref.read(shootingDaysCommandErrorProvider(episodeId).notifier).clear();
+        // Overlay-less archive: the pass ends as soon as the projection no
+        // longer carries the id OR carries the acknowledged version — either
+        // way the stale row is never left behind with a pre-archive version
+        // (issue #916).
+        _reconcile.ackReceived(id: day.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },
@@ -444,6 +461,11 @@ class ShootingDaysController extends _$ShootingDaysController {
   /// Ids come from the acted-on read DTOs (never invented). Success
   /// reconciles via the bounded refetch — the source day leaves the list
   /// (archived) and the target gains the re-pointed scenes.
+  ///
+  /// No version gate (issue #916): the command touches TWO day aggregates and
+  /// `LinkShootingDayResponse` echoes a version for neither, so there is no
+  /// single acknowledged version a fetched row could be compared against. The
+  /// refetch still runs — one pass, as before.
   Future<Result<LinkShootingDayResponse>> linkInto({
     required ShootingDayView day,
     required ShootingDayView target,

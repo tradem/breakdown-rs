@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -221,13 +222,19 @@ class BlocksCommandError extends _$BlocksCommandError {
 /// staleness, optimistic overlays, dismissible command error.
 @Riverpod(keepAlive: true)
 class BlocksController extends _$BlocksController {
+  /// No overlay-less version acknowledgement is recorded here (issue #916
+  /// audit): the block command set is create-only (`POST /v1/blocks`), and a
+  /// create always inserts an optimistic overlay, so the overlay branch's
+  /// id-based retry is the completion signal.
   ReconciliationCoordinator? _coordinator;
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((b) => b.id).toList();
+          return rows
+              ?.map((b) => ProjectedRow(id: b.id, version: b.version))
+              .toList();
         },
         hasOverlays: () =>
             ref.read(blocksOverlaysProvider(seasonId)).isNotEmpty,

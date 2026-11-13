@@ -204,9 +204,11 @@ class CharactersController extends _$CharactersController {
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((c) => c.id).toList();
+          return rows
+              ?.map((c) => ProjectedRow(id: c.id, version: c.version))
+              .toList();
         },
         hasOverlays: () =>
             ref.read(charactersOverlaysProvider(seasonId)).isNotEmpty,
@@ -323,6 +325,11 @@ class CharactersController extends _$CharactersController {
       },
       (version) {
         ref.read(charactersCommandErrorProvider(seasonId).notifier).clear();
+        // Overlay-less single-intent update (issue #916): the row is already
+        // projected, so the pass must confirm the acknowledged version — a
+        // lagging projector would leave the OLD contact AND the old
+        // `version`, and the next edit would 409 on a phantom conflict.
+        _reconcile.ackReceived(id: character.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },
@@ -355,6 +362,8 @@ class CharactersController extends _$CharactersController {
       },
       (version) {
         ref.read(charactersCommandErrorProvider(seasonId).notifier).clear();
+        // Overlay-less update: version-gated reconciliation (issue #916).
+        _reconcile.ackReceived(id: character.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },
@@ -385,6 +394,8 @@ class CharactersController extends _$CharactersController {
       },
       (version) {
         ref.read(charactersCommandErrorProvider(seasonId).notifier).clear();
+        // Overlay-less update: version-gated reconciliation (issue #916).
+        _reconcile.ackReceived(id: character.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },

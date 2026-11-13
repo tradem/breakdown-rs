@@ -272,13 +272,21 @@ String pieceCommandErrorCopy(
 /// `PiecesController(seasonId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
 class PiecesController extends _$PiecesController {
+  /// No overlay-less version acknowledgement is recorded here (issue #916
+  /// audit): every piece row command (create, details, category, repertoire,
+  /// notes) re-acks an optimistic overlay, and the two overlay-less paths —
+  /// photo upload and photo delete — belong to the PHOTO aggregate: neither
+  /// echoes a piece `version`, so there is nothing to compare a fetched row
+  /// against.
   ReconciliationCoordinator? _coordinator;
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((c) => c.id).toList();
+          return rows
+              ?.map((c) => ProjectedRow(id: c.id, version: c.version))
+              .toList();
         },
         hasOverlays: () =>
             ref.read(piecesOverlaysProvider(seasonId)).isNotEmpty,

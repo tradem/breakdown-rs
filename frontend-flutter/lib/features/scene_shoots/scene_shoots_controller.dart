@@ -242,9 +242,11 @@ class SceneShootsController extends _$SceneShootsController {
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((d) => d.id).toList();
+          return rows
+              ?.map((d) => ProjectedRow(id: d.id, version: d.version))
+              .toList();
         },
         hasOverlays: () =>
             ref.read(sceneShootsOverlaysProvider(scope)).isNotEmpty,
@@ -525,6 +527,10 @@ class SceneShootsController extends _$SceneShootsController {
   /// Wraps the shooting day (`POST /v1/shooting-days/{id}/wrap` — guarded
   /// day-level action; the UI confirms with the finality copy first, D3).
   ///
+  /// No version gate (issue #916): the acknowledged `version` belongs to the
+  /// DAY aggregate, not to any `SceneShootView` row this projection carries,
+  /// so comparing it against a shoot row's version would never converge.
+  ///
   /// // AUTHZ-GATE: authenticated session required before the call.
   Future<Result<int>> wrap({required int dayVersion}) async {
     // AUTHZ-GATE: authenticated session required before any network call.
@@ -579,6 +585,10 @@ class SceneShootsController extends _$SceneShootsController {
       },
       (version) {
         ref.read(sceneShootsCommandErrorProvider(scope).notifier).clear();
+        // Overlay-less shoot update (issue #916): the binding is not an
+        // optimistic row, so the pass confirms the acknowledged shoot version
+        // instead of stopping after one fetch.
+        _reconcile.ackReceived(id: shoot.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },
@@ -643,6 +653,9 @@ class SceneShootsController extends _$SceneShootsController {
       },
       (version) {
         ref.read(sceneShootsCommandErrorProvider(scope).notifier).clear();
+        // Overlay-less shoot update: version-gated reconciliation (issue
+        // #916), same as the link path.
+        _reconcile.ackReceived(id: shoot.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },
