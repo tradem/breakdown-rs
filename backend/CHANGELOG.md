@@ -28,6 +28,28 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **An AI-import apply now reports its own append count and version conflicts (issue #900 M2).**
+  M1 attributes the apply's Postgres time; this is the other missing number. A run's 552
+  mapping rows imply ≈740 appends, and if the store sees far more, the cost is **duplicate
+  writes** (idempotent re-dispatches that still append) rather than slow writes — a
+  different lever entirely. Likewise a high `WRONGVER` count means racing writes that pay
+  a resync-and-retry each.
+  The vendored `kameo_es` gains `write_metrics` (`append_metrics()` returning
+  `AppendMetrics { append_attempts, appended_events, version_conflicts }`, subtractable via
+  `since`), incremented at the one place an append happens (`EntityActor::append_events`,
+  just before `EMAPPEND`) and at the single `WRONGVER` detection point
+  (`AppendEventsError::from_sierra_err`). The apply's row-phase summary gains
+  `event_appends`, `appended_events`, `append_conflicts` and `event_appends_per_row`.
+  **The counters are process-wide** — an append runs in an actor task the dispatcher no
+  longer owns, so a per-run handle would change the public dispatch surface for a
+  measurement; the delta is the run on a quiet instance and an upper bound otherwise (the
+  M1 mapping-write counters are the run-exclusive cross-check). CI now also runs the
+  patched crate's lib unit tests, not only `ack_tracker`. Crates: `infra` 0.80.1 → 0.80.2
+  (PATCH — internal observability; the new `kameo_es` surface is additive and consumed
+  only inside `infra`); `api`/`architecture`/`integration-tests` re-pin the path dep.
+
+### Changed
+
 - **The AI-import apply's Postgres time is attributed, not guessed (issue #900 M1).**
   A 49-scene apply takes ≈7 minutes, and the two plausible explanations both failed
   arithmetic: ~740 appends at the measured group-commit rate are single-digit seconds, and

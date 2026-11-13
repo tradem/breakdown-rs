@@ -1454,3 +1454,29 @@ same numbers arrive summed per run in the apply's own summary line
 the apply is queuing behind projection catch-up, not writing slowly — the lever is a
 separate pool (or a batched confirm), never a "faster query". The reverse means the
 statement itself is the cost, and the write-path cost model (ADR-016 §6) applies.
+
+### M2 — how many appends the run actually issued, and how many collided
+
+A run's mapping rows imply ≈740 appends (552 mapping rows × `reserve`/`confirm`, plus one
+`AssignCharacter` per scene/figure pair and ~50 ADR-036 claim appends). The same summary
+line now carries the number the store actually saw:
+
+| Field | Meaning |
+|---|---|
+| `event_appends` | `EMAPPEND` calls issued during the row phase, **conflict retries included** |
+| `appended_events` | events carried by those appends (one append may carry several) |
+| `append_conflicts` | appends answered `WRONGVER` — each one costs a resync and a retry |
+| `event_appends_per_row` | `event_appends` ÷ `rows` |
+
+**Reading it.** `event_appends` far above ≈740 (the issue uses >1500 as the threshold)
+means duplicate writes — idempotent re-dispatches that still append — and the lever is to
+cut them at the source, not to make the store faster. Many `append_conflicts` means racing
+writes (several rows creating the same episode, say), and the lever is to dedupe or order
+them instead of relying on the resync-and-retry path.
+
+**Caveat — read this before quoting the number.** The counters live in the store crate and
+are **process-wide**: an append happens inside an actor's own task, so no per-call handle
+reaches it without changing the public dispatch surface for a measurement. The delta over
+the row phase is therefore *this run* on a quiet instance and an **upper bound** with
+unrelated write traffic in the window. Cross-check it against `mapping_reserve_ops` /
+`mapping_insert_ops` from M1, which are effectively run-exclusive.

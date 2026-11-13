@@ -8,7 +8,7 @@
 
 [package]
 name = "infra"
-version = "0.80.1"
+version = "0.80.2"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
