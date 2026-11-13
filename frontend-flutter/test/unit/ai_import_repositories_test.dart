@@ -2271,6 +2271,120 @@ void main() {
       expect(decisionTelemetryFromWire(null), isNull);
     });
 
+    test('an UNKNOWN slot state never re-dispatches (review of #899)', () async {
+      // An ambiguous POST, then a job row with no `apply_state` (a server that
+      // predates the durable run). "Unknown" is not "free": a second POST
+      // could dispatch into a live run — or, past the staleness window,
+      // request a takeover nobody asked for.
+      final requests = <RequestOptions>[];
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          requests.add(options);
+          if (options.method == 'POST') {
+            // The POST itself dies ambiguously.
+            throw DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionTimeout,
+            );
+          }
+          return serializers.serializeWith(
+            AiImportJobResponse.serializer,
+            _jobResponse(_job('j1', status: JobStatus.succeeded)),
+          );
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        maxAttempts: 3,
+      );
+      expect(outcome, isA<ApplyUnresolved>());
+      expect(
+        requests.where((r) => r.method == 'POST'),
+        hasLength(1),
+        reason: 'an unknown slot state must not become a second dispatch',
+      );
+    });
+
+    test('a FAILED job re-read never re-dispatches (review of #899)', () async {
+      // The re-read is what proves the slot free. Without it, a retry is a
+      // blind dispatch (and a possible unconfirmed takeover).
+      var posts = 0;
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          if (options.method == 'POST') {
+            posts++;
+            throw DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionTimeout,
+            );
+          }
+          throw DioException(
+            requestOptions: options,
+            type: DioExceptionType.connectionError,
+          );
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        maxAttempts: 3,
+      );
+      expect(outcome, isA<ApplyUnresolved>());
+      expect(posts, 1, reason: 'no dispatch without a confirmed-free slot');
+    });
+
+    test('a denial that resolves WHILE the POST is in flight blocks the attach '
+        '(review of #899)', () async {
+      // The gate allows the dispatch, then denies. The outcome watch must not
+      // be opened: it is a handler-gated route like the POST.
+      var gateCalls = 0;
+      final streamRequests = <RequestOptions>[];
+      final interceptor = _ScriptInterceptor(
+        respond: (options) {
+          if (options.method == 'POST') {
+            return standardSerializers.serializeWith(
+              ApplyRunAccepted.serializer,
+              ApplyRunAccepted(
+                (b) => b
+                  ..runId = 'run-A'
+                  ..stage = ApplyStage.applying
+                  ..startedAt = DateTime.utc(2026, 1, 1)
+                  ..applyState = ApplyState.requested,
+              ),
+            );
+          }
+          streamRequests.add(options);
+          return null;
+        },
+      );
+      final repo = AiImportRepository(_api(interceptor), _dao());
+      final outcome = await repo.applyWithReconciliation(
+        'j1',
+        _applyRequest(),
+        scheduler: _FakeScheduler(),
+        maxAttempts: 1,
+        gate: () async {
+          gateCalls++;
+          // Allowed before the dispatch, denied afterwards.
+          return gateCalls == 1
+              ? null
+              : const ProblemError(code: 'ai_import.forbidden', status: 403);
+        },
+      );
+      expect(outcome, isA<ApplyBlocked>());
+      expect((outcome as ApplyBlocked).error.code, 'ai_import.forbidden');
+      expect(
+        streamRequests,
+        isEmpty,
+        reason: 'a resolved denial issues zero outcome-stream requests',
+      );
+    });
+
     test(
       "a later run's outcome is reported as superseded, never as this apply's",
       () async {

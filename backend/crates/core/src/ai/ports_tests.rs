@@ -556,6 +556,7 @@ mod owner_silence {
         let now = Utc::now();
         let state = ApplyRunState {
             owner: Some(run_id),
+            result_run_id: None,
             seq: 1,
             progress: Some(payload(run_id, now - Duration::minutes(4))),
             // A younger claim instant must NOT shorten the payload's age: only
@@ -575,6 +576,7 @@ mod owner_silence {
         let now = Utc::now();
         let state = ApplyRunState {
             owner: Some(ApplyRunId::new()),
+            result_run_id: None,
             seq: 1,
             progress: None,
             state: ApplyState::Idle,
@@ -595,6 +597,7 @@ mod owner_silence {
         let now = Utc::now();
         let state = ApplyRunState {
             owner: Some(ApplyRunId::new()),
+            result_run_id: None,
             seq: 1,
             progress: None,
             state: ApplyState::Idle,
@@ -610,6 +613,7 @@ mod owner_silence {
         let now = Utc::now();
         let state = ApplyRunState {
             owner: None,
+            result_run_id: None,
             seq: 3,
             progress: None,
             state: ApplyState::Idle,
@@ -626,6 +630,7 @@ mod owner_silence {
         let now = Utc::now();
         let state = ApplyRunState {
             owner: Some(ApplyRunId::new()),
+            result_run_id: None,
             seq: 1,
             progress: None,
             state: ApplyState::Idle,

@@ -688,6 +688,7 @@ impl AiImportQueue for FakeQueue {
         let state = self.state.lock().unwrap();
         Ok(Some(breakdown_core::ai::ApplyRunState {
             owner: state.apply_run,
+            result_run_id: None,
             seq: state.apply_run_seq,
             progress: state.apply_progress.last().cloned().flatten(),
             owner_claimed_at: state.apply_run_claimed_at,

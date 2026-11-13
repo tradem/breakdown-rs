@@ -7085,6 +7085,7 @@ pub async fn stream_ai_import_apply_events<P: Ports>(
         // write from a previous run can advance it).
         None => breakdown_core::ai::ApplyRunState {
             owner: None,
+            result_run_id: None,
             seq: 0,
             progress: job.apply_progress.clone(),
             owner_claimed_at: None,
@@ -7328,11 +7329,13 @@ where
                 state.last_emitted = Some(watermark);
                 let frame = breakdown_core::ai::ApplyProgressFrame {
                     job_id: state.id,
-                    // The slot's owner, not `payload.run_id`: the terminal
-                    // frame carries no progress payload, and attributing an
-                    // outcome to the wrong run is exactly what a re-entering
-                    // client must not do (issue #899 review).
-                    run_id: snapshot.owner,
+                    // The run this frame is about: the live owner while a run
+                    // is going, and — once it finished — the run recorded next
+                    // to the outcome. `payload.run_id` would not do (a terminal
+                    // frame carries no payload), and a null id here is what let
+                    // a client attribute a later run's result to its own
+                    // (issue #899 review).
+                    run_id: snapshot.owner.or(snapshot.result_run_id),
                     apply_progress: payload,
                     apply_state: snapshot.state,
                     apply_result: outcome,

@@ -112,6 +112,9 @@ fn run_state(
 ) -> ApplyRunState {
     ApplyRunState {
         owner,
+        // These stream tests never persist an outcome, so there is no
+        // attribution to report (issue #899 review).
+        result_run_id: None,
         seq,
         progress,
         // These stream tests are about frames, not about the refusal's age

@@ -883,6 +883,10 @@ pub trait AiImportQueue: Send + Sync {
             let owner = progress.as_ref().map(|frame| frame.run_id);
             ApplyRunState {
                 owner,
+                // The fallback has no separate attribution column; the job view
+                // already answers "which run does this outcome belong to", which
+                // is exactly what the reader needs.
+                result_run_id: job.apply_run_id,
                 seq: 0,
                 // A job DTO carries no claim instant, and guessing one from the
                 // row's `updated_at` is exactly what #863 review rejected: the

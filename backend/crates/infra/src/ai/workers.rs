@@ -2798,16 +2798,31 @@ where
             // unfenced write would stamp the new run's slot with the old run's
             // accept signal. Telemetry is never part of the apply's success
             // contract, so a lost fence is logged, not fatal.
-            let landed = self
+            // Never fatal (review of #899): a telemetry write that fails must
+            // not turn a run whose rows are already committed into a `failed`
+            // outcome the runner then persists. The schedule branch has always
+            // been warn-only here, and both now say the same thing.
+            match self
                 .queue
                 .record_run_telemetry(preview_id, run_id, telemetry)
-                .await?;
-            if !landed {
-                tracing::warn!(
-                    job_id = %preview_id.as_uuid(),
-                    run_id = %run_id.as_uuid(),
-                    "skipped AI import apply telemetry: the run no longer owns the slot"
-                );
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(
+                        job_id = %preview_id.as_uuid(),
+                        run_id = %run_id.as_uuid(),
+                        "skipped AI import apply telemetry: the run no longer owns the slot"
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        job_id = %preview_id.as_uuid(),
+                        run_id = %run_id.as_uuid(),
+                        %error,
+                        "failed to record AI import apply telemetry after a successful apply"
+                    );
+                }
             }
         }
         Ok(result)

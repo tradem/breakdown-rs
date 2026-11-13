@@ -2890,6 +2890,7 @@ impl AiImportQueue for FakeAiImportQueue {
             .unwrap_or_default();
         let state = breakdown_core::ai::ApplyRunState {
             owner: slot.owner,
+            result_run_id: None,
             seq: slot.seq,
             progress,
             // The slot's OWN claim instant, never the row's `updated_at` — a
@@ -2975,16 +2976,22 @@ impl AiImportQueue for FakeAiImportQueue {
         let Some(request) = request else {
             return Ok(None);
         };
+        // Lock order: slot FIRST, then the job row — the order every other
+        // method here takes them (`claim_apply_run`, `finish_fake_run`). Taking
+        // them the other way round deadlocks against a concurrent claim, even
+        // for different jobs (review of #899).
+        let mut runs = self.apply_runs.lock().await;
         let mut jobs = self.jobs.lock().await;
         let Some(job) = jobs.get_mut(&id.as_uuid()) else {
             return Ok(None);
         };
         // The adoption predicate: anything but `requested` is not adoptable.
+        // Read and written under both locks, so no concurrent adopter can win
+        // the same run.
         if job.apply_state != breakdown_core::ai::ApplyState::Requested {
             return Ok(None);
         }
         let run_id = {
-            let mut runs = self.apply_runs.lock().await;
             let slot = runs.entry(id.as_uuid()).or_default();
             let run_id = slot.owner.unwrap_or(takeover_run_id);
             slot.owner = Some(run_id);
@@ -2994,6 +3001,7 @@ impl AiImportQueue for FakeAiImportQueue {
         job.apply_run_id = Some(run_id);
         job.updated_at = Utc::now();
         drop(jobs);
+        drop(runs);
         self.hub.notify(id);
         Ok(Some(breakdown_core::ai::ClaimedApplyRun {
             job_id: id,

@@ -447,8 +447,13 @@ components:
           oneOf:
           - $ref: '#/components/schemas/ApplyRunId'
             description: |-
-              The identity of the run that currently owns the slot (issue #899),
-              `None` before the first dispatch and after the payload was cleared.
+              The run this job's outcome is attributable to (issue #899), `None` before
+              the first dispatch.
+
+              While a run is live this is its owner id; once it finished it is the run
+              recorded next to [`Self::apply_result`], because ownership is released at
+              the terminal transition (the slot must free up immediately) while the
+              attribution has to survive.
 
               A slot is single-flight per job but **not** immutable: run A can finish
               and run B take the slot before A's client re-subscribes. Without this

@@ -483,6 +483,10 @@ AiImportJob _succeededJob(
     ..sourceHandle = 'handle-$id'
     ..retries = 0
     ..maxRetries = 3
+    // Issue #899: a confirmed-free apply slot. `null` means "unknown", and the
+    // reconciliation refuses to re-dispatch from an unknown slot (review of
+    // #899) — so the fixture states the fact instead of leaving it absent.
+    ..applyState = ApplyState.idle
     ..createdAt = DateTime.utc(2026, 1, 1)
     ..updatedAt = DateTime.utc(2026, 1, 1);
   // The job-level Decision Model outcome (issue #767) is absent unless a test

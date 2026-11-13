@@ -2096,6 +2096,72 @@ async fn a_dispatched_apply_survives_the_client_dropping_the_request() {
     }
 }
 
+/// Review of #899: two concurrent adopters of one `requested` slot — exactly
+/// one wins, and the two locks they take cannot deadlock.
+///
+/// The fake mirrors the production statement (`WHERE apply_state = 'requested'`)
+/// and therefore has to model its *lock order* too: `claim_apply_run` and
+/// `finish_fake_run` take the run slot before the job row, so `begin_apply_run`
+/// must do the same. A reverse order deadlocks against a concurrent claim — the
+/// timeout below is what turns that into a failing test instead of a hung suite.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_concurrent_adoptions_adopt_one_run_and_do_not_deadlock() {
+    let ports = FakePorts::default();
+    let block_id = BlockId::from_uuid(Uuid::now_v7());
+    *ports.episode_repo.block_id_override.lock().await = Some(block_id);
+    seed_ai_block_access(&ports, block_id).await;
+    let queue = ports.ai_import_queue.clone();
+    let job_id = seed_applyable_script_job(&ports, Some(block_id), 1).await;
+
+    // A dispatched, not yet adopted run — the state both callers race for.
+    let run_id = breakdown_core::ai::ApplyRunId::new();
+    assert!(
+        queue
+            .request_apply_run(
+                job_id,
+                run_id,
+                &breakdown_core::ai::ApplyRunRequest::Script(Box::new(
+                    breakdown_core::ai::ScriptApplyRunRequest {
+                        actor: breakdown_core::shared::UserId::from_sub("ai-apply-race"),
+                        episode_id: EpisodeId::new(),
+                        season_id: breakdown_core::shared::SeasonId::new(),
+                        project_id: None,
+                        block_id,
+                        decisions: Vec::new(),
+                        episode_groups: Vec::new(),
+                        known_episodes: Vec::new(),
+                        shooting_days: Vec::new(),
+                        acknowledged_uncertainties: Vec::new(),
+                        categories: Vec::new(),
+                        continuity_selections: Vec::new(),
+                        telemetry: None,
+                    },
+                )),
+            )
+            .await
+            .expect("the request lands"),
+        "the free slot accepts the dispatch"
+    );
+
+    let left = queue.begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new());
+    let right = queue.begin_apply_run(job_id, breakdown_core::ai::ApplyRunId::new());
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(left, right)
+    })
+    .await
+    .expect("no deadlock between the two adopters");
+
+    let adopted = [first, second]
+        .into_iter()
+        .filter_map(|result| result.expect("the fake's transitions do not fail"))
+        .count();
+    assert_eq!(
+        adopted, 1,
+        "exactly one adopter wins a `requested` slot — a second one must not \
+         return the same (now running) run"
+    );
+}
+
 /// Issue #763: a successful apply reports the episodes its rows landed in, so
 /// the outcome card can name the target. The label comes from data the request
 /// path already holds — the target episode the handler resolved — never from a

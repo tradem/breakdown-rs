@@ -1019,7 +1019,13 @@ class AiImportRepository extends BaseRepository {
     int maxAttempts = kMaxApplyAttempts,
     void Function(int attempt)? onAttempt,
     Clock clock = Clock.system,
+    Future<ProblemError?> Function()? gate,
   }) async {
+    // The client-side authorization mirror, consulted before **every** network
+    // call this method makes (the dispatch and each attach), because both
+    // endpoints are handler-gated: a membership that resolves to denied while
+    // the POST is in flight would otherwise still open the outcome stream
+    // (review of #899). A denial short-circuits without a second request.
     ProblemError? lastError;
     // The last refusal that named its owning run (issue #805). A budget that
     // ends on one of these is NOT an unknown outcome: the client knows exactly
@@ -1028,6 +1034,22 @@ class AiImportRepository extends BaseRepository {
     // When that refusal was received: the local wait is measured from here, so
     // the loop can stop BEFORE a retry would cross the server's window.
     DateTime? refusedAt;
+
+    /// Ask the gate, and translate a **resolved** denial into the result the UI
+    /// renders.
+    ///
+    /// `membership.pending` is "not resolved yet", not "denied": blocking on it
+    /// would replace the server's authoritative answer with a local guess on a
+    /// handler-gated route (and would make the apply unusable while the
+    /// membership cache warms). The case this hook exists for — a membership
+    /// that resolves to *denied* while the POST is in flight — is covered.
+    Future<ApplyBlocked?> denied() async {
+      if (gate == null) return null;
+      final denial = await gate();
+      if (denial == null || denial.code == 'membership.pending') return null;
+      return ApplyBlocked(denial);
+    }
+
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt > 0) {
         await scheduler.tick(attempt - 1);
@@ -1049,6 +1071,9 @@ class AiImportRepository extends BaseRepository {
         }
         onAttempt?.call(attempt);
       }
+      // No request leaves while the gate denies — including the dispatch.
+      final blockedBeforeDispatch = await denied();
+      if (blockedBeforeDispatch != null) return blockedBeforeDispatch;
       final res = await apply(jobId, request);
       final accepted = res.getRight().toNullable();
       if (accepted != null) {
@@ -1056,6 +1081,8 @@ class AiImportRepository extends BaseRepository {
         // to follow it to its terminal frame — and it names the run it expects,
         // so a later run that replaced the slot is reported as superseded
         // instead of being served as this apply's result (review of #899).
+        final blockedBeforeAttach = await denied();
+        if (blockedBeforeAttach != null) return blockedBeforeAttach;
         final settled = await awaitRunOutcome(
           jobId,
           expectedRunId: accepted.runId,
@@ -1107,6 +1134,8 @@ class AiImportRepository extends BaseRepository {
         // after (review of #899: the old `continue` re-POSTed a live run, which
         // came back as this same refusal and, past the staleness window, would
         // have requested a takeover without the user asking for one).
+        final blockedBeforeAttach = await denied();
+        if (blockedBeforeAttach != null) return blockedBeforeAttach;
         final attached = await awaitRunOutcome(jobId);
         if (attached != null) return attached;
         // The run is still going (or outlived the reconnect budget). The server
@@ -1130,7 +1159,12 @@ class AiImportRepository extends BaseRepository {
       // itself an unknown outcome — keep consuming the budget.
       final job = await getJobAndCache(jobId, clock: clock);
       final read = job.getRight().toNullable();
-      if (read == null) continue;
+      if (read == null) {
+        // The re-read failed, so nothing confirms the slot is free. Another
+        // POST here could dispatch into a live run — or, past the staleness
+        // window, request a takeover nobody asked for (review of #899).
+        return ApplyUnresolved(lastError);
+      }
       if (read.status != JobStatus.succeeded) {
         return ApplyBlocked(
           ProblemError(
@@ -1159,6 +1193,8 @@ class AiImportRepository extends BaseRepository {
         // re-POSTed into `apply-in-flight` — the caller then got a refusal
         // instead of the report of the run it had already started (review of
         // #899).
+        final blockedBeforeAttach = await denied();
+        if (blockedBeforeAttach != null) return blockedBeforeAttach;
         final attached = await awaitRunOutcome(jobId);
         if (attached != null) return attached;
         return ApplyUnresolved(
@@ -1169,7 +1205,13 @@ class AiImportRepository extends BaseRepository {
           ),
         );
       }
-      // `idle`: nothing was dispatched, so the next attempt is a fresh one.
+      if (state == null) {
+        // No slot state on the row (a server that predates the durable run).
+        // "Unknown" is not "free": a re-dispatch could take over a live run,
+        // so report the unknown outcome instead of guessing (review of #899).
+        return ApplyUnresolved(lastError);
+      }
+      // `idle`: confirmed free — the only state that allows a fresh dispatch.
     }
     return inFlight ??
         ApplyUnresolved(

@@ -1456,6 +1456,17 @@ class AiApplyController extends _$AiApplyController {
       jobId,
       request,
       scheduler: scheduler,
+      // The same mirror, re-asked before every network call the reconciliation
+      // makes — including the outcome stream it opens after the POST. The
+      // `ref.mounted` guard keeps a disposed notifier from throwing inside the
+      // callback; an unresolved gate then answers `membership.pending`, which
+      // blocks cleanly instead of pretending to be a 403 (review of #899).
+      gate: () async {
+        if (!ref.mounted) {
+          return const ProblemError(code: 'membership.pending');
+        }
+        return ref.read(aiApplyStreamGateProvider(jobId).future);
+      },
       // A retry is a NEW server-side run: the first run's end frame has
       // already closed the card's subscription, so re-arm it instead of
       // leaving the retry's progress unwatched. The POST is not cancelled —

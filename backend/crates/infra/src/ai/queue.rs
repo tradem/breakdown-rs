@@ -318,6 +318,15 @@ impl PgAiImportQueue {
     /// progress payload is cleared in the same breath — the invariant the
     /// design pins: a terminal `apply_state` cannot coexist with a live
     /// progress payload.
+    ///
+    /// `apply_run_id` is deliberately **kept** (review of #899): it names the
+    /// run that *produced* the persisted outcome, and that is the identity a
+    /// client compares against the run id its `202` returned. Clearing it here
+    /// made the terminal frame and the job read unattributable — run A's client
+    /// could then be served run B's counters as its own import. The "slot is
+    /// free" signal moved to `apply_state` (`idle`/`done`/`failed`) in the claim
+    /// predicates below, so a re-apply after a finished run is still accepted
+    /// immediately (design D1: a re-apply overwrites the slot).
     async fn finish_apply_run(
         &self,
         id: AiImportJobId,
@@ -333,8 +342,13 @@ impl PgAiImportQueue {
             UPDATE ai_import.ai_import_job
             SET apply_state = $3,
                 apply_result = $4,
-                apply_progress = NULL,
+                -- Attribution survives ownership (review of #899): the slot is
+                -- freed below, but the outcome must still name the run that
+                -- produced it, or a client cannot tell its own result from a
+                -- later run's.
+                apply_result_run_id = $2,
                 apply_run_id = NULL,
+                apply_progress = NULL,
                 updated_at = now()
             WHERE id = $1 AND apply_run_id = $2
             RETURNING pg_notify('ai_import_job_events', id::text)
@@ -1810,7 +1824,7 @@ impl AiImportQueue for PgAiImportQueue {
         let row = sqlx::query(
             r#"
             SELECT apply_progress, apply_run_id, apply_run_seq, apply_claim_at,
-                   apply_state, apply_result
+                   apply_state, apply_result, apply_result_run_id
             FROM ai_import.ai_import_job
             WHERE id = $1
             "#,
@@ -1823,9 +1837,15 @@ impl AiImportQueue for PgAiImportQueue {
             return Ok(None);
         };
         let owner: Option<Uuid> = row.try_get("apply_run_id").map_err(map_sqlx_error)?;
+        let result_run: Option<Uuid> =
+            row.try_get("apply_result_run_id").map_err(map_sqlx_error)?;
         let seq: i64 = row.try_get("apply_run_seq").map_err(map_sqlx_error)?;
         Ok(Some(ApplyRunState {
+            // Live ownership. The outcome's own identity travels separately
+            // (issue #899 review): the terminal transition clears this one so the
+            // slot is immediately re-claimable.
             owner: owner.map(ApplyRunId::from_uuid),
+            result_run_id: result_run.map(ApplyRunId::from_uuid),
             seq,
             progress: decode_apply_progress(&row),
             // NULL for a claim made before the column existed: no age, rather
@@ -1928,6 +1948,7 @@ impl AiImportQueue for PgAiImportQueue {
                 -- outcome (issue #800 review + #899): the slot starts empty.
                 apply_progress = NULL,
                 apply_result = NULL,
+                apply_result_run_id = NULL,
                 apply_state = 'requested',
                 apply_request = $4,
                 apply_run_seq = apply_run_seq + 1,
@@ -2641,6 +2662,20 @@ fn decode_progress(row: &sqlx::postgres::PgRow) -> Option<AiImportProgress> {
     }
 }
 
+/// The run a client attributes this job's outcome to (issue #899 review).
+///
+/// Live ownership first (a running run *is* the answer while it runs), then the
+/// run recorded next to `apply_result` (the terminal transition clears ownership
+/// but keeps attribution). Parse failures decode as `None`: an unreadable id is
+/// "cannot tell", never an invented attribution.
+fn decode_run_identity(row: &sqlx::postgres::PgRow) -> Option<breakdown_core::ai::ApplyRunId> {
+    let owner: Option<Uuid> = row.try_get("apply_run_id").ok().flatten();
+    let result_run: Option<Uuid> = row.try_get("apply_result_run_id").ok().flatten();
+    owner
+        .or(result_run)
+        .map(breakdown_core::ai::ApplyRunId::from_uuid)
+}
+
 fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
     let kind = parse_document_kind(row.try_get("document_kind").map_err(map_sqlx_error)?)?;
     let status = parse_status(row.try_get("status").map_err(map_sqlx_error)?)?;
@@ -2726,13 +2761,12 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
                 breakdown_core::ai::ApplyState::from_stored(raw)
             }),
         apply_result: decode_apply_result(&row),
-        // The run that owns the slot (issue #899), so a client can tell its own
-        // run's outcome from a later run's. A NULL owner (pre-#899 row, cleared
-        // slot) decodes as `None`, never as an invented id.
-        apply_run_id: row
-            .try_get::<Option<Uuid>, _>("apply_run_id")
-            .map_err(map_sqlx_error)?
-            .map(breakdown_core::ai::ApplyRunId::from_uuid),
+        // The run a client attributes this job's outcome to (issue #899, and
+        // its review): while a run is live that is the owner, once it finished
+        // it is the run recorded next to `apply_result`. Both are NULL for a row
+        // that never dispatched, and decoding an absent value as an invented id
+        // is never an option.
+        apply_run_id: decode_run_identity(&row),
         // Whether an apply ever landed for this preview (issue #800). The
         // telemetry write records `Applied` (`accept_as_is` set) on the first
         // successful apply and never resets it, so this is the persisted

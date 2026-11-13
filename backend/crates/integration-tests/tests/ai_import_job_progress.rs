@@ -15,10 +15,30 @@ use anyhow::Result;
 use breakdown_core::ai::JobStatus;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage,
-    ApplyProgress, ApplyRunId, ApplyStage, DocumentKind,
+    ApplyProgress, ApplyRunId, ApplyRunRequest, ApplyStage, DocumentKind, ScriptApplyRunRequest,
 };
 use infra::ai::queue::PgAiImportQueue;
 use uuid::Uuid;
+
+/// The smallest persistable reviewer request this file needs: it only has to
+/// round-trip through `apply_request` so the slot is adoptable.
+fn apply_request() -> ApplyRunRequest {
+    ApplyRunRequest::Script(Box::new(ScriptApplyRunRequest {
+        actor: breakdown_core::shared::UserId::from_sub("user-apply-identity"),
+        episode_id: breakdown_core::shared::EpisodeId::new(),
+        season_id: breakdown_core::shared::SeasonId::new(),
+        project_id: None,
+        block_id: breakdown_core::shared::BlockId::new(),
+        decisions: Vec::new(),
+        episode_groups: Vec::new(),
+        known_episodes: Vec::new(),
+        shooting_days: Vec::new(),
+        acknowledged_uncertainties: Vec::new(),
+        categories: Vec::new(),
+        continuity_selections: Vec::new(),
+        telemetry: None,
+    }))
+}
 
 fn make_enqueue_request(user_id: &str) -> AiImportEnqueueRequest {
     AiImportEnqueueRequest {
@@ -290,6 +310,76 @@ async fn apply_progress_round_trips_on_a_succeeded_job() -> Result<()> {
     assert_eq!(
         state.seq, 1,
         "but the counter stays — that is what proves the run to the stream"
+    );
+    Ok(())
+}
+
+/// Review of #899: the terminal transition **keeps** the producing run's id, so
+/// the outcome stays attributable, and the finished slot is immediately
+/// re-claimable (a re-apply is the design's "overwrite the slot").
+///
+/// This is the PostgreSQL half of the client's run-identity check: `apply_state
+/// = done` + `apply_result` + `apply_run_id = A` is exactly what the terminal
+/// stream frame and `GET /jobs/{id}` report, and a client that dispatched A can
+/// therefore tell a later run B's outcome from its own.
+#[tokio::test]
+async fn a_finished_run_keeps_its_identity_and_frees_the_slot() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool);
+    let id = succeeded_job(&queue, "user-apply-identity").await?;
+
+    let run_a = ApplyRunId::new();
+    assert!(
+        queue.request_apply_run(id, run_a, &apply_request()).await?,
+        "the free slot accepts run A"
+    );
+    let claimed = queue
+        .begin_apply_run(id, ApplyRunId::new())
+        .await?
+        .expect("run A is adoptable");
+    assert_eq!(claimed.run_id, run_a, "adoption keeps the dispatched id");
+
+    let summary = breakdown_core::ai::ApplyImportSummary {
+        applied_count: 3,
+        ..Default::default()
+    };
+    queue.complete_apply_run(id, run_a, &summary).await?;
+
+    // The row still names A — the identity the frame and the job read serve.
+    let job = queue.get(id).await?.expect("job exists");
+    assert_eq!(
+        job.apply_run_id,
+        Some(run_a),
+        "a finished run keeps its identity so its outcome stays attributable"
+    );
+    assert_eq!(job.apply_state, breakdown_core::ai::ApplyState::Done);
+    assert!(job.apply_result.is_some(), "the outcome is persisted");
+    let slot = queue.apply_run_state(id).await?.expect("slot");
+    assert_eq!(
+        slot.owner, None,
+        "ownership is released: the finished run must free the slot at once"
+    );
+    assert_eq!(
+        slot.result_run_id,
+        Some(run_a),
+        "…while attribution survives, so the terminal frame names its producer"
+    );
+
+    // …and the finished slot is free for the next run, with no staleness wait.
+    let run_b = ApplyRunId::new();
+    assert!(
+        queue.request_apply_run(id, run_b, &apply_request()).await?,
+        "a re-apply after a finished run is accepted immediately (design D1)"
+    );
+    queue
+        .begin_apply_run(id, ApplyRunId::new())
+        .await?
+        .expect("run B is adoptable");
+    queue.complete_apply_run(id, run_b, &summary).await?;
+    assert_eq!(
+        queue.get(id).await?.expect("job exists").apply_run_id,
+        Some(run_b),
+        "the slot now names B — which is how A's client detects B"
     );
     Ok(())
 }

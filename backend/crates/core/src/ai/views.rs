@@ -725,8 +725,13 @@ pub struct AiImportJob {
     /// finished had no way to learn the outcome except by re-applying.
     #[serde(default)]
     pub apply_state: ApplyState,
-    /// The identity of the run that currently owns the slot (issue #899),
-    /// `None` before the first dispatch and after the payload was cleared.
+    /// The run this job's outcome is attributable to (issue #899), `None` before
+    /// the first dispatch.
+    ///
+    /// While a run is live this is its owner id; once it finished it is the run
+    /// recorded next to [`Self::apply_result`], because ownership is released at
+    /// the terminal transition (the slot must free up immediately) while the
+    /// attribution has to survive.
     ///
     /// A slot is single-flight per job but **not** immutable: run A can finish
     /// and run B take the slot before A's client re-subscribes. Without this
@@ -1089,6 +1094,12 @@ pub struct ApplyRunAccepted {
 pub struct ApplyRunState {
     /// The run that currently owns the slot; `None` when no run is live.
     pub owner: Option<ApplyRunId>,
+    /// The run that produced the persisted [`Self::result`], if one has finished
+    /// (review of #899). Distinct from [`Self::owner`] on purpose: ownership is
+    /// cleared by the terminal transition so the slot frees up immediately,
+    /// while attribution must survive — a client that dispatched run A compares
+    /// this against its own run id before believing the outcome is its own.
+    pub result_run_id: Option<ApplyRunId>,
     /// Monotonic run counter of this job: bumped on every claim, never cleared.
     pub seq: i64,
     /// What the owning run last published; `None` before its first write and
