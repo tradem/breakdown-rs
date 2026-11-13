@@ -2342,6 +2342,21 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get sceneDetailShootingDayColumnDay => 'Shooting day';
+
+  @override
+  String get sceneDetailShootingDayColumnDate => 'Date';
+
+  @override
+  String get sceneDetailRowActions => 'Row actions';
+
+  @override
+  String get sceneDetailSetDayDate => 'Set date';
+
+  @override
+  String get sceneDetailChangeDayDate => 'Change date';
+
+  @override
   String get sceneDetailNoShootingDays =>
       'Not scheduled on any shooting day yet.';
 
@@ -2353,7 +2368,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneDetailOpenDayBoard => 'Open day board';
 
   @override
-  String get sceneDetailScheduleOnDay => 'Schedule on day';
+  String get sceneDetailAddShootingDay => 'Add shooting day';
 
   @override
   String get sceneDetailNoDayCandidatesHint =>
@@ -2367,7 +2382,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sceneDetailCreateFirstDay => 'Create shooting day';
 
   @override
-  String get sceneDetailScheduleTitle => 'Schedule on shooting day';
+  String get sceneDetailPickShootingDay => 'Pick shooting day';
 
   @override
   String sceneDetailFetchError(Object code) {

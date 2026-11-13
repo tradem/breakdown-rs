@@ -24,11 +24,13 @@ import '../spacing.dart';
 /// * the caller keeps the count in the header text (e.g. „Figuren (3)"), so
 ///   a collapsed section still tells its story.
 ///
-/// Deliberate exception (issue #902): the scene detail's CAST table does NOT
-/// use this component — a cast list is page content ("who is in this scene, in
-/// which look"), not a secondary detail, so it renders an always-visible
-/// section header plus its own table chrome. This card stays the component for
-/// the sections that legitimately collapse (e.g. the shooting days).
+/// Deliberate exceptions (issues #902 and #903): neither the scene detail's CAST
+/// table nor its SHOOTING-DAYS table uses this component. A cast list ("who is
+/// in this scene, in which look") and the days a scene is planned on are page
+/// CONTENT, not secondary details, so both render an always-visible section
+/// header plus their own table chrome — and a settings/config surface hidden
+/// behind a collapse cannot be read at a glance. This card stays the component
+/// for sections that legitimately collapse.
 class SectionCard extends StatelessWidget {
   const SectionCard({
     super.key,

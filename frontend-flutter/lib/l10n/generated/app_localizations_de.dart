@@ -2371,6 +2371,21 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get sceneDetailShootingDayColumnDay => 'Drehtag';
+
+  @override
+  String get sceneDetailShootingDayColumnDate => 'Datum';
+
+  @override
+  String get sceneDetailRowActions => 'Zeilenaktionen';
+
+  @override
+  String get sceneDetailSetDayDate => 'Datum festlegen';
+
+  @override
+  String get sceneDetailChangeDayDate => 'Datum ändern';
+
+  @override
   String get sceneDetailNoShootingDays => 'Noch keinem Drehtag zugeordnet.';
 
   @override
@@ -2381,7 +2396,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneDetailOpenDayBoard => 'Day-Board öffnen';
 
   @override
-  String get sceneDetailScheduleOnDay => 'Auf Drehtag planen';
+  String get sceneDetailAddShootingDay => 'Drehtag hinzufügen';
 
   @override
   String get sceneDetailNoDayCandidatesHint =>
@@ -2395,7 +2410,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sceneDetailCreateFirstDay => 'Drehtag anlegen';
 
   @override
-  String get sceneDetailScheduleTitle => 'Auf Drehtag planen';
+  String get sceneDetailPickShootingDay => 'Drehtag wählen';
 
   @override
   String sceneDetailFetchError(Object code) {
