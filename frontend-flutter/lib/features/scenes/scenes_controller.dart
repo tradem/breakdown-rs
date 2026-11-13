@@ -292,19 +292,31 @@ String sceneUpdateErrorCopy(AppLocalizations l10n, ProblemError error) =>
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 @Riverpod(keepAlive: true)
 class ScenesController extends _$ScenesController {
+  /// No overlay-less version acknowledgement is recorded here (issue #916
+  /// audit): every scene write (create, details, outfit beats) re-acks an
+  /// optimistic overlay, so the overlay branch owns reconciliation. The
+  /// id+version rows this seam returns already feed the version-fenced
+  /// beat/details drops below.
   ReconciliationCoordinator? _coordinator;
 
-  /// Scene rows from the latest successful projection refetch (capture for
-  /// the version-fence drop below — the drop callback must compare against
-  /// the EXACT rows this pass fetched, not a later rebuild's view).
-  List<SceneView> _lastProjectedRows = const [];
+  /// Aggregate versions from the latest successful projection refetch
+  /// (capture for the version-fence drop below — the drop callback must
+  /// compare against the EXACT rows this pass fetched, not a later rebuild's
+  /// view).
+  Map<String, int> _lastProjectedVersions = const {};
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          if (rows != null) _lastProjectedRows = rows;
-          return rows?.map((s) => s.id).toList();
+          if (rows == null) return null;
+          final projected = [
+            for (final s in rows) ProjectedRow(id: s.id, version: s.version),
+          ];
+          _lastProjectedVersions = {
+            for (final row in projected) row.id: row.version,
+          };
+          return projected;
         },
         hasOverlays: () =>
             ref.read(scenesOverlaysProvider(episodeId)).isNotEmpty ||
@@ -330,15 +342,12 @@ class ScenesController extends _$ScenesController {
           // render on a lagging row (pre-ack aggregate version) — and for
           // details updates the scene row EXISTS from the start, so an
           // id-presence drop would fire immediately (issue #834).
-          final projectedVersions = {
-            for (final s in _lastProjectedRows) s.id: s.version,
-          };
           ref
               .read(sceneBeatOverlaysProvider(episodeId).notifier)
-              .dropProjected(projectedVersions);
+              .dropProjected(_lastProjectedVersions);
           ref
               .read(sceneDetailsOverlaysProvider(episodeId).notifier)
-              .dropProjected(projectedVersions);
+              .dropProjected(_lastProjectedVersions);
         },
         markAllStale: (warning) {
           ref

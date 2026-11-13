@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
@@ -379,12 +380,21 @@ void main() {
       await tester.tap(find.byKey(const Key('archive-category-confirm')));
       await tester.pump();
       expect(repo.archiveCalls, 1, reason: 'confirm dispatches archive');
-      holder.value = Right([_category('c1', archived: true)]);
+      holder.value = Right([_category('c1', archived: true, version: 2)]);
       // Awaited (not fire-and-forget): the confirm-triggered refresh may
       // refetch before the holder assignment above otherwise.
-      await container
+      final refresh = container
           .read(costumeCategoriesControllerProvider('season-1').notifier)
           .refresh();
+      // The overlay-less archive pass parked on the manual scheduler while the
+      // projection still carried the pre-archive version; release every tick
+      // deterministically (issue #916: the injectable scheduler drives the
+      // retries — never a wall-clock loop).
+      for (var i = 0; i < kMaxReconcileAttempts; i++) {
+        scheduler.advanceAll();
+        await tester.pump();
+      }
+      await refresh;
       await _pumpFrames(tester, n: 10);
 
       expect(find.byKey(const Key('category-c1')), findsNothing);

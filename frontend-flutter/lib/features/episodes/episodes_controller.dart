@@ -235,13 +235,19 @@ class EpisodesCommandError extends _$EpisodesCommandError {
 /// `groupByBlock` stays available as a pure mapper for merged renders.
 @Riverpod(keepAlive: true)
 class EpisodesController extends _$EpisodesController {
+  /// No overlay-less version acknowledgement is recorded here (issue #916
+  /// audit): the episode command set is create-only (`POST /v1/episodes`),
+  /// and a create always inserts an optimistic overlay, so the overlay
+  /// branch's id-based retry is the completion signal.
   ReconciliationCoordinator? _coordinator;
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((e) => e.id).toList();
+          return rows
+              ?.map((e) => ProjectedRow(id: e.id, version: e.version))
+              .toList();
         },
         hasOverlays: () =>
             ref.read(episodesOverlaysProvider(blockId, seasonId)).isNotEmpty,

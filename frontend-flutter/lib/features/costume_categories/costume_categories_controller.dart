@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -238,9 +239,11 @@ class CostumeCategoriesController extends _$CostumeCategoriesController {
 
   ReconciliationCoordinator get _reconcile =>
       _coordinator ??= ReconciliationCoordinator(
-        refetchProjectedIds: () async {
+        refetchProjection: () async {
           final rows = await _refetchProjection();
-          return rows?.map((c) => c.id).toList();
+          return rows
+              ?.map((c) => ProjectedRow(id: c.id, version: c.version))
+              .toList();
         },
         hasOverlays: () =>
             ref.read(costumeCategoriesOverlaysProvider(seasonId)).isNotEmpty,
@@ -407,7 +410,11 @@ class CostumeCategoriesController extends _$CostumeCategoriesController {
             .clear();
         // Reconcile via the bounded refetch so the row shows the new name
         // once projected (no fabricated overlay: the command result carries
-        // no display fields beyond the new version).
+        // no display fields beyond the new version). Overlay-less, so the
+        // pass needs the acknowledged version to detect a lagging projection
+        // (issue #916) — otherwise the row keeps its OLD name and old
+        // `version`, and the next rename conflicts.
+        _reconcile.ackReceived(id: category.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },
@@ -448,6 +455,10 @@ class CostumeCategoriesController extends _$CostumeCategoriesController {
         ref
             .read(costumeCategoriesCommandErrorProvider(seasonId).notifier)
             .clear();
+        // Overlay-less archive: the toggled row stays projected (the archived
+        // view reveals it), so the pass confirms the acknowledged version
+        // instead of one unverified fetch (issue #916).
+        _reconcile.ackReceived(id: category.id, version: version);
         unawaited(refresh());
         return Right<ProblemError, int>(version);
       },

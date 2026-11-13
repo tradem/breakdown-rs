@@ -23,6 +23,36 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A command that adds no optimistic row now waits for the projection
+  instead of trusting one fetch** (`0.4.0-beta.55+147 → 0.4.0-beta.56+148`,
+  issue #916). Found by the CodeRabbit review of #915 and pre-existing on the
+  shooting-days screen: the shared reconciliation runner treated an
+  overlay-less refresh as a single fetch — it never compared the acknowledged
+  aggregate version with the fetched row and never retried. After a successful
+  `reschedule` a lagging projector therefore left the day on its OLD date
+  **and old `version`**, and the next command built from that row failed with
+  `409 concurrency.version-mismatch` although nothing conflicted.
+  - **The runner compares versions, not only ids.** The projection seam now
+    returns `id` + `version` (`ProjectedRow`), and an overlay-less pass
+    re-fetches within the existing retry budget (injectable scheduler, no new
+    budget, no wall-clock loop) until the fetched row reaches the acknowledged
+    version — or the projection no longer carries the row at all
+    (archive/delete). A failed fetch is not treated as freshness. On
+    exhaustion the older row the last fetch wrote stays in place, nothing is
+    discarded silently, and the acknowledgement is consumed so one lag cannot
+    slow every later refresh. The 409 re-read from #903 stays as the last
+    resort.
+  - **Every aggregate decides explicitly.** The version gate is wired for the
+    shooting-day mutations (reschedule / rename / reorder / unschedule +
+    archive), the season archive, the character contact/measurements/category
+    corrections, the costume-category rename/archive and the continuity-photo
+    link/unlink. Aggregates whose commands cannot lag say so at the wiring
+    (create-only command sets, every write re-acks an overlay, or the
+    acknowledged version belongs to another aggregate — `wrap`, `linkInto`,
+    piece photo upload/delete).
+  - **No command semantics changed.** `reschedule` still adds no overlay,
+    dispatches no extra command, and echoes the version from the acted-on DTO.
+
 - **The scene's shooting days are a real table, and the row's action is the
   date** (`0.4.0-beta.54+146 → 0.4.0-beta.55+147`). Reported from the same
   scene-detail review that produced the cast table (issue #902): the days

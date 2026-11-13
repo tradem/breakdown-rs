@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
@@ -255,8 +256,12 @@ void main() {
         await ctx.controller.refresh();
         expect(ctx.state.showArchived, isFalse);
 
-        // Server marks the row archived; the bounded refetch confirms it.
-        ctx.repo.nextList = Right([_category('c1', archived: true)]);
+        // Server marks the row archived AND advances its aggregate version
+        // to the acknowledged one — a projector that applied the command
+        // always carries the new version (issue #916 version gate).
+        ctx.repo.nextList = Right([
+          _category('c1', archived: true, version: 2),
+        ]);
         final res = await ctx.controller.archive(category: _category('c1'));
         expect(res.isRight(), isTrue);
         await ctx.controller.refresh();

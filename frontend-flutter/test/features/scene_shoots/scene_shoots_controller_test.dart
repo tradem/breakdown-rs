@@ -624,7 +624,8 @@ void main() {
     });
 
     test('holder upload reaches the piece endpoint, then links', () async {
-      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      // Same acked-version fixture as the link/unlink test above (issue #916).
+      await setupContainer(initialRows: [_shoot('ssh-1', version: 5)]);
       final upload = await controller().uploadContinuityBytes(
         pieceId: 'c-1',
         bytes: Uint8List.fromList([1, 2, 3]),
@@ -644,6 +645,7 @@ void main() {
         isTrue,
       );
       expect(repo.linkCalls, 1);
+      // Join the refresh-triggered pass so no refetch outlives teardown.
       await controller().refresh();
     });
   });
@@ -682,7 +684,10 @@ void main() {
     });
 
     test('capability holder: link/list/unlink reach the repo', () async {
-      await setupContainer(initialRows: [_shoot('ssh-1')]);
+      // The projected shoot already carries the version the link/unlink fakes
+      // acknowledge (4 / 5), so the overlay-less pass confirms on its first
+      // fetch instead of parking on the manual scheduler (issue #916).
+      await setupContainer(initialRows: [_shoot('ssh-1', version: 5)]);
       final c = controller();
       expect(
         (await c.linkContinuityPhoto(
