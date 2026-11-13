@@ -3738,6 +3738,18 @@ abstract class AppLocalizations {
   /// **'Look'**
   String get sceneDetailCastColumnLook;
 
+  /// No description provided for @sceneDetailCastMenuTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktionen für {name}'**
+  String sceneDetailCastMenuTitle(Object name);
+
+  /// No description provided for @sceneDetailCastMenuHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Öffnet die Aktionen dieser Zeile'**
+  String get sceneDetailCastMenuHint;
+
   /// No description provided for @sceneDetailAssignCharacterAndLook.
   ///
   /// In de, this message translates to:
@@ -3783,7 +3795,7 @@ abstract class AppLocalizations {
   /// No description provided for @sceneDetailRemoveCharacterTooltip.
   ///
   /// In de, this message translates to:
-  /// **'Entfernen'**
+  /// **'Figur entfernen'**
   String get sceneDetailRemoveCharacterTooltip;
 
   /// No description provided for @sceneDetailAssignCharacter.

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async';
 
@@ -107,9 +108,9 @@ Iterable<StepDefinitionGeneric> outfitCastingSteps() => [
   when2<String, String, FlutterWorld>(
     'I cast outfit {string} onto the beat of character {string}',
     (String outfitSymbol, String characterSymbol, context) async {
-      // The scene detail's beat section offers the assign affordance per
-      // character; the picker returns the LOOK (selection only — editing the
-      // look stays on the outfit screens).
+      // The scene detail's beat section offers the row menu per character;
+      // the picker returns the LOOK (selection only — editing the look stays
+      // on the outfit screens).
       final world = context.world as AppWorld;
       final realOutfit = world.seedIds[outfitSymbol] ?? outfitSymbol;
       final realCharacter = world.seedIds[characterSymbol] ?? characterSymbol;
@@ -122,13 +123,13 @@ Iterable<StepDefinitionGeneric> outfitCastingSteps() => [
     'I add a look change for character {string} with outfit {string}',
     (String characterSymbol, String outfitSymbol, context) async {
       // A second beat on the same character is an in-scene change; the
-      // affordance is the `+ Lookwechsel` button of the character's group.
+      // affordance is the `+ Lookwechsel` item of that figure's row menu.
       final world = context.world as AppWorld;
       final realOutfit = world.seedIds[outfitSymbol] ?? outfitSymbol;
       final realCharacter = world.seedIds[characterSymbol] ?? characterSymbol;
       world.lastOutfitId = realOutfit;
       world.lastCharacterId = realCharacter;
-      await _castBeat(world, realCharacter, realOutfit, change: true);
+      await _castBeat(world, realCharacter, realOutfit);
     },
   ),
   then1<String, FlutterWorld>('the beat renders the look {string}', (
@@ -252,34 +253,42 @@ Iterable<StepDefinitionGeneric> outfitCastingSteps() => [
 ];
 
 /// Casts (or adds a change with) a look for one character on the open scene
-/// detail: the group's assign / add-change button, then the look picker row.
+/// detail: the row's CONTEXT MENU, then its labelled add-look item, then the
+/// look picker row (issue #902 retired the inline `scene-piece-assign-*` /
+/// `scene-piece-add-change-*` icon buttons).
+///
+/// Both cases tap the figure's FIRST row (`scene-character-<id>` — the stable
+/// key #669 gave it, still rendered on the first row of the figure). The
+/// add-look item is a FIGURE-level action and the command appends the beat,
+/// so a first cast and a change step are the SAME interaction: which row
+/// opened the menu does not change the outcome.
 Future<void> _castBeat(
   AppWorld world,
   String characterId,
-  String outfitId, {
-  bool change = false,
-}) async {
+  String outfitId,
+) async {
   final driver = world.driver!;
   final sceneKey = world.lastSceneId == null
       ? null
       : find.byValueKey('scene-detail-${world.lastSceneId}');
-  final button = find.byValueKey(
-    change
-        ? 'scene-piece-add-change-$characterId'
-        : 'scene-piece-assign-$characterId',
-  );
+  final row = find.byValueKey('scene-character-$characterId');
   if (sceneKey != null) {
     await driver.scrollUntilVisible(
       sceneKey,
-      button,
+      row,
       dxScroll: 0,
       dyScroll: -200,
       timeout: const Duration(seconds: 30),
     );
   } else {
-    await driver.waitFor(button, timeout: const Duration(seconds: 30));
+    await driver.waitFor(row, timeout: const Duration(seconds: 30));
   }
-  await FlutterDriverUtils.tap(driver, button);
+  await FlutterDriverUtils.tap(driver, row);
+  // One labelled menu per row: the add-look item carries the same key whether
+  // the figure is cast for the first time or gets another change step.
+  final menuItem = find.byValueKey('scene-cast-menu-add-look-$characterId');
+  await driver.waitFor(menuItem, timeout: const Duration(seconds: 20));
+  await FlutterDriverUtils.tap(driver, menuItem);
   final option = find.byValueKey('pick-outfit-$outfitId');
   await driver.waitFor(option, timeout: const Duration(seconds: 20));
   await FlutterDriverUtils.tap(driver, option);

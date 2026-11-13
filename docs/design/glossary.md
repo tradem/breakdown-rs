@@ -232,6 +232,11 @@ establishing change).
 | `edit_outlined` | **Szene bearbeiten** | Scene detail app-bar action (issue #834): ONE sheet for every scene field — number (with the honest no-uniqueness-check hint), location, mood (canonical shorthand chips + free-text fallback; a stored value outside the canonical set renders as its own selected chip and is echoed verbatim), script day, synopsis. Save dispatches with the acted-on `SceneView` version echoed | `sceneDetailEditTooltip` (+ `sceneDetailEdit*` field keys) |
 | — *(no icon)* | **Synopsis** / **Keine Synopsis** | Scene detail synopsis card (issue #834): the full summary in its own area — never the app-bar title; a missing synopsis renders the explicit empty state, never a fabricated line | `sceneDetailSynopsisTitle` / `sceneDetailNoSynopsis` |
 | — *(no icon)* | **★-Reihe „Synopsis" / „Szene"** | Decision-Model rating affordance in the synopsis card (issue #834): `AiScoreStars` renders the 1–5 bucket for a PRESENT `synopsisScore`/`sceneScore`; a `null` score renders NOTHING (honest absence, never a fabricated star) | `sceneDetailRatingSynopsis` / `sceneDetailRatingScene` (+ `aiScoreStarsLabel`) |
+| `chevron_right` | *(Affordanz-Cue)* | Besetzungs-Tabelle des Szenen-Details (issue #902): die Zeile ist EIN Tap-Ziel (≥ 48 dp), der Chevron zeigt an, dass sie ein Menü öffnet — Cue, keine Aktion (dekorativ, `Semantics(button: true, hint: …)`) | `sceneDetailCastMenuHint` |
+| `edit_outlined` | **Figur bearbeiten (Cast)** | Menü-Eintrag der Besetzungs-Zeile (issue #902, vorher ein Icon-Button IN der Zeile): öffnet die Cast-Ansicht der Figur; ohne auflösbare Season-Zeile DISABLED, nie abwesend | `sceneDetailEditCharacterTooltip` |
+| `add` | **Look zuweisen** / **+ Lookwechsel** | Menü-Eintrag der Besetzungs-Zeile (issue #902): weist den ersten Look zu bzw. hängt einen weiteren Wechsel an — die Beschriftung folgt dem Zustand der Figur | `sceneDetailAssignOutfit` / `sceneDetailAddChange` |
+| `delete_outline` | **Look entfernen** | Menü-Eintrag der Besetzungs-Zeile (issue #902) — nur auf einer Zeile, die einen Beat trägt (genau DER Beat dieser Zeile), immer mit Bestätigungsdialog | `sceneDetailRemoveOutfitTooltip` |
+| `person_remove_outlined` | **Figur entfernen** | Menü-Eintrag der Besetzungs-Zeile (issue #902) — nur auf der ERSTEN Zeile der Figur, immer mit Bestätigungsdialog | `sceneDetailRemoveCharacterTooltip` |
 | `smart_toy_outlined` | **Über KI in der App** | Dedicated About-AI disclosure screen (doorway from the About dialog AI notice): purpose, data flow, configured provider/model naming, 7-day payload retention, EU AI Act reference, source link | `ai.transparency.disclosure` |
 | `psychology_alt_outlined` | **KI-Kompetenz** | AI-config screen helper card for the operating admin (EU AI Act Art. 4 support) | `aiConfig.literacy` |
 | `rocket_launch_outlined` | **Season-Setup** | 4-Schritt-Assistent (Season → Blöcke → Prüfen → Fertig) inkl. Abbruch-Dialog | `wizard.*` |
@@ -439,7 +444,7 @@ accompany.
 | `check` / `check_circle_outline` | Selection avatar, job success | context-specific |
 | `broken_image` | Photo load failure fallback | `photos.loadError` |
 | `link_off` | Continuity strip — photo binding lost | `photos.bindingLost` |
-| `chevron_right` | List-item drill-down affordance | n/a (paired with visible title) |
+| `chevron_right` | List-item drill-down affordance; also the cast-row menu cue (issue #902 — the row is ONE tap target, the chevron is the affordance) | n/a (paired with visible title) / `sceneDetailCastMenuHint` |
 | `close` | Dismiss action in snackbars/dialogs | paired with visible snackbar text |
 | `star` / `star_border` | AI score rating glyphs — the 1–5 star indicator in preview + apply (filled vs. outline pair) | `aiScoreStarsLabel` (`{stars} of 5 stars`) |
 | `playlist_add_check` | AI-apply report card at the Script destination (issue #759) — accompanies the visible title **Import angewendet** | `aiPostImportReportTitle` |

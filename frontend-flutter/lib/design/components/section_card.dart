@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter/material.dart';
 
@@ -22,6 +23,12 @@ import '../spacing.dart';
 ///   screen opts into open only deliberately;
 /// * the caller keeps the count in the header text (e.g. „Figuren (3)"), so
 ///   a collapsed section still tells its story.
+///
+/// Deliberate exception (issue #902): the scene detail's CAST table does NOT
+/// use this component — a cast list is page content ("who is in this scene, in
+/// which look"), not a secondary detail, so it renders an always-visible
+/// section header plus its own table chrome. This card stays the component for
+/// the sections that legitimately collapse (e.g. the shooting days).
 class SectionCard extends StatelessWidget {
   const SectionCard({
     super.key,

@@ -519,149 +519,178 @@ class _SceneCastLooksSection extends ConsumerWidget {
         .where((o) => o.id == scene.id)
         .firstOrNull;
 
-    return SectionCard(
+    // One table row per (figure, look) — flattened out of the groups so the
+    // zebra banding has ONE index source: a figure's change steps are its own
+    // rows, exactly as the reader counts them (issue #902).
+    final rows = <_CastRowSpec>[
+      for (final group in groups)
+        if (group.beats.isEmpty)
+          _CastRowSpec(group: group)
+        else
+          for (var index = 0; index < group.beats.length; index++)
+            _CastRowSpec(group: group, beatIndex: index),
+    ];
+
+    // Always-visible section (issue #902): the cast is page CONTENT ("who is
+    // in this scene, in which look"), not a secondary detail that earns
+    // collapsing. A cold open shows the table, and the counts stay in the
+    // header where the reader looks for them. `SectionCard` keeps its
+    // no-divider contract for the sections that legitimately collapse (the
+    // shooting days).
+    return Column(
       key: Key('scene-cast-${scene.id}'),
-      pageStorageKey: 'scene-section-cast',
-      header: Text(l10n.sceneDetailCastTitle('${groups.length}', '$lookCount')),
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (groups.isEmpty)
+        Text(
+          l10n.sceneDetailCastTitle('${groups.length}', '$lookCount'),
+          key: const Key('scene-cast-title'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: AppSpacing.space8),
+        Card(
+          key: const Key('scene-cast-table'),
+          margin: EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          // Table chrome from `ColorScheme` roles ONLY (issue #902, AGENTS
+          // §9): the card sits ON the page surface, so the label band and the
+          // zebra rows carry the structure. In dark mode the M3 default card
+          // colour (`surfaceContainerLow`) is indistinguishable from
+          // `surface` — that was the reported defect.
+          color: Theme.of(context).colorScheme.surface,
+          child: Column(
+            children: [
+              const _CastTableHeader(),
+              if (groups.isEmpty)
+                ListTile(
+                  key: const Key('scene-cast-empty'),
+                  title: Text(l10n.sceneDetailNoCharacters),
+                )
+              else
+                for (final (index, spec) in rows.indexed)
+                  _castRowWidget(
+                    context,
+                    ref,
+                    spec: spec,
+                    zebra: index.isOdd,
+                    names: names,
+                    season: season,
+                  ),
+            ],
+          ),
+        ),
+        if (beatOverlay != null &&
+            beatOverlay.status != OverlayStatus.acknowledged) ...[
+          // The status is a TABLE-level row, never a cell: it renders BELOW
+          // the table, separated from it (issue #902).
+          const SizedBox(height: AppSpacing.space4),
           ListTile(
-            key: const Key('scene-cast-empty'),
-            title: Text(l10n.sceneDetailNoCharacters),
-          )
-        else ...[
-          const _CastTableHeader(),
-          for (final group in groups) ...[
-            if (group.beats.isEmpty)
-              // A cast figure without a look: the look column states that
-              // honestly and offers the one action that fixes it.
-              _CastRow(
-                key: Key('scene-character-${group.characterId}'),
-                characterId: group.characterId,
-                characterName:
-                    names[group.characterId] ??
-                    l10n.sceneDetailUnknownCharacter,
-                lookLabel: l10n.sceneDetailNoOutfitInScene,
-                lookKey: Key('scene-piece-empty-${group.characterId}'),
-                lookIsPlaceholder: true,
-                onEdit: season == null
-                    ? null
-                    : () => _openCharacter(context, ref, season, group),
-                onRemoveCharacter: () => _confirmRemoveCharacter(
-                  context,
-                  ref,
-                  group.characterId,
-                  names[group.characterId],
-                ),
-                trailingExtra: IconButton(
-                  key: Key('scene-piece-assign-${group.characterId}'),
-                  icon: const Icon(Icons.add),
-                  tooltip: l10n.sceneDetailAssignOutfit,
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _assignLook(
-                    context,
-                    ref,
-                    group.characterId,
-                    names[group.characterId],
+            key: const Key('scene-pieces-overlay-status'),
+            leading: beatOverlay.status == OverlayStatus.stale
+                ? const Icon(
+                    Icons.cloud_off,
+                    key: Key('scene-pieces-overlay-warning'),
+                  )
+                : const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                ),
-              )
-            else
-              for (var index = 0; index < group.beats.length; index++)
-                _CastRow(
-                  key: index == 0
-                      ? Key('scene-character-${group.characterId}')
-                      : null,
-                  characterId: group.characterId,
-                  isFirstRow: index == 0,
-                  beatOrder: group.beats[index].order,
-                  // The figure cell is written once per figure; the change
-                  // steps below it keep the column empty, like a table.
-                  characterName: index == 0
-                      ? (names[group.characterId] ??
-                            l10n.sceneDetailUnknownCharacter)
-                      : '',
-                  lookLabel: sceneBeatOutfitLabel(
-                    outfitName: group.beats[index].outfitName,
-                    genericFallback: l10n.pieceTileLabelFallback,
-                  ),
-                  lookIcon: BreakdownMaterialIcons.forCostumeCategory(
-                    group.beats[index].outfitName,
-                  ),
-                  lookNote: group.beats[index].note,
-                  changeArrow: group.beats[index].order > 0,
-                  onEdit: index != 0 || season == null
-                      ? null
-                      : () => _openCharacter(context, ref, season, group),
-                  onRemoveCharacter: index != 0
-                      ? null
-                      : () => _confirmRemoveCharacter(
-                          context,
-                          ref,
-                          group.characterId,
-                          names[group.characterId],
-                        ),
-                  onRemoveLook: () => _confirmRemoveLook(
-                    context,
-                    ref,
-                    group,
-                    group.beats[index],
-                  ),
-                  trailingExtra: index == group.beats.length - 1
-                      ? IconButton(
-                          key: Key(
-                            'scene-piece-add-change-'
-                            '${group.characterId}',
-                          ),
-                          icon: const Icon(Icons.add),
-                          tooltip: l10n.sceneDetailAddChange,
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () => _assignLook(
-                            context,
-                            ref,
-                            group.characterId,
-                            names[group.characterId],
-                          ),
-                        )
-                      : null,
-                ),
-          ],
-          if (beatOverlay != null &&
-              beatOverlay.status != OverlayStatus.acknowledged)
-            ListTile(
-              key: const Key('scene-pieces-overlay-status'),
-              leading: beatOverlay.status == OverlayStatus.stale
-                  ? const Icon(
-                      Icons.cloud_off,
-                      key: Key('scene-pieces-overlay-warning'),
-                    )
-                  : const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-              // Status-specific copy keyed on the overlay status: the
-              // "Created" stale warning would lie for piece updates and
-              // removals, and the raw `warning` CODE is never user copy.
-              title: Text(
-                beatOverlay.status == OverlayStatus.stale
-                    ? l10n.sceneBeatOverlayStale
-                    : l10n.sceneBeatOverlaySyncing,
-              ),
+            // Status-specific copy keyed on the overlay status: the
+            // "Created" stale warning would lie for piece updates and
+            // removals, and the raw `warning` CODE is never user copy.
+            title: Text(
+              beatOverlay.status == OverlayStatus.stale
+                  ? l10n.sceneBeatOverlayStale
+                  : l10n.sceneBeatOverlaySyncing,
             ),
+          ),
         ],
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton.tonalIcon(
-            key: Key('scene-character-assign-${scene.id}'),
-            onPressed: hasCandidates
-                ? () => _assignFigureAndLook(context, ref, characters.rows)
-                : null,
-            icon: const Icon(Icons.person_add_alt_1),
-            label: Text(l10n.sceneDetailAssignCharacterAndLook),
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.space8),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonalIcon(
+              key: Key('scene-character-assign-${scene.id}'),
+              onPressed: hasCandidates
+                  ? () => _assignFigureAndLook(context, ref, characters.rows)
+                  : null,
+              icon: const Icon(Icons.person_add_alt_1),
+              label: Text(l10n.sceneDetailAssignCharacterAndLook),
+            ),
           ),
         ),
       ],
+    );
+  }
+
+  /// One rendered row of the cast table (issue #902).
+  ///
+  /// The figure's own actions (Bearbeiten, Figur entfernen) belong to its FIRST
+  /// row; every row can add a look (the command appends the beat, so the row
+  /// that opened the menu does not change the outcome) and every row that
+  /// carries a beat can remove exactly THAT beat.
+  Widget _castRowWidget(
+    BuildContext context,
+    WidgetRef ref, {
+    required _CastRowSpec spec,
+    required bool zebra,
+    required Map<String, String> names,
+    required SeasonView? season,
+  }) {
+    final l10n = l10nOf(context);
+    final group = spec.group;
+    final beatIndex = spec.beatIndex;
+    final beat = beatIndex == null ? null : group.beats[beatIndex];
+    return _CastRow(
+      characterId: group.characterId,
+      characterName:
+          names[group.characterId] ?? l10n.sceneDetailUnknownCharacter,
+      isFirstRow: beatIndex == null || beatIndex == 0,
+      beatOrder: beat?.order,
+      zebra: zebra,
+      lookLabel: beat == null
+          ? l10n.sceneDetailNoOutfitInScene
+          : sceneBeatOutfitLabel(
+              outfitName: beat.outfitName,
+              genericFallback: l10n.pieceTileLabelFallback,
+            ),
+      lookKey: beat == null
+          ? Key('scene-piece-empty-${group.characterId}')
+          : null,
+      lookIsPlaceholder: beat == null,
+      lookIcon: beat == null
+          ? null
+          : BreakdownMaterialIcons.forCostumeCategory(beat.outfitName),
+      lookNote: beat?.note,
+      changeArrow: beat != null && beat.order > 0,
+      // `null` renders the menu item DISABLED (never absent) when no
+      // `SeasonView` resolves — an absent control is indistinguishable from
+      // "not supported".
+      onEdit: beatIndex == null || beatIndex == 0
+          ? (season == null
+                ? null
+                : () => _openCharacter(context, ref, season, group))
+          : null,
+      onRemoveCharacter: beatIndex == null || beatIndex == 0
+          ? () => _confirmRemoveCharacter(
+              context,
+              ref,
+              group.characterId,
+              names[group.characterId],
+            )
+          : null,
+      onRemoveLook: beat == null
+          ? null
+          : () => _confirmRemoveLook(context, ref, group, beat),
+      onAddLook: () => _assignLook(
+        context,
+        ref,
+        group.characterId,
+        names[group.characterId],
+      ),
+      addLookLabel: beat == null
+          ? l10n.sceneDetailAssignOutfit
+          : l10n.sceneDetailAddChange,
     );
   }
 
@@ -966,8 +995,43 @@ class _SceneCastLooksSection extends ConsumerWidget {
   }
 }
 
-/// Column labels of the cast table (issue #834 follow-up): the two-cell row
-/// reads as a table only when it says what the cells are.
+/// The trailing affordance column of a cast row (issue #902): ONE width,
+/// shared by the row's chevron and the label band's trailing spacer, so the
+/// look column starts at the same x under its label at every screen width.
+const double _castActionColumnWidth = AppSpacing.space24;
+
+/// The interactive minimum height of a cast row (issue #902): the row is ONE
+/// tap target, and the four inline icon buttons it replaces measured ~32 dp —
+/// below the 48 dp minimum (AGENTS §5).
+const double _castRowMinHeight = 48;
+
+/// The `<order>` segment of the row/menu keys for the row that carries NO beat
+/// (a figure without a look): it has no beat order to name.
+const String _castNoLookOrder = 'none';
+
+/// One row of the cast table, flattened out of a [SceneBeatGroup] (issue
+/// #902): the figure's first look (`beatIndex == 0`), one of its change steps,
+/// or its "no look yet" placeholder (`beatIndex == null`).
+class _CastRowSpec {
+  const _CastRowSpec({required this.group, this.beatIndex});
+
+  final SceneBeatGroup group;
+
+  /// The index into [SceneBeatGroup.beats]; `null` renders the placeholder row
+  /// of a figure this scene casts without a look.
+  final int? beatIndex;
+}
+
+/// The actions a cast row offers (issue #902): labelled items of the row's
+/// context menu instead of four icon-only buttons squeezed into the cells.
+enum _CastRowMenuAction { edit, addLook, removeLook, removeCharacter }
+
+/// Column labels of the cast table (issue #902): the band names the two cells
+/// AND carries the table's own surface treatment.
+///
+/// Contrast is a SCHEME property (`surfaceContainerHighest` vs
+/// `onSurfaceVariant`), never a drawn stroke — the same band reads in light
+/// and dark mode, where the M3 default card colour stops implying a surface.
 class _CastTableHeader extends StatelessWidget {
   const _CastTableHeader();
 
@@ -978,8 +1042,13 @@ class _CastTableHeader extends StatelessWidget {
     final style = theme.textTheme.labelSmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.space4),
+    return Container(
+      key: const Key('scene-cast-header-band'),
+      color: theme.colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.space12,
+        vertical: AppSpacing.space8,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -999,22 +1068,33 @@ class _CastTableHeader extends StatelessWidget {
               style: style,
             ),
           ),
+          // Same trailing width as a row's chevron column, so the labels sit
+          // EXACTLY over their columns.
+          const SizedBox(width: _castActionColumnWidth),
         ],
       ),
     );
   }
 }
 
-/// One table row of the cast section: the figure cell, the look cell and the
-/// actions. The look cell carries the beat identity (`AUTHZ`-free read DTO —
-/// `scene-piece-beat-<character>-<order>`), the arrow of a change step, the
-/// category icon and the wardrobe cue.
+/// One table row of the cast section (issue #902): the figure cell, the look
+/// cell, and ONE tap target that opens the row's labelled menu.
+///
+/// The look cell carries the beat identity (`scene-piece-beat-{character}-
+/// {order}` — a read DTO, never aggregate reconstruction), the arrow of a
+/// change step, the category icon and the wardrobe cue. The row renders banded
+/// (`surface` / `surfaceContainerLow`) plus an `outlineVariant` hairline: the
+/// hairline is a `DecoratedBox` border, NEVER a `Divider` widget, so issue
+/// #834's no-divider rule keeps holding for section chrome while the table
+/// gets its own.
 class _CastRow extends StatelessWidget {
   const _CastRow({
-    super.key,
     required this.characterId,
     required this.characterName,
     required this.lookLabel,
+    required this.zebra,
+    required this.addLookLabel,
+    required this.onAddLook,
     this.isFirstRow = true,
     this.beatOrder,
     this.lookKey,
@@ -1025,16 +1105,30 @@ class _CastRow extends StatelessWidget {
     this.onEdit,
     this.onRemoveCharacter,
     this.onRemoveLook,
-    this.trailingExtra,
   });
 
   final String characterId;
+
+  /// The figure's name. Rendered in the figure cell of the figure's FIRST row
+  /// only (a change step keeps the column empty, like a table); the row menu
+  /// names the figure on every row.
   final String characterName;
+
   final String lookLabel;
 
+  /// Whether this row is banded (`surfaceContainerLow`) instead of `surface`.
+  final bool zebra;
+
+  /// Menu label of the add-look action: „Look zuweisen" for a figure without a
+  /// look, „+ Lookwechsel" for a figure that already has one.
+  final String addLookLabel;
+
+  /// Opens the look picker — a first look or one more change step.
+  final VoidCallback onAddLook;
+
   /// Whether this row is the FIRST row of its figure. The figure cell (name
-  /// and its actions) is written once per figure — the change steps below it
-  /// keep the column empty, like a table.
+  /// and the figure's own actions) is written once per figure — the change
+  /// steps below it keep the column empty, like a table.
   final bool isFirstRow;
   final int? beatOrder;
 
@@ -1045,129 +1139,275 @@ class _CastRow extends StatelessWidget {
   final String? lookNote;
   final bool lookIsPlaceholder;
   final bool changeArrow;
+
+  /// `null` renders the menu item DISABLED, never absent: the edit route needs
+  /// a `SeasonView`, and "no season row resolved" is a state, not an
+  /// unsupported feature.
   final VoidCallback? onEdit;
   final VoidCallback? onRemoveCharacter;
   final VoidCallback? onRemoveLook;
-  final Widget? trailingExtra;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = l10nOf(context);
+    final scheme = theme.colorScheme;
     final lookStyle = lookIsPlaceholder
-        ? theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          )
+        ? theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)
         : theme.textTheme.bodyMedium;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.space4),
-      child: Row(
-        // The look column of every row starts at the same x as the header's:
-        // the figure's actions ride INSIDE column 1, never beside the table.
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Column 1 — the figure and its actions.
-          Expanded(
-            flex: 4,
-            child: isFirstRow
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        characterName,
-                        style: theme.textTheme.bodyMedium,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Wrap(
+    return Semantics(
+      // The whole row is one button-like tap target (issue #902): a context
+      // menu without a cue is a hidden affordance, so the row also carries the
+      // decorative chevron below.
+      button: true,
+      hint: l10n.sceneDetailCastMenuHint,
+      child: Material(
+        // Zebra banding (issue #902): a row reads as a unit in dark mode
+        // WITHOUT a single drawn line; the hairline reinforces it.
+        color: zebra ? scheme.surfaceContainerLow : scheme.surface,
+        child: InkWell(
+          key: Key(
+            'scene-cast-row-$characterId-${beatOrder ?? _castNoLookOrder}',
+          ),
+          // Tap and long-press open the SAME menu — one implementation, two
+          // triggers (long-press is the secondary habit, not a second menu).
+          onTap: () => unawaited(_openMenu(context)),
+          onLongPress: () => unawaited(_openMenu(context)),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: scheme.outlineVariant, width: 1),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.space12,
+                vertical: AppSpacing.space8,
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: _castRowMinHeight),
+                child: Row(
+                  // The figure's row identity for the widget tests and the
+                  // Gherkin steps (unchanged key, issue #669).
+                  key: isFirstRow ? Key('scene-character-$characterId') : null,
+                  // The look column of every row starts at the same x as the
+                  // label band's: the figure's actions live in the MENU now,
+                  // never beside the table.
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Column 1 — the figure, written once per figure.
+                    Expanded(
+                      flex: 4,
+                      child: isFirstRow
+                          ? Text(
+                              characterName,
+                              style: theme.textTheme.bodyMedium,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                    const SizedBox(width: AppSpacing.space8),
+                    // Column 2 — the look.
+                    Expanded(
+                      flex: 6,
+                      child: Row(
+                        key:
+                            lookKey ??
+                            (beatOrder == null
+                                ? null
+                                : Key(
+                                    'scene-piece-beat-$characterId-$beatOrder',
+                                  )),
                         children: [
-                          // Always rendered on the figure's first row: with
-                          // `onPressed: null` it is DISABLED when the season
-                          // row could not be resolved — an absent control is
-                          // indistinguishable from "not supported".
-                          IconButton(
-                            key: Key('scene-character-edit-$characterId'),
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                            tooltip: l10n.sceneDetailEditCharacterTooltip,
-                            visualDensity: VisualDensity.compact,
-                            onPressed: onEdit,
-                          ),
-                          if (onRemoveCharacter != null)
-                            IconButton(
-                              key: Key('scene-character-remove-$characterId'),
-                              icon: const Icon(
-                                Icons.person_remove_outlined,
-                                size: 18,
+                          if (changeArrow)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: Text(
+                                '→',
+                                key: Key(
+                                  'scene-piece-arrow-$characterId-$beatOrder',
+                                ),
                               ),
-                              tooltip: l10n.sceneDetailRemoveCharacterTooltip,
-                              visualDensity: VisualDensity.compact,
-                              onPressed: onRemoveCharacter,
                             ),
+                          if (lookIcon != null) ...[
+                            Icon(lookIcon, size: 18),
+                            const SizedBox(width: AppSpacing.space4),
+                          ],
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  lookLabel,
+                                  style: lookStyle,
+                                  // Wrapping, not ellipsis (issue #902): with
+                                  // the action icons gone, a long look label
+                                  // gets a second line on a 360 dp phone
+                                  // instead of stubbing to a few characters.
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (lookNote case final note?
+                                    when note.isNotEmpty)
+                                  Text(note, style: theme.textTheme.bodySmall),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
-                    ],
-                  )
-                : const SizedBox.shrink(),
-          ),
-          const SizedBox(width: AppSpacing.space8),
-          // Column 2 — the look and its actions.
-          Expanded(
-            flex: 6,
-            child: Row(
-              key:
-                  lookKey ??
-                  (beatOrder == null
-                      ? null
-                      : Key('scene-piece-beat-$characterId-$beatOrder')),
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      if (changeArrow)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: Text(
-                            '→',
-                            key: Key(
-                              'scene-piece-arrow-$characterId-$beatOrder',
-                            ),
-                          ),
-                        ),
-                      if (lookIcon != null) ...[
-                        Icon(lookIcon, size: 18),
-                        const SizedBox(width: AppSpacing.space4),
-                      ],
-                      Flexible(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              lookLabel,
-                              style: lookStyle,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            if (lookNote case final note? when note.isNotEmpty)
-                              Text(note, style: theme.textTheme.bodySmall),
-                          ],
-                        ),
+                    ),
+                    // The affordance cue of the tap target — decorative, never
+                    // an action (issue #902).
+                    SizedBox(
+                      width: _castActionColumnWidth,
+                      child: Icon(
+                        Icons.chevron_right,
+                        size: 20,
+                        color: scheme.onSurfaceVariant,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                if (onRemoveLook != null)
-                  IconButton(
-                    key: Key('scene-piece-remove-$characterId-$beatOrder'),
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    tooltip: l10n.sceneDetailRemoveOutfitTooltip,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onRemoveLook,
-                  ),
-                ?trailingExtra,
-              ],
+              ),
             ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  /// Opens the row menu and dispatches the chosen action.
+  ///
+  /// The sheet closes BEFORE the action runs, so a confirm dialog or a picker
+  /// never stacks on top of an animating sheet.
+  Future<void> _openMenu(BuildContext context) async {
+    final action = await showModalBottomSheet<_CastRowMenuAction>(
+      context: context,
+      builder: (_) => _CastRowMenu(
+        characterId: characterId,
+        characterName: characterName,
+        beatOrder: beatOrder,
+        isFirstRow: isFirstRow,
+        addLookLabel: addLookLabel,
+        onEdit: onEdit,
+        onRemoveCharacter: onRemoveCharacter,
+        onRemoveLook: onRemoveLook,
+      ),
+    );
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case _CastRowMenuAction.edit:
+        onEdit?.call();
+      case _CastRowMenuAction.addLook:
+        onAddLook();
+      case _CastRowMenuAction.removeLook:
+        onRemoveLook?.call();
+      case _CastRowMenuAction.removeCharacter:
+        onRemoveCharacter?.call();
+    }
+  }
+}
+
+/// The row's context menu (issue #902): the four actions as LABELLED items.
+///
+/// `showModalBottomSheet` with `ListTile`s is this screen's mobile-first
+/// pattern (`showPickOutfitSheet`, `AssignCharacterSheet`), and it is a net
+/// accessibility improvement over the inline icon row it replaces: every action
+/// now carries a visible label (glossary rule, AGENTS §5), and nothing is
+/// icon-only any more.
+class _CastRowMenu extends StatelessWidget {
+  const _CastRowMenu({
+    required this.characterId,
+    required this.characterName,
+    required this.isFirstRow,
+    required this.addLookLabel,
+    this.beatOrder,
+    this.onEdit,
+    this.onRemoveCharacter,
+    this.onRemoveLook,
+  });
+
+  final String characterId;
+  final String characterName;
+  final bool isFirstRow;
+  final String addLookLabel;
+  final int? beatOrder;
+
+  /// `null` disables the edit item (`SeasonView` unresolved) — it stays
+  /// visible.
+  final VoidCallback? onEdit;
+  final VoidCallback? onRemoveCharacter;
+  final VoidCallback? onRemoveLook;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = l10nOf(context);
+    final order = beatOrder ?? _castNoLookOrder;
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          key: Key('scene-cast-menu-$characterId-$order'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.space16,
+                AppSpacing.space12,
+                AppSpacing.space16,
+                AppSpacing.space4,
+              ),
+              child: Text(
+                l10n.sceneDetailCastMenuTitle(characterName),
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
+            // Bearbeiten: on the figure's first row, ALWAYS rendered — with no
+            // resolvable `SeasonView` it is disabled, never absent.
+            if (isFirstRow)
+              ListTile(
+                key: Key('scene-cast-menu-edit-$characterId'),
+                enabled: onEdit != null,
+                leading: const Icon(Icons.edit_outlined),
+                title: Text(l10n.sceneDetailEditCharacterTooltip),
+                onTap: onEdit == null
+                    ? null
+                    : () => Navigator.of(context).pop(_CastRowMenuAction.edit),
+              ),
+            ListTile(
+              key: Key('scene-cast-menu-add-look-$characterId'),
+              leading: const Icon(Icons.add),
+              title: Text(addLookLabel),
+              onTap: () =>
+                  Navigator.of(context).pop(_CastRowMenuAction.addLook),
+            ),
+            // Look entfernen: ONLY on a row that carries a beat — the row's
+            // own beat is the target, and a figure without a look has nothing
+            // to remove.
+            if (onRemoveLook != null)
+              ListTile(
+                key: Key('scene-cast-menu-remove-look-$characterId-$order'),
+                leading: const Icon(Icons.delete_outline),
+                title: Text(l10n.sceneDetailRemoveOutfitTooltip),
+                onTap: () =>
+                    Navigator.of(context).pop(_CastRowMenuAction.removeLook),
+              ),
+            // Figur entfernen: ONLY on the figure's first row — one place to
+            // unassign a figure, not one per change step.
+            if (onRemoveCharacter != null)
+              ListTile(
+                key: Key('scene-cast-menu-remove-character-$characterId'),
+                leading: const Icon(Icons.person_remove_outlined),
+                title: Text(l10n.sceneDetailRemoveCharacterTooltip),
+                onTap: () =>
+                    Navigator.of(context)
+                        .pop(_CastRowMenuAction.removeCharacter),
+              ),
+          ],
+        ),
       ),
     );
   }
