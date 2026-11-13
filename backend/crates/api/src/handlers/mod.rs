@@ -7177,6 +7177,22 @@ pub enum ApplyStreamVerdict {
 
 /// Classify the current row for the apply stream. Pure apart from `now`, so
 /// the close condition is unit-testable without a stream or a clock.
+/// The run identity a stream frame reports (review of #899).
+///
+/// One rule, one place: while a run is **live** its ownership is the answer;
+/// once it finished, ownership is released (so the slot frees immediately) and
+/// the run recorded next to the persisted outcome answers instead. A client
+/// compares this against the id its `202` returned before believing an outcome
+/// is its own, so getting it wrong means reporting a stranger's import.
+///
+/// Extracted so the mapping is testable without a socket — the PostgreSQL test
+/// proves what the slot holds, the API test proves what the frame reports.
+pub fn apply_frame_run_id(
+    slot: &breakdown_core::ai::ApplyRunState,
+) -> Option<breakdown_core::ai::ApplyRunId> {
+    slot.owner.or(slot.result_run_id)
+}
+
 pub fn classify_apply_run(
     run_state: &breakdown_core::ai::ApplyRunState,
     baseline_seq: i64,
@@ -7335,7 +7351,7 @@ where
                     // frame carries no payload), and a null id here is what let
                     // a client attribute a later run's result to its own
                     // (issue #899 review).
-                    run_id: snapshot.owner.or(snapshot.result_run_id),
+                    run_id: apply_frame_run_id(&snapshot),
                     apply_progress: payload,
                     apply_state: snapshot.state,
                     apply_result: outcome,
