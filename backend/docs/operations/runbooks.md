@@ -1417,3 +1417,40 @@ delete existing rows, so re-enabling resumes with the verdicts as they were.
 `AI_IMPORT_PROVIDER_SWEEP_ENABLED=false` stops the sweeper (and with it the
 probe and the hold expiry — **only** for a diagnosis window: without the
 sweeper, holds never expire and an open breaker never closes).
+
+## 17. Attributing an AI-import apply (issue #900)
+
+A 49-scene apply takes ≈7 minutes, and neither obvious story survives arithmetic:
+~740 appends are single-digit seconds at the measured group-commit rate, and ~1,100
+Postgres writes at 0.34 ms are under one. The remaining time is **latency × chain
+length**, so it has to be attributed before anything is optimised — a fix chosen from
+taste would have been aimed at the payload, which is not the problem.
+
+### M1 — where the per-row Postgres time goes
+
+Every mapped aggregate of an apply costs one `reserve` (insert-if-absent) and one
+`insert` (confirm). Both now acquire the connection explicitly and log the two halves
+separately, because the app pool (20) is shared with 16–18 projectors and sagas —
+and the apply *creates* the projection backlog those projectors write:
+
+```
+grep "AI import mapping write" api.log | jq -r '.fields | [.operation,
+  .histogram_mapping_acquire_duration, .histogram_mapping_statement_duration,
+  .pool_size, .pool_num_idle] | @tsv'
+```
+
+Sort the acquire column for p50/p95 and do the same for the statement column. The
+same numbers arrive summed per run in the apply's own summary line
+(`"AI import apply row phase finished"`), which is what decomposes `row_ms_avg`:
+
+| Field | Meaning |
+|---|---|
+| `mapping_reserve_ops` / `mapping_insert_ops` | how many of each call that run issued |
+| `mapping_acquire_ms_total` / `mapping_statement_ms_total` | the phase's summed wait vs. summed statement time |
+| `mapping_acquire_ms_per_row` / `mapping_statement_ms_per_row` | the same, divided by `rows` — the part of `row_ms_avg` each explains |
+| `db_pool_size` / `db_pool_num_idle` | the pool gauges at the last write (the worker holds no pool of its own) |
+
+**Reading it.** `acquire_ms_per_row ≫ statement_ms_per_row` with a low `num_idle` means
+the apply is queuing behind projection catch-up, not writing slowly — the lever is a
+separate pool (or a batched confirm), never a "faster query". The reverse means the
+statement itself is the cost, and the write-path cost model (ADR-016 §6) applies.

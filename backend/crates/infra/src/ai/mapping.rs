@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::Instant;
 
 use breakdown_core::ai::{
     AiImportJobId, AiImportMapping, AiImportMappingRepository, PRIMARY_ORDINAL,
@@ -13,6 +14,8 @@ use breakdown_core::ai::{
 use breakdown_core::error::DomainError;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+use super::mapping_metrics::{MAPPING_WRITES, MappingWriteOp};
 
 /// Full primary key of one mapping row: `(preview, draft_ref, kind, ordinal)`.
 type MappingKey = (AiImportJobId, String, String, i32);
@@ -118,6 +121,36 @@ impl PgAiImportMappingRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    /// Split one mapped write into "waited for a connection" and "the statement
+    /// itself" (issue #900, M1), and hand both to the process-wide counters.
+    ///
+    /// The split is the whole point of the measurement: the app pool (20) is
+    /// shared with 16–18 projectors and sagas while an apply *creates* the
+    /// backlog they write, so "slow write" and "write queued behind projection
+    /// catch-up" are indistinguishable in one total. Log shape follows the
+    /// event store's per-append `histogram.*` lines, so p50/p95 are derived from
+    /// the log and the run's share from the counter delta (`workers.rs`).
+    fn record_write(
+        &self,
+        op: MappingWriteOp,
+        acquire: std::time::Duration,
+        statement: std::time::Duration,
+    ) {
+        let pool_size = self.pool.size();
+        let pool_num_idle = self.pool.num_idle();
+        MAPPING_WRITES.record(op, acquire, statement, pool_size, pool_num_idle);
+        tracing::info!(
+            // The parent span of a row carries the job/run ids, so the fields
+            // stay per-write only — no duplicated context in every line.
+            operation = op.as_str(),
+            histogram.mapping_acquire_duration = acquire.as_secs_f64(),
+            histogram.mapping_statement_duration = statement.as_secs_f64(),
+            pool_size,
+            pool_num_idle,
+            "AI import mapping write"
+        );
+    }
 }
 
 #[async_trait::async_trait]
@@ -153,6 +186,15 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         // both attempts drive the same aggregate id — `ON CONFLICT DO UPDATE`
         // with a no-op set is how the winning row is returned by the same
         // statement (a bare `DO NOTHING` would return no row at all).
+        // The connection is acquired explicitly (not `&self.pool`) so the wait
+        // for a pooled connection can be timed separately from the statement —
+        // the two are exactly the ambiguity issue #900 M1 has to resolve. One
+        // connection per statement, released before the fallback read below so
+        // the `None` path cannot need two at once under a saturated pool.
+        let acquire_started = Instant::now();
+        let mut conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        let acquire = acquire_started.elapsed();
+        let statement_started = Instant::now();
         let row = sqlx::query(
             r#"
             INSERT INTO ai_import.projection_ai_import_mapping
@@ -169,9 +211,12 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
             .bind(mapping.ordinal)
             .bind(mapping.aggregate_id)
             .bind(version_to_db(mapping.aggregate_version)?)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+            .fetch_optional(&mut *conn)
+            .await;
+        let statement = statement_started.elapsed();
+        drop(conn);
+        self.record_write(MappingWriteOp::Reserve, acquire, statement);
+        let row = row.map_err(map_sqlx_error)?;
         match row {
             Some(row) => map_mapping(row),
             // The row vanished between conflict and return (a concurrent
@@ -198,7 +243,13 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         // holds a reservation's version 0) must never roll a confirmed row
         // back. The `WHERE` belongs to the `DO UPDATE`, not the statement, so a
         // non-advancing write simply affects zero rows.
-        sqlx::query(
+        // Same acquire/statement split as `reserve` (issue #900 M1): the
+        // confirm of every row lands behind the same shared pool.
+        let acquire_started = Instant::now();
+        let mut conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        let acquire = acquire_started.elapsed();
+        let statement_started = Instant::now();
+        let executed = sqlx::query(
             r#"
             INSERT INTO ai_import.projection_ai_import_mapping
                 (preview_id, draft_ref, aggregate_kind, ordinal, aggregate_id, aggregate_version)
@@ -218,9 +269,12 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         .bind(mapping.ordinal)
         .bind(mapping.aggregate_id)
         .bind(version_to_db(mapping.aggregate_version)?)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
+        .execute(&mut *conn)
+        .await;
+        let statement = statement_started.elapsed();
+        drop(conn);
+        self.record_write(MappingWriteOp::Insert, acquire, statement);
+        executed.map_err(map_sqlx_error)?;
         Ok(())
     }
 
