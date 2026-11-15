@@ -173,8 +173,8 @@ class SceneShootsOverlays extends _$SceneShootsOverlays {
 
   /// Version-fenced drop against the rows the reconciliation pass just fetched
   /// (issues #834, #917): a row-level edit keeps its id, so only the projected
-  /// version can confirm it. A create-path overlay (id absent from the
-  /// projection) survives, and a lagging row keeps the optimistic render.
+  /// version can confirm it — a lagging row keeps the optimistic render, while
+  /// an absent row means the edited row is gone and completes the overlay.
   void dropProjectedRows(List<ProjectedRow> rows) =>
       state = overlayDropProjectedRows(state, rows);
 

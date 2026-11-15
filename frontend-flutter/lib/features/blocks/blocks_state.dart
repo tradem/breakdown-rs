@@ -30,6 +30,8 @@ class BlockOverlay implements ReconciliationOverlay {
   /// overlay and reconcile on the acknowledged version instead (issue #916).
   @override
   int? get acknowledgedVersion => null;
+  @override
+  bool get isCreate => true;
 
   /// Block number carried from the submitted form (display-only field).
   final int? number;

@@ -35,6 +35,8 @@ class CharacterOverlay implements ReconciliationOverlay {
   /// instead (issue #916).
   @override
   int? get acknowledgedVersion => null;
+  @override
+  bool get isCreate => true;
 
   final String? name;
 

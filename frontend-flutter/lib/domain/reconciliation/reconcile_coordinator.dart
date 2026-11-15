@@ -40,9 +40,10 @@ class ProjectedRow {
 ///   (issue #916);
 /// - an **update** overlay (a row-level edit of an already-projected row, so
 ///   id presence is true before the fetch) drops only when the fetched row
-///   reaches its acknowledged version — the runner hands the fresh
-///   [ProjectedRow] rows to the owning overlay store, which fences by version
-///   (issue #917);
+///   reaches its acknowledged version — or when the projection no longer
+///   carries the row at all, because the row it edits is gone. The runner hands
+///   the fresh [ProjectedRow] rows to the owning overlay store, which fences by
+///   version (issue #917);
 /// - late acknowledgements during a pass get a dedicated follow-up pass so
 ///   every acknowledgement gets a post-ack projection fetch.
 ///
@@ -132,8 +133,9 @@ class ReconciliationCoordinator {
 
   /// Bounded-retry reconciliation pass: refetch the projection up to
   /// [kMaxReconcileAttempts] times, dropping the overlays the projection has
-  /// caught up with (by version for a row-level update overlay, by id for a
-  /// create overlay) — or, for an overlay-less acknowledgement, once the
+  /// caught up with (by version for a row-level update overlay — or by the
+  /// row's absence, since a deleted row can never reach a version — and by id
+  /// for a create overlay) — or, for an overlay-less acknowledgement, once the
   /// projected version reaches the acknowledged one. On exhaustion the
   /// overlays are retained and marked `stale` — Drift still contains no
   /// unprojected row.

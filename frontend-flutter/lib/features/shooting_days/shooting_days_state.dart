@@ -32,6 +32,8 @@ class ShootingDayOverlay implements ReconciliationOverlay {
   /// acknowledged version instead (issue #916).
   @override
   int? get acknowledgedVersion => null;
+  @override
+  bool get isCreate => true;
 
   final String? label;
   final String? orderKey;

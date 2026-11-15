@@ -423,6 +423,7 @@ void main() {
         id: 'c-1',
         overlay: applyNotesOptimistic(base, 'notes'),
         acknowledgedVersion: 2,
+        isCreate: false,
         status: OverlayStatus.reconciling,
       );
       final held = PiecesScreenState(

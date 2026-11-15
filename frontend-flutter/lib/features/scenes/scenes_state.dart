@@ -37,6 +37,9 @@ class SceneOverlay implements ReconciliationOverlay {
   @override
   int? get acknowledgedVersion => null;
 
+  @override
+  bool get isCreate => true;
+
   /// Scene number carried from the submitted form (display-only field).
   final int? sceneNumber;
 
@@ -104,6 +107,11 @@ class SceneBeatOverlay implements ReconciliationOverlay {
   /// the acknowledged version is the fence (issue #917).
   @override
   int get acknowledgedVersion => version;
+
+  /// An update of an already-projected scene row: an absent row means the
+  /// scene is gone, not that it has yet to project (issue #917).
+  @override
+  bool get isCreate => false;
 
   /// The complete optimistic beat list of the scene (display rendering
   /// only; the projected list replaces it once the projection catches up).
@@ -177,6 +185,11 @@ class SceneDetailsOverlay implements ReconciliationOverlay {
   /// the acknowledged version is the fence (issue #917).
   @override
   int get acknowledgedVersion => version;
+
+  /// An update of an already-projected scene row: an absent row means the
+  /// scene is gone, not that it has yet to project (issue #917).
+  @override
+  bool get isCreate => false;
 
   /// The complete optimistic details payload (display rendering only; the
   /// projected row replaces it once the projection catches up).

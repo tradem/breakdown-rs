@@ -25,23 +25,34 @@ abstract class ReconciliationOverlay {
   /// Server-assigned id (from the command's 2xx acknowledgement).
   String get id;
 
-  /// The aggregate version the command's 2xx acknowledgement returned, or
-  /// `null` when the id alone IS the completion signal.
+  /// Whether this overlay belongs to a **create** (`true`) or to an **update**
+  /// of a row that was already projected (`false`).
   ///
-  /// The two shapes are not interchangeable (issue #917):
+  /// The two shapes do not share a completion signal (issue #917):
   ///
-  /// * **Create overlay** — the id appears in the projection only once the
-  ///   create reached the read model, so id presence is a real signal and
-  ///   `null` is correct. The optimistic fields are display-only values
-  ///   carried from the submitted form, not an aggregate version.
-  /// * **Update overlay** — the row is already projected, so id presence is
-  ///   true *before* the fetch and says nothing. Such an overlay MUST return
-  ///   the acknowledged version; the generic [overlayDropProjectedRows] fence
-  ///   then keeps it until the fetched row reaches it.
+  /// * a **create** overlay's id only appears in the projection once the create
+  ///   reached the read model, so **id presence completes it** and an absent id
+  ///   means "not there yet" → keep it;
+  /// * an **update** overlay's row was projected *before* the command, so id
+  ///   presence says nothing. It is fenced by [acknowledgedVersion], and an
+  ///   **absent** row means the edited row is gone (deleted, or out of the
+  ///   fetched scope) → the overlay completes.
   ///
-  /// Every implementation states which of the two it is, with the reason at
-  /// the declaration — an update overlay that returns `null` silently
-  /// regresses to the flash-the-old-value defect of issue #917.
+  /// Every implementation states which it is, with the reason at the
+  /// declaration: an update overlay that claims `true` regresses to the
+  /// flash-the-old-value defect of issue #917, a create overlay that claims
+  /// `false` disappears before its row is projected.
+  bool get isCreate;
+
+  /// The aggregate version the command's 2xx acknowledgement returned.
+  ///
+  /// An **update** overlay MUST supply it: the fence keeps the overlay until
+  /// the fetched row reaches that version. A **create** overlay may carry it
+  /// (its optimistic row echoes it for follow-up commands) — its drop is
+  /// decided by id presence, not by this version.
+  ///
+  /// `null` therefore only appears on create overlays that have no version to
+  /// echo (the form-derived types).
   int? get acknowledgedVersion;
 
   /// Current reconciliation status.
@@ -75,27 +86,33 @@ List<E> overlayMarkAllReconciling<E extends ReconciliationOverlay>(
 /// Version-fenced drop of every overlay the freshly fetched projection has
 /// caught up with (issue #917).
 ///
-/// * the projected row is **absent** → the overlay is kept (a create that has
-///   not reached the read model yet);
-/// * the overlay carries **no** [ReconciliationOverlay.acknowledgedVersion] →
-///   id presence completes it (create overlay: the id only appears once the
-///   create is projected);
-/// * the overlay carries one → it is dropped only when the fetched row reaches
-///   that version. A **lagging** row (pre-command version) keeps the overlay,
-///   so a row-level update never flashes the old value back and its old
-///   `version` never becomes the echo of the next command.
+/// * a **create** overlay ([ReconciliationOverlay.isCreate]) is kept while the
+///   projection does not carry its id (the create has not projected yet) and
+///   completes as soon as it does;
+/// * an **update** overlay is completed by the row's **absence** — its row is
+///   gone, so no later fetch could ever reach the acknowledged version — and
+///   otherwise kept until the fetched row reaches
+///   [ReconciliationOverlay.acknowledgedVersion]. A **lagging** row
+///   (pre-command version) keeps it, so a row-level update never flashes the
+///   old value back and its old `version` never becomes the echo of the next
+///   command.
 ///
-/// Nothing is dropped on a `null` fetch: the caller only invokes this with the
-/// rows a successful refetch produced.
+/// An empty successful fetch is the same rule with no rows at all: every
+/// update overlay's row is gone, every create overlay simply has not projected
+/// yet. A FAILED fetch never reaches this function (the runner only hands over
+/// the rows a successful refetch produced), so absence is evidence, never a
+/// transport artifact.
 List<E> overlayDropProjectedRows<E extends ReconciliationOverlay>(
   List<E> state,
   List<ProjectedRow> rows,
 ) {
-  if (rows.isEmpty) return state;
   final projectedVersions = {for (final row in rows) row.id: row.version};
   return state.where((o) {
     final projected = projectedVersions[o.id];
-    if (projected == null) return true;
+    // Create: presence completes, absence means "not projected yet".
+    if (o.isCreate) return projected == null;
+    // Update: absence means the edited row is gone, so the overlay completes.
+    if (projected == null) return false;
     final acknowledged = o.acknowledgedVersion;
     if (acknowledged == null) return false;
     return projected < acknowledged;

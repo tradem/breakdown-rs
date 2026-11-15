@@ -6,11 +6,14 @@
 
 ## 1. The contract and the shared drop (`lib/domain/reconciliation/`)
 
-- [x] 1.1 `ReconciliationOverlay` gains `int? get acknowledgedVersion` with the
-      two-shape doc (create = `null` → id presence; update = version fence).
+- [x] 1.1 `ReconciliationOverlay` gains `bool get isCreate` (create = id
+      presence completes it) and `int? get acknowledgedVersion` (update = version
+      fence; a create shell may echo a version without being fenced by it).
 - [x] 1.2 `overlayDropProjectedRows(state, List<ProjectedRow>)` replaces
       `overlayDropProjectedIds(state, Set<String>)`; `OverlayStore` exposes
-      `dropProjectedRows` instead of `dropProjectedIds`.
+      `dropProjectedRows` instead of `dropProjectedIds`. An absent row completes
+      an update overlay (the edited row is gone) and keeps a create overlay; an
+      empty successful fetch applies the same rule (review of #919).
 - [x] 1.3 `ReconciliationCoordinator`'s drop seam becomes
       `dropProjectedRows: void Function(List<ProjectedRow> rows)`; `_runPass`
       hands over the fetched rows instead of a bare id set. Class/`reconcile()`
@@ -18,15 +21,17 @@
 
 ## 2. Per-aggregate wiring (`lib/features/**`)
 
-- [x] 2.1 Create-only overlay types answer the contract with `null` **and** the
-      reason: `SeasonOverlay`, `BlockOverlay`, `EpisodeOverlay`,
-      `CharacterOverlay`, `CostumeCategoryOverlay`, `ShootingDayOverlay`,
-      `SceneOverlay` (each naming the overlay-less commands that use the #916
-      path instead).
+- [x] 2.1 Create-only overlay types answer `isCreate => true` +
+      `acknowledgedVersion => null` **with** the reason: `SeasonOverlay`,
+      `BlockOverlay`, `EpisodeOverlay`, `CharacterOverlay`,
+      `CostumeCategoryOverlay`, `ShootingDayOverlay`, `SceneOverlay` (each naming
+      the overlay-less commands that use the #916 path instead).
 - [x] 2.2 Row-level overlay types satisfy the contract: `PieceRowOverlay`,
-      `SceneShootRowOverlay`, `OutfitRowOverlay` (field now `@override`),
-      `SceneBeatOverlay` + `SceneDetailsOverlay` (`acknowledgedVersion =>
-      version`).
+      `SceneShootRowOverlay`, `OutfitRowOverlay` carry `isCreate` explicitly at
+      every construction site (only `pieces.create` / `outfits`'
+      `_installCreateOverlay` pass `true`), `SceneBeatOverlay` +
+      `SceneDetailsOverlay` answer `isCreate => false` + `acknowledgedVersion =>
+      version`.
 - [x] 2.3 Every overlay store delegates to the shared helper:
       `seasons` (via the `OverlayStore` base), `blocks`, `episodes`,
       `characters`, `costume_categories`, `shooting_days`, `scenes` (all three
@@ -48,8 +53,11 @@
 - [x] 3.2 New group "update-overlay version fence (issue #917)": lagging row
       keeps the overlay through the whole budget then retains it `stale`;
       in-budget freshening drops it; a row at/after the acked version drops on
-      the first fetch; a create overlay still completes on id presence; a row
-      absent from the projection keeps the overlay.
+      the first fetch; a create overlay completes on id presence (with and
+      without an echoed version); an update overlay whose row the projection no
+      longer carries drops on the first fetch; a create overlay whose id is
+      absent is kept through the budget (with and without an echoed version); an
+      empty successful fetch completes update overlays and keeps create ones.
 - [x] 3.3 Existing D2/D3 + #916 groups unchanged in behaviour (assertions moved
       from a status string to `OverlayStatus` + warning).
 

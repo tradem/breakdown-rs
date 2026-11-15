@@ -36,18 +36,24 @@ closes.
 
 ## What
 
-- **The contract carries the version.** `ReconciliationOverlay` gains
-  `int? get acknowledgedVersion`. `null` explicitly means *"id presence IS the
-  completion signal"* (a create overlay: its optimistic fields are display-only
-  form values, not an aggregate version); a version means *"the fetched row must
-  reach this version"* (an update overlay). Every implementation states which of
-  the two it is, with the reason at the declaration.
+- **The contract carries both facts the drop needs.** `ReconciliationOverlay`
+  gains `bool get isCreate` (its id only appears once the create is projected →
+  id presence completes it) and `int? get acknowledgedVersion` (the version an
+  *update* overlay is fenced by; a create overlay may carry it for follow-up
+  commands). The two are independent: `pieces` / `outfits` create shells echo
+  the create's version but complete on id presence. Every implementation states
+  both, with the reason at the declaration.
 - **One generic, version-aware drop.** `overlayDropProjectedRows(state, rows)`
   replaces `overlayDropProjectedIds(state, ids)` (rows are `ProjectedRow`, so
   the seam that already carried `id` + `version` since #916 is reused — no new
   type, no new callback). `OverlayStore.dropProjectedRows` and every
   per-aggregate store delegate to it, so no aggregate can implement the fence
-  differently.
+  differently. An absent row completes an **update** overlay (the edited row was
+  deleted or left the fetched scope, so no future fetch can reach its version)
+  while it keeps a **create** overlay (that id has not projected yet) — and an
+  empty successful fetch applies that same rule to every overlay. Without that
+  absence rule an obsolete overlay would exhaust every later pass and be
+  rendered as a phantom row (review of #919).
 - **The runner hands over the rows.** The coordinator's `dropProjectedIds:
   (Set<String>)` seam becomes `dropProjectedRows: (List<ProjectedRow>)`. The
   runner stays aggregate-agnostic (it still never reads a DTO and still never
@@ -84,5 +90,6 @@ the runner are exercised together. New group for issue #917: a lagging update
 overlay keeps the overlay through the whole `kMaxReconcileAttempts` budget and is
 retained `stale` (never discarded); an in-budget freshening drops it; a row
 already at the acknowledged version drops on the first fetch; a create overlay
-still completes on id presence; a row the projection does not carry keeps the
-overlay.
+still completes on id presence; an update overlay whose row the projection no
+longer carries drops on the first fetch, while a create overlay whose id is
+absent is kept.

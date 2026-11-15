@@ -83,6 +83,13 @@ class SceneShootRowOverlay implements ReconciliationOverlay {
   @override
   final int acknowledgedVersion;
 
+  /// Always an update of an already-projected row (issue #917): the plan is
+  /// path-authoritative and derives no client ids, so there is no create shell
+  /// here. An absent row therefore means the shoot is gone, not that it has yet
+  /// to project.
+  @override
+  bool get isCreate => false;
+
   @override
   final OverlayStatus status;
 

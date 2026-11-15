@@ -37,7 +37,10 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     overlay (it carries the acknowledged aggregate version). One shared
     version-fenced drop replaces the id-based one and keeps an update overlay
     visible until the fetched row reaches that version — through the existing
-    retry budget, marked stale on exhaustion, never silently discarded.
+    retry budget, marked stale on exhaustion, never silently discarded. An
+    update overlay whose row the projection no longer carries completes right
+    away (the edited row is gone); a create overlay is kept until its id
+    projects.
   - **One mechanism instead of four.** `pieces`, `scene_shoots` and `outfits`
     lose their bespoke typed prune inside the refetch seam, and `scenes` loses
     the controller-side capture of the last projected versions: all of them now

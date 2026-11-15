@@ -31,6 +31,8 @@ class CostumeCategoryOverlay implements ReconciliationOverlay {
   /// reconcile on the acknowledged version instead (issue #916).
   @override
   int? get acknowledgedVersion => null;
+  @override
+  bool get isCreate => true;
 
   /// Category name carried from the submitted form (display-only field).
   final String? name;

@@ -17,17 +17,27 @@ projected row — old value **and** old `version`, which then becomes the echo o
 the next command (issue #917).
 
 Every optimistic overlay SHALL therefore state, through the shared
-`ReconciliationOverlay` contract, whether it is a **create** overlay (its id
-appears in the projection only once the create is projected → id presence is the
-completion signal) or an **update** overlay (it carries the aggregate version the
-command's 2xx acknowledgement returned). The shared reconciliation runner SHALL
-hand the freshly fetched `ProjectedRow`s (`id` + `version`) to the owning overlay
-store, and the shared drop SHALL:
+`ReconciliationOverlay` contract, both facts the drop needs:
 
-- keep an overlay whose id the projection does not carry yet;
+- whether it is a **create** overlay (its id appears in the projection only once
+  the create is projected → id presence is the completion signal) or an
+  **update** overlay (the row was projected before the command);
+- the aggregate version the command's 2xx acknowledgement returned, which an
+  **update** overlay SHALL supply (a create overlay MAY carry it for follow-up
+  commands; its completion is still id presence).
+
+The shared reconciliation runner SHALL hand the freshly fetched `ProjectedRow`s
+(`id` + `version`) to the owning overlay store, and the shared drop SHALL:
+
+- keep a **create** overlay whose id the projection does not carry yet (it has
+  not projected);
 - drop a **create** overlay once the projection carries its id;
-- drop an **update** overlay only when the fetched row reaches its acknowledged
-  version.
+- drop an **update** overlay when the projection no longer carries its row at
+  all — the edited row was deleted or left the fetched scope, so no later fetch
+  could ever reach the acknowledged version and keeping it would render a
+  phantom row;
+- otherwise keep an **update** overlay until the fetched row reaches its
+  acknowledged version.
 
 An update overlay SHALL be retained through the existing
 `kMaxReconcileAttempts` budget and marked `stale` on exhaustion (never silently
@@ -63,8 +73,19 @@ declaration.
 - **THEN** the overlay is dropped on id presence, exactly as before: the id only
   appears once the create is projected
 
-#### Scenario: A row the projection does not carry yet
+#### Scenario: A row the projection does not carry
 
-- **WHEN** the fetched projection carries no row for the overlay's id
-- **THEN** the overlay is kept (a create that has not reached the read model, or
-  a row a later fetch still has to serve)
+- **WHEN** the fetched projection carries no row for a **create** overlay's id
+- **THEN** the overlay is kept (the id only appears once the create is
+  projected), even when the overlay echoes an acknowledged version
+
+#### Scenario: The edited row is gone
+
+- **WHEN** the fetched projection carries no row for an **update** overlay's id
+  (the row was deleted or left the fetched scope)
+- **THEN** the overlay is dropped on that fetch — no budget is spent on a
+  version no later fetch can reach and no phantom row is rendered
+- **AND** an empty successful fetch applies the same rule to every update
+  overlay, while keeping every create overlay
+- **AND** a failed fetch is never treated as absence: it never reaches the drop
+  at all

@@ -37,6 +37,7 @@ class _ManualScheduler extends ReconciliationScheduler {
 class _TestOverlay implements ReconciliationOverlay {
   const _TestOverlay({
     required this.id,
+    required this.isCreate,
     required this.acknowledgedVersion,
     required this.status,
     this.warning,
@@ -45,8 +46,13 @@ class _TestOverlay implements ReconciliationOverlay {
   @override
   final String id;
 
-  /// `null` for a create overlay (id presence completes it), the acked
-  /// aggregate version for an update overlay (version fence, issue #917).
+  /// `true` for a create overlay (its id only appears once projected),
+  /// `false` for a row-level update overlay (issue #917).
+  @override
+  final bool isCreate;
+
+  /// The acked aggregate version an update overlay is fenced by; `null` for the
+  /// create overlays that have no version to echo.
   @override
   final int? acknowledgedVersion;
 
@@ -63,6 +69,7 @@ class _TestOverlay implements ReconciliationOverlay {
     bool clearWarning = false,
   }) => _TestOverlay(
     id: id,
+    isCreate: isCreate,
     acknowledgedVersion: acknowledgedVersion,
     status: status ?? this.status,
     warning: clearWarning ? null : (warning ?? this.warning),
@@ -126,12 +133,19 @@ class _Harness {
     return snapshot;
   }
 
-  /// A create overlay: its id only appears in the projection once the create
-  /// reached the read model, so id presence is the completion signal.
-  void ack(String id) {
+  /// A create overlay without a version to echo: its id only appears in the
+  /// projection once the create reached the read model, so id presence is the
+  /// completion signal (issue #917).
+  void ack(String id) => ackCreate(id, version: null);
+
+  /// A create overlay that DOES carry its acked version (the row-level create
+  /// shells of `pieces` / `outfits`): the version is echoed for follow-up
+  /// commands, completion is still decided by id presence.
+  void ackCreate(String id, {int? version}) {
     overlays[id] = _TestOverlay(
       id: id,
-      acknowledgedVersion: null,
+      isCreate: true,
+      acknowledgedVersion: version,
       status: OverlayStatus.acknowledged,
     );
     coordinator.ackReceived();
@@ -142,6 +156,7 @@ class _Harness {
   void ackUpdate(String id, {required int version}) {
     overlays[id] = _TestOverlay(
       id: id,
+      isCreate: false,
       acknowledgedVersion: version,
       status: OverlayStatus.acknowledged,
     );
@@ -430,15 +445,84 @@ void main() {
       expect(h.overlays, isEmpty);
     });
 
-    test('a row the projection does not carry keeps the overlay', () async {
+    test('a create overlay that carries an acked version still completes on id '
+        'presence', () async {
+      // `pieces` / `outfits` create shells echo the create's version so a
+      // follow-up command can use it — completion is still id presence.
       final h = _Harness(
         script: [
-          {'other': 1},
+          {'c1': 1},
         ],
       );
+      h.ackCreate('c1', version: 1);
+      await h.drain(h.coordinator.reconcile());
+      expect(h.refetches, 1);
+      expect(h.overlays, isEmpty);
+    });
+
+    test(
+      'an update overlay whose row the projection no longer carries drops on '
+      'the first fetch',
+      () async {
+        // The edited row was deleted or left the fetched scope: no later fetch
+        // can ever reach its acknowledged version, so the overlay completes
+        // instead of spending every pass on a budget that cannot finish.
+        final h = _Harness(
+          script: [
+            {'other': 1},
+          ],
+        );
+        h.ackUpdate('s1', version: 2);
+        await h.drain(h.coordinator.reconcile());
+        expect(h.refetches, 1);
+        expect(h.scheduler.ticks, 0);
+        expect(h.overlays, isEmpty);
+      },
+    );
+
+    test(
+      'a create overlay whose id is absent is kept through the budget',
+      () async {
+        // The row of a create that has not reached the read model is absent for
+        // a different reason — the id only appears once it is projected.
+        final h = _Harness(
+          script: [
+            {'other': 1},
+          ],
+        );
+        h.ack('c1');
+        await h.drain(h.coordinator.reconcile());
+        expect(h.refetches, kMaxReconcileAttempts);
+        expect(h.overlays['c1']?.status, OverlayStatus.stale);
+      },
+    );
+
+    test(
+      'a create overlay that carries an acked version is kept while its id is '
+      'absent',
+      () async {
+        // The version a create shell echoes is informational: an absent row
+        // means "not projected yet" for a create, never "deleted".
+        final h = _Harness(
+          script: [
+            {'other': 1},
+          ],
+        );
+        h.ackCreate('c1', version: 1);
+        await h.drain(h.coordinator.reconcile());
+        expect(h.refetches, kMaxReconcileAttempts);
+        expect(h.overlays['c1']?.status, OverlayStatus.stale);
+      },
+    );
+
+    test('an empty successful fetch completes update overlays and keeps create '
+        'overlays', () async {
+      final h = _Harness(script: [<String, int>{}]);
+      h.ack('c1');
       h.ackUpdate('s1', version: 2);
       await h.drain(h.coordinator.reconcile());
-      expect(h.overlays['s1']?.status, OverlayStatus.stale);
+      expect(h.overlays.keys, ['c1']);
+      expect(h.overlays['c1']?.status, OverlayStatus.stale);
     });
   });
 }

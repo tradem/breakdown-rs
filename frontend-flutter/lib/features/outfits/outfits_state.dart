@@ -36,6 +36,7 @@ class OutfitRowOverlay implements ReconciliationOverlay {
     required this.id,
     required this.overlay,
     required this.acknowledgedVersion,
+    required this.isCreate,
     required this.status,
     this.warning,
   });
@@ -49,6 +50,13 @@ class OutfitRowOverlay implements ReconciliationOverlay {
   /// The `AggregateVersion` the command acknowledgement returned.
   @override
   final int acknowledgedVersion;
+
+  /// An update of an already-projected row (the default): an absent row
+  /// means the row is gone, so the overlay completes instead of waiting for a
+  /// version no later fetch can reach (issue #917). A CREATE shell passes
+  /// `true` — its id only appears once the create is projected.
+  @override
+  final bool isCreate;
 
   @override
   final OverlayStatus status;
@@ -65,6 +73,7 @@ class OutfitRowOverlay implements ReconciliationOverlay {
     id: id,
     overlay: overlay,
     acknowledgedVersion: acknowledgedVersion,
+    isCreate: isCreate,
     status: status ?? this.status,
     warning: clearWarning ? null : (warning ?? this.warning),
   );
@@ -76,12 +85,13 @@ class OutfitRowOverlay implements ReconciliationOverlay {
           other.id == id &&
           other.overlay == overlay &&
           other.acknowledgedVersion == acknowledgedVersion &&
+          other.isCreate == isCreate &&
           other.status == status &&
           other.warning == warning;
 
   @override
   int get hashCode =>
-      Object.hash(id, overlay, acknowledgedVersion, status, warning);
+      Object.hash(id, overlay, acknowledgedVersion, isCreate, status, warning);
 }
 
 /// One rendered row of the character's look list.

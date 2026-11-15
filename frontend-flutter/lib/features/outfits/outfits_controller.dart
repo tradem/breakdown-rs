@@ -571,7 +571,11 @@ class OutfitsController extends _$OutfitsController {
     return result;
   }
 
-  void _installOverlay(OutfitView overlay, {required int acknowledgedVersion}) {
+  void _installOverlay(
+    OutfitView overlay, {
+    required int acknowledgedVersion,
+    bool isCreate = false,
+  }) {
     ref
         .read(outfitsOverlaysProvider(characterId).notifier)
         .add(
@@ -579,6 +583,7 @@ class OutfitsController extends _$OutfitsController {
             id: overlay.id,
             overlay: overlay,
             acknowledgedVersion: acknowledgedVersion,
+            isCreate: isCreate,
             status: OverlayStatus.acknowledged,
           ),
         );
@@ -608,7 +613,7 @@ class OutfitsController extends _$OutfitsController {
         ..pieces.replace(BuiltList<OutfitPieceView>())
         ..photos.replace(BuiltList<OutfitPhotoView>()),
     );
-    _installOverlay(overlay, acknowledgedVersion: version);
+    _installOverlay(overlay, acknowledgedVersion: version, isCreate: true);
   }
 
   /// Bounded-retry resync of the character slice; overlays are pruned by the

@@ -212,8 +212,8 @@ class SceneBeatOverlays extends _$SceneBeatOverlays {
   /// scene row carries `version >= overlay.version`. A lagging projection NEVER
   /// discards the optimistic render — bounded-retry reconciliation keeps
   /// refetching; exhaustion marks the overlay stale instead (no silent
-  /// discard). An overlay whose scene id the projection no longer carries is
-  /// kept (a create that has not reached the read model).
+  /// discard). An overlay whose scene id the projection no longer carries
+  /// completes: the edited scene was deleted or left the episode scope.
   void dropProjectedRows(List<ProjectedRow> rows) =>
       state = overlayDropProjectedRows(state, rows);
 }

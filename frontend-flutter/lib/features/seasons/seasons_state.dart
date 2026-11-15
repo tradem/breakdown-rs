@@ -37,6 +37,8 @@ class SeasonOverlay implements ReconciliationOverlay {
   /// (issue #916).
   @override
   int? get acknowledgedVersion => null;
+  @override
+  bool get isCreate => true;
 
   /// Display name carried from the Create Season form so the row renders
   /// immediately; the authoritative value arrives with the projected row.
