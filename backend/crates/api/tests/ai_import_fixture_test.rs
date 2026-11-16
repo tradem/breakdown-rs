@@ -89,12 +89,21 @@ fn test_app(state: AppState<FakePorts>) -> axum::Router {
 }
 
 async fn post_fixture(app: &axum::Router, payload: &str) -> (StatusCode, String) {
+    post_fixture_with_query(app, payload, "").await
+}
+
+/// Same POST, with a query string appended (the optional target parameters).
+async fn post_fixture_with_query(
+    app: &axum::Router,
+    payload: &str,
+    query: &str,
+) -> (StatusCode, String) {
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/v1{FIXTURE_PATH}"))
+                .uri(format!("/v1{FIXTURE_PATH}{query}"))
                 .header("content-type", "application/json")
                 .body(Body::from(payload.to_owned()))
                 .unwrap(),
@@ -198,6 +207,71 @@ async fn seeds_a_succeeded_job_whose_stored_preview_is_the_payload() {
     assert_eq!(parsed.title.as_deref(), Some("Fixture-Pilot"));
     assert_eq!(parsed.scenes.len(), 1);
     assert_eq!(parsed.scenes[0].outfits.len(), 1);
+}
+
+/// The optional target parameters (issue #900's attribution benchmark): a caller
+/// that wants to APPLY the seeded preview names the block, so the job carries the
+/// block id and the season snapshot `POST /apply` gates on. Without them the job
+/// stays target-less, which every preview-screen scenario relies on.
+#[tokio::test]
+async fn the_optional_target_parameters_seed_a_block_scoped_job() {
+    use breakdown_core::shared::{BlockId, SeasonId};
+
+    let state = AppState::new(FakePorts::default());
+    let app = test_app(state.clone());
+    let season = SeasonId::new();
+    let block = BlockId::new();
+
+    let query = format!(
+        "?season_id={}&season_number=3&block_id={}&block_number=7",
+        season.0, block.0
+    );
+    let (status, body) = post_fixture_with_query(&app, &script_payload(), &query).await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+
+    let job_id: Uuid = serde_json::from_str::<serde_json::Value>(&body)
+        .unwrap()
+        .get("job_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let job = state
+        .ports
+        .ai_import_queue()
+        .get(AiImportJobId::from_uuid(job_id))
+        .await
+        .unwrap()
+        .expect("the fixture must leave a readable job row");
+
+    assert_eq!(job.block_id, Some(block));
+    let target = job.target.expect("a named target must be snapshotted");
+    assert_eq!(target.season_id, season);
+    assert_eq!(target.season_number, 3);
+    assert_eq!(target.block_number, Some(7));
+}
+
+/// A half-specified target cannot seed a job whose apply could resolve its
+/// block, so it is refused before anything is written (no blob, no row).
+#[tokio::test]
+async fn a_half_specified_target_is_refused_before_any_write() {
+    use breakdown_core::shared::BlockId;
+
+    let state = AppState::new(FakePorts::default());
+    let app = test_app(state.clone());
+
+    let query = format!("?block_id={}", BlockId::new().0);
+    let (status, body) = post_fixture_with_query(&app, &script_payload(), &query).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "body: {body}");
+    assert!(
+        body.contains("domain.validation"),
+        "a half-specified target is a registered problem document, got: {body}"
+    );
+    assert!(
+        state.ports.ai_import_queue.jobs.lock().await.is_empty(),
+        "the target is resolved before the blobs, so no job row may exist"
+    );
 }
 
 #[tokio::test]

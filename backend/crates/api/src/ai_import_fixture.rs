@@ -53,18 +53,19 @@
 //! in `frontend-flutter/tool/run_gherkin.sh`.
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use breakdown_core::ai::{
-    AiImportEnqueueRequest, AiImportJobId, AiImportQueue as _, DocumentKind, ScriptContext,
-    SourceFormat,
+    AiImportEnqueueRequest, AiImportJobId, AiImportQueue as _, AiImportTarget, DocumentKind,
+    ScriptContext, SourceFormat,
 };
+use breakdown_core::shared::{BlockId, SeasonId};
 // The payload-store traits live in `infra` and are imported for method
 // resolution on the generic `P::AiDocumentStore` / `P::AiPreviewStore` ports
 // (same seam `handlers` uses).
@@ -87,6 +88,55 @@ pub struct SeededAiImportPreview {
     pub job_id: Uuid,
 }
 
+/// Optional query parameters that give the seeded job a **target block**.
+///
+/// The body stays exactly the stored preview (the Gherkin arrange steps send a
+/// `ScriptContext` and nothing else), so the parameters are additive and
+/// optional. A preview-only job is enough for every screen scenario, but not
+/// for one that *executes* the preview: `POST /apply` refuses a job without a
+/// block (`ai-import.target-missing`) and the target attach needs the season the
+/// job was authorized for, which a body-less fixture job has no way to name. The
+/// #900 apply-attribution benchmark is that caller — it applies a seeded 49-scene
+/// preview and reads the row-phase numbers, dev data untouched.
+#[derive(Debug, Default, Deserialize)]
+pub struct FixtureTargetQuery {
+    /// Owning season of `block_id` — the apply's authorization scope.
+    season_id: Option<Uuid>,
+    /// That season's production-global number (`AiImportTarget::season_number`).
+    season_number: Option<i32>,
+    /// The block the preview will apply into.
+    block_id: Option<Uuid>,
+    /// The block's production-global number, when the caller knows it (display
+    /// metadata only, exactly as on the real upload path).
+    block_number: Option<i32>,
+}
+
+impl FixtureTargetQuery {
+    /// The target the seeded job carries, or `None` for a target-less fixture.
+    ///
+    /// All identifying parts or none: a half-specified target would seed a job
+    /// whose apply can never resolve its block — the state the real upload path
+    /// refuses up front.
+    fn target(&self) -> Result<Option<AiImportTarget>, ApiError> {
+        match (self.season_id, self.season_number, self.block_id) {
+            (None, None, None) => Ok(None),
+            (Some(season_id), Some(season_number), Some(_)) => Ok(Some(AiImportTarget {
+                season_id: SeasonId::from_uuid(season_id),
+                season_number,
+                block_number: self.block_number,
+            })),
+            _ => Err(ApiError::Validation(
+                "a fixture target needs season_id, season_number and block_id together",
+            )),
+        }
+    }
+
+    /// The block id the job's apply is pinned to (`None` for a target-less job).
+    fn block_id(&self) -> Option<BlockId> {
+        self.block_id.map(BlockId::from_uuid)
+    }
+}
+
 /// The cfg-gated fixture routes the host-side Gherkin arrange steps call.
 ///
 /// Generic over the state's `Ports` so integration tests can mount the routes
@@ -102,6 +152,7 @@ pub fn ai_import_fixture_routes<P: crate::state::Ports>() -> Router<AppState<P>>
 async fn seed_ai_import_preview<P: crate::state::Ports>(
     State(state): State<AppState<P>>,
     current_user: CurrentUser,
+    Query(target_query): Query<FixtureTargetQuery>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
     // AUTHZ-GATE: this is the fixture's whole authorization story, and it is
@@ -132,6 +183,11 @@ async fn seed_ai_import_preview<P: crate::state::Ports>(
     })?;
 
     let job_id = AiImportJobId::from_uuid(Uuid::now_v7());
+    // Resolve the optional target BEFORE any state is written, for the same
+    // reason the payload is validated first: a rejected request must not leave
+    // blobs behind.
+    let target = target_query.target()?;
+    let block_id = target_query.block_id();
     // Blobs first, then the row: the job must never point at a payload that is
     // still being written (the same ordering the real worker uses, where the
     // preview is stored before `mark_succeeded`).
@@ -162,15 +218,17 @@ async fn seed_ai_import_preview<P: crate::state::Ports>(
                 // The format only steers the worker's extraction path, which a
                 // terminal row never reaches.
                 source_format: SourceFormat::Csv,
-                block_id: None,
+                block_id,
                 // Unique per call: the dedup index would otherwise collide with
                 // a previous run's fixture row.
                 dedup_key: format!("test-support-fixture|{}", job_id.as_uuid()),
                 document_digest: format!("test-support-fixture-digest|{}", job_id.as_uuid()),
                 source_handle,
                 source_file_name: None,
-                // The fixture seeds a preview only; it names no target.
-                target: None,
+                // Target-less unless the caller named one (see
+                // [`FixtureTargetQuery`]): the Gherkin arrange steps seed a
+                // preview to LOOK at, the #900 benchmark seeds one to APPLY.
+                target,
             },
             &preview_handle,
         )
