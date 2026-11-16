@@ -5484,10 +5484,16 @@ fn single_row_apply_request() -> ApplyAiImportRequest {
 /// Seed a **live** apply-run claim on a `succeeded` script job (issues #800,
 /// #805, #863).
 ///
-/// [published_ago] is the owning run's only payload — how long ago it last
-/// published. `None` models a run that claimed the slot but has not written
-/// its first frame yet: since issue #863 that run is aged from the claim instant
-/// the claim itself stamped, so the refusal carries an age in both cases.
+/// [published_ago] is the owning run's last sign of life — how long ago it last
+/// published. `None` models a run that claimed the slot but has not written its
+/// first frame yet: since issue #863 that run is aged from the claim instant the
+/// claim itself stamped, so the refusal carries an age in both cases.
+///
+/// The published case ages the lease stamp with the frame: since issue #911 the
+/// steal predicate (and therefore the reported age) takes the **newer** of the
+/// payload's `updated_at` and the claim/renewal stamp, so a run whose last sign
+/// of life was `published_ago` must not look fresher through a claim stamped
+/// `now` — that combination cannot occur outside a test.
 ///
 /// Returns the run id and the **stamp the refusal must age from**, so a caller
 /// can bound the reported age ANALYTICALLY instead of guessing a window: the
@@ -5525,6 +5531,17 @@ async fn seed_live_apply_claim(
             )
             .await
             .expect("the run progress write should succeed");
+        // Age the lease stamp with the frame (issue #911): both stamps are the
+        // same "last heard from" instant for a run that has been silent since.
+        if let Some(slot) = ports
+            .ai_import_queue
+            .apply_runs
+            .lock()
+            .await
+            .get_mut(&job_id.as_uuid())
+        {
+            slot.claimed_at = Some(stamp);
+        }
         return (run_id, stamp);
     }
     // Claimed but silent: the claim stamped the owner-scoped claim instant, and

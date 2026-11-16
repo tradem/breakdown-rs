@@ -18,12 +18,25 @@ The renewal SHALL only prove aliveness — it SHALL NOT write progress, advance 
 counter, or wake the apply stream. It SHALL be bounded by the same window the steal
 predicate reads (`ApplyProgress::STALE_AFTER`), renewed at a strict fraction of it.
 
+Every silence predicate (both steals, the takeover and the worker poll) SHALL judge an
+owner by the **newer** of its last published frame and that lease stamp, and the age
+reported in a `409 ai-import.apply-in-flight` SHALL be derived from the same pair — a
+renewing run SHALL NOT be stealable on the strength of an old frame, and the reported age
+SHALL NOT claim that it is.
+
 #### Scenario: A schedule run longer than the staleness window is not stolen
 
 - **WHEN** a schedule apply has been executing for longer than `ApplyProgress::STALE_AFTER`
 - **AND** it renews its claim during that time
 - **THEN** a second dispatch SHALL be refused (`409 ai-import.apply-in-flight`)
 - **AND** the worker poll SHALL NOT hand the slot to another replica
+
+#### Scenario: An old frame plus a live renewal keeps the slot
+
+- **WHEN** a run's last published frame is older than `ApplyProgress::STALE_AFTER`
+- **AND** its lease renewal is newer than that window
+- **THEN** neither a second dispatch, nor the worker poll, nor a takeover SHALL claim the slot
+- **AND** the `409` SHALL report the renewal's age, not the frame's
 
 #### Scenario: A dead owner still becomes stealable
 

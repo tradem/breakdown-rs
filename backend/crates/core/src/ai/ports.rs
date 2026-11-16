@@ -1059,11 +1059,13 @@ pub trait AiImportQueue: Send + Sync {
     /// *while it is still executing*.
     ///
     /// This is the run-scoped proof of life that closes the hole. The owner
-    /// stamps its own claim instant while it executes, so the steal predicate
-    /// ages a fresh stamp instead of a silence that was never going to happen.
-    /// A genuinely dead owner (killed replica, cancelled task) stops renewing
-    /// with its task, which is what keeps the existing crash recovery
-    /// unchanged: the window still expires.
+    /// stamps its own claim instant while it executes, and every predicate
+    /// compares that stamp with the published payload's own via `GREATEST` — so
+    /// the renewal also covers the *between-frames* gap of a script apply (its
+    /// trailing step publishes one `finalizing` frame and then works), not only
+    /// the payload-less schedule case. A genuinely dead owner (killed replica,
+    /// cancelled task) stops renewing with its task, which is what keeps the
+    /// existing crash recovery unchanged: the window still expires.
     ///
     /// Owner-fenced like [`record_run_telemetry`](Self::record_run_telemetry):
     /// `false` means the slot moved on (the run was taken over, or it already

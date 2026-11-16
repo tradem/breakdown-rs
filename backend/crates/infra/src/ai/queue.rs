@@ -1725,7 +1725,8 @@ impl AiImportQueue for PgAiImportQueue {
     ///
     /// Single-flight, one statement: the claim wins when the slot is free
     /// (`apply_run_id IS NULL`) **or** when the current owner is demonstrably
-    /// dead — its payload has not been written for longer than
+    /// dead — the **newest** sign of life it gave (its last published frame, its
+    /// claim instant or its lease renewal, issue #911) is older than
     /// [`ApplyProgress::STALE_AFTER`]. The cutoff is computed in Rust from that
     /// constant (never a second interval literal in SQL), so the window has
     /// exactly one definition.
@@ -1749,11 +1750,17 @@ impl AiImportQueue for PgAiImportQueue {
     /// `updated_at` (issue #863 review): `updated_at` is bumped by every
     /// run-scoped write, including a PREVIOUS apply's post-apply summary, so a
     /// late write could advance the stamp of the current owner and understate a
-    /// dead run's silence by that gap. Only the claim writes `apply_claim_at`,
-    /// so the silence the refusal reports and the steal decided on is one
-    /// owner-scoped instant. A claim made before that column existed has NULL
-    /// there and is judged by the row stamp it used before (`COALESCE`), which
-    /// is exactly the pre-#863 behaviour — never worse.
+    /// dead run's silence by that gap. Only the owner writes `apply_claim_at`
+    /// (its claim and its lease renewal, #911), so the silence the refusal
+    /// reports and the steal decided on is one owner-scoped instant. A claim made
+    /// before that column existed has NULL there and is judged by the row stamp
+    /// it used before (`COALESCE`), which is exactly the pre-#863 behaviour —
+    /// never worse.
+    ///
+    /// The two stamps are compared with `GREATEST`, not by precedence: a run with
+    /// a payload is judged by its newest frame **or** its newest renewal, so a
+    /// live run whose last frame is old (a long trailing step, and every schedule
+    /// apply, which publishes no frame at all) keeps its slot (issue #911).
     ///
     /// `false` means a live run owns the slot — the request answers
     /// `409 ai-import.apply-in-flight` instead of interleaving two runs.
@@ -1783,12 +1790,19 @@ impl AiImportQueue for PgAiImportQueue {
               AND status = 'succeeded'
               AND (
                   apply_run_id IS NULL
-                  -- Claimed but nothing published yet: the CLAIM's own stamp
-                  -- decides whether that owner is still alive. The fallback
-                  -- covers a claim made before the column existed.
-                  OR (apply_progress IS NULL
-                      AND COALESCE(apply_claim_at, updated_at) < $3)
-                  OR (apply_progress->>'updated_at')::timestamptz < $3
+                  -- The NEWEST sign of life this owner has given: its last
+                  -- published frame, its claim instant, or its lease renewal
+                  -- (issue #911). GREATEST ignores NULLs in Postgres, so this
+                  -- covers "claimed but nothing published yet" too, and the
+                  -- COALESCE fallback covers a claim made before the
+                  -- `apply_claim_at` column existed.
+                  OR COALESCE(
+                         GREATEST(
+                             (apply_progress->>'updated_at')::timestamptz,
+                             apply_claim_at
+                         ),
+                         updated_at
+                     ) < $3
               )
             RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
@@ -1962,9 +1976,15 @@ impl AiImportQueue for PgAiImportQueue {
               AND status = 'succeeded'
               AND (
                   apply_run_id IS NULL
-                  OR (apply_progress IS NULL
-                      AND COALESCE(apply_claim_at, updated_at) < $3)
-                  OR (apply_progress->>'updated_at')::timestamptz < $3
+                  -- Same one silence definition as the claim above (issue #911):
+                  -- the newer of the last published frame and the lease stamp.
+                  OR COALESCE(
+                         GREATEST(
+                             (apply_progress->>'updated_at')::timestamptz,
+                             apply_claim_at
+                         ),
+                         updated_at
+                     ) < $3
               )
             RETURNING pg_notify('ai_import_job_events', id::text)
             "#,
@@ -2024,9 +2044,14 @@ impl AiImportQueue for PgAiImportQueue {
                   apply_state = 'requested'
                   OR (
                       apply_state = 'running'
+                      -- The newer of the last published frame and the lease
+                      -- stamp (issue #911): a live run that renews is not
+                      -- takeable over just because its last frame is old.
                       AND COALESCE(
-                          (apply_progress->>'updated_at')::timestamptz,
-                          apply_claim_at,
+                          GREATEST(
+                              (apply_progress->>'updated_at')::timestamptz,
+                              apply_claim_at
+                          ),
                           updated_at
                       ) < $3
                   )
@@ -2128,9 +2153,13 @@ impl AiImportQueue for PgAiImportQueue {
                   apply_state = 'requested'
                   OR (
                       apply_state = 'running'
+                      -- Same definition as the takeover above, so the poll can
+                      -- never offer a row the claim then refuses.
                       AND COALESCE(
-                          (apply_progress->>'updated_at')::timestamptz,
-                          apply_claim_at,
+                          GREATEST(
+                              (apply_progress->>'updated_at')::timestamptz,
+                              apply_claim_at
+                          ),
                           updated_at
                       ) < $2
                   )
@@ -2299,9 +2328,11 @@ impl AiImportQueue for PgAiImportQueue {
     /// once it outlived [`ApplyProgress::STALE_AFTER`].
     ///
     /// This statement is that missing proof of life: the owner re-stamps
-    /// `apply_claim_at`, which is the stamp the steal predicate reads for a
-    /// payload-less owner (`COALESCE` above falls through to it), so a live
-    /// schedule run keeps its slot and a dead one still expires with its task.
+    /// `apply_claim_at`, and every single-flight predicate compares it with the
+    /// payload's own stamp via `GREATEST` — so the renewal keeps a payload-less
+    /// schedule run alive *and* closes the "did the last frame land in time?"
+    /// gap of a script run that is between frames. A dead owner's renewal dies
+    /// with its task, so the window still expires.
     ///
     /// Deliberately narrow:
     ///

@@ -16,6 +16,11 @@
       WHERE id = $1 AND apply_run_id = $2`, verdict from `rows_affected()`.
 - [x] 2.2 Document why nothing else is written (no payload / `apply_run_seq` /
       `updated_at` / `pg_notify`).
+- [x] 2.3 Judge silence by the newer of frame and lease stamp in all four predicates
+      (`claim_apply_run`, `request_apply_run`, `begin_apply_run`, `requested_apply_runs`)
+      and mirror that `GREATEST` in `ApplyRunState::owner_silence_at` — so the renewal
+      also covers a script run between frames, and the reported age cannot disagree with
+      the decision.
 
 ## 3. Renewal loop
 
@@ -40,8 +45,11 @@
       stops, transient keeps going, zero window disables, window == `STALE_AFTER`).
 - [x] 5.2 `crates/integration-tests/tests/ai_import_job_progress.rs`:
       `renewing_a_claim_keeps_a_silent_run_alive` (renewed owner is not stealable, refusal
-      reports the refreshed silence) and `a_taken_over_runs_renewal_reports_false` (the
-      fence after a takeover).
+      reports the refreshed silence), `a_taken_over_runs_renewal_reports_false` (the fence
+      after a takeover) and `a_dead_payload_with_a_live_lease_is_not_stolen` (an old frame
+      plus a live renewal is neither stolen, polled nor taken over; a dead owner still is).
+- [x] 5.3 `crates/core/src/ai/ports_tests.rs`: `owner_silence_at` takes the newer of frame
+      and lease stamp.
 
 ## 6. Documentation
 

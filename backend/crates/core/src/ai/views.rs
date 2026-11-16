@@ -1165,18 +1165,21 @@ impl ApplyRunState {
     /// How long the owning run has been silent at `now` — the ONE definition of
     /// the age a `409 ai-import.apply-in-flight` reports (issues #805, #863).
     ///
-    /// The fallback order is the claim's own steal order, so the verdict a
-    /// client derives and the decision the server makes cannot disagree:
+    /// The order is the claim's own steal order, so the verdict a client derives
+    /// and the decision the server makes cannot disagree. That predicate compares
+    /// `COALESCE(GREATEST(apply_progress->>'updated_at', apply_claim_at),
+    /// updated_at)`, so:
     ///
-    /// 1. the payload's `updated_at` once the owner published a frame — the
-    ///    column the claim compares then
-    ///    (`(apply_progress->>'updated_at')::timestamptz < cutoff`);
-    /// 2. otherwise [`Self::owner_claimed_at`] — the column the claim compares
-    ///    while `apply_progress IS NULL`, which is what makes a run that died
-    ///    **before its first published frame** ageable at all (and what the
-    ///    run's own lease renewal keeps fresh while it executes, #911);
-    /// 3. otherwise `None`: nothing to age. Zero would claim "just wrote" for a
-    ///    run that never reported anything.
+    /// 1. once the owner gave **any** sign of life, the newest of the two stamps
+    ///    is the age — the payload's `updated_at` (last published frame) or
+    ///    [`Self::owner_claimed_at`] (claim instant **or** lease renewal,
+    ///    #911). Taking only the payload would age a live run past the window
+    ///    whenever its frames stopped while its lease kept renewing — the
+    ///    schedule apply publishes no frame at all, and a script apply's trailing
+    ///    step publishes its `finalizing` frame and nothing else;
+    /// 2. otherwise `None`: nothing to age. Zero would claim "just wrote" for a
+    ///    run that never reported anything, and a pre-#863 claim must keep
+    ///    degrading honestly.
     ///
     /// A future stamp (clock skew between the writer and this reader) is clamped
     /// to zero: a negative age is not a fact, and the client would render it as
@@ -1184,7 +1187,12 @@ impl ApplyRunState {
     #[must_use]
     pub fn owner_silence_at(&self, now: DateTime<Utc>) -> Option<chrono::Duration> {
         let last_write = match (&self.progress, self.owner) {
-            (Some(progress), _) => progress.updated_at,
+            // The newer of frame and lease stamp — the same `GREATEST` the steal
+            // predicate applies (issue #911).
+            (Some(progress), _) => match self.owner_claimed_at {
+                Some(claimed) => progress.updated_at.max(claimed),
+                None => progress.updated_at,
+            },
             // An unpublished owner is aged by its OWN claim instant — the same
             // column the steal predicate reads for this state.
             (None, Some(_)) => self.owner_claimed_at?,

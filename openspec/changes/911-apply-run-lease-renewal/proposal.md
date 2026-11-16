@@ -37,6 +37,14 @@ transition (the run-fenced `record_run_telemetry` keeps the *data* honest).
   `UPDATE ai_import.ai_import_job SET apply_claim_at = now() WHERE id = $1 AND apply_run_id = $2`
   (rows affected → the verdict). Deliberately narrow: no payload, no `apply_run_seq`, no
   `updated_at`, no `pg_notify` — the renewal proves *aliveness*, never progress.
+- **All four silence predicates** (`claim_apply_run`, `request_apply_run`,
+  `begin_apply_run`, `requested_apply_runs`) compare the **newer** of the published frame
+  and the lease stamp (`COALESCE(GREATEST(…, apply_claim_at), updated_at)`), and
+  `ApplyRunState::owner_silence_at` mirrors that pair. Judging a payload owner by its frame
+  alone would leave a renewing run stealable — a schedule apply publishes no frame at all,
+  and a script apply's trailing step publishes one `finalizing` frame and then works. The
+  reported `409` age must describe the same decision, or a client would be told to take
+  over a slot the server would refuse.
 - **Infra** — `infra::ai::with_apply_run_lease(queue, job_id, run_id, window, run)`: runs
   the execute future under a renewal ticker (`renewal_interval(window)`, a third of the
   window, via the existing `LeaseHeartbeat` cadence) plus `apply_run_lease_window()` =
