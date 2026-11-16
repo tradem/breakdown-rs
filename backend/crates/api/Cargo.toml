@@ -112,6 +112,13 @@ hyper = { version = "1", features = ["server", "http1"] }
 tower = "0.5"
 # Coverage lint parses the FTL bundles (tests only).
 fluent-syntax = "0.12"
+# Issue #912: ONE case composes both HTTP surfaces of an apply run through the
+# real `PgAiImportQueue`, so the `DTO → wire` join is covered end to end. The
+# case is env-gated (`AI_IMPORT_PG_TESTS=1`) and skips without that variable, so
+# `cargo test -p api` never starts a container; only the "Testcontainers
+# integration tests" CI job sets it. Versions mirror `crates/integration-tests`.
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
 # Issue #631: explicit integration-test harnesses. Each harness includes
 # its case files as `#[path]` modules, so the api+infra+core+typst+… graph

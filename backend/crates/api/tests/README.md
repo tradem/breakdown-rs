@@ -40,3 +40,24 @@ Grouping is by rough area, not by individual feature, to keep each harness
 focused while still collapsing the link count. See
 `../../../.github/instructions/build-performance.instructions.md` for the full
 rationale and the dev-machine cleanup recipe.
+
+## Environment-gated cases (needs Docker)
+
+A case that needs a real container lives in its harness like every other case
+and gates **itself** on an env var, so `cargo test -p api` never starts one:
+
+| Case | Harness | Gate | Runs in CI |
+|---|---|---|---|
+| `handler_ai_import_pg_composition.rs` (issue #912) | `handlers_ai` | `AI_IMPORT_PG_TESTS=1` | "Testcontainers integration tests" job |
+
+Without the variable the case prints why it skipped and passes, so a green
+local `cargo test -p api` does **not** prove it ran — set the variable (and have
+Docker) when touching the AI-import apply identity chain:
+
+```bash
+AI_IMPORT_PG_TESTS=1 cargo test -p api --test handlers_ai \
+  -- handler_ai_import_pg_composition --nocapture
+```
+
+Do not move such a case into its own `[[test]]` target: it would pay for another
+full-graph link, which is exactly the cost issue #631 removed.
