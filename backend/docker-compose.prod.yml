@@ -135,6 +135,16 @@ services:
     image: tqwewe/sierradb:0.3.1@sha256:a9fe5dc8eb5a9f7d3c9038c87b52eaf6f8646ffc35b69cdbec068f5939b52444
     restart: unless-stopped
     command: ["--dir", "/app/data"]
+    environment:
+      # Append-latency knob (ADR-016 §6, issue #901). The store always fsyncs
+      # before it acks — this is NOT a durability setting. It only shortens the
+      # idle sync-poll backoff (default = 10 x sync.interval_ms = 50 ms), which a
+      # chatty sequential client otherwise pays per append: measured p50
+      # 49.97 ms -> 9.12 ms, sustained 639 -> 790 appends/s.
+      # Upstream validator is inverted: the value must be STRICTLY BELOW
+      # sync.interval_ms (default 5 ms), so 4 is the lowest accepted value.
+      # Keep in agreement with docker-compose.dev.yml and ADR-016 §6.
+      "SIERRA_SYNC.IDLE_INTERVAL_MS": "4"
     volumes:
       - sierradb_data:/app/data
       - ./scripts/sierradb-healthcheck.sh:/scripts/sierradb-healthcheck.sh:ro
