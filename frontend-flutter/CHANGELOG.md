@@ -41,6 +41,11 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     update overlay whose row the projection no longer carries completes right
     away (the edited row is gone); a create overlay is kept until its id
     projects.
+  - **A follow-up edit keeps the create identity.** The detail sheet of a
+    freshly created row is one tap away, so an edit can be acknowledged before
+    the create projected; that overlay now keeps the create flag and stays
+    visible until the id arrives, instead of turning into an "update" that the
+    next id-less fetch would complete.
   - **One mechanism instead of four.** `pieces`, `scene_shoots` and `outfits`
     lose their bespoke typed prune inside the refetch seam, and `scenes` loses
     the controller-side capture of the last projected versions: all of them now

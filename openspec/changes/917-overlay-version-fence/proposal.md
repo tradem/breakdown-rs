@@ -68,11 +68,16 @@ closes.
   `shouldClearOutfitOverlay`) stay where they are still needed — in the
   *rendering* merge, which decides which row is shown until the fence passes.
 - **Every overlay type answers the question** (issue criteria 3): the six
-  create-only types return `null` with the documented reason (and name the
-  overlay-less commands that reconcile on the #916 path instead); the four
-  row-level types (`SceneBeatOverlay`, `SceneDetailsOverlay`,
-  `PieceRowOverlay`, `SceneShootRowOverlay`, `OutfitRowOverlay`) record their
-  acknowledged version as before and now satisfy the contract.
+  create-only types answer `isCreate => true` + `acknowledgedVersion => null`
+  with the documented reason (and name the overlay-less commands that reconcile
+  on the #916 path instead); the row-level types state `isCreate` explicitly at
+  every construction site (`pieces` / `outfits` create shells pass `true`,
+  `SceneShootRowOverlay` is always `false` — the plan derives no client ids).
+- **A follow-up edit keeps the create identity.** `overlayAddPreservingCreate`
+  keeps a pending create overlay's flag when the same id is re-acked
+  (`pieces.markedCreate` / `outfit.markedCreate`): the new row's detail sheet is
+  one tap away, and without the guard the shell would become an "update" and be
+  completed by the next fetch that omits the id (review of #919).
 
 ## Out of scope
 

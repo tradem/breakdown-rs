@@ -64,6 +64,20 @@ class OutfitRowOverlay implements ReconciliationOverlay {
   @override
   final String? warning;
 
+  /// The same overlay re-flagged as the CREATE shell of its id, so a fetch that
+  /// still omits the id does not complete it ([overlayAddPreservingCreate],
+  /// issue #917).
+  OutfitRowOverlay markedCreate() => isCreate
+      ? this
+      : OutfitRowOverlay(
+          id: id,
+          overlay: overlay,
+          acknowledgedVersion: acknowledgedVersion,
+          isCreate: true,
+          status: status,
+          warning: warning,
+        );
+
   @override
   OutfitRowOverlay copyWithStatus({
     OverlayStatus? status,

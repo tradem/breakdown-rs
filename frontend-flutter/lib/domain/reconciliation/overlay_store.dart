@@ -73,6 +73,28 @@ abstract class ReconciliationOverlay {
 List<E> overlayAdd<E extends ReconciliationOverlay>(List<E> state, E overlay) =>
     [...state.where((o) => o.id != overlay.id), overlay];
 
+/// Replaces any overlay with the same `id`, but **keeps the create identity**
+/// of a pending create shell (issue #917).
+///
+/// A follow-up edit can land before the create reached the read model (the
+/// detail sheet of a freshly created row is one tap away). Its overlay carries
+/// the same id, so [overlayAdd] replaces the shell — and an overlay flagged as
+/// an *update* would then be completed by the very next fetch that omits the
+/// id, making the new row vanish before its first projection. Preserving the
+/// flag keeps the id-presence completion of the shell it replaces.
+///
+/// [asCreate] rebuilds the overlay flagged as a create; it is only invoked when
+/// a pending create overlay with the same id exists.
+List<E> overlayAddPreservingCreate<E extends ReconciliationOverlay>(
+  List<E> state,
+  E overlay,
+  E Function(E overlay) asCreate,
+) {
+  if (overlay.isCreate) return overlayAdd(state, overlay);
+  final replacesCreate = state.any((o) => o.id == overlay.id && o.isCreate);
+  return overlayAdd(state, replacesCreate ? asCreate(overlay) : overlay);
+}
+
 /// Every overlay still awaiting projection confirmation moves to
 /// `reconciling` (acknowledged *and* previously-stale rows get another
 /// bounded pass on pull-to-refresh).

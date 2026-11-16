@@ -448,13 +448,15 @@ void main() {
     test('a create overlay that carries an acked version still completes on id '
         'presence', () async {
       // `pieces` / `outfits` create shells echo the create's version so a
-      // follow-up command can use it — completion is still id presence.
+      // follow-up command can use it — completion is still id presence. The
+      // echoed version is deliberately AHEAD of the projected one: an
+      // implementation that version-fenced creates would keep the shell.
       final h = _Harness(
         script: [
           {'c1': 1},
         ],
       );
-      h.ackCreate('c1', version: 1);
+      h.ackCreate('c1', version: 2);
       await h.drain(h.coordinator.reconcile());
       expect(h.refetches, 1);
       expect(h.overlays, isEmpty);

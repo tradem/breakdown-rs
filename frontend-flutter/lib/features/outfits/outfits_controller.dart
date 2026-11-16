@@ -171,8 +171,16 @@ class OutfitsOverlays extends _$OutfitsOverlays {
   @override
   List<OutfitRowOverlay> build(String characterId) => const [];
 
-  void add(OutfitRowOverlay overlay) =>
-      state = [...state.where((o) => o.id != overlay.id), overlay];
+  /// Replaces any overlay with the same id, keeping the CREATE identity of a
+  /// pending shell: a rename/notes/piece edit can land before the create
+  /// projected, and an overlay flagged as an update would then be completed by
+  /// the next fetch that omits the id — the new look would vanish
+  /// ([overlayAddPreservingCreate], issue #917).
+  void add(OutfitRowOverlay overlay) => state = overlayAddPreservingCreate(
+    state,
+    overlay,
+    (o) => o.markedCreate(),
+  );
 
   void markAllReconciling() => state = [
     for (final o in state) o.copyWithStatus(status: OverlayStatus.reconciling),

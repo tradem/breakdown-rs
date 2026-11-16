@@ -40,7 +40,11 @@
       typed `pruneWithProjection` from the refetch seam, `outfits` its typed
       variant, `scenes` the `_lastProjectedVersions` field and the two
       `dropProjected(Map<String,int>)` methods.
-- [x] 2.5 Rendering-side helpers stay (`shouldClearPieceOverlay`,
+- [x] 2.5 `overlayAddPreservingCreate` + `markedCreate()` keep the create
+      identity when a follow-up edit re-acks the same id (a detail sheet opened
+      before the create projected would otherwise turn the shell into an update
+      and lose the row on the next fetch that omits the id).
+- [x] 2.6 Rendering-side helpers stay (`shouldClearPieceOverlay`,
       `shouldClearSceneShootOverlay`, `shouldClearOutfitOverlay` still decide
       which row the merge shows until the fence passes).
 
@@ -58,7 +62,15 @@
       longer carries drops on the first fetch; a create overlay whose id is
       absent is kept through the budget (with and without an echoed version); an
       empty successful fetch completes update overlays and keeps create ones.
-- [x] 3.3 Existing D2/D3 + #916 groups unchanged in behaviour (assertions moved
+- [x] 3.3 Create fixtures are honest: the coordinator's create-with-version case
+      uses an echoed version AHEAD of the projected one (an implementation that
+      version-fenced creates would fail), and the create-path merge fixtures in
+      `outfits_state_test` / `piece_domains_coverage_test` are `isCreate: true`.
+- [x] 3.4 New pure test "a follow-up edit keeps the create identity of a pending
+      shell": the flag survives the replace, the optimistic value and version are
+      the follow-up's, an id-less fetch keeps the overlay, and the same edit
+      without a pending shell behaves as an ordinary update.
+- [x] 3.5 Existing D2/D3 + #916 groups unchanged in behaviour (assertions moved
       from a status string to `OverlayStatus` + warning).
 
 ## 4. Verification

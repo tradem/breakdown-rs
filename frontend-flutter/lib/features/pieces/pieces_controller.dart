@@ -164,8 +164,16 @@ class PiecesOverlays extends _$PiecesOverlays {
   @override
   List<PieceRowOverlay> build(String seasonId) => const [];
 
-  void add(PieceRowOverlay overlay) =>
-      state = [...state.where((o) => o.id != overlay.id), overlay];
+  /// Replaces any overlay with the same id, keeping the CREATE identity of a
+  /// pending shell: a detail/notes/category edit can land before the create
+  /// projected, and an overlay flagged as an update would then be completed by
+  /// the next fetch that omits the id — the new row would vanish
+  /// ([overlayAddPreservingCreate], issue #917).
+  void add(PieceRowOverlay overlay) => state = overlayAddPreservingCreate(
+    state,
+    overlay,
+    (o) => o.markedCreate(),
+  );
 
   void markAllReconciling() => state = [
     for (final o in state) o.copyWithStatus(status: OverlayStatus.reconciling),

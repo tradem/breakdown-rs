@@ -109,7 +109,9 @@ void main() {
             id: 'o-2',
             overlay: _outfit('o-2', name: 'Neu'),
             acknowledgedVersion: 1,
-            isCreate: false,
+            // A create shell: its row is absent from the projection because it
+            // has not projected yet (issue #917).
+            isCreate: true,
             status: OverlayStatus.acknowledged,
           ),
         ],

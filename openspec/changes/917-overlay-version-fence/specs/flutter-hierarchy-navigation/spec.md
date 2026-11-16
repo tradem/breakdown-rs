@@ -39,6 +39,13 @@ The shared reconciliation runner SHALL hand the freshly fetched `ProjectedRow`s
 - otherwise keep an **update** overlay until the fetched row reaches its
   acknowledged version.
 
+A follow-up command that replaces an overlay for an id that still carries a
+**pending create** overlay SHALL keep the create identity: the row has not
+projected yet, so an overlay re-flagged as an update would be completed by the
+very next fetch that omits the id and the new row would vanish before its first
+projection. The overlay's optimistic value and acknowledged version are still
+replaced — only the completion signal stays id presence.
+
 An update overlay SHALL be retained through the existing
 `kMaxReconcileAttempts` budget and marked `stale` on exhaustion (never silently
 discarded, D3). The version fence SHALL NOT introduce a new retry budget, a
@@ -78,6 +85,15 @@ declaration.
 - **WHEN** the fetched projection carries no row for a **create** overlay's id
 - **THEN** the overlay is kept (the id only appears once the create is
   projected), even when the overlay echoes an acknowledged version
+
+#### Scenario: An edit lands while the create has not projected
+
+- **GIVEN** a create overlay whose row the projection does not carry yet
+- **WHEN** a follow-up command (detail, notes, category, repertoire …) re-acks an
+  overlay for that same id
+- **THEN** the overlay keeps its create identity, so a fetch that still omits
+  the id keeps it visible (the optimistic value is the follow-up's)
+- **AND** it completes by id presence once the create reaches the projection
 
 #### Scenario: The edited row is gone
 
