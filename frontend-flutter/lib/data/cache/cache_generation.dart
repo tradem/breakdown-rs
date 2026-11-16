@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+part 'cache_generation.g.dart';
 
 /// Generation fence for cache writes (task 6.3).
 ///
@@ -27,16 +30,14 @@ class CacheWriteFence {
 
 /// Cache-write generation (task 6.3): bumped by the session-reset
 /// coordinator before every Drift clear (sign-out and backend switch), so
-/// in-flight reads fence themselves out. KeepAlive by construction (plain
-/// [NotifierProvider] defaults to it) — the epoch must survive screen
-/// disposal, or a reset generation would compare equal to a fresh zero.
-class CacheGeneration extends Notifier<int> {
+/// in-flight reads fence themselves out. `keepAlive` — the epoch must survive
+/// screen disposal, or a reset generation would compare equal to a fresh zero
+/// (`@Riverpod` defaults to auto-dispose, a plain `NotifierProvider` does not;
+/// the lifetime is preserved deliberately, issue #905).
+@Riverpod(keepAlive: true)
+class CacheGeneration extends _$CacheGeneration {
   @override
   int build() => 0;
 
   void bump() => state++;
 }
-
-final cacheGenerationProvider = NotifierProvider<CacheGeneration, int>(
-  CacheGeneration.new,
-);

@@ -620,7 +620,7 @@ final class SceneShootsOverlaysProvider
 }
 
 String _$sceneShootsOverlaysHash() =>
-    r'42bc017ee682b791e183a50e42f5a301a4966e1e';
+    r'ff1720ff6b205e451767ecf91f096ed256aae085';
 
 /// Ephemeral row-level optimistic overlays per day (controller state,
 /// NOT Drift). Entries clear by the version fence during the projection
@@ -858,7 +858,7 @@ final class SceneShootsControllerProvider
 }
 
 String _$sceneShootsControllerHash() =>
-    r'767294859439765980373bc2e68bfbc1d11dba3a';
+    r'5466570c49e2ddc1442c8bb01baccc694a5bb7f8';
 
 /// `SceneShootsController(scope)` on the shared reconciliation runner:
 /// plan derives no client ids (path-authoritative); execution commands

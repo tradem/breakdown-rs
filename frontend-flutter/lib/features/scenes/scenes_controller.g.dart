@@ -645,7 +645,7 @@ final class ScenesOverlaysProvider
   }
 }
 
-String _$scenesOverlaysHash() => r'9e15f7c259db20395069882c519375f3d34fb1e8';
+String _$scenesOverlaysHash() => r'b44ee898c11954e73ab39312e93589e86251f138';
 
 /// Ephemeral optimistic overlay store per episode (controller state, NOT
 /// Drift — no global overlay store).
@@ -758,7 +758,7 @@ final class SceneBeatOverlaysProvider
   }
 }
 
-String _$sceneBeatOverlaysHash() => r'0718c80cb512443beea16ec45696fe5df60efe58';
+String _$sceneBeatOverlaysHash() => r'000a599aab8922953e1dfeb0090aef3e0cfc916e';
 
 /// Ephemeral optimistic beat-overlay store per episode (issue #546):
 /// controller state keyed by SCENE id — never Drift.
@@ -882,7 +882,7 @@ final class SceneDetailsOverlaysProvider
 }
 
 String _$sceneDetailsOverlaysHash() =>
-    r'f7bdad3dd0ef65cf6386fe51a1421e3e21dd6c2d';
+    r'd1070845323a70edd6c16023bb994738a8059105';
 
 /// Controller-state optimistic DETAILS-overlay store per episode (issue
 /// #834): the details-update twin of [SceneBeatOverlays] — version-fenced
@@ -1111,7 +1111,7 @@ final class ScenesControllerProvider
   }
 }
 
-String _$scenesControllerHash() => r'90c8ef9f9d1db2efdd0079fe94bfb32cd93c683a';
+String _$scenesControllerHash() => r'1446725419f6ad58ccded042a8eaecf47da06763';
 
 /// `ScenesController(episodeId)` on the shared reconciliation runner.
 

@@ -87,6 +87,23 @@ a server-owned concern (API shape, error surface, auth), the backend wins.
     the direct analog of the backend's forbidden audit-metadata coupling —
     a hidden dependency you cannot see at the call site — and is rejected
     for the same reason.
+  - **A notifier is declared through codegen too (issue #905).** A new
+    `Notifier` + `NotifierProvider` pair is not accepted; use
+    `@Riverpod(keepAlive: …) class X extends _$X` and let the generator own
+    the provider variable (it derives the name from the class, so a
+    `PendingDocument` class *is* `pendingDocumentProvider`). State the
+    lifetime explicitly — `@Riverpod` defaults to auto-dispose while a plain
+    `NotifierProvider` is keep-alive, so a migration that omits `keepAlive`
+    silently changes behaviour. A shared notifier base type is expressed as a
+    `mixin … on AnyNotifier<…>` (see `OverlayStore`), never as an `abstract
+    class … extends Notifier<…>`: a generated notifier must extend its own
+    `_$Class` base and Dart allows one superclass. Exactly one hand-written
+    pair remains, as a documented exception: `easterEggProvider`
+    (`data/settings/easter_eggs_store.dart`) — a `NotifierProvider.family`
+    whose family argument is a constructor field and whose bootstrap seeding
+    goes through the `HydratedEasterEggs` subclass via `overrideWith`. It is
+    an exception, not a template; do not copy it, and do not assume another
+    hand-written provider is equally justified.
 - **CQRS on the client (Decision D2):**
   - **Write side:** Commands are `POST` to resource/collection routes
     (`POST /seasons`, `POST /outfits/{id}/pieces`, …). The client treats

@@ -706,7 +706,7 @@ final class BlocksOverlaysProvider
   }
 }
 
-String _$blocksOverlaysHash() => r'6e9f002bae2812072c0c604b6ab331181d4ae054';
+String _$blocksOverlaysHash() => r'4cab8085904725d32c2f943a49c8bd8a8a87432e';
 
 /// Ephemeral optimistic overlay store for the season (controller state, NOT
 /// Drift — no global overlay store).
@@ -930,7 +930,7 @@ final class BlocksControllerProvider
   }
 }
 
-String _$blocksControllerHash() => r'542511984e9671aaf3c252fa5c30583e9ea41de3';
+String _$blocksControllerHash() => r'c095af043253bf0e4aed55790ddc2f58496082b0';
 
 /// Family `BlocksController(seasonId)` on the shared reconciliation runner
 /// (seasons reference pattern): projected `AsyncValue` rows, cached rows,

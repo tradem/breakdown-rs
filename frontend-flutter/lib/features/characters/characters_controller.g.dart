@@ -611,7 +611,7 @@ final class CharactersOverlaysProvider
 }
 
 String _$charactersOverlaysHash() =>
-    r'f5fa781c65e269746ac932a94b645f2cd6480e7a';
+    r'7ab9d05f506b92568f400affc45e5975d5a9355a';
 
 /// Ephemeral optimistic overlay store per season (controller state, NOT
 /// Drift — no global overlay store).
@@ -841,7 +841,7 @@ final class CharactersControllerProvider
 }
 
 String _$charactersControllerHash() =>
-    r'11d764f328278d52002566aa3ae5105e94c2b6fa';
+    r'700a4e1979fc4ba9f4b6612a533a908d1d269f50';
 
 /// `CharactersController(seasonId)` on the shared reconciliation runner:
 /// create follows the optimistic-overlay pattern; contact/measurements are

@@ -171,6 +171,17 @@ class EasterEggsStore {
 /// the first consumer exists. A failed read falls back to default ON with
 /// [readFailed] raised so the settings screen shows a visible error
 /// state — never a silent failure.
+///
+/// **Documented codegen exception** (issue #905, AGENTS.md §1 / D3): this is
+/// the one hand-written `Notifier` + `NotifierProvider` pair left under
+/// `lib/`; everything else was migrated to `@Riverpod`. It stays hand-written
+/// because (a) the family argument is a **constructor field** (`id`), which
+/// codegen would turn into a `build(id)` parameter it owns, and (b) bootstrap
+/// seeding happens through [HydratedEasterEggs] — a subclass carrying the
+/// resolved value and the read-failure flag, applied with `overrideWith`. A
+/// codegen base would own the arg plumbing, so the seeding subclass could no
+/// longer take its own constructor argument. Do NOT copy this shape into a new
+/// provider; it is an exception, not a template.
 class EasterEggs extends Notifier<bool> {
   EasterEggs(this.id);
 

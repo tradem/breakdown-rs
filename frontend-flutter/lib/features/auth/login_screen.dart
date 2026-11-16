@@ -3,9 +3,11 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/auth_providers.dart';
 import '../../core/problem_error.dart';
@@ -15,35 +17,37 @@ import 'login_errors.dart';
 import 'widgets/login_widgets.dart';
 import '../../design/components/breakdown_app_bar.dart';
 
+part 'login_screen.g.dart';
+
 /// Ephemeral sign-in failure from the last `signIn()` dispatch. Kept in a
 /// provider (not widget state) so [LoginScreen] stays a `ConsumerWidget`;
 /// cleared on every new dispatch. Sign-in never mints a session here — the
 /// root gate recomposes when [authSessionControllerProvider] yields one.
-class SignInError extends Notifier<ProblemError?> {
+@Riverpod(keepAlive: true)
+class SignInError extends _$SignInError {
   @override
   ProblemError? build() => null;
 
   void set(ProblemError? error) => state = error;
 }
 
-final signInErrorProvider = NotifierProvider<SignInError, ProblemError?>(
-  SignInError.new,
-);
-
 /// Tracks the in-flight `signIn()` dispatch (the controller holds no loading
 /// state for the dispatch itself — success flips straight to
 /// `AsyncData(session)`). While true the actions are disabled with a
-/// spinner. Auto-disposing: a rebuilt gate never inherits a stale spinner.
-class SignInInFlight extends Notifier<bool> {
+/// spinner.
+///
+/// `keepAlive` preserves the lifetime the hand-written `NotifierProvider`
+/// already had (issue #905) — this comment previously claimed it was
+/// auto-disposing. The flag is therefore cleared explicitly: set at the start
+/// of a dispatch and reset in its `finally`, so a rebuilt gate never inherits a
+/// stale spinner.
+@Riverpod(keepAlive: true)
+class SignInInFlight extends _$SignInInFlight {
   @override
   bool build() => false;
 
   void set(bool inFlight) => state = inFlight;
 }
-
-final signInInFlightProvider = NotifierProvider<SignInInFlight, bool>(
-  SignInInFlight.new,
-);
 
 /// Login screen (spec `flutter-auth-shell`, design.md §2.1).
 ///

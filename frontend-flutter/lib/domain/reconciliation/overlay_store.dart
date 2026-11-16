@@ -153,16 +153,22 @@ List<E> overlayMarkAllStale<E extends ReconciliationOverlay>(
 
 /// Ephemeral optimistic overlay store (D2: controller state, NOT Drift).
 ///
-/// Per-aggregate subclasses (e.g. `SeasonOverlays`) extend this with a
-/// concrete `E`; there is deliberately no global overlay store — each
-/// screen owns its rows. Kept in its own [Notifier] so the overlay survives
-/// projection rebuilds (the controller's `build()` re-runs whenever the
-/// projection changes; inlining the list there would wipe it).
-abstract class OverlayStore<E extends ReconciliationOverlay>
-    extends Notifier<List<E>> {
-  @override
-  List<E> build() => const [];
-
+/// Per-aggregate implementations (e.g. `SeasonOverlays`) mix this onto their
+/// own notifier with a concrete `E`; there is deliberately no global overlay
+/// store — each screen owns its rows. Kept in its own notifier so the overlay
+/// survives projection rebuilds (the controller's `build()` re-runs whenever
+/// the projection changes; inlining the list there would wipe it).
+///
+/// A **mixin**, not an `abstract class … extends Notifier`: the per-aggregate
+/// stores are `@Riverpod` codegen providers (AGENTS.md §1 / D3), a generated
+/// notifier must extend its own generated `_$ClassName` base, and Dart allows
+/// only one superclass — a mixin can be applied on top of it without competing.
+/// [AnyNotifier] is Riverpod's public notifier root (the supertype of both the
+/// hand-written `Notifier` and the generated `$Notifier`), and it supplies the
+/// `state` this base mutates. The mixin owns no state initialization, so every
+/// concrete store still declares its own `build()` (issue #905).
+mixin OverlayStore<E extends ReconciliationOverlay>
+    on AnyNotifier<List<E>, List<E>> {
   /// Replaces any overlay with the same `id` (a re-acked create).
   void add(E overlay) => state = overlayAdd(state, overlay);
 

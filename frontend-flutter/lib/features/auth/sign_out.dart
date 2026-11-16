@@ -4,8 +4,8 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/active_block.dart';
 import '../../auth/active_block_store.dart';
@@ -40,6 +40,8 @@ import '../photos/widgets/photo_gallery.dart';
 import '../shooting_days/shooting_days_controller.dart';
 import 'login_screen.dart';
 
+part 'sign_out.g.dart';
+
 /// Session-reset coordinator (tasks 4.2/6.3): the single ordered path for
 /// sign-out AND runtime backend switches.
 ///
@@ -62,7 +64,8 @@ import 'login_screen.dart';
 ///
 /// Lives here (features-side) rather than in `auth_providers.dart` because
 /// that file cannot import `features/` providers without an import cycle.
-class SessionReset extends Notifier<void> {
+@Riverpod(keepAlive: true)
+class SessionReset extends _$SessionReset {
   @override
   void build() {}
 
@@ -410,7 +413,3 @@ class SessionReset extends Notifier<void> {
       ..invalidate(aiPostImportReportProvider);
   }
 }
-
-final sessionResetProvider = NotifierProvider<SessionReset, void>(
-  SessionReset.new,
-);

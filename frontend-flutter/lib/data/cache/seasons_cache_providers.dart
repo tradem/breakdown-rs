@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'dart:async' show unawaited;
 
@@ -73,10 +74,8 @@ Future<Result<List<SeasonView>>> seasonsListFetch(Ref ref) {
 /// Retained last-good snapshot, updated by [SeasonsViewController] after every
 /// successful read (D1/D4). Lets the `seasonsView` selector serve cached rows
 /// even when the async controller is in `AsyncError`.
-final seasonsPrevRowsProvider =
-    NotifierProvider<_SeasonsPrevRows, List<SeasonView>>(_SeasonsPrevRows.new);
-
-class _SeasonsPrevRows extends Notifier<List<SeasonView>> {
+@Riverpod(keepAlive: true)
+class SeasonsPrevRows extends _$SeasonsPrevRows {
   @override
   List<SeasonView> build() => const [];
 

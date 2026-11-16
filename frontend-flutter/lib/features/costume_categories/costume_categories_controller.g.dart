@@ -724,7 +724,7 @@ final class CostumeCategoriesOverlaysProvider
 }
 
 String _$costumeCategoriesOverlaysHash() =>
-    r'677a7cb8fa2724bbce1e66f1fc659c7f53531cca';
+    r'7afc5c4aef3262acfafe030ce784a1d1e336d42f';
 
 /// Ephemeral optimistic overlay store per season (controller state, NOT
 /// Drift — no global overlay store).
@@ -1089,7 +1089,7 @@ final class CostumeCategoriesControllerProvider
 }
 
 String _$costumeCategoriesControllerHash() =>
-    r'd3b65451ed7d39625b8fce84ee371a5909db25b3';
+    r'74c96db82cf9d5ed2c508719ee7ba62c3248a5f6';
 
 /// `CostumeCategoriesController(seasonId)` on the shared reconciliation
 /// runner: create follows the optimistic-overlay pattern; rename echoes the

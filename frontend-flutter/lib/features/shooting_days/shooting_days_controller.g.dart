@@ -617,7 +617,7 @@ final class ShootingDaysOverlaysProvider
 }
 
 String _$shootingDaysOverlaysHash() =>
-    r'bc97efe757e774cef2f005775bdaef04acb42e8e';
+    r'063a651b3875ce7d373ad32a65aa060530e2ea9f';
 
 /// Ephemeral optimistic overlay store per episode (controller state, NOT
 /// Drift — no global overlay store).
@@ -852,7 +852,7 @@ final class ShootingDaysControllerProvider
 }
 
 String _$shootingDaysControllerHash() =>
-    r'bffab9a5f96dd6aedf07e574af0a908854950ece';
+    r'9561f277cbdc3d2216aa8008cfe80d2201f31353';
 
 /// `ShootingDaysController(episodeId)` on the shared reconciliation runner:
 /// create derives the append `order_key` with the shared rule (`source:
