@@ -741,7 +741,7 @@ final class OutfitsOverlaysProvider
   }
 }
 
-String _$outfitsOverlaysHash() => r'763ab823164e55ed7e9df472b5a9e8b75052a4dc';
+String _$outfitsOverlaysHash() => r'3354b89edfe2d5a3066e085d7b1e30bac50bcb97';
 
 /// Ephemeral row-level overlays per character (controller state, NOT Drift).
 
@@ -960,7 +960,7 @@ final class OutfitsControllerProvider
   }
 }
 
-String _$outfitsControllerHash() => r'b2bb3ed24e68911378c897bb064af55cb9134efb';
+String _$outfitsControllerHash() => r'e36caeb42ec1d04311e85d8a0847e9a67ca0e54d';
 
 /// `OutfitsController(characterId)`: one character's look commands with
 /// optimistic-after-2xx + bounded-retry reconciliation (version fence).

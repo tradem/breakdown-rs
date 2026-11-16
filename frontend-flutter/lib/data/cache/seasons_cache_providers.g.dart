@@ -269,6 +269,72 @@ final class SeasonsListFetchProvider
 
 String _$seasonsListFetchHash() => r'925a9dd528cfc026e17474f91693aebe93ab22f8';
 
+/// Retained last-good snapshot, updated by [SeasonsViewController] after every
+/// successful read (D1/D4). Lets the `seasonsView` selector serve cached rows
+/// even when the async controller is in `AsyncError`.
+
+@ProviderFor(SeasonsPrevRows)
+final seasonsPrevRowsProvider = SeasonsPrevRowsProvider._();
+
+/// Retained last-good snapshot, updated by [SeasonsViewController] after every
+/// successful read (D1/D4). Lets the `seasonsView` selector serve cached rows
+/// even when the async controller is in `AsyncError`.
+final class SeasonsPrevRowsProvider
+    extends $NotifierProvider<SeasonsPrevRows, List<SeasonView>> {
+  /// Retained last-good snapshot, updated by [SeasonsViewController] after every
+  /// successful read (D1/D4). Lets the `seasonsView` selector serve cached rows
+  /// even when the async controller is in `AsyncError`.
+  SeasonsPrevRowsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'seasonsPrevRowsProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$seasonsPrevRowsHash();
+
+  @$internal
+  @override
+  SeasonsPrevRows create() => SeasonsPrevRows();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(List<SeasonView> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<List<SeasonView>>(value),
+    );
+  }
+}
+
+String _$seasonsPrevRowsHash() => r'7576a4cac9778511f575b12b0dcf45f828bc5f3c';
+
+/// Retained last-good snapshot, updated by [SeasonsViewController] after every
+/// successful read (D1/D4). Lets the `seasonsView` selector serve cached rows
+/// even when the async controller is in `AsyncError`.
+
+abstract class _$SeasonsPrevRows extends $Notifier<List<SeasonView>> {
+  List<SeasonView> build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<List<SeasonView>, List<SeasonView>>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<List<SeasonView>, List<SeasonView>>,
+              List<SeasonView>,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
 /// Read-projection controller (Design Decisions D1–D4).
 ///
 /// It maps the injected [seasonsListFetchProvider] `Result` into an

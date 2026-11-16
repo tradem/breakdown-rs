@@ -31,17 +31,16 @@ part 'seasons_controller.g.dart';
 /// Kept in its own [Notifier] so the overlay survives projection rebuilds
 /// (`SeasonsController.build()` re-runs whenever the projection changes;
 /// inlining the list there would wipe it).
-class SeasonOverlays extends OverlayStore<SeasonOverlay> {
+@Riverpod(keepAlive: true)
+class SeasonOverlays extends _$SeasonOverlays with OverlayStore<SeasonOverlay> {
   @override
   List<SeasonOverlay> build() => const [];
 }
 
-final seasonOverlaysProvider =
-    NotifierProvider<SeasonOverlays, List<SeasonOverlay>>(SeasonOverlays.new);
-
 /// Last command failure, surfaced to the screen (keyed on the stable
 /// problem `code`, never the `detail` text).
-class SeasonCommandError extends Notifier<ProblemError?> {
+@Riverpod(keepAlive: true)
+class SeasonCommandError extends _$SeasonCommandError {
   @override
   ProblemError? build() => null;
 
@@ -49,9 +48,6 @@ class SeasonCommandError extends Notifier<ProblemError?> {
 
   void clear() => state = null;
 }
-
-final seasonCommandErrorProvider =
-    NotifierProvider<SeasonCommandError, ProblemError?>(SeasonCommandError.new);
 
 /// The first screen's controller — the reference pattern for every
 /// subsequent screen (AGENTS.md §9).

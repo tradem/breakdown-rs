@@ -639,7 +639,7 @@ final class PiecesOverlaysProvider
   }
 }
 
-String _$piecesOverlaysHash() => r'2af9a23cca335630acab896ba71a9b3f464edbc7';
+String _$piecesOverlaysHash() => r'951b7013c1a1292045a1e27807660318ab66f442';
 
 /// Ephemeral row-level optimistic overlays per season (controller state,
 /// NOT Drift). Entries clear by the version fence during the projection
@@ -866,7 +866,7 @@ final class PiecesControllerProvider
   }
 }
 
-String _$piecesControllerHash() => r'6691c10702195a1f04b3fa73187930c5ec4e1d80';
+String _$piecesControllerHash() => r'687cbd8218e193b036ad5f84456889c21bace69f';
 
 /// `PiecesController(seasonId)` on the shared reconciliation runner.
 

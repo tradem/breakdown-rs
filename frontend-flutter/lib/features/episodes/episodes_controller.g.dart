@@ -667,7 +667,7 @@ final class EpisodesOverlaysProvider
   }
 }
 
-String _$episodesOverlaysHash() => r'78f8b7c3be097147185a1a5d9237a7bbfc99762c';
+String _$episodesOverlaysHash() => r'6ebb7eff3107ad95845d3a0266fd6cff555bab1d';
 
 /// Ephemeral optimistic overlay store per block (controller state, NOT
 /// Drift — no global overlay store).
@@ -897,7 +897,7 @@ final class EpisodesControllerProvider
 }
 
 String _$episodesControllerHash() =>
-    r'c1ea74e5838485ae96ffbf57ca09a33036b003a3';
+    r'7510215ea90cc8b42b8a58fd1827e441bf92ce99';
 
 /// `EpisodesController(blockId, seasonId)` on the shared reconciliation
 /// runner: the `blockId` is the fetch scope (server-side `?block_id=`

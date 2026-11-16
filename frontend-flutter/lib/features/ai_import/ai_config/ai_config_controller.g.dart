@@ -561,6 +561,68 @@ final class AiImportDefaultsProvider
 
 String _$aiImportDefaultsHash() => r'b42dfb5a680edab5795ea1578af6e966512cd5bd';
 
+/// Ephemeral draft store: mutations go through [mutate] so watchers (the
+/// controller's build) rebuild on every draft change.
+
+@ProviderFor(AiConfigDrafts)
+final aiConfigDraftsProvider = AiConfigDraftsProvider._();
+
+/// Ephemeral draft store: mutations go through [mutate] so watchers (the
+/// controller's build) rebuild on every draft change.
+final class AiConfigDraftsProvider
+    extends $NotifierProvider<AiConfigDrafts, AiConfigDraftData> {
+  /// Ephemeral draft store: mutations go through [mutate] so watchers (the
+  /// controller's build) rebuild on every draft change.
+  AiConfigDraftsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'aiConfigDraftsProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiConfigDraftsHash();
+
+  @$internal
+  @override
+  AiConfigDrafts create() => AiConfigDrafts();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AiConfigDraftData value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AiConfigDraftData>(value),
+    );
+  }
+}
+
+String _$aiConfigDraftsHash() => r'e3886550c2a10ce51e9c20f7700d4260716d0585';
+
+/// Ephemeral draft store: mutations go through [mutate] so watchers (the
+/// controller's build) rebuild on every draft change.
+
+abstract class _$AiConfigDrafts extends $Notifier<AiConfigDraftData> {
+  AiConfigDraftData build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<AiConfigDraftData, AiConfigDraftData>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AiConfigDraftData, AiConfigDraftData>,
+              AiConfigDraftData,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///
 /// AUTHZ-GATE exception (D4, documented): the backend gates AI config and

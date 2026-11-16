@@ -184,7 +184,8 @@ class AiConfigDraftData {
 
 /// Ephemeral draft store: mutations go through [mutate] so watchers (the
 /// controller's build) rebuild on every draft change.
-class AiConfigDrafts extends Notifier<AiConfigDraftData> {
+@Riverpod(keepAlive: true)
+class AiConfigDrafts extends _$AiConfigDrafts {
   @override
   AiConfigDraftData build() => AiConfigDraftData();
 
@@ -228,9 +229,6 @@ class AiConfigDrafts extends Notifier<AiConfigDraftData> {
   /// the create stays unconfirmed.
   void reset() => state = AiConfigDraftData(unresolved: state.unresolved);
 }
-
-final aiConfigDraftsProvider =
-    NotifierProvider<AiConfigDrafts, AiConfigDraftData>(AiConfigDrafts.new);
 
 /// The bounded read-back's verdict (issue #769): [error] is `null` exactly
 /// when the stored view confirmed the submitted Decision Model triple;

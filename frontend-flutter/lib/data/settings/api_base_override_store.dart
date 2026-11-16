@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:fpdart/fpdart.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../core/problem_error.dart';
 import '../../core/result.dart';
+
+part 'api_base_override_store.g.dart';
 
 /// Secure persistence for the dev-flavor runtime backend-URI override
 /// (spec `flutter-app-dialogs`, task 6.2).
@@ -69,15 +72,12 @@ class ApiBaseOverrideStore {
 /// change since boot — use `AppConfig.apiBase`" (the persisted override, if
 /// any, is already merged into the config by `bootstrap()` — task 6.1).
 /// Setting it rebuilds `apiDioProvider` (same pinned `SecurityContext`) and
-/// every dependent client/repository. KeepAlive by construction — the
-/// override outlives any screen.
-class RuntimeApiBase extends Notifier<String?> {
+/// every dependent client/repository. `keepAlive` — the override outlives any
+/// screen (issue #905).
+@Riverpod(keepAlive: true)
+class RuntimeApiBase extends _$RuntimeApiBase {
   @override
   String? build() => null;
 
   void set(String? base) => state = base;
 }
-
-final runtimeApiBaseProvider = NotifierProvider<RuntimeApiBase, String?>(
-  RuntimeApiBase.new,
-);

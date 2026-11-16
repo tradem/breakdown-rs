@@ -8,6 +8,88 @@ part of 'season_membership_provider.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
+/// TTL-scoped cache for the strict-parsed membership read (design.md §5).
+/// `keepAlive` — the TTL window must survive screen disposal, or every child
+/// navigation would refetch (issue #905).
+
+@ProviderFor(SeasonMembershipCache)
+final seasonMembershipCacheProvider = SeasonMembershipCacheProvider._();
+
+/// TTL-scoped cache for the strict-parsed membership read (design.md §5).
+/// `keepAlive` — the TTL window must survive screen disposal, or every child
+/// navigation would refetch (issue #905).
+final class SeasonMembershipCacheProvider
+    extends
+        $NotifierProvider<
+          SeasonMembershipCache,
+          Map<String, SeasonMembershipEntry>
+        > {
+  /// TTL-scoped cache for the strict-parsed membership read (design.md §5).
+  /// `keepAlive` — the TTL window must survive screen disposal, or every child
+  /// navigation would refetch (issue #905).
+  SeasonMembershipCacheProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'seasonMembershipCacheProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$seasonMembershipCacheHash();
+
+  @$internal
+  @override
+  SeasonMembershipCache create() => SeasonMembershipCache();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(Map<String, SeasonMembershipEntry> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<Map<String, SeasonMembershipEntry>>(
+        value,
+      ),
+    );
+  }
+}
+
+String _$seasonMembershipCacheHash() =>
+    r'264ebbfee1bc079c1384c6fc92dc25883994a81b';
+
+/// TTL-scoped cache for the strict-parsed membership read (design.md §5).
+/// `keepAlive` — the TTL window must survive screen disposal, or every child
+/// navigation would refetch (issue #905).
+
+abstract class _$SeasonMembershipCache
+    extends $Notifier<Map<String, SeasonMembershipEntry>> {
+  Map<String, SeasonMembershipEntry> build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref =
+        this.ref
+            as $Ref<
+              Map<String, SeasonMembershipEntry>,
+              Map<String, SeasonMembershipEntry>
+            >;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<
+                Map<String, SeasonMembershipEntry>,
+                Map<String, SeasonMembershipEntry>
+              >,
+              Map<String, SeasonMembershipEntry>,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
 /// Season-scoped membership read with strict capability parsing
 /// (`flutter-hierarchy-navigation` 3.1).
 ///

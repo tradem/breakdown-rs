@@ -5,7 +5,6 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -294,15 +293,13 @@ class AiImportSubmitController extends _$AiImportSubmitController {
 /// The pending document (picked file). Cleared after every dispatch —
 /// by [selectKind] (a kind switch invalidates the body) and by the
 /// screen after a successful dispatch.
-class PendingDocument extends Notifier<AiImportDocument?> {
+@Riverpod(keepAlive: true)
+class PendingDocument extends _$PendingDocument {
   @override
   AiImportDocument? build() => null;
 
   void set(AiImportDocument? document) => state = document;
 }
-
-final pendingDocumentProvider =
-    NotifierProvider<PendingDocument, AiImportDocument?>(PendingDocument.new);
 
 /// "Block extrahieren": this dispatch takes its target block from the SCRIPT
 /// (issue #898) instead of writing into the active block.
@@ -335,27 +332,21 @@ class AiImportExtractBlock extends _$AiImportExtractBlock {
 /// episode/series context could not be persisted. The submit screen
 /// surfaces it as a warning while STILL navigating to the job; cleared
 /// at the start of every dispatch.
-class _StampWarning extends Notifier<ProblemError?> {
+@Riverpod(keepAlive: true)
+class AiStampWarning extends _$AiStampWarning {
   @override
   ProblemError? build() => null;
 
   void set(ProblemError? error) => state = error;
 }
 
-final aiStampWarningProvider = NotifierProvider<_StampWarning, ProblemError?>(
-  _StampWarning.new,
-);
-
 /// The episode the user picked as the apply target for the NEXT import
 /// (submit-time context, design §2.3). Controller state — not navigation
 /// state; cleared after the dispatch settles.
-class PendingEpisode extends Notifier<EpisodeView?> {
+@Riverpod(keepAlive: true)
+class PendingEpisode extends _$PendingEpisode {
   @override
   EpisodeView? build() => null;
 
   void set(EpisodeView? episode) => state = episode;
 }
-
-final pendingEpisodeProvider = NotifierProvider<PendingEpisode, EpisodeView?>(
-  PendingEpisode.new,
-);

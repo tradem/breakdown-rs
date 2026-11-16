@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -52,10 +52,10 @@ class SeasonMembershipEntry {
 }
 
 /// TTL-scoped cache for the strict-parsed membership read (design.md §5).
-/// KeepAlive by construction — the TTL window must survive screen disposal,
-/// or every child navigation would refetch.
-class SeasonMembershipCache
-    extends Notifier<Map<String, SeasonMembershipEntry>> {
+/// `keepAlive` — the TTL window must survive screen disposal, or every child
+/// navigation would refetch (issue #905).
+@Riverpod(keepAlive: true)
+class SeasonMembershipCache extends _$SeasonMembershipCache {
   @override
   Map<String, SeasonMembershipEntry> build() => const {};
 
@@ -70,11 +70,6 @@ class SeasonMembershipCache
 
   void clear() => state = const {};
 }
-
-final seasonMembershipCacheProvider =
-    NotifierProvider<SeasonMembershipCache, Map<String, SeasonMembershipEntry>>(
-      SeasonMembershipCache.new,
-    );
 
 /// Season-scoped membership read with strict capability parsing
 /// (`flutter-hierarchy-navigation` 3.1).
