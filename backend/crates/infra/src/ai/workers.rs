@@ -66,6 +66,7 @@ use serde_json::to_vec;
 use uuid::Uuid;
 
 use super::heartbeat::LeaseHeartbeat;
+use super::mapping_metrics::MAPPING_WRITES;
 use super::pdf::PdfTextExtractor;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
@@ -2703,6 +2704,14 @@ where
             .into_iter()
             .partition(|(_, row, _)| !row_needs_a_source_outfit(row));
 
+        // (issue #900 M1) Snapshot the process-wide mapping-write counters before
+        // the row phase, so the summary below can attribute `row_ms_avg`: each row
+        // pays `reserve` → command append → `confirm` per mapped aggregate, and
+        // neither the connection wait nor the statement time is visible in the row
+        // total today. Rows run concurrently, so a per-row sum would double-count
+        // interleaved rows — the phase delta divided by the row count is the honest
+        // per-row figure, and that is exactly what decomposes `row_ms_avg`.
+        let mapping_writes_before = MAPPING_WRITES.snapshot();
         let mut outcomes: Vec<Option<RowApplyOutcome>> =
             (0..plan.scenes.len()).map(|_| None).collect();
         for batch in concurrent_rows.chunks(APPLY_ROW_CONCURRENCY) {
@@ -2762,6 +2771,15 @@ where
         // Every row is dispatched; the trailing work (episode summary,
         // telemetry) is still running (issue #762). The heartbeat stays alive
         // for it — the summary can be slow for a large plan too.
+        // (issue #900 M1) What the row phase actually spent inside the mapping
+        // write path, split into "waited for a pooled connection" and "the
+        // statement itself" (see `mapping_metrics` for why the delta is this run's
+        // number). `*_per_row` is the decomposition of `row_ms_avg` above; the
+        // pool gauges are the instant the last write observed, because the worker
+        // holds no pool of its own (the repository owns it).
+        let mapping_writes = MAPPING_WRITES.snapshot().since(mapping_writes_before);
+        let planned_rows = u64::from(apply_progress.total);
+        let per_row_divisor = (planned_rows.max(1)) as f64;
         tracing::info!(
             job_id = %preview_id.as_uuid(),
             run_id = %run_id.as_uuid(),
@@ -2772,6 +2790,16 @@ where
                 .unwrap_or_default()
                 .as_millis() as u64,
             row_ms_max = row_elapsed_max.as_millis() as u64,
+            mapping_reserve_ops = mapping_writes.reserve_ops,
+            mapping_insert_ops = mapping_writes.insert_ops,
+            mapping_acquire_ms_total = mapping_writes.acquire.as_millis() as u64,
+            mapping_statement_ms_total = mapping_writes.statement.as_millis() as u64,
+            mapping_acquire_ms_per_row = mapping_writes.acquire.as_secs_f64() * 1_000.0
+                / per_row_divisor,
+            mapping_statement_ms_per_row = mapping_writes.statement.as_secs_f64() * 1_000.0
+                / per_row_divisor,
+            db_pool_size = mapping_writes.pool_size,
+            db_pool_num_idle = mapping_writes.pool_num_idle,
             applied = result.applied.len(),
             created_episodes = result.created_episodes,
             created_characters = result.created_characters,
