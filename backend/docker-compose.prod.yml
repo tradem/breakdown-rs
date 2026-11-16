@@ -328,6 +328,15 @@ services:
       # the same sslmode=verify-full&sslrootcert=… query params (main.rs
       # validates this when REQUIRE_IN_TRANSIT_TLS=true).
       MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL:-}
+      # Postgres pool topology (issue #900 M3): two pools over one database so a burst
+      # of projection catch-up — which an AI-import apply itself manufactures — cannot
+      # queue the apply's own round trips. The projector pool must stay at least as
+      # large as the single pool it replaced (20) — 30 read-model consumers exist today —
+      # and the SUM of both pools (plus the migrator's 1) must stay below Postgres'
+      # `max_connections`. Runbook: docs/operations/runbooks.md §17 (M3).
+      # No connection is opened up front: sqlx grows each pool on demand.
+      DATABASE_MAX_CONNECTIONS: ${DATABASE_MAX_CONNECTIONS:-20}
+      PROJECTOR_DATABASE_MAX_CONNECTIONS: ${PROJECTOR_DATABASE_MAX_CONNECTIONS:-20}
       # SierraDB link terminates TLS at the stunnel sidecar (ADR-024). The
       # root is pinned via SIERRADB_TLS_ROOT_CERT (rediss:// + build_with_tls).
       SIERRADB_URL: rediss://stunnel:9091/?protocol=resp3

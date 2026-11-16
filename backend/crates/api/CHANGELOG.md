@@ -17,6 +17,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.69.1] - Unreleased
+
+### Changed — the read-model writers get their own Postgres pool (issue #900 M3)
+
+- The composition root now opens **two** long-lived DML pools instead of one:
+  the app pool (`DATABASE_MAX_CONNECTIONS`, default 20) keeps the request path,
+  the AI-import workers (including the apply that takes ≈7 minutes) and the
+  reservation reaper, while the projector pool
+  (`PROJECTOR_DATABASE_MAX_CONNECTIONS`, default 20) serves only the read-model
+  consumers — 16 aggregate projectors, 13 audit projectors and the
+  season-seeding event reactor. An apply manufactures the projection backlog the projectors then
+  write, so on one shared pool its `reserve → append → confirm` chain queued
+  behind its own catch-up; that is the "pool wait dominates" row of issue #900's
+  decision table.
+- Each pool carries its role as Postgres `application_name`
+  (`breakdown-api` / `breakdown-projector`), so `pg_stat_activity` shows the
+  split without log correlation. Boot logs both sizes and their sum.
+- `PROJECTOR_DATABASE_MAX_CONNECTIONS=0` keeps the pre-M3 topology for the
+  still-pending A/B attribution run (measurement only). Sizing rules and the
+  "projector lag must not get worse" checks: `docs/operations/runbooks.md` §17
+  (M3).
+- No wire change, no dependency change, no new migration; the write paths,
+  appends and retry policy are untouched.
+
 ## [0.66.0] - Unreleased
 
 ### Changed — the reset CLI documents its schema step (#770 follow-up)
