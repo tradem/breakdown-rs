@@ -161,8 +161,10 @@ class CharactersOverlays extends _$CharactersOverlays {
 
   void markAllReconciling() => state = overlayMarkAllReconciling(state);
 
-  void dropProjectedIds(Set<String> projectedIds) =>
-      state = overlayDropProjectedIds(state, projectedIds);
+  /// Version-fenced drop against the rows the pass fetched (issue #917):
+  /// these are create-only overlays, so id presence completes them.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 
   void markAllStale(String warning) =>
       state = overlayMarkAllStale(state, warning);
@@ -215,9 +217,9 @@ class CharactersController extends _$CharactersController {
         markAllReconciling: () => ref
             .read(charactersOverlaysProvider(seasonId).notifier)
             .markAllReconciling(),
-        dropProjectedIds: (ids) => ref
+        dropProjectedRows: (rows) => ref
             .read(charactersOverlaysProvider(seasonId).notifier)
-            .dropProjectedIds(ids),
+            .dropProjectedRows(rows),
         markAllStale: (warning) => ref
             .read(charactersOverlaysProvider(seasonId).notifier)
             .markAllStale(warning),

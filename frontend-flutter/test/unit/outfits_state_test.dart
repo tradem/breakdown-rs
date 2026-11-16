@@ -60,6 +60,7 @@ void main() {
             id: 'o-1',
             overlay: _outfit('o-1', version: 4, name: 'OP'),
             acknowledgedVersion: 4,
+            isCreate: false,
             status: OverlayStatus.acknowledged,
           ),
         ],
@@ -80,6 +81,7 @@ void main() {
             id: 'o-1',
             overlay: _outfit('o-1', version: 4, name: 'OP'),
             acknowledgedVersion: 4,
+            isCreate: false,
             status: OverlayStatus.reconciling,
           ),
         ],
@@ -107,6 +109,9 @@ void main() {
             id: 'o-2',
             overlay: _outfit('o-2', name: 'Neu'),
             acknowledgedVersion: 1,
+            // A create shell: its row is absent from the projection because it
+            // has not projected yet (issue #917).
+            isCreate: true,
             status: OverlayStatus.acknowledged,
           ),
         ],

@@ -19,7 +19,7 @@ import '../../data/cache/piece_domains_cache_dao.dart';
 import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/outfit_repository.dart';
 import '../../data/photo_repository.dart';
-import '../../domain/reconciliation/reconciliation_scheduler.dart';
+import '../../domain/reconciliation/reconciliation.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../photos/widgets/photo_gallery.dart';
 import 'outfits_state.dart';
@@ -171,8 +171,16 @@ class OutfitsOverlays extends _$OutfitsOverlays {
   @override
   List<OutfitRowOverlay> build(String characterId) => const [];
 
-  void add(OutfitRowOverlay overlay) =>
-      state = [...state.where((o) => o.id != overlay.id), overlay];
+  /// Replaces any overlay with the same id, keeping the CREATE identity of a
+  /// pending shell: a rename/notes/piece edit can land before the create
+  /// projected, and an overlay flagged as an update would then be completed by
+  /// the next fetch that omits the id — the new look would vanish
+  /// ([overlayAddPreservingCreate], issue #917).
+  void add(OutfitRowOverlay overlay) => state = overlayAddPreservingCreate(
+    state,
+    overlay,
+    (o) => o.markedCreate(),
+  );
 
   void markAllReconciling() => state = [
     for (final o in state) o.copyWithStatus(status: OverlayStatus.reconciling),
@@ -183,18 +191,11 @@ class OutfitsOverlays extends _$OutfitsOverlays {
       o.copyWithStatus(status: OverlayStatus.stale, warning: warning),
   ];
 
-  /// Drops the overlays whose version fence the fresh [projection] passes.
-  void pruneWithProjection(List<OutfitView> projection) {
-    final byId = {for (final o in projection) o.id: o};
-    state = state.where((overlay) {
-      final row = byId[overlay.id];
-      if (row == null) return true;
-      return !shouldClearOutfitOverlay(
-        projection: row,
-        acknowledgedVersion: overlay.acknowledgedVersion,
-      );
-    }).toList();
-  }
+  /// Version-fenced drop against the rows the resync fetched (issues #834,
+  /// #917) — the same contract the shared runner's drop applies, so a lagging
+  /// projection never restores the pre-command look.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 }
 
 /// Last command failure per character (surfaced keyed on the problem `code`).
@@ -578,7 +579,11 @@ class OutfitsController extends _$OutfitsController {
     return result;
   }
 
-  void _installOverlay(OutfitView overlay, {required int acknowledgedVersion}) {
+  void _installOverlay(
+    OutfitView overlay, {
+    required int acknowledgedVersion,
+    bool isCreate = false,
+  }) {
     ref
         .read(outfitsOverlaysProvider(characterId).notifier)
         .add(
@@ -586,6 +591,7 @@ class OutfitsController extends _$OutfitsController {
             id: overlay.id,
             overlay: overlay,
             acknowledgedVersion: acknowledgedVersion,
+            isCreate: isCreate,
             status: OverlayStatus.acknowledged,
           ),
         );
@@ -615,7 +621,7 @@ class OutfitsController extends _$OutfitsController {
         ..pieces.replace(BuiltList<OutfitPieceView>())
         ..photos.replace(BuiltList<OutfitPhotoView>()),
     );
-    _installOverlay(overlay, acknowledgedVersion: version);
+    _installOverlay(overlay, acknowledgedVersion: version, isCreate: true);
   }
 
   /// Bounded-retry resync of the character slice; overlays are pruned by the
@@ -638,9 +644,12 @@ class OutfitsController extends _$OutfitsController {
       final rows = fetched.match((_) => null, (value) => value);
       if (rows == null) continue;
       ref.read(outfitsPrevRowsProvider(characterId).notifier).set(rows);
-      ref
-          .read(outfitsOverlaysProvider(characterId).notifier)
-          .pruneWithProjection(rows);
+      ref.read(outfitsOverlaysProvider(characterId).notifier).dropProjectedRows(
+        [
+          for (final row in rows)
+            ProjectedRow(id: row.id, version: row.version),
+        ],
+      );
       if (ref.read(outfitsOverlaysProvider(characterId)).isEmpty) return;
     }
     // Budget exhausted: retain the optimistic rows and tell the user to

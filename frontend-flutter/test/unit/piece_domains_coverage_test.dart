@@ -35,6 +35,7 @@ import 'package:frontend_flutter/data/cache/piece_domains_cache_dao.dart';
 import 'package:frontend_flutter/data/character_repository.dart';
 import 'package:frontend_flutter/data/photo_repository.dart';
 import 'package:frontend_flutter/data/shooting_day_repository.dart';
+import 'package:frontend_flutter/domain/reconciliation/reconciliation.dart';
 import 'package:frontend_flutter/features/characters/characters_controller.dart';
 import 'package:frontend_flutter/features/characters/characters_state.dart';
 import 'package:frontend_flutter/features/pieces/pieces_controller.dart';
@@ -416,6 +417,57 @@ void main() {
     });
   });
 
+  group('overlay create identity (issue #917)', () {
+    test('a follow-up edit keeps the create identity of a pending shell', () {
+      final shell = PieceRowOverlay(
+        id: 'c-9',
+        overlay: _piece('c-9'),
+        acknowledgedVersion: 1,
+        isCreate: true,
+        status: OverlayStatus.acknowledged,
+      );
+      // A notes/detail edit lands before the create projected (same id).
+      final edit = PieceRowOverlay(
+        id: 'c-9',
+        overlay: applyNotesOptimistic(_piece('c-9'), 'edited'),
+        acknowledgedVersion: 2,
+        isCreate: false,
+        status: OverlayStatus.acknowledged,
+      );
+      final kept = overlayAddPreservingCreate(
+        [shell],
+        edit,
+        (o) => o.markedCreate(),
+      );
+      expect(kept.single.isCreate, isTrue);
+      expect(kept.single.acknowledgedVersion, 2);
+      // The unchanged optimistic value is kept, and a fetch that still omits
+      // the id must not complete the not-yet-projected row.
+      expect(kept.single.overlay.notes, 'edited');
+      expect(
+        overlayDropProjectedRows(kept, const <ProjectedRow>[]),
+        hasLength(1),
+      );
+
+      // Without a pending shell the same edit stays an ordinary update and is
+      // completed by a fetch that no longer carries the row.
+      final plain = overlayAddPreservingCreate(
+        <PieceRowOverlay>[],
+        edit,
+        (o) => o.markedCreate(),
+      );
+      expect(plain.single.isCreate, isFalse);
+      expect(overlayDropProjectedRows(plain, const <ProjectedRow>[]), isEmpty);
+      // …and it survives while the projection lags its acknowledged version.
+      expect(
+        overlayDropProjectedRows(plain, const [
+          ProjectedRow(id: 'c-9', version: 1),
+        ]),
+        hasLength(1),
+      );
+    });
+  });
+
   group('screen-state row merging (pure)', () {
     test('pieces: fence-held renders optimistic, passed renders projected', () {
       final base = _piece('c-1', version: 1);
@@ -423,6 +475,7 @@ void main() {
         id: 'c-1',
         overlay: applyNotesOptimistic(base, 'notes'),
         acknowledgedVersion: 2,
+        isCreate: false,
         status: OverlayStatus.reconciling,
       );
       final held = PiecesScreenState(
@@ -440,11 +493,19 @@ void main() {
         overlays: [overlay],
       );
       expect(passed.rows.single, isA<ProjectedPieceRow>());
-      // Create-path overlay (id absent) appends.
+      // Create-path overlay (id absent) appends — a CREATE shell, not the
+      // update overlay above (issue #917).
+      final shell = PieceRowOverlay(
+        id: 'c-2',
+        overlay: _piece('c-2', version: 1),
+        acknowledgedVersion: 1,
+        isCreate: true,
+        status: OverlayStatus.acknowledged,
+      );
       final created = PiecesScreenState(
         projected: const AsyncLoading(),
         cachedRows: const [],
-        overlays: [overlay.copyWithStatus(status: OverlayStatus.acknowledged)],
+        overlays: [shell],
       );
       expect(created.rows.single, isA<OptimisticPieceRow>());
       expect(held.notFound, isNull);

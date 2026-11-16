@@ -43,14 +43,17 @@ class PieceCommandFailure {
 /// Controller-state optimistic overlay for a piece-row command: ephemeral
 /// UI state keyed by piece `id` — never in Drift.
 ///
-/// Unlike create-shell overlays (which vanish by projected id), row-level
-/// edits clear by the **version fence** ([shouldClearPieceOverlay]): the
-/// overlay survives stale projections carrying an older `version`.
+/// A CREATE shell (`isCreate: true` — the empty body a new piece renders
+/// before the projection carries it) completes by projected **id**; a row-level
+/// edit (`isCreate: false`) clears by the **version fence**
+/// ([shouldClearPieceOverlay]): the overlay survives stale projections carrying
+/// an older `version`, and completes when the edited row is gone (issue #917).
 class PieceRowOverlay implements ReconciliationOverlay {
   const PieceRowOverlay({
     required this.id,
     required this.overlay,
     required this.acknowledgedVersion,
+    required this.isCreate,
     required this.status,
     this.warning,
   });
@@ -63,13 +66,35 @@ class PieceRowOverlay implements ReconciliationOverlay {
 
   /// The `AggregateVersion` the command acknowledgement returned. The fence
   /// clears this overlay only when the projection reaches it.
+  @override
   final int acknowledgedVersion;
+
+  /// An update of an already-projected row (the default): an absent row
+  /// means the row is gone, so the overlay completes instead of waiting for a
+  /// version no later fetch can reach (issue #917). A CREATE shell passes
+  /// `true` — its id only appears once the create is projected.
+  @override
+  final bool isCreate;
 
   @override
   final OverlayStatus status;
 
   @override
   final String? warning;
+
+  /// The same overlay re-flagged as the CREATE shell of its id, so a fetch that
+  /// still omits the id does not complete it ([overlayAddPreservingCreate],
+  /// issue #917).
+  PieceRowOverlay markedCreate() => isCreate
+      ? this
+      : PieceRowOverlay(
+          id: id,
+          overlay: overlay,
+          acknowledgedVersion: acknowledgedVersion,
+          isCreate: true,
+          status: status,
+          warning: warning,
+        );
 
   @override
   PieceRowOverlay copyWithStatus({
@@ -80,6 +105,7 @@ class PieceRowOverlay implements ReconciliationOverlay {
     id: id,
     overlay: overlay,
     acknowledgedVersion: acknowledgedVersion,
+    isCreate: isCreate,
     status: status ?? this.status,
     warning: clearWarning ? null : (warning ?? this.warning),
   );
@@ -91,12 +117,13 @@ class PieceRowOverlay implements ReconciliationOverlay {
           other.id == id &&
           other.overlay == overlay &&
           other.acknowledgedVersion == acknowledgedVersion &&
+          other.isCreate == isCreate &&
           other.status == status &&
           other.warning == warning;
 
   @override
   int get hashCode =>
-      Object.hash(id, overlay, acknowledgedVersion, status, warning);
+      Object.hash(id, overlay, acknowledgedVersion, isCreate, status, warning);
 }
 
 /// One row rendered by `PiecesScreen`.

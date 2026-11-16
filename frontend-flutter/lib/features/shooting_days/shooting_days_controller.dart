@@ -168,8 +168,10 @@ class ShootingDaysOverlays extends _$ShootingDaysOverlays {
 
   void markAllReconciling() => state = overlayMarkAllReconciling(state);
 
-  void dropProjectedIds(Set<String> projectedIds) =>
-      state = overlayDropProjectedIds(state, projectedIds);
+  /// Version-fenced drop against the rows the pass fetched (issue #917):
+  /// these are create-only overlays, so id presence completes them.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 
   void markAllStale(String warning) =>
       state = overlayMarkAllStale(state, warning);
@@ -232,9 +234,9 @@ class ShootingDaysController extends _$ShootingDaysController {
         markAllReconciling: () => ref
             .read(shootingDaysOverlaysProvider(episodeId).notifier)
             .markAllReconciling(),
-        dropProjectedIds: (ids) => ref
+        dropProjectedRows: (rows) => ref
             .read(shootingDaysOverlaysProvider(episodeId).notifier)
-            .dropProjectedIds(ids),
+            .dropProjectedRows(rows),
         markAllStale: (warning) => ref
             .read(shootingDaysOverlaysProvider(episodeId).notifier)
             .markAllStale(warning),

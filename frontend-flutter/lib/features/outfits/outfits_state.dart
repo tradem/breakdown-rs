@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,6 +36,7 @@ class OutfitRowOverlay implements ReconciliationOverlay {
     required this.id,
     required this.overlay,
     required this.acknowledgedVersion,
+    required this.isCreate,
     required this.status,
     this.warning,
   });
@@ -46,13 +48,35 @@ class OutfitRowOverlay implements ReconciliationOverlay {
   final OutfitView overlay;
 
   /// The `AggregateVersion` the command acknowledgement returned.
+  @override
   final int acknowledgedVersion;
+
+  /// An update of an already-projected row (the default): an absent row
+  /// means the row is gone, so the overlay completes instead of waiting for a
+  /// version no later fetch can reach (issue #917). A CREATE shell passes
+  /// `true` — its id only appears once the create is projected.
+  @override
+  final bool isCreate;
 
   @override
   final OverlayStatus status;
 
   @override
   final String? warning;
+
+  /// The same overlay re-flagged as the CREATE shell of its id, so a fetch that
+  /// still omits the id does not complete it ([overlayAddPreservingCreate],
+  /// issue #917).
+  OutfitRowOverlay markedCreate() => isCreate
+      ? this
+      : OutfitRowOverlay(
+          id: id,
+          overlay: overlay,
+          acknowledgedVersion: acknowledgedVersion,
+          isCreate: true,
+          status: status,
+          warning: warning,
+        );
 
   @override
   OutfitRowOverlay copyWithStatus({
@@ -63,6 +87,7 @@ class OutfitRowOverlay implements ReconciliationOverlay {
     id: id,
     overlay: overlay,
     acknowledgedVersion: acknowledgedVersion,
+    isCreate: isCreate,
     status: status ?? this.status,
     warning: clearWarning ? null : (warning ?? this.warning),
   );
@@ -74,12 +99,13 @@ class OutfitRowOverlay implements ReconciliationOverlay {
           other.id == id &&
           other.overlay == overlay &&
           other.acknowledgedVersion == acknowledgedVersion &&
+          other.isCreate == isCreate &&
           other.status == status &&
           other.warning == warning;
 
   @override
   int get hashCode =>
-      Object.hash(id, overlay, acknowledgedVersion, status, warning);
+      Object.hash(id, overlay, acknowledgedVersion, isCreate, status, warning);
 }
 
 /// One rendered row of the character's look list.

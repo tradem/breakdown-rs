@@ -24,9 +24,8 @@ import '../../data/cache/seasons_cache_providers.dart';
 import '../../data/piece_repository.dart';
 import '../../data/photo_repository.dart';
 import '../../l10n/generated/app_localizations.dart';
-import '../../domain/reconciliation/reconcile_coordinator.dart';
+import '../../domain/reconciliation/reconciliation.dart';
 import '../photos/widgets/photo_gallery.dart';
-import '../../domain/reconciliation/reconciliation_scheduler.dart';
 import 'pieces_state.dart';
 
 part 'pieces_controller.g.dart';
@@ -165,33 +164,27 @@ class PiecesOverlays extends _$PiecesOverlays {
   @override
   List<PieceRowOverlay> build(String seasonId) => const [];
 
-  void add(PieceRowOverlay overlay) =>
-      state = [...state.where((o) => o.id != overlay.id), overlay];
+  /// Replaces any overlay with the same id, keeping the CREATE identity of a
+  /// pending shell: a detail/notes/category edit can land before the create
+  /// projected, and an overlay flagged as an update would then be completed by
+  /// the next fetch that omits the id — the new row would vanish
+  /// ([overlayAddPreservingCreate], issue #917).
+  void add(PieceRowOverlay overlay) => state = overlayAddPreservingCreate(
+    state,
+    overlay,
+    (o) => o.markedCreate(),
+  );
 
   void markAllReconciling() => state = [
     for (final o in state) o.copyWithStatus(status: OverlayStatus.reconciling),
   ];
 
-  /// Drops overlays whose version fence the fresh [projection] passes.
-  void pruneWithProjection(List<PieceView> projection) {
-    final byId = {for (final c in projection) c.id: c};
-    state = state.where((o) {
-      final row = byId[o.id];
-      // Create-path overlays (id absent) clear once the id projects.
-      if (row == null) return true;
-      return !shouldClearPieceOverlay(
-        projection: row,
-        acknowledgedVersion: o.acknowledgedVersion,
-      );
-    }).toList();
-  }
-
-  void dropProjectedIds(Set<String> projectedIds) {
-    // Id-based drops never apply to row-level edits (same id before and
-    // after); the fence in [pruneWithProjection] owns clearing. Create-path
-    // overlays are pruned there too once the projection carries the id
-    // with a satisfying version.
-  }
+  /// Version-fenced drop against the rows the reconciliation pass just fetched
+  /// (issues #834, #917): a row-level edit keeps its id, so only the projected
+  /// version can confirm it — a lagging row keeps the optimistic render, while
+  /// an absent row means the edited row is gone and completes the overlay.
+  void dropProjectedRows(List<ProjectedRow> rows) =>
+      state = overlayDropProjectedRows(state, rows);
 
   void markAllStale(String warning) => state = [
     for (final o in state)
@@ -293,9 +286,9 @@ class PiecesController extends _$PiecesController {
         markAllReconciling: () => ref
             .read(piecesOverlaysProvider(seasonId).notifier)
             .markAllReconciling(),
-        dropProjectedIds: (ids) => ref
+        dropProjectedRows: (rows) => ref
             .read(piecesOverlaysProvider(seasonId).notifier)
-            .dropProjectedIds(ids),
+            .dropProjectedRows(rows),
         markAllStale: (warning) => ref
             .read(piecesOverlaysProvider(seasonId).notifier)
             .markAllStale(warning),
@@ -463,6 +456,7 @@ class PiecesController extends _$PiecesController {
                     ..version = res.version,
                 ),
                 acknowledgedVersion: res.version,
+                isCreate: true,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -525,6 +519,7 @@ class PiecesController extends _$PiecesController {
                   detail,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
+                isCreate: false,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -592,6 +587,7 @@ class PiecesController extends _$PiecesController {
                   text: text,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
+                isCreate: false,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -647,6 +643,7 @@ class PiecesController extends _$PiecesController {
                   detailId,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
+                isCreate: false,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -807,6 +804,7 @@ class PiecesController extends _$PiecesController {
                   categoryName,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
+                isCreate: false,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -882,6 +880,7 @@ class PiecesController extends _$PiecesController {
                   seasonId,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
+                isCreate: false,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -940,6 +939,7 @@ class PiecesController extends _$PiecesController {
                   seasonId,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
+                isCreate: false,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -1005,6 +1005,7 @@ class PiecesController extends _$PiecesController {
                   notes,
                 ).rebuild((b) => b..version = version),
                 acknowledgedVersion: version,
+                isCreate: false,
                 status: OverlayStatus.acknowledged,
               ),
             );
@@ -1139,16 +1140,9 @@ class PiecesController extends _$PiecesController {
     ref.invalidate(piecesListFetchProvider(seasonId));
     ref.invalidate(piecesCacheStaleProvider(seasonId));
     final res = await ref.read(piecesListFetchProvider(seasonId).future);
-    return res.match((_) => null, (rows) {
-      // The version fence owns overlay clearing: prune against the fresh
-      // projection here so a stale row never restores pre-command state.
-      if (ref.mounted) {
-        ref
-            .read(piecesOverlaysProvider(seasonId).notifier)
-            .pruneWithProjection(rows);
-      }
-      return rows;
-    });
+    // The runner's version-fenced drop owns overlay clearing (issue #917), so
+    // a stale row never restores pre-command state.
+    return res.match((_) => null, (rows) => rows);
   }
 }
 
