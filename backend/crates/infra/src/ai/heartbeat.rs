@@ -17,6 +17,11 @@
 //! `mark_running(id, worker_id)` at a fraction of the lease window. Because
 //! the renewal is owner-fenced, a heartbeat can never resurrect a claim the
 //! worker already lost — it simply stops.
+//!
+//! The same pattern carries the **apply run's** slot (issue #911, see
+//! [`with_apply_run_lease`]): the apply slot is judged by silence too, and a
+//! schedule apply publishes no frames while it merges — so it renews its claim
+//! stamp from inside the run's own future instead of from a spawned task.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -141,19 +146,137 @@ pub fn claim_lost(heartbeat: Option<&LeaseHeartbeat>) -> bool {
     heartbeat.is_some_and(LeaseHeartbeat::claim_lost)
 }
 
+/// The lease window one apply run renews against (issue #911).
+///
+/// It *is* the window the single-flight predicates judge silence by, so the
+/// renewal cadence and the steal decision cannot drift apart. Derived here once
+/// instead of at the call site: `STALE_AFTER` is a fixed positive constant, so
+/// the conversion cannot fail, and the fallback keeps the function panic-free
+/// (the same rule `workers::apply_heartbeat_interval` follows).
+pub fn apply_run_lease_window() -> Duration {
+    breakdown_core::ai::ApplyProgress::STALE_AFTER
+        .to_std()
+        .unwrap_or(Duration::from_secs(600))
+}
+
+/// Keep one apply run's slot claimed while `run` executes (issue #911).
+///
+/// Why this is not a spawned task with a `JoinHandle` like [`LeaseHeartbeat`]:
+/// the apply run itself is a future the caller owns (a worker task, or a
+/// test's), so the renewal runs **inside the same future**. Cancellation is
+/// then structural rather than bookkeeping: dropping the run drops the renewal
+/// with it, which is exactly the property the crash recovery depends on — a
+/// dead owner's renewals die with its task, so the staleness window still
+/// expires and the slot becomes stealable.
+///
+/// Cadence is [`renewal_interval`] of `window` (a third, floored at one second),
+/// three renewals per window, so one transient database blip cannot cost the
+/// claim. A `false` from the queue means the slot moved on (taken over, or the
+/// run already reached its terminal transition): the loop stops renewing and
+/// still returns the run's own outcome — the run's fenced writes fail the same
+/// way, and its result must not be turned into an error here.
+///
+/// A zero `window` disables the renewal entirely (the test-only "already dead
+/// owner" case), which is why the helper needs no `Option` at the call site.
+pub async fn with_apply_run_lease<Q, F, T>(
+    queue: &Q,
+    job_id: AiImportJobId,
+    run_id: breakdown_core::ai::ApplyRunId,
+    window: Duration,
+    run: F,
+) -> T
+where
+    Q: AiImportQueue + ?Sized,
+    F: std::future::Future<Output = T>,
+{
+    if window.is_zero() {
+        return run.await;
+    }
+    let mut ticker = tokio::time::interval(renewal_interval(window));
+    // A missed tick must not produce a burst of catch-up writes.
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // The claim (or the adoption) just stamped the slot, so the immediate first
+    // tick has nothing to renew.
+    ticker.tick().await;
+    tokio::pin!(run);
+    loop {
+        tokio::select! {
+            outcome = &mut run => return outcome,
+            _ = ticker.tick() => {
+                if !renew_apply_run_once(queue, job_id, run_id).await {
+                    // The slot is provably gone: keep waiting for the run (its
+                    // outcome is still the caller's), but stop renewing.
+                    break;
+                }
+            }
+        }
+    }
+    run.await
+}
+
+/// One renewal attempt: `true` means keep renewing.
+///
+/// A transient database error keeps the loop alive (the window still has
+/// `RENEWALS_PER_LEASE - 1` intervals of headroom) — abandoning the claim over a
+/// blip would hand a live run's slot to the next poll, which is the failure this
+/// whole mechanism exists to prevent.
+async fn renew_apply_run_once<Q>(
+    queue: &Q,
+    job_id: AiImportJobId,
+    run_id: breakdown_core::ai::ApplyRunId,
+) -> bool
+where
+    Q: AiImportQueue + ?Sized,
+{
+    match queue.renew_apply_run(job_id, run_id).await {
+        Ok(true) => true,
+        Ok(false) => {
+            tracing::warn!(
+                job_id = %job_id.as_uuid(),
+                run_id = %run_id.as_uuid(),
+                "the AI import apply run no longer owns its slot; stopping the lease renewal"
+            );
+            false
+        }
+        Err(error) => {
+            tracing::warn!(
+                job_id = %job_id.as_uuid(),
+                run_id = %run_id.as_uuid(),
+                %error,
+                "AI import apply-run lease renewal failed; retrying on the next tick"
+            );
+            true
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{LeaseHeartbeat, RENEWALS_PER_LEASE, renewal_interval};
+    use super::{
+        LeaseHeartbeat, RENEWALS_PER_LEASE, apply_run_lease_window, renewal_interval,
+        with_apply_run_lease,
+    };
     use async_trait::async_trait;
     use breakdown_core::ai::{
         AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
-        DocumentKind, Telemetry,
+        ApplyRunId, DocumentKind, Telemetry,
     };
     use breakdown_core::error::DomainError;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use tokio::sync::Notify;
+
+    /// Scripted answer of `renew_apply_run` (issue #911).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ApplyRunRenewal {
+        /// The run still owns its slot.
+        Keep,
+        /// The slot moved on (taken over, or the run already finished).
+        Lost,
+        /// A transient database error — the loop must keep renewing.
+        Transient,
+    }
 
     /// Queue whose `mark_running` returns a scripted outcome, so the
     /// heartbeat's state machine can be driven deterministically.
@@ -164,6 +287,11 @@ mod tests {
         /// Signalled after each renewal so tests can await the event itself
         /// instead of guessing how many task switches it takes.
         renewed: Notify,
+        /// Scripted answer of `renew_apply_run` (issue #911) and how often it
+        /// was asked. Separate from the lease above: the apply slot is a
+        /// different claim with a different outcome vocabulary.
+        apply_renewal: ApplyRunRenewal,
+        apply_renewals: AtomicUsize,
     }
 
     impl ScriptedQueue {
@@ -172,11 +300,27 @@ mod tests {
                 outcome: Some(error),
                 renewals: AtomicUsize::new(0),
                 renewed: Notify::new(),
+                apply_renewal: ApplyRunRenewal::Keep,
+                apply_renewals: AtomicUsize::new(0),
+            })
+        }
+
+        fn renewing(renewal: ApplyRunRenewal) -> Arc<Self> {
+            Arc::new(Self {
+                outcome: None,
+                renewals: AtomicUsize::new(0),
+                renewed: Notify::new(),
+                apply_renewal: renewal,
+                apply_renewals: AtomicUsize::new(0),
             })
         }
 
         fn renewals(&self) -> usize {
             self.renewals.load(Ordering::Acquire)
+        }
+
+        fn apply_renewals(&self) -> usize {
+            self.apply_renewals.load(Ordering::Acquire)
         }
     }
 
@@ -248,6 +392,21 @@ mod tests {
             _telemetry: Telemetry,
         ) -> Result<(), DomainError> {
             unimplemented!("not exercised by the heartbeat")
+        }
+
+        /// The apply-slot lease (issue #911): scripted outcome + a counter, so a
+        /// test can assert the cadence AND the stop conditions without a clock.
+        async fn renew_apply_run(
+            &self,
+            _id: AiImportJobId,
+            _run_id: ApplyRunId,
+        ) -> Result<bool, DomainError> {
+            self.apply_renewals.fetch_add(1, Ordering::AcqRel);
+            match self.apply_renewal {
+                ApplyRunRenewal::Keep => Ok(true),
+                ApplyRunRenewal::Lost => Ok(false),
+                ApplyRunRenewal::Transient => Err(DomainError::service_unavailable("db blip")),
+            }
         }
     }
 
@@ -393,6 +552,128 @@ mod tests {
         assert_eq!(
             renewal_interval(Duration::from_secs(1)),
             Duration::from_secs(1)
+        );
+    }
+
+    // --- apply-run lease (issue #911) -----------------------------------
+
+    /// One apply-slot window; the renewal fires at a third of it. Read from the
+    /// adapter's own accessor, never a literal, so retuning the stream's staleness
+    /// window retunes the cadence and this test with it.
+    fn test_apply_window() -> Duration {
+        apply_run_lease_window()
+    }
+
+    /// A run that outlives the window: the motivating case is a schedule apply
+    /// (a single merge loop that publishes no progress frames at all). The
+    /// virtual clock is advanced by the runtime, never by sleeping (AGENTS.md
+    /// §4), so the assertion is a bound on the cadence, not on wall time.
+    async fn run_outliving_the_window(window: Duration) -> u8 {
+        tokio::time::sleep(window * 2 + Duration::from_secs(1)).await;
+        7
+    }
+
+    /// Issue #911 acceptance: a run that takes longer than the staleness window
+    /// keeps renewing its slot, and the renewal never touches the run itself.
+    #[tokio::test(start_paused = true)]
+    async fn the_apply_lease_renews_while_the_run_executes() {
+        let queue = ScriptedQueue::renewing(ApplyRunRenewal::Keep);
+        let outcome = with_apply_run_lease(
+            queue.as_ref(),
+            AiImportJobId::new(),
+            ApplyRunId::new(),
+            test_apply_window(),
+            run_outliving_the_window(test_apply_window()),
+        )
+        .await;
+
+        assert_eq!(outcome, 7, "the run's own outcome is returned unchanged");
+        // Two windows at a third of a window per renewal: six ticks fit, with
+        // the exact count left to the scheduler (a tick and the run's sleep can
+        // become ready in the same poll).
+        assert!(
+            (5..=6).contains(&queue.apply_renewals()),
+            "a live run must renew once per cadence, got {}",
+            queue.apply_renewals()
+        );
+    }
+
+    /// Issue #911: once the slot has moved on, renewing again is pointless —
+    /// but the run keeps its own outcome (a superseded run still reports what it
+    /// did; only its fenced writes are refused).
+    #[tokio::test(start_paused = true)]
+    async fn a_lost_slot_stops_the_renewal_and_keeps_the_run() {
+        let queue = ScriptedQueue::renewing(ApplyRunRenewal::Lost);
+        let outcome = with_apply_run_lease(
+            queue.as_ref(),
+            AiImportJobId::new(),
+            ApplyRunId::new(),
+            test_apply_window(),
+            run_outliving_the_window(test_apply_window()),
+        )
+        .await;
+
+        assert_eq!(outcome, 7, "the run still reports its own outcome");
+        assert_eq!(
+            queue.apply_renewals(),
+            1,
+            "a provably lost slot is never retried"
+        );
+    }
+
+    /// Issue #911: a transient database error must not abandon a still-valid
+    /// claim — the window has two more intervals of headroom.
+    #[tokio::test(start_paused = true)]
+    async fn a_transient_apply_renewal_failure_keeps_renewing() {
+        let queue = ScriptedQueue::renewing(ApplyRunRenewal::Transient);
+        let outcome = with_apply_run_lease(
+            queue.as_ref(),
+            AiImportJobId::new(),
+            ApplyRunId::new(),
+            test_apply_window(),
+            run_outliving_the_window(test_apply_window()),
+        )
+        .await;
+
+        assert_eq!(outcome, 7);
+        assert!(
+            queue.apply_renewals() >= 5,
+            "a transient failure must be retried on the next tick, got {} renewals",
+            queue.apply_renewals()
+        );
+    }
+
+    /// A zero window disables the renewal: the test-only "already dead owner"
+    /// case, where renewing would be meaningless.
+    #[tokio::test(start_paused = true)]
+    async fn a_zero_window_wraps_the_run_without_renewing() {
+        let queue = ScriptedQueue::renewing(ApplyRunRenewal::Keep);
+        let outcome = with_apply_run_lease(
+            queue.as_ref(),
+            AiImportJobId::new(),
+            ApplyRunId::new(),
+            Duration::ZERO,
+            async { 7u8 },
+        )
+        .await;
+
+        assert_eq!(outcome, 7);
+        assert_eq!(queue.apply_renewals(), 0, "no window, no renewal");
+    }
+
+    #[test]
+    fn the_apply_lease_window_is_the_apply_staleness_window() {
+        // One definition, two readers: retuning the stream's window must retune
+        // the renewal cadence and the steal predicate with it.
+        assert_eq!(
+            test_apply_window(),
+            breakdown_core::ai::ApplyProgress::STALE_AFTER
+                .to_std()
+                .expect("the staleness window is a positive duration")
+        );
+        assert!(
+            renewal_interval(test_apply_window()) * 2 < test_apply_window(),
+            "at least two renewals must fit inside the window"
         );
     }
 }

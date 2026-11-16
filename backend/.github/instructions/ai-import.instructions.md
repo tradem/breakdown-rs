@@ -352,6 +352,24 @@ Rules that must not drift:
 - **`ApplyProgress` is cleared only by the terminal transitions.** A run killed
   mid-flight leaves `running` + a stale stamp, which the takeover path reclaims —
   do not re-introduce a drop guard on the dispatched path.
+- **A live run renews its own claim** (`renew_apply_run`, issue #911). Every
+  single-flight predicate above is silence-based, which a *script* apply satisfies
+  with its progress frames and a *schedule* apply cannot: it is one merge loop
+  over the project's existing scenes and days and publishes nothing, so before
+  #911 a schedule run that outlived `ApplyProgress::STALE_AFTER` was taken over
+  **while it was still executing**. `ApplyRunner::run_claimed` therefore runs the
+  execute future under `infra::ai::with_apply_run_lease` (interval = a third of
+  that window). The renewal rides the run's own future instead of a spawned task,
+  so it dies with the task and a crashed replica still becomes stealable after one
+  window. It writes `apply_claim_at` **only** — never the payload (that would
+  invent progress), never `apply_run_seq`, never a `pg_notify` — and `false`
+  (displaced, or the run already finished and freed the slot) stops the loop.
+  All four silence predicates (both steals, the takeover and the poll) compare the
+  **newer** of the payload's `updated_at` and that lease stamp
+  (`COALESCE(GREATEST(…, apply_claim_at), updated_at)`), so the renewal also covers
+  a script run that is between frames — a schedule run has none at all.
+  `ApplyRunState::owner_silence_at` mirrors that `GREATEST`, because the age a
+  client reads in the `409` must describe the same decision the server makes.
 - **Shutdown joins**: the loop aborts-and-joins its in-flight runs before the
   pool teardown; an interrupted run is recovered by the staleness window, never
   rolled back (the protocol stays idempotent-and-converging).

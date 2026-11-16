@@ -547,9 +547,8 @@ mod owner_silence {
         }
     }
 
-    /// The published case is unchanged since #805: the payload's own stamp is
-    /// the age, because that is the column the claim compares once a payload
-    /// exists.
+    /// The published case: the payload's own stamp is the age while it is the
+    /// newest sign of life — the column the claim compares first.
     #[test]
     fn a_published_payload_is_aged_by_its_own_stamp() {
         let run_id = ApplyRunId::new();
@@ -559,13 +558,39 @@ mod owner_silence {
             result_run_id: None,
             seq: 1,
             progress: Some(payload(run_id, now - Duration::minutes(4))),
-            // A younger claim instant must NOT shorten the payload's age: only
-            // the payload's column is the claim's comparison for this state.
-            owner_claimed_at: Some(now - Duration::seconds(5)),
+            // An OLDER claim instant cannot stretch the age: the newest sign of
+            // life wins.
+            owner_claimed_at: Some(now - Duration::minutes(6)),
             state: ApplyState::Running,
             result: None,
         };
         assert_eq!(state.owner_silence_at(now), Some(Duration::minutes(4)));
+    }
+
+    /// Issue #911: a lease renewal newer than the last published frame is the
+    /// age, because that is what the steal predicate's `GREATEST` compares. A
+    /// live run whose frames stopped (a schedule apply publishes none at all, a
+    /// script apply's trailing step publishes one) must not be reported as
+    /// silent past the window while it keeps renewing.
+    #[test]
+    fn a_fresh_lease_renewal_shortens_the_payloads_age() {
+        let run_id = ApplyRunId::new();
+        let now = Utc::now();
+        let state = ApplyRunState {
+            owner: Some(run_id),
+            result_run_id: None,
+            seq: 1,
+            progress: Some(payload(run_id, now - Duration::minutes(12))),
+            owner_claimed_at: Some(now - Duration::seconds(30)),
+            state: ApplyState::Running,
+            result: None,
+        };
+        assert_eq!(
+            state.owner_silence_at(now),
+            Some(Duration::seconds(30)),
+            "the renewal is the owner's newest proof of life, so the reported age \
+             must agree with the steal predicate that reads it"
+        );
     }
 
     /// The #863 fix: a run that claimed the slot and published nothing is aged

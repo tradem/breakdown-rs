@@ -1105,8 +1105,9 @@ pub struct ApplyRunState {
     /// What the owning run last published; `None` before its first write and
     /// after it cleared the slot.
     pub progress: Option<ApplyProgress>,
-    /// When the owning run **took the slot** (issues #863): the instant the
-    /// claim granted it, stamped by that claim and by nothing else.
+    /// When the owning run was **last heard from** (issues #863, #911): the
+    /// instant the claim granted the slot, re-stamped by the run's own lease
+    /// renewal while it executes.
     ///
     /// It exists because the single-flight claim's steal predicate already
     /// judges an owner that has published **nothing** by an owner-scoped stamp
@@ -1114,6 +1115,12 @@ pub struct ApplyRunState {
     /// cutoff)`), and the refusal had no way to report the stamp that decision
     /// was made on — so a run that died before its first frame was unageable on
     /// the wire (#805 left that open; #863 closes it).
+    ///
+    /// The renewal (#911) is what keeps that stamp honest for a **schedule**
+    /// apply: it publishes no frames, so without it a live run's stamp was
+    /// frozen at the claim and the steal would judge a working run exactly like a
+    /// dead one. It is still written by the owner alone — never by a
+    /// run-scoped progress write of some other run.
     ///
     /// Deliberately **not** the job row's `updated_at`, which is the tempting
     /// shortcut: that column is bumped by every run-scoped write, including a
@@ -1158,17 +1165,24 @@ impl ApplyRunState {
     /// How long the owning run has been silent at `now` — the ONE definition of
     /// the age a `409 ai-import.apply-in-flight` reports (issues #805, #863).
     ///
-    /// The fallback order is the claim's own steal order, so the verdict a
-    /// client derives and the decision the server makes cannot disagree:
+    /// The order is the claim's own steal order, so the verdict a client derives
+    /// and the decision the server makes cannot disagree. That predicate compares
+    /// `COALESCE(GREATEST(apply_progress->>'updated_at', apply_claim_at),
+    /// updated_at)`, so:
     ///
-    /// 1. the payload's `updated_at` once the owner published a frame — the
-    ///    column the claim compares then
-    ///    (`(apply_progress->>'updated_at')::timestamptz < cutoff`);
-    /// 2. otherwise [`Self::owner_claimed_at`] — the column the claim compares
-    ///    while `apply_progress IS NULL`, which is what makes a run that died
-    ///    **before its first published frame** ageable at all;
-    /// 3. otherwise `None`: nothing to age. Zero would claim "just wrote" for a
-    ///    run that never reported anything.
+    /// 1. once the owner gave **any** sign of life, the newest of the two stamps
+    ///    is the age — the payload's `updated_at` (last published frame) or
+    ///    [`Self::owner_claimed_at`] (claim instant **or** lease renewal,
+    ///    #911). Taking only the payload would age a live run past the window
+    ///    whenever its frames stopped while its lease kept renewing. Which
+    ///    mechanism proves life is not something this age may depend on: a
+    ///    **schedule** apply publishes no frame at all (its lease is the only
+    ///    proof it has), while a script apply's `ApplyRunHeartbeat` keeps
+    ///    refreshing the payload through its trailing work. The age follows the
+    ///    stamp that moved last;
+    /// 2. otherwise `None`: nothing to age. Zero would claim "just wrote" for a
+    ///    run that never reported anything, and a pre-#863 claim must keep
+    ///    degrading honestly.
     ///
     /// A future stamp (clock skew between the writer and this reader) is clamped
     /// to zero: a negative age is not a fact, and the client would render it as
@@ -1176,7 +1190,12 @@ impl ApplyRunState {
     #[must_use]
     pub fn owner_silence_at(&self, now: DateTime<Utc>) -> Option<chrono::Duration> {
         let last_write = match (&self.progress, self.owner) {
-            (Some(progress), _) => progress.updated_at,
+            // The newer of frame and lease stamp — the same `GREATEST` the steal
+            // predicate applies (issue #911).
+            (Some(progress), _) => match self.owner_claimed_at {
+                Some(claimed) => progress.updated_at.max(claimed),
+                None => progress.updated_at,
+            },
             // An unpublished owner is aged by its OWN claim instant — the same
             // column the steal predicate reads for this state.
             (None, Some(_)) => self.owner_claimed_at?,

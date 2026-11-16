@@ -176,7 +176,12 @@ client-side policy, no new constant.
   cost is a few recovered appends, never a duplicate aggregate. The per-run mapping
   cache (performance PR) makes this *more* visible — a stolen run may dispatch a create
   the other run already committed — which is why that PR documents the same convergence
-  path.
+  path. **Closed for the live-owner case by issue #911:** the silence-based predicate
+  is right for the script branch (its row loop publishes frames) but wrong for a
+  schedule apply, which publishes none and therefore looked dead while it merged. A
+  claimed run now renews its own claim stamp (`AiImportQueue::renew_apply_run`) from
+  inside its execute future, so the steal is back to meaning "the process is gone" —
+  the convergence path below still covers a *genuinely* crashed owner.
 - **`202` is a breaking wire change.** Mitigated by shipping backend + client together
   and by the in-repo client being pre-release; the alternative (dual contract) would
   mean two apply lifetimes.
