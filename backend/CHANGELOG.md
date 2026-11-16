@@ -36,9 +36,13 @@ tag. Never edit a released entry afterwards.
   a resync-and-retry each.
   The vendored `kameo_es` gains `write_metrics` (`append_metrics()` returning
   `AppendMetrics { append_attempts, appended_events, version_conflicts }`, subtractable via
-  `since`), incremented at the one place an append happens (`EntityActor::append_events`,
-  just before `EMAPPEND`) and at the single `WRONGVER` detection point
-  (`AppendEventsError::from_sierra_err`). The apply's row-phase summary gains
+  `since`), incremented at **both** store write boundaries — `EntityActor::append_events`
+  (for `EMAPPEND`) and `ReservationStore::append_lifecycle` (for the raw ADR-036 `EAPPEND`
+  claims, which bypass the actor) — plus the single `WRONGVER` detection point
+  (`AppendEventsError::from_sierra_err`) and the store's own `WrongVer` answer in
+  `append_lifecycle`; an attempt is counted as it is issued, `appended_events` only after
+  the store confirmed the append (`Ok`), so a rejected append never inflates the event
+  count. The apply's row-phase summary gains
   `event_appends`, `appended_events`, `append_conflicts` and `event_appends_per_row`.
   **The counters are process-wide** — an append runs in an actor task the dispatcher no
   longer owns, so a per-run handle would change the public dispatch surface for a
@@ -47,8 +51,6 @@ tag. Never edit a released entry afterwards.
   patched crate's lib unit tests, not only `ack_tracker`. Crates: `infra` 0.81.1 → 0.81.2
   (PATCH — internal observability; the new `kameo_es` surface is additive and consumed
   only inside `infra`); `api`/`architecture`/`integration-tests` re-pin the path dep.
-
-### Changed
 
 - **The AI-import apply's Postgres time is attributed, not guessed (issue #900 M1).**
   A 49-scene apply takes ≈7 minutes, and the two plausible explanations both failed

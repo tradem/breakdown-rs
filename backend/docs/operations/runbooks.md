@@ -1463,15 +1463,15 @@ statement itself is the cost, and the write-path cost model (ADR-016 §6) applie
 
 ### M2 — how many appends the run actually issued, and how many collided
 
-A run's mapping rows imply ≈740 appends (552 mapping rows × `reserve`/`confirm`, plus one
+A run's mapping rows imply ≈740 appends (552 mapped-aggregate appends, plus one
 `AssignCharacter` per scene/figure pair and ~50 ADR-036 claim appends). The same summary
 line now carries the number the store actually saw:
 
 | Field | Meaning |
 |---|---|
-| `event_appends` | `EMAPPEND` calls issued during the row phase, **conflict retries included** |
-| `appended_events` | events carried by those appends (one append may carry several) |
-| `append_conflicts` | appends answered `WRONGVER` — each one costs a resync and a retry |
+| `event_appends` | store append calls (`EMAPPEND` + ADR-036 `EAPPEND`) issued during the row phase, **conflict retries included** |
+| `appended_events` | events persisted by successful appends (one append may carry several; rejected appends add zero) |
+| `append_conflicts` | appends answered `WRONGVER` (aggregate `EMAPPEND` retries and racing ADR-036 claim `EAPPEND`s) |
 | `event_appends_per_row` | `event_appends` ÷ `rows` |
 
 **Reading it.** `event_appends` far above ≈740 (the issue uses >1500 as the threshold)

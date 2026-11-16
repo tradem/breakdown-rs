@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::{
     borrow::Cow,
@@ -317,11 +318,15 @@ impl<E: Entity + Apply> EntityActor<E> {
         // so a caller can read "how many appends did my run issue" from the
         // counters instead of guessing from its dispatch count (a conflict
         // retry appends twice for one command).
-        crate::write_metrics::record_append(new_events.len());
+        crate::write_metrics::record_append_attempt();
         let info = match self.conn.emappend(self.partition_key, &new_events).await {
             Ok(info) => info,
+            // Counted only once the store confirmed the write: a `WRONGVER` or a
+            // transport failure appended nothing, so it must not inflate the
+            // event count.
             Err(err) => return Err(AppendEventsError::from_sierra_err(err, events, metadata)),
         };
+        crate::write_metrics::record_appended_events(new_events.len());
         tracing::info!(
             histogram.append_emappend_duration = emappend_start.elapsed().as_secs_f64(),
             events = new_events.len(),

@@ -29,7 +29,7 @@
 //! (the same shape the event store uses for `append_emappend_duration`), so
 //! p50/p95 come from the log lines while the sums come from the counters.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::Cell;
 use std::time::Duration;
 
 /// Which mapped write a measurement belongs to. The two calls have different
@@ -70,39 +70,15 @@ pub(crate) struct MappingWriteSnapshot {
 
 /// The counters of one apply run (see [`scope_mapping_writes`]).
 ///
-/// Atomics keep the reader side trivial and the type a plain value, so tests
-/// can exercise it without touching shared state.
-#[derive(Debug, Default)]
-pub(crate) struct MappingWriteCounters {
-    reserve_ops: AtomicU64,
-    insert_ops: AtomicU64,
-    acquire_nanos: AtomicU64,
-    statement_nanos: AtomicU64,
-    pool_size: AtomicU64,
-    pool_num_idle: AtomicU64,
-}
-
-impl MappingWriteCounters {
-    pub(crate) const fn new() -> Self {
-        Self {
-            reserve_ops: AtomicU64::new(0),
-            insert_ops: AtomicU64::new(0),
-            acquire_nanos: AtomicU64::new(0),
-            statement_nanos: AtomicU64::new(0),
-            pool_size: AtomicU64::new(0),
-            pool_num_idle: AtomicU64::new(0),
-        }
-    }
-
+/// A plain `Cell<MappingWriteSnapshot>` is enough because the accumulator is
+/// scoped to one task and Tokio polls a task on exactly one thread at a time
+/// (all rows of one apply are awaited in the same task), so no counter is ever
+/// read and written concurrently — no atomics, no torn reads.
+impl MappingWriteSnapshot {
     /// Record one finished write: which call, how long the connection wait was,
     /// how long the statement took, and the pool's state in that instant.
-    ///
-    /// `Relaxed` is enough for all of them: no counter gates another memory
-    /// location, and a reader only needs each value to be a real observation
-    /// (a torn *set* of counters is acceptable — the summary is a diagnostic,
-    /// not a transaction).
     pub(crate) fn record(
-        &self,
+        &mut self,
         op: MappingWriteOp,
         acquire: Duration,
         statement: Duration,
@@ -111,43 +87,22 @@ impl MappingWriteCounters {
     ) {
         match op {
             MappingWriteOp::Reserve => {
-                self.reserve_ops.fetch_add(1, Ordering::Relaxed);
+                self.reserve_ops = self.reserve_ops.saturating_add(1);
             }
             MappingWriteOp::Insert => {
-                self.insert_ops.fetch_add(1, Ordering::Relaxed);
+                self.insert_ops = self.insert_ops.saturating_add(1);
             }
         }
-        // Saturating rather than wrapping: a run long enough to overflow a
-        // nanosecond counter is impossible, and a wrapped diagnostic would lie.
-        let acquire_nanos = u64::try_from(acquire.as_nanos()).unwrap_or(u64::MAX);
-        let statement_nanos = u64::try_from(statement.as_nanos()).unwrap_or(u64::MAX);
-        self.acquire_nanos
-            .fetch_add(acquire_nanos, Ordering::Relaxed);
-        self.statement_nanos
-            .fetch_add(statement_nanos, Ordering::Relaxed);
-        self.pool_size
-            .store(u64::from(pool_size), Ordering::Relaxed);
-        self.pool_num_idle.store(
-            u64::try_from(pool_num_idle).unwrap_or(u64::MAX),
-            Ordering::Relaxed,
-        );
-    }
-
-    pub(crate) fn snapshot(&self) -> MappingWriteSnapshot {
-        MappingWriteSnapshot {
-            reserve_ops: self.reserve_ops.load(Ordering::Relaxed),
-            insert_ops: self.insert_ops.load(Ordering::Relaxed),
-            acquire: Duration::from_nanos(self.acquire_nanos.load(Ordering::Relaxed)),
-            statement: Duration::from_nanos(self.statement_nanos.load(Ordering::Relaxed)),
-            pool_size: u32::try_from(self.pool_size.load(Ordering::Relaxed)).unwrap_or(u32::MAX),
-            pool_num_idle: usize::try_from(self.pool_num_idle.load(Ordering::Relaxed))
-                .unwrap_or(usize::MAX),
-        }
+        self.acquire = self.acquire.saturating_add(acquire);
+        self.statement = self.statement.saturating_add(statement);
+        // Gauges: the latest observation wins, never a sum.
+        self.pool_size = pool_size;
+        self.pool_num_idle = pool_num_idle;
     }
 }
 
 tokio::task_local! {
-    static MAPPING_WRITES: MappingWriteCounters;
+    static MAPPING_WRITES: Cell<MappingWriteSnapshot>;
 }
 
 /// Feed the current script-apply task's counters, if inside
@@ -162,24 +117,24 @@ pub(crate) fn record_mapping_write(
     pool_num_idle: usize,
 ) {
     let () = MAPPING_WRITES
-        .try_with(|counters| {
-            counters.record(op, acquire, statement, pool_size, pool_num_idle);
+        .try_with(|slot| {
+            let mut snapshot = slot.get();
+            snapshot.record(op, acquire, statement, pool_size, pool_num_idle);
+            slot.set(snapshot);
         })
         .unwrap_or(());
 }
 
-/// Run `future` with fresh task-local [`MappingWriteCounters`] and return
-/// both its output and the run's own [`MappingWriteSnapshot`].
+/// Run `future` with fresh task-local counters and return both its output and
+/// the run's own [`MappingWriteSnapshot`].
 pub(crate) async fn scope_mapping_writes<F, T>(future: F) -> (T, MappingWriteSnapshot)
 where
     F: std::future::Future<Output = T>,
 {
     MAPPING_WRITES
-        .scope(MappingWriteCounters::new(), async move {
+        .scope(Cell::new(MappingWriteSnapshot::default()), async move {
             let output = future.await;
-            let snapshot = MAPPING_WRITES
-                .try_with(MappingWriteCounters::snapshot)
-                .unwrap_or_default();
+            let snapshot = MAPPING_WRITES.try_with(Cell::get).unwrap_or_default();
             (output, snapshot)
         })
         .await
@@ -189,17 +144,23 @@ where
 mod tests {
     use super::*;
 
+    /// The snapshot lives in a `Cell`, which is `!Sync` — this pins the one
+    /// property that makes that safe here: the scoped future stays `Send`, so
+    /// `crates/api/src/apply_runner.rs` can keep spawning it in a `JoinSet`.
+    #[allow(dead_code)] // Compile-time assertion only.
+    fn assert_scope_future_is_send<T: Send>(_: T) {}
+
     #[test]
     fn counters_keep_the_two_calls_apart_and_sum_their_durations() {
-        let counters = MappingWriteCounters::new();
-        counters.record(
+        let mut snapshot = MappingWriteSnapshot::default();
+        snapshot.record(
             MappingWriteOp::Reserve,
             Duration::from_millis(3),
             Duration::from_millis(1),
             20,
             4,
         );
-        counters.record(
+        snapshot.record(
             MappingWriteOp::Insert,
             Duration::from_millis(5),
             Duration::from_micros(340),
@@ -207,7 +168,6 @@ mod tests {
             2,
         );
 
-        let snapshot = counters.snapshot();
         assert_eq!(snapshot.reserve_ops, 1);
         assert_eq!(snapshot.insert_ops, 1);
         assert_eq!(snapshot.acquire, Duration::from_millis(8));
@@ -222,6 +182,8 @@ mod tests {
 
     #[tokio::test]
     async fn scope_isolates_concurrent_runs_and_starts_empty() {
+        assert_scope_future_is_send(scope_mapping_writes(async {}));
+
         // Outside any scope a write is a no-op, not a panic and not a leak
         // into whichever run happens to be scoped next.
         record_mapping_write(
