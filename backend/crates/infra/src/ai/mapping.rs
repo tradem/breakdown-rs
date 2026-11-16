@@ -15,7 +15,7 @@ use breakdown_core::error::DomainError;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use super::mapping_metrics::{MAPPING_WRITES, MappingWriteOp};
+use super::mapping_metrics::{MappingWriteOp, record_mapping_write};
 
 /// Full primary key of one mapping row: `(preview, draft_ref, kind, ordinal)`.
 type MappingKey = (AiImportJobId, String, String, i32);
@@ -122,35 +122,58 @@ impl PgAiImportMappingRepository {
         Self { pool }
     }
 
-    /// Split one mapped write into "waited for a connection" and "the statement
-    /// itself" (issue #900, M1), and hand both to the process-wide counters.
+    /// Check out one pooled connection while sampling the pool gauges **before**
+    /// waiting (issue #900 M1): once `acquire()` unblocks, the contention burst
+    /// that stalled it has already cleared.
     ///
     /// The split is the whole point of the measurement: the app pool (20) is
     /// shared with 16–18 projectors and sagas while an apply *creates* the
     /// backlog they write, so "slow write" and "write queued behind projection
-    /// catch-up" are indistinguishable in one total. Log shape follows the
-    /// event store's per-append `histogram.*` lines, so p50/p95 are derived from
-    /// the log and the run's share from the counter delta (`workers.rs`).
-    fn record_write(
+    /// catch-up" are indistinguishable in one total.
+    async fn acquire_timed(
         &self,
-        op: MappingWriteOp,
-        acquire: std::time::Duration,
-        statement: std::time::Duration,
-    ) {
+    ) -> Result<
+        (
+            sqlx::pool::PoolConnection<sqlx::Postgres>,
+            std::time::Duration,
+            u32,
+            usize,
+        ),
+        DomainError,
+    > {
         let pool_size = self.pool.size();
         let pool_num_idle = self.pool.num_idle();
-        MAPPING_WRITES.record(op, acquire, statement, pool_size, pool_num_idle);
-        tracing::info!(
-            // The parent span of a row carries the job/run ids, so the fields
-            // stay per-write only — no duplicated context in every line.
-            operation = op.as_str(),
-            histogram.mapping_acquire_duration = acquire.as_secs_f64(),
-            histogram.mapping_statement_duration = statement.as_secs_f64(),
-            pool_size,
-            pool_num_idle,
-            "AI import mapping write"
-        );
+        let acquire_started = Instant::now();
+        let conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
+        Ok((conn, acquire_started.elapsed(), pool_size, pool_num_idle))
     }
+}
+
+/// Feed the current apply task's counters and emit one per-write `histogram.*`
+/// line carrying `job_id` explicitly (the apply worker spawns without a parent
+/// tracing span).
+///
+/// The log shape follows the event store's per-append `histogram.*` lines, so
+/// p50/p95 are derived from the log and the run's share from the scoped
+/// counters ([`super::mapping_metrics::scope_mapping_writes`]).
+fn record_write(
+    preview_id: AiImportJobId,
+    op: MappingWriteOp,
+    acquire: std::time::Duration,
+    statement: std::time::Duration,
+    pool_size: u32,
+    pool_num_idle: usize,
+) {
+    record_mapping_write(op, acquire, statement, pool_size, pool_num_idle);
+    tracing::info!(
+        job_id = %preview_id.as_uuid(),
+        operation = op.as_str(),
+        histogram.mapping_acquire_duration = acquire.as_secs_f64(),
+        histogram.mapping_statement_duration = statement.as_secs_f64(),
+        pool_size,
+        pool_num_idle,
+        "AI import mapping write"
+    );
 }
 
 #[async_trait::async_trait]
@@ -191,9 +214,11 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         // the two are exactly the ambiguity issue #900 M1 has to resolve. One
         // connection per statement, released before the fallback read below so
         // the `None` path cannot need two at once under a saturated pool.
-        let acquire_started = Instant::now();
-        let mut conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
-        let acquire = acquire_started.elapsed();
+        //
+        // The version is validated *before* the checkout: an invalid version
+        // must not queue behind the pool only to be rejected afterwards.
+        let version = version_to_db(mapping.aggregate_version)?;
+        let (mut conn, acquire, pool_size, pool_num_idle) = self.acquire_timed().await?;
         let statement_started = Instant::now();
         let row = sqlx::query(
             r#"
@@ -210,12 +235,19 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
             .bind(&mapping.aggregate_kind)
             .bind(mapping.ordinal)
             .bind(mapping.aggregate_id)
-            .bind(version_to_db(mapping.aggregate_version)?)
+            .bind(version)
             .fetch_optional(&mut *conn)
             .await;
         let statement = statement_started.elapsed();
         drop(conn);
-        self.record_write(MappingWriteOp::Reserve, acquire, statement);
+        record_write(
+            mapping.preview_id,
+            MappingWriteOp::Reserve,
+            acquire,
+            statement,
+            pool_size,
+            pool_num_idle,
+        );
         let row = row.map_err(map_sqlx_error)?;
         match row {
             Some(row) => map_mapping(row),
@@ -244,10 +276,10 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         // back. The `WHERE` belongs to the `DO UPDATE`, not the statement, so a
         // non-advancing write simply affects zero rows.
         // Same acquire/statement split as `reserve` (issue #900 M1): the
-        // confirm of every row lands behind the same shared pool.
-        let acquire_started = Instant::now();
-        let mut conn = self.pool.acquire().await.map_err(map_sqlx_error)?;
-        let acquire = acquire_started.elapsed();
+        // confirm of every row lands behind the same shared pool. Version
+        // validation happens before the checkout there too.
+        let version = version_to_db(mapping.aggregate_version)?;
+        let (mut conn, acquire, pool_size, pool_num_idle) = self.acquire_timed().await?;
         let statement_started = Instant::now();
         let executed = sqlx::query(
             r#"
@@ -268,12 +300,19 @@ impl AiImportMappingRepository for PgAiImportMappingRepository {
         .bind(&mapping.aggregate_kind)
         .bind(mapping.ordinal)
         .bind(mapping.aggregate_id)
-        .bind(version_to_db(mapping.aggregate_version)?)
+        .bind(version)
         .execute(&mut *conn)
         .await;
         let statement = statement_started.elapsed();
         drop(conn);
-        self.record_write(MappingWriteOp::Insert, acquire, statement);
+        record_write(
+            mapping.preview_id,
+            MappingWriteOp::Insert,
+            acquire,
+            statement,
+            pool_size,
+            pool_num_idle,
+        );
         executed.map_err(map_sqlx_error)?;
         Ok(())
     }

@@ -66,7 +66,7 @@ use serde_json::to_vec;
 use uuid::Uuid;
 
 use super::heartbeat::LeaseHeartbeat;
-use super::mapping_metrics::MAPPING_WRITES;
+use super::mapping_metrics::scope_mapping_writes;
 use super::pdf::PdfTextExtractor;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
@@ -2704,39 +2704,45 @@ where
             .into_iter()
             .partition(|(_, row, _)| !row_needs_a_source_outfit(row));
 
-        // (issue #900 M1) Snapshot the process-wide mapping-write counters before
-        // the row phase, so the summary below can attribute `row_ms_avg`: each row
-        // pays `reserve` → command append → `confirm` per mapped aggregate, and
-        // neither the connection wait nor the statement time is visible in the row
-        // total today. Rows run concurrently, so a per-row sum would double-count
-        // interleaved rows — the phase delta divided by the row count is the honest
-        // per-row figure, and that is exactly what decomposes `row_ms_avg`.
-        let mapping_writes_before = MAPPING_WRITES.snapshot();
-        let mut outcomes: Vec<Option<RowApplyOutcome>> =
-            (0..plan.scenes.len()).map(|_| None).collect();
-        for batch in concurrent_rows.chunks(APPLY_ROW_CONCURRENCY) {
-            let row_futures = batch.iter().map(|(index, row, planned_order)| {
-                let index = *index;
-                let row = *row;
-                let planned_order = planned_order.clone();
-                let row_ctx = std::sync::Arc::clone(&row_ctx);
-                async move {
-                    let outcome = self.apply_row(&row_ctx, row, planned_order).await?;
-                    self.note_row_completed(&row_progress).await;
-                    Ok::<(usize, RowApplyOutcome), DomainError>((index, outcome))
+        // (issue #900 M1) Scope task-local mapping-write counters around the row
+        // phase so concurrent applies on the same replica never mix their ops,
+        // durations or pool gauges, and a cache-served re-apply reports zeros:
+        // each row pays `reserve` → command append → `confirm` per mapped
+        // aggregate, and neither the connection wait nor the statement time is
+        // visible in the row total today. Rows run concurrently, so a per-row sum
+        // would double-count interleaved rows — the phase total divided by the
+        // row count is the honest per-row figure, and that is exactly what
+        // decomposes `row_ms_avg`.
+        let (outcomes, mapping_writes) = scope_mapping_writes(async {
+            let mut outcomes: Vec<Option<RowApplyOutcome>> =
+                (0..plan.scenes.len()).map(|_| None).collect();
+            for batch in concurrent_rows.chunks(APPLY_ROW_CONCURRENCY) {
+                let row_futures = batch.iter().map(|(index, row, planned_order)| {
+                    let index = *index;
+                    let row = *row;
+                    let planned_order = planned_order.clone();
+                    let row_ctx = std::sync::Arc::clone(&row_ctx);
+                    async move {
+                        let outcome = self.apply_row(&row_ctx, row, planned_order).await?;
+                        self.note_row_completed(&row_progress).await;
+                        Ok::<(usize, RowApplyOutcome), DomainError>((index, outcome))
+                    }
+                });
+                for (index, outcome) in futures::future::try_join_all(row_futures).await? {
+                    outcomes[index] = Some(outcome);
                 }
-            });
-            for (index, outcome) in futures::future::try_join_all(row_futures).await? {
+            }
+            // The rows whose looks continue another row's: strictly after the phase
+            // above, and still in plan order.
+            for (index, row, planned_order) in continuation_rows {
+                let outcome = self.apply_row(&row_ctx, row, planned_order).await?;
+                self.note_row_completed(&row_progress).await;
                 outcomes[index] = Some(outcome);
             }
-        }
-        // The rows whose looks continue another row's: strictly after the phase
-        // above, and still in plan order.
-        for (index, row, planned_order) in continuation_rows {
-            let outcome = self.apply_row(&row_ctx, row, planned_order).await?;
-            self.note_row_completed(&row_progress).await;
-            outcomes[index] = Some(outcome);
-        }
+            Ok::<_, DomainError>(outcomes)
+        })
+        .await;
+        let outcomes = outcomes?;
         for outcome in outcomes {
             let outcome = outcome.ok_or_else(|| {
                 DomainError::validation("a planned row finished without an outcome")
@@ -2773,11 +2779,10 @@ where
         // for it — the summary can be slow for a large plan too.
         // (issue #900 M1) What the row phase actually spent inside the mapping
         // write path, split into "waited for a pooled connection" and "the
-        // statement itself" (see `mapping_metrics` for why the delta is this run's
-        // number). `*_per_row` is the decomposition of `row_ms_avg` above; the
-        // pool gauges are the instant the last write observed, because the worker
-        // holds no pool of its own (the repository owns it).
-        let mapping_writes = MAPPING_WRITES.snapshot().since(mapping_writes_before);
+        // statement itself" (see `mapping_metrics` for the task-local scoping).
+        // `*_per_row` is the decomposition of `row_ms_avg` above; the pool gauges
+        // are the instant the last write entered `pool.acquire()`, or 0 when every
+        // row was cache-served.
         let planned_rows = u64::from(apply_progress.total);
         let per_row_divisor = (planned_rows.max(1)) as f64;
         tracing::info!(

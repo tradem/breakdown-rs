@@ -39,12 +39,18 @@ tag. Never edit a released entry afterwards.
   `PgAiImportMappingRepository::{reserve,insert}` now acquire the connection explicitly and
   measure the wait and the statement separately, log both per write
   (`histogram.mapping_acquire_duration` / `histogram.mapping_statement_duration` plus the
-  pool's `size`/`num_idle` in that instant), and feed process-wide counters. The apply's
-  existing row-phase summary (`"AI import apply row phase finished"`) gains that phase's
-  delta — `mapping_reserve_ops`, `mapping_insert_ops`, `mapping_acquire_ms_total`,
+  pool's `size`/`num_idle` in that instant) with `job_id` on every line, and feed
+  task-local counters — one set per apply run, so concurrent applies on the same replica
+  never mix their ops, durations or gauges and a cache-served re-apply reports zeros.
+  The pool gauges are sampled **before** `pool.acquire()` is entered (afterwards the
+  contention burst that stalled it has already cleared), and an invalid
+  `aggregate_version` is rejected before a connection is checked out. The apply's
+  existing row-phase summary (`"AI import apply row phase finished"`) carries that run's
+  own counters — `mapping_reserve_ops`, `mapping_insert_ops`, `mapping_acquire_ms_total`,
   `mapping_statement_ms_total`, the `*_ms_per_row` decomposition of `row_ms_avg`, and the
-  last observed pool gauges. Additive instrumentation only: no behaviour, wire or SQL change.
-  Crates: `infra` 0.80.0 → 0.80.1 (PATCH — internal observability, public surface
+  pool gauges at the last write's checkout. Additive instrumentation only: no behaviour,
+  wire or SQL change.
+  Crates: `infra` 0.81.0 → 0.81.1 (PATCH — internal observability, public surface
   unchanged); `api`/`architecture`/`integration-tests` re-pin the path dep.
 
 ### Changed

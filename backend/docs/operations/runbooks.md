@@ -1429,18 +1429,24 @@ taste would have been aimed at the payload, which is not the problem.
 ### M1 — where the per-row Postgres time goes
 
 Every mapped aggregate of an apply costs one `reserve` (insert-if-absent) and one
-`insert` (confirm). Both now acquire the connection explicitly and log the two halves
-separately, because the app pool (20) is shared with 16–18 projectors and sagas —
-and the apply *creates* the projection backlog those projectors write:
+`insert` (confirm). Both now sample the pool gauges *before* the connection is
+requested, acquire the connection explicitly and log the two halves separately,
+because the app pool (20) is shared with 16–18 projectors and sagas — and the
+apply *creates* the projection backlog those projectors write. Every line carries
+`job_id`, so concurrent applies can be told apart.
 
-```
-grep "AI import mapping write" api.log | jq -r '.fields | [.operation,
-  .histogram_mapping_acquire_duration, .histogram_mapping_statement_duration,
-  .pool_size, .pool_num_idle] | @tsv'
+The API logs with `tracing_subscriber::fmt` (plain text with ANSI colour codes, not
+JSON), so the fields are stripped and re-emitted as TSV:
+
+```sh
+grep "AI import mapping write" api.log \
+  | sed -nE 's/\x1b\[[0-9;]*m//g; s/.*AI import mapping write job_id=([^ ]+) operation="?([a-z]+)"? histogram\.mapping_acquire_duration=([^ ]+) histogram\.mapping_statement_duration=([^ ]+) pool_size=([0-9]+) pool_num_idle=([0-9]+).*/\1\t\2\t\3\t\4\t\5\t\6/p'
 ```
 
-Sort the acquire column for p50/p95 and do the same for the statement column. The
-same numbers arrive summed per run in the apply's own summary line
+That yields `job_id  operation  acquire_s  statement_s  pool_size  pool_num_idle` per
+write. Filter on column 1 (`job_id`) when several applies ran concurrently, then sort
+column 3 (`sort -k3 -g`) for acquire p50/p95 and column 4 (`sort -k4 -g`) for statement
+p50/p95. The same numbers arrive summed per run in the apply's own summary line
 (`"AI import apply row phase finished"`), which is what decomposes `row_ms_avg`:
 
 | Field | Meaning |
@@ -1448,7 +1454,7 @@ same numbers arrive summed per run in the apply's own summary line
 | `mapping_reserve_ops` / `mapping_insert_ops` | how many of each call that run issued |
 | `mapping_acquire_ms_total` / `mapping_statement_ms_total` | the phase's summed wait vs. summed statement time |
 | `mapping_acquire_ms_per_row` / `mapping_statement_ms_per_row` | the same, divided by `rows` — the part of `row_ms_avg` each explains |
-| `db_pool_size` / `db_pool_num_idle` | the pool gauges at the last write (the worker holds no pool of its own) |
+| `db_pool_size` / `db_pool_num_idle` | the pool gauges measured when the last write entered `pool.acquire()`, or `0` when every row was cache-served |
 
 **Reading it.** `acquire_ms_per_row ≫ statement_ms_per_row` with a low `num_idle` means
 the apply is queuing behind projection catch-up, not writing slowly — the lever is a
