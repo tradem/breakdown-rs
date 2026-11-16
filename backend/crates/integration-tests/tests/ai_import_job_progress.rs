@@ -649,10 +649,11 @@ async fn renewing_a_claim_keeps_a_silent_run_alive() -> Result<()> {
 }
 
 /// Issue #911: the renewal and the payload are compared with `GREATEST`, so a
-/// live run whose **frames** stopped is not stealable. This is the state a
-/// schedule apply is in for its whole life (it publishes no frame at all) and the
-/// one a script apply reaches in its trailing step: one `finalizing` frame, then
-/// minutes of day/scene-shoot work.
+/// live run whose **frames** stopped is not stealable. A schedule apply is in
+/// that state for its whole life — it publishes no frame at all, so its lease is
+/// the only proof of life it can offer (a script apply additionally has
+/// `ApplyRunHeartbeat` refreshing its payload, which is why the renewal there is
+/// belt and braces rather than the only cover).
 #[tokio::test]
 async fn a_dead_payload_with_a_live_lease_is_not_stolen() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;

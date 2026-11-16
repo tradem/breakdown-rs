@@ -1174,9 +1174,12 @@ impl ApplyRunState {
     ///    is the age — the payload's `updated_at` (last published frame) or
     ///    [`Self::owner_claimed_at`] (claim instant **or** lease renewal,
     ///    #911). Taking only the payload would age a live run past the window
-    ///    whenever its frames stopped while its lease kept renewing — the
-    ///    schedule apply publishes no frame at all, and a script apply's trailing
-    ///    step publishes its `finalizing` frame and nothing else;
+    ///    whenever its frames stopped while its lease kept renewing. Which
+    ///    mechanism proves life is not something this age may depend on: a
+    ///    **schedule** apply publishes no frame at all (its lease is the only
+    ///    proof it has), while a script apply's `ApplyRunHeartbeat` keeps
+    ///    refreshing the payload through its trailing work. The age follows the
+    ///    stamp that moved last;
     /// 2. otherwise `None`: nothing to age. Zero would claim "just wrote" for a
     ///    run that never reported anything, and a pre-#863 claim must keep
     ///    degrading honestly.
