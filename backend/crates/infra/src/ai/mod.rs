@@ -62,7 +62,9 @@ pub use csv_schedule::parse_schedule_csv;
 pub use decision_client::{HttpDecisionClient, decision_endpoint};
 pub use events::{AiJobEventHub, JOB_EVENTS_CHANNEL, spawn_pg_job_event_listener};
 pub use gdrive_source::{GDriveDocument, GDriveDocumentSource};
-pub use heartbeat::{LeaseHeartbeat, renewal_interval};
+pub use heartbeat::{
+    LeaseHeartbeat, apply_run_lease_window, renewal_interval, with_apply_run_lease,
+};
 pub use mapping::{CachedMappings, PgAiImportMappingRepository};
 pub use merge_worker::{QueueMergeWorker, merge_loaded_schedule};
 pub use ollama::OllamaChatClient;

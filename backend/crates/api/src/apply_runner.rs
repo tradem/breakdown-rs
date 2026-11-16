@@ -123,6 +123,14 @@ impl<P: Ports> ApplyRunner<P> {
     /// write of the terminal state is logged and swallowed: the slot then stays
     /// `running` and the takeover path re-drives it — the documented backstop,
     /// which is strictly better than a panic in a detached task.
+    ///
+    /// The run executes **under its own lease renewal** (issue #911): the slot's
+    /// single-flight predicates are silence-based, and a schedule apply publishes
+    /// no progress frames at all, so without the renewal a run that outlives
+    /// `ApplyProgress::STALE_AFTER` was indistinguishable from a dead owner and
+    /// could be taken over while it was still executing. The renewal rides this
+    /// future (not a spawned task), so it dies with the run — a crashed replica
+    /// still becomes stealable after the window, unchanged.
     pub async fn run_claimed(
         &self,
         claimed: ClaimedApplyRun,
@@ -137,7 +145,14 @@ impl<P: Ports> ApplyRunner<P> {
             run_id = %run_id.as_uuid(),
             "starting a durable AI import apply run"
         );
-        let outcome = self.execute(job_id, run_id, request).await;
+        let outcome = infra::ai::with_apply_run_lease(
+            self.state.ports.ai_import_queue(),
+            job_id,
+            run_id,
+            infra::ai::apply_run_lease_window(),
+            self.execute(job_id, run_id, request),
+        )
+        .await;
         let outcome = match outcome {
             Ok(summary) => ApplyRunOutcome::Succeeded(Box::new(summary)),
             Err(error) => {

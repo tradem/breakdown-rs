@@ -2506,10 +2506,11 @@ pub struct FakeAiImportQueue {
 pub struct FakeApplyRun {
     pub owner: Option<breakdown_core::ai::ApplyRunId>,
     pub seq: i64,
-    /// When the current owner took the slot (issue #863), stamped by the claim
-    /// and by NOTHING else — the in-memory analogue of `apply_claim_at`. A
-    /// later run-scoped write (progress, telemetry, summary) deliberately does
-    /// not touch it, which is the property the review asked for.
+    /// When the current owner was last heard from (issues #863, #911), the
+    /// in-memory analogue of `apply_claim_at`: stamped by the claim and by the
+    /// owner's lease renewal. A later run-scoped write (progress, telemetry,
+    /// summary) deliberately does not touch it, which is the property the
+    /// review asked for.
     pub claimed_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -3160,6 +3161,29 @@ impl AiImportQueue for FakeAiImportQueue {
             return Ok(false);
         }
         self.record_telemetry(id, telemetry).await?;
+        Ok(true)
+    }
+
+    /// The run-fenced lease renewal (issue #911), fenced exactly like
+    /// [`Self::record_run_telemetry`]: the write only lands while `run_id` still
+    /// owns the slot (`WHERE id = $1 AND apply_run_id = $2`), so a displaced run
+    /// answers `false` and the runner stops renewing.
+    async fn renew_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+    ) -> Result<bool, DomainError> {
+        locked(&self.call_log).push("renew_apply_run");
+        let mut runs = self.apply_runs.lock().await;
+        let Some(slot) = runs.get_mut(&id.as_uuid()) else {
+            return Ok(false);
+        };
+        if slot.owner != Some(run_id) {
+            return Ok(false);
+        }
+        // Only the owner-scoped stamp moves (the adapter writes nothing else):
+        // not the payload, not the run counter.
+        slot.claimed_at = Some(Utc::now());
         Ok(true)
     }
 }

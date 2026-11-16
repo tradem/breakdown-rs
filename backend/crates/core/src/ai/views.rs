@@ -1105,8 +1105,9 @@ pub struct ApplyRunState {
     /// What the owning run last published; `None` before its first write and
     /// after it cleared the slot.
     pub progress: Option<ApplyProgress>,
-    /// When the owning run **took the slot** (issues #863): the instant the
-    /// claim granted it, stamped by that claim and by nothing else.
+    /// When the owning run was **last heard from** (issues #863, #911): the
+    /// instant the claim granted the slot, re-stamped by the run's own lease
+    /// renewal while it executes.
     ///
     /// It exists because the single-flight claim's steal predicate already
     /// judges an owner that has published **nothing** by an owner-scoped stamp
@@ -1114,6 +1115,12 @@ pub struct ApplyRunState {
     /// cutoff)`), and the refusal had no way to report the stamp that decision
     /// was made on — so a run that died before its first frame was unageable on
     /// the wire (#805 left that open; #863 closes it).
+    ///
+    /// The renewal (#911) is what keeps that stamp honest for a **schedule**
+    /// apply: it publishes no frames, so without it a live run's stamp was
+    /// frozen at the claim and the steal would judge a working run exactly like a
+    /// dead one. It is still written by the owner alone — never by a
+    /// run-scoped progress write of some other run.
     ///
     /// Deliberately **not** the job row's `updated_at`, which is the tempting
     /// shortcut: that column is bumped by every run-scoped write, including a
@@ -1166,7 +1173,8 @@ impl ApplyRunState {
     ///    (`(apply_progress->>'updated_at')::timestamptz < cutoff`);
     /// 2. otherwise [`Self::owner_claimed_at`] — the column the claim compares
     ///    while `apply_progress IS NULL`, which is what makes a run that died
-    ///    **before its first published frame** ageable at all;
+    ///    **before its first published frame** ageable at all (and what the
+    ///    run's own lease renewal keeps fresh while it executes, #911);
     /// 3. otherwise `None`: nothing to age. Zero would claim "just wrote" for a
     ///    run that never reported anything.
     ///

@@ -851,8 +851,9 @@ pub trait AiImportQueue: Send + Sync {
 
     /// Read the apply-run slot of one job (issue #800): its owning run, the
     /// monotonic run counter, the owner's last published payload and the instant
-    /// that owner took the slot ([`ApplyRunState::owner_claimed_at`], issues
-    /// #863).
+    /// that owner was **last heard from** ([`ApplyRunState::owner_claimed_at`],
+    /// issues #863/#911: the claim stamps it, and the owner's lease renewal
+    /// re-stamps it while it executes).
     ///
     /// `None` when the job does not exist (the stream closes). The apply stream
     /// needs the counter, not just the payload: a run that starts and clears
@@ -1040,6 +1041,43 @@ pub trait AiImportQueue: Send + Sync {
     /// spawns work.
     async fn requested_apply_runs(&self, _limit: i64) -> Result<Vec<AiImportJobId>, DomainError> {
         Ok(Vec::new())
+    }
+
+    /// Renew the lease of the run that currently owns one apply slot
+    /// (issue #911).
+    ///
+    /// Every single-flight predicate above is **silence**-based: a `running`
+    /// slot whose owner published nothing for [`ApplyProgress::STALE_AFTER`] may
+    /// be taken over ([`claim_apply_run`](Self::claim_apply_run),
+    /// [`request_apply_run`](Self::request_apply_run)), and
+    /// [`requested_apply_runs`](Self::requested_apply_runs) hands that row to
+    /// the next poll. That is enough for a **script** apply, whose row loop
+    /// publishes progress frames continuously — and it is exactly wrong for a
+    /// **schedule** apply, which is a single merge loop over the project's
+    /// existing scenes and days and publishes no frames at all: a run that
+    /// simply outlives the window looks like a dead owner and gets stolen
+    /// *while it is still executing*.
+    ///
+    /// This is the run-scoped proof of life that closes the hole. The owner
+    /// stamps its own claim instant while it executes, so the steal predicate
+    /// ages a fresh stamp instead of a silence that was never going to happen.
+    /// A genuinely dead owner (killed replica, cancelled task) stops renewing
+    /// with its task, which is what keeps the existing crash recovery
+    /// unchanged: the window still expires.
+    ///
+    /// Owner-fenced like [`record_run_telemetry`](Self::record_run_telemetry):
+    /// `false` means the slot moved on (the run was taken over, or it already
+    /// reached its terminal transition and freed the slot), so the caller stops
+    /// renewing instead of hammering a claim it provably lost.
+    ///
+    /// The default reports `true`: an adapter that tracks no durable slot has no
+    /// lease that could lapse, and the caller's renewal loop stays a no-op.
+    async fn renew_apply_run(
+        &self,
+        _id: AiImportJobId,
+        _run_id: ApplyRunId,
+    ) -> Result<bool, DomainError> {
+        Ok(true)
     }
 
     /// Subscribe to wake-up notifications for one job (issue #664).

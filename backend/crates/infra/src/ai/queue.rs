@@ -1806,7 +1806,7 @@ impl AiImportQueue for PgAiImportQueue {
     }
 
     /// Read the apply-run slot: owner, run counter, published payload and the
-    /// instant the owner took the slot (issues #800, #863).
+    /// instant the owner was last heard from (issues #800, #863, #911).
     ///
     /// `Ok(None)` when the job does not exist (the stream closes). A row that
     /// predates the migration decodes as an empty slot (`owner: None`, `seq: 0`),
@@ -2279,6 +2279,56 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(id.as_uuid())
         .bind(values.accept_as_is)
         .bind(values.edit_distance)
+        .bind(run_id.as_uuid())
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Run-fenced lease renewal of one apply run (issue #911).
+    ///
+    /// Why it exists: every single-flight predicate over the apply slot
+    /// ([`Self::claim_apply_run`], [`Self::request_apply_run`],
+    /// [`Self::begin_apply_run`] and the [`Self::requested_apply_runs`] poll) is
+    /// silence-based. They classify an owner by
+    /// `COALESCE(apply_progress->>'updated_at', apply_claim_at, updated_at)`, so
+    /// a **script** apply proves it is alive through its progress frames — while
+    /// a **schedule** apply publishes none (one merge loop over the project's
+    /// existing scenes and days) and therefore looked exactly like a dead owner
+    /// once it outlived [`ApplyProgress::STALE_AFTER`].
+    ///
+    /// This statement is that missing proof of life: the owner re-stamps
+    /// `apply_claim_at`, which is the stamp the steal predicate reads for a
+    /// payload-less owner (`COALESCE` above falls through to it), so a live
+    /// schedule run keeps its slot and a dead one still expires with its task.
+    ///
+    /// Deliberately narrow:
+    ///
+    /// * no payload is written — the renewal claims *aliveness*, never progress,
+    ///   so the stream's counters keep describing only real work;
+    /// * `apply_run_seq` is untouched — no run started here;
+    /// * `updated_at` is untouched — it orders the poll and is only read as a
+    ///   fallback for a claim that predates the `apply_claim_at` column;
+    /// * no `pg_notify` — nothing a stream renders changed, so waking it would
+    ///   only re-read the row.
+    ///
+    /// The fence is the run identity, exactly like [`Self::record_run_telemetry`]:
+    /// `false` means this run no longer owns the slot (it was taken over, or it
+    /// already finished and freed it), and the caller stops renewing.
+    async fn renew_apply_run(
+        &self,
+        id: AiImportJobId,
+        run_id: breakdown_core::ai::ApplyRunId,
+    ) -> Result<bool, DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET apply_claim_at = now()
+            WHERE id = $1 AND apply_run_id = $2
+            "#,
+        )
+        .bind(id.as_uuid())
         .bind(run_id.as_uuid())
         .execute(&self.pool)
         .await

@@ -574,6 +574,110 @@ async fn a_late_run_scoped_write_cannot_extend_a_claims_window() -> Result<()> {
     Ok(())
 }
 
+/// Issue #911: a **schedule** apply publishes no progress frames, so its claim
+/// stamp is the only aliveness it can offer. Renewing it keeps the slot past a
+/// window that has already expired on that stamp — the exact state
+/// `a_claim_without_a_published_payload_is_not_stolen` proves stealable
+/// *without* the renewal.
+#[tokio::test]
+async fn renewing_a_claim_keeps_a_silent_run_alive() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = succeeded_job(&queue, "user-apply-lease-renew").await?;
+
+    let live = ApplyRunId::new();
+    assert!(queue.claim_apply_run(id, live).await?);
+    // The run has been executing for longer than the window. No payload
+    // exists (a schedule merge publishes none), so the steal predicate falls
+    // through to `apply_claim_at`.
+    let silence = chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
+        .bind(id.as_uuid())
+        .bind(silence)
+        .execute(&pool)
+        .await?;
+
+    assert!(
+        queue.renew_apply_run(id, live).await?,
+        "the owner renews its own claim"
+    );
+
+    // The refusal now reports the refreshed silence, not the pre-renewal one.
+    let state = queue.apply_run_state(id).await?.expect("run slot");
+    let silence = state
+        .owner_silence_at(chrono::Utc::now())
+        .expect("a live owner always has an age");
+    assert!(
+        silence < ApplyProgress::STALE_AFTER,
+        "the renewal must age the owner by its last proof of life, got {silence:?}"
+    );
+    assert!(
+        !queue.claim_apply_run(id, ApplyRunId::new()).await?,
+        "a renewed claim is not stealable although the run published no frame"
+    );
+    assert!(
+        !queue
+            .request_apply_run(id, ApplyRunId::new(), &apply_request())
+            .await?,
+        "nor can a second dispatch claim it"
+    );
+    Ok(())
+}
+
+/// Issue #911: the fence. A run that was taken over cannot renew — it answers
+/// `false` (the same shape as the run-fenced telemetry write), which is what
+/// stops a displaced owner's renewal instead of letting it fight the new owner
+/// for the slot.
+#[tokio::test]
+async fn a_taken_over_runs_renewal_reports_false() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = succeeded_job(&queue, "user-apply-lease-takeover").await?;
+
+    let dead = ApplyRunId::new();
+    assert!(
+        queue.request_apply_run(id, dead, &apply_request()).await?,
+        "the free slot accepts the dispatched run"
+    );
+    let claimed = queue
+        .begin_apply_run(id, ApplyRunId::new())
+        .await?
+        .expect("the requested run is adoptable");
+    assert_eq!(claimed.run_id, dead, "adoption keeps the dispatched id");
+    assert!(
+        queue.renew_apply_run(id, dead).await?,
+        "the owner renews the slot it holds"
+    );
+
+    // The owner went silent (a crashed replica): its stamp slides past the
+    // window and the next poll takes the slot over under a fresh identity.
+    let silence = chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
+        .bind(id.as_uuid())
+        .bind(silence)
+        .execute(&pool)
+        .await?;
+    let takeover = ApplyRunId::new();
+    let taken = queue
+        .begin_apply_run(id, takeover)
+        .await?
+        .expect("a run silent for longer than the window is taken over");
+    assert_eq!(
+        taken.run_id, takeover,
+        "the takeover mints a new identity, so the dead owner's late writes fail the fence"
+    );
+
+    assert!(
+        !queue.renew_apply_run(id, dead).await?,
+        "a displaced run cannot renew a slot it lost"
+    );
+    assert!(
+        queue.renew_apply_run(id, takeover).await?,
+        "the new owner renews the slot it took over"
+    );
+    Ok(())
+}
+
 /// Issue #863: a claim made **before** the claim stamp existed carries `NULL`
 /// there, so the refusal reports no age (the instant was never recorded) while
 /// the steal keeps the pre-#863 fallback — the row stamp the claim always wrote.

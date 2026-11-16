@@ -596,10 +596,10 @@ struct FakeQueueState {
     apply_run: Option<breakdown_core::ai::ApplyRunId>,
     /// Monotonic run counter, bumped on every claim and never cleared.
     apply_run_seq: i64,
-    /// When the owning run **took the slot**, stamped by the claim and by
-    /// nothing else — the analogue of the production `apply_claim_at` column
-    /// (issue #863 review). Run-scoped progress writes deliberately do NOT
-    /// re-stamp it, exactly like the adapter.
+    /// When the owning run was **last heard from**, stamped by the claim and by
+    /// the run's own lease renewal — the analogue of the production
+    /// `apply_claim_at` column (issues #863, #911). Run-scoped progress writes
+    /// deliberately do NOT re-stamp it, exactly like the adapter.
     apply_run_claimed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
