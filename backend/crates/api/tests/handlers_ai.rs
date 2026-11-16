@@ -22,5 +22,11 @@ mod handler_ai_import_sse;
 #[path = "handler_ai_import_apply_sse.rs"]
 mod handler_ai_import_apply_sse;
 
+// Issue #912: the one case that composes both apply-identity HTTP surfaces
+// through PostgreSQL. Env-gated (`AI_IMPORT_PG_TESTS=1`) so it skips without
+// starting a container; the "Testcontainers integration tests" CI job sets it.
+#[path = "handler_ai_import_pg_composition.rs"]
+mod handler_ai_import_pg_composition;
+
 #[path = "handler_audit.rs"]
 mod handler_audit;

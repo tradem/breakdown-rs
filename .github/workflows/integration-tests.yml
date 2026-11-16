@@ -132,6 +132,29 @@ jobs:
           RUST_LOG: info
         run: cargo test -p integration-tests --test vault_fixture_test -- --nocapture
 
+      # Issue #912: the one case that composes BOTH apply-identity HTTP surfaces
+      # (`GET /jobs/{id}` and the `apply-events` stream) through the real
+      # PostgreSQL queue. It lives in `crates/api` — where the router and the
+      # `FakePorts` fakes are — because `crates/integration-tests` may not depend
+      # on `api` (AGENTS.md §4). The fast `cargo test -p api` job must stay
+      # container-free, so the case gates itself on `AI_IMPORT_PG_TESTS` and only
+      # THIS job sets it; Docker and the pre-pulled image are already here.
+      #
+      # Accepted by the test as: a handler that drops `apply_run_id` (job read)
+      # or the frame's `run_id` fails it — verified by mutating both readers.
+      - name: API apply-identity composition (PostgreSQL)
+        timeout-minutes: 10
+        env:
+          AI_IMPORT_PG_TESTS: "1"
+          RUST_LOG: info
+        run: |
+          # Note: --test <name> goes BEFORE the first -- (Cargo option);
+          # --nocapture goes AFTER -- (test runner option). The positional
+          # filter keeps the run to the one container case.
+          cargo test -p api --test handlers_ai \
+            -- handler_ai_import_pg_composition \
+            --nocapture
+
       - name: AI GDrive fixture smoke test
         # CWE-522 / CWE-200: the step injects live GDrive credentials into code
         # that runs the PR's merge ref. Only run it for trusted contexts —
