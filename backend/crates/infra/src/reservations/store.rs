@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Reservation store (ADR-036): atomic cross-aggregate uniqueness claims on
 //! synthetic SierraDB streams.
@@ -446,12 +447,23 @@ impl ReservationStore {
             .expected_version(expected)
             .payload(buf);
 
+        // (issue #900, M2) Raw `EAPPEND` bypasses `kameo_es::EntityActor`, so
+        // feed the same process-wide store counters here: every ADR-036 claim
+        // append pays the same SierraDB fsync cost as a 1-event `EMAPPEND`, and
+        // racing episode/scene-shoot claims collide with `WrongVer` here.
+        kameo_es::write_metrics::record_append_attempt();
         match connection.eappend(stream_id, event_name, options).await {
-            Ok(info) => Ok(Some(info)),
+            Ok(info) => {
+                kameo_es::write_metrics::record_appended_events(1);
+                Ok(Some(info))
+            }
             Err(err) => {
                 let sierra = SierraError::from(err);
                 match sierra.error_code() {
-                    Some(ErrorCode::WrongVer) => Ok(None),
+                    Some(ErrorCode::WrongVer) => {
+                        kameo_es::write_metrics::record_version_conflict();
+                        Ok(None)
+                    }
                     _ => Err(sierra_error(sierra)),
                 }
             }

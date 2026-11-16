@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::{
     borrow::Cow,
@@ -313,10 +314,19 @@ impl<E: Entity + Apply> EntityActor<E> {
         );
 
         let emappend_start = Instant::now();
+        // (issue #900, M2) Count the attempt at the one place an append happens,
+        // so a caller can read "how many appends did my run issue" from the
+        // counters instead of guessing from its dispatch count (a conflict
+        // retry appends twice for one command).
+        crate::write_metrics::record_append_attempt();
         let info = match self.conn.emappend(self.partition_key, &new_events).await {
             Ok(info) => info,
+            // Counted only once the store confirmed the write: a `WRONGVER` or a
+            // transport failure appended nothing, so it must not inflate the
+            // event count.
             Err(err) => return Err(AppendEventsError::from_sierra_err(err, events, metadata)),
         };
+        crate::write_metrics::record_appended_events(new_events.len());
         tracing::info!(
             histogram.append_emappend_duration = emappend_start.elapsed().as_secs_f64(),
             events = new_events.len(),
@@ -691,6 +701,12 @@ impl<E, M> AppendEventsError<E, M> {
                 code: ErrorCode::WrongVer,
                 message,
             } => {
+                // (issue #900, M2) A `WRONGVER` is a cost the caller pays for:
+                // the transaction actor resyncs the stream and retries, so one
+                // command can issue several appends. Counted here, the single
+                // detection point, rather than in the retry arm — a conflict
+                // answered outside `execute` must not be invisible.
+                crate::write_metrics::record_version_conflict();
                 let ParsedStream {
                     partition_key,
                     stream_id,

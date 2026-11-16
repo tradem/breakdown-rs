@@ -1429,18 +1429,24 @@ taste would have been aimed at the payload, which is not the problem.
 ### M1 — where the per-row Postgres time goes
 
 Every mapped aggregate of an apply costs one `reserve` (insert-if-absent) and one
-`insert` (confirm). Both now acquire the connection explicitly and log the two halves
-separately, because the app pool (20) is shared with 16–18 projectors and sagas —
-and the apply *creates* the projection backlog those projectors write:
+`insert` (confirm). Both now sample the pool gauges *before* the connection is
+requested, acquire the connection explicitly and log the two halves separately,
+because the app pool (20) is shared with 16–18 projectors and sagas — and the
+apply *creates* the projection backlog those projectors write. Every line carries
+`job_id`, so concurrent applies can be told apart.
 
-```
-grep "AI import mapping write" api.log | jq -r '.fields | [.operation,
-  .histogram_mapping_acquire_duration, .histogram_mapping_statement_duration,
-  .pool_size, .pool_num_idle] | @tsv'
+The API logs with `tracing_subscriber::fmt` (plain text with ANSI colour codes, not
+JSON), so the fields are stripped and re-emitted as TSV:
+
+```sh
+grep "AI import mapping write" api.log \
+  | sed -nE 's/\x1b\[[0-9;]*m//g; s/.*AI import mapping write job_id=([^ ]+) operation="?([a-z]+)"? histogram\.mapping_acquire_duration=([^ ]+) histogram\.mapping_statement_duration=([^ ]+) pool_size=([0-9]+) pool_num_idle=([0-9]+).*/\1\t\2\t\3\t\4\t\5\t\6/p'
 ```
 
-Sort the acquire column for p50/p95 and do the same for the statement column. The
-same numbers arrive summed per run in the apply's own summary line
+That yields `job_id  operation  acquire_s  statement_s  pool_size  pool_num_idle` per
+write. Filter on column 1 (`job_id`) when several applies ran concurrently, then sort
+column 3 (`sort -k3 -g`) for acquire p50/p95 and column 4 (`sort -k4 -g`) for statement
+p50/p95. The same numbers arrive summed per run in the apply's own summary line
 (`"AI import apply row phase finished"`), which is what decomposes `row_ms_avg`:
 
 | Field | Meaning |
@@ -1448,9 +1454,35 @@ same numbers arrive summed per run in the apply's own summary line
 | `mapping_reserve_ops` / `mapping_insert_ops` | how many of each call that run issued |
 | `mapping_acquire_ms_total` / `mapping_statement_ms_total` | the phase's summed wait vs. summed statement time |
 | `mapping_acquire_ms_per_row` / `mapping_statement_ms_per_row` | the same, divided by `rows` — the part of `row_ms_avg` each explains |
-| `db_pool_size` / `db_pool_num_idle` | the pool gauges at the last write (the worker holds no pool of its own) |
+| `db_pool_size` / `db_pool_num_idle` | the pool gauges measured when the last write entered `pool.acquire()`, or `0` when every row was cache-served |
 
 **Reading it.** `acquire_ms_per_row ≫ statement_ms_per_row` with a low `num_idle` means
 the apply is queuing behind projection catch-up, not writing slowly — the lever is a
 separate pool (or a batched confirm), never a "faster query". The reverse means the
 statement itself is the cost, and the write-path cost model (ADR-016 §6) applies.
+
+### M2 — how many appends the run actually issued, and how many collided
+
+A run's mapping rows imply ≈740 appends (552 mapped-aggregate appends, plus one
+`AssignCharacter` per scene/figure pair and ~50 ADR-036 claim appends). The same summary
+line now carries the number the store actually saw:
+
+| Field | Meaning |
+|---|---|
+| `event_appends` | store append calls (`EMAPPEND` + ADR-036 `EAPPEND`) issued during the row phase, **conflict retries included** |
+| `appended_events` | events persisted by successful appends (one append may carry several; rejected appends add zero) |
+| `append_conflicts` | appends answered `WRONGVER` (aggregate `EMAPPEND` retries and racing ADR-036 claim `EAPPEND`s) |
+| `event_appends_per_row` | `event_appends` ÷ `rows` |
+
+**Reading it.** `event_appends` far above ≈740 (the issue uses >1500 as the threshold)
+means duplicate writes — idempotent re-dispatches that still append — and the lever is to
+cut them at the source, not to make the store faster. Many `append_conflicts` means racing
+writes (several rows creating the same episode, say), and the lever is to dedupe or order
+them instead of relying on the resync-and-retry path.
+
+**Caveat — read this before quoting the number.** The counters live in the store crate and
+are **process-wide**: an append happens inside an actor's own task, so no per-call handle
+reaches it without changing the public dispatch surface for a measurement. The delta over
+the row phase is therefore *this run* on a quiet instance and an **upper bound** with
+unrelated write traffic in the window. Cross-check it against `mapping_reserve_ops` /
+`mapping_insert_ops` from M1, which are effectively run-exclusive.

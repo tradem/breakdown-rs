@@ -62,9 +62,11 @@ jobs:
       # (ADR-006). Regenerate locally with
       # `UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`.
       - run: cargo test -p api --test contract openapi_drift
-      # The patched kameo_es crate is not a workspace member, so its ack
-      # tracker tests are run explicitly here (issue #165 ack semantics).
-      - run: cargo test --manifest-path .patches/kameo_es/Cargo.toml --test ack_tracker
+      # The patched kameo_es crate is not a workspace member, so its tests are run
+      # explicitly here: the ack tracker (issue #165 ack semantics) and the lib
+      # unit tests, which include the process-wide append counters that an AI
+      # apply reads for its own attribution (issue #900 M2).
+      - run: cargo test --manifest-path .patches/kameo_es/Cargo.toml
 
   clippy:
     name: Clippy
