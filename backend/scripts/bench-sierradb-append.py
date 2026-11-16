@@ -189,7 +189,7 @@ def assert_append_reply(reply: typing.Any) -> None:
     """A successful append answers a RESP3 map; anything else is a hard error.
 
     Guards pitfall 1: an error reply is fast and would otherwise look like a
-    great latency sample. SierraDB's map carries partition/offset/version keys.
+    genuine latency sample. SierraDB's map carries partition/offset/version keys.
     """
     if not isinstance(reply, dict):
         raise RespError(f"append reply is not a RESP3 map: {reply!r}")
@@ -279,7 +279,8 @@ class Bench:
                 written += chunk * len(payload)
         finally:
             conn.close()
-        print(f"prefilled {written / 1024 / 1024:.0f} MB of events")
+        # stderr: with --json, stdout must carry the report and nothing else.
+        print(f"prefilled {written / 1024 / 1024:.0f} MB of events", file=sys.stderr)
 
     def sweep(self, gaps_ms: list[float], *, iterations: int) -> list[tuple[float, float]]:
         """Latency per idle gap — the inline-sync vs poll-wait branch.
@@ -362,7 +363,7 @@ class Bench:
         much of the per-append cost is group-commit absorbable.
         """
         walls: list[float] = []
-        for _ in range(self.warmup + rounds):
+        for round_index in range(self.warmup + rounds):
             barrier = threading.Barrier(appends)
             conns = [self._connect() for _ in range(appends)]
             partition = str(uuid.uuid4())
@@ -390,7 +391,8 @@ class Bench:
                 conn.close()
             if errors:
                 raise errors[0]
-            walls.append(wall)
+            if round_index >= self.warmup:
+                walls.append(wall)
         # Report per-append-equivalent alongside the burst wall time.
         summary = summarise(f"{name} (wall of {appends} in flight)", walls)
         summary["per_append"] = float(summary["p50"]) / appends
@@ -455,8 +457,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--case", default="all",
                         choices=["all", "single", "multi", "parallel", "warm", "sweep",
                                  "sustained"])
-    parser.add_argument("--sustain-seconds", type=float, default=5.0,
-                        help="duration of the sustained-throughput case")
+    parser.add_argument("--sustain-seconds", type=float, default=6.0,
+                        help="duration of the sustained-throughput case "
+                             "(6 s = the committed baseline rows in ADR-016 §6)")
     parser.add_argument("--prefill-mb", type=float, default=0.0,
                         help="write this much event data before measuring (data-volume case)")
     parser.add_argument("--json", action="store_true", help="emit the summary as JSON")
@@ -493,7 +496,11 @@ def main(argv: list[str]) -> int:
 
     if args.json:
         import json
-        print(json.dumps({"label": args.label, "results": bench.results}, indent=2))
+        print(json.dumps({
+            "label": args.label,
+            "results": bench.results,
+            "sweep": [{"gap_ms": gap, "p50_ms": p50} for gap, p50 in sweep],
+        }, indent=2))
         return 0
 
     header = f"SierraDB append baseline ({args.url}, payload {args.payload} B"

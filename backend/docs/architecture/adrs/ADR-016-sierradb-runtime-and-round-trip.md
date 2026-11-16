@@ -137,14 +137,17 @@ a deployment decision, not a note.
 
 **Baseline (committed, reproducible):** `scripts/bench-sierradb-append.py` — raw
 RESP3, no `redis-cli`, asserts the RESP3 map reply shape before counting a sample
-(an `INVALIDARG` error reply is fast and would otherwise look like a great number).
-Run against a throwaway container, never the dev store:
+(an `INVALIDARG` error reply is fast and would otherwise look like a genuine
+number). Run against a throwaway container, never the dev store:
 
 ```bash
 docker run -d --rm --name bench-sierradb -p 19090:9090 \
     tqwewe/sierradb:0.3.1 --dir /app/data
-scripts/bench-sierradb-append.py --iterations 300 --parallel-rounds 20
+scripts/bench-sierradb-append.py --iterations 300 --parallel-rounds 20 --sustain-seconds 6
 ```
+
+Every committed sustained row below is the **6 s** case — the script's default and
+the duration the recipe passes explicitly, so the tables are reproducible.
 
 Pinned image at its **default** config (300 samples/case, ms):
 
