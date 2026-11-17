@@ -616,16 +616,18 @@ def discard_seeded_job(api: ApiProcess, job: str) -> None:
     try:
         status, body = api.call("DELETE", f"/v1/ai-import/jobs/{job}")
     except RuntimeError as error:
-        print(f"  ! seeded job left behind: {error}", flush=True)
+        print(f"  ! seeded job {job} left behind: {error}", flush=True)
+        print(f"    its blobs: ai-import/{job}/source, ai-import/{job}/preview", flush=True)
         return
     if status == 404:
         # Already gone (a retried teardown, or the payload GC got there first):
         # nothing can leak from a row that does not exist.
         return
     if status != 204:
-        print(f"  ! seeded job left behind: {status} {body}", flush=True)
+        print(f"  ! seeded job {job} left behind: {status} {body}", flush=True)
+        print(f"    its blobs: ai-import/{job}/source, ai-import/{job}/preview", flush=True)
         return
-    print("  seeded job + payloads deleted", flush=True)
+    print(f"  seeded job {job} + payloads deleted", flush=True)
 
 
 def measure(mode: str, args: argparse.Namespace) -> Measurement:
@@ -702,6 +704,10 @@ def measure(mode: str, args: argparse.Namespace) -> Measurement:
         if status != 201 or not seeded or not seeded.get("job_id"):
             raise RuntimeError(f"fixture seed failed: {status} {seeded}")
         job = seeded["job_id"]
+        # Printed immediately: this id is the only way to find the job's two bucket
+        # objects after a teardown that took the database (and the row) with it, so
+        # it must be in the log even when the run dies before the cleanup step.
+        print(f"  fixture job {job}", flush=True)
 
         # The attach is gated by the season policy, which reads the membership the
         # season's own creation bootstraps into `projection_project_membership` via
@@ -778,7 +784,9 @@ def _stop_api(api: ApiProcess, stack: Stack, args: argparse.Namespace) -> None:
     finally:
         if args.keep:
             print(
-                f"  kept stack: {stack.pg_container}, {stack.sierra_container}",
+                f"  kept stack: {stack.pg_container}, {stack.sierra_container} "
+                f"(the API was stopped; restart it against this database + "
+                f"SIERRADB_URL to call /v1/ai-import/jobs)",
                 flush=True,
             )
         else:

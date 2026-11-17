@@ -1652,10 +1652,16 @@ database and could never collect them afterwards.
 step depends on whether the throwaway database still exists:
 
 * `--keep`, or a run that died before `stack.down()`: the row still exists in that stack's
-  Postgres, so `DELETE /v1/ai-import/jobs/{job_id}` against the API of that stack (its
-  `--api-port`) removes the row and both blobs;
+  Postgres, but the script always stops the API process (`--keep` retains the containers, not
+  the child), so restart one against the retained database and event store —
+  `DATABASE_URL=<throwaway pg url> SIERRADB_URL=<throwaway sierra url> BIND_ADDR=127.0.0.1:<port>
+  cargo run --bin api --features api/test-support` — and then
+  `DELETE /v1/ai-import/jobs/{job_id}` removes the row and both blobs. The stack's URLs are the
+  ones the run printed (`--pg-port` / `--sierra-port`), and the retained Postgres container is
+  reachable as long as it is not removed;
 * after the default teardown the database — and with it the only record naming the job — is
   gone, so **no job endpoint can retry it**: the two objects must be deleted directly in the
   payload bucket (`AI_PAYLOAD_S3_BUCKET`, default `ai-import-payloads`) at
   `ai-import/<job_id>/source` and `ai-import/<job_id>/preview`, with the job id the run
-  printed. That is the only path that still reaches them.
+  printed right after seeding (`fixture job <uuid>`) — `discard_seeded_job` repeats it on
+  failure, together with those two keys. That is the only path that still reaches them.

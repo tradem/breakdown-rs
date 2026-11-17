@@ -346,6 +346,27 @@ def dead_child():
 # --- tests ----------------------------------------------------------------
 
 
+class FakeClock:
+    """A clock that advances only when the code under test sleeps.
+
+    `ApiProcess.stop`'s grace loop compares `time.monotonic()` against a deadline, so
+    a real clock makes the probe count depend on how the runner schedules the
+    process. With this clock the sequence is a function of the code, not of the
+    machine: `sleep` is instant and moves time forward by exactly what was asked.
+    """
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
 class _ForbiddingWait:
     """Stand-in for `bench.wait_for` that fails the instant it is called.
 
@@ -424,22 +445,31 @@ def test_stop_after_a_lost_bind_race_does_not_wait():
             #     probe count is exact, not "at least".
             answers = [True, False]
             probes = []
+            clock = FakeClock()
             bench.port_open = lambda p: (probes.append(p), answers.pop(0))[1]
             api = api_process(port, log_path)
             api.proc = dead_child()
             captured = io.StringIO()
             stub = _ForbiddingWait()
             original_wait = bench.wait_for
+            original_time = bench.time
             bench.wait_for = stub
+            bench.time = clock
             try:
                 with contextlib.redirect_stdout(captured):
                     api.stop()
             finally:
                 bench.wait_for = original_wait
+                bench.time = original_time
             check(
                 "stop() stops probing as soon as the port is released",
                 len(probes) == 2,
                 f"{len(probes)} probe(s)",
+            )
+            check(
+                "the released-port case slept exactly once",
+                clock.sleeps == [0.2],
+                repr(clock.sleeps),
             )
             check(
                 "stop() does not warn when the port was released",
@@ -450,21 +480,26 @@ def test_stop_after_a_lost_bind_race_does_not_wait():
 
             # (b) the port stays open → exactly one warning, still no wait.
             probes = []
+            clock = FakeClock()
             bench.port_open = lambda p: (probes.append(p), True)[1]
             api = api_process(port, log_path)
             api.proc = dead_child()
             captured = io.StringIO()
             stub = _ForbiddingWait()
+            original_wait = bench.wait_for
+            original_time = bench.time
             bench.wait_for = stub
+            bench.time = clock
             try:
                 with contextlib.redirect_stdout(captured):
                     api.stop()
             finally:
                 bench.wait_for = original_wait
+                bench.time = original_time
             check(
-                "stop() probes the port at least once before giving up",
-                len(probes) >= 1,
-                f"{len(probes)} probe(s)",
+                "stop() probes until the grace expires",
+                len(probes) == 3,
+                f"{len(probes)} probe(s) after {clock.sleeps!r}",
             )
             check(
                 "stop() reports a listener that is not the child's",
