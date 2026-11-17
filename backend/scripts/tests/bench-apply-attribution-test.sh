@@ -3,19 +3,22 @@
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: deepseek-v4.1-flash (opencode-go)
 #
-# Startup-race guard for `scripts/bench-apply-attribution.py` (issue #900 M4).
+# Endpoint-ownership guards for `scripts/bench-apply-attribution.py` (issue #900 M4).
 #
-# The benchmark drives real `POST /v1/...` mutations, so it must never talk to a
-# server it did not start. Three contracts are pinned here, all daemon-free — no
-# docker, no Postgres, no SierraDB, no compiled API binary, only bash + python3:
+# The benchmark drives real `POST /v1/...` mutations, so it must never write into a
+# server it did not start. Daemon-free — no docker, no Postgres, no SierraDB, no
+# compiled API binary; only bash + python3 (stdlib) and a tiny `python3 -c` child
+# that stands in for the API process. Pinned here:
 #
-#   1. an already-occupied `--api-port` is refused BEFORE the child is spawned
-#      (so nothing is measured against a dev API);
-#   2. readiness needs endpoint OWNERSHIP, not liveness: a healthy `/v1/health`
-#      answer without the child's own bind announcement is not enough;
-#   3. `stop()` on a run that never started returns immediately instead of
-#      waiting out the port-release timeout on the foreign listener (which would
-#      mask the original error and skip the stack cleanup).
+#   1. an already-occupied `--api-port` is refused BEFORE the child is spawned;
+#   2. ownership is LIVE: the child must hold the LISTEN socket for the port right
+#      now (`/proc`), because a live process can already have released it (the
+#      shutdown sequence after `axum::serve` returns) and because the bind
+#      announcement is history;
+#   3. the run writes on ONE keep-alive connection, opened under that ownership, so
+#      a later child death cannot route a mutation to whoever binds the port next —
+#      and connection loss is terminal (a reconnect would be that window);
+#   4. `stop()` never waits on, or blames, a listener that cannot be the child's.
 #
 # Run from `backend/`: `bash scripts/tests/bench-apply-attribution-test.sh`.
 
@@ -26,7 +29,11 @@ cd "$(dirname "$0")/.."   # backend/scripts
 python3 - <<'PY'
 import http.server
 import importlib.util
+import json
+import os
+import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -59,6 +66,9 @@ class StubStack:
     sierradb_url = "redis://stub/none"
 
 
+MARKER = "\U0001f680 Breakdown RS listening on 127.0.0.1:{port}"
+
+
 def free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -70,8 +80,7 @@ def listening_socket(port):
 
     The backlog is deliberately deep: every `port_open` probe completes a
     handshake into the accept queue and is never `accept()`ed, so a backlog of 1
-    stops accepting after the first probe and the port then reads as closed —
-    which would make the wait-for-release control assertion vacuous.
+    stops accepting after the first probe and the port then reads as closed.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -84,44 +93,133 @@ def api_process(port, log_path):
     return bench.ApiProcess(stack=StubStack(), mode="split", log_path=log_path, port=port)
 
 
-class ScriptedChild:
-    """A spawned child whose `poll()` answers a script (None = still alive).
+# --- a real stand-in for the API child -------------------------------------
+#
+# A subprocess, not a stub: `/proc` ownership can only be observed on a real
+# process, and the point of these tests is that the *socket* decides, not a flag.
+# It serves `/v1/health` plus a JSONL sink of received requests, and SIGUSR1
+# reproduces the shutdown window (connections aborted, listener dropped, process
+# still alive); SIGUSR2 aborts the connections only.
 
-    One entry per call, ending in a permanent exit state — that is how the
-    "died between the liveness check and the connect" window is reproduced
-    deterministically.
-    """
+CHILD_PROGRAM = r'''
+import http.server, json, signal, socket, sys, threading, time
 
-    returncode = 1
+port = int(sys.argv[1])
+sink = sys.argv[2]
+lock = threading.Lock()
 
-    def __init__(self, script):
-        self.script = list(script)
 
-    def poll(self):
-        return self.script.pop(0) if len(self.script) > 1 else self.script[0]
+class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
 
-    def wait(self, timeout=None):  # noqa: ARG002, ANN001
-        return self.poll()
-
-    def send_signal(self, _sig):
+    def log_message(self, *args):
         pass
 
-    def kill(self):
-        pass
+    def handle_any(self):
+        length = int(self.headers.get("content-length") or 0)
+        body = self.rfile.read(length) if length else b""
+        with lock, open(sink, "a") as fh:
+            fh.write(json.dumps({"method": self.command, "path": self.path,
+                                 "body": body.decode("utf-8", "replace")}) + "\n")
+        if self.path == "/v1/health":
+            payload = json.dumps({"entries": {"postgres": {"status": "Healthy"},
+                                              "sierradb": {"status": "Healthy"}}}).encode()
+        else:
+            payload = b"{}"
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    do_GET = handle_any
+    do_POST = handle_any
 
 
-def dead_child():
-    """A child that exited before anything was asked of it."""
-    return ScriptedChild([1])
+class Server(http.server.ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def process_request(self, request, client_address):
+        self.connections.append(request)
+        super().process_request(request, client_address)
 
 
-def with_child(api, child):
-    """Pretend `start()` spawned `child`."""
-    api.proc = child
+server = Server(("127.0.0.1", port), Handler)
+server.connections = []
+threading.Thread(target=server.serve_forever, daemon=True).start()
+print("ready", flush=True)
+
+
+def drop_connections():
+    for connection in list(server.connections):
+        try:
+            connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            connection.close()
+        except OSError:
+            pass
+
+
+def release(*_args):
+    # The shutdown window: connections gone, listener dropped, process alive.
+    drop_connections()
+    server.server_close()
+    threading.Thread(target=server.shutdown, daemon=True).start()
+
+
+signal.signal(signal.SIGUSR1, release)
+signal.signal(signal.SIGUSR2, lambda *_: drop_connections())
+
+while True:
+    time.sleep(0.2)
+'''
+
+
+def spawn_child(directory):
+    """Start the stand-in child; returns (proc, port, sink path)."""
+    port = free_port()
+    sink = Path(directory) / "child-requests.jsonl"
+    sink.touch()
+    proc = subprocess.Popen(  # noqa: S603
+        [sys.executable, "-c", CHILD_PROGRAM, str(port), str(sink)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    first = proc.stdout.readline().strip()
+    if first != "ready":
+        raise RuntimeError(f"stand-in child did not start: {first!r}")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not bench.port_open(port):
+        time.sleep(0.02)
+    return proc, port, sink
+
+
+def child_requests(sink):
+    if not sink.exists():
+        return []
+    return [json.loads(line) for line in sink.read_text().splitlines() if line.strip()]
+
+
+def api_for_child(proc, port, log_path):
+    api = api_process(port, log_path)
+    api.proc = proc
     return api
 
 
-MARKER = "\U0001f680 Breakdown RS listening on 127.0.0.1:{port}"
+def wait_until(predicate, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+# --- a real foreign HTTP server -------------------------------------------
 
 
 class _ReusableServer(http.server.ThreadingHTTPServer):
@@ -138,27 +236,18 @@ class _ReusableServer(http.server.ThreadingHTTPServer):
         super().__init__(*args, **kwargs)
 
     def process_request(self, request, client_address):  # noqa: ANN001
-        # Remembered so `stop()` can abort them: a killed API closes its sockets,
-        # and a merely *shut down* listener would keep serving the old connection.
         self.connections.append(request)
         super().process_request(request, client_address)
 
 
 class RecordingServer:
-    """A real HTTP server standing in for an API — ours, or a stranger.
-
-    Real sockets, not a stub: the question the test answers is whether a mutation
-    can physically reach a server that is not this run's child.
-    """
+    """A real HTTP server standing in for a stranger that grabs the port."""
 
     def __init__(self, port=0):
         outer = self
         self.requests = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
-            # HTTP/1.1 + keep-alive, like axum: the run's requests travel on ONE
-            # connection, and an HTTP/1.0 handler would close it after every
-            # response (which the connection guard would then correctly refuse).
             protocol_version = "HTTP/1.1"
 
             def do_POST(self):  # noqa: N802
@@ -182,75 +271,47 @@ class RecordingServer:
         self.thread.start()
 
     def stop(self):
-        # Abort every accepted connection first: a closed listener alone would
-        # leave an open keep-alive connection answering, which is not what "the
-        # child died" looks like.
         for connection in list(self.server.connections):
-            try:
-                connection.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            try:
-                connection.close()
-            except OSError:
-                pass
+            for close in (lambda: connection.shutdown(socket.SHUT_RDWR), connection.close):
+                try:
+                    close()
+                except OSError:
+                    pass
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
 
 
-def test_a_foreign_api_receives_no_mutation():
-    """The check→connect window: a stranger on the released port gets nothing."""
-    child = RecordingServer()          # stands in for this run's child
-    stranger = None
-    try:
-        with tempfile.TemporaryDirectory() as tmp:
-            log_path = Path(tmp) / "bench.log"
-            log_path.write_text(MARKER.format(port=child.port) + "\n")
-            # The child LIES about being alive after we kill it, so `assert_alive`
-            # cannot be what saves us: only the connection can.
-            api = with_child(api_process(child.port, log_path), ScriptedChild([None]))
-            api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
-            check(
-                "the run's own child receives the mutation",
-                len(child.requests) == 1,
-                repr(child.requests),
-            )
+# --- the scripts' own stubs (for the stop() paths, which need no process) ---
 
-            # The child dies; a stranger binds the released port.
-            child.stop()
-            stranger = RecordingServer(child.port)
-            check(
-                "the stranger really does hold the same port",
-                stranger.port == child.port,
-                f"{stranger.port} != {child.port}",
-            )
 
-            raised = None
-            try:
-                api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
-            except RuntimeError as err:
-                raised = str(err)
-            check(
-                "the call aborts instead of reconnecting",
-                raised is not None
-                and ("refusing to reconnect" in raised or "is gone" in raised),
-                repr(raised),
-            )
-            check(
-                "the foreign API receives no mutation",
-                stranger.requests == [],
-                repr(stranger.requests),
-            )
-            check(
-                "the child received exactly the one mutation it served",
-                len(child.requests) == 1,
-                repr(child.requests),
-            )
-    finally:
-        child.stop()
-        if stranger is not None:
-            stranger.stop()
+class ScriptedChild:
+    """A spawned child whose `poll()` answers a script (None = still alive)."""
+
+    returncode = 1
+    pid = None
+
+    def __init__(self, script):
+        self.script = list(script)
+
+    def poll(self):
+        return self.script.pop(0) if len(self.script) > 1 else self.script[0]
+
+    def wait(self, timeout=None):  # noqa: ARG002, ANN001
+        return self.poll()
+
+    def send_signal(self, _sig):
+        pass
+
+    def kill(self):
+        pass
+
+
+def dead_child():
+    return ScriptedChild([1])
+
+
+# --- tests ----------------------------------------------------------------
 
 
 def test_occupied_port_is_refused_before_spawn():
@@ -269,12 +330,7 @@ def test_occupied_port_is_refused_before_spawn():
                 raised is not None and "already in use" in raised,
                 repr(raised),
             )
-            check(
-                "no child process was spawned",
-                api.proc is None,
-            )
-            # Contract 3: cleanup after a refused start must not wait for the
-            # FOREIGN listener to release the port.
+            check("no child process was spawned", api.proc is None)
             started = time.monotonic()
             api.stop()
             elapsed = time.monotonic() - started
@@ -287,50 +343,6 @@ def test_occupied_port_is_refused_before_spawn():
         foreign.close()
 
 
-def test_readiness_requires_ownership():
-    port = free_port()
-    with tempfile.TemporaryDirectory() as tmp:
-        log_path = Path(tmp) / "bench.log"
-        api = api_process(port, log_path)
-
-        # A server answers /v1/health, but it is not this child: its log carries
-        # no bind announcement. Liveness alone must not pass the gate.
-        log_path.write_text(
-            "INFO breakdown_api: booting\nANSI-stripped lines only, no listener yet\n"
-        )
-        api.healthy = lambda: True
-        check(
-            "a healthy endpoint without the child's bind line is not ready",
-            api.owns_endpoint() is False and api.ready() is False,
-        )
-
-        # The child's own announcement (colour codes and all) proves ownership.
-        log_path.write_text(
-            "INFO breakdown_api: booting\n"
-            f"\x1b[32mINFO\x1b[0m \U0001f680 Breakdown RS listening on 127.0.0.1:{port}\n"
-        )
-        check(
-            "the child's own bind announcement proves ownership",
-            api.owns_endpoint() is True and api.ready() is True,
-        )
-
-        # A bind announcement for a DIFFERENT port belongs to someone else.
-        api_other = api_process(port + 1, log_path)
-        api_other.healthy = lambda: True
-        check(
-            "another port's announcement does not prove ownership",
-            api_other.owns_endpoint() is False and api_other.ready() is False,
-        )
-
-        # An unhealthy child is not ready even when it owns the socket.
-        api_other = api_process(port, log_path)
-        api_other.healthy = lambda: False
-        check(
-            "health still gates readiness",
-            api_other.ready() is False,
-        )
-
-
 def test_stop_after_a_lost_bind_race_does_not_wait():
     port = free_port()
     foreign = listening_socket(port)
@@ -338,23 +350,22 @@ def test_stop_after_a_lost_bind_race_does_not_wait():
     try:
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "bench.log"
-            # The child was spawned but never bound: no bind announcement.
+            # Spawned child, but no bind announcement: it lost the race.
             log_path.write_text("ERROR breakdown_api: Address already in use\n")
-            api = with_child(api_process(port, log_path), dead_child())
+            api = api_process(port, log_path)
+            api.proc = dead_child()
             started = time.monotonic()
             api.stop()
-            elapsed = time.monotonic() - started
             check(
                 "stop() after a lost bind race returns at once",
-                elapsed < 2,
-                f"{elapsed:.1f}s",
+                time.monotonic() - started < 1,
             )
 
-            # A child that DID announce the port gets the short kernel grace — it
-            # must not return instantly — and then reports the foreign listener
-            # instead of waiting on it.
+            # A child that DID announce the port gets the kernel grace and then
+            # reports the foreign listener instead of waiting on it.
             log_path.write_text(MARKER.format(port=port) + "\n")
-            api = with_child(api_process(port, log_path), dead_child())
+            api = api_process(port, log_path)
+            api.proc = dead_child()
             started = time.monotonic()
             api.stop()
             elapsed = time.monotonic() - started
@@ -372,36 +383,186 @@ def test_stop_after_a_lost_bind_race_does_not_wait():
         foreign.close()
 
 
-def test_a_dead_child_blocks_further_requests():
-    port = free_port()
+def test_ownership_is_live_not_historical():
     with tempfile.TemporaryDirectory() as tmp:
-        log_path = Path(tmp) / "bench.log"
-        # Ownership at boot time is not ownership now: the child exited, so the
-        # port may belong to a stranger by the next request.
-        log_path.write_text(
-            "INFO breakdown_api: booting\n" + MARKER.format(port=port) + "\n"
-        )
-        api = with_child(api_process(port, log_path), dead_child())
-        raised = None
+        proc, port, sink = spawn_child(tmp)
+        stranger = None
         try:
+            log_path = Path(tmp) / "bench.log"
+            log_path.write_text(MARKER.format(port=port) + "\n")
+            api = api_for_child(proc, port, log_path)
+
+            check("the child holds the LISTEN socket", api.holds_listener() is True)
+            check("readiness is gated on that ownership", api.ready() is True)
+
+            status, _ = api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+            check("the child serves the run's mutation", status == 200, str(status))
+            mutations = [r for r in child_requests(sink) if r["path"] != "/v1/health"]
+            check(
+                "the child received exactly that one mutation",
+                len(mutations) == 1 and mutations[0]["method"] == "POST",
+                repr(mutations),
+            )
+
+            # The shutdown window: listener dropped, process still alive.
+            os.kill(proc.pid, signal.SIGUSR1)
+            check(
+                "the child released its listener",
+                wait_until(lambda: not api.holds_listener()),
+            )
+            check(
+                "the child process is still alive (liveness is not ownership)",
+                proc.poll() is None,
+            )
+            check("the historical bind announcement still says it bound", api.owns_endpoint())
+            check(
+                "readiness stops being true once the listener is gone",
+                api.ready() is False,
+            )
+
+            # A closed listening socket is retired by the kernel a moment later,
+            # so wait for the PORT — that is what the stranger must be able to bind,
+            # and asserting it keeps the "receives no mutation" check honest.
+            check(
+                "the port becomes bindable again",
+                wait_until(lambda: not bench.port_open(port)),
+            )
+
+            # A stranger binds the released port.
+            stranger = RecordingServer(port)
+            check(
+                "the stranger really does hold the same port",
+                stranger.port == port,
+                f"{stranger.port} != {port}",
+            )
+
+            raised = None
+            try:
+                api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+            except RuntimeError as err:
+                raised = str(err)
+            check(
+                "a call without the listener is refused",
+                raised is not None and "no longer holds the listening socket" in raised,
+                repr(raised),
+            )
+            check(
+                "the foreign API receives no mutation",
+                stranger.requests == [],
+                repr(stranger.requests),
+            )
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+            if stranger is not None:
+                stranger.stop()
+
+
+def test_a_foreign_api_receives_no_mutation():
+    with tempfile.TemporaryDirectory() as tmp:
+        proc, port, sink = spawn_child(tmp)
+        stranger = None
+        try:
+            log_path = Path(tmp) / "bench.log"
+            log_path.write_text(MARKER.format(port=port) + "\n")
+            api = api_for_child(proc, port, log_path)
             api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
-        except RuntimeError as err:
-            raised = str(err)
-        check(
-            "a request after the child exited is refused, not sent",
-            raised is not None and "no longer ours" in raised,
-            repr(raised),
-        )
+
+            # The child dies; a stranger binds the released port.
+            proc.kill()
+            proc.wait(timeout=10)
+            stranger = RecordingServer(port)
+            check(
+                "the stranger really does hold the same port",
+                stranger.port == port,
+                f"{stranger.port} != {port}",
+            )
+
+            raised = None
+            try:
+                api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+            except RuntimeError as err:
+                raised = str(err)
+            check(
+                "the call aborts on the dead child",
+                raised is not None and "is no longer ours" in raised,
+                repr(raised),
+            )
+            check(
+                "the foreign API receives no mutation",
+                stranger.requests == [],
+                repr(stranger.requests),
+            )
+            check(
+                "the child received exactly the one mutation it served",
+                len(child_requests(sink)) == 1,
+                repr(child_requests(sink)),
+            )
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+            if stranger is not None:
+                stranger.stop()
 
 
+def test_connection_loss_is_terminal():
+    with tempfile.TemporaryDirectory() as tmp:
+        proc, port, sink = spawn_child(tmp)
+        try:
+            log_path = Path(tmp) / "bench.log"
+            log_path.write_text(MARKER.format(port=port) + "\n")
+            api = api_for_child(proc, port, log_path)
+            api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+            served = len([r for r in child_requests(sink) if r["path"] != "/v1/health"])
+
+            # The child drops the connections but keeps the listener: a keep-alive
+            # timeout, i.e. a lost connection WITHOUT a lost port.
+            os.kill(proc.pid, signal.SIGUSR2)
+            time.sleep(0.2)
+            raised = None
+            try:
+                api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+            except RuntimeError as err:
+                raised = str(err)
+            check(
+                "a lost connection aborts the call",
+                raised is not None and "refusing to reconnect" in raised,
+                repr(raised),
+            )
+            check("the loss is recorded as terminal", isinstance(api.connection_lost, str))
+
+            # Readiness must not paper over it by reconnecting.
+            raised = None
+            try:
+                excluded = api.ready()
+            except RuntimeError as err:
+                raised = str(err)
+                excluded = None
+            check(
+                "readiness raises instead of reconnecting",
+                raised is not None and "refusing to reconnect" in raised,
+                f"raised={raised!r} ready={excluded!r}",
+            )
+            after = [r for r in child_requests(sink) if r["path"] != "/v1/health"]
+            check(
+                "no further mutation reached the child",
+                len(after) == served,
+                repr(after),
+            )
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
 
 
-print("bench-apply-attribution startup guards")
+print("bench-apply-attribution endpoint-ownership guards")
 test_occupied_port_is_refused_before_spawn()
-test_readiness_requires_ownership()
 test_stop_after_a_lost_bind_race_does_not_wait()
-test_a_dead_child_blocks_further_requests()
+test_ownership_is_live_not_historical()
 test_a_foreign_api_receives_no_mutation()
+test_connection_loss_is_terminal()
 
 if FAILURES:
     print(f"\n{len(FAILURES)} check(s) failed: {', '.join(FAILURES)}")

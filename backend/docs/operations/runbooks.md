@@ -1580,6 +1580,13 @@ projection and requires an active costume-dept role in the block's season, so on
 store the first attempts legitimately answer `404`/`403` while the block row and the season's
 bootstrapped membership land — the script retries (a refused attempt writes nothing).
 
+The script also refuses to measure anything but its own process: ownership of `--api-port` is
+proven from `/proc/net/tcp` (the child must hold the LISTEN socket *now*, which a process in
+its shutdown sequence no longer does), every request travels on the single connection opened
+under that ownership, and losing that connection ends the run. The guards are Linux-only by
+construction (`procfs`), which matches the measured host, and they are covered by
+`backend/scripts/tests/bench-apply-attribution-test.sh` (CI job `bench-script-guards`).
+
 ```bash
 cd backend
 python3 scripts/bench-apply-attribution.py --mode both      # ~15 min, ~130 MB of logs

@@ -142,6 +142,45 @@ def run(cmd: list[str], **kwargs: object) -> str:
     return result.stdout
 
 
+PROC_NET_TCP = Path("/proc/net/tcp")
+
+
+def listen_inode(port: int) -> str | None:
+    """The socket inode of the TCP LISTEN socket on `port` (Linux procfs)."""
+    for path in (PROC_NET_TCP, Path("/proc/net/tcp6")):
+        try:
+            lines = path.read_text().splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10 or fields[3] != "0A":  # 0A = TCP_LISTEN
+                continue
+            _, _, port_hex = fields[1].rpartition(":")
+            try:
+                if int(port_hex, 16) == port:
+                    return fields[9]
+            except ValueError:
+                continue
+    return None
+
+
+def pid_owns_socket(pid: int, inode: str) -> bool:
+    """True when `pid` holds a file descriptor for socket `inode`."""
+    target = f"socket:[{inode}]"
+    try:
+        entries = list(Path(f"/proc/{pid}/fd").iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        try:
+            if os.readlink(entry) == target:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def port_open(port: int) -> bool:
     import socket
 
@@ -199,6 +238,9 @@ class ApiProcess:
         # The one keep-alive connection every request of this half travels on.
         # Established once, while the child provably owns the port; see `connection`.
         self.conn: http.client.HTTPConnection | None = None
+        # Set once the run's connection is gone. Terminal: a reconnect is exactly
+        # the window this class exists to close, so it is never attempted.
+        self.connection_lost: str | None = None
 
     def start(self) -> None:
         # Ownership before liveness: `healthy()` only proves *something* answers
@@ -207,6 +249,11 @@ class ApiProcess:
         # its hierarchy-creation writes to the real dev stack while its own child
         # was still booting (or never came up at all). Refuse an occupied port
         # instead of measuring someone else's server.
+        if not PROC_NET_TCP.exists():
+            raise RuntimeError(
+                "this benchmark proves endpoint ownership from /proc/net/tcp; this "
+                "host has no procfs, so run it on Linux (the measured host)"
+            )
         if port_open(self.port):
             raise RuntimeError(
                 f"port {self.port} is already in use — pick a free --api-port; "
@@ -251,17 +298,17 @@ class ApiProcess:
             ) from None
 
     def ready(self) -> bool:
-        """Ownership **and** health — what `wait_for` gates the mutation phase on.
+        """Live ownership **and** health — what `wait_for` gates the mutation phase on.
 
         Ownership is checked FIRST, and it is not cosmetic: `healthy()` opens the
-        persistent connection this run then writes on, and that connection may
-        only be created while the child provably holds the port (see
-        [`Self::connection`]).
+        persistent connection this run then writes on, and that connection may only
+        be created while the child holds the port *now* (see [`Self::holds_listener`]
+        and [`Self::connection`]).
         """
-        # Liveness first, so a child that died (and therefore never logged a bind
-        # announcement) fails the boot at once instead of out waiting the timeout.
+        # Liveness first, so a child that died fails the boot at once instead of
+        # out waiting the timeout.
         self.assert_alive()
-        return self.owns_endpoint() and self.healthy()
+        return self.holds_listener() and self.healthy()
 
     def owns_endpoint(self) -> bool:
         """True when THIS child announced that it bound our port.
@@ -285,17 +332,41 @@ class ApiProcess:
         return "\n".join(ANSI.sub("", line) for line in raw)
 
     def assert_alive(self) -> None:
-        """The child still owns the port: a live process keeps its bound socket.
+        """The child process has not exited.
 
-        Ownership is not a one-off fact — if the child dies mid-run it releases
-        the port, and a stranger (a dev API, a second benchmark) can bind it
-        before the next request. Checked before **every** call so a write can
-        never reach a server this run did not start.
+        Necessary, but **not** ownership: `main.rs` keeps the process alive for the
+        shutdown sequence after `axum::serve` has already dropped the listener, so a
+        live child can be listening on nothing. [`Self::holds_listener`] answers the
+        ownership question; this one only turns an exit into a clear error.
         """
         if self.proc is not None and self.proc.poll() is not None:
             raise RuntimeError(
                 f"the API exited with code {self.proc.returncode} "
                 f"(port :{self.port} is no longer ours); log tail:\n{self.log_tail()}"
+            )
+
+    def holds_listener(self) -> bool:
+        """The child holds the LISTEN socket for our port RIGHT NOW.
+
+        This is the ownership evidence that does not decay. The bind announcement
+        is history, and liveness is not enough — between the listener being dropped
+        and the process exiting (the shutdown sequence) a stranger can bind the port
+        while `assert_alive()` still passes. `/proc` answers the current question:
+        the socket in the kernel's LISTEN table for `port` must be a descriptor of
+        our child.
+        """
+        if self.proc is None or self.proc.pid is None:
+            return False
+        inode = listen_inode(self.port)
+        return inode is not None and pid_owns_socket(self.proc.pid, inode)
+
+    def assert_owner(self) -> None:
+        """The child owns the port *now* — the check every exchange is gated on."""
+        self.assert_alive()
+        if not self.holds_listener():
+            raise RuntimeError(
+                f"the API on :{self.port} no longer holds the listening socket "
+                "(shutting down, or the port was released); refusing to send"
             )
 
     def healthy(self) -> bool:
@@ -305,8 +376,12 @@ class ApiProcess:
         try:
             status, body = self.call("GET", "/v1/health")
         except RuntimeError:
-            # A child that is not serving yet (or has just exited) is simply not
-            # ready; `assert_alive` above is what makes an EXIT fatal.
+            if self.connection_lost is not None:
+                # Terminal: the run's one connection died, and re-opening it could
+                # reach a stranger. Never retried, not even during readiness.
+                raise
+            # Not serving yet (the listener is up, the app is not accepting):
+            # simply not ready — `assert_alive` above makes an EXIT fatal.
             return False
         if not isinstance(body, dict):
             return False
@@ -376,14 +451,18 @@ class ApiProcess:
         inherited listener, which needs API startup changes) is what would leave
         the window open.
         """
+        if self.connection_lost is not None:
+            # Terminal by design: a replacement connection could answer from a
+            # server that bound the port after the child let go of it.
+            raise RuntimeError(self.connection_lost)
         if self.conn is not None:
             return self.conn
-        self.assert_alive()
+        self.assert_owner()
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=120)
         conn.connect()
-        # Still our child once connected: it was alive and held the listening
-        # socket on both sides of the connect.
-        self.assert_alive()
+        # Still the owner once connected: the child held the LISTEN socket on both
+        # sides of the connect, so this socket's peer is that listener.
+        self.assert_owner()
         self.conn = conn
         return conn
 
@@ -394,7 +473,7 @@ class ApiProcess:
         may already belong to someone else), so the run aborts instead of writing
         into a server it does not own.
         """
-        self.assert_alive()
+        self.assert_owner()
         conn = self.connection()
         headers = {"content-type": "application/json"}
         if block:
@@ -409,19 +488,21 @@ class ApiProcess:
             # NOT reconnect — that is exactly the window that could reach a
             # stranger.
             self.conn = None
-            raise RuntimeError(
+            self.connection_lost = (
                 f"the connection to the API on :{self.port} is gone ({err!r}); "
                 "refusing to reconnect — the child is no longer serving"
-            ) from None
+            )
+            raise RuntimeError(self.connection_lost) from None
         if conn.sock is None:
             # The server answered `Connection: close`; the next request would
             # silently reconnect, so refuse it here instead.
             self.conn = None
-            raise RuntimeError(
+            self.connection_lost = (
                 f"the API on :{self.port} closed the run's connection; "
                 "refusing to reconnect — the child is no longer serving"
             )
-        self.assert_alive()
+            raise RuntimeError(self.connection_lost)
+        self.assert_owner()
         return response.status, (json.loads(raw) if raw else None)
 
 
