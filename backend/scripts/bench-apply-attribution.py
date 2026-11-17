@@ -430,14 +430,15 @@ class ApiProcess:
         # socket), so this never raises and never blames a stranger: it gives the
         # kernel a short grace and then says so.
         deadline = time.monotonic() + PORT_RELEASE_GRACE_S
-        while time.monotonic() < deadline and port_open(self.port):
+        while port_open(self.port):
+            if time.monotonic() >= deadline:
+                print(
+                    f"  ! port :{self.port} is still open after the child exited — that "
+                    "listener is not this run's child; continuing without waiting",
+                    flush=True,
+                )
+                return
             time.sleep(0.2)
-        if port_open(self.port):
-            print(
-                f"  ! port :{self.port} is still open after the child exited — that "
-                "listener is not this run's child; continuing without waiting",
-                flush=True,
-            )
 
     def connection(self) -> http.client.HTTPConnection:
         """The run's single keep-alive connection, opened only under ownership.

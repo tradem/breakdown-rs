@@ -1646,6 +1646,16 @@ against a synthetic second; one host, one Postgres, one SierraDB, single-node, s
 wall times are machine facts, not product promises; and payload blobs land in the dev Garage
 bucket — the script deletes its seeded job (and with it the source/preview blobs) before it
 takes the throwaway database down, because the payload GC selects candidates from that very
-database and could never collect them afterwards. A run that dies before the teardown, or a
-job whose `DELETE` failed (the script says so), still needs the manual
-`DELETE /v1/ai-import/jobs/{id}` on the dev instance.
+database and could never collect them afterwards.
+
+**If that delete did not happen** (the script prints `! seeded job left behind`), the recoverable
+step depends on whether the throwaway database still exists:
+
+* `--keep`, or a run that died before `stack.down()`: the row still exists in that stack's
+  Postgres, so `DELETE /v1/ai-import/jobs/{job_id}` against the API of that stack (its
+  `--api-port`) removes the row and both blobs;
+* after the default teardown the database — and with it the only record naming the job — is
+  gone, so **no job endpoint can retry it**: the two objects must be deleted directly in the
+  payload bucket (`AI_PAYLOAD_S3_BUCKET`, default `ai-import-payloads`) at
+  `ai-import/<job_id>/source` and `ai-import/<job_id>/preview`, with the job id the run
+  printed. That is the only path that still reaches them.

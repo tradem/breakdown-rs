@@ -27,8 +27,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."   # backend/scripts
 
 python3 - <<'PY'
+import contextlib
 import http.server
 import importlib.util
+import io
 import json
 import os
 import queue
@@ -400,7 +402,6 @@ def test_occupied_port_is_refused_before_spawn():
 def test_stop_after_a_lost_bind_race_does_not_wait():
     port = free_port()
     foreign = listening_socket(port)
-    probes = []
     original_port_open = bench.port_open
     bench.PORT_RELEASE_GRACE_S = 0.3
     try:
@@ -411,28 +412,66 @@ def test_stop_after_a_lost_bind_race_does_not_wait():
             api = api_process(port, log_path)
             api.proc = dead_child()
             stub = without_waiting(api.stop)
-            check(
-                "stop() after a lost bind race does not wait",
-                stub.called is False,
-            )
+            check("stop() after a lost bind race does not wait", stub.called is False)
 
-            # A child that DID announce the port gets the kernel grace — it must
-            # actually probe the port (not return blindly) — and then reports the
-            # foreign listener instead of waiting on it.
-            log_path.write_text(MARKER.format(port=port) + "\n")
+            # The child DID announce the port: `stop()` gives the kernel a grace
+            # instead of waiting on — or blaming — a listener that cannot be ours.
+            # No wall clock: the port answers the probes from a scripted list, so
+            # the sequence is the same however the runner schedules the process.
+            log_path.write_text(MARKER.format(port=port) + chr(10))
+
+            # (a) the port is gone on the second probe → return silently, and the
+            #     probe count is exact, not "at least".
+            answers = [True, False]
+            probes = []
+            bench.port_open = lambda p: (probes.append(p), answers.pop(0))[1]
             api = api_process(port, log_path)
             api.proc = dead_child()
-            bench.port_open = lambda p: (probes.append(p), original_port_open(p))[1]
-            stub = without_waiting(api.stop)
+            captured = io.StringIO()
+            stub = _ForbiddingWait()
+            original_wait = bench.wait_for
+            bench.wait_for = stub
+            try:
+                with contextlib.redirect_stdout(captured):
+                    api.stop()
+            finally:
+                bench.wait_for = original_wait
             check(
-                "stop() probes the port when the child owned it",
-                len(probes) >= 2,
+                "stop() stops probing as soon as the port is released",
+                len(probes) == 2,
                 f"{len(probes)} probe(s)",
             )
             check(
-                "stop() still does not wait on a foreign listener",
-                stub.called is False,
+                "stop() does not warn when the port was released",
+                "still open after the child exited" not in captured.getvalue(),
+                captured.getvalue().strip(),
             )
+            check("stop() does not wait in that case either", stub.called is False)
+
+            # (b) the port stays open → exactly one warning, still no wait.
+            probes = []
+            bench.port_open = lambda p: (probes.append(p), True)[1]
+            api = api_process(port, log_path)
+            api.proc = dead_child()
+            captured = io.StringIO()
+            stub = _ForbiddingWait()
+            bench.wait_for = stub
+            try:
+                with contextlib.redirect_stdout(captured):
+                    api.stop()
+            finally:
+                bench.wait_for = original_wait
+            check(
+                "stop() probes the port at least once before giving up",
+                len(probes) >= 1,
+                f"{len(probes)} probe(s)",
+            )
+            check(
+                "stop() reports a listener that is not the child's",
+                "still open after the child exited" in captured.getvalue(),
+                captured.getvalue().strip(),
+            )
+            check("stop() still does not wait on a foreign listener", stub.called is False)
     finally:
         bench.port_open = original_port_open
         bench.PORT_RELEASE_GRACE_S = 5
