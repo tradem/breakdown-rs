@@ -135,6 +135,23 @@ jobs:
           persist-credentials: false
       - run: bash scripts/tests/reclaim-disk-test.sh
 
+  # The issue #900 M4 apply-attribution benchmark (backend/scripts/
+  # bench-apply-attribution.py) drives real `/v1/...` mutations, so it must never
+  # talk to a server it did not start. Three contracts are pinned: an occupied
+  # `--api-port` is refused before the child is spawned, readiness needs the
+  # child's OWN bind announcement (liveness is not ownership), and a refused
+  # start must not block cleanup on the foreign listener. Daemon-free — bash +
+  # python3 only (both preinstalled on ubuntu-latest), no docker, no database, no
+  # compiled binary, no network.
+  bench-script-guards:
+    name: Apply-attribution benchmark guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: bash scripts/tests/bench-apply-attribution-test.sh
+
   # Agent tooling (AGENTS.md §2): `scripts/patch-cbmem-extension.sh` rewrites the
   # GENERATED codebase-memory pi extension so `project` defaults to the session's
   # indexed project. A half-applied rewrite would break every graph call, so the

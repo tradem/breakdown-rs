@@ -236,11 +236,36 @@ class ApiProcess:
             stderr=subprocess.STDOUT,
         )
         try:
-            wait_for(self.healthy, timeout=180, what=f"the API on :{self.port}")
+            wait_for(self.ready, timeout=180, what=f"the API on :{self.port} (bound by this child)")
         except RuntimeError:
             raise RuntimeError(
                 f"the API on :{self.port} did not come up; last log lines:\n{self.log_tail()}"
             ) from None
+
+    def ready(self) -> bool:
+        """Ownership **and** health — what `wait_for` gates the mutation phase on.
+
+        `healthy()` alone proves only that *something* serves `/v1/health` on the
+        port; `owns_endpoint()` proves it is this child. `healthy()` runs first so
+        a child that lost the bind race (and exited) fails the boot with its own
+        error instead of sitting out the timeout.
+        """
+        return self.healthy() and self.owns_endpoint()
+
+    def owns_endpoint(self) -> bool:
+        """True when THIS child announced that it bound our port.
+
+        `main.rs` binds the listener first and only then logs
+        `Breakdown RS listening on <BIND_ADDR>`; a failed bind exits the process.
+        The marker therefore exists only if this child owns the socket, which is
+        what closes the window the pre-check in `start()` leaves open: a server
+        that grabs the port between the check and the spawn wins the bind, and the
+        child then dies instead of the benchmark measuring the stranger.
+        """
+        if not self.log_path.exists():
+            return False
+        marker = f"Breakdown RS listening on 127.0.0.1:{self.port}"
+        return marker in ANSI.sub("", self.log_path.read_text(errors="replace"))
 
     def log_tail(self, lines: int = 25) -> str:
         if not self.log_path.exists():
@@ -278,6 +303,7 @@ class ApiProcess:
 
     def stop(self) -> None:
         """Graceful stop, then hard: the API drains AI workers before it exits."""
+        started = self.proc is not None
         if self.proc and self.proc.poll() is None:
             self.proc.send_signal(signal.SIGTERM)
             try:
@@ -290,6 +316,11 @@ class ApiProcess:
                 self.proc.wait(timeout=10)
         if self.log_file:
             self.log_file.close()
+        if not started:
+            # Nothing of ours ever bound the port (e.g. `start()` refused an
+            # occupied one). Waiting here would block on the FOREIGN listener for
+            # the full timeout and hide the original error, so return at once.
+            return
         wait_for(
             lambda: not port_open(self.port),
             timeout=60,
@@ -535,11 +566,19 @@ def measure(mode: str, args: argparse.Namespace) -> Measurement:
         time.sleep(2)
         fill_measurement(measurement, log_path)
     finally:
-        api.stop()
-        if args.keep:
-            print(f"  kept stack: {stack.pg_container}, {stack.sierra_container}", flush=True)
-        else:
-            stack.down()
+        # Stack cleanup must run even when the API cleanup fails: a refused start
+        # (occupied port) or a stuck shutdown must never leave the throwaway
+        # containers behind.
+        try:
+            api.stop()
+        finally:
+            if args.keep:
+                print(
+                    f"  kept stack: {stack.pg_container}, {stack.sierra_container}",
+                    flush=True,
+                )
+            else:
+                stack.down()
     return measurement
 
 

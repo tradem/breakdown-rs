@@ -1612,9 +1612,10 @@ projector pool** (M3), not a faster query, and it was measured, not assumed:
 - acquire per row: **44 375 ms → 27 ms** — the clean signal, two orders of magnitude;
 - wall: **348 s → 15 s** (≈23×), but **not a matched-workload comparison**: the unsplit
   runs also issued ≈40 % more appends (1 178 vs. 831) and 25 % more mapping writes
-  (1 722 vs. 1 372), so part of that ratio belongs to the retry effect described below
-  rather than to the pool. Quote it as "≈23× on the runs as measured", never as the
-  isolated pool effect — for the pool alone the acquire-per-row row above is the number;
+  (1 722 vs. 1 372), so part of that ratio **may reflect** the row-step retry effect
+  described below — it is a candidate explanation, not a proven one — rather than the
+  pool. Quote it as "≈23× on the runs as measured", never as the isolated pool effect:
+  for the pool alone the acquire-per-row line above is the number;
   statement per row barely moved (168 → 135 ms), which is the point — the query was never
   the cost, so an "optimised query" would have changed nothing;
 - the pool at the last write went from `20 / 0` (saturated) to `10 / 8` (idle headroom).
