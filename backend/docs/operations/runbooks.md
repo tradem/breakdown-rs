@@ -1654,8 +1654,11 @@ step depends on whether the throwaway database still exists:
 * `--keep`, or a run that died before `stack.down()`: the row still exists in that stack's
   Postgres, but the script always stops the API process (`--keep` retains the containers, not
   the child), so restart one against the retained database and event store —
-  `DATABASE_URL=<throwaway pg url> SIERRADB_URL=<throwaway sierra url> BIND_ADDR=127.0.0.1:<port>
-  cargo run --bin api --features api/test-support` — and then
+  `DATABASE_URL=<throwaway pg url> MIGRATOR_DATABASE_URL=<throwaway pg url>
+  SIERRADB_URL=<throwaway sierra url> BIND_ADDR=127.0.0.1:<port>
+  cargo run --bin api --features api/test-support` — both connection URLs, never only
+  `DATABASE_URL`: a shell-exported `MIGRATOR_DATABASE_URL` otherwise runs the boot migrations
+  against whatever database that names (the same trap the benchmark guards against). Then
   `DELETE /v1/ai-import/jobs/{job_id}` removes the row and both blobs. The stack's URLs are the
   ones the run printed (`--pg-port` / `--sierra-port`), and the retained Postgres container is
   reachable as long as it is not removed;
