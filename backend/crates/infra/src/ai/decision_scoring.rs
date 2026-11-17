@@ -35,6 +35,17 @@ use super::workers::DecisionPass;
 pub const DECISION_SCORING_ATTEMPTS: usize = 2;
 pub const DECISION_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// The pass's retry policy as one value (issue #925): a single, fixed pause —
+/// deliberately not exponential. The scoring pass is best-effort and runs
+/// *after* the extraction it scores, so a growing wait would stall a job the
+/// user is already waiting on; one bounded retry is the whole budget.
+///
+/// The policy used to be implicit in the loop below; it is pinned by
+/// `the_quick_retry_pauses_exactly_the_declared_backoff` so a migration cannot
+/// quietly change the timing.
+const DECISION_BACKOFF: crate::retry::Backoff =
+    crate::retry::Backoff::Fixed(DECISION_RETRY_BACKOFF);
+
 /// What ONE scoring unit (a script chunk, the schedule pass) left behind
 /// (issue #767).
 ///
@@ -134,7 +145,7 @@ pub(crate) async fn decide_with_quick_retry(
             Ok(outcome) => return Ok(outcome),
             Err(error) if is_transient(&error) && attempt + 1 < DECISION_SCORING_ATTEMPTS => {
                 attempt += 1;
-                tokio::time::sleep(DECISION_RETRY_BACKOFF).await;
+                tokio::time::sleep(DECISION_BACKOFF.delay(attempt)).await;
             }
             Err(error) => return Err(error),
         }
@@ -486,6 +497,7 @@ mod tests {
     use async_trait::async_trait;
     use breakdown_core::ai::{DecisionAnswer, DecisionCallOutcome, LlmCallUsage, UsageAccumulator};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct FailingClient;
 
@@ -497,6 +509,96 @@ mod tests {
                 reason: "decision endpoint down".into(),
             })
         }
+    }
+
+    /// Counts its own calls and fails, transiently or permanently — the two
+    /// branches of the quick-retry policy (issue #925).
+    struct CountingClient {
+        calls: AtomicUsize,
+        transient: bool,
+    }
+
+    impl CountingClient {
+        fn new(transient: bool) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                transient,
+            }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl DecisionClient for CountingClient {
+        async fn decide(&self, _req: DecisionRequest) -> Result<DecisionCallOutcome, DomainError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.transient {
+                return Err(DomainError::ServiceUnavailable {
+                    code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
+                    reason: "decision endpoint down".into(),
+                });
+            }
+            Err(DomainError::validation("the rubric is malformed"))
+        }
+    }
+
+    fn decision_request() -> DecisionRequest {
+        let mut questions = std::collections::BTreeMap::new();
+        questions.insert(
+            question_keys::SYNOPSIS_GROUNDED.to_owned(),
+            breakdown_core::ai::noul("Grounded?"),
+        );
+        DecisionRequest {
+            provider: breakdown_core::ai::LlmProvider::Neuralwatt,
+            model: "clef-flash".to_owned(),
+            state: serde_json::json!({ "scenes": [] }),
+            questions,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_quick_retry_pauses_exactly_the_declared_backoff() {
+        // Issue #925 pins a policy that used to be implicit in the loop: ONE
+        // retry, separated by exactly `DECISION_RETRY_BACKOFF`. The paused clock
+        // makes the elapsed time the analytic value, never a wall-clock guess
+        // (AGENTS.md §4).
+        let client = CountingClient::new(true);
+        let started = tokio::time::Instant::now();
+        let error = decide_with_quick_retry(&client, decision_request())
+            .await
+            .expect_err("a transient failure exhausts the one-retry budget");
+        assert!(is_transient(&error), "the last error is returned as-is");
+        assert_eq!(
+            client.calls(),
+            DECISION_SCORING_ATTEMPTS,
+            "1 initial attempt + 1 retry"
+        );
+        assert_eq!(
+            started.elapsed(),
+            DECISION_RETRY_BACKOFF,
+            "exactly one pause, of the declared length"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_permanent_failure_is_not_retried() {
+        // The other half of the pinned policy: a rejected rubric must not cost a
+        // second paid request or a pause.
+        let client = CountingClient::new(false);
+        let started = tokio::time::Instant::now();
+        let error = decide_with_quick_retry(&client, decision_request())
+            .await
+            .expect_err("a validation failure is returned");
+        assert!(!is_transient(&error));
+        assert_eq!(client.calls(), 1);
+        assert_eq!(
+            started.elapsed(),
+            std::time::Duration::ZERO,
+            "no pause without a retry"
+        );
     }
 
     struct OkClient;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Background refresh of the `ai_import.ai_model_pricing` read model
 //! (issue #675, design D1).
@@ -46,6 +47,7 @@ use futures::FutureExt;
 
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
+use crate::retry::{log_hint, parse_retry_hint};
 
 #[cfg(test)]
 #[path = "pricing_refresh_tests.rs"]
@@ -379,6 +381,14 @@ async fn fetch_json_with(
             DomainError::service_unavailable(format!("pricing catalog {url} unreachable: {error}"))
         })?;
     let status = response.status();
+    // Issue #925: capture the hint before the body is consumed. The refresh
+    // cadence is the interval ticker, NOT a retry loop — a permanently failing
+    // catalog must not be hammered in a tight loop — so this site consumes the
+    // core's classification/hint only, never a `Backoff`.
+    log_hint(
+        "pricing_catalog",
+        &parse_retry_hint(response.headers(), status),
+    );
     if !status.is_success() {
         return Err(DomainError::service_unavailable(format!(
             "pricing catalog {url} returned HTTP {status}"

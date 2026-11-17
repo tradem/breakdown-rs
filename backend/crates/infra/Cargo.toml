@@ -8,7 +8,7 @@
 
 [package]
 name = "infra"
-version = "0.81.2"
+version = "0.81.3"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -71,6 +71,9 @@ opendal = { version = "0.59", features = ["services-s3", "services-gdrive"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 # Typed URL hosts for the AI provider redirect policy (issue #170).
 url.workspace = true
+# HTTP-date parsing for the provider `Retry-After` hint (issue #925): all three
+# RFC 9110 date shapes, already in the tree as a reqwest/hyper dependency.
+httpdate = "1"
 
 # HTTP types shared with the opendal HttpTransport trait signature.
 http = "1"

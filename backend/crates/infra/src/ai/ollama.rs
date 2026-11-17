@@ -3,6 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use async_trait::async_trait;
 use breakdown_core::ai::{
@@ -17,6 +18,7 @@ use super::client::{classify_http_status, classify_transport_error};
 use super::transport::ollama_redirect_policy;
 use super::user_agent::resolve_user_agent;
 use super::{CuratedLlmProvider, CuratedProviderUrls};
+use crate::retry::{log_hint, parse_retry_hint};
 
 #[cfg(test)]
 #[path = "ollama_tests.rs"]
@@ -126,6 +128,10 @@ impl OllamaChatClient {
             .await
             .map_err(classify_transport_error)?;
         let status = response.status();
+        // Issue #925: read the hint before the body is consumed. Ollama itself
+        // enforces no API rate limit, but deployments front it with a gateway
+        // that does — the hint is what a follow-up would honour.
+        log_hint("ollama_chat", &parse_retry_hint(response.headers(), status));
         if !status.is_success() {
             return Err(classify_http_status(status));
         }

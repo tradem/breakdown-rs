@@ -26,6 +26,7 @@ use serde_json::json;
 use super::CuratedProviderUrls;
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
+use crate::retry::{RetryClass, log_hint, parse_retry_hint};
 
 #[cfg(test)]
 #[path = "client_tests.rs"]
@@ -206,6 +207,11 @@ impl OpenAiCompatibleChatClient {
         schema: serde_json::Value,
         schema_name: &str,
     ) -> Result<LlmCallOutcome<T>, DomainError> {
+        // Retry policy (issue #925): this loop grants a bounded number of
+        // **re-requests**, not timed retries — there is no inter-attempt pause,
+        // so it consumes no `retry::Backoff`; what it does share with every
+        // other provider site is the status classification and the server's
+        // retry hint (below).
         let mut budget = req.max_tokens;
         let mut truncation_retries = MAX_TRUNCATION_RETRIES;
         // Usage accumulates across every paid HTTP response, including the
@@ -253,6 +259,11 @@ impl OpenAiCompatibleChatClient {
                 .await
                 .map_err(classify_transport_error)?;
             let status = response.status();
+            // Issue #925: the hint must be read from the headers BEFORE the body
+            // is consumed (`Response::json` moves the response). Nothing acts on
+            // it yet — honouring `Retry-After` (and separating quota 429s) are
+            // the follow-ups, and they change the scheduling, not this plumbing.
+            log_hint("hosted_chat", &parse_retry_hint(response.headers(), status));
             if !status.is_success() {
                 return Err(classify_http_status(status));
             }
@@ -772,22 +783,23 @@ pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> Dom
             format!(" — {bounded}")
         }
     };
-    if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+    // The classification itself is the shared retry core's (issue #925); the
+    // `DomainError` mapping stays here, at the call boundary, so the error
+    // taxonomy every caller matches on is unchanged.
+    match RetryClass::of(status) {
         // Issue #822: attributed to the PROVIDER, not "a service". The
         // generic `domain.service-unavailable` is shared with the mapping DB,
         // the pricing read model and payload storage, so a client could not
         // name this dependency from the attempt's stable code.
-        DomainError::llm_provider_unavailable(format!(
+        RetryClass::Retryable => DomainError::llm_provider_unavailable(format!(
             "LLM provider returned HTTP {status}{suffix}"
-        ))
-    } else if status.is_client_error() {
-        DomainError::validation(format!(
+        )),
+        RetryClass::Rejected => DomainError::validation(format!(
             "LLM provider rejected request with HTTP {status}{suffix}"
-        ))
-    } else {
-        DomainError::validation(format!(
+        )),
+        RetryClass::Unexpected => DomainError::validation(format!(
             "unexpected LLM provider HTTP status {status}{suffix}"
-        ))
+        )),
     }
 }
 

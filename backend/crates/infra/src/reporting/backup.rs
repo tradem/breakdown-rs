@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Idempotent staging-then-external report backup worker.
 //!
@@ -448,15 +449,13 @@ impl<L: ReportDataLoader + 'static> ReportBackupWorker<L> {
 }
 
 /// Exponential backoff with full jitter, capped at `max`.
+///
+/// The formula itself is the shared retry core's (issue #925) — this wrapper
+/// keeps the archival worker's public entry point and its `i32` retry counter,
+/// while the "doubling then one uniform draw from `[0, capped]`" shape lives in
+/// exactly one place.
 pub fn compute_backoff(retries: i32, base: Duration, max: Duration) -> Duration {
-    let exp = base
-        .checked_mul(2u32.saturating_pow(retries.clamp(0, 16) as u32))
-        .unwrap_or(max);
-    let capped = exp.min(max);
-    // Full jitter in [0, capped].
-    let nanos = capped.as_nanos().max(1) as u64;
-    let jitter = fastrand::u64(0..=nanos);
-    Duration::from_nanos(jitter)
+    crate::retry::Backoff::FullJitter { base, max }.delay(retries.max(0) as usize)
 }
 
 fn render_error_summary(err: &ReportRenderError) -> String {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024 Breakdown RS Contributors
 // Co-authored-by: glm-5.2 (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::future::Future;
 use std::time::{Duration, Instant};
@@ -9,7 +10,16 @@ use anyhow::Result;
 use tokio::time::sleep;
 
 /// Base delay for exponential backoff (milliseconds).
+///
+/// The millisecond view of [`crate::retry::BACKOFF_BASE`]: since issue #925 the
+/// formula lives in the shared retry core, and this constant plus the assertion
+/// below keep the projector's documented base from drifting away from it.
 pub const BACKOFF_BASE_MS: u64 = 500;
+
+const _: () = assert!(
+    BACKOFF_BASE_MS as u128 == crate::retry::BACKOFF_BASE.as_millis(),
+    "the projector base and the retry core base must be the same delay"
+);
 
 /// Maximum backoff delay (milliseconds).
 pub const BACKOFF_MAX_DELAY_MS: u64 = 30_000;
@@ -69,16 +79,16 @@ impl BackoffConfig {
 
     /// Compute the delay for a given 0-indexed attempt with exponential
     /// backoff, cap, and random jitter.
+    ///
+    /// The formula itself lives in the shared retry core (issue #925) so the
+    /// projector, the photo sagas and the provider adapters cannot drift apart;
+    /// this method keeps the config-aware entry point its callers use.
     pub fn compute_backoff(&self, attempt: usize) -> Duration {
-        let base = std::cmp::min(
-            self.base_ms * 2_u64.saturating_pow(attempt as u32),
-            self.max_delay.as_millis() as u64,
-        );
-        let jitter: u64 = fastrand::u64(0..=base / 4);
-        let total = base
-            .saturating_add(jitter)
-            .min(self.max_delay.as_millis() as u64);
-        Duration::from_millis(total)
+        crate::retry::Backoff::EqualJitter {
+            base: Duration::from_millis(self.base_ms),
+            max: self.max_delay,
+        }
+        .delay(attempt)
     }
 }
 
@@ -88,17 +98,11 @@ impl BackoffConfig {
 /// Kept `pub` for direct formula unit tests. Runtime callers should go
 /// through [`BackoffConfig::compute_backoff`] so their config is honoured.
 pub fn compute_backoff(attempt: usize, max: Duration) -> Duration {
-    BackoffConfig::default()
-        .with_max_delay(max)
-        .compute_backoff(attempt)
-}
-
-impl BackoffConfig {
-    /// Builder helper used by the free-standing [`compute_backoff`] shim.
-    fn with_max_delay(mut self, max: Duration) -> Self {
-        self.max_delay = max;
-        self
+    crate::retry::Backoff::EqualJitter {
+        base: crate::retry::BACKOFF_BASE,
+        max,
     }
+    .delay(attempt)
 }
 
 /// Spawn a supervised projector subscription loop with production backoff.
