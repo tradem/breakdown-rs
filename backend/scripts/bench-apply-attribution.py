@@ -182,9 +182,11 @@ def wait_for(predicate, timeout: float, what: str) -> None:  # noqa: ANN001
 
 # --- the API under test ----------------------------------------------------
 
-# How long `ApiProcess.stop` waits for OUR port to be released after the child is
-# gone. Module-level so the startup-guard test can shorten it.
-PORT_RELEASE_TIMEOUT_S = 60
+# How long `ApiProcess.stop` gives the kernel to close the child's listening
+# socket after the child is reaped. Module-level so the startup-guard test can
+# shorten it. Deliberately short: an exit closes the socket, so a port that is
+# still open after that belongs to someone else and must not be waited on.
+PORT_RELEASE_GRACE_S = 5
 
 
 class ApiProcess:
@@ -334,20 +336,42 @@ class ApiProcess:
             # Nothing of OURS ever bound the port: `start()` refused an occupied
             # one, or the child was spawned and LOST the bind race, so the
             # listener on the port belongs to someone else. Waiting here would
-            # block on that stranger for the full timeout and hide the startup
-            # error, so return at once — the child's own bind announcement is the
-            # only thing that makes the wait meaningful.
+            # block on that stranger and hide the startup error, so return at once
+            # — the child's own bind announcement is the only thing that makes a
+            # release wait meaningful at all.
             return
-        wait_for(
-            lambda: not port_open(self.port),
-            timeout=PORT_RELEASE_TIMEOUT_S,
-            what=f"port {self.port} to be released",
-        )
+        # Even when the child did own the port, a listener that is still open
+        # after the child was reaped is NOT ours (an exit closes its listening
+        # socket), so this never raises and never blames a stranger: it gives the
+        # kernel a short grace and then says so.
+        deadline = time.monotonic() + PORT_RELEASE_GRACE_S
+        while time.monotonic() < deadline and port_open(self.port):
+            time.sleep(0.2)
+        if port_open(self.port):
+            print(
+                f"  ! port :{self.port} is still open after the child exited — that "
+                "listener is not this run's child; continuing without waiting",
+                flush=True,
+            )
 
     def call(self, method: str, path: str, body=None, block: str | None = None):  # noqa: ANN001
-        # Every mutation re-checks ownership: the boot gate proved the child owned
-        # the port, not that it still does.
+        """One request, bracketed by liveness checks.
+
+        The boot gate proved the child owned the port, not that it still does, and
+        a check *before* the request alone leaves the exchange itself unguarded: a
+        child that dies between the check and the connect releases the port, and
+        whoever binds it next would answer this request. Closing that window
+        without an inherited listener means checking both ends of the exchange —
+        the child must still be alive when the response arrives, or the answer
+        came from a server this run does not own and is discarded as an error.
+        """
         self.assert_alive()
+        result = self.send(method, path, body, block)
+        self.assert_alive()
+        return result
+
+    def send(self, method: str, path: str, body=None, block: str | None = None):  # noqa: ANN001
+        """The single HTTP round trip (no ownership logic — see [`Self::call`])."""
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(self.base_url + path, data=data, method=method)
         request.add_header("content-type", "application/json")

@@ -88,16 +88,24 @@ def api_process(port, log_path):
     )
 
 
-class DeadChild:
-    """A spawned child that already exited (a lost bind race looks like this)."""
+class ScriptedChild:
+    """A spawned child whose `poll()` answers a script (None = still alive).
+
+    One entry per call, ending in a permanent exit state — that is how the
+    "died between the liveness check and the connect" window is reproduced
+    deterministically.
+    """
 
     returncode = 1
 
+    def __init__(self, script):
+        self.script = list(script)
+
     def poll(self):
-        return 1
+        return self.script.pop(0) if len(self.script) > 1 else self.script[0]
 
     def wait(self, timeout=None):  # noqa: ARG002, ANN001
-        return 1
+        return self.poll()
 
     def send_signal(self, _sig):
         pass
@@ -106,9 +114,14 @@ class DeadChild:
         pass
 
 
-def with_dead_child(api):
-    """Pretend `start()` spawned a child that then lost the bind race."""
-    api.proc = DeadChild()
+def dead_child():
+    """A child that exited before anything was asked of it."""
+    return ScriptedChild([1])
+
+
+def with_child(api, child):
+    """Pretend `start()` spawned `child`."""
+    api.proc = child
     return api
 
 
@@ -196,13 +209,13 @@ def test_readiness_requires_ownership():
 def test_stop_after_a_lost_bind_race_does_not_wait():
     port = free_port()
     foreign = listening_socket(port)
-    bench.PORT_RELEASE_TIMEOUT_S = 3
+    bench.PORT_RELEASE_GRACE_S = 1
     try:
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "bench.log"
             # The child was spawned but never bound: no bind announcement.
             log_path.write_text("ERROR breakdown_api: Address already in use\n")
-            api = with_dead_child(api_process(port, log_path))
+            api = with_child(api_process(port, log_path), dead_child())
             started = time.monotonic()
             api.stop()
             elapsed = time.monotonic() - started
@@ -212,20 +225,23 @@ def test_stop_after_a_lost_bind_race_does_not_wait():
                 f"{elapsed:.1f}s",
             )
 
-            # Control: when the child DID announce the port, stop() is the one
-            # that waits for the release — the guard above must not have disabled
-            # the wait outright.
+            # A child that DID announce the port gets the short kernel grace — it
+            # must not return instantly — and then reports the foreign listener
+            # instead of waiting on it.
             log_path.write_text(MARKER.format(port=port) + "\n")
-            api = with_dead_child(api_process(port, log_path))
-            timed_out = None
-            try:
-                api.stop()
-            except RuntimeError as err:
-                timed_out = str(err)
+            api = with_child(api_process(port, log_path), dead_child())
+            started = time.monotonic()
+            api.stop()
+            elapsed = time.monotonic() - started
             check(
-                "stop() still waits when the child owned the port",
-                timed_out is not None and "timed out" in timed_out,
-                repr(timed_out),
+                "stop() gives the kernel a grace when the child owned the port",
+                elapsed >= 1,
+                f"{elapsed:.1f}s",
+            )
+            check(
+                "stop() does not blame a foreign listener for the release",
+                elapsed < 5,
+                f"{elapsed:.1f}s",
             )
     finally:
         foreign.close()
@@ -240,7 +256,7 @@ def test_a_dead_child_blocks_further_requests():
         log_path.write_text(
             "INFO breakdown_api: booting\n" + MARKER.format(port=port) + "\n"
         )
-        api = with_dead_child(api_process(port, log_path))
+        api = with_child(api_process(port, log_path), dead_child())
         raised = None
         try:
             api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
@@ -250,6 +266,28 @@ def test_a_dead_child_blocks_further_requests():
             "a request after the child exited is refused, not sent",
             raised is not None and "no longer ours" in raised,
             repr(raised),
+        )
+
+        # The window CodeRabbit named: alive at the pre-check, gone when the
+        # response arrives. The answer then came from whoever bound the released
+        # port, so the result must be discarded as an error, not returned.
+        api = with_child(api_process(port, log_path), ScriptedChild([None, 1]))
+        sent = []
+        api.send = lambda *args: (sent.append(args), (200, {"ok": True}))[1]
+        raised = None
+        try:
+            api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+        except RuntimeError as err:
+            raised = str(err)
+        check(
+            "a child dying between the check and the connect aborts the call",
+            raised is not None and "no longer ours" in raised,
+            repr(raised),
+        )
+        check(
+            "the request window is still exercised exactly once",
+            len(sent) == 1,
+            repr(sent),
         )
 
 
