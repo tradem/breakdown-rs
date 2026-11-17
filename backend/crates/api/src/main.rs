@@ -22,6 +22,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 use std::env;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -62,7 +63,7 @@ use kameo_es::command_service::CommandService;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
 use redis::Client as RedisClient;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
@@ -150,6 +151,115 @@ fn resolve_gdrive_storage(
         Arc::new(settings_repo.clone()),
         settings_id,
     ))
+}
+
+// --- Postgres pool topology (issue #900 M3) ---------------------------------
+//
+// Two pools over one database. The **app pool** (`DATABASE_MAX_CONNECTIONS`,
+// default 20) serves the request path, the AI-import workers and every
+// read-model query a handler runs. The **projector pool**
+// (`PROJECTOR_DATABASE_MAX_CONNECTIONS`, default 20) serves ONLY the read-model
+// writers: the per-aggregate projectors and the season-seeding event reactor.
+//
+// Why split them: an AI-import apply manufactures the projection backlog the
+// projectors then write, so with one shared pool the apply's own
+// `reserve → append → confirm` chain queued behind projection catch-up. That is
+// exactly what the M1 instrumentation reports as
+// `mapping_acquire_ms_per_row ≫ mapping_statement_ms_per_row` (issue #900,
+// runbooks §17). Separate pools mean the apply's Postgres round trips wait only
+// for other request-path work.
+//
+// Sizing rules (both in runbooks §17 M3; rule 1 is enforced by
+// `parse_projector_pool_max_connections`, which additionally accepts `0` as the
+// A/B switch back to the shared pool):
+// 1. The projector pool must be at least as large as the single pre-split pool
+//    (20), so the projector side never has fewer connections than it had before
+//    — that is what makes "projector lag must not get worse" true by
+//    construction. There are 30 read-model consumers (16 aggregate projectors +
+//    13 audit projectors via `spawn_all_audit_projectors` + the seeding reactor),
+//    so a pool of 30 removes intra-projector queuing as well.
+// 2. The SUM of every pool (plus the migrator's boot connection and any external
+//    client) must stay below Postgres' `max_connections`; the default 40/41
+//    leaves room under the usual 100.
+const DEFAULT_APP_POOL_MAX_CONNECTIONS: u32 = 20;
+const DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS: u32 = 20;
+
+/// Which side of the process a pool serves. Doubles as the Postgres
+/// `application_name`, so `pg_stat_activity` shows the split and a future
+/// pool-wait measurement can tell which side a connection belongs to.
+#[derive(Clone, Copy)]
+enum PoolRole {
+    App,
+    Projector,
+}
+
+impl PoolRole {
+    fn application_name(self) -> &'static str {
+        match self {
+            Self::App => "breakdown-api",
+            Self::Projector => "breakdown-projector",
+        }
+    }
+}
+
+/// Parse a pool-size knob. Unset yields `default`; a value that does not parse
+/// or is below `minimum` is reported and replaced by `default` too — a typo must
+/// never silently shrink a pool, because `max_connections(0)` blocks every
+/// acquire forever (the process would boot and then hang).
+fn parse_max_connections(raw: Option<&str>, default: u32, minimum: u32) -> u32 {
+    let Some(raw) = raw else { return default };
+    match raw.trim().parse::<u32>() {
+        Ok(value) if value >= minimum => value,
+        _ => {
+            warn!(
+                value = raw,
+                default, minimum, "invalid connection count; using the default"
+            );
+            default
+        }
+    }
+}
+
+/// Parse the projector-pool knob, which has **two** legal shapes rather than a
+/// single minimum (runbooks §17 M3):
+///
+/// * `0` — the documented A/B switch back to the shared pool (measurement only).
+/// * `>= 20` — a separate pool, which may never be smaller than the single pool
+///   it replaced. `1..=19` would leave the read-model writers with fewer
+///   connections than before the split, i.e. it would make projector lag
+///   *worse* — the one outcome the split must not have.
+///
+/// Anything else (`1..=19`, an unparsable value) is reported and replaced by the
+/// default, exactly like an invalid count on the app knob.
+fn parse_projector_pool_max_connections(raw: Option<&str>) -> u32 {
+    if raw.is_some_and(|raw| raw.trim() == "0") {
+        return 0;
+    }
+    parse_max_connections(
+        raw,
+        DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS,
+        DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS,
+    )
+}
+
+/// Connect one long-lived DML pool, carrying its role as `application_name`.
+async fn connect_pg_pool(
+    database_url: &str,
+    role: PoolRole,
+    max_connections: u32,
+) -> Result<sqlx::PgPool> {
+    let options = PgConnectOptions::from_str(database_url)
+        .map_err(|error| anyhow::anyhow!("invalid DATABASE_URL: {error}"))?
+        .application_name(role.application_name());
+    let pool = PgPoolOptions::new()
+        .max_connections(max_connections)
+        .connect_with(options)
+        .await?;
+    info!(
+        application_name = role.application_name(),
+        max_connections, "postgres pool connected"
+    );
+    Ok(pool)
 }
 
 #[tokio::main]
@@ -245,12 +355,45 @@ async fn main() -> Result<()> {
     // Release the DDL pool; all subsequent queries use the app pool.
     drop(migrator_pool);
 
-    // Long-lived app pool (DML only, up to 20 connections).
-    let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .connect(&database_url)
-        .await?;
-    info!("app database pool connected");
+    // Long-lived DML pools (issue #900 M3): one for the request/worker side, one
+    // for the read-model writers. See `parse_max_connections` for the sizing
+    // rule and `PoolRole` for the `application_name` each pool carries.
+    let app_pool_max = parse_max_connections(
+        env::var("DATABASE_MAX_CONNECTIONS").ok().as_deref(),
+        DEFAULT_APP_POOL_MAX_CONNECTIONS,
+        1,
+    );
+    let projector_pool_max = parse_projector_pool_max_connections(
+        env::var("PROJECTOR_DATABASE_MAX_CONNECTIONS")
+            .ok()
+            .as_deref(),
+    );
+
+    let pool = connect_pg_pool(&database_url, PoolRole::App, app_pool_max).await?;
+    // `0` keeps the pre-M3 topology (read-model writers share the app pool). It
+    // exists so the still-pending #900 attribution can A/B this lever on one
+    // machine without a rebuild (runbooks §17 M3); production leaves it unset.
+    let projector_pool = if projector_pool_max == 0 {
+        warn!(
+            "PROJECTOR_DATABASE_MAX_CONNECTIONS=0 — read-model writers share the app \
+             pool (pre-#900-M3 topology; measurement-only setting)"
+        );
+        pool.clone()
+    } else {
+        connect_pg_pool(&database_url, PoolRole::Projector, projector_pool_max).await?
+    };
+    info!(
+        app_pool_max,
+        projector_pool_max,
+        // With the A/B switch set the projectors live in the app pool, so the total
+        // must not claim connections that were never opened.
+        total_pool_connections = if projector_pool_max == 0 {
+            u64::from(app_pool_max)
+        } else {
+            u64::from(app_pool_max) + u64::from(projector_pool_max)
+        },
+        "postgres pools connected"
+    );
 
     // SierraDB link (ADR-024): in production the API talks TLS to the stunnel
     // sidecar (`rediss://stunnel:9091`). When SIERRADB_TLS_ROOT_CERT is set we
@@ -285,37 +428,37 @@ async fn main() -> Result<()> {
 
     // Start one PostgresProcessor per aggregate, each with its own checkpoint stream.
     let _season_projector = infra::projectors::spawn_season_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _block_projector = infra::projectors::spawn_block_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _episode_projector = infra::projectors::spawn_episode_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _scene_projector = infra::projectors::spawn_scene_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _character_projector = infra::projectors::spawn_character_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _piece_projector = infra::projectors::spawn_piece_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
@@ -323,13 +466,13 @@ async fn main() -> Result<()> {
     // Outfits are their own aggregate/stream: the character-bound look that
     // scenes cast. A separate projector keeps replay/checkpoint independent.
     let _outfit_projector = infra::projectors::spawn_outfit_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _membership_projector = infra::projectors::spawn_membership_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
@@ -339,7 +482,7 @@ async fn main() -> Result<()> {
     // no blocks is not role-less by construction. Its own stream
     // (`project_membership-<project_id>`) and checkpoint row.
     let _project_membership_projector = infra::projectors::spawn_project_membership_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
@@ -348,37 +491,37 @@ async fn main() -> Result<()> {
     // alive for the process lifetime. The handles' Drop aborts the projectors,
     // so they MUST be held here (not dropped at end of function).
     let _audit_handles = infra::projectors::spawn_all_audit_projectors(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _shooting_day_projector = infra::projectors::spawn_shooting_day_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _costume_category_projector = infra::projectors::spawn_costume_category_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _settings_projector = infra::projectors::spawn_settings_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _ai_config_projector = infra::projectors::spawn_ai_config_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     let _scene_shoot_projector = infra::projectors::spawn_scene_shoot_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
@@ -387,7 +530,7 @@ async fn main() -> Result<()> {
     // (observability + reaper candidate selection only; the event store holds
     // the authoritative claim state).
     let _reservation_projector = infra::projectors::spawn_reservation_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
@@ -401,14 +544,14 @@ async fn main() -> Result<()> {
     // was invisible to CI; the four photo sagas below are NOT a substitute
     // (they dispatch commands, they do not project the read model).
     let _photo_projector = infra::projectors::spawn_photo_projector(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         infra::projectors::ProjectorFlushConfig::default(),
     )
     .await?;
     // Event-reactor saga: seeds default costume categories on SeasonCreated.
     infra::sagas::spawn_season_seeding_saga(
-        pool.clone(),
+        projector_pool.clone(),
         Arc::clone(&redis_client),
         cmd_service.clone(),
     )
@@ -1130,5 +1273,90 @@ mod shutdown_tests {
     async fn join_stuck_worker_aborts_and_joins() {
         let handle = tokio::spawn(tokio::time::sleep(std::time::Duration::from_secs(3600)));
         join_worker_with_budget(handle).await;
+    }
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::{
+        DEFAULT_APP_POOL_MAX_CONNECTIONS, DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS, PoolRole,
+        parse_max_connections, parse_projector_pool_max_connections,
+    };
+
+    /// Unset knobs keep the documented defaults — the split is on by default.
+    #[test]
+    fn unset_knobs_yield_the_defaults() {
+        assert_eq!(
+            parse_max_connections(None, DEFAULT_APP_POOL_MAX_CONNECTIONS, 1),
+            DEFAULT_APP_POOL_MAX_CONNECTIONS
+        );
+        assert_eq!(
+            parse_projector_pool_max_connections(None),
+            DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS
+        );
+    }
+
+    /// A set knob is honoured, surrounding whitespace included (compose/env files
+    /// keep it easy to introduce).
+    #[test]
+    fn positive_values_are_honoured_and_trimmed() {
+        assert_eq!(parse_max_connections(Some("40"), 20, 1), 40);
+        assert_eq!(parse_max_connections(Some("  8\n"), 20, 1), 8);
+    }
+
+    /// A malformed or out-of-range value must fall back to the default, never to a
+    /// value that would make the pool unusable (`0` connections blocks every
+    /// acquire forever — the API would boot and then hang).
+    #[test]
+    fn invalid_values_fall_back_to_the_default_instead_of_zero() {
+        for raw in ["0", "-4", "abc", "", "1.5"] {
+            assert_eq!(parse_max_connections(Some(raw), 20, 1), 20, "raw = {raw:?}");
+        }
+    }
+
+    /// The projector knob accepts `0` *by design*: it is the A/B off switch that
+    /// keeps read-model writers on the app pool for the pending #900 attribution
+    /// (runbooks §17 M3). The app knob rejects it (covered above).
+    #[test]
+    fn projector_knob_accepts_zero_as_the_ab_switch() {
+        assert_eq!(parse_projector_pool_max_connections(Some("0")), 0);
+        assert_eq!(parse_projector_pool_max_connections(Some(" 0\n")), 0);
+    }
+
+    /// A separate projector pool may not be smaller than the single pool it
+    /// replaced (20) — `1..=19` is replaced by the default instead of silently
+    /// shrinking projector capacity below the pre-M3 baseline.
+    #[test]
+    fn projector_knob_rejects_a_pool_below_the_established_minimum() {
+        for raw in ["1", "19", "2", "-1", "abc", ""] {
+            assert_eq!(
+                parse_projector_pool_max_connections(Some(raw)),
+                DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS,
+                "raw = {raw:?}"
+            );
+        }
+    }
+
+    /// The boundary itself and everything above it is honoured.
+    #[test]
+    fn projector_knob_accepts_the_minimum_and_above() {
+        assert_eq!(parse_projector_pool_max_connections(Some("20")), 20);
+        assert_eq!(parse_projector_pool_max_connections(Some("30")), 30);
+        assert_eq!(parse_projector_pool_max_connections(Some(" 24 ")), 24);
+    }
+
+    /// The two pools must be distinguishable in `pg_stat_activity`, otherwise an
+    /// operator cannot tell which side a connection belongs to.
+    #[test]
+    fn pool_roles_carry_distinct_application_names() {
+        assert_eq!(PoolRole::App.application_name(), "breakdown-api");
+        assert_eq!(
+            PoolRole::Projector.application_name(),
+            "breakdown-projector"
+        );
+        assert_ne!(
+            PoolRole::App.application_name(),
+            PoolRole::Projector.application_name()
+        );
     }
 }

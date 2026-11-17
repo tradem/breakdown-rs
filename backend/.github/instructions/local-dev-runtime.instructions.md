@@ -50,13 +50,20 @@ Reservation-claim machinery (ADR-036) needs no extra env for local dev: the
 `reservation` projector and the reaper spawn with their defaults
 (`RESERVATION_REAPER_ENABLED=true`, TTL 600 s, interval 300 s).
 
-`main.rs` uses a **two-pool Postgres architecture**:
+`main.rs` uses a **three-pool Postgres architecture**:
 1. A short-lived migrator pool (`MIGRATOR_DATABASE_URL`, defaults to `DATABASE_URL`)
    runs `sqlx::migrate!("../infra/migrations")` at boot (DDL rights).
 2. After migration, it enforces the INSERT-only audit restriction
    (REVOKE UPDATE/DELETE on `projection_audit` from `breakdown_app`).
-3. The migrator pool is dropped, and a long-lived app pool (`DATABASE_URL`,
-   DML only) serves all runtime queries.
+3. The migrator pool is dropped; two long-lived DML pools (`DATABASE_URL`) remain
+   (issue #900 M3): the **app pool** (`DATABASE_MAX_CONNECTIONS`, default 20) serves
+   the request path, the AI-import workers and the reservation reaper, while the
+   **projector pool** (`PROJECTOR_DATABASE_MAX_CONNECTIONS`, default 20) serves only
+   the read-model writers (projectors + the season-seeding reactor), so an
+   AI-import apply never queues behind its own projection backlog. Both carry their
+   role as Postgres `application_name` (`breakdown-api` / `breakdown-projector`).
+   `PROJECTOR_DATABASE_MAX_CONNECTIONS=0` disables the split (measurement A/B only).
+   Sizing and verification: `docs/operations/runbooks.md` §17 (M3).
 
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/breakdown \
@@ -94,6 +101,8 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 ### Environment variables used by the API binary
 - `DATABASE_URL` – Postgres app-role connection string (DML only). Default: `postgres://postgres:postgres@localhost:5432/breakdown`. In production, connect as `breakdown_app` (least-privilege).
 - `MIGRATOR_DATABASE_URL` – Postgres migrator-role connection string (DDL, schema owner). Used only during boot migration, then dropped. Falls back to `DATABASE_URL` when unset or empty (single-role dev mode). In production, connect as `breakdown_migrator`.
+- `DATABASE_MAX_CONNECTIONS` – size of the long-lived **app pool** (default `20`): HTTP handlers, AI-import workers (incl. the apply), GC schedulers, the reservation reaper (issue #900 M3).
+- `PROJECTOR_DATABASE_MAX_CONNECTIONS` – size of the **projector pool** (default `20`), used only by the read-model consumers (29 projectors + the season-seeding reactor). Must stay ≥ 20 (the single pool it replaced), and both pools together must stay below Postgres' `max_connections`. `0` keeps the pre-M3 topology (projectors share the app pool) for the pending #900 A/B measurement.
 - `SIERRADB_URL` – SierraDB RESP3 connection string (default: `redis://127.0.0.1:9090/?protocol=resp3`). SierraDB speaks RESP3 only — keep `?protocol=resp3` (ADR-016). In production this is `rediss://stunnel:9091/?protocol=resp3` (TLS via the stunnel sidecar, ADR-024).
 - `SIERRADB_TLS_ROOT_CERT` – optional PEM path of the pinned root CA for the SierraDB link (the internal step-ca root in production). When set, the redis client is built with `Client::build_with_tls` and the URL must use `rediss://`.
 - `VAULT_ADDR` – base URL of the secrets vault (ADR-027). Default `http://127.0.0.1:8200` (the dev overlay URL); production uses `https://vault:8200` (internal DNS, ADR-024). The `VaultClient` is built lazily: endpoints that need a credential return `503` until the Vault is reachable.

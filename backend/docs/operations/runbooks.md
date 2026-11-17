@@ -1486,3 +1486,78 @@ reaches it without changing the public dispatch surface for a measurement. The d
 the row phase is therefore *this run* on a quiet instance and an **upper bound** with
 unrelated write traffic in the window. Cross-check it against `mapping_reserve_ops` /
 `mapping_insert_ops` from M1, which are effectively run-exclusive.
+
+### M3 — the lever: read-model writers get their own pool
+
+Both measurements exist to pick a lever, not to be admired. The lever now in place is the
+one the decision table names for the "pool wait dominates" row: the read-model writers no
+longer draw from the pool the apply uses.
+
+| Pool | Env knob | Default | Serves |
+|---|---|---|---|
+| app | `DATABASE_MAX_CONNECTIONS` | 20 | HTTP handlers, every handler-side read-model query, the AI-import queue/workers **including the apply**, the GC schedulers, the reservation reaper |
+| projector | `PROJECTOR_DATABASE_MAX_CONNECTIONS` | 20 | the read-model consumers — 16 aggregate projectors + 13 audit projectors (`spawn_all_audit_projectors`) + the season-seeding event reactor — i.e. only code that writes the read model from events |
+
+Each pool carries its role as the Postgres `application_name`, so the split is visible
+without reading this runbook again:
+
+```sql
+SELECT application_name, state, count(*)
+FROM pg_stat_activity
+WHERE datname = current_database()
+GROUP BY 1, 2 ORDER BY 1, 2;
+```
+
+`breakdown-api` is the app pool, `breakdown-projector` the projector pool.
+
+**Sizing rules (both must hold).**
+
+1. The projector pool must be **at least as large as the single pool it replaced** (20).
+   The projector side then never has fewer connections than before the split, which is what
+   makes "projector lag must not get worse" true by construction. There are 30 read-model
+   consumers today (16 aggregate projectors + 13 audit projectors + the seeding reactor), so
+   a pool of 30 removes intra-projector queuing entirely — never go below 20. A value of
+   `1..19` is therefore rejected at boot and replaced by the default 20 (warn line, same as
+   an unparsable value); `0` is not a smaller pool but the A/B switch documented below.
+2. The **sum** of all client pools plus the migrator's single boot connection must stay
+   below Postgres' `max_connections`. The defaults (20 + 20 + 1) leave headroom under the
+   usual 100; raise `max_connections` before raising either knob.
+
+**A/B switch for the pending attribution.** The decision-table row is still *not* measured
+on real data: the 49-scene apply that fills it in needs the M1/M2 lines from a real run
+(see above). To make that measurement possible on one machine without a rebuild, setting
+
+```
+PROJECTOR_DATABASE_MAX_CONNECTIONS=0
+```
+
+keeps the pre-M3 topology — read-model writers share the app pool — and the boot log says
+so. Compare `mapping_acquire_ms_per_row` / `mapping_statement_ms_per_row` and the total
+apply duration between the two modes. This is a **measurement setting**; leave it unset in
+a deployment.
+
+**Each mode needs its own first apply.** The apply is idempotent by design: `reserve` is
+insert-if-absent and `insert` is a conditional update, so a preview that has already been
+applied finds its mapping rows in `ai_import.ai_import_mapping` and skips the work instead
+of repeating it — the second run then reports fewer `mapping_reserve_ops` /
+`mapping_insert_ops`, an acquire time near zero (nothing queues, because little is written)
+and a shorter duration, which is not the same job measured twice. So the comparison is only
+valid when both modes run a **newly created preview against fresh event-store and Postgres
+state** (reset both, or use two freshly seeded previews on the same host). Check the
+equivalence before quoting the numbers: `rows`, `mapping_reserve_ops` and
+`mapping_insert_ops` must match between the two runs; if the second run reports fewer ops,
+it was served from the mapping cache and its timings say nothing about the pool.
+
+**Checking that projector lag did not get worse.** The split moves connections, it does not
+change what the projectors write. Verify with the signals that already exist:
+
+- the `sierradb_event_checkpoints` progress (per-partition, §8 "Inspecting the dead-letter
+  queue" shows the same query shape) — it must keep advancing at the pre-split rate;
+- `GET /v1/ops/projector-health` — `dead_letter_count` must not increase (§8);
+- the projector's own `PostgresProcessor` error/warn lines must stay quiet: a self-inflicted
+  pool starvation surfaces as acquire timeouts there, not as an apply slowdown.
+
+A row phase that now shows `mapping_acquire_ms_per_row` near zero with an unchanged total
+`row_ms_avg` is the honest negative result: the pool was not the bottleneck, and the lever
+for that run is the next row of the decision table (batched confirms, duplicate writes, or
+the store's append tail) — not a bigger pool.
