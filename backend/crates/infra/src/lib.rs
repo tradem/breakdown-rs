@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 #![cfg_attr(
@@ -37,6 +38,10 @@ pub mod projectors;
 pub mod queries;
 pub mod reporting;
 pub mod reservations;
+// Issue #925: the one retry/classification core the provider call sites (and the
+// projector supervisor, and the photo/report retry paths) share. Crate-internal
+// on purpose — this is transport plumbing, not a port; `core` stays untouched.
+pub(crate) mod retry;
 pub mod sagas;
 pub mod tls;
 pub mod vault;

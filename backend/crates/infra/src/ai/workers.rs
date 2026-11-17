@@ -75,7 +75,6 @@ use super::schedule_apply::{
     AppliedDay, DayDraft, ScheduleApplyWorker, derive_id, recover_version,
 };
 use crate::photo::sagas::is_transient;
-use crate::projectors::supervisor;
 
 /// Acquire capacity for an already-claimed job and link the permit to it.
 ///
@@ -4866,6 +4865,14 @@ impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
     }
 }
 
+/// In-attempt backoff: the shared exponential formula (issue #925) at the
+/// base every provider site uses, capped at the analytic bound the permit
+/// accounting multiplies with (issue #871, `core::ai::MAX_ATTEMPT_BACKOFF_SECS`).
+const ATTEMPT_BACKOFF: crate::retry::Backoff = crate::retry::Backoff::EqualJitter {
+    base: crate::retry::BACKOFF_BASE,
+    max: Duration::from_secs(breakdown_core::ai::MAX_ATTEMPT_BACKOFF_SECS),
+};
+
 /// Retry a transient LLM provider failure at most `max_retries` times with
 /// backoff, then return the last error. The shared saga retry helper loops
 /// forever on transient errors; a provider outage must not retry without bound
@@ -4926,11 +4933,9 @@ where
                 if !gate.admits().await {
                     return Err(AnyhowError::new(breaker_open_error()));
                 }
-                tokio::time::sleep(supervisor::compute_backoff(
-                    attempt,
-                    std::time::Duration::from_secs(breakdown_core::ai::MAX_ATTEMPT_BACKOFF_SECS),
-                ))
-                .await;
+                // `attempt` is the 1-based retry counter, as it was for the
+                // pre-#925 formula: the first retry waits ~1 s, not ~500 ms.
+                tokio::time::sleep(ATTEMPT_BACKOFF.delay(attempt)).await;
             }
         }
     }

@@ -99,6 +99,7 @@ use std::collections::BTreeMap;
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
 use crate::ai::client::{classify_http_status_with_detail, classify_transport_error};
+use crate::retry::{log_hint, parse_retry_hint};
 
 #[cfg(test)]
 #[path = "decision_client_tests.rs"]
@@ -705,6 +706,13 @@ impl DecisionClient for HttpDecisionClient {
             .await
             .map_err(classify_transport_error)?;
         let status = response.status();
+        // Issue #925: capture the server's retry hint before the body is
+        // consumed (the error path below reads it in chunks). Nothing acts on
+        // the hint yet.
+        log_hint(
+            "decision_request",
+            &parse_retry_hint(response.headers(), status),
+        );
         if !status.is_success() {
             // The provider's body says WHY (a 400 names the offending property,
             // a 404 names the route). Discarding it made every failure look

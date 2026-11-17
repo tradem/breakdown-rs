@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Unit tests for the pricing-refresh catalog parsers (issue #675).
 //!
@@ -378,4 +379,62 @@ async fn store_rows_upserts_merged_rows_and_empty_merge_is_noop() {
     let empty = store_rows(&repo, Vec::new()).await;
     assert!(matches!(empty, Ok(true)));
     assert_eq!(repo.upserts.lock().expect("test mutex").len(), 2);
+}
+
+/// Issue #925: the catalog fetch now reads the server's retry hint. A hint on a
+/// SUCCESS must not disturb the decode — the migration added observability, not
+/// behaviour.
+#[tokio::test]
+async fn a_catalog_response_with_rate_limit_headers_is_still_parsed() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/v1/models"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .insert_header("retry-after", "120")
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", "60")
+                .set_body_json(neuralwatt_body()),
+        )
+        .mount(&server)
+        .await;
+
+    let json = fetch_source(&format!("{}/v1/models", server.uri()))
+        .await
+        .expect("the hint headers must not disturb the decode");
+    let rows = CS::Neuralwatt
+        .parse(&json)
+        .expect("the payload still parses");
+    assert_eq!(rows.len(), 2);
+}
+
+/// Issue #925: a rate-limited catalog keeps the pre-#925 narrative and its
+/// one-shot behaviour — the refresh cadence is the interval ticker, never a
+/// retry loop inside the fetch.
+#[tokio::test]
+async fn a_rate_limited_catalog_keeps_its_pre_925_error_and_single_attempt() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(429)
+                .insert_header("retry-after", "120")
+                .insert_header("x-ratelimit-remaining", "0"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let error = fetch_source(&format!("{}/v1/models", server.uri()))
+        .await
+        .expect_err("a 429 is a failure, hint or not");
+    assert!(
+        matches!(error, DomainError::ServiceUnavailable { .. }),
+        "the catalog keeps its own classification (it is not an LLM provider): {error:?}"
+    );
+    assert!(
+        error.to_string().contains("429"),
+        "the narrative still names the status: {error}"
+    );
+    // `expect(1)` above pins the single attempt: the hint must not have
+    // introduced a retry inside the fetch.
 }

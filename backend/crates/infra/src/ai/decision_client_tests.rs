@@ -802,6 +802,20 @@ impl wiremock::Respond for StrictSystemOne {
     }
 }
 
+/// `StrictSystemOne` plus the provider's rate-limit headers (issue #925
+/// regression: reading them must not change a single observable).
+struct HintHeadersSystemOne;
+
+impl wiremock::Respond for HintHeadersSystemOne {
+    fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        StrictSystemOne
+            .respond(request)
+            .insert_header("retry-after", "120")
+            .insert_header("x-ratelimit-remaining", "0")
+            .insert_header("x-ratelimit-reset", "60")
+    }
+}
+
 /// A client pointed at a strict in-process System One surface.
 async fn strict_provider() -> (wiremock::MockServer, HttpDecisionClient) {
     let server = wiremock::MockServer::start().await;
@@ -1127,4 +1141,77 @@ async fn live_systemone_answers_every_question_kind() {
             .is_some_and(|choices| !choices.is_empty()),
         "the live choice must report its option distribution"
     );
+}
+
+/// Issue #925: a `429` carrying `Retry-After` / `X-RateLimit-*` is STILL the
+/// same provider-unavailable error and costs no extra request. The migration
+/// made the call site read the hint; it must not have started acting on it.
+#[tokio::test]
+async fn a_rate_limited_answer_keeps_its_pre_925_error_and_costs_one_request() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(429)
+                .insert_header("retry-after", "120")
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", "60")
+                .set_body_string("{\"error\":\"slow down\"}"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut client = HttpDecisionClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "k".into(),
+        Duration::from_secs(5),
+    )
+    .expect("a decision-capable provider builds a client");
+    client.endpoint = server.uri();
+
+    let error = client
+        .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
+        .await
+        .expect_err("a 429 is a failure, hint or not");
+    assert!(
+        matches!(
+            error,
+            breakdown_core::error::DomainError::ServiceUnavailable { .. }
+        ),
+        "the classification is unchanged by the migration: {error:?}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.contains("429"),
+        "the provider narrative still names the status: {message}"
+    );
+    // No retry inside the adapter: `decide_with_quick_retry` owns that, and the
+    // hint must not have introduced a second one. `expect(1)` above asserts it.
+}
+
+/// Issue #925: a headless provider that sends the hint headers on a SUCCESS
+/// must still be decoded — a bad or unexpected header never fails a request
+/// that otherwise succeeded.
+#[tokio::test]
+async fn a_successful_answer_with_hint_headers_is_decoded_unchanged() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(HintHeadersSystemOne)
+        .mount(&server)
+        .await;
+    let mut client = HttpDecisionClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "k".into(),
+        Duration::from_secs(5),
+    )
+    .expect("a decision-capable provider builds a client");
+    client.endpoint = server.uri();
+
+    let outcome = client
+        .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
+        .await
+        .expect("the hint headers must not disturb the decode");
+    assert_eq!(outcome.answers.len(), 2);
+    assert_eq!(outcome.usage.tokens_in, 157);
 }
