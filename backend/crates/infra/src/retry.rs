@@ -143,12 +143,25 @@ impl RetryHint {
 /// an error.
 #[must_use]
 pub(crate) fn parse_retry_hint(headers: &HeaderMap, status: StatusCode) -> RetryHint {
+    parse_retry_hint_at(headers, status, SystemTime::now())
+}
+
+/// [`parse_retry_hint`] against an explicit clock.
+///
+/// Production reads `SystemTime::now()` exactly once per response; the tests pin
+/// one timestamp instead. Keeping the clock a **parameter** is what makes the
+/// parsers pure functions of `(headers, status, now)`: a relative header can be
+/// asserted as an exact duration instead of a window that widens with the test's
+/// own runtime (AGENTS.md §4 — no wall-clock budgets).
+#[must_use]
+fn parse_retry_hint_at(headers: &HeaderMap, status: StatusCode, now: SystemTime) -> RetryHint {
     RetryHint {
         class: RetryClass::of(status),
-        wait: header_str(headers, "retry-after").and_then(parse_retry_after),
+        wait: header_str(headers, "retry-after").and_then(|raw| parse_retry_after(raw, now)),
         limit_remaining: header_str(headers, "x-ratelimit-remaining")
             .and_then(parse_limit_remaining),
-        limit_reset: header_str(headers, "x-ratelimit-reset").and_then(parse_limit_reset),
+        limit_reset: header_str(headers, "x-ratelimit-reset")
+            .and_then(|raw| parse_limit_reset(raw, now)),
     }
 }
 
@@ -258,9 +271,9 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &'static str) -> Option<&'a str>
     }
 }
 
-/// `Retry-After` as a wait: delta-seconds or an HTTP-date.
+/// `Retry-After` as a wait: delta-seconds or an HTTP-date resolved against `now`.
 #[must_use]
-fn parse_retry_after(raw: &str) -> Option<Duration> {
+fn parse_retry_after(raw: &str, now: SystemTime) -> Option<Duration> {
     let raw = raw.trim();
     if raw.is_empty() {
         return None;
@@ -270,9 +283,7 @@ fn parse_retry_after(raw: &str) -> Option<Duration> {
     }
     match httpdate::parse_http_date(raw) {
         // A date in the past means "you may retry now", not "wait -3 s".
-        Ok(at) => Some(cap_server_hint(
-            at.duration_since(SystemTime::now()).unwrap_or_default(),
-        )),
+        Ok(at) => Some(cap_server_hint(at.duration_since(now).unwrap_or_default())),
         Err(error) => {
             tracing::debug!(
                 header = "retry-after",
@@ -303,9 +314,9 @@ fn parse_limit_remaining(raw: &str) -> Option<u64> {
     }
 }
 
-/// `X-RateLimit-Reset` as "how long until the window resets".
+/// `X-RateLimit-Reset` as "how long until the window resets", against `now`.
 #[must_use]
-fn parse_limit_reset(raw: &str) -> Option<Duration> {
+fn parse_limit_reset(raw: &str, now: SystemTime) -> Option<Duration> {
     let raw = raw.trim();
     let Ok(value) = raw.parse::<u64>() else {
         tracing::debug!(
@@ -321,7 +332,7 @@ fn parse_limit_reset(raw: &str) -> Option<Duration> {
             // A timestamp so far away that it overflows the clock is nonsense;
             // the cap is the answer, not an error.
             .map_or(MAX_SERVER_HINT, |at| {
-                at.duration_since(SystemTime::now()).unwrap_or_default()
+                at.duration_since(now).unwrap_or_default()
             })
     } else {
         Duration::from_secs(value)

@@ -14,8 +14,17 @@ use reqwest::header::{HeaderMap, HeaderValue};
 
 use super::{
     Backoff, MAX_SERVER_HINT, RetryClass, RetryHint, parse_limit_remaining, parse_limit_reset,
-    parse_retry_after, parse_retry_hint,
+    parse_retry_after, parse_retry_hint, parse_retry_hint_at,
 };
+
+/// The fixed reference clock every relative-header test parses against.
+///
+/// The parsers take `now` as a parameter precisely so no assertion depends on
+/// how long the test itself runs (AGENTS.md §4). 1_763_500_000 s ≈ 2025-11-19,
+/// safely above the delta/epoch split in `parse_limit_reset`.
+fn now() -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(1_763_500_000)
+}
 
 /// A header map with the given `(name, value)` pairs.
 fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
@@ -104,28 +113,31 @@ fn retry_after_delta_seconds_is_read() {
 
 #[test]
 fn retry_after_surrounding_whitespace_is_tolerated() {
-    assert_eq!(parse_retry_after("  7 "), Some(Duration::from_secs(7)));
+    assert_eq!(
+        parse_retry_after("  7 ", now()),
+        Some(Duration::from_secs(7))
+    );
 }
 
 #[test]
 fn retry_after_http_date_is_read() {
-    // The delta is computed against "now", so the assertion is a bound, not an
-    // equality: `fmt_http_date` truncates to whole seconds.
-    let at = SystemTime::now() + Duration::from_secs(90);
+    // Both the header and the clock are fixed, so the answer is an exact
+    // duration — nothing here can drift with the test's runtime.
+    let at = now() + Duration::from_secs(90);
     let raw = httpdate::fmt_http_date(at);
-    let wait = parse_retry_after(&raw).expect("an IMF-fixdate is a valid Retry-After");
-    assert!(
-        wait >= Duration::from_secs(80) && wait <= Duration::from_secs(90),
-        "expected ~90 s until the stated date, got {wait:?}"
+    assert_eq!(
+        parse_retry_after(&raw, now()),
+        Some(Duration::from_secs(90)),
+        "an IMF-fixdate resolves to the time left until it"
     );
 }
 
 #[test]
 fn retry_after_in_the_past_is_no_wait() {
-    let at = SystemTime::now() - Duration::from_secs(600);
+    let at = now() - Duration::from_secs(600);
     let raw = httpdate::fmt_http_date(at);
     assert_eq!(
-        parse_retry_after(&raw),
+        parse_retry_after(&raw, now()),
         Some(Duration::ZERO),
         "a date that already passed means 'retry now', not a negative wait"
     );
@@ -133,15 +145,15 @@ fn retry_after_in_the_past_is_no_wait() {
 
 #[test]
 fn an_unparsable_retry_after_is_ignored() {
-    assert_eq!(parse_retry_after("soon"), None);
-    assert_eq!(parse_retry_after(""), None);
-    assert_eq!(parse_retry_after("-5"), None);
+    assert_eq!(parse_retry_after("soon", now()), None);
+    assert_eq!(parse_retry_after("", now()), None);
+    assert_eq!(parse_retry_after("-5", now()), None);
 }
 
 #[test]
 fn an_absurd_retry_after_is_capped() {
     assert_eq!(
-        parse_retry_after(&u64::MAX.to_string()),
+        parse_retry_after(&u64::MAX.to_string(), now()),
         Some(MAX_SERVER_HINT)
     );
     let hint = parse_retry_hint(
@@ -165,39 +177,45 @@ fn rate_limit_remaining_is_read() {
 
 #[test]
 fn rate_limit_reset_as_delta_seconds_is_read() {
-    assert_eq!(parse_limit_reset("60"), Some(Duration::from_secs(60)));
+    assert_eq!(
+        parse_limit_reset("60", now()),
+        Some(Duration::from_secs(60))
+    );
 }
 
 #[test]
 fn rate_limit_reset_as_epoch_seconds_is_normalised() {
-    let epoch = SystemTime::now()
+    let epoch = now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("the wall clock is after 1970")
+        .expect("the fixed clock is after 1970")
         .as_secs()
         + 120;
-    let wait = parse_limit_reset(&epoch.to_string()).expect("an epoch stamp is readable");
-    assert!(
-        wait >= Duration::from_secs(110) && wait <= Duration::from_secs(120),
-        "an epoch stamp must normalise to 'until the reset', got {wait:?}"
+    assert_eq!(
+        parse_limit_reset(&epoch.to_string(), now()),
+        Some(Duration::from_secs(120)),
+        "an epoch stamp normalises to 'until the reset', exactly"
     );
 }
 
 #[test]
 fn a_past_epoch_reset_is_no_wait() {
     // 2001-09-09: above the delta/epoch split, far in the past.
-    assert_eq!(parse_limit_reset("1000000000"), Some(Duration::ZERO));
+    assert_eq!(parse_limit_reset("1000000000", now()), Some(Duration::ZERO));
 }
 
 #[test]
 fn an_unparsable_rate_limit_reset_is_ignored() {
-    assert_eq!(parse_limit_reset("Wed, 21 Oct 2015 07:28:00 GMT"), None);
-    assert_eq!(parse_limit_reset("-1"), None);
+    assert_eq!(
+        parse_limit_reset("Wed, 21 Oct 2015 07:28:00 GMT", now()),
+        None
+    );
+    assert_eq!(parse_limit_reset("-1", now()), None);
 }
 
 #[test]
 fn a_huge_epoch_reset_is_capped_instead_of_overflowing() {
     assert_eq!(
-        parse_limit_reset(&u64::MAX.to_string()),
+        parse_limit_reset(&u64::MAX.to_string(), now()),
         Some(MAX_SERVER_HINT)
     );
 }
@@ -231,13 +249,17 @@ fn an_unreadable_header_value_degrades_to_none() {
 
 #[test]
 fn every_hint_field_is_reported_together() {
-    let hint = parse_retry_hint(
+    // Delta-only headers do not consult the clock, but pinning it keeps the
+    // suite clock-free end to end — and a test that reads `SystemTime::now()`
+    // nowhere cannot flake on a slow runner.
+    let hint = parse_retry_hint_at(
         &headers(&[
             ("retry-after", "3"),
             ("x-ratelimit-remaining", "0"),
             ("x-ratelimit-reset", "12"),
         ]),
         StatusCode::TOO_MANY_REQUESTS,
+        now(),
     );
     assert_eq!(
         hint,
