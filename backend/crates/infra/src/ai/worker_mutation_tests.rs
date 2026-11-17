@@ -220,6 +220,7 @@ impl AiImportQueue for MockQueue {
         _: &str,
         _error_code: Option<&str>,
         _: bool,
+        _retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
         Ok(())
     }

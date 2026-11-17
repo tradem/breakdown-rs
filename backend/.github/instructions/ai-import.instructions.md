@@ -23,7 +23,7 @@ applyTo:
 - `AI_IMPORT_MAX_DOCUMENT_BYTES` – maximum source document size (default: `20971520`).
 - `AI_IMPORT_REQUEST_TIMEOUT_SECS` – provider request timeout (default: `120`).
 - `AI_IMPORT_MAX_RETRIES` – **job-level** retries before dead-lettering (default: `5`).
-- `AI_IMPORT_MAX_ATTEMPT_RETRIES` – **in-attempt** retries of one chunk's provider call (default: `2`, bounded `0..=10`). Since issue #871 this is a *second* knob: one knob allowed `5 × 5 = 25` paid calls for a single chunk before anything surfaced, each holding a concurrency permit for up to `AI_IMPORT_REQUEST_TIMEOUT_SECS`. `1 + 2 = 3` attempts per chunk is enough to tell a blip from an outage. The analytic worst case of one attempt across **both** nested layers is `(1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs + max_attempt_retries × 30 s` = **19 min** hosted (`inner = 2`) / **25 min** Ollama (`inner ≤ 3`), because the clients re-request a truncated/malformed answer inside one attempt.
+- `AI_IMPORT_MAX_ATTEMPT_RETRIES` – **in-attempt** retries of one chunk's provider call (default: `2`, bounded `0..=10`). Since issue #871 this is a *second* knob: one knob allowed `5 × 5 = 25` paid calls for a single chunk before anything surfaced, each holding a concurrency permit for up to `AI_IMPORT_REQUEST_TIMEOUT_SECS`. `1 + 2 = 3` attempts per chunk is enough to tell a blip from an outage. The analytic worst case of one attempt across **both** nested layers is `(1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs + max_attempt_retries × max(30 s, MAX_IN_ATTEMPT_HINT_SECS)` = **22 min** hosted (`inner = 2`) / **28 min** Ollama (`inner ≤ 3`), because the clients re-request a truncated/malformed answer inside one attempt and, since issue #926, a provider-requested wait can raise each in-attempt pause from 30 s to 120 s (see "Provider retry hints").
 - `AI_IMPORT_BREAKER_FAILURE_THRESHOLD` – consecutive retryable provider failures for one `(provider, model)` pair that open the breaker (default: `3`, bounded `1..=10`). Counted per **pair across all jobs, chunks and replicas**. A threshold above `1 + AI_IMPORT_MAX_ATTEMPT_RETRIES` is accepted but logged at startup: the breaker still opens, just more slowly, because one chunk then contributes one failure instead of up to three.
 - `AI_IMPORT_BREAKER_ENABLED` – kill switch for the breaker (default: `true`; accepted spellings as `AI_IMPORT_ENABLED`). `false` restores the pre-#871 behaviour exactly.
 - `AI_IMPORT_MAX_PROVIDER_HOLD_SECS` – how long one **hold series** may last before the job dead-letters with the provider narrative (default: `21600` = 6 h, bounded `60..=604800`). Measured from the first hold of the series, so a flapping provider cannot reset the budget one probe at a time.
@@ -300,13 +300,18 @@ attempt can occupy a permit is therefore a computed number, not a guess:
 
 ```
 (1 + AI_IMPORT_MAX_ATTEMPT_RETRIES) × (1 + inner_retries) × AI_IMPORT_REQUEST_TIMEOUT_SECS
-  + AI_IMPORT_MAX_ATTEMPT_RETRIES × 30 s
+  + AI_IMPORT_MAX_ATTEMPT_RETRIES × max(30 s, MAX_IN_ATTEMPT_HINT_SECS)
 ```
 
 with `inner_retries = 2` for hosted providers (`HOSTED_INNER_RETRIES`) and `3` for
 Ollama (`OLLAMA_INNER_RETRIES`) — the clients re-request a truncated/malformed
-answer *inside* one attempt, so the two layers **multiply**. With the defaults:
-**19 min** hosted, **25 min** Ollama. `AiImportBounds::attempt_worst_case_secs`
+answer *inside* one attempt, so the two layers **multiply**. The backoff term is a
+**ceiling over both** the computed cap (`MAX_ATTEMPT_BACKOFF_SECS`, 30 s) and the
+server-hint clamp (`MAX_IN_ATTEMPT_HINT_SECS`, 120 s) introduced by issue #926,
+because `retry_bounded` sleeps `max(computed, hint)`. With the defaults:
+**22 min** hosted, **28 min** Ollama (pre-#926 these were 19/25 min, and a
+`const` assertion in `bounds.rs` keeps the ceiling ≥ both clamps).
+`AiImportBounds::attempt_worst_case_secs`
 is the authoritative rendering and is asserted in `bounds_tests.rs`; the inner
 counts are declared in `core` and read by the clients, so the arithmetic cannot
 drift from the code it describes.
@@ -320,6 +325,57 @@ drift from the code it describes.
 > cost change, not a regression: an operator who wants the old ladder can set
 > `AI_IMPORT_MAX_ATTEMPT_RETRIES`, and `AI_IMPORT_MAX_RETRIES` keeps its job-level
 > meaning untouched.
+
+#### Provider retry hints (issue #926)
+
+Every hosted provider we integrate signals a rate limit with `429` plus
+`Retry-After` / `X-RateLimit-*`. Since issue #926 that header is **acted on**:
+the transport parses it into a `RetryHint`, the classification attaches `wait` to
+the failing `DomainError::ServiceUnavailable` as `retry_after`, and the four
+schedulers that already exist use it as a **minimum** delay.
+
+**The one rule that must not be broken:** the hint is never slept through inside
+the provider call. That call holds an `ai_import.concurrency_permit`, so an
+in-request sleep would hold capacity for the hint's whole duration — the
+nested-hold anti-pattern #871 removed (25 paid calls / 19–25 min permit-hold per
+chunk). The hint propagates **up** as data instead.
+
+| Scheduler | How the hint is used | Clamp |
+|---|---|---|
+| `workers::retry_bounded` (in-attempt chunk retry) | the wait becomes `max(computed backoff, hint)`; jitter stays on the computed backoff | `MAX_IN_ATTEMPT_HINT_SECS` = **120 s**, because the pause holds a permit |
+| `queue::mark_failed` (job-level retry) | `next_attempt_at = now + max(1 min·2^retries, hint)` | **6 h**, the ladder's own literal cap; a larger hint is clamped and logged at `warn` |
+| `core::ai::provider_health` (breaker probe schedule) | `retry_at = now + max(open window, hint)` — the probe selector already reads `retry_at <= now()`, so a hint-unexpired pair is not probed | `MAX_PROBE_DEFER_SECS` = `MAX_OPEN_SECS` (30 min): a probe is never deferred beyond the breaker's own maximum window |
+| `ProviderHold.until` (hold series) | inherits `retry_at`, so a held job's `next_attempt_at` honours the hint too | bounded by `AI_IMPORT_MAX_PROVIDER_HOLD_SECS` for the whole series |
+
+Notes that keep this honest:
+
+- **No new environment knob.** Both clamps are constants named above; only a
+  future *policy* change (not a deployment tweak) would justify a knob, and it
+  would need bounds plus startup logging like the existing ones.
+- **Classification is unchanged.** A hint never changes the variant, the
+  registered code (`ai-import.llm-provider-unavailable`), the HTTP status or
+  `is_retryable()`. Separating quota-exhausted `429`s from burst `429`s stays a
+  follow-up.
+- **The narrative names the rate limit.** The attempt row's `error_summary`
+  says "… asked to wait Ns", and both the text and the typed field come from the
+  one `retry_after` input at the classification boundary — `core` builds no
+  presentation string (ADR-031).
+- **A bad hint is never an error.** An absent, unparsable or absurd header
+  degrades to "no hint" (or the one-day `MAX_SERVER_HINT` cap in the parser), and
+  the request keeps its ordinary outcome.
+- **A hint-less failure never shortens a deferral an earlier hint earned.** The
+  `retry_at` write is unconditional, so the deadline is data on the row and
+  `BreakerCounters` carries it into the state machine: while it is unexpired the
+  probe keeps the later of it and the newly computed time. Without that, the
+  60 s open window of the next ordinary `503` would pull a 10-minute rate-limit
+  deferral forward and the probe would fire into a provider that is still
+  rate-limiting us. An **expired** stored deadline is discarded — nothing is left
+  to protect.
+- **Not honoured, deliberately:** the decision-scoring pass
+  (`decision_scoring::decide_with_quick_retry`) and the pricing-catalog ticker.
+  The first carries the hint into the job-level retry but keeps its own single
+  fixed pause (its policy is a bounded two-call pass, not a scheduling loop); the
+  second has no retry loop at all.
 
 #### Durable apply run (issue #899)
 

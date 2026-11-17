@@ -201,6 +201,7 @@ async fn merge_worker_empty_input_is_non_retryable() {
             _error_summary: &str,
             _error_code: Option<&str>,
             retryable: bool,
+            _retry_after: Option<std::time::Duration>,
         ) -> Result<(), DomainError> {
             self.state.lock().unwrap().failed_retryable.push(retryable);
             Ok(())
@@ -348,6 +349,7 @@ async fn merge_worker_success_records_telemetry() {
             _error_summary: &str,
             _error_code: Option<&str>,
             _retryable: bool,
+            _retry_after: Option<std::time::Duration>,
         ) -> Result<(), DomainError> {
             unimplemented!("the success path must not fail")
         }
@@ -578,6 +580,11 @@ impl FakeQueue {
 struct FakeQueueState {
     succeeded: Vec<AiImportJobId>,
     failed: Vec<AiImportJobId>,
+    /// The `mark_failed` payload per failed attempt — narrative, code,
+    /// retryability and the provider's wait hint (issue #926). The production
+    /// `mark_failed` persists the same four values, so a test can assert the
+    /// worker-to-queue call the database test cannot reach.
+    failed_attempts: Vec<(String, Option<String>, bool, Option<std::time::Duration>)>,
     telemetry: Vec<Telemetry>,
     /// Every live extraction progress frame the worker published, in order
     /// (issue #871 resume regression: the frames must be monotone after a
@@ -646,11 +653,21 @@ impl AiImportQueue for FakeQueue {
         &self,
         id: AiImportJobId,
         _worker_id: &str,
-        _error_summary: &str,
-        _error_code: Option<&str>,
-        _retryable: bool,
+        error_summary: &str,
+        error_code: Option<&str>,
+        retryable: bool,
+        retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
-        self.state.lock().unwrap().failed.push(id);
+        let mut state = self.state.lock().unwrap();
+        state.failed.push(id);
+        // Issue #926: the hint is what the job-level scheduler reads, so the
+        // fake records it next to the narrative the attempt row persists.
+        state.failed_attempts.push((
+            error_summary.to_owned(),
+            error_code.map(str::to_owned),
+            retryable,
+            retry_after,
+        ));
         Ok(())
     }
 
@@ -1583,6 +1600,80 @@ async fn oversized_script_transitions_to_failed_without_llm_calls() {
     assert_eq!(state.failed, vec![job.id]);
     assert!(state.succeeded.is_empty());
     assert!(state.telemetry.is_empty());
+}
+
+/// A provider that answers every chunk with a hint-carrying `429`.
+///
+/// Built through `DomainError::llm_provider_unavailable_with_hint` — the same
+/// constructor the real classification uses — so the test exercises the payload
+/// the scheduler reads, not a hand-rolled string.
+#[derive(Clone, Default)]
+struct RateLimitedLlmClient;
+
+#[async_trait]
+impl LlmClient for RateLimitedLlmClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::llm_provider_unavailable_with_hint(
+            "LLM provider returned HTTP 429 Too Many Requests and asked to wait 5s",
+            Some(std::time::Duration::from_secs(5)),
+        ))
+    }
+}
+
+/// Issue #926: a rate-limited chunk reaches the JOB-level scheduler with the
+/// provider's wait attached and named in the persisted narrative.
+///
+/// This is the worker-to-queue half of the chain; the SQL half (the clamp that
+/// turns the hint into `next_attempt_at`) is asserted against Postgres in
+/// `ai_queue_mutation_hardening`.
+// A paused clock: the in-attempt backoff is slept for real otherwise, and this
+// test asserts VALUES, never a duration (AGENTS.md §4).
+#[tokio::test(start_paused = true)]
+async fn a_rate_limited_chunk_hands_the_provider_wait_to_the_job_scheduler() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = script_worker_with_client(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        RateLimitedLlmClient,
+    );
+    let job = script_job(AiImportJobId::new());
+
+    let result = worker
+        .process_text(&job, "test-worker", "Ep.: 5\n1 I/T - ORT\nA")
+        .await;
+
+    assert!(
+        matches!(result, Err(DomainError::ServiceUnavailable { .. })),
+        "a 429 stays retryable: {result:?}"
+    );
+    let state = queue.state.lock().unwrap();
+    assert_eq!(state.failed, vec![job.id]);
+    let (summary, code, retryable, hint) = state
+        .failed_attempts
+        .first()
+        .expect("the failed attempt must be reported to the queue");
+    assert!(
+        *retryable,
+        "a 429 keeps the retry budget (quota differentiation is a non-goal)"
+    );
+    assert_eq!(
+        code.as_deref(),
+        Some("ai-import.llm-provider-unavailable"),
+        "the attribution stays #822's registered code"
+    );
+    assert_eq!(
+        *hint,
+        Some(std::time::Duration::from_secs(5)),
+        "the server's wait must survive to the job-level scheduler"
+    );
+    assert!(
+        summary.contains("wait 5s"),
+        "the persisted narrative must name the rate limit and the wait: {summary}"
+    );
 }
 
 /// Scene-command double faithful to the `SceneAggregate` + adapter contract
@@ -6216,6 +6307,7 @@ impl DecisionClient for FailingDecisionClient {
         Err(DomainError::ServiceUnavailable {
             code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
             reason: "decision endpoint down".into(),
+            retry_after: None,
         })
     }
 }
@@ -6246,6 +6338,7 @@ impl breakdown_core::settings::CredentialVault for UnreadableCredentialVault {
         Err(DomainError::ServiceUnavailable {
             code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
             reason: "vault unavailable".into(),
+            retry_after: None,
         })
     }
 

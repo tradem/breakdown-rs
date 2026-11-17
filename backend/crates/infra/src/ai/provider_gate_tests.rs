@@ -120,6 +120,7 @@ impl AiImportQueue for BreakerQueue {
         _error_summary: &str,
         _error_code: Option<&str>,
         _retryable: bool,
+        _retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
         unreachable!("the gate tests never write")
     }
@@ -163,7 +164,7 @@ impl AiImportQueue for BreakerQueue {
         // One counter, incremented on a retryable failure and reset on a success,
         // and no lock is ever held while another is acquired.
         let consecutive_failures = match outcome {
-            ProviderOutcome::RetryableFailure => {
+            ProviderOutcome::RetryableFailure { retry_after: _ } => {
                 let failures = self.failures.fetch_add(1, Ordering::SeqCst) + 1;
                 self.recorded.lock().unwrap().push(("failure", true));
                 if failures >= self.opens_after {
@@ -482,7 +483,7 @@ async fn the_kill_switch_records_nothing() {
 
     // Admits despite the open state, and records nothing at all.
     assert!(gate.admits().await);
-    assert!(!gate.record_failure().await);
+    assert!(!gate.record_failure(None).await);
     gate.record_success().await;
     assert!(queue.recorded().is_empty());
 }
@@ -581,4 +582,121 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
         is_breaker_open(&domain),
         "the last-permitted failure must return the sentinel, not the raw error"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Hint-aware in-attempt backoff (issue #926)
+// ---------------------------------------------------------------------------
+
+/// A retryable provider failure that carries the wait the provider asked for.
+fn rate_limited(wait: std::time::Duration) -> anyhow::Error {
+    anyhow::Error::new(DomainError::llm_provider_unavailable_with_hint(
+        format!(
+            "LLM provider returned HTTP 429 and asked to wait {}s",
+            wait.as_secs()
+        ),
+        Some(wait),
+    ))
+}
+
+/// Run `retry_bounded` on a paused clock and report the **virtual** time it
+/// spent sleeping plus the number of calls it made.
+///
+/// A paused tokio clock auto-advances while every task is idle, so the elapsed
+/// `Instant` is exactly the sum of the sleeps — no wall-clock budget, no
+/// tolerance window (AGENTS.md §4).
+async fn retry_cost<F>(make_error: F, max_retries: usize) -> (std::time::Duration, usize)
+where
+    F: Fn() -> anyhow::Error,
+{
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 3,
+        enabled: true,
+    };
+    let calls = std::sync::atomic::AtomicUsize::new(0);
+    let started = tokio::time::Instant::now();
+    let _: Result<(), anyhow::Error> = retry_bounded(
+        || async {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(make_error())
+        },
+        max_retries,
+        &gate,
+    )
+    .await;
+    (
+        started.elapsed(),
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+    )
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_provider_hint_above_the_computed_backoff_is_waited_out() {
+    // The pre-#926 behaviour retried after the ~1 s the equal-jitter formula
+    // yields for attempt 1, ignoring the 5 s the provider asked for.
+    let (elapsed, calls) = retry_cost(|| rate_limited(std::time::Duration::from_secs(5)), 1).await;
+    assert_eq!(calls, 2, "exactly one retry");
+    assert_eq!(
+        elapsed,
+        std::time::Duration::from_secs(5),
+        "the virtual clock must advance by the hint, not by the guessed backoff"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_provider_hint_below_the_computed_backoff_does_not_shorten_it() {
+    // Attempt 1 of `EqualJitter { 500 ms, 30 s }` is 1000 ms + up to 250 ms of
+    // jitter, so the window is analytic even though the jitter is random.
+    let (elapsed, calls) =
+        retry_cost(|| rate_limited(std::time::Duration::from_millis(1)), 1).await;
+    assert_eq!(calls, 2);
+    assert!(
+        elapsed >= std::time::Duration::from_millis(1_000),
+        "the hint is a floor, never a reduction: {elapsed:?}"
+    );
+    assert!(
+        elapsed <= std::time::Duration::from_millis(1_250),
+        "the computed backoff keeps its 25 % jitter cap: {elapsed:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_absurd_provider_hint_is_clamped_to_the_permit_bound() {
+    // `Retry-After: 3600` must not hold the concurrency permit for an hour. The
+    // clamp is `core::ai::MAX_IN_ATTEMPT_HINT_SECS`, which is the number
+    // `attempt_worst_case_secs` multiplies — this test is what keeps the
+    // documented 22/28 min honest.
+    let (elapsed, calls) =
+        retry_cost(|| rate_limited(std::time::Duration::from_secs(3_600)), 1).await;
+    assert_eq!(calls, 2);
+    assert_eq!(
+        elapsed,
+        std::time::Duration::from_secs(breakdown_core::ai::MAX_IN_ATTEMPT_HINT_SECS),
+        "a hint beyond the clamp waits the clamp and no longer"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hint_less_failure_keeps_the_pre_926_timing() {
+    // Byte-compatibility for every non-provider and hint-less failure: the same
+    // analytic window as above, with nothing added.
+    let (elapsed, calls) = retry_cost(transient, 1).await;
+    assert_eq!(calls, 2);
+    assert!(
+        (std::time::Duration::from_millis(1_000)..=std::time::Duration::from_millis(1_250))
+            .contains(&elapsed)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hint_does_not_create_a_retry_the_budget_forbids() {
+    // Zero in-attempt retries stays zero, even when the provider asks for a wait:
+    // the hint schedules the EXISTING retries, it does not add any.
+    let (elapsed, calls) = retry_cost(|| rate_limited(std::time::Duration::from_secs(5)), 0).await;
+    assert_eq!(calls, 1, "no retry is granted by a hint");
+    assert_eq!(elapsed, std::time::Duration::ZERO, "and nothing is slept");
 }

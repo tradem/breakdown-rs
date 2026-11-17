@@ -16,6 +16,37 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.71.0] - Unreleased
+
+### Changed — a provider's own retry hint is carried across the error boundary (issue #926)
+
+- `DomainError::ServiceUnavailable` gains `retry_after: Option<Duration>`: the
+  wait the dependency itself asked for (`Retry-After` / `X-RateLimit-Reset`).
+  Deliberately a sibling field, not a new variant — a `429` already renders the
+  registered `ai-import.llm-provider-unavailable` code, and a new variant would
+  need its own ADR-031 problem-code story. `Duration` is `Copy`, so the error
+  stays `Clone + Send + 'static` and the hint survives the `await` between a
+  provider call and the retry scheduler.
+- `DomainError::llm_provider_unavailable_with_hint(reason, retry_after)`,
+  `DomainError::with_retry_after(…)` and the accessor `DomainError::retry_after()`
+  are the new surface; `service_unavailable(…)` and `llm_provider_unavailable(…)`
+  keep their signatures and pass `None`. The **narrative** is composed at the
+  `infra` classification boundary, so `core` gains no presentation `format!`
+  (ADR-031) and the typed value and the attempt row's text cannot disagree.
+- `AiImportQueue::mark_failed` takes a `retry_after: Option<Duration>`, and
+  `ProviderHealth::record_failure` / `ProviderOutcome::RetryableFailure` carry
+  it, so the job-level ladder and the breaker probe schedule honour the hint.
+- `AiImportBounds::attempt_worst_case_secs` uses the backoff **ceiling**
+  `max(MAX_ATTEMPT_BACKOFF_SECS, MAX_IN_ATTEMPT_HINT_SECS)` with the new
+  `MAX_IN_ATTEMPT_HINT_SECS = 120`: **22 min** hosted / **28 min** Ollama with
+  the defaults (19/25 min before). A `const` assertion keeps the ceiling ≥ both
+  clamps.
+- `provider_health::on_retryable_failure` takes the hint and sets
+  `retry_at = now + max(open window, hint)`, clamped to the new
+  `MAX_PROBE_DEFER_SECS` (= `MAX_OPEN_SECS`, 30 min) so a remote party cannot
+  defer a probe beyond the breaker's own maximum window. Because `retry_at` is
+  also a held job's `ProviderHold::until`, the hold inherits it.
+
 ## [0.68.0] - Unreleased
 
 ### Changed — the retry precedence is now a documented rule (issue #871, workstream C)

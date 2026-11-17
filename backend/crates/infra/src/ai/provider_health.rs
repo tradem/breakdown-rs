@@ -216,6 +216,7 @@ impl ProviderHealth for PgProviderHealth {
         provider: LlmProvider,
         model: &str,
         threshold: u32,
+        retry_after: Option<std::time::Duration>,
     ) -> Result<BreakerDecision, DomainError> {
         for _ in 0..CAS_ATTEMPTS {
             let (snapshot, closed_at) = self.read_or_create(provider, model).await?;
@@ -224,8 +225,12 @@ impl ProviderHealth for PgProviderHealth {
                 consecutive_failures: snapshot.consecutive_failures,
                 flap_count: snapshot.flap_count,
                 closed_at,
+                retry_at: snapshot.retry_at,
             };
-            let decision = on_retryable_failure(counters, threshold, Utc::now());
+            // Issue #926: the provider's own wait hint becomes the floor of the
+            // probe schedule, so `retry_at` (and therefore every hold's `until`)
+            // already respects it when the next watch tick looks for work.
+            let decision = on_retryable_failure(counters, threshold, Utc::now(), retry_after);
             if self.cas(provider, model, counters, decision).await? {
                 // Log every committed change, including the plain counter bump:
                 // an operator watching a provider degrade wants the ramp, not
@@ -253,6 +258,7 @@ impl ProviderHealth for PgProviderHealth {
                 consecutive_failures: snapshot.consecutive_failures,
                 flap_count: snapshot.flap_count,
                 closed_at,
+                retry_at: snapshot.retry_at,
             };
             let decision = on_success(counters);
             if self.cas(provider, model, counters, decision).await? {
@@ -392,6 +398,7 @@ impl ProviderHealth for PgProviderHealth {
                     consecutive_failures: 0,
                     flap_count: 0,
                     closed_at: None,
+                    retry_at: None,
                 });
                 Self::log_transition(lease.provider, &lease.model, &decision, "probe-reachable");
                 Ok(decision)
@@ -406,6 +413,7 @@ impl ProviderHealth for PgProviderHealth {
                     consecutive_failures: snapshot.consecutive_failures,
                     flap_count: snapshot.flap_count,
                     closed_at,
+                    retry_at: snapshot.retry_at,
                 };
                 let decision = on_probe_failure(counters, Utc::now());
                 let result = sqlx::query(

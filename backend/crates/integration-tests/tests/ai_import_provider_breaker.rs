@@ -84,7 +84,7 @@ async fn open_breaker(health: &PgProviderHealth, threshold: u32) -> DateTime<Utc
     let mut retry_at = None;
     for _ in 0..threshold {
         let decision = health
-            .record_failure(PROVIDER, MODEL, threshold)
+            .record_failure(PROVIDER, MODEL, threshold, None)
             .await
             .unwrap();
         retry_at = decision.retry_at;
@@ -183,6 +183,56 @@ async fn an_open_breaker_filters_the_claim_and_a_close_admits_it() -> Result<()>
 
     let claimed = queue.claim_next("w1").await?.expect("claimable again");
     assert_eq!(claimed.id, id);
+    Ok(())
+}
+
+/// Issue #926 review: a hint the provider already earned must survive a LATER
+/// failure that carries none.
+///
+/// The failure path writes `retry_at` unconditionally, so the only memory of the
+/// hint is the stored row — this asserts it through the real compare-and-set,
+/// which a table test cannot reach.
+#[tokio::test]
+async fn a_hintless_failure_keeps_the_deferred_probe() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let health = PgProviderHealth::new(pool);
+
+    // Open the breaker ON a hint: the probe is deferred by the provider's window.
+    let opened = health
+        .record_failure(
+            PROVIDER,
+            MODEL,
+            1,
+            Some(std::time::Duration::from_secs(600)),
+        )
+        .await?;
+    assert!(opened.opened);
+    let deferred = opened.retry_at.expect("an open breaker has a probe time");
+
+    // A second failure arrives WITHOUT a hint — the ordinary 60 s open window is
+    // shorter, and recomputing it alone would pull the probe forward.
+    let after = health.record_failure(PROVIDER, MODEL, 1, None).await?;
+    assert!(!after.opened, "still the same open incident");
+    // Compared in microseconds: the column is `TIMESTAMPTZ` (microsecond
+    // precision) while the in-memory instant keeps nanoseconds, so the durable
+    // round trip truncates sub-microsecond digits. The instant is the same.
+    let retained = after.retry_at.expect("an open breaker has a probe time");
+    assert_eq!(
+        retained.timestamp_micros(),
+        deferred.timestamp_micros(),
+        "the unexpired hint deadline must not be shortened by a hint-less failure"
+    );
+    // The durable row, not only the returned decision.
+    assert_eq!(
+        health
+            .state(PROVIDER, MODEL)
+            .await?
+            .retry_at
+            .map(|stored| stored.timestamp_micros()),
+        Some(deferred.timestamp_micros()),
+        "the CAS must persist the retained deadline"
+    );
+
     Ok(())
 }
 
@@ -632,8 +682,8 @@ async fn only_retryable_failures_count_and_a_permanent_one_never_opens() -> Resu
     assert_eq!(snapshot.consecutive_failures, 0);
 
     // Two retryable failures are still below the threshold of three.
-    health.record_failure(PROVIDER, MODEL, 3).await?;
-    let snapshot = health.record_failure(PROVIDER, MODEL, 3).await?;
+    health.record_failure(PROVIDER, MODEL, 3, None).await?;
+    let snapshot = health.record_failure(PROVIDER, MODEL, 3, None).await?;
     assert!(!snapshot.opened);
     assert_eq!(
         health.state(PROVIDER, MODEL).await?.state,
@@ -646,7 +696,7 @@ async fn only_retryable_failures_count_and_a_permanent_one_never_opens() -> Resu
     );
 
     // The third opens it.
-    let opened = health.record_failure(PROVIDER, MODEL, 3).await?;
+    let opened = health.record_failure(PROVIDER, MODEL, 3, None).await?;
     assert!(opened.opened);
     assert_eq!(
         health.state(PROVIDER, MODEL).await?.state,
@@ -666,14 +716,14 @@ async fn the_flap_rule_escalates_the_open_window() -> Result<()> {
     let health = PgProviderHealth::new(pool.clone());
 
     // First outage: no prior close, so flap_count stays 0 (a 60 s window).
-    let first = health.record_failure(PROVIDER, MODEL, 1).await?;
+    let first = health.record_failure(PROVIDER, MODEL, 1, None).await?;
     assert_eq!(first.flap_count, 0);
     let first_window = first.retry_at.expect("open") - Utc::now();
 
     // Close it, then fail again immediately: that is a flap, so the window
     // doubles.
     health.record_success(PROVIDER, MODEL).await?;
-    let second = health.record_failure(PROVIDER, MODEL, 1).await?;
+    let second = health.record_failure(PROVIDER, MODEL, 1, None).await?;
     assert_eq!(
         second.flap_count, 1,
         "a close followed by a quick failure flaps"
@@ -695,6 +745,7 @@ fn _counters_are_part_of_the_contract() -> BreakerCounters {
         consecutive_failures: 0,
         flap_count: 0,
         closed_at: None,
+        retry_at: None,
     }
 }
 

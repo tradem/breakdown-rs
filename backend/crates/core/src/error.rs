@@ -6,6 +6,8 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+use std::time::Duration;
+
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -94,10 +96,24 @@ pub enum DomainError {
     },
 
     /// Upstream dependency unavailable (503).
+    ///
+    /// `retry_after` carries the wait the **dependency itself** asked for
+    /// (`Retry-After` / `X-RateLimit-Reset`, issue #926), so the schedulers can
+    /// use it as a *minimum* delay instead of guessing. It is `None` for every
+    /// failure that has no server-side hint — including the non-provider
+    /// services (mapping DB, payload storage, pricing read model) that share
+    /// this variant.
+    ///
+    /// Deliberately a sibling field and not a new variant: a `429` is already
+    /// the registered `ai-import.llm-provider-unavailable` code, and an extra
+    /// variant would need its own ADR-031 problem-code story. `Duration` is
+    /// `Copy`, so the error stays `Clone + Send + 'static`, which is what lets
+    /// it cross the `await` between a provider call and the retry scheduler.
     #[error("service unavailable: {reason}")]
     ServiceUnavailable {
         code: &'static ProblemCode,
         reason: String,
+        retry_after: Option<std::time::Duration>,
     },
 
     /// Upstream dependency rejected our credential (401/403, invalid or
@@ -683,6 +699,7 @@ impl DomainError {
         DomainError::ServiceUnavailable {
             code: &DOMAIN_SERVICE_UNAVAILABLE,
             reason: reason.into(),
+            retry_after: None,
         }
     }
 
@@ -705,6 +722,63 @@ impl DomainError {
         DomainError::ServiceUnavailable {
             code: &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
             reason: reason.into(),
+            retry_after: None,
+        }
+    }
+
+    /// 503 — the **LLM provider** rate-limited or failed a request **and told us
+    /// how long to wait** (issue #926).
+    ///
+    /// Same variant, same registered code, same retryability as
+    /// [`Self::llm_provider_unavailable`]; the only difference is that
+    /// `retry_after` carries the server's hint, so three schedulers can honour
+    /// it instead of guessing: `workers::retry_bounded` uses it as the floor of
+    /// the in-attempt backoff, `queue::mark_failed` clamps it into
+    /// `next_attempt_at`, and the breaker's `retry_at` (the probe schedule) is
+    /// pushed out to it.
+    ///
+    /// The `reason` must already name the rate limit and the wait: `core` does
+    /// no presentation string building here (ADR-031), and the attempt row's
+    /// narrative is this very string.
+    pub fn llm_provider_unavailable_with_hint(
+        reason: impl Into<String>,
+        retry_after: Option<std::time::Duration>,
+    ) -> Self {
+        DomainError::ServiceUnavailable {
+            code: &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
+            reason: reason.into(),
+            retry_after,
+        }
+    }
+
+    /// Attach the dependency's own wait hint to an error that already exists
+    /// (issue #926).
+    ///
+    /// A no-op on every variant other than [`DomainError::ServiceUnavailable`],
+    /// which is the only one whose schedulers read a hint — so a call site can
+    /// express "the response carried `Retry-After`" without restructuring how it
+    /// built the error.
+    #[must_use]
+    pub fn with_retry_after(mut self, retry_after: Option<Duration>) -> Self {
+        if let DomainError::ServiceUnavailable {
+            retry_after: slot, ..
+        } = &mut self
+        {
+            *slot = retry_after;
+        }
+        self
+    }
+
+    /// The wait the failing dependency asked for, when it said so (issue #926).
+    ///
+    /// `None` for every variant that cannot carry a hint and for every
+    /// `ServiceUnavailable` without one, so a caller that only wants to schedule
+    /// a retry needs no `match` over the taxonomy.
+    #[must_use]
+    pub const fn retry_after(&self) -> Option<Duration> {
+        match self {
+            DomainError::ServiceUnavailable { retry_after, .. } => *retry_after,
+            _ => None,
         }
     }
 

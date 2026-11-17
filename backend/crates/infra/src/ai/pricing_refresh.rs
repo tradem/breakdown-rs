@@ -385,14 +385,16 @@ async fn fetch_json_with(
     // cadence is the interval ticker, NOT a retry loop — a permanently failing
     // catalog must not be hammered in a tight loop — so this site consumes the
     // core's classification/hint only, never a `Backoff`.
-    log_hint(
-        "pricing_catalog",
-        &parse_retry_hint(response.headers(), status),
-    );
+    let hint = parse_retry_hint(response.headers(), status);
+    log_hint("pricing_catalog", &hint);
     if !status.is_success() {
+        // The hint is carried but deliberately not scheduled on: this site's
+        // cadence is the interval ticker, and `retry_after` is documented as
+        // "when the dependency asked us to wait", which the refresh logs.
         return Err(DomainError::service_unavailable(format!(
             "pricing catalog {url} returned HTTP {status}"
-        )));
+        ))
+        .with_retry_after(hint.wait));
     }
     response.json().await.map_err(|error| {
         DomainError::service_unavailable(format!("invalid pricing catalog from {url}: {error}"))

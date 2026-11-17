@@ -2813,6 +2813,7 @@ impl AiImportQueue for FakeAiImportQueue {
         error_summary: &str,
         _error_code: Option<&str>,
         _retryable: bool,
+        _retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Failed;
@@ -3153,6 +3154,7 @@ impl AiImportQueue for FakeAiImportQueue {
             return Err(DomainError::ServiceUnavailable {
                 code: &breakdown_core::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
                 reason: "the telemetry write failed (test switch)".to_owned(),
+                retry_after: None,
             });
         }
         let owns = self

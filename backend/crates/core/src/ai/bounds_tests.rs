@@ -3,8 +3,8 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
 use super::{
-    AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, OLLAMA_INNER_RETRIES,
-    bounded_u32, bounded_u64,
+    AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, MAX_IN_ATTEMPT_HINT_SECS,
+    OLLAMA_INNER_RETRIES, bounded_u32, bounded_u64,
 };
 use std::env;
 
@@ -403,17 +403,37 @@ fn provider_hold_window_env_override_is_bounded() {
 // ===========================================================================
 
 #[test]
-fn the_default_attempt_window_is_19_minutes_hosted() {
-    // (1 + 2) × (1 + 2) × 120 s + 2 × 30 s = 1140 s
+fn the_default_attempt_window_is_22_minutes_hosted() {
+    // (1 + 2) × (1 + 2) × 120 s + 2 × max(30 s, 120 s) = 1320 s
     let b = AiImportBounds::default();
-    assert_eq!(b.attempt_worst_case_secs(HOSTED_INNER_RETRIES), 19 * 60);
+    assert_eq!(b.attempt_worst_case_secs(HOSTED_INNER_RETRIES), 22 * 60);
 }
 
 #[test]
-fn the_default_attempt_window_is_25_minutes_for_ollama() {
-    // (1 + 2) × (1 + 3) × 120 s + 2 × 30 s = 1500 s
+fn the_default_attempt_window_is_28_minutes_for_ollama() {
+    // (1 + 2) × (1 + 3) × 120 s + 2 × max(30 s, 120 s) = 1680 s
     let b = AiImportBounds::default();
-    assert_eq!(b.attempt_worst_case_secs(OLLAMA_INNER_RETRIES), 25 * 60);
+    assert_eq!(b.attempt_worst_case_secs(OLLAMA_INNER_RETRIES), 28 * 60);
+}
+
+#[test]
+fn the_hint_clamp_is_the_larger_backoff_term() {
+    // Issue #926: the backoff term is a ceiling over BOTH the computed cap and
+    // the server-hint clamp, because `retry_bounded` sleeps the larger of the
+    // two. Pinned so the arithmetic above cannot silently keep the pre-#926
+    // 19/25 min while the loop already honours a longer hint.
+    assert_eq!(MAX_IN_ATTEMPT_HINT_SECS, 120);
+    // `bounds.rs` carries the compile-time ordering assertions
+    // (`ATTEMPT_BACKOFF_CEILING_SECS >= both`), so a retune cannot leave the
+    // documented window describing a different number.
+    let b = AiImportBounds::default();
+    let timeout_term = (b.max_attempt_retries as u64 + 1)
+        * (HOSTED_INNER_RETRIES as u64 + 1)
+        * b.request_timeout_secs;
+    assert_eq!(
+        b.attempt_worst_case_secs(HOSTED_INNER_RETRIES),
+        timeout_term + b.max_attempt_retries as u64 * MAX_IN_ATTEMPT_HINT_SECS
+    );
 }
 
 #[test]
@@ -423,7 +443,7 @@ fn the_bound_multiplies_the_layers_rather_than_adding_them() {
     let b = AiImportBounds::default();
     let hosted = b.attempt_worst_case_secs(HOSTED_INNER_RETRIES);
     let outer_only = (b.max_attempt_retries as u64 + 1) * b.request_timeout_secs
-        + b.max_attempt_retries as u64 * MAX_ATTEMPT_BACKOFF_SECS;
+        + b.max_attempt_retries as u64 * MAX_IN_ATTEMPT_HINT_SECS;
     assert!(
         hosted > outer_only,
         "the client-internal retries must be part of the window: {hosted}s vs {outer_only}s"

@@ -315,7 +315,14 @@ async fn terminal_transitions_drop_the_rows_and_a_retryable_failure_keeps_them()
 
     // A retryable failure keeps the set: that IS the resume.
     queue
-        .mark_failed(id, "w1", "boom", Some("domain.service-unavailable"), true)
+        .mark_failed(
+            id,
+            "w1",
+            "boom",
+            Some("domain.service-unavailable"),
+            true,
+            None,
+        )
         .await?;
     assert_eq!(
         store.load(id).await?.len(),

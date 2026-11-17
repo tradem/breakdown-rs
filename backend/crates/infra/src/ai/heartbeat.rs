@@ -375,6 +375,7 @@ mod tests {
             _error_summary: &str,
             _error_code: Option<&str>,
             _retryable: bool,
+            _retry_after: Option<std::time::Duration>,
         ) -> Result<(), DomainError> {
             unimplemented!("not exercised by the heartbeat")
         }

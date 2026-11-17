@@ -75,6 +75,7 @@ use super::schedule_apply::{
     AppliedDay, DayDraft, ScheduleApplyWorker, derive_id, recover_version,
 };
 use crate::photo::sagas::is_transient;
+use crate::retry::{effective_in_attempt_delay, retry_hint_of};
 
 /// Acquire capacity for an already-claimed job and link the permit to it.
 ///
@@ -208,6 +209,7 @@ pub(crate) async fn fail_payload_load<Q: AiImportQueue + ?Sized>(
             &error.to_string(),
             Some(error.code().code),
             matches!(error, DomainError::ServiceUnavailable { .. }),
+            error.retry_after(),
         )
         .await
 }
@@ -1271,6 +1273,7 @@ where
                 &error.to_string(),
                 Some(error.code().code),
                 matches!(error, DomainError::ServiceUnavailable { .. }),
+                error.retry_after(),
             )
             .await
     }
@@ -4784,16 +4787,20 @@ impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
     /// Without this the breaker could never open from real traffic: the counter
     /// is only ever incremented here, so an unwired worker would ship a breaker
     /// whose claim filter, holds and expiry machinery were all inert.
-    async fn record_failure(&self) -> bool {
+    async fn record_failure(&self, retry_after: Option<std::time::Duration>) -> bool {
         if !self.enabled {
             return false;
         }
+        // Issue #926: the provider's own wait rides in the outcome, so the
+        // breaker's `retry_at` — and with it the probe schedule and every hold's
+        // `until` — already respects it. A hint-less failure reports `None` and
+        // keeps the pre-#926 behaviour exactly.
         let decision = self
             .queue
             .record_provider_outcome(
                 self.provider,
                 self.model,
-                breakdown_core::ai::ProviderOutcome::RetryableFailure,
+                breakdown_core::ai::ProviderOutcome::RetryableFailure { retry_after },
                 self.threshold,
             )
             .await
@@ -4806,6 +4813,7 @@ impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
                         consecutive_failures: 0,
                         flap_count: 0,
                         closed_at: None,
+                        retry_at: None,
                     },
                 )
             });
@@ -4917,7 +4925,7 @@ where
                 // pricing read model, and those say nothing about the endpoint
                 // (D-A1 — counting them would let a storage hiccup open a breaker
                 // for every user of a healthy provider).
-                if is_provider_failure(&error) && gate.record_failure().await {
+                if is_provider_failure(&error) && gate.record_failure(retry_hint_of(&error)).await {
                     // It opened on this very failure: stop now instead of sleeping
                     // and calling into an endpoint the fleet has just stopped
                     // calling.
@@ -4935,7 +4943,25 @@ where
                 }
                 // `attempt` is the 1-based retry counter, as it was for the
                 // pre-#925 formula: the first retry waits ~1 s, not ~500 ms.
-                tokio::time::sleep(ATTEMPT_BACKOFF.delay(attempt)).await;
+                //
+                // Issue #926: a server-requested wait (`Retry-After` /
+                // `X-RateLimit-Reset`) is a **floor** on that delay, clamped to
+                // `MAX_IN_ATTEMPT_HINT_SECS`. The hint rides in the error payload,
+                // so it survived the `await` — and honouring it here, in the
+                // scheduler that already exists, is what keeps the sleep OUT of
+                // the provider call: sleeping there would hold the concurrency
+                // permit for the hint's whole duration (the #871 anti-pattern).
+                let planned = ATTEMPT_BACKOFF.delay(attempt);
+                let wait = effective_in_attempt_delay(planned, retry_hint_of(&error));
+                if wait > planned {
+                    tracing::debug!(
+                        planned_ms = planned.as_millis(),
+                        wait_ms = wait.as_millis(),
+                        attempt,
+                        "#926 provider asked to wait; in-attempt backoff raised to the hint"
+                    );
+                }
+                tokio::time::sleep(wait).await;
             }
         }
     }

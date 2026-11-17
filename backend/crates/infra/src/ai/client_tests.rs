@@ -12,7 +12,8 @@ use reqwest::StatusCode;
 
 use super::{
     MAX_TRUNCATION_RETRIES, OpenAiCompatibleChatClient, classify_http_status,
-    classify_http_status_with_detail, classify_transport_error, next_truncation_budget,
+    classify_http_status_rich, classify_http_status_with_detail, classify_transport_error,
+    next_truncation_budget,
 };
 
 // ===========================================================================
@@ -564,5 +565,88 @@ fn the_retry_countdown_ignores_the_reported_finish_reason() {
         next_truncation_budget(Some("length"), 1_000, 0),
         None,
         "and the ceiling is the counter, so the last request is the last request"
+    );
+}
+
+// ===========================================================================
+// classify_http_status_rich — the retry hint (issue #926)
+// ===========================================================================
+
+#[test]
+fn a_hint_is_carried_on_the_retryable_error_and_named_in_the_narrative() {
+    let error = classify_http_status_rich(
+        StatusCode::TOO_MANY_REQUESTS,
+        "",
+        Some(Duration::from_secs(7)),
+    );
+
+    // Structure: the schedulers read this, not the text.
+    assert_eq!(error.retry_after(), Some(Duration::from_secs(7)));
+    // Narrative: the attempt row's `error_summary` is `Display`, so the operator
+    // must be able to see the rate limit and the wait from the history alone.
+    let narrative = error.to_string();
+    assert!(
+        narrative.contains("429"),
+        "the status must stay in the narrative: {narrative}"
+    );
+    assert!(
+        narrative.contains("wait 7s"),
+        "the provider's own wait must be named: {narrative}"
+    );
+    // Taxonomy: unchanged by the hint (ADR-031 — no new variant, no new code).
+    assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
+    assert!(error.is_retryable());
+}
+
+#[test]
+fn a_hint_never_changes_the_classification() {
+    for status in [
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::SERVICE_UNAVAILABLE,
+        StatusCode::BAD_REQUEST,
+        StatusCode::NOT_FOUND,
+    ] {
+        let plain = classify_http_status_rich(status, "detail", None);
+        let hinted = classify_http_status_rich(status, "detail", Some(Duration::from_secs(30)));
+
+        assert_eq!(
+            plain.code().code,
+            hinted.code().code,
+            "{status}: the stable code must not depend on a header"
+        );
+        assert_eq!(
+            plain.is_retryable(),
+            hinted.is_retryable(),
+            "{status}: retryability must not depend on a header"
+        );
+        // The hint is only ever attached where a scheduler reads it.
+        if plain.is_retryable() {
+            assert_eq!(hinted.retry_after(), Some(Duration::from_secs(30)));
+        } else {
+            assert_eq!(hinted.retry_after(), None, "{status} has no retry path");
+        }
+    }
+}
+
+#[test]
+fn a_hint_less_classification_carries_no_hint() {
+    // Byte-compatibility: every pre-#926 call site keeps behaving identically.
+    let error = classify_http_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(error.retry_after(), None);
+    assert!(!error.to_string().contains("wait"));
+}
+
+#[test]
+fn the_detail_suffix_still_follows_the_hint_in_the_narrative() {
+    let error = classify_http_status_rich(
+        StatusCode::TOO_MANY_REQUESTS,
+        "rate limited by tier",
+        Some(Duration::from_secs(2)),
+    );
+    let narrative = error.to_string();
+    assert!(narrative.contains("wait 2s"), "{narrative}");
+    assert!(
+        narrative.contains("rate limited by tier"),
+        "the provider's own detail must survive the hint: {narrative}"
     );
 }

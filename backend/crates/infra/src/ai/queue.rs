@@ -79,6 +79,15 @@ const _LEASE_BOUNDS_INVARIANT: () = assert!(
 /// the list). Two different bounds cannot both be honest about one history.
 const ATTEMPT_HISTORY_LIMIT: i64 = 20;
 
+/// Ceiling on a provider-requested wait at the **job** level (issue #926).
+///
+/// A failing job holds no concurrency permit, so its wait may be minutes where the
+/// in-attempt one is capped at `MAX_IN_ATTEMPT_HINT_SECS`. The ceiling is still
+/// finite and equals the ladder's own literal `6 hours`, because "the provider says
+/// wait a day" is not a reason to freeze a user's import for a day — and the ladder
+/// already refuses to back off further than this on its own.
+const MAX_JOB_RETRY_HINT_SECS: Duration = Duration::from_secs(6 * 60 * 60);
+
 #[derive(Clone, Debug)]
 pub struct PgAiImportQueue {
     pool: PgPool,
@@ -1070,7 +1079,24 @@ impl AiImportQueue for PgAiImportQueue {
         error_summary: &str,
         error_code: Option<&str>,
         retryable: bool,
+        retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
+        // Issue #926: the provider's own wait is a FLOOR on the ladder, clamped so
+        // a remote party cannot freeze the queue. The ceiling is the ladder's own
+        // literal 6 h cap (and the default `AI_IMPORT_MAX_PROVIDER_HOLD_SECS`), so
+        // a `Retry-After: 86400` waits 6 h, not a day — and says so.
+        let hint_secs = retry_after.map(|wait| {
+            let clamped = wait.min(MAX_JOB_RETRY_HINT_SECS);
+            if clamped < wait {
+                tracing::warn!(
+                    job_id = %id.as_uuid(),
+                    requested_secs = wait.as_secs(),
+                    clamped_secs = clamped.as_secs(),
+                    "#926 provider asked to wait longer than the job-retry ceiling; clamped"
+                );
+            }
+            i32::try_from(clamped.as_secs()).unwrap_or(i32::MAX)
+        });
         // The attempt row is appended in the same statement as the lifecycle
         // write, so a failed attempt can never exist without its history row
         // (or vice versa). `rows_affected` is the INSERT's count: a fenced-out
@@ -1091,9 +1117,30 @@ impl AiImportQueue for PgAiImportQueue {
                             -- Exponential backoff: 1min * 2^retries, capped at
                             -- ~5.3h after 8 retries, so a failing dependency is not
                             -- hammered at a fixed one-minute cadence.
-                            THEN now() + LEAST(
-                                interval '1 minute' * power(2, retries)::int,
-                                interval '6 hours'
+                            --
+                            -- Issue #926: a provider-requested wait (`Retry-After`)
+                            -- is a FLOOR on that ladder — the server knows when its
+                            -- own window reopens. `$7` is NULL when the failure
+                            -- carried no hint, and `COALESCE` rather than a bare
+                            -- `LEAST` is what keeps that case byte-identical:
+                            -- Postgres' `LEAST`/`GREATEST` IGNORE NULLs, so
+                            -- `LEAST(make_interval(secs => NULL), interval '6
+                            -- hours')` is the SIX-HOUR interval, which would have
+                            -- turned every hint-less failure into a 6 h wait. The
+                            -- hint is already clamped in Rust; the `LEAST` here
+                            -- repeats the ceiling so the SQL is safe on its own.
+                            THEN now() + GREATEST(
+                                LEAST(
+                                    interval '1 minute' * power(2, retries)::int,
+                                    interval '6 hours'
+                                ),
+                                LEAST(
+                                    COALESCE(
+                                        make_interval(secs => $7::double precision),
+                                        interval '0'
+                                    ),
+                                    interval '6 hours'
+                                )
                             )
                         ELSE NULL
                     END,
@@ -1157,6 +1204,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(retryable)
         .bind(Uuid::now_v7())
         .bind(error_code)
+        .bind(hint_secs)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -1661,9 +1709,14 @@ impl AiImportQueue for PgAiImportQueue {
                 consecutive_failures: 0,
                 flap_count: 0,
                 closed_at: None,
+                retry_at: None,
             })),
-            ProviderOutcome::RetryableFailure => {
-                health.record_failure(provider, model, threshold).await
+            // Issue #926: the hint rides in the outcome, not in a fifth
+            // parameter, so a caller that has no hint cannot forget to pass one.
+            ProviderOutcome::RetryableFailure { retry_after } => {
+                health
+                    .record_failure(provider, model, threshold, retry_after)
+                    .await
             }
         }
     }

@@ -72,6 +72,42 @@ pub const OLLAMA_INNER_RETRIES: u32 = 3;
 /// because the loop sleeps while still holding the permit.
 pub const MAX_ATTEMPT_BACKOFF_SECS: u64 = 30;
 
+/// The ceiling applied to a **server-requested** wait inside one attempt
+/// (issue #926).
+///
+/// A provider that answers `429` with `Retry-After` gets that wait as the
+/// **minimum** in-attempt backoff — but that sleep happens while an
+/// `ai_import.concurrency_permit` is held, which is exactly the nested-hold
+/// anti-pattern issue #871 removed. So the hint is bounded here, and this
+/// constant is the number the permit bound multiplies (see
+/// [`AiImportBounds::attempt_worst_case_secs`]).
+///
+/// 120 s is chosen to cover a real rate-limit window (EURouter's free tier
+/// resets within a minute, OpenAI's short windows are seconds) while keeping one
+/// attempt's permit window in the tens of minutes rather than the hours a
+/// `Retry-After: 3600` would otherwise cost. A hint beyond this is clamped and
+/// logged; the *job-level* retry keeps the full hint (bounded separately to the
+/// 6 h ladder cap) because a waiting job holds no permit.
+pub const MAX_IN_ATTEMPT_HINT_SECS: u64 = 120;
+
+/// The backoff term of [`AiImportBounds::attempt_worst_case_secs`]: the larger of
+/// the computed cap and the server-hint clamp.
+///
+/// A `const` block instead of `u64::max` so the arithmetic stays usable in a
+/// `const` context on the pinned toolchain.
+const ATTEMPT_BACKOFF_CEILING_SECS: u64 = if MAX_IN_ATTEMPT_HINT_SECS > MAX_ATTEMPT_BACKOFF_SECS {
+    MAX_IN_ATTEMPT_HINT_SECS
+} else {
+    MAX_ATTEMPT_BACKOFF_SECS
+};
+
+// The backoff term of `attempt_worst_case_secs` is a ceiling over BOTH the
+// computed cap and the server-hint clamp, so retuning either one keeps the
+// documented window honest at compile time instead of silently understating the
+// permit-hold budget.
+const _: () = assert!(ATTEMPT_BACKOFF_CEILING_SECS >= MAX_ATTEMPT_BACKOFF_SECS);
+const _: () = assert!(ATTEMPT_BACKOFF_CEILING_SECS >= MAX_IN_ATTEMPT_HINT_SECS);
+
 const DEFAULT_MAX_CHUNKS: u32 = 128;
 const DEFAULT_MAX_TOKENS: u32 = 8_192;
 const DEFAULT_MAX_GLOBAL_CONCURRENCY: u32 = 16;
@@ -203,11 +239,11 @@ impl AiImportBounds {
     }
 
     /// The analytic worst case of **one attempt** across both nested retry
-    /// layers (issue #871, D-C2).
+    /// layers (issue #871, D-C2; hint-aware since issue #926).
     ///
     /// ```text
     /// (1 + max_attempt_retries) × (1 + inner_retries) × request_timeout_secs
-    ///   + max_attempt_retries × MAX_ATTEMPT_BACKOFF_SECS
+    ///   + max_attempt_retries × max(MAX_ATTEMPT_BACKOFF_SECS, MAX_IN_ATTEMPT_HINT_SECS)
     /// ```
     ///
     /// The multiplication is the point: one *attempt* is not one request. The
@@ -215,20 +251,24 @@ impl AiImportBounds {
     /// client re-requests a truncated/malformed answer `1 + inner_retries` times
     /// *inside* each of those. `retry_bounded` also sleeps between attempts while
     /// still holding the concurrency permit, so the backoff is part of the window
-    /// a waiting job occupies capacity for.
+    /// a waiting job occupies capacity for — and since issue #926 that pause is
+    /// `max(computed, server hint)`, which is why the backoff term is a **ceiling**
+    /// over both, not just [`MAX_ATTEMPT_BACKOFF_SECS`].
     ///
-    /// With the defaults: hosted = 3 × 3 × 120 s + 2 × 30 s = **19 min**,
-    /// Ollama = 3 × 4 × 120 s + 2 × 30 s = **25 min**. Before #871 the outer
-    /// layer alone was 6 × 120 s + 5 × 30 s = 14.5 min — the split knob shortened
-    /// it, the client-internal retries lengthen it, and this function is what
-    /// makes both statements checkable instead of remembered.
+    /// With the defaults: hosted = 3 × 3 × 120 s + 2 × 120 s = **22 min**,
+    /// Ollama = 3 × 4 × 120 s + 2 × 120 s = **28 min**. Before #926 the backoff
+    /// term was `2 × 30 s` (19 min / 25 min); before #871 the outer layer alone
+    /// was 6 × 120 s + 5 × 30 s = 14.5 min. The split knob shortened it, the
+    /// client-internal retries lengthened it, and honouring a provider's own wait
+    /// lengthened the pause — this function is what makes all three statements
+    /// checkable instead of remembered.
     #[must_use]
     pub const fn attempt_worst_case_secs(&self, inner_retries: u32) -> u64 {
         (self.max_attempt_retries as u64 + 1)
             .saturating_mul(inner_retries as u64 + 1)
             .saturating_mul(self.request_timeout_secs)
             .saturating_add(
-                (self.max_attempt_retries as u64).saturating_mul(MAX_ATTEMPT_BACKOFF_SECS),
+                (self.max_attempt_retries as u64).saturating_mul(ATTEMPT_BACKOFF_CEILING_SECS),
             )
     }
 

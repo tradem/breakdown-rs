@@ -98,7 +98,7 @@ use std::collections::BTreeMap;
 
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
-use crate::ai::client::{classify_http_status_with_detail, classify_transport_error};
+use crate::ai::client::{classify_http_status_rich, classify_transport_error};
 use crate::retry::{log_hint, parse_retry_hint};
 
 #[cfg(test)]
@@ -709,10 +709,8 @@ impl DecisionClient for HttpDecisionClient {
         // Issue #925: capture the server's retry hint before the body is
         // consumed (the error path below reads it in chunks). Nothing acts on
         // the hint yet.
-        log_hint(
-            "decision_request",
-            &parse_retry_hint(response.headers(), status),
-        );
+        let hint = parse_retry_hint(response.headers(), status);
+        log_hint("decision_request", &hint);
         if !status.is_success() {
             // The provider's body says WHY (a 400 names the offending property,
             // a 404 names the route). Discarding it made every failure look
@@ -734,7 +732,10 @@ impl DecisionClient for HttpDecisionClient {
                 collected.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
             }
             let detail = String::from_utf8_lossy(&collected);
-            return Err(classify_http_status_with_detail(status, &detail));
+            // Issue #926: the hint rides along even though this pass keeps its
+            // own single fixed retry — when the SCORING failure is what ends the
+            // attempt, the job-level scheduler is the one that honours it.
+            return Err(classify_http_status_rich(status, &detail, hint.wait));
         }
         let wire = response
             .json::<DecisionWireResponse>()
