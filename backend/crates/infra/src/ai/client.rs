@@ -881,15 +881,21 @@ impl ErrorBody {
 /// Streams with [`reqwest::Response::chunk`] instead of `text()`/`bytes()`:
 /// those buffer whatever the provider sends, so an HTML gateway page or a
 /// hostile error would hold the caller — and with it an
-/// `ai_import.concurrency_permit` — for as long as it likes. Two bounds make
-/// that impossible: at most 1 KiB is read, and the whole read ends within
-/// `min(ERROR_BODY_DEADLINE, request_timeout)` — i.e. never later than the
-/// request the response belongs to.
+/// `ai_import.concurrency_permit` — for as long as it likes.
+///
+/// Two bounds **limit** that hold: at most 1 KiB is read, and the whole read
+/// ends within `min(ERROR_BODY_DEADLINE, request_timeout)`. They do not always
+/// end it *earlier* than the request timeout: at the knob's 1–5 s floor the
+/// budget equals the timeout, so the read may last as long as the request
+/// itself would have. What is guaranteed is the honest part — the read never
+/// extends the permit hold beyond the request's own timeout, and at the default
+/// 120 s it ends after at most 5 s instead of 120.
 ///
 /// Never fails. It runs on a path that already decided the request failed; an IO
 /// error or the deadline keeps the bytes collected so far and logs at `debug`,
 /// because a broken read must not replace the provider's real failure with a
-/// parsing error of our own — and it must not spend the timeout either.
+/// parsing error of our own — and it must not spend more of the timeout than the
+/// budget allows.
 pub(crate) async fn read_error_body(
     response: &mut reqwest::Response,
     request_timeout: Duration,

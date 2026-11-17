@@ -46,8 +46,13 @@ gateway page or an unknown code.
 - **THEN** at most 1 KiB SHALL be read, streamed chunk by chunk, **and** the
   whole read SHALL end within `min(5 s, the configured request timeout)` — the
   request timeout is configurable down to 1 s, so a fixed 5 s deadline would
-  outlive the request it belongs to. The two bounds together are what keep the
-  read from holding the job's concurrency permit
+  outlive the request it belongs to
+- **AND** the two bounds SHALL be described as **limiting** the job's
+  concurrency-permit hold, never as always ending it before the request timeout:
+  at the 1–5 s floor of that knob the budget equals the timeout, so the read may
+  last as long as the request itself would have. What they guarantee is that the
+  read never extends the hold past the request's own timeout, and that at the
+  default 120 s it ends after at most 5 s
 - **AND** an IO error or the deadline SHALL keep the bytes collected so far and
   SHALL NOT replace the provider's real failure with a parsing error of our own
 - **AND** an **incomplete** read SHALL NOT be treated as evidence: it keeps the

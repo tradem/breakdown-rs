@@ -424,7 +424,9 @@ Rules that must not drift:
   read can never outlive the request it belongs to; streamed chunk by chunk,
   never `text()`/`bytes()`): a chatty or hostile error page must not stream while
   a permit is held, and a marker behind the bound is deliberately not seen
-  (conservative default).
+  (conservative default). Say it as **limiting** the permit hold, not as always
+  ending it before the timeout — at the knob's 1–5 s floor the budget equals the
+  timeout, so the read may last as long as the request itself.
 - **An incomplete read is not evidence.** The reader returns
   `ErrorBody { text, complete }`; an IO error or the deadline leaves
   `complete = false`, which keeps the `429` retryable even when the bytes that

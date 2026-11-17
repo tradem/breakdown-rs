@@ -39,7 +39,9 @@ core reads the *headers* for a wait hint but never looks at the *body*.
   (`AI_IMPORT_REQUEST_TIMEOUT_SECS` is configurable down to 1 s):
   `.text()`/`.bytes()` buffer whatever the provider sends, and a byte bound alone
   is no time bound — a provider can send half a body and stall while the caller
-  holds a permit. It never fails; it returns
+  holds a permit. The two bounds *limit* that hold rather than eliminating it:
+  never longer than the request timeout, and at the default 120 s never longer
+  than 5 s. It never fails; it returns
   `ErrorBody { text, complete }`, and an **incomplete** read is never evidence
   (the verdict stays retryable) while the arrived bytes still reach the
   narrative.

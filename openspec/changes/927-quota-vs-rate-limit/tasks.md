@@ -96,7 +96,9 @@
       configured request timeout)`, so a provider that writes half a body and
       stalls cannot hold the permit for the whole timeout — and a deployment with
       the knob at its 1 s floor keeps its shorter bound. Spec, code docs and the
-      instruction register state the same composition (round 2 of the review).
+      instruction register state the same composition (round 2 of the review), and
+      they say the bounds *limit* the permit hold instead of always ending it
+      before the timeout (round 3).
 - [x] 8.3 `RateLimitVerdict::QuotaExhausted { marker }` carries the matched table
       entry and the narrative always names it, so the classified code survives the
       400-character detail truncation. Regression tests: a >400-character
