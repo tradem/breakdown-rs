@@ -31,7 +31,7 @@ import http.server
 import importlib.util
 import json
 import os
-import signal
+import queue
 import socket
 import subprocess
 import sys
@@ -97,12 +97,16 @@ def api_process(port, log_path):
 #
 # A subprocess, not a stub: `/proc` ownership can only be observed on a real
 # process, and the point of these tests is that the *socket* decides, not a flag.
-# It serves `/v1/health` plus a JSONL sink of received requests, and SIGUSR1
-# reproduces the shutdown window (connections aborted, listener dropped, process
-# still alive); SIGUSR2 aborts the connections only.
+# It serves `/v1/health` plus a JSONL sink of received requests, and takes commands
+# on stdin — acknowledged on stdout, so the test never waits a fixed delay:
+#
+#   `release-listener` → abort the connections, drop the listener, keep running
+#                        (the shutdown window in `main.rs`), answer `released`
+#   `drop-connections` → abort the connections only (a keep-alive loss), answer
+#                        `dropped`
 
 CHILD_PROGRAM = r'''
-import http.server, json, signal, socket, sys, threading, time
+import http.server, json, socket, sys, threading, time
 
 port = int(sys.argv[1])
 sink = sys.argv[2]
@@ -163,18 +167,20 @@ def drop_connections():
             pass
 
 
-def release(*_args):
-    # The shutdown window: connections gone, listener dropped, process alive.
-    drop_connections()
-    server.server_close()
-    threading.Thread(target=server.shutdown, daemon=True).start()
-
-
-signal.signal(signal.SIGUSR1, release)
-signal.signal(signal.SIGUSR2, lambda *_: drop_connections())
-
-while True:
-    time.sleep(0.2)
+for line in sys.stdin:
+    command = line.strip()
+    if command == "drop-connections":
+        drop_connections()
+        # Only now is the client's socket closed at the source of truth.
+        print("dropped", flush=True)
+    elif command == "release-listener":
+        # The shutdown window: connections gone, listener dropped, process alive.
+        drop_connections()
+        server.server_close()
+        threading.Thread(target=server.shutdown, daemon=True).start()
+        print("released", flush=True)
+    elif command == "quit":
+        break
 '''
 
 
@@ -185,17 +191,41 @@ def spawn_child(directory):
     sink.touch()
     proc = subprocess.Popen(  # noqa: S603
         [sys.executable, "-c", CHILD_PROGRAM, str(port), str(sink)],
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
-    first = proc.stdout.readline().strip()
-    if first != "ready":
-        raise RuntimeError(f"stand-in child did not start: {first!r}")
+    # A reader thread, so `await_token` never depends on how the pipe buffers
+    # lines (a `select` on the fd would miss a line already read into Python's
+    # buffer) and never needs a sleep.
+    proc.lines = queue.Queue()
+    threading.Thread(
+        target=lambda: [proc.lines.put(line) for line in proc.stdout], daemon=True
+    ).start()
+    await_token(proc, "ready")
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline and not bench.port_open(port):
         time.sleep(0.02)
     return proc, port, sink
+
+
+def await_token(proc, token, timeout=20.0):
+    """Block until the stand-in child prints `token` — no fixed delays anywhere."""
+    while True:
+        try:
+            line = proc.lines.get(timeout=timeout)
+        except queue.Empty:
+            raise RuntimeError(f"the stand-in child never answered {token!r}") from None
+        if line.strip() == token:
+            return
+
+
+def child_command(proc, command, acknowledgement):
+    """Ask the child to do something and wait for its acknowledgement."""
+    proc.stdin.write(command + "\n")
+    proc.stdin.flush()
+    await_token(proc, acknowledgement)
 
 
 def child_requests(sink):
@@ -404,8 +434,9 @@ def test_ownership_is_live_not_historical():
                 repr(mutations),
             )
 
-            # The shutdown window: listener dropped, process still alive.
-            os.kill(proc.pid, signal.SIGUSR1)
+            # The shutdown window: listener dropped, process still alive. The child
+            # acknowledges, so nothing here depends on a delay.
+            child_command(proc, "release-listener", "released")
             check(
                 "the child released its listener",
                 wait_until(lambda: not api.holds_listener()),
@@ -518,9 +549,9 @@ def test_connection_loss_is_terminal():
             served = len([r for r in child_requests(sink) if r["path"] != "/v1/health"])
 
             # The child drops the connections but keeps the listener: a keep-alive
-            # timeout, i.e. a lost connection WITHOUT a lost port.
-            os.kill(proc.pid, signal.SIGUSR2)
-            time.sleep(0.2)
+            # timeout, i.e. a lost connection WITHOUT a lost port. Acknowledged, so
+            # the next request cannot race the close.
+            child_command(proc, "drop-connections", "dropped")
             raised = None
             try:
                 api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
