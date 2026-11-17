@@ -116,6 +116,31 @@ pub enum DomainError {
         retry_after: Option<std::time::Duration>,
     },
 
+    /// The **LLM provider refuses to serve this account any more** because its
+    /// quota is exhausted (issue #927): OpenAI `insufficient_quota` /
+    /// `credit_balance_exhausted`, Gemini's per-day quota id, OpenRouter's
+    /// daily free-tier cap.
+    ///
+    /// A sibling of [`DomainError::ServiceUnavailable`], not a replacement: a
+    /// `429` for a *rate limit* stays retryable, and only the response-body
+    /// evidence distinguishes the two. Retrying a quota exhaustion is exactly
+    /// the waste #871 removed for dead providers — each attempt holds an
+    /// `ai_import.concurrency_permit` for up to the request timeout while
+    /// learning a fact the first response already told us — so this variant is
+    /// non-retryable by construction: [`DomainError::is_retryable`] matches only
+    /// `ServiceUnavailable`, and the worker therefore dead-letters the job on
+    /// the first attempt instead of consuming its retry budget.
+    ///
+    /// It renders the **existing** registered
+    /// `ai-import.llm-provider-unavailable` code on purpose (#822 D-X1 decided
+    /// against a new code for provider narratives): a client keeps aggregating
+    /// that code, and the attempt row's `retryable: false` plus the narrative
+    /// (which names the provider's own code, e.g. `insufficient_quota`) is what
+    /// separates "terminal" from "degraded". No `retry_after`: there is nothing
+    /// left to schedule.
+    #[error("LLM provider quota exhausted: {reason}")]
+    LlmProviderQuotaExhausted { reason: String },
+
     /// Upstream dependency rejected our credential (401/403, invalid or
     /// expired token). Distinct from [`DomainError::ServiceUnavailable`] so
     /// callers can tell a permanent misconfiguration from a transient outage
@@ -782,6 +807,26 @@ impl DomainError {
         }
     }
 
+    /// 503 — the **LLM provider** has no quota left for this account and told us
+    /// so (issue #927); retrying cannot help until a human tops the account up
+    /// or the next quota window opens.
+    ///
+    /// Deliberately non-retryable ([`Self::is_retryable`] matches only
+    /// [`Self::ServiceUnavailable`]), because the job must dead-letter with the
+    /// provider narrative instead of burning its retry budget on paid calls that
+    /// are answered `429` for a fact the first response already stated.
+    ///
+    /// The registered code is the same `ai-import.llm-provider-unavailable`
+    /// (#822 D-X1: the client aggregates that code, and a new one would need its
+    /// own ADR-031 story), so the wire surface is unchanged — only the attempt
+    /// row's `retryable` flag and the narrative differ.
+    #[must_use]
+    pub fn llm_provider_quota_exhausted(reason: impl Into<String>) -> Self {
+        DomainError::LlmProviderQuotaExhausted {
+            reason: reason.into(),
+        }
+    }
+
     /// 503 — an upstream dependency rejected our credentials (issue #637).
     ///
     /// Use for 401/403/invalid-token responses from Vault (or a future
@@ -834,6 +879,11 @@ impl DomainError {
             | DomainError::Conflict { code, .. }
             | DomainError::ServiceUnavailable { code, .. }
             | DomainError::DependencyAuthFailed { code, .. } => code,
+            // Issue #927: same registered entry as `ServiceUnavailable`'s
+            // provider failure, fixed by construction (the variant carries no
+            // `code` field, so it cannot name a different one — like
+            // `Internal`).
+            DomainError::LlmProviderQuotaExhausted { .. } => &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
             DomainError::Internal { .. } => &HTTP_INTERNAL_ERROR,
             DomainError::VersionConflict { .. } => &CONCURRENCY_VERSION_MISMATCH,
             DomainError::AlreadyScheduled { .. } => &SCENE_ALREADY_SCHEDULED,
@@ -886,6 +936,32 @@ mod retry_classification_tests {
         assert_ne!(
             error.code().code,
             DomainError::service_unavailable("db").code().code
+        );
+    }
+
+    /// Issue #927: the quota variant is the *same* registered provider code as
+    /// [`DomainError::llm_provider_unavailable`] (#822 D-X1) and is
+    /// **non-retryable** — that difference is the whole point, so a mutant that
+    /// widens `is_retryable` or swaps the code dies here.
+    #[test]
+    fn a_quota_exhausted_provider_is_the_provider_code_but_terminal() {
+        let quota = DomainError::llm_provider_quota_exhausted(
+            "LLM provider returned HTTP 429 — insufficient_quota",
+        );
+        assert_eq!(quota.code().code, "ai-import.llm-provider-unavailable");
+        assert_eq!(quota.code().status, 503);
+        assert!(
+            !quota.is_retryable(),
+            "a quota exhaustion must dead-letter, not consume the retry budget"
+        );
+        assert_eq!(
+            quota.retry_after(),
+            None,
+            "a terminal failure has nothing to schedule"
+        );
+        assert!(
+            quota.to_string().contains("insufficient_quota"),
+            "the narrative carries the provider's own code: {quota}"
         );
     }
 

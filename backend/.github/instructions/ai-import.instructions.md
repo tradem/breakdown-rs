@@ -352,10 +352,10 @@ Notes that keep this honest:
 - **No new environment knob.** Both clamps are constants named above; only a
   future *policy* change (not a deployment tweak) would justify a knob, and it
   would need bounds plus startup logging like the existing ones.
-- **Classification is unchanged.** A hint never changes the variant, the
-  registered code (`ai-import.llm-provider-unavailable`), the HTTP status or
-  `is_retryable()`. Separating quota-exhausted `429`s from burst `429`s stays a
-  follow-up.
+- **A hint never changes the classification.** It does not touch the variant,
+  the registered code (`ai-import.llm-provider-unavailable`), the HTTP status or
+  `is_retryable()`. The *body*, not the header, is what separates an exhausted
+  quota from a burst — see "Quota exhaustion vs rate limit (issue #927)".
 - **The narrative names the rate limit.** The attempt row's `error_summary`
   says "… asked to wait Ns", and both the text and the typed field come from the
   one `retry_after` input at the classification boundary — `core` builds no
@@ -376,6 +376,55 @@ Notes that keep this honest:
   The first carries the hint into the job-level retry but keeps its own single
   fixed pause (its policy is a bounded two-call pass, not a scheduling loop); the
   second has no retry loop at all.
+
+#### Quota exhaustion vs rate limit (issue #927)
+
+A provider `429` is **two conditions**, and only the response body tells them
+apart. A rate limit (RPM/TPM) is fixed by waiting; a quota exhaustion is not —
+retrying burns paid calls that are answered `429` again, each holding a
+concurrency permit for up to `AI_IMPORT_REQUEST_TIMEOUT_SECS`, and then spends
+the whole job retry budget to learn what the first response already said.
+
+`client::classify_provider_body(provider, body) -> RateLimitVerdict` decides on
+**evidence from the provider's own error text** (the #521 rule: verify before
+attributing), and `classify_http_status_rich(…, verdict)` maps the terminal
+verdict to `DomainError::LlmProviderQuotaExhausted`. That variant keeps the
+**existing** registered code (#822 D-X1: no new code for provider narratives) but
+is non-retryable, so the job dead-letters on the first attempt with the provider
+code in its narrative.
+
+| Provider | Terminal markers | Everything else on `429` |
+|---|---|---|
+| `openai`, `neuralwatt`, `opencode`, `opencode-go` | `insufficient_quota`, `credit_balance_exhausted`, `billing_hard_limit_reached` | retryable |
+| `gemini` | `perdayperproject`, `per_day_per_project` (the RPD quota id in `error.details[].metadata.quota_limit`) | retryable |
+| `openrouter` | `free-models-per-day`, `free_models_per_day` | retryable |
+| `eurouter` | *(none — budget caps are `402`, its `429` is plan RPM)* | retryable |
+| `ollama` | *(none — self-hosted)* | retryable |
+
+Rules that must not drift:
+
+- **The table is curated `const` data in the transport layer**, next to
+  `CuratedProviderUrls`, and is **not** user-configurable — the same trust rule
+  as the curated URLs. A new provider ships retryable until its evidence has been
+  verified against a live response.
+- **The conservative default is retryable.** An empty body, an unparsable one (an
+  HTML gateway page), a read that failed, or an unknown code stays
+  `RateLimited` + `debug`. A wrong "non-retryable" verdict dead-letters a job a
+  retry would have saved; a wrong "retryable" one costs one attempt.
+- **The verdict only narrows a `429`.** A `5xx` carrying a quota-looking body is a
+  gateway fault and must never dead-letter a job. `402`/`403` keep their existing
+  non-retryable rejection (EURouter budget caps, opencode entitlement).
+- **`X-RateLimit-Remaining: 0` is not evidence**: an RPM window reaches zero the
+  same way. Header-only turnstiles stay retryable; the #926 hint still schedules
+  the retry.
+- **The body read is bounded** (`client::MAX_ERROR_BODY_BYTES` = 1 KiB, streamed
+  chunk by chunk — never `text()`/`bytes()`): a chatty or hostile error page must
+  not stream for the whole request timeout while a permit is held, and a marker
+  behind the bound is deliberately not seen (conservative default).
+- **A terminal verdict never moves the breaker counter.**
+  `retry_bounded` records a provider failure only for a *retryable* one; counting
+  a quota exhaustion would let three of them open the breaker, and the hold that
+  follows would park a job that has nothing left to wait for.
 
 #### Durable apply run (issue #899)
 

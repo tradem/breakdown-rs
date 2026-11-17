@@ -1231,7 +1231,7 @@ async fn a_rate_limited_adapter_hands_the_wait_to_its_caller() {
     assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
     assert!(
         error.is_retryable(),
-        "a 429 stays retryable (non-goal: quota split)"
+        "a 429 with no quota evidence stays retryable (the split is issue #927)"
     );
     let narrative = error.to_string();
     assert!(
@@ -1267,4 +1267,102 @@ async fn a_successful_answer_with_hint_headers_is_decoded_unchanged() {
         .expect("the hint headers must not disturb the decode");
     assert_eq!(outcome.answers.len(), 2);
     assert_eq!(outcome.usage.tokens_in, 157);
+}
+
+/// Issue #927, end to end through the REAL header parser, the REAL bounded body
+/// read and the REAL classification: a `429` that names an exhausted quota is
+/// **terminal**, costs exactly one request and carries the provider's own code
+/// into the narrative the attempt row persists.
+#[tokio::test]
+async fn a_quota_exhausted_429_is_terminal_and_costs_one_request() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(429).set_body_string(
+                r#"{"error":{"message":"You exceeded your current quota.","type":"insufficient_quota","code":"insufficient_quota"}}"#,
+            ),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut client = HttpDecisionClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "k".into(),
+        Duration::from_secs(5),
+    )
+    .expect("a decision-capable provider builds a client");
+    client.endpoint = server.uri();
+
+    let error = client
+        .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
+        .await
+        .expect_err("an exhausted quota is a failure, not an answer");
+
+    assert!(
+        matches!(
+            error,
+            breakdown_core::error::DomainError::LlmProviderQuotaExhausted { .. }
+        ),
+        "the verdict must reach the caller typed, not only as text: {error:?}"
+    );
+    assert!(
+        !error.is_retryable(),
+        "a quota exhaustion must dead-letter instead of spending the retry budget"
+    );
+    // #822 D-X1: same registered code, so the client keeps its attribution.
+    assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
+    let narrative = error.to_string();
+    assert!(
+        narrative.contains("insufficient_quota"),
+        "the persisted narrative must name the provider's own code: {narrative}"
+    );
+    // `expect(1)` above asserts the single request: the adapter never retries a
+    // terminal verdict.
+}
+
+/// Issue #927, truncation safety: the body read is bounded at one KiB, so a
+/// marker that only appears BEHIND the bound is never seen and the conservative
+/// retryable default applies. The point is that a huge (or hostile) body can
+/// neither stall the permit hold nor fabricate a terminal verdict from text we
+/// did not read.
+#[tokio::test]
+async fn an_oversized_error_body_is_read_only_up_to_the_bound() {
+    let server = wiremock::MockServer::start().await;
+    let padding = "x".repeat(4_096);
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(429).set_body_string(format!(
+                r#"{{"error":{{"message":"{padding} insufficient_quota","code":429}}}}"#
+            )),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut client = HttpDecisionClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "k".into(),
+        Duration::from_secs(5),
+    )
+    .expect("a decision-capable provider builds a client");
+    client.endpoint = server.uri();
+
+    let error = client
+        .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
+        .await
+        .expect_err("a 429 is a failure whether or not its body was read");
+
+    assert!(
+        matches!(
+            error,
+            breakdown_core::error::DomainError::ServiceUnavailable { .. }
+        ),
+        "evidence beyond the read bound must NOT dead-letter a job: {error:?}"
+    );
+    assert!(error.is_retryable());
+    assert!(
+        error.to_string().len() < 2_000,
+        "the narrative stays bounded, however chatty the body was"
+    );
 }

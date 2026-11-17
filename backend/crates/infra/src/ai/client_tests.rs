@@ -11,9 +11,9 @@ use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 use reqwest::StatusCode;
 
 use super::{
-    MAX_TRUNCATION_RETRIES, OpenAiCompatibleChatClient, classify_http_status,
-    classify_http_status_rich, classify_http_status_with_detail, classify_transport_error,
-    next_truncation_budget,
+    MAX_TRUNCATION_RETRIES, OpenAiCompatibleChatClient, RateLimitVerdict, classify_http_status,
+    classify_http_status_rich, classify_http_status_with_detail, classify_provider_body,
+    classify_transport_error, next_truncation_budget,
 };
 
 // ===========================================================================
@@ -578,6 +578,7 @@ fn a_hint_is_carried_on_the_retryable_error_and_named_in_the_narrative() {
         StatusCode::TOO_MANY_REQUESTS,
         "",
         Some(Duration::from_secs(7)),
+        RateLimitVerdict::RateLimited,
     );
 
     // Structure: the schedulers read this, not the text.
@@ -606,8 +607,14 @@ fn a_hint_never_changes_the_classification() {
         StatusCode::BAD_REQUEST,
         StatusCode::NOT_FOUND,
     ] {
-        let plain = classify_http_status_rich(status, "detail", None);
-        let hinted = classify_http_status_rich(status, "detail", Some(Duration::from_secs(30)));
+        let plain =
+            classify_http_status_rich(status, "detail", None, RateLimitVerdict::RateLimited);
+        let hinted = classify_http_status_rich(
+            status,
+            "detail",
+            Some(Duration::from_secs(30)),
+            RateLimitVerdict::RateLimited,
+        );
 
         assert_eq!(
             plain.code().code,
@@ -642,6 +649,7 @@ fn the_detail_suffix_still_follows_the_hint_in_the_narrative() {
         StatusCode::TOO_MANY_REQUESTS,
         "rate limited by tier",
         Some(Duration::from_secs(2)),
+        RateLimitVerdict::RateLimited,
     );
     let narrative = error.to_string();
     assert!(narrative.contains("wait 2s"), "{narrative}");
@@ -649,4 +657,197 @@ fn the_detail_suffix_still_follows_the_hint_in_the_narrative() {
         narrative.contains("rate limited by tier"),
         "the provider's own detail must survive the hint: {narrative}"
     );
+}
+
+// ===========================================================================
+// classify_provider_body / RateLimitVerdict — quota vs rate limit (issue #927)
+// ===========================================================================
+
+/// A live OpenAI `insufficient_quota` answer (the shape verified against the
+/// provider's documented error codes): the terminal case.
+const OPENAI_QUOTA_BODY: &str = r#"{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","param":null,"code":"insufficient_quota"}}"#;
+
+/// A live OpenAI rate-limit answer: retryable, and the regression pin for the
+/// pre-#927 behaviour.
+const OPENAI_RATE_LIMIT_BODY: &str = r#"{"error":{"message":"Rate limit reached for requests","type":"requests","param":null,"code":"rate_limit_exceeded"}}"#;
+
+/// Gemini's `RESOURCE_EXHAUSTED` names the exhausted quota in
+/// `details[].metadata.quota_limit` — the per-DAY id is the terminal case, the
+/// per-MINUTE id the retryable one. Both are `429 RESOURCE_EXHAUSTED`, so only
+/// the quota id can tell them apart.
+const GEMINI_PER_DAY_BODY: &str = r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"RATE_LIMIT_EXCEEDED","domain":"googleapis.com","metadata":{"quota_limit":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}}]}}"#;
+const GEMINI_PER_MINUTE_BODY: &str = r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"RATE_LIMIT_EXCEEDED","domain":"googleapis.com","metadata":{"quota_limit":"GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}}]}}"#;
+
+/// OpenRouter states its free-tier daily cap in prose, not in a code field.
+const OPENROUTER_FREE_TIER_BODY: &str = r#"{"error":{"message":"Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day","code":429}}"#;
+
+#[test]
+fn openai_shaped_providers_recognise_the_quota_codes() {
+    for provider in [
+        LlmProvider::OpenAI,
+        LlmProvider::Neuralwatt,
+        LlmProvider::OpenCode,
+        LlmProvider::OpenCodeGo,
+    ] {
+        assert_eq!(
+            classify_provider_body(provider, OPENAI_QUOTA_BODY),
+            RateLimitVerdict::QuotaExhausted,
+            "{provider:?} shares the OpenAI error shape"
+        );
+        for body in [
+            r#"{"error":{"code":"credit_balance_exhausted"}}"#,
+            r#"{"error":{"code":"billing_hard_limit_reached","type":"insufficient_quota"}}"#,
+        ] {
+            assert_eq!(
+                classify_provider_body(provider, body),
+                RateLimitVerdict::QuotaExhausted,
+                "{provider:?}: {body}"
+            );
+        }
+        assert_eq!(
+            classify_provider_body(provider, OPENAI_RATE_LIMIT_BODY),
+            RateLimitVerdict::RateLimited,
+            "{provider:?}: a rate limit must stay retryable"
+        );
+    }
+}
+
+#[test]
+fn gemini_distinguishes_a_per_day_quota_from_a_per_minute_limit() {
+    assert_eq!(
+        classify_provider_body(LlmProvider::Gemini, GEMINI_PER_DAY_BODY),
+        RateLimitVerdict::QuotaExhausted,
+        "the per-day quota id is the terminal one"
+    );
+    assert_eq!(
+        classify_provider_body(LlmProvider::Gemini, GEMINI_PER_MINUTE_BODY),
+        RateLimitVerdict::RateLimited,
+        "RPM exhaustion is exactly what a retry fixes"
+    );
+    // The spelling inside a `quota_limit` may use underscores.
+    assert_eq!(
+        classify_provider_body(
+            LlmProvider::Gemini,
+            r#"{"error":{"details":[{"metadata":{"quota_limit":"requests_per_day_per_project"}}]}}"#
+        ),
+        RateLimitVerdict::QuotaExhausted
+    );
+}
+
+#[test]
+fn openrouter_recognises_its_free_tier_daily_cap() {
+    assert_eq!(
+        classify_provider_body(LlmProvider::OpenRouter, OPENROUTER_FREE_TIER_BODY),
+        RateLimitVerdict::QuotaExhausted
+    );
+    assert_eq!(
+        classify_provider_body(
+            LlmProvider::OpenRouter,
+            r#"{"error":{"message":"Rate limit exceeded: free-models-per-minute","code":429}}"#
+        ),
+        RateLimitVerdict::RateLimited,
+        "the per-minute cap is retryable"
+    );
+}
+
+#[test]
+fn a_provider_without_a_quota_concept_never_reports_one() {
+    // EURouter's budget/spend caps arrive as `402`, not `429`; Ollama is
+    // self-hosted. An OpenAI-shaped body therefore must NOT turn their `429`
+    // into a dead-letter — there is no account quota to exhaust.
+    for provider in [LlmProvider::EURouter, LlmProvider::Ollama] {
+        assert_eq!(
+            classify_provider_body(provider, OPENAI_QUOTA_BODY),
+            RateLimitVerdict::RateLimited,
+            "{provider:?} has no quota evidence table"
+        );
+    }
+}
+
+#[test]
+fn an_unreadable_body_is_the_conservative_retryable_default() {
+    for body in [
+        "",
+        "   ",
+        "<html><body><h1>502 Bad Gateway</h1></body></html>",
+        "{\"error\":",
+        "{\"error\":{\"code\":\"something_new\"}}",
+        "[1,2,3]",
+    ] {
+        assert_eq!(
+            classify_provider_body(LlmProvider::OpenAI, body),
+            RateLimitVerdict::RateLimited,
+            "a wrong non-retryable verdict dead-letters a job a retry would have saved: {body:?}"
+        );
+    }
+}
+
+#[test]
+fn only_json_values_are_evidence_never_keys() {
+    // A provider echoing OUR request could contain the marker as a KEY; the
+    // evidence has to come from what the provider said.
+    let body = r#"{"insufficient_quota":{"message":"some unrelated complaint"}}"#;
+    assert_eq!(
+        classify_provider_body(LlmProvider::OpenAI, body),
+        RateLimitVerdict::RateLimited
+    );
+}
+
+#[test]
+fn a_quota_verdict_is_terminal_and_keeps_the_registered_provider_code() {
+    let error = classify_http_status_rich(
+        StatusCode::TOO_MANY_REQUESTS,
+        OPENAI_QUOTA_BODY,
+        Some(Duration::from_secs(30)),
+        RateLimitVerdict::QuotaExhausted,
+    );
+
+    assert!(
+        matches!(
+            error,
+            breakdown_core::error::DomainError::LlmProviderQuotaExhausted { .. }
+        ),
+        "a quota exhaustion is terminal, not a hint-bearing outage: {error:?}"
+    );
+    // #822 D-X1: the client aggregates this code, so it must not change.
+    assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
+    assert!(!error.is_retryable());
+    // No scheduler may wait for a job that is about to dead-letter.
+    assert_eq!(error.retry_after(), None);
+    let narrative = error.to_string();
+    assert!(
+        narrative.contains("429") && narrative.contains("insufficient_quota"),
+        "the attempt row must say WHY it was terminal: {narrative}"
+    );
+}
+
+#[test]
+fn the_quota_verdict_applies_to_429_only() {
+    // A 5xx that happens to carry a quota-looking body is a gateway fault, not
+    // an account verdict: it must keep its retryable classification.
+    for status in [
+        StatusCode::SERVICE_UNAVAILABLE,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        StatusCode::BAD_GATEWAY,
+    ] {
+        let error = classify_http_status_rich(
+            status,
+            OPENAI_QUOTA_BODY,
+            None,
+            RateLimitVerdict::QuotaExhausted,
+        );
+        assert!(
+            error.is_retryable(),
+            "{status} is not a quota statement: {error:?}"
+        );
+    }
+    // And a `429` with retryable evidence keeps today's taxonomy/hint.
+    let error = classify_http_status_rich(
+        StatusCode::TOO_MANY_REQUESTS,
+        OPENAI_RATE_LIMIT_BODY,
+        Some(Duration::from_secs(5)),
+        RateLimitVerdict::RateLimited,
+    );
+    assert!(error.is_retryable());
+    assert_eq!(error.retry_after(), Some(Duration::from_secs(5)));
 }

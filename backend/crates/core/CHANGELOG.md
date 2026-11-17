@@ -16,6 +16,32 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.72.0] - Unreleased
+
+### Added — a quota-exhausted provider failure is its own, terminal variant (issue #927)
+
+- `DomainError::LlmProviderQuotaExhausted { reason }` (constructor
+  `llm_provider_quota_exhausted(reason)`): the provider refuses to serve this
+  account because its quota is exhausted (OpenAI `insufficient_quota` /
+  `credit_balance_exhausted`, Gemini's per-day quota id, OpenRouter's daily
+  free-tier cap). It renders the **existing** registered
+  `ai-import.llm-provider-unavailable` code (#822 D-X1 decided against a new code
+  for provider narratives, so the client keeps aggregating it and no registry or
+  Fluent entry changes) and is **non-retryable by construction**:
+  `is_retryable()` still matches only `ServiceUnavailable`, so the worker
+  dead-letters the job on the first attempt instead of burning paid calls that
+  are answered `429` for a fact the first response already stated (the #871
+  waste pattern).
+- Why a variant and not a field: the retryability of a `429` is exactly the fact
+  the response body carries, and making `ServiceUnavailable` polymorphic in
+  retryability would silently break every `matches!(…, ServiceUnavailable { .. })`
+  site that means "retryable". A separate variant is fail-safe — nothing matches
+  it, so `is_retryable()` is the only thing a caller can ask.
+- No `retry_after`: a terminal failure has nothing left to schedule. The
+  narrative names the provider's own code, so the attempt row
+  (`ai_import.ai_import_job_attempt.error_summary` + `error_code`) says *why* it
+  was terminal.
+
 ## [0.71.0] - Unreleased
 
 ### Changed — a provider's own retry hint is carried across the error boundary (issue #926)

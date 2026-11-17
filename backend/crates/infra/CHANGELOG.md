@@ -16,6 +16,41 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.83.0] - Unreleased
+
+### Changed — a quota-exhausted `429` is terminal, a rate-limited one is not (issue #927)
+
+- `ai::client::classify_provider_body(provider, body) -> RateLimitVerdict`
+  (`RateLimited` | `QuotaExhausted`) decides on the provider's own error text, not
+  on the status: OpenAI-shaped `insufficient_quota` /
+  `credit_balance_exhausted` / `billing_hard_limit_reached`, Gemini's per-day
+  quota id (`…PerDayPerProject…`, inside
+  `error.details[].metadata.quota_limit`), OpenRouter's `free-models-per-day`.
+  The curated marker table is `const` data next to `CuratedProviderUrls` and is
+  not user-configurable; `eurouter` (budget caps are `402`) and `ollama`
+  (self-hosted) have no markers at all.
+- **The conservative default is `RateLimited`**: an empty body, an unparsable one
+  (an HTML gateway page), a failed read or an unknown code keeps today's
+  behaviour plus a `debug` line. A wrong "non-retryable" verdict dead-letters a
+  job a retry would have saved.
+- `client::read_error_body(&mut Response)` + `MAX_ERROR_BODY_BYTES` (1 KiB) are
+  the one bounded body read (streamed with `Response::chunk()`, never
+  `text()`/`bytes()`), shared by the hosted-chat and decision adapters: the
+  decision adapter's local copy of the same loop is gone.
+- `client::classify_http_status_rich` takes the verdict as a fourth argument and
+  maps `QuotaExhausted` — **for a `429` only** — to
+  `DomainError::llm_provider_quota_exhausted`. A `5xx` carrying a quota-looking
+  body stays retryable, and `402`/`403` keep their existing rejection.
+- The hosted-chat adapter now reads the bounded error body on **any** non-2xx and
+  forwards it as the classification detail (the #767 lesson: a status alone
+  cannot be acted on), instead of discarding it.
+- `workers::retry_bounded` records a provider failure only when the failure is
+  **retryable**: a terminal quota verdict must not move the breaker counter,
+  because three of them would open the breaker and the resulting hold would park
+  a job that has nothing left to wait for. `AiImportRuntime::fail` marks the job
+  with `error.is_retryable()` instead of a variant `match!`, so the taxonomy has
+  one owner.
+
 ## [0.82.0] - Unreleased
 
 ### Changed — the provider's retry hint now drives four schedulers (issue #926)

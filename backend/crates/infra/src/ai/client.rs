@@ -249,7 +249,7 @@ impl OpenAiCompatibleChatClient {
                     }
                 })),
             };
-            let response = self
+            let mut response = self
                 .http
                 .post(self.endpoint())
                 .timeout(self.timeout)
@@ -260,15 +260,22 @@ impl OpenAiCompatibleChatClient {
                 .map_err(classify_transport_error)?;
             let status = response.status();
             // Issue #925: the hint must be read from the headers BEFORE the body
-            // is consumed (`Response::json` moves the response). Nothing acts on
-            // it yet — honouring `Retry-After` (and separating quota 429s) are
-            // the follow-ups, and they change the scheduling, not this plumbing.
+            // is consumed (`Response::json`/`chunk` take the response): the
+            // schedulers honour a server-requested wait since #926.
             let hint = parse_retry_hint(response.headers(), status);
             log_hint("hosted_chat", &hint);
             if !status.is_success() {
+                // Issue #927: a `429` is two conditions, and only the provider's
+                // own error body tells them apart — a rate limit (wait) from an
+                // exhausted quota (dead-letter). The read is bounded and can
+                // never fail the path it runs on.
+                let detail = read_error_body(&mut response).await;
+                let verdict = classify_provider_body(self.provider, &detail);
                 // Issue #926: the hint travels in the error payload, so the retry
                 // scheduler upstream honours it without a second header read.
-                return Err(classify_http_status_rich(status, "", hint.wait));
+                return Err(classify_http_status_rich(
+                    status, &detail, hint.wait, verdict,
+                ));
             }
             let envelope = response
                 .json::<ChatCompletionResponse>()
@@ -768,6 +775,204 @@ pub fn classify_http_status(status: StatusCode) -> DomainError {
     classify_http_status_with_detail(status, "")
 }
 
+/// Whether a provider's `429` is a **rate limit** (waiting solves it) or an
+/// **exhausted quota** (nothing helps until a human acts) — issue #927.
+///
+/// Owned, `Copy`, payload-free on purpose: it is a verdict, not a record. The
+/// supporting evidence (the provider's own bounded body) travels separately as
+/// the classification `detail`, so the verdict never has to hold a `String` and
+/// the error payload stays `Clone + Send + 'static` across the `await` that
+/// separates the provider call from the scheduler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RateLimitVerdict {
+    /// Worth another attempt: RPM/TPM exhaustion, an unreadable body, or a
+    /// provider with no quota concept at all (Ollama, EURouter's plan RPM).
+    RateLimited,
+    /// The account has no quota left. Retrying burns paid calls that are
+    /// answered `429` again, while holding an `ai_import.concurrency_permit`.
+    QuotaExhausted,
+}
+
+impl RateLimitVerdict {
+    /// Whether a `429` carrying this evidence deserves another attempt.
+    #[must_use]
+    pub(crate) const fn is_retryable(self) -> bool {
+        matches!(self, Self::RateLimited)
+    }
+}
+
+/// Largest NON-2xx response body read before the failure is classified
+/// (issue #927).
+///
+/// The decision adapter introduced the number when a live `400` left every
+/// failure unexplained (issue #767); #927 needs the same bound at the
+/// hosted-chat site, where the body is now read to tell a rate limit from an
+/// exhausted quota. A provider error message needs far less than a kilobyte, and
+/// the read stops there instead of waiting for a chatty or hostile body to
+/// finish streaming while a concurrency permit is held.
+pub(crate) const MAX_ERROR_BODY_BYTES: usize = 1024;
+
+/// Read at most [`MAX_ERROR_BODY_BYTES`] of a response body, chunk by chunk.
+///
+/// Streams with [`reqwest::Response::chunk`] instead of `text()`/`bytes()`:
+/// those buffer whatever the provider sends, so an HTML gateway page or a
+/// hostile error could still stream for the whole request timeout while the
+/// caller holds an `ai_import.concurrency_permit`. The bound applies to the
+/// **read**, not only to the characters kept from an already-buffered string.
+///
+/// Never fails. It runs on a path that already decided the request failed; a
+/// read error keeps the bytes collected so far and logs at `debug`, because a
+/// broken read must not replace the provider's real failure with a parsing error
+/// of our own.
+pub(crate) async fn read_error_body(response: &mut reqwest::Response) -> String {
+    let mut collected: Vec<u8> = Vec::with_capacity(MAX_ERROR_BODY_BYTES);
+    while collected.len() < MAX_ERROR_BODY_BYTES {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                let remaining = MAX_ERROR_BODY_BYTES - collected.len();
+                collected.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                tracing::debug!(
+                    %error,
+                    "#927 provider error body read failed; classifying on what arrived"
+                );
+                break;
+            }
+        }
+    }
+    String::from_utf8_lossy(&collected).into_owned()
+}
+
+/// OpenAI-shaped accounts (OpenAI itself and its compatible gateways) name the
+/// exhausted quota in the error `code`/`type`.
+///
+/// `insufficient_quota` is "you are out of credits", `credit_balance_exhausted`
+/// the newer spelling of the same state, and `billing_hard_limit_reached` a
+/// configured spend ceiling. All three are terminal for this job: paying for
+/// another attempt cannot change them.
+const OPENAI_QUOTA_MARKERS: &[&str] = &[
+    "insufficient_quota",
+    "credit_balance_exhausted",
+    "billing_hard_limit_reached",
+];
+
+/// Gemini's `RESOURCE_EXHAUSTED` covers **both** conditions, and only the quota
+/// id distinguishes them: a per-minute limit carries an RPM quota id, an
+/// exhausted free tier carries a per-day one
+/// (`…PerDayPerProject…`, e.g. `GenerateRequestsPerDayPerProjectPerModel-FreeTier`
+/// inside `error.details[].metadata.quota_limit`).
+const GEMINI_QUOTA_MARKERS: &[&str] = &["perdayperproject", "per_day_per_project"];
+
+/// OpenRouter's free tier caps requests **per day** and says so in the message
+/// (`Rate limit exceeded: free-models-per-day…`). The `X-RateLimit-*` headers
+/// are deliberately not evidence: a per-minute window reaches zero the same way.
+const OPENROUTER_QUOTA_MARKERS: &[&str] = &["free-models-per-day", "free_models_per_day"];
+
+/// The curated per-provider quota markers (issue #927).
+///
+/// Static data, in the transport layer next to [`super::CuratedProviderUrls`],
+/// and **not** user-configurable: the same trust rule as the curated URLs — user
+/// input never decides how a provider failure is read. `eurouter` and `ollama`
+/// are deliberately empty: EURouter's budget and spend caps arrive as `402` (not
+/// `429`), its `429` is plan RPM, and Ollama is self-hosted with no account
+/// quota.
+fn quota_markers(provider: LlmProvider) -> &'static [&'static str] {
+    match provider {
+        LlmProvider::OpenAI
+        | LlmProvider::Neuralwatt
+        | LlmProvider::OpenCode
+        | LlmProvider::OpenCodeGo => OPENAI_QUOTA_MARKERS,
+        LlmProvider::Gemini => GEMINI_QUOTA_MARKERS,
+        LlmProvider::OpenRouter => OPENROUTER_QUOTA_MARKERS,
+        LlmProvider::EURouter | LlmProvider::Ollama => &[],
+        // `LlmProvider` is deliberately `#[non_exhaustive]` (ai/ports.rs): a
+        // future provider ships retryable until its evidence is verified
+        // against a live response — the same conservative default every
+        // unreadable body gets.
+        _ => &[],
+    }
+}
+
+/// Decide a provider `429` on **response-body evidence**, not on the status
+/// alone (issue #927; the #521 "verify before attributing" rule).
+///
+/// The provider's own error text is parsed as JSON and its **string values** are
+/// matched case-insensitively against that provider's curated markers. Every
+/// shape we know puts the evidence in a different place — OpenAI in
+/// `error.code`, Gemini inside `error.details[].metadata.quota_limit`, OpenRouter
+/// in a prose `error.message` — so matching the values rather than a fixed path
+/// is what keeps one table honest for all of them without per-provider
+/// deserializers. The markers are long and provider-specific
+/// (`insufficient_quota`, `perdayperproject`, `free-models-per-day`), so a
+/// substring hit cannot plausibly come from unrelated prose.
+///
+/// **The conservative default is [`RateLimitVerdict::RateLimited`]**: an empty
+/// body, an unparsable one (an HTML gateway page), a body we could not read or a
+/// provider whose table is empty. A wrong "non-retryable" verdict dead-letters a
+/// job a retry would have saved; a wrong "retryable" one costs one wasted
+/// attempt. Either way this never fails the request path — it only *classifies*
+/// a failure that already happened.
+#[must_use]
+pub fn classify_provider_body(provider: LlmProvider, body: &str) -> RateLimitVerdict {
+    let markers = quota_markers(provider);
+    if markers.is_empty() || body.trim().is_empty() {
+        return RateLimitVerdict::RateLimited;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        tracing::debug!(
+            provider = provider.as_str(),
+            body_len = body.len(),
+            "#927 provider error body is not JSON; a 429 stays retryable (conservative default)"
+        );
+        return RateLimitVerdict::RateLimited;
+    };
+    let mut evidence: Vec<String> = Vec::new();
+    collect_strings(&value, &mut evidence);
+    let hit = evidence.iter().any(|candidate| {
+        let lowered = candidate.to_ascii_lowercase();
+        markers.iter().any(|marker| lowered.contains(marker))
+    });
+    if hit {
+        tracing::debug!(
+            provider = provider.as_str(),
+            "#927 provider 429 names an exhausted quota; the failure is terminal"
+        );
+        RateLimitVerdict::QuotaExhausted
+    } else {
+        RateLimitVerdict::RateLimited
+    }
+}
+
+/// Collect the string **values** of a JSON document, bounded in both directions.
+///
+/// Values only (never keys): the keys of an OpenAI error object (`code`, `type`,
+/// `message`) are also the names of fields a provider may echo from *our*
+/// request, and a marker must come from what the provider said, not from a key we
+/// happen to look at. The walk stops at [`MAX_ERROR_BODY_BYTES`] characters of
+/// collected evidence — the body is already bounded, so this only guards against
+/// a pathological array of one-character strings.
+fn collect_strings(value: &serde_json::Value, out: &mut Vec<String>) {
+    let mut total = 0usize;
+    let mut stack = vec![value];
+    while let Some(node) = stack.pop() {
+        if total >= MAX_ERROR_BODY_BYTES {
+            return;
+        }
+        match node {
+            serde_json::Value::String(text) => {
+                total = total.saturating_add(text.len());
+                out.push(text.clone());
+            }
+            serde_json::Value::Array(items) => stack.extend(items.iter()),
+            serde_json::Value::Object(map) => stack.extend(map.values()),
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            }
+        }
+    }
+}
+
 /// Same classification as [`classify_http_status`], plus the provider's own
 /// error body as a bounded suffix.
 ///
@@ -777,11 +982,11 @@ pub fn classify_http_status(status: StatusCode) -> DomainError {
 /// `scoring_failed` row (the issue #767 class). The suffix is truncated because
 /// a provider error can echo the request; it carries no credential.
 pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> DomainError {
-    classify_http_status_rich(status, detail, None)
+    classify_http_status_rich(status, detail, None, RateLimitVerdict::RateLimited)
 }
 
 /// [`classify_http_status_with_detail`] **plus the response's retry hint**
-/// (issue #926).
+/// (issue #926) **and its quota verdict** (issue #927).
 ///
 /// The hint becomes (a) the `retry_after` payload field the schedulers read —
 /// in-attempt backoff floor, `next_attempt_at` floor, breaker probe schedule —
@@ -791,11 +996,17 @@ pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> Dom
 /// into `core` (ADR-031).
 ///
 /// A hint never changes the classification: the variant, code, status and
-/// retryability are identical to the hint-less call.
+/// retryability are identical to the hint-less call. The **verdict** does, and
+/// only for a `429`: [`RateLimitVerdict::QuotaExhausted`] produces the terminal
+/// [`DomainError::llm_provider_quota_exhausted`], which keeps the registered
+/// provider code (#822 D-X1) but does not retry. A `5xx` that happens to carry a
+/// quota-looking body stays retryable — the evidence table is a `429` fact, and a
+/// gateway error page must never dead-letter a job.
 pub fn classify_http_status_rich(
     status: StatusCode,
     detail: &str,
     retry_after: Option<Duration>,
+    verdict: RateLimitVerdict,
 ) -> DomainError {
     let suffix = {
         let trimmed = detail.trim();
@@ -806,6 +1017,13 @@ pub fn classify_http_status_rich(
             format!(" — {bounded}")
         }
     };
+    // The verdict only ever narrows a `429`: every other status keeps the
+    // classification it had, so the quota table cannot misfile a 5xx or a 402.
+    if status == StatusCode::TOO_MANY_REQUESTS && !verdict.is_retryable() {
+        return DomainError::llm_provider_quota_exhausted(format!(
+            "LLM provider returned HTTP {status} with no quota left{suffix}"
+        ));
+    }
     // The classification itself is the shared retry core's (issue #925); the
     // `DomainError` mapping stays here, at the call boundary, so the error
     // taxonomy every caller matches on is unchanged.

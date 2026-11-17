@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 
-use super::client::{classify_http_status_rich, classify_transport_error};
+use super::client::{RateLimitVerdict, classify_http_status_rich, classify_transport_error};
 use super::transport::ollama_redirect_policy;
 use super::user_agent::resolve_user_agent;
 use super::{CuratedLlmProvider, CuratedProviderUrls};
@@ -136,7 +136,17 @@ impl OllamaChatClient {
         if !status.is_success() {
             // A rate-limiting gateway in front of Ollama can send a hint; the
             // self-hosted server itself cannot. Issue #926.
-            return Err(classify_http_status_rich(status, "", hint.wait));
+            //
+            // Issue #927: deliberately `RateLimited`. Ollama has no account, so
+            // there is no quota to exhaust — a `429` here is always a gateway
+            // window, and reading the body to look for a quota code would only
+            // invent evidence that cannot exist.
+            return Err(classify_http_status_rich(
+                status,
+                "",
+                hint.wait,
+                RateLimitVerdict::RateLimited,
+            ));
         }
         let payload = response.json::<OllamaResponse>().await.map_err(|error| {
             DomainError::validation(format!("invalid Ollama response: {error}"))

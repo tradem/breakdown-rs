@@ -1272,7 +1272,11 @@ where
                 worker_id,
                 &error.to_string(),
                 Some(error.code().code),
-                matches!(error, DomainError::ServiceUnavailable { .. }),
+                // The taxonomy is the one source of truth for retryability
+                // (issue #927): a variant check here silently disagreed with
+                // `is_retryable()` the moment a terminal provider failure
+                // (quota exhausted) joined the family.
+                error.is_retryable(),
                 error.retry_after(),
             )
             .await
@@ -4925,7 +4929,16 @@ where
                 // pricing read model, and those say nothing about the endpoint
                 // (D-A1 — counting them would let a storage hiccup open a breaker
                 // for every user of a healthy provider).
-                if is_provider_failure(&error) && gate.record_failure(retry_hint_of(&error)).await {
+                // Issue #927: only a RETRYABLE provider failure may move the
+                // breaker counter. A quota-exhausted `429` carries the same
+                // provider code but is terminal: counting it would let three
+                // such verdicts open the breaker, and the hold that follows
+                // would park a job that has nothing left to wait for instead of
+                // dead-lettering it with the provider narrative.
+                if is_provider_failure(&error)
+                    && is_transient(&error)
+                    && gate.record_failure(retry_hint_of(&error)).await
+                {
                     // It opened on this very failure: stop now instead of sleeping
                     // and calling into an endpoint the fleet has just stopped
                     // calling.
