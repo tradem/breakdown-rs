@@ -711,12 +711,12 @@ impl DecisionClient for HttpDecisionClient {
             // as an unexplained `scoring_failed` row (issue #767).
             //
             // The read is bounded in bytes AND in time (`client::MAX_ERROR_BODY_BYTES`,
-            // `client::ERROR_BODY_DEADLINE`, streamed chunk by chunk; issue #927
+            // `client::error_body_budget`, streamed chunk by chunk; issue #927
             // shares the helper with the hosted-chat adapter): the 400-character
             // cap in the classification applies after the body is in memory, so
             // `Response::text()` would first buffer whatever the provider sends
             // while holding the job's concurrency permit.
-            let body = read_error_body(&mut response).await;
+            let body = read_error_body(&mut response, self.timeout).await;
             let verdict = body.verdict(self.provider);
             // Issue #926: the hint rides along even though this pass keeps its
             // own single fixed retry — when the SCORING failure is what ends the

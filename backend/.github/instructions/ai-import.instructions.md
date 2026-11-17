@@ -418,10 +418,13 @@ Rules that must not drift:
   same way. Header-only turnstiles stay retryable; the #926 hint still schedules
   the retry.
 - **The body read is bounded in bytes AND in time**
-  (`client::MAX_ERROR_BODY_BYTES` = 1 KiB, `client::ERROR_BODY_DEADLINE` = 5 s,
-  streamed chunk by chunk — never `text()`/`bytes()`): a chatty or hostile error
-  page must not stream for the whole request timeout while a permit is held, and
-  a marker behind the bound is deliberately not seen (conservative default).
+  (`client::MAX_ERROR_BODY_BYTES` = 1 KiB, and a deadline of
+  `client::error_body_budget(request_timeout)` = `min(ERROR_BODY_DEADLINE = 5 s,
+  AI_IMPORT_REQUEST_TIMEOUT_SECS)` — the knob is configurable down to 1 s, so the
+  read can never outlive the request it belongs to; streamed chunk by chunk,
+  never `text()`/`bytes()`): a chatty or hostile error page must not stream while
+  a permit is held, and a marker behind the bound is deliberately not seen
+  (conservative default).
 - **An incomplete read is not evidence.** The reader returns
   `ErrorBody { text, complete }`; an IO error or the deadline leaves
   `complete = false`, which keeps the `429` retryable even when the bytes that

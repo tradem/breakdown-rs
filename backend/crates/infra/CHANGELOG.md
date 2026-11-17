@@ -36,7 +36,9 @@ commits (ADR-020 D5).
 - `client::read_error_body(&mut Response)` is the one bounded body read, shared
   by the hosted-chat and decision adapters (the decision adapter's local copy of
   the same loop is gone). It is bounded in **bytes** (`MAX_ERROR_BODY_BYTES`
-  = 1 KiB) and in **time** (`ERROR_BODY_DEADLINE` = 5 s), streams with
+  = 1 KiB) and in **time** (`error_body_budget(request_timeout)` = at most
+  `ERROR_BODY_DEADLINE` = 5 s and never more than the configured request
+  timeout, which allows as little as 1 s), streams with
   `Response::chunk()` (never `text()`/`bytes()`) and returns
   `ErrorBody { text, complete }`. An incomplete read — IO error or deadline — is
   **not** evidence: `ErrorBody::verdict` keeps it retryable while the arrived

@@ -44,9 +44,10 @@ gateway page or an unknown code.
 
 - **WHEN** a non-2xx response carries a large or slowly-streamed body
 - **THEN** at most 1 KiB SHALL be read, streamed chunk by chunk, **and** the
-  whole read SHALL end within a fixed deadline (5 s) that is shorter than any
-  configured request timeout — the two bounds together are what keep the read
-  from holding the job's concurrency permit
+  whole read SHALL end within `min(5 s, the configured request timeout)` — the
+  request timeout is configurable down to 1 s, so a fixed 5 s deadline would
+  outlive the request it belongs to. The two bounds together are what keep the
+  read from holding the job's concurrency permit
 - **AND** an IO error or the deadline SHALL keep the bytes collected so far and
   SHALL NOT replace the provider's real failure with a parsing error of our own
 - **AND** an **incomplete** read SHALL NOT be treated as evidence: it keeps the

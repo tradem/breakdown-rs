@@ -990,3 +990,32 @@ async fn a_stalled_error_body_read_ends_at_the_deadline() {
 
     server.abort();
 }
+
+/// CodeRabbit review, PR #931 (round 2): `AI_IMPORT_REQUEST_TIMEOUT_SECS` is
+/// configurable down to **1 s**, so a fixed 5 s error-body deadline would
+/// outlive the request it belongs to. The budget is therefore the smaller of the
+/// two, asserted here analytically instead of slept through.
+#[test]
+fn the_error_body_budget_never_exceeds_the_request_timeout() {
+    use std::time::Duration;
+
+    // The default (and any long) request timeout is capped by the constant.
+    assert_eq!(
+        super::error_body_budget(Duration::from_secs(120)),
+        super::ERROR_BODY_DEADLINE
+    );
+    assert_eq!(
+        super::error_body_budget(Duration::MAX),
+        super::ERROR_BODY_DEADLINE
+    );
+    // A short configured timeout wins, so the read can never outlive the
+    // response it reads from.
+    assert_eq!(
+        super::error_body_budget(Duration::from_secs(1)),
+        Duration::from_secs(1)
+    );
+    assert_eq!(
+        super::error_body_budget(Duration::from_millis(250)),
+        Duration::from_millis(250)
+    );
+}

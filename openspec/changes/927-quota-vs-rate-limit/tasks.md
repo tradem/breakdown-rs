@@ -91,10 +91,12 @@
 - [x] 8.1 The read outcome is separate from the text: `ErrorBody { text, complete }`,
       and an incomplete read (IO error or deadline) is never evidence — a stream
       cut after a quota-looking prefix keeps the conservative retryable verdict.
-- [x] 8.2 The byte bound got a **time** bound: `ERROR_BODY_DEADLINE` (5 s) bounds
-      the whole read, so a provider that writes half a body and stalls cannot hold
-      the permit for `AI_IMPORT_REQUEST_TIMEOUT_SECS`. Spec, code docs and the
-      instruction register state the same two bounds.
+- [x] 8.2 The byte bound got a **time** bound: the read ends within
+      `error_body_budget(request_timeout)` = `min(ERROR_BODY_DEADLINE = 5 s, the
+      configured request timeout)`, so a provider that writes half a body and
+      stalls cannot hold the permit for the whole timeout — and a deployment with
+      the knob at its 1 s floor keeps its shorter bound. Spec, code docs and the
+      instruction register state the same composition (round 2 of the review).
 - [x] 8.3 `RateLimitVerdict::QuotaExhausted { marker }` carries the matched table
       entry and the narrative always names it, so the classified code survives the
       400-character detail truncation. Regression tests: a >400-character

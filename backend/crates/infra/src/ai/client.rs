@@ -270,7 +270,7 @@ impl OpenAiCompatibleChatClient {
                 // exhausted quota (dead-letter). The read is bounded in bytes AND
                 // in time, never fails the path it runs on, and an incomplete
                 // read is not evidence (so it stays retryable).
-                let body = read_error_body(&mut response).await;
+                let body = read_error_body(&mut response, self.timeout).await;
                 let verdict = body.verdict(self.provider);
                 // Issue #926: the hint travels in the error payload, so the retry
                 // scheduler upstream honours it without a second header read.
@@ -812,15 +812,29 @@ pub enum RateLimitVerdict {
 /// finish streaming while a concurrency permit is held.
 pub(crate) const MAX_ERROR_BODY_BYTES: usize = 1024;
 
-/// Total wall-clock budget of one error-body read (issue #927).
+/// Upper bound on the wall-clock budget of one error-body read (issue #927).
 ///
 /// The byte bound alone is not a time bound: a provider can send half a chunk
 /// and then stall, and `chunk().await` would wait for it until the request
 /// timeout (`AI_IMPORT_REQUEST_TIMEOUT_SECS`, default 120 s) — the whole permit
 /// hold for a body we only wanted as *evidence*. A provider that has already
-/// answered with a failure has sent its error text by then, so 5 s is generous
-/// and still far below any configured request timeout.
+/// answered with a failure has sent its error text long before 5 s.
+///
+/// This is a **cap**, not the budget itself: [`error_body_budget`] takes the
+/// smaller of it and the caller's request timeout, because that knob is
+/// configurable down to 1 s and a fixed 5 s deadline would then outlive the
+/// request it belongs to.
 pub(crate) const ERROR_BODY_DEADLINE: Duration = Duration::from_secs(5);
+
+/// The wall-clock budget of one error-body read: at most [`ERROR_BODY_DEADLINE`],
+/// and never longer than the request timeout that already bounds the response.
+///
+/// Pure so the composition is asserted analytically instead of slept through
+/// (AGENTS.md §4).
+#[must_use]
+pub(crate) fn error_body_budget(request_timeout: Duration) -> Duration {
+    ERROR_BODY_DEADLINE.min(request_timeout)
+}
 
 /// What one bounded error-body read produced.
 ///
@@ -862,20 +876,25 @@ impl ErrorBody {
 }
 
 /// Read at most [`MAX_ERROR_BODY_BYTES`] of a response body within
-/// [`ERROR_BODY_DEADLINE`], chunk by chunk.
+/// [`error_body_budget`], chunk by chunk.
 ///
 /// Streams with [`reqwest::Response::chunk`] instead of `text()`/`bytes()`:
 /// those buffer whatever the provider sends, so an HTML gateway page or a
 /// hostile error would hold the caller — and with it an
 /// `ai_import.concurrency_permit` — for as long as it likes. Two bounds make
-/// that impossible: at most 1 KiB is read, and the whole read ends within 5 s.
+/// that impossible: at most 1 KiB is read, and the whole read ends within
+/// `min(ERROR_BODY_DEADLINE, request_timeout)` — i.e. never later than the
+/// request the response belongs to.
 ///
 /// Never fails. It runs on a path that already decided the request failed; an IO
 /// error or the deadline keeps the bytes collected so far and logs at `debug`,
 /// because a broken read must not replace the provider's real failure with a
 /// parsing error of our own — and it must not spend the timeout either.
-pub(crate) async fn read_error_body(response: &mut reqwest::Response) -> ErrorBody {
-    read_error_body_within(response, ERROR_BODY_DEADLINE).await
+pub(crate) async fn read_error_body(
+    response: &mut reqwest::Response,
+    request_timeout: Duration,
+) -> ErrorBody {
+    read_error_body_within(response, error_body_budget(request_timeout)).await
 }
 
 /// [`read_error_body`] against an explicit deadline (the test seam).

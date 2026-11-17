@@ -33,10 +33,13 @@ core reads the *headers* for a wait hint but never looks at the *body*.
   rule), and **not** in `core`.
 - **A bounded body read, with the read outcome kept separate from the text.**
   `client::read_error_body(&mut Response)` streams with `Response::chunk()`,
-  stops at `MAX_ERROR_BODY_BYTES` (1 KiB) **and** at `ERROR_BODY_DEADLINE` (5 s):
+  stops at `MAX_ERROR_BODY_BYTES` (1 KiB) **and** at
+  `error_body_budget(request_timeout)` — at most `ERROR_BODY_DEADLINE` (5 s), and
+  never longer than the request timeout that already bounds the response
+  (`AI_IMPORT_REQUEST_TIMEOUT_SECS` is configurable down to 1 s):
   `.text()`/`.bytes()` buffer whatever the provider sends, and a byte bound alone
-  is no time bound — a provider can send half a body and stall for the whole
-  request timeout while the caller holds a permit. It never fails; it returns
+  is no time bound — a provider can send half a body and stall while the caller
+  holds a permit. It never fails; it returns
   `ErrorBody { text, complete }`, and an **incomplete** read is never evidence
   (the verdict stays retryable) while the arrived bytes still reach the
   narrative.
