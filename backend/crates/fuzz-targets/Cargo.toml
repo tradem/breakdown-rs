@@ -20,12 +20,12 @@ workspace = true
 cargo-fuzz = true
 
 [dependencies]
-breakdown_core = { path = "../core", version = "0.72.0" }
+breakdown_core = { path = "../core", version = "0.73.0" }
 libfuzzer-sys = "0.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 uuid = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 
 [[bin]]
 name = "create_scene"

@@ -6,10 +6,6 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::sync::Arc;
-
-use super::{AuthorizationState, Requirement, authorize_middleware};
-use crate::auth::test_env::{remove_env, set_env, with_clean_env};
 use async_trait::async_trait;
 use axum::Router;
 use axum::body::Body as AxumBody;
@@ -18,12 +14,13 @@ use axum::middleware::from_fn_with_state;
 use axum::routing::post;
 use breakdown_core::membership::policy::{AuthContext, AuthorizationPolicy, PolicyDecision};
 use breakdown_core::shared::BlockId;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tower::ServiceExt;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-
+use super::{AuthorizationState, Requirement, authorize_middleware};
+use crate::auth::test_env::{remove_env, set_env, with_clean_env};
 use crate::auth::{AuthState, CurrentUser, auth_middleware};
-
 struct AllowAll;
 #[async_trait]
 impl AuthorizationPolicy for AllowAll {

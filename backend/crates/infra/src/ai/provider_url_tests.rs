@@ -5,14 +5,13 @@
 //! Unit tests for CuratedProviderUrls::base_url — kills deletion of match arms
 //! and replacement with "" or "xyzzy".
 
-use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
-
-use super::CuratedProviderUrls;
-
 // ===========================================================================
 // CuratedProviderUrls::base_url — kills return "" / "xyzzy" and arm deletion
 // ===========================================================================
 
+use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
+
+use super::CuratedProviderUrls;
 #[test]
 fn openai_base_url_is_https() {
     let url = CuratedProviderUrls::base_url(LlmProvider::OpenAI);

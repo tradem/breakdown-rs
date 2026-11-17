@@ -7,7 +7,6 @@
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, BlockId, ProjectId};
-
 /// Create a new episode within a block.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateEpisode {

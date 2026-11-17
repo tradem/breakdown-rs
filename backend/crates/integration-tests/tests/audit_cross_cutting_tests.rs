@@ -60,6 +60,7 @@
 //! - 6.3: `list_by_project` returns only the requested tenant's rows
 //! - 6.4: Idempotency under redelivery for non-membership categories
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -79,7 +80,6 @@ use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::shared::{
     AggregateVersion, EventMetadata, LexicalSortKey, ProjectId, Provenance, SeasonId, UserId,
 };
-use chrono::Utc;
 use infra::projectors::{AuditProjectorHandles, spawn_all_audit_projectors};
 use infra::queries::AuditRepositoryImpl;
 use kameo_es::Metadata;
@@ -365,7 +365,7 @@ async fn eappend_event(
                 return Ok(());
             }
         }
-        let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+        let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
         let ts_string = now_ms.to_string();
         let ts_bytes = ts_string.as_bytes();
         // One attempt = connect + command, bounded by RESP_ATTEMPT_TIMEOUT

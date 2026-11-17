@@ -10,8 +10,8 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use breakdown_core::reporting::*;
 
+use breakdown_core::reporting::*;
 #[test]
 fn truncate_error_redacts_secrets() {
     // Test that secrets are redacted in error messages

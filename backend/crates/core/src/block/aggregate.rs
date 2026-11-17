@@ -5,16 +5,14 @@
 
 //! Block aggregate using `kameo_es` event-sourced actor pattern.
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
-
-use crate::shared::{AggregateVersion, EventMetadata, ProjectId, SeasonId};
 
 use super::commands::{CreateBlock, UpdateBlockTimeSpan};
 use super::error::BlockError;
 use super::events::BlockEvent;
-
+use crate::shared::{AggregateVersion, EventMetadata, ProjectId, SeasonId};
 /// State persisted by the Block aggregate.
 ///
 /// A Block is scoped to exactly one `SeasonId` and groups Episodes. Its
@@ -27,8 +25,8 @@ pub struct BlockAggregate {
     pub season_id: SeasonId,
     pub project_id: ProjectId,
     pub number: i32,
-    pub start_date: Option<NaiveDate>,
-    pub end_date: Option<NaiveDate>,
+    pub start_date: Option<Date>,
+    pub end_date: Option<Date>,
     pub version: AggregateVersion,
 }
 

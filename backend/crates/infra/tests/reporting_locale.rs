@@ -10,14 +10,14 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use breakdown_core::reporting::ReportRenderError;
-use chrono::TimeZone;
-use infra::reporting::locale::{convert_to_timezone, validate_timezone};
 
 // ------------------------------------------------------------------
 // validate_timezone
 // ------------------------------------------------------------------
 
+use breakdown_core::reporting::ReportRenderError;
+use infra::reporting::locale::{convert_to_timezone, validate_timezone};
+use jiff::Timestamp;
 #[test]
 fn test_validate_timezone_valid() {
     assert!(validate_timezone("Europe/Berlin").is_ok());
@@ -63,7 +63,7 @@ fn test_validate_timezone_error_type() {
 #[test]
 fn test_convert_to_timezone_berlin_winter() {
     // 2024-01-15 12:00:00 UTC -> 2024-01-15 13:00:00 CET (UTC+1)
-    let utc_dt = chrono::Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap();
+    let utc_dt: Timestamp = "2024-01-15T12:00:00Z".parse().expect("fixture instant");
     let (year, month, day, hour, minute) = convert_to_timezone(&utc_dt, "Europe/Berlin");
     assert_eq!(year, 2024);
     assert_eq!(month, 1);
@@ -76,7 +76,7 @@ fn test_convert_to_timezone_berlin_winter() {
 fn test_convert_to_timezone_berlin_summer() {
     // 2024-06-15 10:00:00 UTC -> 2024-06-15 12:00:00 CEST (UTC+2)
     // Note: convert_to_timezone currently uses CET (UTC+1) always
-    let utc_dt = chrono::Utc.with_ymd_and_hms(2024, 6, 15, 10, 0, 0).unwrap();
+    let utc_dt: Timestamp = "2024-06-15T10:00:00Z".parse().expect("fixture instant");
     let (year, month, day, hour, minute) = convert_to_timezone(&utc_dt, "Europe/Berlin");
     assert_eq!(year, 2024);
     assert_eq!(month, 6);
@@ -89,7 +89,7 @@ fn test_convert_to_timezone_berlin_summer() {
 #[test]
 fn test_convert_to_timezone_date_boundary() {
     // 2024-01-01 00:00:00 UTC -> 2024-01-01 01:00:00 CET
-    let utc_dt = chrono::Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+    let utc_dt: Timestamp = "2024-01-01T00:00:00Z".parse().expect("fixture instant");
     let (year, month, day, hour, minute) = convert_to_timezone(&utc_dt, "Europe/Berlin");
     assert_eq!(year, 2024);
     assert_eq!(month, 1);
@@ -101,9 +101,7 @@ fn test_convert_to_timezone_date_boundary() {
 #[test]
 fn test_convert_to_timezone_previous_year_eve() {
     // 2023-12-31 22:00:00 UTC -> 2023-12-31 23:00:00 CET
-    let utc_dt = chrono::Utc
-        .with_ymd_and_hms(2023, 12, 31, 22, 0, 0)
-        .unwrap();
+    let utc_dt: Timestamp = "2023-12-31T22:00:00Z".parse().expect("fixture instant");
     let (year, month, day, hour, minute) = convert_to_timezone(&utc_dt, "Europe/Berlin");
     assert_eq!(year, 2023);
     assert_eq!(month, 12);

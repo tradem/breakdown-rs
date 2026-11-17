@@ -23,7 +23,6 @@
 
 use breakdown_core::membership::Role;
 use breakdown_core::membership::views::MembershipStateKind;
-
 /// The plain token must be the JSON form without its quotes.
 #[test]
 fn role_token_matches_the_serde_wire_form() {

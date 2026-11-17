@@ -16,8 +16,6 @@
 //! **action-scoped** (the caller's active block, Decision D2) and runs *after*
 //! the [`crate::auth::auth_middleware`].
 
-use std::sync::Arc;
-
 use axum::extract::FromRequestParts;
 use axum::http::Method;
 use axum::middleware::Next;
@@ -28,6 +26,7 @@ use breakdown_core::membership::policy::{
     Action, AuthContext, AuthorizationPolicy, PolicyDecision, SeasonAuthContext,
 };
 use breakdown_core::shared::UserId;
+use std::sync::Arc;
 
 use crate::auth::{ActiveBlock, AuthError, CurrentUser};
 

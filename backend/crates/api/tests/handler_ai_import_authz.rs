@@ -18,19 +18,18 @@
 // handler `Result` returns use `.expect()`/`.expect_err()` with explicit
 // messages. No other lints are suppressed — the allow list is kept minimal.
 #![allow(clippy::expect_used)]
-use crate::common;
-
-use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
-use axum::extract::State;
-use axum::http::StatusCode;
 
 use api::auth::CurrentUser;
 use api::handlers::{get_ai_import_defaults, list_ai_models, list_ai_providers};
+use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
 use api::state::AppState;
+use axum::extract::State;
+use axum::http::StatusCode;
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::BlockId;
 use common::FakePorts;
 
+use crate::common;
 /// Build a handler state with AI import enabled and a membership repo whose
 /// credential-role gate is controlled by `credential_role_override`.
 async fn ai_import_state(ports: FakePorts) -> AppState<FakePorts> {

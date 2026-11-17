@@ -6,14 +6,12 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use breakdown_core::ai::AiImportJobId;
 use breakdown_core::error::DomainError;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
-
 #[async_trait]
 pub trait AiPreviewStore: Send + Sync {
     async fn put(&self, job_id: AiImportJobId, payload: Vec<u8>) -> Result<String, DomainError>;

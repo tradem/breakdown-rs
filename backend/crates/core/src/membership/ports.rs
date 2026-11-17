@@ -11,16 +11,15 @@
 //! `MembershipRepository` is the **read** seam (flat views-out). Persistence is
 //! owned by the `kameo_es` adapter in `infra`.
 
-use crate::error::DomainError;
-use crate::membership::Role;
-use crate::shared::{BlockId, ProjectId, SeasonId, UserId};
+use async_trait::async_trait;
 
 use super::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
 };
 use super::views::MembershipView;
-
-use async_trait::async_trait;
+use crate::error::DomainError;
+use crate::membership::Role;
+use crate::shared::{BlockId, ProjectId, SeasonId, UserId};
 
 /// Async write port for the `BlockMembership` aggregate.
 ///

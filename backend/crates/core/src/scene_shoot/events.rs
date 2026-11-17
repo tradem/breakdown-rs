@@ -4,7 +4,7 @@
 
 //! Events emitted by the `SceneShootAggregate`.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -49,7 +49,7 @@ pub enum SceneShootEvent {
     /// Execution has started for this scene shoot.
     SceneShootStarted {
         id: SceneShootId,
-        start_dt: DateTime<Utc>,
+        start_dt: Timestamp,
         version: AggregateVersion,
     },
     /// The actual (Ist) order has been set or replaced.
@@ -61,7 +61,7 @@ pub enum SceneShootEvent {
     /// The scene shoot has finished.
     SceneShootFinished {
         id: SceneShootId,
-        end_dt: DateTime<Utc>,
+        end_dt: Timestamp,
         version: AggregateVersion,
     },
     /// The scene shoot has been skipped.

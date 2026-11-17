@@ -11,10 +11,10 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
 use breakdown_core::reporting::*;
 use breakdown_core::shared::ShootingDayId;
 use uuid::Uuid;
-
 #[test]
 fn dedup_key_is_stable_across_triggers() {
     let day = ShootingDayId(Uuid::now_v7());

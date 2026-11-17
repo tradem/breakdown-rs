@@ -14,10 +14,10 @@ use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::error::SceneError;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
-use chrono::Utc;
 use infra::event_store::{
     map_executed, map_executed_result, map_version_only, version_from_expected,
 };
+use jiff::Timestamp;
 use kameo_es::command_service::{AppendedEvent, ExecuteResult};
 use kameo_es::error::ExecuteError;
 use uuid::Uuid;
@@ -37,7 +37,7 @@ fn appended_event(stream_version: u64) -> AppendedEvent<SceneEvent> {
         partition_id: 0,
         partition_sequence: 0,
         stream_version,
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     }
 }
 

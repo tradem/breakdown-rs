@@ -14,15 +14,14 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::OUTFIT_NOT_FOUND;
 use breakdown_core::outfit::ports::OutfitRepository;
 use breakdown_core::outfit::views::{OutfitPieceView, OutfitView};
+use breakdown_core::photo::views::PhotoVariantView;
 use breakdown_core::shared::AggregateVersion;
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::piece::{parse_status, parse_variant};
-use breakdown_core::photo::views::PhotoVariantView;
-
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for outfit projections.
 #[derive(Clone, Debug)]
 pub struct OutfitRepositoryImpl {
@@ -216,9 +215,7 @@ fn map_outfit_row(row: sqlx::postgres::PgRow) -> Result<OutfitView, DomainError>
         notes: row.try_get("notes").map_err(map_err)?,
         photos: Vec::new(),
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
     })
 }
 

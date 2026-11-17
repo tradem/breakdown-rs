@@ -6,14 +6,13 @@
 
 use uuid::Uuid;
 
-use crate::error::DomainError;
-use crate::shared::{AggregateVersion, UserId};
-
 use super::commands::{
     AddPieceToOutfit, CreateOutfit, CreateOutfitVariant, LinkOutfitPhoto, RemovePieceFromOutfit,
     RenameOutfit, UnlinkOutfitPhoto, UpdateOutfitNotes,
 };
 use super::views::OutfitView;
+use crate::error::DomainError;
+use crate::shared::{AggregateVersion, UserId};
 
 /// Async write port for the `OutfitAggregate`.
 #[allow(async_fn_in_trait)]

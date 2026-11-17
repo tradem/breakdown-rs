@@ -13,7 +13,9 @@ pub mod write_metrics;
 pub use connection_pool::ConnectionPool;
 pub use write_metrics::{append_metrics, AppendMetrics};
 
-use std::{convert::Infallible, io};
+use std::{convert::Infallible, io, time::SystemTime};
+
+use jiff::Timestamp;
 
 use kameo::error::SendError;
 use sierradb_client::SierraError;
@@ -27,6 +29,26 @@ pub enum Error<M = (), E = Infallible> {
     Database(#[from] SierraError),
     #[error(transparent)]
     SendError(#[from] SendError<M, E>),
+}
+
+/// Bridge between the domain instant (`jiff::Timestamp`) and the `SystemTime`
+/// the SierraDB wire protocol carries (ADR-040, issue #929).
+///
+/// `chrono` implemented both directions as `From`, which is why the append and
+/// replay paths converted with a bare `.into()`. jiff's conversions are
+/// `TryFrom`: `Timestamp` spans ±9_999 years while `SystemTime`'s range is
+/// platform-defined (Windows starts at 1601). Neither direction may be
+/// silently clamped — an append timestamp that got folded to the epoch would
+/// corrupt the stream's ordering — so both stay fallible and the callers map
+/// the failure onto their existing `InvalidTimestamp` variant.
+pub(crate) fn to_system_time(ts: Timestamp) -> Result<SystemTime, jiff::Error> {
+    SystemTime::try_from(ts)
+}
+
+/// Inverse of [`to_system_time`]; a store-supplied instant outside
+/// `Timestamp`'s range is a corrupt-event error, not a replay abort.
+pub(crate) fn from_system_time(time: SystemTime) -> Result<Timestamp, jiff::Error> {
+    Timestamp::try_from(time)
 }
 
 /// A failure to convert a raw Sierra message into a typed [`Event`]
@@ -47,9 +69,26 @@ pub enum TryFromSierraEventError {
         event: Box<sierradb_client::Event>,
         err: ciborium::de::Error<io::Error>,
     },
+    /// The stored event carries an instant `jiff::Timestamp` cannot represent
+    /// (ADR-040). Permanent by construction: the same message replays the same
+    /// way, so the stream layer dead-letters it instead of restart-looping.
+    #[error("event timestamp out of range: {err}")]
+    TimestampOutOfRange {
+        event: Box<sierradb_client::Event>,
+        err: jiff::Error,
+    },
 }
 
 fn event_from_sierra(ev: sierradb_client::Event) -> Result<Event, TryFromSierraEventError> {
+    // Converted before the struct is consumed field by field: a store instant
+    // outside `Timestamp`'s range must surface as a typed error, not as a
+    // partially moved value.
+    let timestamp = from_system_time(ev.timestamp).map_err(|err| {
+        TryFromSierraEventError::TimestampOutOfRange {
+            event: Box::new(ev.clone()),
+            err,
+        }
+    })?;
     let data = if !ev.payload.is_empty() {
         ciborium::from_reader(ev.payload.as_slice()).map_err(|err| {
             TryFromSierraEventError::DeserializeEventData {
@@ -82,7 +121,7 @@ fn event_from_sierra(ev: sierradb_client::Event) -> Result<Event, TryFromSierraE
         name: ev.event_name,
         data,
         metadata,
-        timestamp: ev.timestamp.into(),
+        timestamp,
     })
 }
 

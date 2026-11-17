@@ -6,16 +6,15 @@
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
-use std::borrow::Cow;
-use std::collections::HashSet;
-use std::time::Duration;
-
 use async_trait::async_trait;
 use breakdown_core::ai::{CuratedLlmProvider, LlmModelCatalog, LlmProvider, ModelInfo};
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_CONFIG_EMPTY_VAULT_KEY;
 use breakdown_core::settings::SecretValue;
 use serde::Deserialize;
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::time::Duration;
 
 use super::CuratedProviderUrls;
 use super::client::{classify_http_status, classify_transport_error};
@@ -23,7 +22,6 @@ use super::transport::RedirectViolation;
 use super::transport::build_hosted_client_with_user_agent;
 use super::transport::curated_provider_redirect_policy;
 use super::user_agent::resolve_user_agent;
-
 /// Deadline for curated model-catalog requests. The catalog has no
 /// caller-supplied timeout, so the bound is fixed here (the sibling chat
 /// clients take a caller-supplied `Duration` instead).

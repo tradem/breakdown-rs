@@ -6,7 +6,6 @@
 
 //! Scene projection handler: `SceneEvent` -> `projection_scene` + `projection_scene_character`.
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::events::SceneEvent;
 use breakdown_core::shared::EventMetadata;
@@ -15,6 +14,8 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `SceneAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct SceneProjector;
@@ -98,7 +99,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(source_json)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
 
@@ -146,7 +147,7 @@ impl<'a> EntityEventHandler<SceneAggregate, Transaction<'a, Postgres>> for Scene
                 .bind(details.summary)
                 .bind(details.script_day)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -368,7 +369,7 @@ impl SceneProjector {
         ctx: &mut Transaction<'b, Postgres>,
         id: Uuid,
         version: i64,
-        updated_at: chrono::DateTime<chrono::Utc>,
+        updated_at: jiff::Timestamp,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
@@ -379,7 +380,7 @@ impl SceneProjector {
         )
         .bind(id)
         .bind(version)
-        .bind(updated_at)
+        .bind(sql_ts(updated_at))
         .execute(&mut **ctx)
         .await?;
         Ok(result.rows_affected() > 0)
@@ -389,7 +390,7 @@ impl SceneProjector {
         ctx: &mut Transaction<'b, Postgres>,
         id: Uuid,
         version: i64,
-        updated_at: chrono::DateTime<chrono::Utc>,
+        updated_at: jiff::Timestamp,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -400,7 +401,7 @@ impl SceneProjector {
         )
         .bind(id)
         .bind(version)
-        .bind(updated_at)
+        .bind(sql_ts(updated_at))
         .execute(&mut **ctx)
         .await?;
         Ok(())

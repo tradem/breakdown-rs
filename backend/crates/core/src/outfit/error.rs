@@ -8,7 +8,6 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::shared::AggregateVersion;
-
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum OutfitError {
     /// The outfit name is empty or whitespace-only (422 `outfit.validation`).

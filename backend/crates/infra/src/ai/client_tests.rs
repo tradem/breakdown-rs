@@ -5,10 +5,9 @@
 //! Unit tests for LLM client: reject_ollama, hosted_origin_host, endpoint,
 //! classify_http_status, classify_transport_error.
 
-use std::time::Duration;
-
 use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 use reqwest::StatusCode;
+use std::time::Duration;
 
 use super::{
     MAX_TRUNCATION_RETRIES, OpenAiCompatibleChatClient, RateLimitVerdict, classify_http_status,

@@ -4,18 +4,15 @@
 
 //! `ProjectMembership` aggregate — one stream per project.
 
-use std::collections::HashMap;
-
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
+use std::collections::HashMap;
 use uuid::Uuid;
-
-use crate::membership::Role;
-use crate::shared::{EventMetadata, ProjectId, UserId};
 
 use super::commands::{BootstrapProjectOwner, GrantProjectRole, RevokeProjectRole};
 use super::error::ProjectMembershipError;
 use super::events::ProjectMembershipEvent;
-
+use crate::membership::Role;
+use crate::shared::{EventMetadata, ProjectId, UserId};
 /// Roles a project-scoped grant may carry.
 ///
 /// Deliberately the same costume-department allowlist the block-scoped season

@@ -13,7 +13,6 @@
 //! `MembershipView` is unaffected — it is still serde-JSON. See
 //! `Role::as_str` / `MembershipStateKind::as_str`.
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::membership::MembershipMetadata;
 use breakdown_core::membership::aggregate::BlockMembership;
 use breakdown_core::membership::events::MembershipEvent;
@@ -22,6 +21,8 @@ use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `BlockMembership` aggregate.
 ///
 /// Redelivery is safe: `MemberInvited` is an idempotent upsert; accept/grant
@@ -67,8 +68,8 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 .bind(user_id.as_str())
                 .bind(role_token)
                 .bind(state_token)
-                .bind(updated_at)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -90,7 +91,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 .bind(user_id.as_str())
                 .bind(role_token)
                 .bind(state_token)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -110,7 +111,7 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 .bind(block_id.0)
                 .bind(user_id.as_str())
                 .bind(role_token)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -153,9 +154,9 @@ impl<'a> EntityEventHandler<BlockMembership, Transaction<'a, Postgres>> for Memb
                 .bind(user_id.as_str())
                 .bind(role_token)
                 .bind(state_token)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }

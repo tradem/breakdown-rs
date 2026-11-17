@@ -16,22 +16,20 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use crate::common;
-
-use std::sync::Arc;
 
 use api::auth::CurrentUser;
-use api::problems::{Json, Path};
-use axum::extract::State;
-use tokio::sync::Mutex;
-use uuid::Uuid;
-
 use api::handlers::get_season_membership;
+use api::problems::{Json, Path};
 use api::state::AppState;
+use axum::extract::State;
 use breakdown_core::membership::Role;
 use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use common::*;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use uuid::Uuid;
 
+use crate::common;
 #[tokio::test]
 async fn get_season_membership_returns_404_for_missing_season() {
     let ports = FakePorts {

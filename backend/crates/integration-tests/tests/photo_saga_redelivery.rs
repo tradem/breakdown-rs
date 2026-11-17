@@ -193,7 +193,7 @@ fn uploaded_event(
                 project_id,
             }),
         },
-        timestamp: chrono::Utc::now(),
+        timestamp: jiff::Timestamp::now(),
     }
 }
 

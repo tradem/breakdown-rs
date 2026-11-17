@@ -3,12 +3,13 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use super::{DocumentKind, SourceFormat, TelemetryApplyState};
-
 // ===========================================================================
 // SourceFormat tests
 // ===========================================================================
 
+use jiff::SignedDuration;
+
+use super::{DocumentKind, SourceFormat, TelemetryApplyState};
 #[test]
 fn only_csv_uses_the_native_parser() {
     assert!(SourceFormat::Csv.uses_native_csv());
@@ -318,11 +319,7 @@ fn ai_import_progress_eta_fields_are_additive_on_the_wire() {
         chunk: Some(3),
         chunks_total: Some(12),
         episodes_seen: Vec::new(),
-        started_at: Some(
-            chrono::DateTime::parse_from_rfc3339("2026-11-02T10:00:00Z")
-                .expect("fixture timestamp")
-                .with_timezone(&chrono::Utc),
-        ),
+        started_at: Some("2026-11-02T10:00:00Z".parse().expect("fixture timestamp")),
         done_bytes: Some(4096),
         total_bytes: Some(16384),
         written_at: None,
@@ -491,13 +488,9 @@ fn provider_breaker_state_wire_spellings_are_snake_case() {
 #[test]
 fn provider_hold_round_trips_through_json() {
     use crate::ai::{LlmProvider, ProviderBreakerState, ProviderHold};
-    use chrono::TimeZone;
 
-    let until = chrono::Utc
-        .with_ymd_and_hms(2026, 11, 4, 7, 10, 11)
-        .single()
-        .unwrap_or_default();
-    let deadline = until + chrono::Duration::hours(6);
+    let until: jiff::Timestamp = "2026-11-04T07:10:11Z".parse().expect("fixture instant");
+    let deadline = until + SignedDuration::from_hours(6);
     let hold = ProviderHold {
         provider: LlmProvider::OpenCodeGo,
         model: "some-model".to_string(),

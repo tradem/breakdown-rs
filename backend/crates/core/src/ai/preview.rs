@@ -6,10 +6,9 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::collections::{HashMap, HashSet};
-
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -20,7 +19,6 @@ use crate::scene::commands::{CreateScene, UpdateSceneDetails};
 use crate::scene::events::{SceneDetails, SceneSource};
 use crate::scene::views::SceneView;
 use crate::shared::{AggregateVersion, BlockId, CostumeCategoryId, EpisodeId, ProjectId};
-
 /// A bounded section of extracted script text beginning at an INT./EXT.
 /// The chunker's own version (issue #871, D-B7).
 ///
@@ -1323,7 +1321,7 @@ pub struct ShootingScheduleRow {
     #[serde(default)]
     pub episode_number: Option<i32>,
     pub shooting_day_label: Option<String>,
-    pub date: Option<NaiveDate>,
+    pub date: Option<Date>,
     pub location: Option<String>,
     pub order: Option<u32>,
     /// Hybrid quality score of this row's day assignment (issue #722),

@@ -9,7 +9,6 @@
 use std::collections::BTreeMap;
 
 use super::*;
-
 #[test]
 fn decision_capable_providers_are_the_curated_three() {
     assert!(is_decision_capable(LlmProvider::Neuralwatt));

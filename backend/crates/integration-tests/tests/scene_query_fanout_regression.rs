@@ -33,9 +33,11 @@ use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, ShootingDayId};
 use breakdown_core::shooting_day::ports::ShootingDayRepository;
-use chrono::{DateTime, Utc};
+use infra::db_time::sql_date;
+use infra::db_time::sql_ts;
 use infra::projectors::SceneProjector;
 use infra::queries::{SceneRepositoryImpl, ShootingDayRepositoryImpl};
+use jiff::Timestamp;
 use kameo_es::event_handler::EntityEventHandler;
 use kameo_es::{Apply, Entity, Event, EventType, Metadata, StreamId};
 use uuid::Uuid;
@@ -48,7 +50,7 @@ async fn insert_projection_shooting_day(
     id: ShootingDayId,
     episode_id: EpisodeId,
     order_key: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<()> {
     sqlx::query(
         r#"
@@ -61,8 +63,10 @@ async fn insert_projection_shooting_day(
     .bind(episode_id.0)
     .bind(format!("Day {order_key}"))
     .bind(order_key)
-    .bind(now.date_naive())
-    .bind(now)
+    .bind(sql_date(
+        now.to_zoned_datetime(jiff::tz::TimeZone::UTC).date(),
+    ))
+    .bind(sql_ts(now))
     .execute(pool)
     .await?;
     Ok(())
@@ -80,7 +84,7 @@ async fn seed_fanout_scene(
     episode_id: EpisodeId,
     characters: &[Uuid],
     days: &[ShootingDayId],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<()> {
     sqlx::query(
         r#"
@@ -94,7 +98,7 @@ async fn seed_fanout_scene(
     .bind(7_i32)
     .bind("Studio")
     .bind("Neutral")
-    .bind(now)
+    .bind(sql_ts(now))
     .execute(pool)
     .await?;
 
@@ -138,7 +142,7 @@ async fn scene_find_by_id_and_list_by_episode_return_unduplicated_pivots() -> Re
     let scene_id = Uuid::now_v7();
     let characters = [Uuid::now_v7(), Uuid::now_v7()];
     let days = [ShootingDayId::new(), ShootingDayId::new()];
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     seed_fanout_scene(&pool, scene_id, episode_id, &characters, &days, now).await?;
 
@@ -184,7 +188,7 @@ async fn scenes_by_character_returns_unduplicated_pivots() -> Result<()> {
     let scene_id = Uuid::now_v7();
     let characters = [Uuid::now_v7(), Uuid::now_v7()];
     let days = [ShootingDayId::new(), ShootingDayId::new()];
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     seed_fanout_scene(&pool, scene_id, episode_id, &characters, &days, now).await?;
 
@@ -221,7 +225,7 @@ async fn scenes_by_shooting_day_returns_unduplicated_pivots() -> Result<()> {
     let scene_id = Uuid::now_v7();
     let characters = [Uuid::now_v7(), Uuid::now_v7()];
     let days = [ShootingDayId::new(), ShootingDayId::new()];
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     seed_fanout_scene(&pool, scene_id, episode_id, &characters, &days, now).await?;
 
@@ -260,7 +264,7 @@ async fn aggregate_state_matches_query_result_for_same_event_stream() -> Result<
     let scene_id = Uuid::now_v7();
     let characters = [Uuid::now_v7(), Uuid::now_v7()];
     let days = [ShootingDayId::new(), ShootingDayId::new()];
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     // Parent rows for the day-link foreign key.
     for day in days {

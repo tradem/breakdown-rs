@@ -3,17 +3,14 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
-use std::collections::HashMap;
-
 use serde::Deserialize;
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, UserId};
-
 use super::ports::LlmProvider;
 use super::views::{CostDisplayPreference, DocumentKind};
-
+use crate::shared::{AggregateVersion, UserId};
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CreateAiConfig {
     pub id: Uuid,

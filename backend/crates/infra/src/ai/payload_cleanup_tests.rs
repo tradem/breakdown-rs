@@ -5,14 +5,13 @@
 //! Unit tests for payload_cleanup — kills mutations in is_not_found,
 //! gc_config_from_env, and CleanupMarks.
 
-use breakdown_core::error::DomainError;
-
-use super::{AiPayloadGcConfig, is_not_found};
-
 // ===========================================================================
 // is_not_found — kills return false / true
 // ===========================================================================
 
+use breakdown_core::error::DomainError;
+
+use super::{AiPayloadGcConfig, is_not_found};
 #[test]
 fn is_not_found_returns_true_for_not_found() {
     let err = DomainError::NotFound {

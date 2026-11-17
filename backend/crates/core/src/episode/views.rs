@@ -3,13 +3,12 @@
 
 //! Flat read-model DTOs for the Episode context.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, BlockId, ProjectId};
-
 /// Complete episode read model.
 ///
 /// `updated_at` is sourced from the timestamp of the last applied `EpisodeEvent`.
@@ -24,5 +23,5 @@ pub struct EpisodeView {
     pub name: Option<String>,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

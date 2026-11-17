@@ -5,7 +5,7 @@
 
 //! Commands for the `SceneShoot` aggregate.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::shared::{
@@ -66,7 +66,7 @@ pub struct ReplanSceneShoot {
 pub struct StartSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
-    pub start_dt: DateTime<Utc>,
+    pub start_dt: Timestamp,
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,
@@ -105,7 +105,7 @@ pub struct SetActualOrder {
 pub struct FinishSceneShoot {
     pub id: SceneShootId,
     pub shooting_day_id: ShootingDayId,
-    pub end_dt: DateTime<Utc>,
+    pub end_dt: Timestamp,
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

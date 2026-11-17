@@ -10,14 +10,12 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use axum::http::HeaderValue;
 
 use api::auth::jwks::StaticJwksProvider;
 use api::auth::{AuthState, CurrentUser, OidcConfig, bearer_token};
-
+use axum::http::HeaderValue;
+use std::collections::HashMap;
+use std::sync::Arc;
 #[test]
 fn is_dev_reflects_override() {
     assert!(AuthState::dev(CurrentUser::dummy("x")).is_dev());

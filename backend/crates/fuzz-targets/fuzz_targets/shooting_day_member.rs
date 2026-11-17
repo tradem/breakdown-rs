@@ -16,7 +16,7 @@ fn main() {}
 
 use libfuzzer_sys::fuzz_target;
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::Deserialize;
 
 use breakdown_core::membership::Role;
@@ -29,7 +29,7 @@ struct CreateShootingDayRequest {
     episode_id: EpisodeId,
     label: Option<String>,
     order_key: LexicalSortKey,
-    date: Option<NaiveDate>,
+    date: Option<Date>,
     source: ShootingDaySource,
 }
 

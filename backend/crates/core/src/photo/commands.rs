@@ -4,12 +4,11 @@
 
 //! Photo domain commands.
 
-use super::binding::PhotoBinding;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use super::binding::PhotoBinding;
 use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, ProjectId};
-
 /// Upload a new photo. The saga will later normalize the original and generate
 /// variants.
 ///

@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
-
 /// Events emitted by the `SeasonAggregate`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SeasonEvent {

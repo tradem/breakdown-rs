@@ -21,7 +21,7 @@ use anyhow::Result;
 use breakdown_core::scene_shoot::ports::SceneShootRepository;
 use breakdown_core::scene_shoot::views::SceneShootView;
 use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SceneShootId, ShootingDayId};
-use chrono::Utc;
+use infra::db_time::SqlTimestamp;
 use infra::queries::SceneShootRepositoryImpl;
 use serde_json::json;
 use sqlx::PgPool;
@@ -96,8 +96,8 @@ async fn seed_scene_shoot(
     .bind(shooting_day_id.0)
     .bind(planned_order)
     .bind(actual_order)
-    .bind(None::<chrono::DateTime<Utc>>)
-    .bind(None::<chrono::DateTime<Utc>>)
+    .bind(None::<SqlTimestamp>)
+    .bind(None::<SqlTimestamp>)
     .bind(status)
     .bind(notes)
     .bind(&continuity_ids)
@@ -112,7 +112,7 @@ async fn seed_scene_shoot(
 #[allow(dead_code)]
 fn strip_volatile(mut v: SceneShootView) -> SceneShootView {
     v.version = AggregateVersion(0);
-    v.updated_at = chrono::DateTime::UNIX_EPOCH;
+    v.updated_at = jiff::Timestamp::UNIX_EPOCH;
     v
 }
 

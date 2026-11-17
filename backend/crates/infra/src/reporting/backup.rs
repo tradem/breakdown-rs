@@ -19,9 +19,6 @@
 //! On external failure: reuse the staged object (no re-query, no re-render).
 //! Bounded retries → dead-letter. Periodic reconciliation for stranded claims.
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use breakdown_core::reporting::{
     ContentDigest, RenderPresentationContext, ReportArchiveStorage, ReportArtifactKey,
     ReportJobStatus, ReportKind, ReportRenderError, ReportRenderRequest, ReportRenderer,
@@ -29,6 +26,8 @@ use breakdown_core::reporting::{
 use breakdown_core::scene_shoot::ports::SceneShootReportRepository;
 use breakdown_core::shared::ShootingDayId;
 use serde_json::json;
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{info, warn};
 use uuid::Uuid;
 

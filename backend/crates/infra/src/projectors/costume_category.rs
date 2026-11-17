@@ -11,7 +11,6 @@
 //! The category classifies fundus **pieces** (n:1, optional), so rename
 //! propagation targets `projection_piece.category_name` (one row per piece).
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::events::CostumeCategoryEvent;
 use breakdown_core::shared::EventMetadata;
@@ -20,6 +19,8 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `CostumeCategoryAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct CostumeCategoryProjector;
@@ -68,7 +69,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .bind(order_key.0)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -84,7 +85,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .bind(id)
                 .bind(name.clone())
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
 
@@ -119,7 +120,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 .bind(id)
                 .bind(order_key.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -134,7 +135,7 @@ impl<'a> EntityEventHandler<CostumeCategoryAggregate, Transaction<'a, Postgres>>
                 )
                 .bind(id)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
                 // Historical piece references keep their last-known

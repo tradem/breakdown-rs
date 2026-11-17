@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
+
 use api::problems::Json;  // test-only alias for the wrapper extractor (ADR-031)
 use axum::extract::State;
 use api::problems::{Path, Query};

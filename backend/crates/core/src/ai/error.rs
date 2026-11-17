@@ -5,7 +5,6 @@
 use thiserror::Error;
 
 use crate::shared::AggregateVersion;
-
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AiConfigError {
     #[error("AI provider must be selected")]

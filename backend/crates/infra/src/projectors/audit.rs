@@ -42,10 +42,11 @@ use breakdown_core::{
     settings::{aggregate::SettingsAggregate, events::SettingsEvent},
     shooting_day::{aggregate::ShootingDayAggregate, events::ShootingDayEvent},
 };
-use sqlx::{self as sqlx, Postgres, Transaction};
-
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use kameo_es::{Event, EventType};
+use sqlx::{self as sqlx, Postgres, Transaction};
+
+use crate::db_time::sql_ts;
 
 // ── Compile-time-exhaustive category enum ─────────────────────────────
 
@@ -142,7 +143,7 @@ async fn write_audit_row(
     provenance: &str,
     project_id: Option<String>,
     event: impl serde::Serialize,
-    event_timestamp: chrono::DateTime<chrono::Utc>,
+    event_timestamp: jiff::Timestamp,
     event_id: uuid::Uuid,
 ) -> sqlx::Result<()> {
     let payload = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
@@ -177,7 +178,7 @@ async fn write_audit_row(
     .bind(provenance)
     .bind(payload)
     .bind(crate::projectors::PROJECTOR_VERSION)
-    .bind(event_timestamp)
+    .bind(sql_ts(event_timestamp))
     .execute(&mut **ctx)
         .await
         .map(|_| ())
@@ -948,7 +949,7 @@ mod mutation_tests {
                 causation_event: None,
                 data: meta,
             },
-            timestamp: chrono::Utc::now(),
+            timestamp: jiff::Timestamp::now(),
         }
     }
 

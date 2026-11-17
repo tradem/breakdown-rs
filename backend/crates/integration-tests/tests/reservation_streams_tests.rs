@@ -33,6 +33,7 @@
 //! by the same `aggregate_id` never conflicts with itself (issue #182
 //! mirror); test 2 pins that semantics too.
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -45,7 +46,6 @@ use breakdown_core::episode::ports::EpisodeCommands;
 use breakdown_core::error::DomainError;
 use breakdown_core::season::ports::SeasonCommands as _;
 use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId};
-use chrono::Utc;
 use infra::reservations::reaper::run_reaper_pass;
 use infra::reservations::store::ReservationStore;
 use kameo_es::ConnectionPool;
@@ -279,7 +279,7 @@ async fn create_failure_keeps_claim_reaper_consumes_realized_claim() -> Result<(
             name: None,
             version: AggregateVersion(1),
         })?;
-        let now_ms = Utc::now().timestamp_millis();
+        let now_ms = Timestamp::now().as_millisecond();
         let _: redis::Value = redis::cmd("EAPPEND")
             .arg(format!("episode-{}", stuck_id))
             .arg("EpisodeCreated")
@@ -615,7 +615,7 @@ async fn reaper_releases_a_claim_whose_aggregate_carries_a_different_key() -> Re
             name: None,
             version: AggregateVersion(1),
         })?;
-        let now_ms = Utc::now().timestamp_millis();
+        let now_ms = Timestamp::now().as_millisecond();
         let _: redis::Value = redis::cmd("EAPPEND")
             .arg(format!("episode-{}", stuck_id))
             .arg("EpisodeCreated")

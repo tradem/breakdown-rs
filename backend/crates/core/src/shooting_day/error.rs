@@ -7,7 +7,6 @@
 use thiserror::Error;
 
 use crate::shared::{AggregateVersion, LexicalSortKey, ShootingDayId};
-
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum ShootingDayError {
     #[error("Validation error: {0}")]

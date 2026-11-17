@@ -17,6 +17,26 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.70.0] - Unreleased
+
+### Changed — BREAKING: `jiff` time types in the handler/DTO layer (issue #929, ADR-040)
+
+- Cascading MAJOR from `core` 0.73.0 / `infra` 0.84.0 (ADR-020 D3): request
+  and response types that carried `chrono::DateTime<Utc>` now carry
+  `jiff::Timestamp`.
+- **The HTTP contract is unchanged.** `openapi.yaml` is byte-identical after the
+  migration (the `openapi_drift` test sees zero diff), including all 36
+  `format: date-time` and 8 `format: date` properties. `utoipa` 6 ships only a
+  `jiff_0_2` bridge; it resolves schemas by type name, which jiff 1.x keeps.
+- `SceneShoot`'s `start_dt`/`end_dt` keep their naive wall-clock wire shape
+  (`jiff::civil::DateTime` on the Rust side, still `type: [string, "null"]` +
+  `format: date-time` in the contract). `utoipa` has no bridge for the civil
+  datetime type, so both fields carry an explicit
+  `#[schema(value_type = Option<String>, format = DateTime)]` — the `Option` is
+  load-bearing (rule `openapi-value-type-nullable`, issue #423).
+- `cargo deny check advisories` is green again **without** an ignore entry:
+  `RUSTSEC-2026-0543`'s temporary ignore is removed.
+
 ## [0.69.4] - Unreleased
 
 ### Changed — dependency pins only (issue #927)

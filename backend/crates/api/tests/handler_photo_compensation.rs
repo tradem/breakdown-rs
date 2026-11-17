@@ -25,8 +25,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{upload_outfit_photo, upload_piece_photo};
 use api::problems::{ApiError, Json, Path};
@@ -43,10 +41,11 @@ use breakdown_core::outfit::views::OutfitView;
 use breakdown_core::piece::views::PieceView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId, SeasonId, UserId};
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use uuid::Uuid;
 
+use crate::common;
 const USER: &str = "test-user";
 
 fn dummy_user() -> CurrentUser {
@@ -83,7 +82,7 @@ async fn seed_season(
             title: None,
             archived,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 }
@@ -106,7 +105,7 @@ async fn seed_piece_with_repertoire(ports: &FakePorts) -> Uuid {
             details: Vec::new(),
             photos: Vec::new(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             season_ids: vec![season_id.0],
         },
     );
@@ -146,7 +145,7 @@ async fn seed_outfit(ports: &FakePorts) -> Uuid {
             measurements: CharacterMeasurements::default(),
             contact: ContactInfo::default(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports.outfit_repo.outfits.lock().await.insert(
@@ -163,7 +162,7 @@ async fn seed_outfit(ports: &FakePorts) -> Uuid {
             notes: String::new(),
             photos: Vec::new(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports

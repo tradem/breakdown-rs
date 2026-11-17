@@ -11,13 +11,13 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
 use breakdown_core::block::*;
 use breakdown_core::shared::{AggregateVersion, ProjectId, SeasonId};
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
-
 fn project_id() -> ProjectId {
     ProjectId::new()
 }
@@ -74,8 +74,8 @@ fn test_create_block_without_span() {
 
 #[test]
 fn test_create_block_with_span() {
-    let d1 = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
-    let d2 = NaiveDate::from_ymd_opt(2024, 3, 31).unwrap();
+    let d1 = Date::new(2024, 3, 1).unwrap();
+    let d2 = Date::new(2024, 3, 31).unwrap();
     let cmd = CreateBlock {
         id: Uuid::now_v7(),
         season_id: SeasonId::new(),
@@ -101,8 +101,8 @@ fn test_create_block_with_span() {
 #[test]
 fn test_update_block_time_span_success() {
     let mut agg = make_block();
-    let d1 = NaiveDate::from_ymd_opt(2024, 5, 1).unwrap();
-    let d2 = NaiveDate::from_ymd_opt(2024, 5, 15).unwrap();
+    let d1 = Date::new(2024, 5, 1).unwrap();
+    let d2 = Date::new(2024, 5, 15).unwrap();
     let event = agg
         .handle(
             UpdateBlockTimeSpan {
@@ -151,7 +151,7 @@ fn test_apply_updates_state() {
     use kameo_es::Metadata;
     let mut agg = BlockAggregate::default();
     let id = Uuid::now_v7();
-    let d1 = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+    let d1 = Date::new(2024, 1, 1).unwrap();
     agg.apply(
         BlockEvent::BlockCreated {
             id,

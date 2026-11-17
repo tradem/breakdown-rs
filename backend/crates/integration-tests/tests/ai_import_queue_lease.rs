@@ -46,8 +46,9 @@ use breakdown_core::ai::{
     JobStatus, SourceFormat, Telemetry,
 };
 use breakdown_core::shared::UserId;
-use chrono::{DateTime, Utc};
 use infra::ai::{PgAiConcurrencyLimiter, PgAiImportQueue};
+use infra::db_time::{SqlTimestamp, ts};
+use jiff::Timestamp;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -89,8 +90,8 @@ async fn seed_job(
 /// Read back the claim metadata. Kept as raw SQL on purpose: `worker_id`,
 /// `lease_expires_at` and `permit_id` are operational claim bookkeeping and
 /// are not exposed on the `AiImportJob` view.
-async fn read_claim(pool: &PgPool, id: AiImportJobId) -> (Option<String>, Option<DateTime<Utc>>) {
-    sqlx::query_as(
+async fn read_claim(pool: &PgPool, id: AiImportJobId) -> (Option<String>, Option<Timestamp>) {
+    sqlx::query_as::<_, (Option<String>, Option<SqlTimestamp>)>(
         r#"
         SELECT worker_id, lease_expires_at
         FROM ai_import.ai_import_job
@@ -100,6 +101,7 @@ async fn read_claim(pool: &PgPool, id: AiImportJobId) -> (Option<String>, Option
     .bind(id.as_uuid())
     .fetch_one(pool)
     .await
+    .map(|(worker_id, lease_expires_at)| (worker_id, lease_expires_at.map(ts)))
     .unwrap()
 }
 
@@ -378,8 +380,8 @@ async fn job_permit_id(pool: &PgPool, id: AiImportJobId) -> Option<Uuid> {
 async fn read_status_and_next_attempt(
     pool: &PgPool,
     id: AiImportJobId,
-) -> (String, Option<DateTime<Utc>>) {
-    sqlx::query_as(
+) -> (String, Option<Timestamp>) {
+    sqlx::query_as::<_, (String, Option<SqlTimestamp>)>(
         r#"
         SELECT status, next_attempt_at
         FROM ai_import.ai_import_job
@@ -389,6 +391,7 @@ async fn read_status_and_next_attempt(
     .bind(id.as_uuid())
     .fetch_one(pool)
     .await
+    .map(|(status, next_attempt_at)| (status, next_attempt_at.map(ts)))
     .unwrap()
 }
 

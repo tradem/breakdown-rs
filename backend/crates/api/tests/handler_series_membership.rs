@@ -13,18 +13,17 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use crate::common;
 
 use api::auth::CurrentUser;
 use api::handlers::get_series_membership;
 use api::problems::{Json, Path};
 use api::state::AppState;
 use axum::extract::State;
-
 use breakdown_core::membership::Role;
 use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use common::*;
 
+use crate::common;
 #[tokio::test]
 async fn get_series_membership_returns_predicate_for_active_member() {
     let ports = FakePorts::default();

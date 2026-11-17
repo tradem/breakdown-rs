@@ -13,10 +13,11 @@ use breakdown_core::shared::{AggregateVersion, EpisodeId, LexicalSortKey, Shooti
 use breakdown_core::shooting_day::events::ShootingDaySource;
 use breakdown_core::shooting_day::ports::ShootingDayRepository;
 use breakdown_core::shooting_day::views::ShootingDayView;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for shooting-day projections.
 #[derive(Clone, Debug)]
 pub struct ShootingDayRepositoryImpl {
@@ -141,12 +142,12 @@ fn map_shooting_day_row(row: sqlx::postgres::PgRow) -> Result<ShootingDayView, D
     let episode_id: Uuid = row.try_get("episode_id").map_err(map_err)?;
     let label: Option<String> = row.try_get("label").map_err(map_err)?;
     let order_key: String = row.try_get("order_key").map_err(map_err)?;
-    let date: Option<chrono::NaiveDate> = row.try_get("date").map_err(map_err)?;
+    let date: Option<jiff::civil::Date> = row.get_date_opt("date").map_err(map_err)?;
     let source_json: serde_json::Value = row.try_get("source").map_err(map_err)?;
     let archived: bool = row.try_get("archived").map_err(map_err)?;
-    let wrapped_at: Option<DateTime<Utc>> = row.try_get("wrapped_at").map_err(map_err)?;
+    let wrapped_at: Option<Timestamp> = row.get_ts_opt("wrapped_at").map_err(map_err)?;
     let version: i64 = row.try_get("version").map_err(map_err)?;
-    let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
+    let updated_at: Timestamp = row.get_ts("updated_at").map_err(map_err)?;
 
     let order_key =
         LexicalSortKey::new(order_key).map_err(|e| DomainError::conflict(e.to_string()))?;
@@ -217,8 +218,6 @@ fn map_scene_view_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainErr
         outfit_beats,
         source: Some(source),
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
     })
 }

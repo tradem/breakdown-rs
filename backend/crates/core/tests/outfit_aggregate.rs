@@ -18,7 +18,6 @@ use breakdown_core::shared::{AggregateVersion, ProjectId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
-
 fn project_id() -> ProjectId {
     ProjectId::new()
 }

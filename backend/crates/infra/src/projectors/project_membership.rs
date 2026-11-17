@@ -22,7 +22,6 @@
 //! envelope (`Event::stream_version`); the `ProjectMembershipEvent` payloads
 //! carry none.
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::project_membership::ProjectMembership;
 use breakdown_core::project_membership::events::ProjectMembershipEvent;
 use breakdown_core::shared::EventMetadata;
@@ -30,6 +29,8 @@ use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 /// Storage token of a revoked project-scoped grant.
 ///
 /// Deliberately a local literal: `MembershipStateKind` only models the
@@ -92,7 +93,7 @@ impl<'a> EntityEventHandler<ProjectMembership, Transaction<'a, Postgres>>
                 .bind(project_id.0)
                 .bind(user_id.as_str())
                 .bind(role.as_str())
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .bind(PROJECTOR_VERSION)
                 .bind(stream_version)
                 .execute(&mut **ctx)
@@ -120,7 +121,7 @@ impl<'a> EntityEventHandler<ProjectMembership, Transaction<'a, Postgres>>
                 .bind(project_id.0)
                 .bind(user_id.as_str())
                 .bind(REVOKED_STATE)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .bind(PROJECTOR_VERSION)
                 .bind(stream_version)
                 .execute(&mut **ctx)

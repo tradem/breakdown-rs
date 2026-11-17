@@ -23,15 +23,12 @@
 //! the queue instead of trusting the notification payload, a lagged client
 //! converges on the latest state rather than missing it.
 
+use breakdown_core::ai::AiImportJobId;
+use futures::Stream;
 use std::pin::Pin;
 use std::time::Duration;
-
-use futures::Stream;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
-
-use breakdown_core::ai::AiImportJobId;
-
 #[cfg(test)]
 #[path = "events_tests.rs"]
 mod events_tests;

@@ -10,7 +10,7 @@ use std::{
     time::{Instant, SystemTime},
 };
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use kameo::prelude::*;
 use kameo_es_core::{CommandName, EventType};
 use redis::aio::MultiplexedConnection;
@@ -24,6 +24,7 @@ use uuid::Uuid;
 use crate::{
     command_service::{AppendedEvent, ExecuteResult},
     error::{parse_stream_version_string, ExecuteError, ParsedStream},
+    from_system_time, to_system_time,
     transaction::{AbortTransaction, BeginTransaction, CommitTransaction, ResetTransaction},
     Apply, Command, Entity, Metadata, StreamId,
 };
@@ -111,7 +112,7 @@ where
         command: C,
         metadata: &Metadata<E::Metadata>,
         expected_version: ExpectedVersion,
-        time: DateTime<Utc>,
+        time: Timestamp,
         executed_at: Instant,
     ) -> Result<Option<Vec<E::Event>>, ExecuteError<E::Error>>
     where
@@ -270,7 +271,7 @@ impl<E: Entity + Apply> EntityActor<E> {
         &mut self,
         events: Vec<E::Event>,
         metadata: Metadata<E::Metadata>,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     ) -> Result<Vec<AppendedEvent<E::Event>>, AppendEventsError<Vec<E::Event>, Metadata<E::Metadata>>>
     {
         let total_start = Instant::now();
@@ -304,7 +305,10 @@ impl<E: Entity + Apply> EntityActor<E> {
                         .payload(payload)
                         .metadata(&metadata_buf)
                         .expected_version(expected_version)
-                        .timestamp(timestamp.into()),
+                        .timestamp(
+                            to_system_time(timestamp)
+                                .map_err(|_| AppendEventsError::InvalidTimestamp)?,
+                        ),
                 )
             })
             .collect::<Result<Vec<_>, AppendEventsError<_, _>>>()?;
@@ -342,7 +346,7 @@ impl<E: Entity + Apply> EntityActor<E> {
                 &self.stream_id,
                 version,
                 metadata.clone(),
-                timestamp.into(),
+                to_system_time(timestamp).map_err(|_| AppendEventsError::InvalidTimestamp)?,
             );
             version += 1;
         }
@@ -350,15 +354,18 @@ impl<E: Entity + Apply> EntityActor<E> {
         let appended = events
             .into_iter()
             .zip(info.events)
-            .map(|(event, event_info)| AppendedEvent {
-                event,
-                event_id: event_info.event_id,
-                partition_id: event_info.partition_id,
-                partition_sequence: event_info.partition_sequence,
-                stream_version: event_info.stream_version,
-                timestamp: event_info.timestamp.into(),
+            .map(|(event, event_info)| {
+                Ok(AppendedEvent {
+                    event,
+                    event_id: event_info.event_id,
+                    partition_id: event_info.partition_id,
+                    partition_sequence: event_info.partition_sequence,
+                    stream_version: event_info.stream_version,
+                    timestamp: from_system_time(event_info.timestamp)
+                        .map_err(|_| AppendEventsError::InvalidTimestamp)?,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, AppendEventsError<_, _>>>()?;
         tracing::info!(histogram.append_apply_duration = apply_start.elapsed().as_secs_f64(),);
 
         tracing::info!(histogram.append_events_total = total_start.elapsed().as_secs_f64(),);
@@ -418,7 +425,7 @@ pub struct Execute<I, C, M> {
     pub partition_key: Uuid,
     pub metadata: Metadata<M>,
     pub expected_version: ExpectedVersion,
-    pub time: DateTime<Utc>,
+    pub time: Timestamp,
     pub executed_at: Instant,
     pub dry_run: bool,
 }
@@ -558,7 +565,7 @@ where
                         &self.stream_id,
                         version,
                         exec.metadata.clone(),
-                        exec.time.into(),
+                        to_system_time(exec.time).map_err(|_| ExecuteError::InvalidTimestamp)?,
                     );
                     version += 1;
                 }

@@ -9,25 +9,25 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use crate::common;
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 use api::auth::CurrentUser;
-use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
-use api::problems::{Path, Query};
-use axum::extract::State;
-use axum::http::StatusCode;
-use breakdown_core::membership::Role;
-use breakdown_core::shared::{BlockId, UserId};
-use uuid::Uuid;
-
 use api::handlers::{
     GrantRoleRequest, InviteMemberRequest, ListParams, accept_invitation, get_member, grant_role,
     invite_member, leave_block, list_members, remove_member,
 };
+use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
+use api::problems::{Path, Query};
 use api::state::AppState;
+use axum::extract::State;
+use axum::http::StatusCode;
+use breakdown_core::membership::Role;
+use breakdown_core::shared::{BlockId, UserId};
 use common::*;
+use uuid::Uuid;
+
+use crate::common;
 
 fn fresh_block() -> Uuid {
     Uuid::now_v7()

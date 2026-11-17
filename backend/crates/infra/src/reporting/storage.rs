@@ -14,10 +14,6 @@
 //! Key layout is adapter-internal. Typed errors never carry PDF bytes or
 //! credentials; logging in this module never emits payload bytes.
 
-use std::collections::HashMap;
-use std::fmt;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use breakdown_core::reporting::{
     ContentDigest, ReportArchiveStorage, ReportArtifact, ReportArtifactKey, ReportStorageError,
@@ -26,6 +22,9 @@ use breakdown_core::settings::ports::{
     CredentialVault, GDriveCredentialBundle, SettingsRepository, VaultBinding,
 };
 use opendal::Operator;
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, warn};
 use uuid::Uuid;

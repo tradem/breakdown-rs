@@ -6,7 +6,6 @@
 
 use crate::ai::ports::{LlmCallUsage, StoredChunk, resume_cursor};
 use crate::ai::preview::ScriptContext;
-
 fn chunk(index: u32) -> StoredChunk {
     StoredChunk {
         chunk_index: index,

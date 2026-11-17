@@ -81,8 +81,8 @@ struct RenameEpisodeRequest {
 /// Mirrors `breakdown_api::handlers::UpdateBlockTimeSpanRequest`.
 #[derive(Debug, Deserialize)]
 struct UpdateBlockTimeSpanRequest {
-    pub start_date: Option<chrono::NaiveDate>,
-    pub end_date: Option<chrono::NaiveDate>,
+    pub start_date: Option<jiff::civil::Date>,
+    pub end_date: Option<jiff::civil::Date>,
     pub version: AggregateVersion,
 }
 
@@ -96,7 +96,7 @@ struct UpdateShootingDayRequest {
     #[serde(default)]
     pub label: Option<Option<String>>,
     #[serde(default)]
-    pub date: Option<Option<chrono::NaiveDate>>,
+    pub date: Option<Option<jiff::civil::Date>>,
     pub order_key: Option<LexicalSortKey>,
 }
 

@@ -12,16 +12,14 @@
 //! (issue #165): the SSE-C key is resolved lazily and re-resolved on demand,
 //! so a Vault outage at boot does not permanently disable photo storage.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::shared::{PhotoId, PhotoVariant};
 use infra::photo::storage::{OpenDalPhotoStorage, PhotoStorageKeySource};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
-
 /// Serializes tests that mutate the process-global `S3_*` env vars.
 static ENV_LOCK: Mutex<()> = Mutex::const_new(());
 

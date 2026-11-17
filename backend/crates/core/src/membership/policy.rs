@@ -10,10 +10,10 @@
 //! [`crate::membership::MembershipRepository`]-backed implementation lives in
 //! `api::auth::authorization`.
 
-use crate::error::DomainError;
-use crate::shared::{BlockId, SeasonId, UserId};
 use async_trait::async_trait;
 
+use crate::error::DomainError;
+use crate::shared::{BlockId, SeasonId, UserId};
 /// The outcome of an authorization check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PolicyDecision {

@@ -29,8 +29,6 @@
     clippy::expect_used
 )]
 
-use std::sync::{Arc, Mutex};
-
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
@@ -39,7 +37,8 @@ use breakdown_core::ai::{
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
-use chrono::Utc;
+use jiff::Timestamp;
+use std::sync::{Arc, Mutex};
 
 use super::preview_store::{
     AiDocumentSource, AiDocumentStore, AiPreviewStore, MemoryAiPreviewStore,
@@ -91,8 +90,8 @@ impl RecordingQueue {
                 next_attempt_at: None,
                 attempts: Vec::new(),
                 max_retries: 5,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
                 telemetry: None,
                 cost: None,
                 source_file_name: None,

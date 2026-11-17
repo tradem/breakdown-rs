@@ -10,8 +10,8 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use breakdown_core::reporting::storage::*;
 
+use breakdown_core::reporting::storage::*;
 #[test]
 fn artifact_key_rejects_empty_and_traversal() {
     assert!(ReportArtifactKey::new("").is_err());

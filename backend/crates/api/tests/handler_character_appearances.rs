@@ -23,16 +23,12 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
-use axum::extract::State;
-use axum::http::StatusCode;
-use uuid::Uuid;
-
 use api::auth::CurrentUser;
 use api::handlers::get_character_appearances;
 use api::problems::{Json, Path};
 use api::state::AppState;
+use axum::extract::State;
+use axum::http::StatusCode;
 use breakdown_core::character::views::{
     AppearanceOutfitView, CharacterAppearanceView, CharacterView,
 };
@@ -40,6 +36,9 @@ use breakdown_core::character::{CharacterCategory, CharacterMeasurements, Contac
 use breakdown_core::membership::Role;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 use common::FakePorts;
+use uuid::Uuid;
+
+use crate::common;
 
 const USER: &str = "test-user";
 
@@ -58,7 +57,7 @@ async fn seed_character(ports: &FakePorts, character_id: Uuid, season_id: Season
             measurements: CharacterMeasurements::default(),
             contact: ContactInfo::default(),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
 }

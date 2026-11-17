@@ -13,7 +13,6 @@
 //! prevent (issue #285).
 
 use std::sync::Mutex;
-
 /// Serializes every env-var mutation across the auth test modules. A single
 /// process-global lock — never a per-module one — is required so the modules
 /// never interleave their env manipulation.

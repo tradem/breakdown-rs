@@ -21,7 +21,8 @@ kameo_es_core = { path = "core" }
 
 anyhow = "1.0"
 async-stream = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
+# ADR-040 (issue #929): jiff replaces chrono — see backend/Cargo.toml.
+jiff = { version = "1", features = ["serde"] }
 ciborium = "0.2"
 futures = "0.3"
 kameo = "0.22"
@@ -43,7 +44,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.10", features = ["serde", "v4"] }
 
 # Optional dependencies
-bson = { version = "3.0", features = ["chrono-0_4", "uuid-1"], optional = true }
+# No `chrono-0_4`: the mongodb feature is unused and must not resurrect chrono.
+bson = { version = "3.0", features = ["uuid-1"], optional = true }
 backon = { version = "1.5", features = ["tokio-sleep"], optional = true }
 mongodb = { version = "3.1", optional = true }
 sqlx = { version = "0.9", features = ["runtime-tokio"], optional = true }

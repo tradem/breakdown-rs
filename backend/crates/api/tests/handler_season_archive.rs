@@ -20,8 +20,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{VersionRequest, archive_season};
 use api::problems::{Json, Path};
@@ -32,10 +30,11 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SEASON_NOT_FOUND;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, ProjectId};
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use uuid::Uuid;
 
+use crate::common;
 const USER: &str = "test-user";
 
 fn dummy_user() -> CurrentUser {
@@ -50,7 +49,7 @@ fn season_view(id: Uuid, project_id: ProjectId, number: i32) -> SeasonView {
         title: None,
         archived: false,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

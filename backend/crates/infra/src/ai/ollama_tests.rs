@@ -9,7 +9,6 @@ use breakdown_core::ai::{LlmChatRequest, LlmClient, LlmProvider};
 use breakdown_core::error::DomainError;
 
 use super::OllamaChatClient;
-
 /// Helper to create a test request.
 fn make_request(provider: LlmProvider) -> LlmChatRequest {
     LlmChatRequest {

@@ -37,21 +37,18 @@
 //! spec, so the route stays out of `handlers::routes()` and the `#[openapi]`
 //! `paths`).
 
-use std::sync::OnceLock;
-
 use axum::Router;
 use axum::extract::State;
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
-
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::BLOCK_NUMBER_ALREADY_EXISTS;
+use std::sync::OnceLock;
 
 use crate::problems::{ApiError, Path};
 use crate::state::AppState;
-
 /// The designated fault name of this module (issue #443): the next block
 /// create is rejected with a conflict. A scoped one-shot namespace — a
 /// generic fault DSL (if ever) extends from here.

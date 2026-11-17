@@ -5,12 +5,10 @@
 
 //! Commands for the `ShootingDay` aggregate.
 
-use chrono::NaiveDate;
-
-use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ProjectId, ShootingDayId};
+use jiff::civil::Date;
 
 use super::events::ShootingDaySource;
-
+use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ProjectId, ShootingDayId};
 /// Create a shooting day within an episode.
 ///
 /// `project_id` is carried for the `EventMetadata` audit trail (the audit
@@ -24,7 +22,7 @@ pub struct CreateShootingDay {
     pub project_id: Option<ProjectId>,
     pub label: Option<String>,
     pub order_key: LexicalSortKey,
-    pub date: Option<NaiveDate>,
+    pub date: Option<Date>,
     pub source: ShootingDaySource,
 }
 
@@ -52,7 +50,7 @@ pub struct RenameShootingDay {
 pub struct RescheduleShootingDay {
     pub id: ShootingDayId,
     /// New calendar date. `None` unschedules the day (planning only).
-    pub date: Option<NaiveDate>,
+    pub date: Option<Date>,
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

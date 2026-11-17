@@ -8,7 +8,6 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::shared::AggregateVersion;
-
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum PieceError {
     /// The piece name is empty or whitespace-only. A fundus item without a

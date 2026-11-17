@@ -8,12 +8,10 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, BlockId, EventMetadata, ProjectId};
-
 use super::commands::{CreateEpisode, DeleteEpisode, RenameEpisode};
 use super::error::EpisodeError;
 use super::events::EpisodeEvent;
-
+use crate::shared::{AggregateVersion, BlockId, EventMetadata, ProjectId};
 /// State persisted by the Episode aggregate.
 ///
 /// An Episode is scoped to exactly one `BlockId` and is the work-unit scope

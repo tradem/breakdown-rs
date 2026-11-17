@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+
 use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::AggregateVersion;
-
 /// Bind an already-vaulted credential to a Settings aggregate.
 ///
 /// `vault_key_id` is an opaque reference only. This command must never be

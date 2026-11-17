@@ -36,7 +36,6 @@
 //! chosen requirement level.
 
 use api::auth::authorization::{Requirement, requirement_for};
-
 /// Collect every path from the OpenAPI spec and return two lists:
 ///
 /// 1. `api_routes` — non-swagger paths (behind the auth middleware).

@@ -14,12 +14,6 @@
 //! **strict** mock that answers like the provider does: reject anything without
 //! `instructions` / `criteria` with the real `400 details[]` shape.
 
-use super::{
-    DecisionWireResponse, HttpDecisionClient, decision_endpoint, normalize_answers,
-    question_payload,
-};
-use crate::ai::decision_scoring::score_script_chunk;
-use crate::ai::workers::DecisionPass;
 use breakdown_core::ai::{
     ChoiceOption, DecisionClient, DecisionQuestion, DecisionRequest, DraftScene, DraftShootingDay,
     LlmProvider, UsageAccumulator, continuity_questions, curated_decision_model_ids, noul,
@@ -29,6 +23,13 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
+
+use super::{
+    DecisionWireResponse, HttpDecisionClient, decision_endpoint, normalize_answers,
+    question_payload,
+};
+use crate::ai::decision_scoring::score_script_chunk;
+use crate::ai::workers::DecisionPass;
 
 /// The production rubric one script chunk asks, as the strict mock and the
 /// goldens exercise it.

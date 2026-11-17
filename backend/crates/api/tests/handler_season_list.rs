@@ -16,19 +16,17 @@
 //! required, so the client's parameterless `fetchSeasonsList()` reconciliation
 //! seam confirms a created id regardless of the series it was filed under.
 
+use api::handlers::{SeasonListParams, list_seasons};
 use api::problems::{Json, Query};
+use api::state::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, ProjectId};
-use chrono::Utc;
+use jiff::Timestamp;
 use uuid::Uuid;
 
-use api::handlers::{SeasonListParams, list_seasons};
-use api::state::AppState;
-
 use crate::common;
-
 fn season_view(id: Uuid, project_id: ProjectId, number: i32) -> SeasonView {
     season_view_archived(id, project_id, number, false)
 }
@@ -46,7 +44,7 @@ fn season_view_archived(
         title: None,
         archived,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

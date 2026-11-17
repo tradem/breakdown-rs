@@ -20,8 +20,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{SetPieceCategoryRequest, set_piece_category};
 use api::problems::ApiError;
@@ -36,9 +34,11 @@ use breakdown_core::piece::PieceView;
 use breakdown_core::shared::{
     AggregateVersion, CostumeCategoryId, LexicalSortKey, ProjectId, SeasonId, UserId,
 };
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const USER: &str = "test-user";
 
@@ -64,7 +64,7 @@ async fn seed_piece(
                 measurements: breakdown_core::character::events::CharacterMeasurements::default(),
                 contact: breakdown_core::character::events::ContactInfo::default(),
                 version: AggregateVersion::INITIAL,
-                updated_at: Utc::now(),
+                updated_at: Timestamp::now(),
             },
         );
     }
@@ -79,7 +79,7 @@ async fn seed_piece(
             details: vec![],
             photos: vec![],
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             season_ids: vec![],
         },
     );
@@ -107,7 +107,7 @@ async fn seed_category(
             order_key: LexicalSortKey("a".into()),
             archived,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     CostumeCategoryId(id)

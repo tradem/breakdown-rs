@@ -22,8 +22,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{UpdateShootingDayRequest, update_shooting_day};
 use api::problems::{Json, Path};
@@ -35,8 +33,10 @@ use breakdown_core::shared::{
     AggregateVersion, BlockId, EpisodeId, LexicalSortKey, ProjectId, ShootingDayId,
 };
 use breakdown_core::shooting_day::ShootingDayView;
-use chrono::NaiveDate;
 use common::FakePorts;
+use jiff::civil::Date;
+
+use crate::common;
 
 fn dummy_user() -> CurrentUser {
     CurrentUser::dummy("test-user")
@@ -56,7 +56,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> ShootingDayId {
             number: 1,
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports.shooting_day_repo.days.lock().await.insert(
@@ -71,7 +71,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> ShootingDayId {
             archived: false,
             wrapped_at: None,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     sd_id
@@ -103,9 +103,7 @@ fn date_value_sets_some_date() {
         request_from_json(serde_json::json!({"version": 1, "date": "2026-03-14"}));
     assert_eq!(
         req.date,
-        Some(Some(
-            NaiveDate::from_ymd_opt(2026, 3, 14).expect("valid test date")
-        ))
+        Some(Some(Date::new(2026, 3, 14).expect("valid test date")))
     );
 }
 
@@ -144,7 +142,7 @@ async fn reschedule_with_date_dispatches_some_date() {
         .expect("reschedule must have been dispatched");
     assert_eq!(
         recorded.date,
-        Some(NaiveDate::from_ymd_opt(2026, 3, 14).expect("valid test date"))
+        Some(Date::new(2026, 3, 14).expect("valid test date"))
     );
     assert!(
         ports

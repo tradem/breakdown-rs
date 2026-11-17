@@ -5,7 +5,6 @@
 
 //! ShootingDay projection handler: `ShootingDayEvent` -> `projection_shooting_day`.
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::shared::{EventMetadata, ShootingDayId};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::events::ShootingDayEvent;
@@ -13,6 +12,8 @@ use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::{sql_date_opt, sql_ts};
 /// Idempotent projector for the `ShootingDayAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct ShootingDayProjector;
@@ -84,11 +85,11 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 .bind(episode_id.0)
                 .bind(label)
                 .bind(order_key.0)
-                .bind(date)
+                .bind(sql_date_opt(date))
                 .bind(source_json)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -104,7 +105,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(label)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -118,9 +119,9 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                     "#,
                 )
                 .bind(id.0)
-                .bind(date)
+                .bind(sql_date_opt(date))
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -140,7 +141,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(order_key.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -155,7 +156,7 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                 )
                 .bind(id.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -173,9 +174,9 @@ impl<'a> EntityEventHandler<ShootingDayAggregate, Transaction<'a, Postgres>>
                     "#,
                 )
                 .bind(id.0)
-                .bind(wrapped_at)
+                .bind(sql_ts(wrapped_at))
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }

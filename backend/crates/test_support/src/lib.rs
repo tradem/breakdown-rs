@@ -8,14 +8,12 @@
 //! aggregate unit tests and integration round-trips without exposing
 //! test-only code through the production API.
 
+use breakdown_core::shared::EventMetadata;
+use kameo_es::{Apply, Context, Entity, Metadata, StreamId};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Instant;
-
-use breakdown_core::shared::EventMetadata;
-use kameo_es::{Apply, Context, Entity, Metadata, StreamId};
-
 /// Process-wide empty causation-tracking map shared by all test contexts.
 type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;
 
@@ -35,7 +33,7 @@ where
     Context {
         metadata: &META,
         causation_tracking: &TRACKING,
-        time: chrono::Utc::now(),
+        time: jiff::Timestamp::now(),
         executed_at: Instant::now(),
     }
 }

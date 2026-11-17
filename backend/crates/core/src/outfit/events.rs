@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::shared::AggregateVersion;
-
 /// All state transitions of the `Outfit` aggregate.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum OutfitEvent {

@@ -3,13 +3,12 @@
 
 use async_trait::async_trait;
 
-use crate::error::DomainError;
-use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, UserId};
-
 use super::commands::{
     DeletePhoto, GenerateVariant, MarkVariantFailed, NormalizeOriginal, UploadPhoto,
 };
 use super::views::{PhotoBytes, PhotoView};
+use crate::error::DomainError;
+use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, UserId};
 
 /// Byte-storage port for photo data (CRUD — intentionally NOT CQRS-split).
 ///

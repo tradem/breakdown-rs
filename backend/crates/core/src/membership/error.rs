@@ -3,9 +3,9 @@
 
 //! Membership domain errors.
 
-use crate::shared::UserId;
 use thiserror::Error;
 
+use crate::shared::UserId;
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum MembershipError {
     #[error("Validation error: {0}")]

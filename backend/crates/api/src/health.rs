@@ -16,21 +16,19 @@
 //! to be indistinguishable from a transient outage, so imports burned their
 //! retry budget. Here it is a first-class `Unhealthy` entry.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
 use async_trait::async_trait;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use breakdown_core::settings::ports::CredentialVault;
 use serde::Serialize;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use utoipa::ToSchema;
 
 use crate::state::{AppState, Ports};
-use breakdown_core::settings::ports::CredentialVault;
-
 /// Aggregate status of a health report, modelled on .NET's `HealthStatus`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "PascalCase")]

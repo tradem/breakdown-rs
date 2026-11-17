@@ -29,26 +29,22 @@
 //! projector checkpoints are empty too, so the replayed keep events rebuild
 //! them from the event store, exactly like a fresh boot.
 
+use anyhow::{Context as _, Result, bail};
+use breakdown_core::photo::ports::PhotoStorage;
+use jiff::Timestamp;
+use sqlx::PgPool;
 use std::path::Path;
 use std::sync::Arc;
-
-use anyhow::{Context as _, Result, bail};
-use chrono::Utc;
-use sqlx::PgPool;
-
-use breakdown_core::photo::ports::PhotoStorage;
-
-use crate::ai::payload_storage::OpenDalAiPayloadStorage;
-use crate::ai::preview_store::{AiDocumentStore, AiPreviewStore};
-use crate::photo::storage::OpenDalPhotoStorage;
-use crate::vault::VaultClient;
 
 use super::backup::{self, BackupManifest, MANIFEST_FORMAT_VERSION};
 use super::classification::AggregateCategory;
 use super::events::{self, KeepListExport};
 use super::plan::ResetPhase;
 use super::{Context, ResetOptions, ResetPlan, ResetReport};
-
+use crate::ai::payload_storage::OpenDalAiPayloadStorage;
+use crate::ai::preview_store::{AiDocumentStore, AiPreviewStore};
+use crate::photo::storage::OpenDalPhotoStorage;
+use crate::vault::VaultClient;
 /// File name of the keep-list export inside the backup directory.
 pub const KEEP_LIST_FILE: &str = "keep-list.json";
 
@@ -243,7 +239,7 @@ async fn export_phase(
 
     let manifest = BackupManifest {
         format_version: MANIFEST_FORMAT_VERSION,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         level: plan.level.as_str().to_string(),
         phase: plan.phase.as_str().to_string(),
         database_target: plan.database_target.clone(),
@@ -829,7 +825,7 @@ mod tests {
     fn keep_list_without_events() -> KeepListExport {
         KeepListExport {
             format_version: events::EXPORT_FORMAT_VERSION,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             database_target: "localhost/breakdown".to_string(),
             streams: vec![events::ExportedStream {
                 stream_id: "ai_config-0199a0c0-0000-7000-8000-000000000000".to_string(),

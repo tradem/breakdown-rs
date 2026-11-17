@@ -5,16 +5,14 @@
 
 //! Flat read-model DTOs for the Character context.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, EpisodeId, SeasonId};
-
 use super::category::CharacterCategory;
 use super::events::{CharacterMeasurements, ContactInfo};
-
+use crate::shared::{AggregateVersion, EpisodeId, SeasonId};
 /// Complete character read model.
 ///
 /// `updated_at` is sourced from the timestamp of the last applied `CharacterEvent`.
@@ -28,7 +26,7 @@ pub struct CharacterView {
     pub contact: ContactInfo,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// One appearance of a character in a scene (issue #621): the scene reference

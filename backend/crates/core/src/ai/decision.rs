@@ -25,15 +25,13 @@
 //! decision pass degrades scores to `None` — it never fails an extraction
 //! job, and it never invents a value where no evidence exists.
 
-use std::collections::BTreeMap;
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use utoipa::ToSchema;
 
 use super::ports::{LlmCallUsage, LlmProvider};
 use crate::error::DomainError;
-
 /// The curated providers that natively host Decision Models (issue #722).
 /// A `decision_provider` outside this set is rejected at the aggregate edge.
 #[must_use]

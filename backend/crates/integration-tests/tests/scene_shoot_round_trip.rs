@@ -17,6 +17,7 @@
 //! Drives the full chain: direct EAPPEND → SierraDB → PostgresProcessor →
 //! SceneShootRepository / SceneShootReportRepository asserts.
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -33,7 +34,6 @@ use breakdown_core::shared::{
 };
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
 use breakdown_core::shooting_day::ports::ShootingDayRepository as _;
-use chrono::Utc;
 use infra::projectors::{
     spawn_scene_projector, spawn_scene_shoot_projector, spawn_shooting_day_projector,
 };
@@ -57,7 +57,7 @@ async fn eappend(
     payload: &[u8],
 ) -> Result<()> {
     let mut conn = client.get_multiplexed_async_connection().await?;
-    let ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream)
         .arg(etype)
@@ -179,7 +179,7 @@ async fn scene_shoot_lifecycle_round_trip() -> Result<()> {
     // 2. Start
     let started = SceneShootEvent::SceneShootStarted {
         id: shoot_id,
-        start_dt: Utc::now(),
+        start_dt: Timestamp::now(),
         version: AggregateVersion(2),
     };
     eappend(
@@ -197,7 +197,7 @@ async fn scene_shoot_lifecycle_round_trip() -> Result<()> {
     // 3. Finish
     let finished = SceneShootEvent::SceneShootFinished {
         id: shoot_id,
-        end_dt: Utc::now(),
+        end_dt: Timestamp::now(),
         version: AggregateVersion(3),
     };
     eappend(
@@ -456,7 +456,7 @@ async fn wrapped_shooting_day_flips_report_final() -> Result<()> {
     // Wrap the shooting day
     let wrapped = ShootingDayEvent::ShootingDayWrapped {
         id: day_id,
-        wrapped_at: Utc::now(),
+        wrapped_at: Timestamp::now(),
         version: AggregateVersion(1),
     };
     eappend(
@@ -772,7 +772,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
         "0",
         &encode(&SceneShootEvent::SceneShootStarted {
             id: ss1,
-            start_dt: Utc::now(),
+            start_dt: Timestamp::now(),
             version: AggregateVersion(2),
         })?,
     )
@@ -784,7 +784,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
         "1",
         &encode(&SceneShootEvent::SceneShootFinished {
             id: ss1,
-            end_dt: Utc::now(),
+            end_dt: Timestamp::now(),
             version: AggregateVersion(3),
         })?,
     )
@@ -874,7 +874,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
         "0",
         &encode(&ShootingDayEvent::ShootingDayWrapped {
             id: day1,
-            wrapped_at: Utc::now(),
+            wrapped_at: Timestamp::now(),
             version: AggregateVersion(1),
         })?,
     )
@@ -905,7 +905,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
             &ver.to_string(),
             &encode(&ShootingDayEvent::ShootingDayWrapped {
                 id,
-                wrapped_at: Utc::now(),
+                wrapped_at: Timestamp::now(),
                 version: AggregateVersion(1),
             })?,
         )
@@ -945,7 +945,7 @@ async fn aggregate_soll_ist_report_episode_and_season_scopes() -> Result<()> {
         "0",
         &encode(&ShootingDayEvent::ShootingDayWrapped {
             id: day3,
-            wrapped_at: Utc::now(),
+            wrapped_at: Timestamp::now(),
             version: AggregateVersion(1),
         })?,
     )

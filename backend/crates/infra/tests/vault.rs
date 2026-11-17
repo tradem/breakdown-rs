@@ -8,18 +8,17 @@
 //! Variante B): photo SSE-C key provisioning/CAS, credential envelopes, and
 //! datakey validation, driven by an in-process HTTP stub.
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpListener;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::thread;
-
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use breakdown_core::error::DomainError;
 use infra::vault::{
     PHOTO_SSE_C_KEY_ID, VaultClient, decrypt_envelope, encrypt_envelope,
     settings_id_from_binding_key, validate_binding_key,
 };
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 fn response(status: &str, body: &str) -> String {
     format!(

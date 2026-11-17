@@ -106,7 +106,7 @@ The `calculation` context was removed; do not reintroduce it. The `costume` modu
 into `piece` + `outfit`; do not reintroduce it.
 `shooting_day` is an Episode-scoped `Drehtag` aggregate. It carries a `label`, a `LexicalSortKey`
 fractional-ordering value (`shared`), an optional `date`, a `ShootingDaySource` provenance
-discriminator (Manual | AiExtracted), an `archived` flag, and an optional `wrapped_at: Option<DateTime<Utc>>`.
+discriminator (Manual | AiExtracted), an `archived` flag, and an optional `wrapped_at: Option<jiff::Timestamp>`.
 `wrapped_at` is set idempotently by the `WrapShootingDay` command and indicates the day has been
 "closed" for planning — the Soll-Ist report exposes this as the `final` flag. Scenes link to
 ShootingDays via a many-to-many join (`Scene.schedule_on_shooting_day`) kept on the Scene

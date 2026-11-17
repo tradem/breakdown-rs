@@ -16,10 +16,11 @@ use breakdown_core::piece::views::{PieceDetailView, PiecePhotoView, PieceView};
 use breakdown_core::shared::{
     AggregateVersion, CostumeCategoryId, PhotoVariant, SeasonId, VariantStatus,
 };
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use uuid::Uuid;
+
+use crate::db_time::PgRowTimeExt;
 
 /// PostgreSQL read adapter for piece projections.
 #[derive(Clone, Debug)]
@@ -373,9 +374,7 @@ fn map_piece_row(row: sqlx::postgres::PgRow) -> Result<PieceView, DomainError> {
         details: Vec::new(),
         photos: Vec::new(),
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
         // Filled by `enrich`/`enrich_many`; the base row query carries no
         // repertoire.
         season_ids: Vec::new(),

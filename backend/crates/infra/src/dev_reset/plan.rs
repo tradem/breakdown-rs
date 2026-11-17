@@ -15,7 +15,6 @@
 use sqlx::PgPool;
 
 use super::classification::{AggregateCategory, AggregateClass};
-
 /// How much the reset removes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResetLevel {

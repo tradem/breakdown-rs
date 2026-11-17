@@ -9,13 +9,14 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+use jiff::Timestamp;
 mod fixtures;
 
 use anyhow::Result;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
-use chrono::Timelike;
-use chrono::Utc;
+
+use infra::db_time::sql_ts;
 use infra::queries::SceneRepositoryImpl;
 use uuid::Uuid;
 
@@ -25,10 +26,11 @@ async fn scene_repository_returns_view_with_version_and_updated_at() -> Result<(
 
     let episode_id = EpisodeId::new();
     let scene_id = Uuid::now_v7();
-    let now = Utc::now();
-    let updated_at = now
-        .with_nanosecond((now.timestamp_subsec_nanos() / 1000) * 1000)
-        .unwrap();
+    let now = Timestamp::now();
+    // PostgreSQL `timestamptz` is microsecond-precision; truncate explicitly so
+    // the assertion compares against what the column can hold (ADR-040).
+    let updated_at = jiff::Timestamp::from_microsecond(now.as_microsecond())
+        .expect("a microsecond-rounded instant is always representable");
 
     sqlx::query(
         r#"
@@ -44,7 +46,7 @@ async fn scene_repository_returns_view_with_version_and_updated_at() -> Result<(
     .bind("Neutral")
     .bind(true)
     .bind(7_i64)
-    .bind(updated_at)
+    .bind(sql_ts(updated_at))
     .execute(&pool)
     .await?;
 

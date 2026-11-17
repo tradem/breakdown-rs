@@ -14,7 +14,6 @@
 
 use breakdown_core::error::DomainError;
 use infra::photo::storage::map_storage_error;
-
 fn temporary_error() -> opendal::Error {
     opendal::Error::new(
         opendal::ErrorKind::Unexpected,

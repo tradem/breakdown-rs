@@ -10,19 +10,18 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
+use api::handlers::{EpisodeListParams, list_episodes};
 use api::problems::{Json, Query};
+use api::state::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId};
-use chrono::Utc;
+use jiff::Timestamp;
 use uuid::Uuid;
 
-use api::handlers::{EpisodeListParams, list_episodes};
-use api::state::AppState;
-
 use crate::common;
-
 fn episode_view(id: Uuid, block_id: BlockId, project_id: ProjectId, number: i32) -> EpisodeView {
     EpisodeView {
         id,
@@ -31,7 +30,7 @@ fn episode_view(id: Uuid, block_id: BlockId, project_id: ProjectId, number: i32)
         number,
         name: None,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

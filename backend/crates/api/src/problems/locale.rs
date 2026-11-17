@@ -22,7 +22,6 @@ use tokio::task_local;
 use unic_langid::{LanguageIdentifier, langid};
 
 use crate::problems::ProblemDetails;
-
 /// Default locale: German (the product's primary language).
 pub const DEFAULT_LOCALE: LanguageIdentifier = langid!("de");
 

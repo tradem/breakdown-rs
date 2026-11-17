@@ -8,11 +8,9 @@
 //! and propagates permanent errors immediately, so a Vault outage never
 //! permanently drops saga work.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use breakdown_core::error::DomainError;
 use infra::photo::sagas::{is_transient, retry_transient};
-
+use std::sync::atomic::{AtomicUsize, Ordering};
 #[tokio::test]
 async fn transient_service_unavailable_is_retried_until_success() {
     let attempts = AtomicUsize::new(0);

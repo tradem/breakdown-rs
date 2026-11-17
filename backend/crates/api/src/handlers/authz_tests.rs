@@ -3,9 +3,12 @@
 
 // Section 6.4: API-layer test asserting authorized / non-authorized
 // dispatch through the real auth + authorization middleware stack.
+
+
+
+
 use std::collections::HashMap;
 use std::sync::Arc;
-
 use axum::Router;
 use axum::body::Body as AxumBody;
 use axum::http::{Request, StatusCode};
@@ -13,15 +16,13 @@ use axum::middleware::from_fn_with_state;
 use axum::routing::{get, post};
 use jsonwebtoken::Algorithm;
 use tower::ServiceExt;
-
-use super::test_helpers::FakeMembershipRepo;
 use breakdown_core::shared::{BlockId, UserId};
 
+use super::test_helpers::FakeMembershipRepo;
 use crate::auth::AuthState;
 use crate::auth::authorization::{AuthorizationState, MembershipAuthorizationPolicy};
 use crate::auth::jwks::StaticJwksProvider;
 use crate::auth::{CurrentUser, OidcConfig, auth_middleware, authorize_middleware};
-
 const DEV_SUB: &str = "dev-user";
 
 /// Tiny `Router<()>` that applies the real `auth_middleware` (outer) and

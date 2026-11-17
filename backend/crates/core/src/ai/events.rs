@@ -3,16 +3,13 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
-
-use crate::shared::{AggregateVersion, UserId};
 
 use super::ports::LlmProvider;
 use super::views::{CostDisplayPreference, DocumentKind};
-
+use crate::shared::{AggregateVersion, UserId};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AiConfigEvent {
     Created {

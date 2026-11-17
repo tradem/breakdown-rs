@@ -3,12 +3,11 @@
 
 //! Block domain events.
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId, SeasonId};
-
 /// Events emitted by the `BlockAggregate`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BlockEvent {
@@ -28,14 +27,14 @@ pub enum BlockEvent {
         #[serde(rename = "series_id")]
         project_id: ProjectId,
         number: i32,
-        start_date: Option<NaiveDate>,
-        end_date: Option<NaiveDate>,
+        start_date: Option<Date>,
+        end_date: Option<Date>,
         version: AggregateVersion,
     },
     BlockTimeSpanUpdated {
         id: Uuid,
-        start_date: Option<NaiveDate>,
-        end_date: Option<NaiveDate>,
+        start_date: Option<Date>,
+        end_date: Option<Date>,
         version: AggregateVersion,
     },
 }

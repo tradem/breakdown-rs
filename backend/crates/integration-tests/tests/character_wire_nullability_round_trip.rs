@@ -33,13 +33,13 @@
 //! the real projector, not a bypassed `CommandService` — the projection row
 //! is what the handler serves.
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use chrono::Utc;
 use redis::Client as RedisClient;
 use uuid::Uuid;
 
@@ -64,7 +64,7 @@ async fn eappend_event<T: serde::Serialize>(
     let mut conn = client.get_multiplexed_async_connection().await?;
     let mut encoded = Vec::new();
     ciborium::into_writer(payload, &mut encoded).map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_name)

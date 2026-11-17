@@ -3,13 +3,12 @@
 
 //! Flat read-model DTOs for the Block context.
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::{Timestamp, civil::Date};
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId, SeasonId};
-
 /// Complete block read model.
 ///
 /// `updated_at` is sourced from the timestamp of the last applied `BlockEvent`.
@@ -24,10 +23,10 @@ pub struct BlockView {
     // value_type must carry `Option` nullability (issue #423) — a bare
     // `value_type = String` override drops `Option`'s nullable flag.
     #[schema(value_type = Option<String>)]
-    pub start_date: Option<NaiveDate>,
+    pub start_date: Option<Date>,
     #[schema(value_type = Option<String>)]
-    pub end_date: Option<NaiveDate>,
+    pub end_date: Option<Date>,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

@@ -5,12 +5,10 @@
 
 use uuid::Uuid;
 
-use crate::error::DomainError;
-use crate::shared::{AggregateVersion, BlockId, ProjectId, UserId};
-
 use super::commands::{CreateEpisode, RenameEpisode};
 use super::views::EpisodeView;
-
+use crate::error::DomainError;
+use crate::shared::{AggregateVersion, BlockId, ProjectId, UserId};
 /// Async write port for the `EpisodeAggregate`.
 #[allow(async_fn_in_trait)]
 pub trait EpisodeCommands: Send + Sync {

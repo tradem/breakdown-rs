@@ -31,9 +31,9 @@ use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
-use chrono::{DateTime, Utc};
 use infra::projectors::SceneProjector;
 use infra::queries::SceneRepositoryImpl;
+use jiff::Timestamp;
 use kameo_es::event_handler::EntityEventHandler;
 use kameo_es::{Apply, Entity, Event, EventType, Metadata, StreamId};
 use uuid::Uuid;
@@ -42,7 +42,7 @@ async fn project(
     pool: &sqlx::PgPool,
     scene_id: Uuid,
     event: SceneEvent,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<()> {
     let kameo_event = Event {
         id: Uuid::now_v7(),
@@ -74,7 +74,7 @@ async fn beat_events_project_and_read_back_in_order() -> Result<()> {
     let character_id = Uuid::now_v7();
     let coat = Uuid::now_v7();
     let shirt = Uuid::now_v7();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let events = vec![
         SceneEvent::SceneCreated {
@@ -143,7 +143,7 @@ async fn beat_removal_keeps_surviving_orders_and_clear_deletes_all() -> Result<(
     let episode_id = EpisodeId::new();
     let scene_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     for event in [
         SceneEvent::SceneCreated {
@@ -220,7 +220,7 @@ async fn projection_primary_key_rules_out_duplicate_position() -> Result<()> {
     let episode_id = EpisodeId::new();
     let scene_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     project(
         &pool,
@@ -282,7 +282,7 @@ async fn scene_row_deletion_cascades_to_beats() -> Result<()> {
     let episode_id = EpisodeId::new();
     let scene_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     for event in [
         SceneEvent::SceneCreated {
@@ -335,7 +335,7 @@ async fn aggregate_state_and_read_model_agree_for_the_same_beat_stream() -> Resu
     let piece_a = Uuid::now_v7();
     let piece_b = Uuid::now_v7();
     let piece_c = Uuid::now_v7();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let events = vec![
         SceneEvent::SceneCreated {
@@ -415,7 +415,7 @@ async fn beat_projector_redelivery_is_idempotent_under_guard_parent() -> Result<
     let episode_id = EpisodeId::new();
     let scene_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let create = SceneEvent::SceneCreated {
         id: scene_id,
         episode_id,

@@ -4,14 +4,13 @@
 
 //! Flat read-model DTOs for the Outfit context.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::photo::views::PhotoVariantView;
 use crate::shared::AggregateVersion;
-
 /// One piece inside an outfit, in presentation order.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct OutfitPieceView {
@@ -55,5 +54,5 @@ pub struct OutfitView {
     pub notes: String,
     pub photos: Vec<OutfitPhotoView>,
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

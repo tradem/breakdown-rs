@@ -20,7 +20,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
-
 /// Fixed non-secret identifier of the bucket-level photo SSE-C key.
 pub const PHOTO_SSE_C_KEY_ID: &str = "photo-sse-c";
 const PHOTO_SSE_C_KV_PATH: &str = "kv/data/photo-sse-c";

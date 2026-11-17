@@ -5,9 +5,6 @@
 //! Tests for the Pass-2 runner (OpenSpec change
 //! `ai-import-decision-outfit-continuity`).
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use breakdown_core::ai::{
     DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionRequest, DraftCharacter,
@@ -15,6 +12,8 @@ use breakdown_core::ai::{
     ScriptContext, UncertaintyKind, UsageAccumulator, question_keys,
 };
 use breakdown_core::error::DomainError;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use super::*;
 use crate::ai::workers::DecisionPass;

@@ -34,7 +34,6 @@ use utoipa::ToSchema;
 use crate::auth::CurrentUser;
 use crate::problems::{ApiError, Json, ProblemDetails};
 use crate::state::{AppState, Ports};
-
 /// The caller's global (deployment-scoped) capabilities — the wire shape of
 /// [`crate::state::AppState::authorization_policy`]'s two global arms.
 ///

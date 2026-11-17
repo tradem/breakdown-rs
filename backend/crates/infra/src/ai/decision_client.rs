@@ -83,8 +83,6 @@
 //! `DECISION_LIVE_KEY`) is the artifact that detects a provider-side schema
 //! change.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use breakdown_core::ai::{
     ChoiceOption, DecisionAnswer, DecisionCallOutcome, DecisionClient, DecisionQuestion,
@@ -95,6 +93,7 @@ use breakdown_core::settings::SecretValue;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;

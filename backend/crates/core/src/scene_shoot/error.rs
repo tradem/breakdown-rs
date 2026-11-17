@@ -8,7 +8,6 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, PhotoId, SceneShootId, SceneShootStatus};
-
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum SceneShootError {
     #[error("Validation error: {0}")]

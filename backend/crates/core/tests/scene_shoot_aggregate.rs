@@ -20,7 +20,8 @@ use breakdown_core::shared::{
     AggregateVersion, LexicalSortKey, PhotoId, ProjectId, SceneShootId, SceneShootStatus,
     ShootingDayId,
 };
-use chrono::{TimeDelta, Utc};
+use jiff::{SignedDuration, Timestamp};
+
 use kameo_es::Command;
 use test_support::{make_ctx, replay_events};
 use uuid::Uuid;
@@ -89,7 +90,7 @@ fn start_transitions_to_in_progress_and_records_start_dt() {
     let scene_id = make_scene_id();
     let day_id = make_shooting_day_id();
     let (state, _) = plan_and_apply(make_plan_cmd(scene_id, day_id));
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let events = state
         .handle(
@@ -151,7 +152,7 @@ fn finish_transitions_to_shot() {
     let day_id = make_shooting_day_id();
     let (mut state, _) = plan_and_apply(make_plan_cmd(scene_id, day_id));
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let events = state
         .handle(
             StartSceneShoot {
@@ -166,7 +167,7 @@ fn finish_transitions_to_shot() {
         .unwrap();
     replay_events(&mut state, events);
 
-    let end_dt = now + TimeDelta::try_hours(2).unwrap();
+    let end_dt = now + SignedDuration::from_hours(2);
     let events = state
         .handle(
             FinishSceneShoot {
@@ -203,7 +204,7 @@ fn frozen_commands_reject_mismatched_shooting_day_id() {
     let (state, _) = plan_and_apply(make_plan_cmd(scene_id, day_id));
     let wrong_day = make_shooting_day_id();
     assert_ne!(wrong_day, day_id);
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     // Mismatch is rejected *before* version/state checks fire.
     let err = state
@@ -283,7 +284,7 @@ fn finish_only_allowed_from_in_progress() {
     let scene_id = make_scene_id();
     let day_id = make_shooting_day_id();
     let (state, _) = plan_and_apply(make_plan_cmd(scene_id, day_id));
-    let end_dt = Utc::now();
+    let end_dt = Timestamp::now();
 
     let err = state
         .handle(
@@ -341,7 +342,7 @@ fn planned_order_frozen_after_start_dt_set() {
     let scene_id = make_scene_id();
     let day_id = make_shooting_day_id();
     let (mut state, _) = plan_and_apply(make_plan_cmd(scene_id, day_id));
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let events = state
         .handle(

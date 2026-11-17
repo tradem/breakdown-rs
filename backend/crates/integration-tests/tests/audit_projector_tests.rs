@@ -10,6 +10,7 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -21,7 +22,6 @@ use breakdown_core::audit::views::AuditEntry;
 use breakdown_core::membership::Role;
 use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::shared::{BlockId, UserId};
-use chrono::Utc;
 use infra::projectors::spawn_membership_audit_projector;
 use infra::queries::AuditRepositoryImpl;
 use redis::Client as RedisClient;
@@ -71,7 +71,7 @@ async fn eappend_membership(
 ) -> Result<()> {
     let mut payload = Vec::new();
     ciborium::into_writer(event, &mut payload).map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let mut conn = client.get_multiplexed_async_connection().await?;
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)

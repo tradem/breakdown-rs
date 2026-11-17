@@ -11,7 +11,6 @@
 //! never fails the event). All statements are version-guarded and idempotent so
 //! at-least-once redelivery cannot duplicate rows.
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::piece::aggregate::PieceAggregate;
 use breakdown_core::piece::events::PieceEvent;
 use breakdown_core::shared::EventMetadata;
@@ -20,6 +19,8 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `PieceAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct PieceProjector;
@@ -87,7 +88,7 @@ impl<'a> EntityEventHandler<PieceAggregate, Transaction<'a, Postgres>> for Piece
                 .bind(notes)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
 
@@ -138,7 +139,7 @@ impl<'a> EntityEventHandler<PieceAggregate, Transaction<'a, Postgres>> for Piece
                 .bind(id)
                 .bind(name)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -193,7 +194,7 @@ impl<'a> EntityEventHandler<PieceAggregate, Transaction<'a, Postgres>> for Piece
                 .bind(id)
                 .bind(notes)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -296,7 +297,7 @@ impl<'a> EntityEventHandler<PieceAggregate, Transaction<'a, Postgres>> for Piece
                 .bind(category_id.map(|c| c.0))
                 .bind(category_name)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -354,7 +355,7 @@ impl PieceProjector {
         ctx: &mut Transaction<'b, Postgres>,
         id: Uuid,
         version: i64,
-        updated_at: chrono::DateTime<chrono::Utc>,
+        updated_at: jiff::Timestamp,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -365,7 +366,7 @@ impl PieceProjector {
         )
         .bind(id)
         .bind(version)
-        .bind(updated_at)
+        .bind(sql_ts(updated_at))
         .execute(&mut **ctx)
         .await?;
         Ok(())

@@ -26,17 +26,15 @@
 //! The probe (D-A3) is the third writer and needs a vaulted credential, so it
 //! lives in [`super::provider_probe`].
 
-use std::time::Duration;
-
 use breakdown_core::ai::ports::{AiImportQueue, LlmProvider, ProviderHealth};
 use breakdown_core::ai::views::{ProviderBreakerState, ProviderHold};
 use breakdown_core::error::DomainError;
-use chrono::Utc;
+use jiff::SignedDuration;
 use sqlx::PgPool;
+use std::time::Duration;
 
 use super::provider_probe::ProviderProbe;
 use super::queue::PgAiImportQueue;
-
 /// The advisory lock id of the provider watch: `"AI_PROV_WATCH"` as `i64`.
 ///
 /// A distinct id from the payload GC and the reservation reaper, so the three
@@ -220,7 +218,7 @@ pub fn hold_for(
     provider: LlmProvider,
     model: &str,
     state: ProviderBreakerState,
-    until: chrono::DateTime<Utc>,
+    until: jiff::Timestamp,
     hold_window_secs: u64,
 ) -> ProviderHold {
     ProviderHold {
@@ -232,7 +230,7 @@ pub fn hold_for(
         state,
         until,
         hold_deadline: until
-            + chrono::Duration::seconds(i64::try_from(hold_window_secs).unwrap_or(i64::MAX)),
+            + SignedDuration::from_secs(i64::try_from(hold_window_secs).unwrap_or(i64::MAX)),
         chunks_done: 0,
     }
 }
@@ -310,17 +308,27 @@ fn read_u64(name: &str, default: u64, min: u64, max: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
-    fn now() -> chrono::DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 11, 4, 7, 0, 0)
-            .single()
-            .unwrap_or_default()
+    /// Fixed UTC instant spelled as civil time — `Utc.with_ymd_and_hms`'s jiff
+    /// equivalent, without the fallible `Offset`/`TimeZone` construction at every
+    /// call site (ADR-040).
+    fn utc(y: i16, mo: i8, d: i8, h: i8, mi: i8, s: i8) -> jiff::Timestamp {
+        // A UTC civil datetime is never ambiguous, so the `Result` is always `Ok`;
+        // the fallback keeps the helper panic-free without an `unwrap`.
+        jiff::civil::date(y, mo, d)
+            .at(h, mi, s, 0)
+            .to_zoned_datetime(jiff::tz::TimeZone::UTC)
+            .map(|zdt| zdt.timestamp())
+            .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+    }
+
+    fn now() -> jiff::Timestamp {
+        utc(2026, 11, 4, 7, 0, 0)
     }
 
     #[test]
     fn materialized_hold_carries_the_breaker_state_and_reason() {
-        let until = now() + chrono::Duration::seconds(60);
+        let until = now() + SignedDuration::from_secs(60);
         let hold = hold_for(
             LlmProvider::OpenCodeGo,
             "some-model",
@@ -336,7 +344,7 @@ mod tests {
         assert_eq!(hold.until, until);
         assert_eq!(
             hold.hold_deadline,
-            until + chrono::Duration::seconds(21_600)
+            until + SignedDuration::from_secs(21_600)
         );
         // Workstream B supplies the real count; 0 is honest here.
         assert_eq!(hold.chunks_done, 0);

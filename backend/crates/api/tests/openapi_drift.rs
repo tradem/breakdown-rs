@@ -25,7 +25,6 @@
 
 use std::fs;
 use std::path::PathBuf;
-
 /// Checked-in review artifact: `backend/openapi.yaml`.
 fn artifact_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../openapi.yaml")

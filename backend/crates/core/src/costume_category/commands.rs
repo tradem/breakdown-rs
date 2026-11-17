@@ -7,7 +7,6 @@
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, LexicalSortKey, ProjectId, SeasonId};
-
 /// Create a season-scoped costume category with an externally supplied UUIDv7 id.
 ///
 /// `project_id` is carried for the `EventMetadata` audit trail (the audit

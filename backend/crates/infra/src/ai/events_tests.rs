@@ -2,11 +2,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
+use breakdown_core::ai::AiImportJobId;
 use futures::StreamExt;
 
 use super::{AiJobEventHub, parse_job_id};
-use breakdown_core::ai::AiImportJobId;
-
 fn job_id(seed: u8) -> AiImportJobId {
     AiImportJobId::from_uuid(uuid::Uuid::from_fields(0, seed as u16, 0, &[0u8; 8]))
 }

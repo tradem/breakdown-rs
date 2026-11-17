@@ -10,12 +10,12 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use breakdown_core::reporting::*;
 
 // ------------------------------------------------------------------
 // ReportKind
 // ------------------------------------------------------------------
 
+use breakdown_core::reporting::*;
 #[test]
 fn report_kind_display() {
     assert_eq!(ReportKind::Dispo.to_string(), "dispo");

@@ -6,10 +6,6 @@
 // Co-authored-by: longcat-2.0-free (opencode)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::collections::HashMap;
-use std::pin::Pin;
-use std::time::Duration;
-
 use breakdown_core::ai::ports::ProviderHealth as _;
 use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
@@ -22,12 +18,16 @@ use breakdown_core::ai::{
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_IMPORT_APPLY_IN_FLIGHT;
 use breakdown_core::shared::{BlockId, UserId};
-use chrono::{DateTime, Utc};
 use futures::Stream;
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
+use std::collections::HashMap;
+use std::pin::Pin;
+use std::time::Duration;
 use uuid::Uuid;
 
 use super::events::AiJobEventHub;
+use crate::db_time::{PgRowTimeExt, sql_ts};
 
 /// How many expired holds one sweeper tick dead-letters (issue #871).
 ///
@@ -1344,7 +1344,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(id.as_uuid())
         .bind(worker_id)
         .bind(&hold.reason_code)
-        .bind(hold.until)
+        .bind(sql_ts(hold.until))
         .bind(serde_json::to_value(&hold).map_err(|error| {
             DomainError::validation(format!("provider hold is not serializable: {error}"))
         })?)
@@ -1412,7 +1412,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(provider.as_str())
         .bind(model)
-        .bind(hold.until)
+        .bind(sql_ts(hold.until))
         .bind(&hold.reason_code)
         .bind(serde_json::to_value(&hold).map_err(|error| {
             DomainError::validation(format!("provider hold is not serializable: {error}"))
@@ -1441,7 +1441,7 @@ impl AiImportQueue for PgAiImportQueue {
         &self,
         provider: LlmProvider,
         model: &str,
-        until: chrono::DateTime<Utc>,
+        until: jiff::Timestamp,
     ) -> Result<Vec<AiImportJobId>, DomainError> {
         let rows = sqlx::query(
             r#"
@@ -1464,7 +1464,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(provider.as_str())
         .bind(model)
-        .bind(until)
+        .bind(sql_ts(until))
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -1764,7 +1764,7 @@ impl AiImportQueue for PgAiImportQueue {
                     .map_err(map_sqlx_error)?,
             )
             .unwrap_or(0),
-            retry_at: row.try_get("retry_at").map_err(map_sqlx_error)?,
+            retry_at: row.get_ts_opt("retry_at").map_err(map_sqlx_error)?,
         })
     }
 
@@ -1825,7 +1825,7 @@ impl AiImportQueue for PgAiImportQueue {
         // A payload older than this belongs to a run whose process is gone.
         // Bound as a timestamptz, compared against the payload's own
         // `updated_at` — the same field the stream classifies staleness by.
-        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let stale_before = Timestamp::now() - ApplyProgress::STALE_AFTER;
         let result = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
@@ -1862,7 +1862,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(id.as_uuid())
         .bind(run_id.as_uuid())
-        .bind(stale_before)
+        .bind(sql_ts(stale_before))
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -1921,7 +1921,7 @@ impl AiImportQueue for PgAiImportQueue {
             progress: decode_apply_progress(&row),
             // NULL for a claim made before the column existed: no age, rather
             // than a stamp another run's write could have moved.
-            owner_claimed_at: row.try_get("apply_claim_at").map_err(map_sqlx_error)?,
+            owner_claimed_at: row.get_ts_opt("apply_claim_at").map_err(map_sqlx_error)?,
             // The durable slot (issue #899). A row that predates the migration
             // (or carries an unreadable word) reads as `idle` — never as
             // `running`: the stream must not wait on a run nobody started.
@@ -2010,7 +2010,7 @@ impl AiImportQueue for PgAiImportQueue {
         let payload = serde_json::to_value(request).map_err(|error| {
             DomainError::validation(format!("AI apply request is not serializable: {error}"))
         })?;
-        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let stale_before = Timestamp::now() - ApplyProgress::STALE_AFTER;
         let result = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
@@ -2044,7 +2044,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(id.as_uuid())
         .bind(run_id.as_uuid())
-        .bind(stale_before)
+        .bind(sql_ts(stale_before))
         .bind(payload)
         .fetch_optional(&self.pool)
         .await
@@ -2072,7 +2072,7 @@ impl AiImportQueue for PgAiImportQueue {
         id: AiImportJobId,
         takeover_run_id: ApplyRunId,
     ) -> Result<Option<breakdown_core::ai::ClaimedApplyRun>, DomainError> {
-        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let stale_before = Timestamp::now() - ApplyProgress::STALE_AFTER;
         let row = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
@@ -2114,7 +2114,7 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(id.as_uuid())
         .bind(takeover_run_id.as_uuid())
-        .bind(stale_before)
+        .bind(sql_ts(stale_before))
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -2195,7 +2195,7 @@ impl AiImportQueue for PgAiImportQueue {
     /// computed in Rust, so the poll and the single-flight steal share ONE
     /// window definition.
     async fn requested_apply_runs(&self, limit: i64) -> Result<Vec<AiImportJobId>, DomainError> {
-        let stale_before = Utc::now() - ApplyProgress::STALE_AFTER;
+        let stale_before = Timestamp::now() - ApplyProgress::STALE_AFTER;
         let rows = sqlx::query(
             r#"
             SELECT id
@@ -2222,7 +2222,7 @@ impl AiImportQueue for PgAiImportQueue {
             "#,
         )
         .bind(limit.clamp(1, 100))
-        .bind(stale_before)
+        .bind(sql_ts(stale_before))
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -2821,8 +2821,8 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
     let user_id = row
         .try_get::<String, _>("user_id")
         .map_err(map_sqlx_error)?;
-    let created_at: DateTime<Utc> = row.try_get("created_at").map_err(map_sqlx_error)?;
-    let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_sqlx_error)?;
+    let created_at: Timestamp = row.get_ts("created_at").map_err(map_sqlx_error)?;
+    let updated_at: Timestamp = row.get_ts("updated_at").map_err(map_sqlx_error)?;
     Ok(AiImportJob {
         id: AiImportJobId::from_uuid(id),
         user_id: breakdown_core::shared::UserId::from_sub(user_id),
@@ -2860,7 +2860,7 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<AiImportJob, DomainError> {
             .try_get::<i32, _>("max_retries")
             .map_err(map_sqlx_error)?
             .max(0) as u32,
-        next_attempt_at: row.try_get("next_attempt_at").map_err(map_sqlx_error)?,
+        next_attempt_at: row.get_ts_opt("next_attempt_at").map_err(map_sqlx_error)?,
         // The provider hold (issue #871). Advisory visibility data like
         // `progress`: an undecodable payload degrades to `None` rather than
         // failing the whole job read.
@@ -3096,7 +3096,7 @@ fn map_attempt_row(row: sqlx::postgres::PgRow) -> Result<AiImportAttempt, Domain
         error_summary: row.try_get("error_summary").map_err(map_sqlx_error)?,
         code: row.try_get("error_code").map_err(map_sqlx_error)?,
         retryable: row.try_get("retryable").map_err(map_sqlx_error)?,
-        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        created_at: row.get_ts("created_at").map_err(map_sqlx_error)?,
     })
 }
 

@@ -24,8 +24,6 @@
 //! deliberately **not** extended: it is unauthenticated with a 2 s per-check
 //! timeout, and a provider probe needs a vaulted credential.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use breakdown_core::ai::ports::{
     LlmProvider, OpenBreaker, ProbeLease, ProbeOutcome, ProviderBreakerSnapshot, ProviderHealth,
@@ -36,9 +34,12 @@ use breakdown_core::ai::provider_health::{
 };
 use breakdown_core::ai::views::ProviderBreakerState;
 use breakdown_core::error::DomainError;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
+use std::time::Duration;
 use uuid::Uuid;
+
+use crate::db_time::{PgRowTimeExt, sql_ts_opt};
 
 /// How long one probe lease is valid.
 ///
@@ -74,7 +75,7 @@ impl PgProviderHealth {
         &self,
         provider: LlmProvider,
         model: &str,
-    ) -> Result<(ProviderBreakerSnapshot, Option<DateTime<Utc>>), DomainError> {
+    ) -> Result<(ProviderBreakerSnapshot, Option<Timestamp>), DomainError> {
         // An upsert rather than an INSERT after a failed SELECT: the pair may be
         // created by two replicas at the same instant, and `DO NOTHING` makes
         // the loser harmless.
@@ -97,7 +98,7 @@ impl PgProviderHealth {
         &self,
         provider: LlmProvider,
         model: &str,
-    ) -> Result<(ProviderBreakerSnapshot, Option<DateTime<Utc>>), DomainError> {
+    ) -> Result<(ProviderBreakerSnapshot, Option<Timestamp>), DomainError> {
         let row = sqlx::query(
             r#"
             SELECT state, consecutive_failures, flap_count, retry_at, closed_at
@@ -125,9 +126,9 @@ impl PgProviderHealth {
                     row.try_get::<i32, _>("flap_count")
                         .map_err(map_sqlx_error)?,
                 ),
-                retry_at: row.try_get("retry_at").map_err(map_sqlx_error)?,
+                retry_at: row.get_ts_opt("retry_at").map_err(map_sqlx_error)?,
             },
-            row.try_get("closed_at").map_err(map_sqlx_error)?,
+            row.get_ts_opt("closed_at").map_err(map_sqlx_error)?,
         ))
     }
 
@@ -168,7 +169,7 @@ impl PgProviderHealth {
         .bind(decision.state.as_str())
         .bind(decision.consecutive_failures as i32)
         .bind(decision.flap_count as i32)
-        .bind(decision.retry_at)
+        .bind(sql_ts_opt(decision.retry_at))
         .bind(decision.opened)
         .bind(decision.closed)
         .bind(decision.state != ProviderBreakerState::Closed)
@@ -230,7 +231,7 @@ impl ProviderHealth for PgProviderHealth {
             // Issue #926: the provider's own wait hint becomes the floor of the
             // probe schedule, so `retry_at` (and therefore every hold's `until`)
             // already respects it when the next watch tick looks for work.
-            let decision = on_retryable_failure(counters, threshold, Utc::now(), retry_after);
+            let decision = on_retryable_failure(counters, threshold, Timestamp::now(), retry_after);
             if self.cas(provider, model, counters, decision).await? {
                 // Log every committed change, including the plain counter bump:
                 // an operator watching a provider degrade wants the ramp, not
@@ -415,7 +416,7 @@ impl ProviderHealth for PgProviderHealth {
                     closed_at,
                     retry_at: snapshot.retry_at,
                 };
-                let decision = on_probe_failure(counters, Utc::now());
+                let decision = on_probe_failure(counters, Timestamp::now());
                 let result = sqlx::query(
                     r#"
                     UPDATE ai_import.provider_health
@@ -433,7 +434,7 @@ impl ProviderHealth for PgProviderHealth {
                 .bind(lease.provider.as_str())
                 .bind(&lease.model)
                 .bind(lease.lease_id)
-                .bind(decision.retry_at)
+                .bind(sql_ts_opt(decision.retry_at))
                 .execute(&self.pool)
                 .await
                 .map_err(map_sqlx_error)?;
@@ -482,7 +483,7 @@ impl ProviderHealth for PgProviderHealth {
                 provider,
                 model: row.try_get("model").map_err(map_sqlx_error)?,
                 state: parse_state(row.try_get("state").map_err(map_sqlx_error)?),
-                retry_at: row.try_get("retry_at").map_err(map_sqlx_error)?,
+                retry_at: row.get_ts_opt("retry_at").map_err(map_sqlx_error)?,
             });
         }
         Ok(breakers)

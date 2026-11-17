@@ -10,24 +10,23 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use crate::common;
-use utoipa::OpenApi;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
+use api::handlers::get_block_audit;
 use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
 use api::problems::{Path, Query};
+use api::state::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::audit::AuditEntry;
 use breakdown_core::shared::{BlockId, UserId};
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use serde_json::json;
+use utoipa::OpenApi;
 use uuid::Uuid;
 
-use api::handlers::get_block_audit;
-use api::state::AppState;
-
+use crate::common;
 #[tokio::test]
 async fn get_block_audit_returns_journal_entries_for_block() {
     let ports = FakePorts::default();
@@ -41,7 +40,7 @@ async fn get_block_audit_returns_journal_entries_for_block() {
         project_id: None,
         actor: Some(UserId::from_sub("user-1")),
         payload: json!({ "role": "piece_assistant" }),
-        occurred_at: Utc::now(),
+        occurred_at: Timestamp::now(),
     });
 
     let result = get_block_audit::<FakePorts>(

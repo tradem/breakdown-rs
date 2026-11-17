@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::membership::Role;
 use crate::shared::{ProjectId, UserId};
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProjectMembershipEvent {

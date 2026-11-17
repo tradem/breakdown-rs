@@ -20,18 +20,16 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
-use std::path::Path;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use breakdown_core::ai::AiImportJobId;
 use breakdown_core::error::DomainError;
 use opendal::Operator;
+use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use super::preview_store::{AiDocumentSource, AiDocumentStore, AiPreviewStore};
-
 /// OpenDAL-backed AI payload storage adapter.
 ///
 /// Stores source documents and preview payloads in an S3-compatible backend

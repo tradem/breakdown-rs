@@ -14,13 +14,11 @@
 //! fixture test), so local developers and CI without the secret are not
 //! blocked.
 
-use std::env;
-use std::time::Duration;
-
 use anyhow::{Context, Result, anyhow};
 use breakdown_core::ai::{AiImportBounds, LlmChatRequest, LlmClient, LlmProvider, ScriptContext};
 use infra::ai::OpenAiCompatibleChatClient;
-
+use std::env;
+use std::time::Duration;
 /// Curated provider keys (mirror of the API handler's `parse_ai_provider`).
 fn provider_from_key(key: &str) -> Result<LlmProvider> {
     match key {

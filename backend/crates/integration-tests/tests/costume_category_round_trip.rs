@@ -25,6 +25,7 @@
 //! Requirements: Docker (or a compatible container runtime) and network access
 //! to pull the SierraDB image. Excluded from `cargo-mutants` (`.mutants.toml`).
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -40,7 +41,6 @@ use breakdown_core::piece::views::PieceView;
 use breakdown_core::shared::{
     AggregateVersion, CostumeCategoryId, LexicalSortKey, ProjectId, SeasonId,
 };
-use chrono::Utc;
 use infra::queries::{CostumeCategoryRepositoryImpl, PieceRepositoryImpl};
 use uuid::Uuid;
 
@@ -61,7 +61,7 @@ async fn eappend(
     payload: &[u8],
 ) -> Result<()> {
     let mut conn = redis_client.get_multiplexed_async_connection().await?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_type)

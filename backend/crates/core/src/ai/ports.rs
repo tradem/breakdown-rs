@@ -14,17 +14,20 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use utoipa::ToSchema;
 use uuid::Uuid;
-
 #[cfg(test)]
 #[path = "ports_tests.rs"]
 mod ports_tests;
 
 use crate::error::DomainError;
+
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::apply_run::{ApplyRunRequest, ClaimedApplyRun};
+
 use super::preview::{ScriptContext, ShootingSchedule};
+
 use super::provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
+
 use super::views::{
     AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportTarget,
     ApplyImportSummary, ApplyProgress, ApplyRunId, ApplyRunState, DocumentKind, ModelPricing,
@@ -643,7 +646,7 @@ pub trait AiImportQueue: Send + Sync {
         &self,
         _provider: LlmProvider,
         _model: &str,
-        _until: chrono::DateTime<chrono::Utc>,
+        _until: jiff::Timestamp,
     ) -> Result<Vec<AiImportJobId>, DomainError> {
         Ok(Vec::new())
     }
@@ -1457,7 +1460,7 @@ pub struct ProviderBreakerSnapshot {
     pub consecutive_failures: u32,
     pub flap_count: u32,
     /// The next probe time; `None` while `closed`.
-    pub retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub retry_at: Option<jiff::Timestamp>,
 }
 
 impl ProviderBreakerSnapshot {
@@ -1487,7 +1490,7 @@ pub struct OpenBreaker {
     pub provider: LlmProvider,
     pub model: String,
     pub state: ProviderBreakerState,
-    pub retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub retry_at: Option<jiff::Timestamp>,
 }
 
 /// The fence of one probe attempt (issue #871, D-A6).

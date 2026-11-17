@@ -15,13 +15,6 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use crate::common;
-
-use axum::extract::State;
-use axum::http::StatusCode;
-use chrono::Utc;
-use common::FakePorts;
-use uuid::Uuid;
 
 use api::auth::CurrentUser;
 use api::handlers::{
@@ -30,11 +23,18 @@ use api::handlers::{
 };
 use api::problems::{Json, Path, Query};
 use api::state::AppState;
+use axum::extract::State;
+use axum::http::StatusCode;
 use breakdown_core::membership::Role;
 use breakdown_core::membership::views::MembershipStateKind;
 use breakdown_core::ops::{CheckpointProgress, DeadLetterEntry, ProjectorHealthSnapshot};
 use breakdown_core::shared::{BlockId, UserId};
+use common::FakePorts;
+use jiff::Timestamp;
 use utoipa::OpenApi;
+use uuid::Uuid;
+
+use crate::common;
 
 fn ops_user() -> CurrentUser {
     CurrentUser::dummy("ops-user")
@@ -71,8 +71,8 @@ fn sample_snapshot() -> ProjectorHealthSnapshot {
             constraint_name: Some("uq_projection_piece".to_string()),
             error_message: "duplicate key".to_string(),
             attempts: 5,
-            first_seen_at: Utc::now(),
-            last_seen_at: Utc::now(),
+            first_seen_at: Timestamp::now(),
+            last_seen_at: Timestamp::now(),
         }],
         checkpoints: vec![CheckpointProgress {
             projection_id: "season".to_string(),

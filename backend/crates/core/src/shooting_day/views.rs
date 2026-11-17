@@ -4,14 +4,12 @@
 
 //! Read-model view for a `ShootingDay`.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
-
 use super::events::ShootingDaySource;
-
+use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
 /// Complete shooting-day read model.
 ///
 /// `updated_at` is sourced from the timestamp of the last applied
@@ -22,12 +20,12 @@ pub struct ShootingDayView {
     pub episode_id: EpisodeId,
     pub label: Option<String>,
     pub order_key: LexicalSortKey,
-    pub date: Option<chrono::NaiveDate>,
+    pub date: Option<jiff::civil::Date>,
     pub source: ShootingDaySource,
     pub archived: bool,
     /// When this shooting day was wrapped (finalised). `None` means open.
-    pub wrapped_at: Option<DateTime<Utc>>,
+    pub wrapped_at: Option<Timestamp>,
     /// Aggregate version of the last applied event; echo back in optimistic-locking commands.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

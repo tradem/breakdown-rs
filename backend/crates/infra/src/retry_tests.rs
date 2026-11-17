@@ -7,10 +7,9 @@
 //! the call sites use (they replaced hand-rolled copies, so the values they
 //! produce are pinned here against the pre-#925 arithmetic).
 
-use std::time::{Duration, SystemTime};
-
 use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, HeaderValue};
+use std::time::{Duration, SystemTime};
 
 use super::{
     Backoff, MAX_SERVER_HINT, RetryClass, RetryHint, effective_in_attempt_delay,

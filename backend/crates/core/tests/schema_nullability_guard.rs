@@ -26,7 +26,6 @@ use breakdown_core::block::views::BlockView;
 use breakdown_core::character::events::CharacterMeasurements;
 use serde_json::{Map, Value};
 use utoipa::ToSchema;
-
 /// Render a struct's component schema as JSON.
 fn schema_of<T: ToSchema + 'static>() -> Map<String, Value> {
     let ref_or_schema = T::schema();
@@ -109,7 +108,7 @@ fn character_measurements_schema_is_nullable_and_optional() {
     );
 }
 
-/// `BlockView.start_date`/`end_date` are `Option<NaiveDate>`: currently
+/// `BlockView.start_date`/`end_date` are `Option<Date>`: currently
 /// harmless only because every existing block carries both dates — a block
 /// without dates would break `GET /v1/blocks` parsing the same way (issue
 /// #423, pending crash class).

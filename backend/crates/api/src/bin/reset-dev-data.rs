@@ -20,12 +20,10 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
-use std::io::Write;
-use std::path::PathBuf;
-
 use anyhow::{Context, Result, bail};
 use infra::dev_reset::{self, ResetLevel, ResetOptions, ResetPhase};
-
+use std::io::Write;
+use std::path::PathBuf;
 const USAGE: &str = "\
 reset-dev-data — dev-only data reset that preserves the configuration (issue #770)
 
@@ -205,7 +203,7 @@ async fn main() -> Result<()> {
 
     let backup_dir = parsed
         .backup_dir
-        .unwrap_or_else(|| dev_reset::backup::default_dir(chrono::Utc::now()));
+        .unwrap_or_else(|| dev_reset::backup::default_dir(jiff::Timestamp::now()));
 
     let mut options = ResetOptions {
         level,

@@ -8,31 +8,30 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use crate::common;
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // Section 6.4: API-layer test asserting authorized / non-authorized
 // dispatch through the real auth + authorization middleware stack.
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use axum::Router;
-use axum::body::Body as AxumBody;
-use axum::http::{Request, StatusCode};
-use axum::middleware::from_fn_with_state;
-use axum::routing::{get, post};
-use jsonwebtoken::Algorithm;
-use tower::ServiceExt;
-
-use breakdown_core::shared::{BlockId, UserId};
-use common::FakeMembershipRepo;
 
 use api::auth::AuthState;
 use api::auth::authorization::{AuthorizationState, MembershipAuthorizationPolicy};
 use api::auth::jwks::StaticJwksProvider;
 use api::auth::{CurrentUser, OidcConfig, auth_middleware, authorize_middleware};
+use axum::Router;
+use axum::body::Body as AxumBody;
+use axum::http::{Request, StatusCode};
+use axum::middleware::from_fn_with_state;
+use axum::routing::{get, post};
+use breakdown_core::shared::{BlockId, UserId};
+use common::FakeMembershipRepo;
+use jsonwebtoken::Algorithm;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tower::ServiceExt;
+
+use crate::common;
 const DEV_SUB: &str = "dev-user";
 
 /// Tiny `Router<()>` that applies the real `auth_middleware` (outer) and

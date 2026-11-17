@@ -7,10 +7,8 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 
-use std::collections::HashMap;
-
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
-
+use std::collections::HashMap;
 #[cfg(test)]
 #[path = "aggregate_tests.rs"]
 mod aggregate_tests;
@@ -19,10 +17,15 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, EventMetadata, UserId};
 
 use super::commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
+
 use super::error::AiConfigError;
+
 use super::events::AiConfigEvent;
+
 use super::ports::LlmProvider;
+
 use super::views::{CostDisplayPreference, DocumentKind};
+
 use super::{decision, decision::is_decision_capable};
 
 #[derive(Debug, Clone)]

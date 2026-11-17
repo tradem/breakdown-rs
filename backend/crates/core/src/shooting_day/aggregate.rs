@@ -5,10 +5,8 @@
 
 //! The `ShootingDay` event-sourced aggregate.
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::{Timestamp, civil::Date};
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
-
-use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, LexicalSortKey, ShootingDayId};
 
 use super::commands::{
     ArchiveShootingDay, CreateShootingDay, DeleteShootingDay, EnsureShootingDayOpen,
@@ -16,6 +14,7 @@ use super::commands::{
 };
 use super::error::ShootingDayError;
 use super::events::{ShootingDayEvent, ShootingDaySource};
+use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, LexicalSortKey, ShootingDayId};
 
 /// State persisted by the `ShootingDay` aggregate.
 ///
@@ -29,11 +28,11 @@ pub struct ShootingDayAggregate {
     pub episode_id: EpisodeId,
     pub label: Option<String>,
     pub order_key: LexicalSortKey,
-    pub date: Option<NaiveDate>,
+    pub date: Option<Date>,
     pub source: ShootingDaySource,
     pub archived: bool,
     /// When this shooting day was wrapped (finalised). `None` means open.
-    pub wrapped_at: Option<DateTime<Utc>>,
+    pub wrapped_at: Option<Timestamp>,
     /// Set by the terminal `ShootingDayDeleted` event: a deleted
     /// aggregate rejects every further command (issue #770 — a delete
     /// must not leave a stream that still accepts mutations).
@@ -287,7 +286,7 @@ impl Command<WrapShootingDay> for ShootingDayAggregate {
         let new_version = self.version.next();
         Ok(vec![ShootingDayEvent::ShootingDayWrapped {
             id: self.id,
-            wrapped_at: Utc::now(),
+            wrapped_at: Timestamp::now(),
             version: new_version,
         }])
     }

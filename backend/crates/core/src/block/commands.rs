@@ -4,11 +4,10 @@
 
 //! Block domain commands.
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId, SeasonId};
-
 /// Create a new block within a season.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateBlock {
@@ -21,9 +20,9 @@ pub struct CreateBlock {
     // value_type must carry `Option` nullability (issue #423) — a bare
     // `value_type = String` override drops `Option`'s nullable flag.
     #[schema(value_type = Option<String>)]
-    pub start_date: Option<NaiveDate>,
+    pub start_date: Option<Date>,
     #[schema(value_type = Option<String>)]
-    pub end_date: Option<NaiveDate>,
+    pub end_date: Option<Date>,
 }
 
 /// Update a block's (optional) time span.
@@ -35,9 +34,9 @@ pub struct CreateBlock {
 pub struct UpdateBlockTimeSpan {
     pub id: Uuid,
     #[schema(value_type = Option<String>)]
-    pub start_date: Option<NaiveDate>,
+    pub start_date: Option<Date>,
     #[schema(value_type = Option<String>)]
-    pub end_date: Option<NaiveDate>,
+    pub end_date: Option<Date>,
     // wire name pinned: layer 3 (OpenAPI field rename) is a breaking ADR-021 change, deferred
     pub project_id: Option<ProjectId>,
     pub version: AggregateVersion,

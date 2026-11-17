@@ -11,11 +11,11 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
 use breakdown_core::photo::*;
 use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant, ProjectId, VariantStatus};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
-
 fn project_id() -> ProjectId {
     ProjectId::new()
 }

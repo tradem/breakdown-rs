@@ -10,13 +10,12 @@
 
 use uuid::Uuid;
 
-use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeasonId, UserId};
-
 use super::commands::{
     ArchiveCostumeCategory, CreateCostumeCategory, RenameCostumeCategory, ReorderCostumeCategory,
 };
 use super::views::CostumeCategoryView;
+use crate::error::DomainError;
+use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 /// Async write port for the `CostumeCategoryAggregate`.
 #[allow(async_fn_in_trait)]

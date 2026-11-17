@@ -4,9 +4,6 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::sync::Arc;
-use std::time::Instant;
-
 use breakdown_core::ai::{
     AiImportJobId, AiImportProgress, AiImportQueue, AiImportStage, CostBreakdown, DecisionOutcome,
     DecisionTelemetry, DocumentKind, MergeInput, MergedPreview, Telemetry, TelemetryApplyState,
@@ -15,6 +12,8 @@ use breakdown_core::ai::{
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::EpisodeId;
 use serde_json::{from_slice, to_vec};
+use std::sync::Arc;
+use std::time::Instant;
 
 use super::preview_store::AiPreviewStore;
 

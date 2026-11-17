@@ -17,12 +17,10 @@
 //! The DTOs and the port trait live in `breakdown_core::ops` (ADR-017: core
 //! carries no sqlx dependency); this adapter maps rows into them.
 
-use sqlx::{PgPool, Row};
-
 use breakdown_core::error::DomainError;
 use breakdown_core::ops::ProjectorHealthRepository as ProjectorHealthRepositoryPort;
 use breakdown_core::ops::{CheckpointProgress, DeadLetterEntry};
-
+use sqlx::{PgPool, Row};
 /// `sqlx::FromRow` mirror of `projection_dead_letter` (issue #37). The
 /// wire/port DTO lives in `core` without a sqlx dependency, so this private
 /// row struct carries the derive and converts 1:1.
@@ -37,8 +35,10 @@ struct DeadLetterRow {
     constraint_name: Option<String>,
     error_message: String,
     attempts: i32,
-    first_seen_at: chrono::DateTime<chrono::Utc>,
-    last_seen_at: chrono::DateTime<chrono::Utc>,
+    #[sqlx(try_from = "crate::db_time::SqlTimestamp")]
+    first_seen_at: jiff::Timestamp,
+    #[sqlx(try_from = "crate::db_time::SqlTimestamp")]
+    last_seen_at: jiff::Timestamp,
 }
 
 impl From<DeadLetterRow> for DeadLetterEntry {

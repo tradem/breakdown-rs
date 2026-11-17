@@ -10,8 +10,8 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use breakdown_core::shared::*;
 
+use breakdown_core::shared::*;
 #[allow(dead_code)]
 fn assert_between(a: &str, mid: &str, b: &str) {
     let ka = LexicalSortKey::new(a).unwrap();

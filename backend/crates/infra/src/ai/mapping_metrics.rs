@@ -31,7 +31,6 @@
 
 use std::cell::Cell;
 use std::time::Duration;
-
 /// Which mapped write a measurement belongs to. The two calls have different
 /// cost profiles (`reserve` is insert-if-absent, `insert` is a conditional
 /// update), so they are never summed into one figure without the split.

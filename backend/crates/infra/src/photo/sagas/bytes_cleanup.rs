@@ -3,9 +3,6 @@
 // Co-authored-by: qwen3.6-35b (neuralwatt)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use anyhow::Result;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::events::PhotoEvent;
@@ -17,11 +14,12 @@ use kameo_es::event_handler::{EventHandlerError, EventProcessor};
 use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::SierraAsyncClientExt;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::photo::sagas::retry_transient;
 use crate::photo::storage::OpenDalPhotoStorage;
 use crate::projectors::supervisor;
-
 /// Saga that reacts to `PhotoDeleted` events and removes the actual bytes
 /// from the S3-compatible storage (Garage). Idempotent under redelivery.
 #[derive(Clone, Debug)]

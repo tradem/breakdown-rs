@@ -14,12 +14,6 @@
 //! on projector restart never double-seeds. This is the precedent for the
 //! future AI-imported ShootingDay flow.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use crate::event_store::map_executed;
-use crate::projectors::supervisor;
-use crate::queries::CostumeCategoryRepositoryImpl;
 use anyhow::Result;
 use breakdown_core::costume_category::aggregate::CostumeCategoryAggregate;
 use breakdown_core::costume_category::commands::CreateCostumeCategory;
@@ -35,7 +29,13 @@ use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::{ExpectedVersion, SierraAsyncClientExt};
 use sqlx::PgPool;
+use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
+
+use crate::event_store::map_executed;
+use crate::projectors::supervisor;
+use crate::queries::CostumeCategoryRepositoryImpl;
 
 /// Monotonic seed order keys (single printable-ASCII, lexicographically ordered).
 /// There is no concurrent insertion during seeding, so a simple sequence suffices.

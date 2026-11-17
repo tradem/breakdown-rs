@@ -8,10 +8,11 @@ use breakdown_core::costume_category::views::CostumeCategoryView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::COSTUME_CATEGORY_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SeasonId};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for costume-category projections.
 #[derive(Clone, Debug)]
 pub struct CostumeCategoryRepositoryImpl {
@@ -87,7 +88,7 @@ fn map_category_row(row: sqlx::postgres::PgRow) -> Result<CostumeCategoryView, D
     let order_key: String = row.try_get("order_key").map_err(map_err)?;
     let archived: bool = row.try_get("archived").map_err(map_err)?;
     let version: i64 = row.try_get("version").map_err(map_err)?;
-    let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
+    let updated_at: Timestamp = row.get_ts("updated_at").map_err(map_err)?;
 
     let order_key =
         LexicalSortKey::new(order_key).map_err(|e| DomainError::internal(e.to_string()))?;

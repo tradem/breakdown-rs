@@ -3,13 +3,12 @@
 
 //! Read-model DTO for a single audit / journal entry.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{BlockId, UserId};
-
 /// One row of the audit journal: who (`actor`) did what (`event_type` on
 /// `entity_type`/`entity_id`) when (`occurred_at`), with the event `payload`.
 ///
@@ -26,5 +25,5 @@ pub struct AuditEntry {
     pub project_id: Option<Uuid>,
     pub actor: Option<UserId>,
     pub payload: serde_json::Value,
-    pub occurred_at: DateTime<Utc>,
+    pub occurred_at: Timestamp,
 }

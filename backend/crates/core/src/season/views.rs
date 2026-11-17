@@ -3,13 +3,12 @@
 
 //! Flat read-model DTOs for the Season context.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
-
 /// Complete season read model.
 ///
 /// `updated_at` is sourced from the timestamp of the last applied `SeasonEvent`.
@@ -26,5 +25,5 @@ pub struct SeasonView {
     pub archived: bool,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

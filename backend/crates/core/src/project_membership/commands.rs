@@ -10,7 +10,6 @@ use utoipa::ToSchema;
 
 use crate::membership::Role;
 use crate::shared::{ProjectId, UserId};
-
 /// Bootstrap the season creator's project-scoped costume role.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BootstrapProjectOwner {

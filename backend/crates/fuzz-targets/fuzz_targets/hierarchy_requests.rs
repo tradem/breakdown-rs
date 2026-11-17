@@ -4,7 +4,7 @@
 //! Fuzz target for hierarchy creation request deserialization:
 //! `CreateSeasonRequest`, `CreateBlockRequest`, `CreateEpisodeRequest`.
 //!
-//! Tests i32 (number) and Option<NaiveDate> fields for panic safety.
+//! Tests i32 (number) and Option<Date> fields for panic safety.
 
 #![cfg_attr(fuzzing, no_main)]
 
@@ -14,7 +14,7 @@ fn main() {}
 
 use libfuzzer_sys::fuzz_target;
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde::Deserialize;
 
 use breakdown_core::shared::{BlockId, ProjectId, SeasonId};
@@ -33,8 +33,8 @@ struct CreateBlockRequest {
     season_id: SeasonId,
     project_id: ProjectId,
     number: i32,
-    start_date: Option<NaiveDate>,
-    end_date: Option<NaiveDate>,
+    start_date: Option<Date>,
+    end_date: Option<Date>,
 }
 
 /// Mirrors `breakdown_api::handlers::CreateEpisodeRequest`.

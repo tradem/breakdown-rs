@@ -4,7 +4,6 @@
 use thiserror::Error;
 
 use crate::shared::AggregateVersion;
-
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum PhotoError {
     #[error("Validation error: {0}")]

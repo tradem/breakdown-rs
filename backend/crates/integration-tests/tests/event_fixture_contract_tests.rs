@@ -66,12 +66,13 @@ use breakdown_core::shared::{
     SceneShootId, SceneShootStatus, SeasonId, ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
-use chrono::{DateTime, TimeZone, Utc};
+use infra::db_time::sql_ts;
 use infra::projectors::{
     BlockProjector, CharacterProjector, CostumeCategoryProjector, EpisodeProjector,
     PROJECTOR_VERSION, PieceProjector, SceneProjector, SceneShootProjector, SeasonProjector,
     ShootingDayProjector,
 };
+use jiff::Timestamp;
 use kameo_es::Event;
 use kameo_es::event_handler::EntityEventHandler;
 use serde::{Deserialize, Serialize};
@@ -96,7 +97,7 @@ const FIXTURES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/events
 struct EventFixture {
     event: Value,
     aggregate_id: Uuid,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
     stream_version: u64,
     projector_version: i64,
     /// The event-envelope metadata (actor / provenance / project_id) exactly
@@ -109,7 +110,7 @@ impl EventFixture {
     fn new<E: Serialize, M: Serialize>(
         event: E,
         aggregate_id: Uuid,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
         metadata: M,
     ) -> Result<Self> {
         Ok(Self {
@@ -149,7 +150,7 @@ struct SampleChain {
     shooting_day_id: Uuid,
     category_id: Uuid,
     scene_shoot_id: Uuid,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
 }
 
 /// Deterministic UUIDv7 fixture identifier.
@@ -184,7 +185,7 @@ fn fixed_uuid_produces_uuidv7() {
 }
 
 fn sample_chain() -> SampleChain {
-    let timestamp = Utc.with_ymd_and_hms(2026, 8, 6, 9, 0, 0).unwrap();
+    let timestamp: Timestamp = "2026-08-06T09:00:00Z".parse().expect("fixture instant");
     let season_id = fixed_uuid(1);
     let block_id = fixed_uuid(2);
     let episode_id = fixed_uuid(3);
@@ -471,6 +472,104 @@ fn captured_event_fixtures_still_deserialize() {
             }
             other => panic!("unhandled fixture {other}"),
         };
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Part A2: timestamp wire compatibility across the chrono → jiff migration
+// (issue #929 / ADR-040)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The pre-migration renderings every persisted event instant has on disk.
+///
+/// `chrono`'s `DateTime<Utc>` serde impl wrote RFC 3339 with `SecondsFormat::
+/// AutoSi` and a `Z` suffix, i.e. **exactly these five shapes** — no fraction
+/// for a whole second, otherwise 3, 6 or 9 digits depending on the value, and
+/// nothing in between. `jiff`'s `Timestamp` writer reproduces them, which is
+/// what makes the migration replay-safe in *both* directions: the read side
+/// must accept them, and the write side must re-emit them unchanged, because
+/// `projection_audit.event_key` is derived from the **re-serialized** payload
+/// (ADR-035 layer 2, AGENTS.md §domain model).
+const PRE_MIGRATION_INSTANTS: [&str; 6] = [
+    // whole second (AutoSi: no fractional part)
+    "2026-11-17T12:49:25Z",
+    // millisecond precision
+    "2026-11-17T12:49:25.123Z",
+    // microsecond precision — what a `timestamptz` column can hold
+    "2026-11-17T12:49:25.123456Z",
+    // nanosecond precision — what `Utc::now()` produced on Linux
+    "2026-11-17T12:49:25.123456789Z",
+    // pre-epoch (negative instants must not gain or lose digits)
+    "1969-12-31T23:59:59.999999999Z",
+    // a leap-day instant, so no date arithmetic shortcut can pass the test
+    "2028-02-29T00:00:00.000000001Z",
+];
+
+/// A pre-migration payload must replay into today's event type and be
+/// re-serialized **byte for byte**. This is the regression gate the migration
+/// (and every future time-library change) has to pass: a serializer that
+/// normalizes `.123` to `.123000000`, or drops the fraction, would silently
+/// rewrite every replayed audit key.
+#[test]
+fn pre_migration_timestamps_round_trip_byte_identically() {
+    for instant in PRE_MIGRATION_INSTANTS {
+        // The literal payload a pre-migration binary wrote for
+        // `ShootingDayWrapped`: enum shape, field order and the instant's
+        // exact spelling — nothing here is produced by today's code.
+        let frozen = format!(
+            r#"{{"ShootingDayWrapped":{{"id":"019e7044-8800-7007-8000-000000000007","wrapped_at":"{instant}","version":2}}}}"#
+        );
+
+        let event: ShootingDayEvent =
+            serde_json::from_str(&frozen).unwrap_or_else(|e| panic!("{instant} must replay: {e}"));
+
+        // Write side, JSON: identical bytes out.
+        let rewritten = serde_json::to_string(&event).expect("event serializes");
+        assert_eq!(
+            rewritten, frozen,
+            "the RFC 3339 rendering of {instant} changed — a replayed audit key              would no longer match its pre-migration row (issue #929, ADR-040)"
+        );
+
+        // Write side, CBOR: the event store's actual payload format
+        // (`ciborium`, see kameo_es) carries the same string, and a decode of
+        // those bytes reproduces the instant exactly.
+        let mut payload = Vec::new();
+        ciborium::into_writer(&event, &mut payload).expect("event encodes to CBOR");
+        assert!(
+            payload
+                .windows(instant.len())
+                .any(|w| w == instant.as_bytes()),
+            "the CBOR payload of {instant} must carry the identical RFC 3339 text"
+        );
+        let replayed: ShootingDayEvent =
+            ciborium::from_reader(payload.as_slice()).expect("event decodes from CBOR");
+        assert_eq!(
+            replayed, event,
+            "{instant} must survive a CBOR round trip unchanged"
+        );
+    }
+}
+
+/// The read side must also accept the two spellings a *pre-migration* payload
+/// could carry that today's writer never emits, so an old stream still replays:
+/// an explicit `+00:00` offset (older RFC 3339 emitters, and what a naive
+/// `format!` produces) and a lower-case `z`.
+#[test]
+fn legacy_offset_spellings_still_replay() {
+    for instant in ["2026-11-17T12:49:25+00:00", "2026-11-17T12:49:25z"] {
+        let frozen = format!(
+            r#"{{"ShootingDayWrapped":{{"id":"019e7044-8800-7007-8000-000000000007","wrapped_at":"{instant}","version":2}}}}"#
+        );
+        let event: ShootingDayEvent = serde_json::from_str(&frozen)
+            .unwrap_or_else(|e| panic!("the legacy spelling {instant} must replay: {e}"));
+
+        // Both are the same instant, and the writer normalizes them to the
+        // canonical `Z` form — reading stays lenient, writing stays canonical.
+        let canonical = serde_json::to_string(&event).expect("event serializes");
+        assert!(
+            canonical.contains(r#""wrapped_at":"2026-11-17T12:49:25Z""#),
+            "expected canonical Z rendering for {instant}, got {canonical}"
+        );
     }
 }
 
@@ -819,7 +918,7 @@ async fn assert_projected(
     tz_query: &'static str,
     id: Uuid,
     expected: Value,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
 ) -> Result<()> {
     let row: sqlx::types::Json<Value> = sqlx::query_scalar(row_query)
         .bind(id)
@@ -834,7 +933,7 @@ async fn assert_projected(
         );
     }
     let timestamps_ok: bool = sqlx::query_scalar(tz_query)
-        .bind(timestamp)
+        .bind(sql_ts(timestamp))
         .bind(id)
         .fetch_one(pool)
         .await

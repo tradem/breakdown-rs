@@ -4,12 +4,12 @@
 
 //! Read port for the audit / journal projection.
 
+use async_trait::async_trait;
+use jiff::Timestamp;
+
 use crate::audit::views::AuditEntry;
 use crate::error::DomainError;
 use crate::shared::{BlockId, ProjectId, UserId};
-use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-
 /// Async read port for the audit / journal projection.
 ///
 /// Generic over the audit entry; the v1 implementation scopes queries to the
@@ -37,8 +37,8 @@ pub trait AuditRepository: Send + Sync {
     /// Journal entries within a time range, newest first.
     async fn list_by_time_range(
         &self,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
+        from: Timestamp,
+        to: Timestamp,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError>;

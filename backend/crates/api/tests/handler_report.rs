@@ -12,14 +12,17 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use crate::common;
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
+use api::auth::CurrentUser;
+use api::handlers::{
+    dispo_report_pdf, map_render_error, planned_vs_actual_report_pdf, sanitize_pdf_filename,
+    shoot_day_report_pdf,
+};
+use api::state::AppState;
 use axum::extract::State;
-use std::sync::Arc;
-
 use breakdown_core::membership::Role;
 use breakdown_core::reporting::{ReportKind, ReportRenderError};
 use breakdown_core::scene_shoot::views::{DispoRow, ShootDayRow};
@@ -28,14 +31,10 @@ use breakdown_core::shared::{
     UserId,
 };
 use breakdown_core::shooting_day::views::ShootingDayView;
-
-use api::auth::CurrentUser;
-use api::handlers::{
-    dispo_report_pdf, map_render_error, planned_vs_actual_report_pdf, sanitize_pdf_filename,
-    shoot_day_report_pdf,
-};
-use api::state::AppState;
 use common::*;
+use std::sync::Arc;
+
+use crate::common;
 
 // ---------------------------------------------------------------------------
 // sanitize_pdf_filename
@@ -196,7 +195,7 @@ async fn seed_pdf_chain(ports: &FakePorts) -> ShootingDayId {
             start_date: None,
             end_date: None,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports.episode_repo.episodes.lock().await.insert(
@@ -208,7 +207,7 @@ async fn seed_pdf_chain(ports: &FakePorts) -> ShootingDayId {
             number: 1,
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports.shooting_day_repo.days.lock().await.insert(
@@ -223,7 +222,7 @@ async fn seed_pdf_chain(ports: &FakePorts) -> ShootingDayId {
             archived: false,
             wrapped_at: None,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports

@@ -45,20 +45,18 @@
 //! Unit and end-to-end tests for every allowed/rejected case live in the
 //! `#[cfg(test)] mod tests` at the bottom of this file.
 
+use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
+use reqwest::Url;
+use reqwest::header::HeaderValue;
+use reqwest::redirect::{Action, Attempt, Policy};
 use std::error::Error;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
-
-use reqwest::Url;
-use reqwest::header::HeaderValue;
-use reqwest::redirect::{Action, Attempt, Policy};
 use url::Host;
 
 use super::CuratedProviderUrls;
 use super::user_agent::default_user_agent;
-use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
-
 /// Maximum redirect hops followed per request. `Policy::custom` replaces
 /// reqwest's default policy entirely, so the hop bound is enforced here.
 pub const MAX_REDIRECT_HOPS: usize = 5;

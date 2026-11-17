@@ -5,14 +5,13 @@
 //! Unit tests for AiWorkerLifecycle — kills mutations in in_flight, drain,
 //! and AiJobGuard::drop.
 
-use std::time::Duration;
-
-use super::{AiWorkerLifecycle, DRAIN_TIMEOUT};
-
 // ===========================================================================
 // in_flight — kills return 0 / 1 replacement
 // ===========================================================================
 
+use std::time::Duration;
+
+use super::{AiWorkerLifecycle, DRAIN_TIMEOUT};
 #[test]
 fn in_flight_starts_at_zero() {
     let lifecycle = AiWorkerLifecycle::default();

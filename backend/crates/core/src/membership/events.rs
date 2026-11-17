@@ -3,12 +3,11 @@
 
 //! Membership domain events.
 
-use crate::shared::{BlockId, UserId};
 use kameo_es::EventType;
 use serde::{Deserialize, Serialize};
 
 use crate::membership::Role;
-
+use crate::shared::{BlockId, UserId};
 /// Events emitted by the `BlockMembership` aggregate.
 ///
 /// Events never carry the acting `UserId`; audit of *who emitted* an event is

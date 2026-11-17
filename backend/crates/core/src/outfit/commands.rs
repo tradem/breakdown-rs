@@ -12,7 +12,6 @@
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
-
 /// Create an outfit for a character.
 ///
 /// `piece_ids` may be empty: named looks and fitting photos are routinely

@@ -27,17 +27,6 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 
 #![allow(clippy::expect_used)]
-use crate::common;
-
-use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
-use api::problems::{Path, Query};
-use axum::Router;
-use axum::body::Body as AxumBody;
-use axum::extract::State;
-use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
-use axum::middleware::from_fn_with_state;
-use axum::routing::post;
-use tower::ServiceExt;
 
 use api::auth::{AuthState, CurrentUser, auth_middleware};
 use api::handlers::{
@@ -47,7 +36,15 @@ use api::handlers::{
     list_ai_import_jobs, put_ai_import_job_target, revoke_ai_config, update_ai_config,
     upload_ai_schedule, upload_ai_script,
 };
+use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
+use api::problems::{Path, Query};
 use api::state::AppState;
+use axum::Router;
+use axum::body::Body as AxumBody;
+use axum::extract::State;
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
+use axum::middleware::from_fn_with_state;
+use axum::routing::post;
 use breakdown_core::ai::{
     AiConfigView, AiImportJob, AiImportJobId, AiImportMappingRepository, AiImportPreviewResponse,
     AiImportQueue, AiPreviewPayload, ApplyMapping, ApplyMappingDecision, CostDisplayPreference,
@@ -62,12 +59,14 @@ use breakdown_core::membership::{MembershipRepository, Role};
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, EpisodeId, ProjectId, SeasonId, UserId};
-use chrono::Utc;
 use common::{FakePorts, run_dispatched_apply};
 use infra::ai::{AiDocumentStore, AiPreviewStore};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tower::ServiceExt;
 use uuid::Uuid;
+
+use crate::common;
 
 const TEST_SUB: &str = "ai-ports-test-user";
 
@@ -101,7 +100,7 @@ async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) -> SeasonId 
             start_date: None,
             end_date: None,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     // Issue #771: the upload snapshots the target from the block's season, so
@@ -116,7 +115,7 @@ async fn seed_ai_block_access(ports: &FakePorts, block_id: BlockId) -> SeasonId 
             title: Some("Target season".to_owned()),
             archived: false,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports
@@ -168,7 +167,7 @@ fn schedule_headers(content_type: &'static str, block_id: BlockId) -> HeaderMap 
 }
 
 fn succeeded_job(preview_handle: &str) -> AiImportJob {
-    let now = Utc::now();
+    let now = Timestamp::now();
     AiImportJob {
         // Issue #871: pre-#871 row — no provider snapshot, no hold.
         provider: None,
@@ -416,7 +415,7 @@ async fn seed_ai_season_access(ports: &FakePorts, season_id: SeasonId) -> Projec
             title: Some("Target season".to_owned()),
             archived: false,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     // The season policy resolves the role from the membership rows, so the
@@ -453,7 +452,7 @@ async fn seed_ai_project_role_access(ports: &FakePorts, season_id: SeasonId) -> 
             title: Some("Target season".to_owned()),
             archived: false,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     // The season → project attribution the project fallback resolves THROUGH
@@ -564,7 +563,7 @@ async fn upload_ai_script_refuses_a_block_less_season_without_any_role() {
             title: None,
             archived: false,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports
@@ -739,7 +738,7 @@ async fn upload_ai_script_refuses_a_declared_season_without_a_role() {
             title: None,
             archived: false,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 
@@ -1671,7 +1670,7 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
                     number,
                     name: Some(name.to_owned()),
                     version: AggregateVersion::INITIAL,
-                    updated_at: Utc::now(),
+                    updated_at: Timestamp::now(),
                 },
             );
         }
@@ -1698,7 +1697,7 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
             outfit_beats: Vec::new(),
             source: None,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports.scene_repo.scenes.lock().await.insert(
@@ -1719,7 +1718,7 @@ async fn apply_ai_import_attributes_a_grouped_update_to_the_primary_episode() {
             outfit_beats: Vec::new(),
             source: None,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 
@@ -1814,7 +1813,7 @@ async fn apply_ai_import_labels_an_existing_group_target() {
                 number: 299,
                 name: Some("Erlösung".to_owned()),
                 version: AggregateVersion::INITIAL,
-                updated_at: Utc::now(),
+                updated_at: Timestamp::now(),
             },
         );
         episodes.insert(
@@ -1826,7 +1825,7 @@ async fn apply_ai_import_labels_an_existing_group_target() {
                 number: 300,
                 name: Some("Heimkehr".to_owned()),
                 version: AggregateVersion::INITIAL,
-                updated_at: Utc::now(),
+                updated_at: Timestamp::now(),
             },
         );
     }
@@ -1918,7 +1917,7 @@ async fn apply_ai_import_rejects_an_existing_group_target_from_another_block() {
             number: 4711,
             name: Some("Fremder Block".to_owned()),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 
@@ -2330,7 +2329,7 @@ async fn apply_ai_import_reports_the_target_episode() {
             number: 299,
             name: Some("Erlösung".to_owned()),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 
@@ -3245,7 +3244,7 @@ async fn ai_upload_is_feature_disabled_when_the_feature_is_disabled() {
 
 /// Seed a succeeded schedule job holding `payload` bytes verbatim.
 async fn seed_schedule_job_with_payload(ports: &FakePorts, payload: Vec<u8>) -> AiImportJobId {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut job = succeeded_job("placeholder");
     job.document_kind = DocumentKind::Schedule;
     job.source_format = SourceFormat::Csv;
@@ -3360,7 +3359,7 @@ async fn seed_denied_block(ports: &FakePorts) -> BlockId {
             start_date: None,
             end_date: None,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     block_id
@@ -3369,12 +3368,12 @@ async fn seed_denied_block(ports: &FakePorts) -> BlockId {
 #[tokio::test]
 async fn list_ai_import_jobs_returns_only_the_caller_jobs_newest_first() {
     let ports = FakePorts::default();
-    let base = Utc::now();
+    let base = Timestamp::now();
     let mut first = succeeded_job("ai-preview/first");
     first.created_at = base;
     first.updated_at = base;
     let mut second = succeeded_job("ai-preview/second");
-    second.created_at = base + chrono::Duration::seconds(10);
+    second.created_at = base + SignedDuration::from_secs(10);
     second.updated_at = second.created_at;
     let mut foreign = succeeded_job("ai-preview/foreign");
     foreign.user_id = UserId::from_sub("someone-else");
@@ -3400,10 +3399,10 @@ async fn list_ai_import_jobs_returns_only_the_caller_jobs_newest_first() {
 #[tokio::test]
 async fn list_ai_import_jobs_honors_pagination() {
     let ports = FakePorts::default();
-    let base = Utc::now();
+    let base = Timestamp::now();
     for index in 0..3 {
         let mut job = succeeded_job(&format!("ai-preview/{index}"));
-        job.created_at = base + chrono::Duration::seconds(index);
+        job.created_at = base + SignedDuration::from_secs(index);
         job.updated_at = job.created_at;
         ports.ai_import_queue.seed(job).await;
     }
@@ -3424,17 +3423,17 @@ async fn list_ai_import_jobs_honors_pagination() {
 async fn list_ai_import_jobs_paginates_visible_rows_after_the_season_gate() {
     let ports = FakePorts::default();
     let denied_block = seed_denied_block(&ports).await;
-    let base = Utc::now();
+    let base = Timestamp::now();
     let mut denied_newest = succeeded_job("ai-preview/denied-newest");
     denied_newest.block_id = Some(denied_block);
-    denied_newest.created_at = base + chrono::Duration::seconds(30);
+    denied_newest.created_at = base + SignedDuration::from_secs(30);
     denied_newest.updated_at = denied_newest.created_at;
     let mut denied_older = succeeded_job("ai-preview/denied-older");
     denied_older.block_id = Some(denied_block);
-    denied_older.created_at = base + chrono::Duration::seconds(20);
+    denied_older.created_at = base + SignedDuration::from_secs(20);
     denied_older.updated_at = denied_older.created_at;
     let mut allowed_newer = succeeded_job("ai-preview/allowed-newer");
-    allowed_newer.created_at = base + chrono::Duration::seconds(10);
+    allowed_newer.created_at = base + SignedDuration::from_secs(10);
     allowed_newer.updated_at = allowed_newer.created_at;
     let mut allowed_older = succeeded_job("ai-preview/allowed-older");
     allowed_older.created_at = base;
@@ -3480,13 +3479,13 @@ async fn list_ai_import_jobs_paginates_visible_rows_after_the_season_gate() {
 async fn list_ai_import_jobs_scans_past_a_full_denied_page() {
     let ports = FakePorts::default();
     let denied_block = seed_denied_block(&ports).await;
-    let base = Utc::now();
+    let base = Timestamp::now();
     // One full scan window of denied rows: the visible scan must advance to
     // the next stored page instead of stopping at the first page boundary.
     for index in 0..100 {
         let mut denied = succeeded_job(&format!("ai-preview/denied-{index}"));
         denied.block_id = Some(denied_block);
-        denied.created_at = base + chrono::Duration::seconds(index + 1);
+        denied.created_at = base + SignedDuration::from_secs(index + 1);
         denied.updated_at = denied.created_at;
         ports.ai_import_queue.seed(denied).await;
     }
@@ -3867,7 +3866,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
         number: 1,
         name: None,
         version: AggregateVersion::INITIAL,
-        updated_at: chrono::Utc::now(),
+        updated_at: jiff::Timestamp::now(),
     };
     let taken = EpisodeView {
         id: Uuid::now_v7(),
@@ -3876,7 +3875,7 @@ async fn apply_ai_import_prechecks_a_taken_episode_number_with_409() {
         number: 7,
         name: None,
         version: AggregateVersion::INITIAL,
-        updated_at: chrono::Utc::now(),
+        updated_at: jiff::Timestamp::now(),
     };
     let taken_id = taken.id;
     ports
@@ -3993,7 +3992,7 @@ async fn get_ai_import_preview_refuses_a_blockless_job_without_a_season_role() {
             title: None,
             archived: false,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     let job_id = seed_blockless_script_job(&ports, season_id).await;
@@ -4031,7 +4030,7 @@ async fn apply_ai_import_refuses_a_blockless_job_without_a_target() {
             number: 294,
             name: None,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 
@@ -4092,7 +4091,7 @@ async fn seed_block_in_season(ports: &FakePorts, season_id: SeasonId, number: i3
             start_date: None,
             end_date: None,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     block_id
@@ -4394,7 +4393,7 @@ async fn put_ai_import_job_target_refuses_a_caller_without_a_role() {
             title: None,
             archived: false,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     let block_id = seed_block_in_season(&ports, season_id, 2).await;
@@ -4428,7 +4427,7 @@ async fn apply_ai_import_creates_an_episode_for_a_free_group_number() {
         number: 1,
         name: None,
         version: AggregateVersion::INITIAL,
-        updated_at: chrono::Utc::now(),
+        updated_at: jiff::Timestamp::now(),
     };
     ports
         .episode_repo
@@ -4775,7 +4774,7 @@ fn seeded_pricing(provider: LlmProvider, model: &str) -> breakdown_core::ai::Mod
             image_output_nano_per_million: None,
             image_nano_per_unit: None,
             pricing_source: breakdown_core::ai::PricingSource::ProviderLive,
-            price_as_of: Utc::now(),
+            price_as_of: Timestamp::now(),
         },
     }
 }
@@ -4966,7 +4965,7 @@ async fn get_ai_import_job_serves_the_persisted_cost_snapshot() {
     job.cost = Some(breakdown_core::ai::CostBreakdown {
         status: breakdown_core::ai::CostStatus::Known,
         currency: Some(breakdown_core::ai::Currency::Usd),
-        price_as_of: Some(Utc::now()),
+        price_as_of: Some(Timestamp::now()),
         pricing_source: Some(breakdown_core::ai::PricingSource::ProviderLive),
         token_cost: Some(breakdown_core::ai::TokenCostBreakdown {
             tokens_in: 1_000,
@@ -5078,6 +5077,8 @@ async fn list_ai_decision_models_serves_an_empty_catalog_for_non_decision_provid
 // providers, with the same pricing enrichment.
 
 use api::handlers::list_ai_image_models;
+use jiff::SignedDuration;
+use jiff::Timestamp;
 
 #[tokio::test]
 async fn list_ai_image_models_serves_the_curated_catalog_with_pricing() {
@@ -5502,8 +5503,8 @@ fn single_row_apply_request() -> ApplyAiImportRequest {
 async fn seed_live_apply_claim(
     ports: &FakePorts,
     job_id: AiImportJobId,
-    published_ago: Option<chrono::Duration>,
-) -> (breakdown_core::ai::ApplyRunId, chrono::DateTime<Utc>) {
+    published_ago: Option<jiff::SignedDuration>,
+) -> (breakdown_core::ai::ApplyRunId, jiff::Timestamp) {
     let run_id = breakdown_core::ai::ApplyRunId::new();
     assert!(
         ports
@@ -5514,7 +5515,7 @@ async fn seed_live_apply_claim(
         "the seeded job's apply slot starts free"
     );
     if let Some(ago) = published_ago {
-        let stamp = Utc::now() - ago;
+        let stamp = Timestamp::now() - ago;
         ports
             .ai_import_queue
             .mark_apply_progress(
@@ -5572,13 +5573,13 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
     // The owning run published 4 minutes ago: inside `STALE_AFTER`, so the
     // claim refuses it (issue #800) and the payload's own age travels.
     let (_, stamp) =
-        seed_live_apply_claim(&ports, job_id, Some(chrono::Duration::minutes(4))).await;
+        seed_live_apply_claim(&ports, job_id, Some(SignedDuration::from_mins(4))).await;
 
     // Deterministic bounds instead of a guessed window: the handler measures the
     // age at some instant between these two stamps, so a slow machine (or a
     // paused test) widens the bound EXACTLY as much as it widens the age —
     // never a wall-clock guess that a fixed `..=300` range would break.
-    let before = Utc::now();
+    let before = Timestamp::now();
     let problem = apply_ai_import::<FakePorts>(
         State(state(ports)),
         user(),
@@ -5588,7 +5589,7 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
     .await
     .expect_err("a live run must be refused")
     .into_problem();
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
     assert_eq!(problem.code, "ai-import.apply-in-flight");
@@ -5607,8 +5608,8 @@ async fn apply_refuses_a_live_run_with_the_age_and_the_stale_window() {
         .and_then(|value| value.as_u64())
         .expect("the owning run published a payload, so its age travels");
     // `num_seconds` truncates, so allow one second of rounding at each end.
-    let lower = (before - stamp).num_seconds() - 1;
-    let upper = (after - stamp).num_seconds() + 1;
+    let lower = (before - stamp).as_secs() - 1;
+    let upper = (after - stamp).as_secs() + 1;
     assert!(
         (lower..=upper).contains(&i64::try_from(age).expect("age fits in i64")),
         "the reported age must be the payload's age at the refusal \
@@ -5637,7 +5638,7 @@ async fn apply_refusal_ages_a_claim_that_never_published_a_frame() {
     // Deterministic bounds instead of a guessed window: the handler measures the
     // age between these two stamps, so a slow machine widens the bound exactly
     // as much as it widens the age.
-    let before = Utc::now();
+    let before = Timestamp::now();
     let problem = apply_ai_import::<FakePorts>(
         State(state(ports)),
         user(),
@@ -5647,7 +5648,7 @@ async fn apply_refusal_ages_a_claim_that_never_published_a_frame() {
     .await
     .expect_err("a live claim must be refused")
     .into_problem();
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     assert_eq!(problem.status, StatusCode::CONFLICT.as_u16());
     assert_eq!(problem.code, "ai-import.apply-in-flight");
@@ -5666,8 +5667,8 @@ async fn apply_refusal_ages_a_claim_that_never_published_a_frame() {
         .and_then(|value| value.as_u64())
         .expect("a claimed slot is aged by its own claim instant (issue #863)");
     // `num_seconds` truncates, so allow one second of rounding at each end.
-    let lower = (before - claim_stamp).num_seconds() - 1;
-    let upper = (after - claim_stamp).num_seconds() + 1;
+    let lower = (before - claim_stamp).as_secs() - 1;
+    let upper = (after - claim_stamp).as_secs() + 1;
     assert!(
         (lower..=upper).contains(&i64::try_from(age).expect("age fits in i64")),
         "the reported age must be the CLAIM's age at the refusal \

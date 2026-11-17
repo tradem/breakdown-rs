@@ -23,6 +23,8 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use jiff::SignedDuration;
+use jiff::Timestamp;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -141,8 +143,8 @@ fn foreign_pending_job() -> AiImportJob {
         next_attempt_at: None,
         attempts: Vec::new(),
         max_retries: 5,
-        created_at: chrono::Utc::now() - chrono::Duration::hours(1),
-        updated_at: chrono::Utc::now() - chrono::Duration::hours(1),
+        created_at: Timestamp::now() - SignedDuration::from_hours(1),
+        updated_at: Timestamp::now() - SignedDuration::from_hours(1),
         telemetry: None,
         cost: None,
         source_file_name: None,
@@ -178,7 +180,7 @@ async fn seed_block(
             start_date: None,
             end_date: None,
             version: breakdown_core::shared::AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 }

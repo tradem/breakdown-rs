@@ -2,17 +2,17 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: pi-agent (pi-coding-agent)
 
-use std::time::Duration;
-
 use anyhow::Result;
 use breakdown_core::error::DomainError;
-use chrono::{DateTime, Utc};
+use jiff::SignedDuration;
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
+use std::time::Duration;
 use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
 use super::preview_store::{AiDocumentStore, AiPreviewStore};
-
+use crate::db_time::sql_ts;
 #[cfg(test)]
 #[path = "payload_cleanup_tests.rs"]
 mod payload_cleanup_tests;
@@ -242,7 +242,7 @@ where
         return Ok(());
     }
 
-    let started_at = Utc::now();
+    let started_at = Timestamp::now();
 
     // Advisory lock ID: "AI_PAY_AD_GC" as i64
     let lock_id: i64 = 4706751127065399628;
@@ -298,7 +298,7 @@ async fn try_run_sweep<S>(
     pool: &PgPool,
     storage: &S,
     config: &AiPayloadGcConfig,
-    started_at: DateTime<Utc>,
+    started_at: Timestamp,
 ) -> Result<()>
 where
     S: AiPreviewStore + AiDocumentStore + ?Sized,
@@ -308,18 +308,18 @@ where
         .map_err(|_| DomainError::validation("AI_PAYLOAD_GC_MAX_AGE_SECS exceeds i64::MAX"))?;
     let batch_size = i64::try_from(config.batch_size)
         .map_err(|_| DomainError::validation("AI_PAYLOAD_GC_BATCH_SIZE exceeds i64::MAX"))?;
-    let grace_period = chrono::TimeDelta::try_seconds(max_age_secs).ok_or_else(|| {
-        DomainError::validation(format!(
-            "AI_PAYLOAD_GC_MAX_AGE_SECS ({}) exceeds Chrono TimeDelta range",
-            config.max_age_secs
-        ))
-    })?;
-    let cutoff = started_at.checked_sub_signed(grace_period).ok_or_else(|| {
-        DomainError::validation("AI_PAYLOAD_GC_MAX_AGE_SECS produces cutoff outside DateTime range")
+    // `SignedDuration::from_secs` is total over `i64` seconds, so the only
+    // remaining failure is the cutoff arithmetic leaving `Timestamp`'s range —
+    // still validated, never panicked.
+    let grace_period = SignedDuration::from_secs(max_age_secs);
+    let cutoff = started_at.checked_sub(grace_period).map_err(|_| {
+        DomainError::validation(
+            "AI_PAYLOAD_GC_MAX_AGE_SECS produces cutoff outside timestamp range",
+        )
     })?;
 
     let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(TERMINAL_JOBS_SQL)
-        .bind(cutoff)
+        .bind(sql_ts(cutoff))
         .bind(batch_size)
         .fetch_all(pool)
         .await
@@ -467,7 +467,7 @@ where
     marks.flush(pool, run_id).await?;
 
     // Write history row
-    let finished_at = Utc::now();
+    let finished_at = Timestamp::now();
 
     sqlx::query(
         r#"
@@ -477,8 +477,8 @@ where
         "#,
     )
     .bind(run_id)
-    .bind(started_at)
-    .bind(finished_at)
+    .bind(sql_ts(started_at))
+    .bind(sql_ts(finished_at))
     .bind(scanned)
     .bind(source_deleted)
     .bind(preview_deleted)

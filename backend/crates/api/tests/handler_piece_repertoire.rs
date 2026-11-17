@@ -21,8 +21,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{
     AddPieceToSeasonRequest, VersionRequest, add_piece_to_season, remove_piece_from_season,
@@ -35,9 +33,11 @@ use breakdown_core::error_registry::SEASON_NOT_FOUND;
 use breakdown_core::piece::views::PieceView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, ProjectId, SeasonId};
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const USER: &str = "test-user";
 
@@ -55,7 +55,7 @@ fn piece_view(id: Uuid, _character_id: Option<Uuid>) -> PieceView {
         details: vec![],
         photos: vec![],
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
         season_ids: vec![],
     }
 }
@@ -83,7 +83,7 @@ fn season_view(id: Uuid) -> SeasonView {
         title: None,
         archived: false,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

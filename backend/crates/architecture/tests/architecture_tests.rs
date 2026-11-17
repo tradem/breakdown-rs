@@ -23,14 +23,14 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use rust_arkitect::dsl::architectural_rules::ArchitecturalRules;
-use rust_arkitect::dsl::arkitect::Arkitect;
-use rust_arkitect::dsl::project::Project;
 
 // ---------------------------------------------------------------------------
 // Helper: find the workspace root (backend/ directory containing deny.toml).
 // ---------------------------------------------------------------------------
 
+use rust_arkitect::dsl::architectural_rules::ArchitecturalRules;
+use rust_arkitect::dsl::arkitect::Arkitect;
+use rust_arkitect::dsl::project::Project;
 fn workspace_root() -> String {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
         .expect("CARGO_MANIFEST_DIR must be set (runs via cargo test)");

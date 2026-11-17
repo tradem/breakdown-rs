@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
+
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SETTINGS_NOT_FOUND;
@@ -11,7 +12,6 @@ use breakdown_core::shared::AggregateVersion;
 use breakdown_core::shared::UserId;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
-
 #[derive(Clone, Debug)]
 pub struct SettingsRepositoryImpl {
     pool: PgPool,

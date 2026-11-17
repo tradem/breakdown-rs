@@ -10,10 +10,10 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
 use breakdown_core::reporting::ReportKind;
 use infra::reporting::triggers::{ALL_KINDS, ScheduleConfig};
 use std::time::Duration;
-
 #[test]
 fn all_kinds_covers_three_reports() {
     assert_eq!(ALL_KINDS.len(), 3);

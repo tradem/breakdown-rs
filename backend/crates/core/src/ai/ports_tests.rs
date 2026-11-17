@@ -324,6 +324,7 @@ fn the_call_count_saturates_instead_of_wrapping() {
 
 mod apply_run_state_default {
     use async_trait::async_trait;
+    use jiff::Timestamp;
 
     use super::super::{
         AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
@@ -333,7 +334,6 @@ mod apply_run_state_default {
     use crate::ai::{ApplyStage, ApplyState, JobStatus, SourceFormat};
     use crate::error::DomainError;
     use crate::shared::UserId;
-    use chrono::Utc;
 
     /// A queue that implements only the REQUIRED methods, so `apply_run_state`,
     /// `claim_apply_run` and `mark_apply_progress` are the trait's defaults.
@@ -420,7 +420,7 @@ mod apply_run_state_default {
     }
 
     fn progress(run_id: ApplyRunId) -> ApplyProgress {
-        let now = Utc::now();
+        let now = Timestamp::now();
         ApplyProgress {
             stage: ApplyStage::Applying,
             applied: 3,
@@ -453,8 +453,8 @@ mod apply_run_state_default {
             retries: 0,
             max_retries: 3,
             next_attempt_at: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             progress: None,
             attempts: Vec::new(),
             telemetry: None,
@@ -520,7 +520,7 @@ mod apply_run_state_default {
              guess one from the row stamp (issue #863 review)"
         );
         assert_eq!(
-            state.owner_silence_at(Utc::now()),
+            state.owner_silence_at(Timestamp::now()),
             None,
             "a slot with no owner has nothing to age"
         );
@@ -532,12 +532,13 @@ mod apply_run_state_default {
 // ===========================================================================
 
 mod owner_silence {
+    use jiff::Timestamp;
+
     use super::super::{ApplyProgress, ApplyRunId, ApplyRunState};
     // The view types are re-exported on `ai`, not on the port module.
     use crate::ai::{ApplyStage, ApplyState};
-    use chrono::{Duration, Utc};
-
-    fn payload(run_id: ApplyRunId, updated_at: chrono::DateTime<Utc>) -> ApplyProgress {
+    use jiff::SignedDuration;
+    fn payload(run_id: ApplyRunId, updated_at: jiff::Timestamp) -> ApplyProgress {
         ApplyProgress {
             stage: ApplyStage::Applying,
             applied: 0,
@@ -553,19 +554,22 @@ mod owner_silence {
     #[test]
     fn a_published_payload_is_aged_by_its_own_stamp() {
         let run_id = ApplyRunId::new();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let state = ApplyRunState {
             owner: Some(run_id),
             result_run_id: None,
             seq: 1,
-            progress: Some(payload(run_id, now - Duration::minutes(4))),
+            progress: Some(payload(run_id, now - SignedDuration::from_mins(4))),
             // An OLDER claim instant cannot stretch the age: the newest sign of
             // life wins.
-            owner_claimed_at: Some(now - Duration::minutes(6)),
+            owner_claimed_at: Some(now - SignedDuration::from_mins(6)),
             state: ApplyState::Running,
             result: None,
         };
-        assert_eq!(state.owner_silence_at(now), Some(Duration::minutes(4)));
+        assert_eq!(
+            state.owner_silence_at(now),
+            Some(SignedDuration::from_mins(4))
+        );
     }
 
     /// Issue #911: a lease renewal newer than the last published frame is the
@@ -576,19 +580,19 @@ mod owner_silence {
     #[test]
     fn a_fresh_lease_renewal_shortens_the_payloads_age() {
         let run_id = ApplyRunId::new();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let state = ApplyRunState {
             owner: Some(run_id),
             result_run_id: None,
             seq: 1,
-            progress: Some(payload(run_id, now - Duration::minutes(12))),
-            owner_claimed_at: Some(now - Duration::seconds(30)),
+            progress: Some(payload(run_id, now - SignedDuration::from_mins(12))),
+            owner_claimed_at: Some(now - SignedDuration::from_secs(30)),
             state: ApplyState::Running,
             result: None,
         };
         assert_eq!(
             state.owner_silence_at(now),
-            Some(Duration::seconds(30)),
+            Some(SignedDuration::from_secs(30)),
             "the renewal is the owner's newest proof of life, so the reported age \
              must agree with the steal predicate that reads it"
         );
@@ -599,7 +603,7 @@ mod owner_silence {
     /// `apply_progress IS NULL`.
     #[test]
     fn a_claim_without_a_payload_is_aged_by_the_claim_stamp() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let state = ApplyRunState {
             owner: Some(ApplyRunId::new()),
             result_run_id: None,
@@ -607,11 +611,11 @@ mod owner_silence {
             progress: None,
             state: ApplyState::Idle,
             result: None,
-            owner_claimed_at: Some(now - Duration::minutes(12)),
+            owner_claimed_at: Some(now - SignedDuration::from_mins(12)),
         };
         assert_eq!(
             state.owner_silence_at(now),
-            Some(Duration::minutes(12)),
+            Some(SignedDuration::from_mins(12)),
             "a dead run that never published now has an age past the window"
         );
     }
@@ -620,7 +624,7 @@ mod owner_silence {
     /// reported nothing, and a pre-#863 claim must keep degrading honestly.
     #[test]
     fn no_stamp_degrades_to_no_age() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let state = ApplyRunState {
             owner: Some(ApplyRunId::new()),
             result_run_id: None,
@@ -636,7 +640,7 @@ mod owner_silence {
     /// No owner means nothing to age — even a claim instant must not invent one.
     #[test]
     fn an_idle_slot_is_not_aged_by_the_claim_stamp() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let state = ApplyRunState {
             owner: None,
             result_run_id: None,
@@ -644,7 +648,7 @@ mod owner_silence {
             progress: None,
             state: ApplyState::Idle,
             result: None,
-            owner_claimed_at: Some(now - Duration::minutes(30)),
+            owner_claimed_at: Some(now - SignedDuration::from_mins(30)),
         };
         assert_eq!(state.owner_silence_at(now), None);
     }
@@ -653,7 +657,7 @@ mod owner_silence {
     /// to zero instead of reporting a negative age.
     #[test]
     fn a_future_stamp_is_clamped_to_zero() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let state = ApplyRunState {
             owner: Some(ApplyRunId::new()),
             result_run_id: None,
@@ -661,8 +665,8 @@ mod owner_silence {
             progress: None,
             state: ApplyState::Idle,
             result: None,
-            owner_claimed_at: Some(now + Duration::minutes(3)),
+            owner_claimed_at: Some(now + SignedDuration::from_mins(3)),
         };
-        assert_eq!(state.owner_silence_at(now), Some(Duration::zero()));
+        assert_eq!(state.owner_silence_at(now), Some(SignedDuration::ZERO));
     }
 }

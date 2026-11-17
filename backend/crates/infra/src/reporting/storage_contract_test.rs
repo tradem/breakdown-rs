@@ -9,10 +9,11 @@
 //! These run against the in-memory adapter (always) and optionally against a
 //! a fail-closed GDrive target when the Settings/Vault binding is unavailable.
 
+
+
 use breakdown_core::reporting::{ReportArchiveStorage, ReportArtifactKey};
 
 use super::storage::{MemoryReportArchiveStorage, sha256_hex};
-
 async fn contract_upload_overwrite_fetch_delete<S: ReportArchiveStorage>(store: &S) {
     let key = ReportArtifactKey::new("contract/test-report.pdf").unwrap();
     let bytes_v1 = b"%PDF-1.4 v1".as_slice();

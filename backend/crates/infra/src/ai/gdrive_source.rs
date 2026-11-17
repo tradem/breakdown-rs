@@ -3,17 +3,15 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::ports::{CredentialVault, VaultBinding};
 use futures::TryStreamExt;
 use opendal::Operator;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use super::preview_store::AiDocumentSource;
-
 /// Metadata for one externally stored fixture document. It contains no bytes
 /// and is therefore safe to use for selection/logging.
 #[derive(Debug, Clone, PartialEq, Eq)]

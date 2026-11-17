@@ -15,8 +15,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chrono::{DateTime, Utc};
 use ciborium::Value;
+use jiff::{SignedDuration, Timestamp};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -78,7 +78,7 @@ where
 {
     pub metadata: &'a Metadata<E::Metadata>,
     pub causation_tracking: &'a HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>,
-    pub time: DateTime<Utc>,
+    pub time: Timestamp,
     pub executed_at: Instant,
 }
 
@@ -130,8 +130,14 @@ where
         }
     }
 
-    pub fn now(&self) -> DateTime<Utc> {
-        self.time + self.executed_at.elapsed()
+    /// `now` = the command's dispatch instant plus the time spent executing
+    /// so far. `executed_at.elapsed()` is a `std::time::Duration`; jiff only
+    /// implements `Add` for `SignedDuration`/`UnsignedDuration`, and the
+    /// saturating fallback keeps a pathological clock jump from panicking.
+    pub fn now(&self) -> Timestamp {
+        let elapsed =
+            SignedDuration::try_from(self.executed_at.elapsed()).unwrap_or(SignedDuration::ZERO);
+        self.time.checked_add(elapsed).unwrap_or(self.time)
     }
 }
 
@@ -181,7 +187,7 @@ pub struct Event<E = GenericValue, M = GenericValue> {
     pub name: String,
     pub data: E,
     pub metadata: Metadata<M>,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 impl Event {

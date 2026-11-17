@@ -22,13 +22,6 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: hy4-preview (opencode-go)
 
-use std::collections::HashMap;
-use std::future::Future;
-use std::time::Duration;
-
-use futures::StreamExt;
-
-use crate::problems::{ApiError, Bytes, Json, Path, ProblemDetails, Query};
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -90,6 +83,12 @@ use breakdown_core::piece::commands::{
 use breakdown_core::piece::events::PieceDetail;
 use breakdown_core::piece::ports::{PieceCommands, PieceRepository};
 use breakdown_core::piece::views::PieceView;
+use futures::StreamExt;
+use std::collections::HashMap;
+use std::future::Future;
+use std::time::Duration;
+
+use crate::problems::{ApiError, Bytes, Json, Path, ProblemDetails, Query};
 // Trait method scope for the ops handler (`dead_letter_count` etc.).
 use breakdown_core::ops::ProjectorHealthRepository as _;
 use breakdown_core::photo::binding::PhotoBinding;
@@ -152,6 +151,7 @@ use uuid::Uuid;
 use infra::ai::{AiDocumentStore, AiPreviewStore, AppliedEpisodeIdentity};
 
 use crate::auth::{ActiveBlock, CurrentUser};
+
 use crate::state::{AppState, Ports, ProductionPorts};
 
 /// Response for aggregate creation endpoints.
@@ -308,8 +308,8 @@ pub struct CreateBlockRequest {
     pub season_id: SeasonId,
     pub project_id: ProjectId,
     pub number: i32,
-    pub start_date: Option<chrono::NaiveDate>,
-    pub end_date: Option<chrono::NaiveDate>,
+    pub start_date: Option<jiff::civil::Date>,
+    pub end_date: Option<jiff::civil::Date>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -364,8 +364,8 @@ pub struct RenameEpisodeRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct UpdateBlockTimeSpanRequest {
-    pub start_date: Option<chrono::NaiveDate>,
-    pub end_date: Option<chrono::NaiveDate>,
+    pub start_date: Option<jiff::civil::Date>,
+    pub end_date: Option<jiff::civil::Date>,
     pub version: AggregateVersion,
 }
 
@@ -418,7 +418,7 @@ pub struct CreateShootingDayRequest {
     /// Canonical ordering key within the Episode (lexicographically sortable).
     pub order_key: LexicalSortKey,
     /// Calendar date; `None` while planning.
-    pub date: Option<chrono::NaiveDate>,
+    pub date: Option<jiff::civil::Date>,
     /// Import provenance (`Manual` or `AiExtracted`).
     pub source: ShootingDaySource,
 }
@@ -452,7 +452,7 @@ pub struct UpdateShootingDayRequest {
     #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     pub label: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_optional_nullable")]
-    pub date: Option<Option<chrono::NaiveDate>>,
+    pub date: Option<Option<jiff::civil::Date>>,
     pub order_key: Option<LexicalSortKey>,
 }
 
@@ -4428,15 +4428,27 @@ pub struct ReplanSceneShootRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct StartSceneShootRequest {
-    pub start_dt: Option<chrono::NaiveDateTime>,
+    // Naive wall-clock instant: the aggregate stores an absolute instant, so
+    // the handler pins a missing offset to UTC. utoipa 6 has no bridge for
+    // `jiff::civil::DateTime` (only `Timestamp`/`Date`/`Zoned`), so the schema
+    // is declared explicitly — and it must stay `date-time` + nullable, which
+    // the `openapi_drift` test proves by seeing zero diff in `openapi.yaml`
+    // (ADR-040). Kept as a `//` comment on purpose: a `///` one would surface
+    // as a new `description` property in the published contract.
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub start_dt: Option<jiff::civil::DateTime>,
     pub version: AggregateVersion,
 }
 
 impl StartSceneShootRequest {
-    fn resolve_start_dt(&self) -> chrono::DateTime<chrono::Utc> {
+    fn resolve_start_dt(&self) -> jiff::Timestamp {
         self.start_dt
-            .map(|d| d.and_utc())
-            .unwrap_or_else(chrono::Utc::now)
+            .map(|d| {
+                d.to_zoned_datetime(jiff::tz::TimeZone::UTC)
+                    .map(|zdt| zdt.timestamp())
+                    .unwrap_or_else(|_| jiff::Timestamp::now())
+            })
+            .unwrap_or_else(jiff::Timestamp::now)
     }
 }
 
@@ -4448,15 +4460,21 @@ pub struct SetActualOrderRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct FinishSceneShootRequest {
-    pub end_dt: Option<chrono::NaiveDateTime>,
+    // Same naive-instant contract as `StartSceneShootRequest::start_dt`.
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub end_dt: Option<jiff::civil::DateTime>,
     pub version: AggregateVersion,
 }
 
 impl FinishSceneShootRequest {
-    fn resolve_end_dt(&self) -> chrono::DateTime<chrono::Utc> {
+    fn resolve_end_dt(&self) -> jiff::Timestamp {
         self.end_dt
-            .map(|d| d.and_utc())
-            .unwrap_or_else(chrono::Utc::now)
+            .map(|d| {
+                d.to_zoned_datetime(jiff::tz::TimeZone::UTC)
+                    .map(|zdt| zdt.timestamp())
+                    .unwrap_or_else(|_| jiff::Timestamp::now())
+            })
+            .unwrap_or_else(jiff::Timestamp::now)
     }
 }
 
@@ -6888,7 +6906,7 @@ pub async fn stream_ai_import_job_events<P: Ports>(
 /// Duplicate wake-ups (local hub + echoed `pg_notify`) compare equal and
 /// never emit a second frame; `updated_at` changes on every fenced write,
 /// including pure progress updates.
-type JobWatermark = (String, chrono::DateTime<chrono::Utc>);
+type JobWatermark = (String, jiff::Timestamp);
 
 /// Interior state of the SSE unfold loop.
 struct SseJobStream<Q: AiImportQueue> {
@@ -6960,7 +6978,7 @@ where
                 }
                 state.done = job.status.is_terminal();
                 state.last_emitted = Some(watermark);
-                let event_id = job.updated_at.timestamp_micros().to_string();
+                let event_id = job.updated_at.as_microsecond().to_string();
                 match serde_json::to_string(&AiImportJobResponse { job }) {
                     Ok(payload) => {
                         let event = Event::default().event("job").id(event_id).data(payload);
@@ -7149,7 +7167,7 @@ struct SseApplyStream<Q: AiImportQueue> {
 type ApplyWatermark = (
     bool,
     Option<breakdown_core::ai::ApplyRunId>,
-    Option<chrono::DateTime<chrono::Utc>>,
+    Option<jiff::Timestamp>,
 );
 
 /// What the stream decided about the current row (issue #762).
@@ -7197,7 +7215,7 @@ pub fn classify_apply_run(
     run_state: &breakdown_core::ai::ApplyRunState,
     baseline_seq: i64,
     saw_run: bool,
-    now: chrono::DateTime<chrono::Utc>,
+    now: jiff::Timestamp,
 ) -> ApplyStreamVerdict {
     // A finished run is decided by the SLOT, before any payload heuristic: the
     // persisted outcome outlives the run (design D4), and a stream that
@@ -7303,7 +7321,7 @@ where
                     &snapshot,
                     state.baseline_seq,
                     state.saw_run,
-                    chrono::Utc::now(),
+                    jiff::Timestamp::now(),
                 );
                 let watermark: ApplyWatermark = match &verdict {
                     ApplyStreamVerdict::Running(progress) => {
@@ -7359,7 +7377,7 @@ where
                 let event_id = frame
                     .apply_progress
                     .as_ref()
-                    .map(|p| format!("{}-{}", p.run_id.as_uuid(), p.updated_at.timestamp_micros()))
+                    .map(|p| format!("{}-{}", p.run_id.as_uuid(), p.updated_at.as_microsecond()))
                     .unwrap_or_else(|| state.id.as_uuid().to_string());
                 match serde_json::to_string(&frame) {
                     Ok(data) => {
@@ -8211,8 +8229,8 @@ async fn dispatch_apply_run<P: Ports>(
             .await
             .ok()
             .flatten()
-            .and_then(|run| run.owner_silence_at(chrono::Utc::now()))
-            .map(|silence| silence.num_seconds().unsigned_abs());
+            .and_then(|run| run.owner_silence_at(jiff::Timestamp::now()))
+            .map(|silence| silence.as_secs().unsigned_abs());
         tracing::debug!(
             job_id = %id.as_uuid(),
             "AI import apply refused: a live run owns the progress slot"
@@ -8220,7 +8238,7 @@ async fn dispatch_apply_run<P: Ports>(
         return Err(ApiError::AiImportApplyInFlight {
             age_seconds,
             stale_after_seconds: breakdown_core::ai::ApplyProgress::STALE_AFTER
-                .num_seconds()
+                .as_secs()
                 .unsigned_abs(),
         });
     }
@@ -8228,7 +8246,7 @@ async fn dispatch_apply_run<P: Ports>(
         StatusCode::ACCEPTED,
         Json(crate::apply_runner::accepted_run(
             run_id,
-            chrono::Utc::now(),
+            jiff::Timestamp::now(),
         )),
     ))
 }

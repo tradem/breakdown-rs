@@ -15,10 +15,6 @@
 //! are no-ops. Service jobs enforce season-scoped authorization internally
 //! (configured destination); they are NOT a public authz bypass.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-
 use anyhow::Result;
 use breakdown_core::reporting::{
     ArchivalTrigger, EnqueueArchivalRequest, ReportArchivalQueue, ReportKind, ReportLocale,
@@ -34,6 +30,9 @@ use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::SierraAsyncClientExt;
 use sqlx::PgPool;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{info, warn};
 use uuid::Uuid;
 

@@ -2,13 +2,13 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 // Co-authored-by: deepseek-v4-flash (opencode-go)
-use chrono::{DateTime, Utc};
+
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::photo::binding::PhotoBinding;
 use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
-
 /// A single variant's public view.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PhotoVariantView {
@@ -24,7 +24,7 @@ pub struct PhotoView {
     pub content_type: String,
     pub size_bytes: u64,
     pub variants: Vec<PhotoVariantView>,
-    pub exif_stripped_at: Option<DateTime<Utc>>,
+    pub exif_stripped_at: Option<Timestamp>,
     /// What this photo is attached to (Costume or Continuity).
     pub binding: PhotoBinding,
     pub version: AggregateVersion,

@@ -50,6 +50,7 @@ use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
 use infra::ai::payload_cleanup::{AiPayloadGcConfig, run_gc_sweep};
 use infra::ai::{OpenDalAiPayloadStorage, PgAiImportQueue};
+use infra::db_time::PgRowTimeExt;
 use sqlx::{PgPool, Row};
 
 /// Seed a job through the public `enqueue` API and return its id.
@@ -99,7 +100,7 @@ async fn read_status(pool: &PgPool, id: AiImportJobId) -> String {
 /// expose. All three must be cleared together by any terminal write.
 struct ClaimState {
     worker_id: Option<String>,
-    lease_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    lease_expires_at: Option<jiff::Timestamp>,
     permit_id: Option<uuid::Uuid>,
 }
 
@@ -119,7 +120,7 @@ async fn read_claim_state(pool: &PgPool, id: AiImportJobId) -> ClaimState {
     .unwrap();
     ClaimState {
         worker_id: row.try_get("worker_id").unwrap(),
-        lease_expires_at: row.try_get("lease_expires_at").unwrap(),
+        lease_expires_at: row.get_ts_opt("lease_expires_at").unwrap(),
         permit_id: row.try_get("permit_id").unwrap(),
     }
 }

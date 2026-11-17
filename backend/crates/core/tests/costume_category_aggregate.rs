@@ -11,12 +11,12 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
 use breakdown_core::costume_category::*;
 use breakdown_core::shared::{AggregateVersion, LexicalSortKey, ProjectId, SeasonId};
 use kameo_es::Command;
 use test_support::make_ctx;
 use uuid::Uuid;
-
 fn project_id() -> ProjectId {
     ProjectId::new()
 }

@@ -18,7 +18,7 @@ command→event→projection round-trip against live containers.
 #table(
   columns: 3,
   table.header([Crate], [Responsibility], [Key dependencies]),
-  [`crates/core`], [Commands, events, aggregates, port traits, read DTOs, error registry], [`serde`, `uuid`, `chrono`, no infra],
+  [`crates/core`], [Commands, events, aggregates, port traits, read DTOs, error registry], [`serde`, `uuid`, `jiff`, no infra],
   [`crates/infra`], [Event-store adapter, projectors, queries, photo storage (OpenDAL), sagas, AI import, reporting], [`sqlx`, `kameo_es`, `opendal`, `typst`],
   [`crates/api`], [Axum routes, OIDC middleware, composition root, lifecycle], [`axum`, `utoipa`, `core`, `infra`],
   [`crates/architecture`], [Boundary tests (`rust_arkitect`)], [core, infra, api],

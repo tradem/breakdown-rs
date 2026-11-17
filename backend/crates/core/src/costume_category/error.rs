@@ -6,7 +6,6 @@
 use thiserror::Error;
 
 use crate::shared::{AggregateVersion, CostumeCategoryId};
-
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum CostumeCategoryError {
     #[error("Validation error: {0}")]

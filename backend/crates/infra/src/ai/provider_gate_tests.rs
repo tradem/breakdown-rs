@@ -13,9 +13,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use async_trait::async_trait;
 use breakdown_core::ai::ports::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportQueue, ProviderBreakerSnapshot,
@@ -23,6 +20,8 @@ use breakdown_core::ai::ports::{
 use breakdown_core::ai::views::{ProviderBreakerState, ProviderHold};
 use breakdown_core::ai::{AiImportJob, AiImportJobId, DocumentKind, LlmProvider, Telemetry};
 use breakdown_core::error::DomainError;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{ProviderGate, retry_bounded};
 use crate::ai::provider_health::{breaker_open_error, is_breaker_open};

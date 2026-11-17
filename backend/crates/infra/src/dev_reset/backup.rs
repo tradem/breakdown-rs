@@ -27,13 +27,11 @@
 //! later run can never mistake a post-loss export (10 streams, 0 events) for
 //! the original one.
 
+use jiff::Timestamp;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-
 use super::events::KeepListExport;
-
 /// Format version of the manifest document.
 pub const MANIFEST_FORMAT_VERSION: u32 = 1;
 
@@ -50,7 +48,7 @@ pub const REPLAY_REPORT_FILE: &str = "replay-report.json";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackupManifest {
     pub format_version: u32,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub level: String,
     pub phase: String,
     pub database_target: String,
@@ -135,8 +133,8 @@ pub struct ReplayStreamRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplayReport {
     pub format_version: u32,
-    pub created_at: DateTime<Utc>,
-    pub keep_list_created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub keep_list_created_at: Timestamp,
     pub expected_events: usize,
     pub appended_events: usize,
     pub streams: Vec<ReplayStreamRecord>,
@@ -147,7 +145,7 @@ impl ReplayReport {
     pub fn new(export: &KeepListExport, appended_events: usize) -> Self {
         Self {
             format_version: REPLAY_FORMAT_VERSION,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             keep_list_created_at: export.created_at,
             expected_events: export.event_count(),
             appended_events,
@@ -247,7 +245,7 @@ impl ReplayReport {
 ///
 /// `CARGO_MANIFEST_DIR` is `crates/infra`, so the workspace `backend/`
 /// directory is two levels up — the same anchor the scripts use.
-pub fn default_dir(now: DateTime<Utc>) -> PathBuf {
+pub fn default_dir(now: Timestamp) -> PathBuf {
     let backend = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -272,7 +270,7 @@ mod tests {
     fn manifest() -> BackupManifest {
         BackupManifest {
             format_version: MANIFEST_FORMAT_VERSION,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             level: "business".to_string(),
             phase: "export".to_string(),
             database_target: "localhost/breakdown".to_string(),
@@ -311,7 +309,7 @@ mod tests {
 
     #[test]
     fn default_dir_sits_under_backend_backups() {
-        let dir = default_dir(Utc::now());
+        let dir = default_dir(Timestamp::now());
         let text = dir.to_string_lossy().to_string();
         assert!(text.contains("backups"), "{text}");
         assert!(text.contains("reset-"), "{text}");
@@ -333,7 +331,7 @@ mod tests {
     fn keep_export(events_per_stream: &[usize]) -> KeepListExport {
         KeepListExport {
             format_version: super::super::events::EXPORT_FORMAT_VERSION,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             database_target: "localhost/breakdown".to_string(),
             streams: events_per_stream
                 .iter()

@@ -34,7 +34,6 @@ use breakdown_core::error::DomainError;
 use breakdown_core::shared::ShootingDayId;
 use sqlx::Postgres;
 use sqlx::Transaction;
-
 /// Per-day wrap-finality lock gate. Cloneable; backed by the shared
 /// application connection pool.
 #[derive(Clone, Debug)]

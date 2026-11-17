@@ -14,9 +14,6 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
 use breakdown_core::block::views::BlockView;
@@ -97,6 +94,8 @@ use breakdown_core::shooting_day::commands::{
 };
 use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayRepository};
 use breakdown_core::shooting_day::views::ShootingDayView;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -107,7 +106,7 @@ use breakdown_core::membership::commands::{
 };
 use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
 use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use std::collections::HashSet;
 
 use api::state::Ports;
@@ -846,7 +845,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 user_id,
                 role: *role,
                 state: *state,
-                joined_at: Utc::now(),
+                joined_at: Timestamp::now(),
             }));
         }
         if self
@@ -860,7 +859,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 user_id,
                 role: Role::CostumeAssistant,
                 state: MembershipStateKind::Active,
-                joined_at: Utc::now(),
+                joined_at: Timestamp::now(),
             }))
         } else {
             Ok(None)
@@ -897,7 +896,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 user_id: u,
                 role,
                 state,
-                joined_at: Utc::now(),
+                joined_at: Timestamp::now(),
             })
             .collect())
     }
@@ -1352,7 +1351,7 @@ impl SeasonRepository for FakeSeasonRepo {
                 title: None,
                 archived: false,
                 version: AggregateVersion::INITIAL,
-                updated_at: chrono::Utc::now(),
+                updated_at: jiff::Timestamp::now(),
             })
         } else {
             Err(DomainError::NotFound {
@@ -1431,7 +1430,7 @@ impl BlockRepository for FakeBlockRepo {
             start_date: None,
             end_date: None,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         })
     }
     async fn list_by_season(
@@ -1489,7 +1488,7 @@ impl EpisodeRepository for FakeEpisodeRepo {
             number: 1,
             name: None,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         })
     }
     async fn list_by_block(
@@ -1588,8 +1587,8 @@ impl AuditRepository for FakeAuditRepo {
     }
     async fn list_by_time_range(
         &self,
-        _from: DateTime<Utc>,
-        _to: DateTime<Utc>,
+        _from: Timestamp,
+        _to: Timestamp,
         _limit: i64,
         _offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
@@ -2511,7 +2510,7 @@ pub struct FakeApplyRun {
     /// owner's lease renewal. A later run-scoped write (progress, telemetry,
     /// summary) deliberately does not touch it, which is the property the
     /// review asked for.
-    pub claimed_at: Option<chrono::DateTime<Utc>>,
+    pub claimed_at: Option<jiff::Timestamp>,
 }
 
 #[allow(dead_code)]
@@ -2549,7 +2548,7 @@ impl FakeAiImportQueue {
             job.apply_state = state;
             job.apply_result = Some(outcome);
             job.apply_progress = None;
-            job.updated_at = Utc::now();
+            job.updated_at = Timestamp::now();
         }
         drop(jobs);
         drop(runs);
@@ -2576,7 +2575,7 @@ impl AiImportQueue for FakeAiImportQueue {
             return Ok(AiImportEnqueueResult::Existing(*existing));
         }
         dedup.insert(request.dedup_key.clone(), request.id);
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.jobs.lock().await.insert(
             request.id.as_uuid(),
             AiImportJob {
@@ -2698,7 +2697,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 if let Some(target) = job.target.as_mut() {
                     target.block_number = Some(block_number);
                 }
-                job.updated_at = Utc::now();
+                job.updated_at = Timestamp::now();
                 Ok(breakdown_core::ai::TargetAttachOutcome::Attached)
             }
         }
@@ -2723,7 +2722,7 @@ impl AiImportQueue for FakeAiImportQueue {
     async fn mark_running(&self, id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Running;
-            job.updated_at = Utc::now();
+            job.updated_at = Timestamp::now();
         }
         self.hub.notify(id);
         Ok(())
@@ -2738,7 +2737,7 @@ impl AiImportQueue for FakeAiImportQueue {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Succeeded;
             job.preview_handle = Some(preview_handle.to_owned());
-            job.updated_at = Utc::now();
+            job.updated_at = Timestamp::now();
         }
         self.hub.notify(id);
         Ok(())
@@ -2753,7 +2752,7 @@ impl AiImportQueue for FakeAiImportQueue {
         request: AiImportEnqueueRequest,
         preview_handle: &str,
     ) -> Result<(), DomainError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.dedup
             .lock()
             .await
@@ -2818,7 +2817,7 @@ impl AiImportQueue for FakeAiImportQueue {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.status = JobStatus::Failed;
             job.last_error = Some(error_summary.to_owned());
-            job.updated_at = Utc::now();
+            job.updated_at = Timestamp::now();
         }
         self.hub.notify(id);
         Ok(())
@@ -2833,7 +2832,7 @@ impl AiImportQueue for FakeAiImportQueue {
     ) -> Result<(), DomainError> {
         if let Some(job) = self.jobs.lock().await.get_mut(&id.as_uuid()) {
             job.progress = Some(progress.clone());
-            job.updated_at = Utc::now();
+            job.updated_at = Timestamp::now();
         }
         self.hub.notify(id);
         Ok(())
@@ -2866,7 +2865,7 @@ impl AiImportQueue for FakeAiImportQueue {
         if job.status != JobStatus::Succeeded {
             return Ok(false);
         }
-        let now = Utc::now();
+        let now = Timestamp::now();
         slot.owner = Some(run_id);
         slot.seq += 1;
         slot.claimed_at = Some(now);
@@ -2956,7 +2955,7 @@ impl AiImportQueue for FakeAiImportQueue {
             job.apply_run_id = Some(run_id);
             // A new run never inherits the previous run's outcome (#899).
             job.apply_result = None;
-            job.updated_at = Utc::now();
+            job.updated_at = Timestamp::now();
         }
         self.hub.notify(id);
         Ok(true)
@@ -3011,7 +3010,7 @@ impl AiImportQueue for FakeAiImportQueue {
         };
         job.apply_state = breakdown_core::ai::ApplyState::Running;
         job.apply_run_id = Some(run_id);
-        job.updated_at = Utc::now();
+        job.updated_at = Timestamp::now();
         drop(jobs);
         drop(runs);
         self.hub.notify(id);
@@ -3058,7 +3057,7 @@ impl AiImportQueue for FakeAiImportQueue {
 
     async fn requested_apply_runs(&self, limit: i64) -> Result<Vec<AiImportJobId>, DomainError> {
         let jobs = self.jobs.lock().await;
-        let mut ids: Vec<(chrono::DateTime<Utc>, AiImportJobId)> = jobs
+        let mut ids: Vec<(jiff::Timestamp, AiImportJobId)> = jobs
             .values()
             .filter(|job| job.apply_state == breakdown_core::ai::ApplyState::Requested)
             .map(|job| (job.updated_at, job.id))
@@ -3091,7 +3090,7 @@ impl AiImportQueue for FakeAiImportQueue {
             && job.status == JobStatus::Succeeded
         {
             job.apply_progress = progress.cloned();
-            job.updated_at = Utc::now();
+            job.updated_at = Timestamp::now();
             if progress.is_none()
                 && let Some(slot) = runs.get_mut(&id.as_uuid())
             {
@@ -3189,7 +3188,7 @@ impl AiImportQueue for FakeAiImportQueue {
         }
         // Only the owner-scoped stamp moves (the adapter writes nothing else):
         // not the payload, not the run counter.
-        slot.claimed_at = Some(Utc::now());
+        slot.claimed_at = Some(Timestamp::now());
         Ok(true)
     }
 }

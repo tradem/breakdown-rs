@@ -6,14 +6,9 @@
 
 //! The `SceneShoot` event-sourced aggregate.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
-
-use crate::shared::{
-    AggregateVersion, EventMetadata, LexicalSortKey, PhotoId, SceneShootId, SceneShootStatus,
-    ShootingDayId,
-};
 
 use super::commands::{
     AddSceneShootNote, DeleteSceneShoot, FinishSceneShoot, LinkContinuityPhoto, PlanSceneShoot,
@@ -22,6 +17,10 @@ use super::commands::{
 };
 use super::error::SceneShootError;
 use super::events::{SceneShootEvent, SceneShootNote};
+use crate::shared::{
+    AggregateVersion, EventMetadata, LexicalSortKey, PhotoId, SceneShootId, SceneShootStatus,
+    ShootingDayId,
+};
 
 /// State persisted by the `SceneShoot` aggregate.
 ///
@@ -37,8 +36,8 @@ pub struct SceneShootAggregate {
     pub planned_order: LexicalSortKey,
     pub actual_order: Option<LexicalSortKey>,
     pub status: SceneShootStatus,
-    pub start_dt: Option<DateTime<Utc>>,
-    pub end_dt: Option<DateTime<Utc>>,
+    pub start_dt: Option<Timestamp>,
+    pub end_dt: Option<Timestamp>,
     pub notes: Vec<SceneShootNote>,
     pub continuity_photos: Vec<PhotoId>,
     /// Set by the terminal `SceneShootDeleted` event: a deleted

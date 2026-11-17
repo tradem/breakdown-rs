@@ -2,9 +2,9 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
-use super::*;
 use std::time::Duration;
 
+use super::*;
 #[tokio::test]
 async fn static_provider_returns_configured_keys() {
     let mut map = HashMap::new();

@@ -13,20 +13,17 @@
 #![cfg(feature = "test-support")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // tests
 
-use std::sync::Arc;
-
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use tower::ServiceExt;
-use uuid::Uuid;
-
 use api::fault_injection::FAULT_BLOCK_CONFLICT;
 use api::routes::apply_api_middleware;
 use api::state::AppState;
 use api::versioning::DeprecationRegistry;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use std::sync::Arc;
+use tower::ServiceExt;
+use uuid::Uuid;
 
 use crate::common::FakePorts;
-
 const DEV_SUB: &str = "dev-e2e";
 
 /// The fault latch is process-global, so the tests in this binary must not

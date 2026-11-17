@@ -8,14 +8,13 @@
 //! Unit tests for catalog, provider_registry, and prompts — kills mutations
 //! in default_allowlist, curated_model_ids, and default_prompt.
 
-use breakdown_core::ai::{CuratedLlmProvider, DocumentKind, LlmProvider};
-
-use super::CuratedProviderUrls;
-
 // ===========================================================================
 // Catalog: default_allowlist — kills HashSet::new() / wrong values
 // ===========================================================================
 
+use breakdown_core::ai::{CuratedLlmProvider, DocumentKind, LlmProvider};
+
+use super::CuratedProviderUrls;
 #[test]
 fn default_allowlist_contains_known_models() {
     // The default allowlist is used internally; we verify the catalog

@@ -11,10 +11,10 @@ use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::ports::SceneRepository;
 use breakdown_core::scene::views::{SceneOutfitBeatView, SceneView};
 use breakdown_core::shared::{AggregateVersion, EpisodeId, ShootingDayId};
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for scene projections.
 #[derive(Clone, Debug)]
 pub struct SceneRepositoryImpl {
@@ -272,9 +272,7 @@ fn map_scene_row(row: sqlx::postgres::PgRow) -> Result<SceneView, DomainError> {
         outfit_beats,
         source: Some(source),
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
     })
 }
 
