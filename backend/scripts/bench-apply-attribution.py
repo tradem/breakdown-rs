@@ -47,6 +47,7 @@ What it reads (all fields already shipped by M1/M2 — `runbooks.md` §17):
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -55,8 +56,6 @@ import signal
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -190,14 +189,16 @@ PORT_RELEASE_GRACE_S = 5
 
 
 class ApiProcess:
-    def __init__(self, stack: Stack, mode: str, log_path: Path, base_url: str, port: int):
+    def __init__(self, stack: Stack, mode: str, log_path: Path, port: int):
         self.stack = stack
         self.mode = mode
         self.log_path = log_path
-        self.base_url = base_url
         self.port = port
         self.proc: subprocess.Popen[bytes] | None = None
         self.log_file = None
+        # The one keep-alive connection every request of this half travels on.
+        # Established once, while the child provably owns the port; see `connection`.
+        self.conn: http.client.HTTPConnection | None = None
 
     def start(self) -> None:
         # Ownership before liveness: `healthy()` only proves *something* answers
@@ -243,20 +244,24 @@ class ApiProcess:
         )
         try:
             wait_for(self.ready, timeout=180, what=f"the API on :{self.port} (bound by this child)")
-        except RuntimeError:
+        except RuntimeError as error:
             raise RuntimeError(
-                f"the API on :{self.port} did not come up; last log lines:\n{self.log_tail()}"
+                f"the API on :{self.port} did not come up ({error}); "
+                f"last log lines:\n{self.log_tail()}"
             ) from None
 
     def ready(self) -> bool:
         """Ownership **and** health — what `wait_for` gates the mutation phase on.
 
-        `healthy()` alone proves only that *something* serves `/v1/health` on the
-        port; `owns_endpoint()` proves it is this child. `healthy()` runs first so
-        a child that lost the bind race (and exited) fails the boot with its own
-        error instead of sitting out the timeout.
+        Ownership is checked FIRST, and it is not cosmetic: `healthy()` opens the
+        persistent connection this run then writes on, and that connection may
+        only be created while the child provably holds the port (see
+        [`Self::connection`]).
         """
-        return self.healthy() and self.owns_endpoint()
+        # Liveness first, so a child that died (and therefore never logged a bind
+        # announcement) fails the boot at once instead of out waiting the timeout.
+        self.assert_alive()
+        return self.owns_endpoint() and self.healthy()
 
     def owns_endpoint(self) -> bool:
         """True when THIS child announced that it bound our port.
@@ -295,18 +300,20 @@ class ApiProcess:
 
     def healthy(self) -> bool:
         self.assert_alive()
+        # Through the persistent connection, not a fresh request: a health probe
+        # that opened its own socket would be the very window this class closes.
         try:
-            with urllib.request.urlopen(f"{self.base_url}/v1/health", timeout=5) as resp:
-                body = json.loads(resp.read())
-        except urllib.error.HTTPError as err:
+            status, body = self.call("GET", "/v1/health")
+        except RuntimeError:
+            # A child that is not serving yet (or has just exited) is simply not
+            # ready; `assert_alive` above is what makes an EXIT fatal.
+            return False
+        if not isinstance(body, dict):
+            return False
+        if status not in (200, 503):
             # 503 is the normal answer while an OPTIONAL dependency is down (Vault
             # for credentials/photos, Garage for photo bytes). The body still
             # carries the per-dependency entries, which is all this needs.
-            try:
-                body = json.loads(err.read())
-            except ValueError:
-                return False
-        except (urllib.error.URLError, OSError, ValueError):
             return False
         entries = body.get("entries") or {}
         # Vault is deliberately not a boot dependency (photos/credentials only),
@@ -320,6 +327,9 @@ class ApiProcess:
     def stop(self) -> None:
         """Graceful stop, then hard: the API drains AI workers before it exits."""
         started = self.proc is not None
+        if self.conn is not None:
+            self.conn.close()
+            self.conn = None
         if self.proc and self.proc.poll() is None:
             self.proc.send_signal(signal.SIGTERM)
             try:
@@ -354,36 +364,65 @@ class ApiProcess:
                 flush=True,
             )
 
-    def call(self, method: str, path: str, body=None, block: str | None = None):  # noqa: ANN001
-        """One request, bracketed by liveness checks.
+    def connection(self) -> http.client.HTTPConnection:
+        """The run's single keep-alive connection, opened only under ownership.
 
-        The boot gate proved the child owned the port, not that it still does, and
-        a check *before* the request alone leaves the exchange itself unguarded: a
-        child that dies between the check and the connect releases the port, and
-        whoever binds it next would answer this request. Closing that window
-        without an inherited listener means checking both ends of the exchange —
-        the child must still be alive when the response arrives, or the answer
-        came from a server this run does not own and is discarded as an error.
+        This is what makes "the benchmark never writes into another server"
+        provable rather than probabilistic. Every request travels on **this**
+        socket, established while the child was alive and had announced the bind;
+        a later child death closes it, and a TCP connection to a closed peer can
+        never be re-pointed at whoever binds the released port — the exchange
+        fails instead of reaching the stranger. A fresh connect per request (or an
+        inherited listener, which needs API startup changes) is what would leave
+        the window open.
+        """
+        if self.conn is not None:
+            return self.conn
+        self.assert_alive()
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=120)
+        conn.connect()
+        # Still our child once connected: it was alive and held the listening
+        # socket on both sides of the connect.
+        self.assert_alive()
+        self.conn = conn
+        return conn
+
+    def call(self, method: str, path: str, body=None, block: str | None = None):  # noqa: ANN001
+        """One request on the run's keep-alive connection.
+
+        Never reconnects: a lost connection means the child is gone (and its port
+        may already belong to someone else), so the run aborts instead of writing
+        into a server it does not own.
         """
         self.assert_alive()
-        result = self.send(method, path, body, block)
-        self.assert_alive()
-        return result
-
-    def send(self, method: str, path: str, body=None, block: str | None = None):  # noqa: ANN001
-        """The single HTTP round trip (no ownership logic — see [`Self::call`])."""
-        data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(self.base_url + path, data=data, method=method)
-        request.add_header("content-type", "application/json")
+        conn = self.connection()
+        headers = {"content-type": "application/json"}
         if block:
-            request.add_header("x-active-block", block)
+            headers["x-active-block"] = block
+        payload = None if body is None else json.dumps(body).encode()
         try:
-            with urllib.request.urlopen(request, timeout=120) as resp:
-                raw = resp.read()
-                return resp.status, (json.loads(raw) if raw else None)
-        except urllib.error.HTTPError as err:
-            raw = err.read()
-            return err.code, (json.loads(raw) if raw else None)
+            conn.request(method, path, body=payload, headers=headers)
+            response = conn.getresponse()
+            raw = response.read()
+        except (OSError, http.client.HTTPException) as err:
+            # The socket is dead: the child exited (or dropped a keep-alive). Do
+            # NOT reconnect — that is exactly the window that could reach a
+            # stranger.
+            self.conn = None
+            raise RuntimeError(
+                f"the connection to the API on :{self.port} is gone ({err!r}); "
+                "refusing to reconnect — the child is no longer serving"
+            ) from None
+        if conn.sock is None:
+            # The server answered `Connection: close`; the next request would
+            # silently reconnect, so refuse it here instead.
+            self.conn = None
+            raise RuntimeError(
+                f"the API on :{self.port} closed the run's connection; "
+                "refusing to reconnect — the child is no longer serving"
+            )
+        self.assert_alive()
+        return response.status, (json.loads(raw) if raw else None)
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -490,7 +529,6 @@ def measure(mode: str, args: argparse.Namespace) -> Measurement:
         stack=stack,
         mode=mode,
         log_path=log_path,
-        base_url=f"http://127.0.0.1:{args.api_port}",
         port=args.api_port,
     )
     measurement = Measurement(mode=mode)

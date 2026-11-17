@@ -24,10 +24,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."   # backend/scripts
 
 python3 - <<'PY'
+import http.server
 import importlib.util
 import socket
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -79,13 +81,7 @@ def listening_socket(port):
 
 
 def api_process(port, log_path):
-    return bench.ApiProcess(
-        stack=StubStack(),
-        mode="split",
-        log_path=log_path,
-        base_url=f"http://127.0.0.1:{port}",
-        port=port,
-    )
+    return bench.ApiProcess(stack=StubStack(), mode="split", log_path=log_path, port=port)
 
 
 class ScriptedChild:
@@ -126,6 +122,135 @@ def with_child(api, child):
 
 
 MARKER = "\U0001f680 Breakdown RS listening on 127.0.0.1:{port}"
+
+
+class _ReusableServer(http.server.ThreadingHTTPServer):
+    # A released listener port has no TIME_WAIT, but allow an immediate rebind so
+    # the "stranger takes the port" leg is deterministic.
+    allow_reuse_address = True
+    # One thread per connection (an HTTP/1.1 keep-alive connection would otherwise
+    # block the single-threaded accept loop forever) and daemonic, so a stuck
+    # connection cannot keep the test process alive.
+    daemon_threads = True
+
+    def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        self.connections = []
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):  # noqa: ANN001
+        # Remembered so `stop()` can abort them: a killed API closes its sockets,
+        # and a merely *shut down* listener would keep serving the old connection.
+        self.connections.append(request)
+        super().process_request(request, client_address)
+
+
+class RecordingServer:
+    """A real HTTP server standing in for an API — ours, or a stranger.
+
+    Real sockets, not a stub: the question the test answers is whether a mutation
+    can physically reach a server that is not this run's child.
+    """
+
+    def __init__(self, port=0):
+        outer = self
+        self.requests = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            # HTTP/1.1 + keep-alive, like axum: the run's requests travel on ONE
+            # connection, and an HTTP/1.0 handler would close it after every
+            # response (which the connection guard would then correctly refuse).
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers.get("content-length") or 0)
+                outer.requests.append((self.command, self.path, self.rfile.read(length)))
+                payload = b'{"entries": {}}'
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            do_GET = do_POST
+
+            def log_message(self, *args):  # noqa: ANN002, ANN401
+                pass
+
+        self.server = _ReusableServer(("127.0.0.1", port), Handler)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        # Abort every accepted connection first: a closed listener alone would
+        # leave an open keep-alive connection answering, which is not what "the
+        # child died" looks like.
+        for connection in list(self.server.connections):
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                connection.close()
+            except OSError:
+                pass
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+
+def test_a_foreign_api_receives_no_mutation():
+    """The check→connect window: a stranger on the released port gets nothing."""
+    child = RecordingServer()          # stands in for this run's child
+    stranger = None
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "bench.log"
+            log_path.write_text(MARKER.format(port=child.port) + "\n")
+            # The child LIES about being alive after we kill it, so `assert_alive`
+            # cannot be what saves us: only the connection can.
+            api = with_child(api_process(child.port, log_path), ScriptedChild([None]))
+            api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+            check(
+                "the run's own child receives the mutation",
+                len(child.requests) == 1,
+                repr(child.requests),
+            )
+
+            # The child dies; a stranger binds the released port.
+            child.stop()
+            stranger = RecordingServer(child.port)
+            check(
+                "the stranger really does hold the same port",
+                stranger.port == child.port,
+                f"{stranger.port} != {child.port}",
+            )
+
+            raised = None
+            try:
+                api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+            except RuntimeError as err:
+                raised = str(err)
+            check(
+                "the call aborts instead of reconnecting",
+                raised is not None
+                and ("refusing to reconnect" in raised or "is gone" in raised),
+                repr(raised),
+            )
+            check(
+                "the foreign API receives no mutation",
+                stranger.requests == [],
+                repr(stranger.requests),
+            )
+            check(
+                "the child received exactly the one mutation it served",
+                len(child.requests) == 1,
+                repr(child.requests),
+            )
+    finally:
+        child.stop()
+        if stranger is not None:
+            stranger.stop()
 
 
 def test_occupied_port_is_refused_before_spawn():
@@ -268,27 +393,7 @@ def test_a_dead_child_blocks_further_requests():
             repr(raised),
         )
 
-        # The window CodeRabbit named: alive at the pre-check, gone when the
-        # response arrives. The answer then came from whoever bound the released
-        # port, so the result must be discarded as an error, not returned.
-        api = with_child(api_process(port, log_path), ScriptedChild([None, 1]))
-        sent = []
-        api.send = lambda *args: (sent.append(args), (200, {"ok": True}))[1]
-        raised = None
-        try:
-            api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
-        except RuntimeError as err:
-            raised = str(err)
-        check(
-            "a child dying between the check and the connect aborts the call",
-            raised is not None and "no longer ours" in raised,
-            repr(raised),
-        )
-        check(
-            "the request window is still exercised exactly once",
-            len(sent) == 1,
-            repr(sent),
-        )
+
 
 
 print("bench-apply-attribution startup guards")
@@ -296,6 +401,7 @@ test_occupied_port_is_refused_before_spawn()
 test_readiness_requires_ownership()
 test_stop_after_a_lost_bind_race_does_not_wait()
 test_a_dead_child_blocks_further_requests()
+test_a_foreign_api_receives_no_mutation()
 
 if FAILURES:
     print(f"\n{len(FAILURES)} check(s) failed: {', '.join(FAILURES)}")
