@@ -1516,7 +1516,9 @@ GROUP BY 1, 2 ORDER BY 1, 2;
    The projector side then never has fewer connections than before the split, which is what
    makes "projector lag must not get worse" true by construction. There are 30 read-model
    consumers today (16 aggregate projectors + 13 audit projectors + the seeding reactor), so
-   a pool of 30 removes intra-projector queuing entirely — never go below 20.
+   a pool of 30 removes intra-projector queuing entirely — never go below 20. A value of
+   `1..19` is therefore rejected at boot and replaced by the default 20 (warn line, same as
+   an unparsable value); `0` is not a smaller pool but the A/B switch documented below.
 2. The **sum** of all client pools plus the migrator's single boot connection must stay
    below Postgres' `max_connections`. The defaults (20 + 20 + 1) leave headroom under the
    usual 100; raise `max_connections` before raising either knob.
@@ -1530,9 +1532,21 @@ PROJECTOR_DATABASE_MAX_CONNECTIONS=0
 ```
 
 keeps the pre-M3 topology — read-model writers share the app pool — and the boot log says
-so. Run the preview once in each mode (same preview, same host) and compare
-`mapping_acquire_ms_per_row` / `mapping_statement_ms_per_row` and the total apply duration.
-This is a **measurement setting**; leave it unset in a deployment.
+so. Compare `mapping_acquire_ms_per_row` / `mapping_statement_ms_per_row` and the total
+apply duration between the two modes. This is a **measurement setting**; leave it unset in
+a deployment.
+
+**Each mode needs its own first apply.** The apply is idempotent by design: `reserve` is
+insert-if-absent and `insert` is a conditional update, so a preview that has already been
+applied finds its mapping rows in `ai_import.ai_import_mapping` and skips the work instead
+of repeating it — the second run then reports fewer `mapping_reserve_ops` /
+`mapping_insert_ops`, an acquire time near zero (nothing queues, because little is written)
+and a shorter duration, which is not the same job measured twice. So the comparison is only
+valid when both modes run a **newly created preview against fresh event-store and Postgres
+state** (reset both, or use two freshly seeded previews on the same host). Check the
+equivalence before quoting the numbers: `rows`, `mapping_reserve_ops` and
+`mapping_insert_ops` must match between the two runs; if the second run reports fewer ops,
+it was served from the mapping cache and its timings say nothing about the pool.
 
 **Checking that projector lag did not get worse.** The split moves connections, it does not
 change what the projectors write. Verify with the signals that already exist:

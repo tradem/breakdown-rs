@@ -169,7 +169,9 @@ fn resolve_gdrive_storage(
 // runbooks §17). Separate pools mean the apply's Postgres round trips wait only
 // for other request-path work.
 //
-// Sizing rules (both in runbooks §17 M3):
+// Sizing rules (both in runbooks §17 M3; rule 1 is enforced by
+// `parse_projector_pool_max_connections`, which additionally accepts `0` as the
+// A/B switch back to the shared pool):
 // 1. The projector pool must be at least as large as the single pre-split pool
 //    (20), so the projector side never has fewer connections than it had before
 //    — that is what makes "projector lag must not get worse" true by
@@ -216,6 +218,28 @@ fn parse_max_connections(raw: Option<&str>, default: u32, minimum: u32) -> u32 {
             default
         }
     }
+}
+
+/// Parse the projector-pool knob, which has **two** legal shapes rather than a
+/// single minimum (runbooks §17 M3):
+///
+/// * `0` — the documented A/B switch back to the shared pool (measurement only).
+/// * `>= 20` — a separate pool, which may never be smaller than the single pool
+///   it replaced. `1..=19` would leave the read-model writers with fewer
+///   connections than before the split, i.e. it would make projector lag
+///   *worse* — the one outcome the split must not have.
+///
+/// Anything else (`1..=19`, an unparsable value) is reported and replaced by the
+/// default, exactly like an invalid count on the app knob.
+fn parse_projector_pool_max_connections(raw: Option<&str>) -> u32 {
+    if raw.is_some_and(|raw| raw.trim() == "0") {
+        return 0;
+    }
+    parse_max_connections(
+        raw,
+        DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS,
+        DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS,
+    )
 }
 
 /// Connect one long-lived DML pool, carrying its role as `application_name`.
@@ -339,12 +363,10 @@ async fn main() -> Result<()> {
         DEFAULT_APP_POOL_MAX_CONNECTIONS,
         1,
     );
-    let projector_pool_max = parse_max_connections(
+    let projector_pool_max = parse_projector_pool_max_connections(
         env::var("PROJECTOR_DATABASE_MAX_CONNECTIONS")
             .ok()
             .as_deref(),
-        DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS,
-        0,
     );
 
     let pool = connect_pg_pool(&database_url, PoolRole::App, app_pool_max).await?;
@@ -1258,7 +1280,7 @@ mod shutdown_tests {
 mod pool_tests {
     use super::{
         DEFAULT_APP_POOL_MAX_CONNECTIONS, DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS, PoolRole,
-        parse_max_connections,
+        parse_max_connections, parse_projector_pool_max_connections,
     };
 
     /// Unset knobs keep the documented defaults — the split is on by default.
@@ -1269,7 +1291,7 @@ mod pool_tests {
             DEFAULT_APP_POOL_MAX_CONNECTIONS
         );
         assert_eq!(
-            parse_max_connections(None, DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS, 0),
+            parse_projector_pool_max_connections(None),
             DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS
         );
     }
@@ -1297,8 +1319,30 @@ mod pool_tests {
     /// (runbooks §17 M3). The app knob rejects it (covered above).
     #[test]
     fn projector_knob_accepts_zero_as_the_ab_switch() {
-        assert_eq!(parse_max_connections(Some("0"), 20, 0), 0);
-        assert_eq!(parse_max_connections(Some("24"), 20, 0), 24);
+        assert_eq!(parse_projector_pool_max_connections(Some("0")), 0);
+        assert_eq!(parse_projector_pool_max_connections(Some(" 0\n")), 0);
+    }
+
+    /// A separate projector pool may not be smaller than the single pool it
+    /// replaced (20) — `1..=19` is replaced by the default instead of silently
+    /// shrinking projector capacity below the pre-M3 baseline.
+    #[test]
+    fn projector_knob_rejects_a_pool_below_the_established_minimum() {
+        for raw in ["1", "19", "2", "-1", "abc", ""] {
+            assert_eq!(
+                parse_projector_pool_max_connections(Some(raw)),
+                DEFAULT_PROJECTOR_POOL_MAX_CONNECTIONS,
+                "raw = {raw:?}"
+            );
+        }
+    }
+
+    /// The boundary itself and everything above it is honoured.
+    #[test]
+    fn projector_knob_accepts_the_minimum_and_above() {
+        assert_eq!(parse_projector_pool_max_connections(Some("20")), 20);
+        assert_eq!(parse_projector_pool_max_connections(Some("30")), 30);
+        assert_eq!(parse_projector_pool_max_connections(Some(" 24 ")), 24);
     }
 
     /// The two pools must be distinguishable in `pg_stat_activity`, otherwise an

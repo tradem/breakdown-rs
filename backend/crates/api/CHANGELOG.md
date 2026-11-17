@@ -38,6 +38,12 @@ commits (ADR-020 D5).
   still-pending A/B attribution run (measurement only). Sizing rules and the
   "projector lag must not get worse" checks: `docs/operations/runbooks.md` §17
   (M3).
+- The knob's minimum is enforced at boot: `0` is the A/B switch and `≥ 20` is
+  honoured, while `1..19` is reported and replaced by the default 20 — a
+  separate pool smaller than the single one it replaced would leave the
+  read-model writers with *fewer* connections than before the split, the one
+  outcome the change must not have. Covered by boundary tests for `0`, `1`,
+  `19` and `20`.
 - No wire change, no dependency change, no new migration; the write paths,
   appends and retry policy are untouched.
 
