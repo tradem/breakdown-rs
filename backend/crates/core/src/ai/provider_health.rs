@@ -115,6 +115,16 @@ pub struct BreakerCounters {
     pub consecutive_failures: u32,
     pub flap_count: u32,
     pub closed_at: Option<DateTime<Utc>>,
+    /// The `retry_at` the **stored row currently holds** (issue #926 review).
+    ///
+    /// `None` for a pair nobody has deferred, and — since
+    /// [`on_retryable_failure`] writes `retry_at` unconditionally — the only
+    /// memory of a provider hint that an earlier failure already earned. A later
+    /// failure **without** a hint must not shorten it: the ordinary open window
+    /// is often much shorter than a real rate-limit window, so recomputing
+    /// `now + min_open(..)` alone would let the probe fire while the provider is
+    /// still rate-limiting us.
+    pub retry_at: Option<DateTime<Utc>>,
 }
 
 /// What a transition decided.
@@ -175,7 +185,7 @@ pub fn on_retryable_failure(
             state: ProviderBreakerState::Open,
             consecutive_failures: counters.consecutive_failures.saturating_add(1),
             flap_count,
-            retry_at: Some(probe_at(now, flap_count, retry_after)),
+            retry_at: Some(probe_at(now, flap_count, retry_after, counters.retry_at)),
             opened: false,
             closed: false,
         };
@@ -198,36 +208,47 @@ pub fn on_retryable_failure(
         state: ProviderBreakerState::Open,
         consecutive_failures,
         flap_count,
-        retry_at: Some(probe_at(now, flap_count, retry_after)),
+        retry_at: Some(probe_at(now, flap_count, retry_after, counters.retry_at)),
         opened: true,
         closed: false,
     }
 }
 
-/// When the next probe may run: the later of the open window and the provider's
-/// own (clamped) wait hint (issue #926).
+/// When the next probe may run: the latest of the open window, the deadline an
+/// earlier failure already earned, and the provider's own (clamped) wait hint
+/// (issue #926).
 ///
 /// One instant serves three consumers on purpose — the probe selector
 /// (`state <> 'closed' AND retry_at <= now()`), [`BreakerDecision::retry_at`]
 /// and a held job's `ProviderHold::until` — so "the provider asked us to wait"
 /// is expressed once and inherited everywhere instead of being re-derived per
 /// consumer.
+///
+/// `stored_retry_at` is why a **hint-less** failure cannot undo a hint: the
+/// deadline is data on the row, but `cas` overwrites it with whatever this
+/// function returns, so a plain `now + min_open(..)` would pull a 10-minute
+/// rate-limit deferral back to the 60 s open window (review of issue #926). An
+/// **expired** stored deadline is deliberately discarded — there is nothing left
+/// to protect, and keeping it would extend the outage for free.
 fn probe_at(
     now: DateTime<Utc>,
     flap_count: u32,
     retry_after: Option<std::time::Duration>,
+    stored_retry_at: Option<DateTime<Utc>>,
 ) -> DateTime<Utc> {
     let window_end = now + min_open(flap_count);
+    let deferred = stored_retry_at.filter(|stored| *stored > now);
+    let earned = deferred.map_or(window_end, |stored| window_end.max(stored));
     let Some(hint) = retry_after else {
-        return window_end;
+        return earned;
     };
     // A remote party must not be able to order an unbounded deferral, so the
     // hint is capped at the breaker's own maximum open window. `from_std` cannot
     // fail for a value we just clamped to 30 minutes; the fallback keeps the
     // "no panics" rule absolute anyway.
     let capped = hint.min(MAX_PROBE_DEFER);
-    let hint_end = Duration::from_std(capped).map_or(window_end, |wait| now + wait);
-    window_end.max(hint_end)
+    let hint_end = Duration::from_std(capped).map_or(earned, |wait| now + wait);
+    earned.max(hint_end)
 }
 
 /// A successful **paid call** (`half_open → closed`, or a reset while closed).

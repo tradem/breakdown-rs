@@ -785,6 +785,7 @@ pub trait AiImportQueue: Send + Sync {
             consecutive_failures: 0,
             flap_count: 0,
             closed_at: None,
+            retry_at: None,
         }))
     }
 

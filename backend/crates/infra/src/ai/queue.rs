@@ -1709,6 +1709,7 @@ impl AiImportQueue for PgAiImportQueue {
                 consecutive_failures: 0,
                 flap_count: 0,
                 closed_at: None,
+                retry_at: None,
             })),
             // Issue #926: the hint rides in the outcome, not in a fifth
             // parameter, so a caller that has no hint cannot forget to pass one.

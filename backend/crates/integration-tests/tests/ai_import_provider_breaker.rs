@@ -186,6 +186,56 @@ async fn an_open_breaker_filters_the_claim_and_a_close_admits_it() -> Result<()>
     Ok(())
 }
 
+/// Issue #926 review: a hint the provider already earned must survive a LATER
+/// failure that carries none.
+///
+/// The failure path writes `retry_at` unconditionally, so the only memory of the
+/// hint is the stored row — this asserts it through the real compare-and-set,
+/// which a table test cannot reach.
+#[tokio::test]
+async fn a_hintless_failure_keeps_the_deferred_probe() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let health = PgProviderHealth::new(pool);
+
+    // Open the breaker ON a hint: the probe is deferred by the provider's window.
+    let opened = health
+        .record_failure(
+            PROVIDER,
+            MODEL,
+            1,
+            Some(std::time::Duration::from_secs(600)),
+        )
+        .await?;
+    assert!(opened.opened);
+    let deferred = opened.retry_at.expect("an open breaker has a probe time");
+
+    // A second failure arrives WITHOUT a hint — the ordinary 60 s open window is
+    // shorter, and recomputing it alone would pull the probe forward.
+    let after = health.record_failure(PROVIDER, MODEL, 1, None).await?;
+    assert!(!after.opened, "still the same open incident");
+    // Compared in microseconds: the column is `TIMESTAMPTZ` (microsecond
+    // precision) while the in-memory instant keeps nanoseconds, so the durable
+    // round trip truncates sub-microsecond digits. The instant is the same.
+    let retained = after.retry_at.expect("an open breaker has a probe time");
+    assert_eq!(
+        retained.timestamp_micros(),
+        deferred.timestamp_micros(),
+        "the unexpired hint deadline must not be shortened by a hint-less failure"
+    );
+    // The durable row, not only the returned decision.
+    assert_eq!(
+        health
+            .state(PROVIDER, MODEL)
+            .await?
+            .retry_at
+            .map(|stored| stored.timestamp_micros()),
+        Some(deferred.timestamp_micros()),
+        "the CAS must persist the retained deadline"
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_half_open_breaker_still_filters_the_claim() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
@@ -695,6 +745,7 @@ fn _counters_are_part_of_the_contract() -> BreakerCounters {
         consecutive_failures: 0,
         flap_count: 0,
         closed_at: None,
+        retry_at: None,
     }
 }
 

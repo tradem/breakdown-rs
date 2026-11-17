@@ -312,16 +312,17 @@ async fn mark_failed_persists_the_attempt_error_code() -> Result<()> {
     Ok(())
 }
 
-/// How long until the job row may be retried, in whole seconds.
+/// The retry delay the failure statement wrote, in whole seconds.
 ///
-/// Read as a SQL difference against `now()` rather than compared to a Rust
-/// clock: the value is produced by SQL (`now() + …`), so reading it back in the
-/// same domain is what makes the assertion about the statement and not about how
-/// long the test took.
-async fn seconds_until_retry(pool: &sqlx::PgPool, id: AiImportJobId) -> Result<i64> {
+/// Read as `next_attempt_at - updated_at`, **not** against a fresh `now()`. Both
+/// columns are set from the same `now()` inside one statement, so their
+/// difference is exactly the planned delay no matter how long the test takes
+/// between the write and the read — the elapsed-time budget this assertion used
+/// to carry is gone (AGENTS.md §4: no wall-clock gating).
+async fn planned_retry_delay_secs(pool: &sqlx::PgPool, id: AiImportJobId) -> Result<i64> {
     let secs: Option<i64> = sqlx::query_scalar(
         r#"
-        SELECT floor(EXTRACT(EPOCH FROM (next_attempt_at - now())))::bigint
+        SELECT floor(EXTRACT(EPOCH FROM (next_attempt_at - updated_at)))::bigint
         FROM ai_import.ai_import_job
         WHERE id = $1
         "#,
@@ -377,12 +378,13 @@ async fn mark_failed_uses_the_provider_hint_as_a_floor_on_the_ladder() -> Result
             )
             .await?;
 
-        let actual = seconds_until_retry(&pool, id).await?;
-        // One second of slack under the target: the statement's `now()` is
-        // strictly earlier than the read's, so the remainder can only be shorter.
-        assert!(
-            (expected - 2..=expected).contains(&actual),
-            "{why}: expected ~{expected}s until the retry, got {actual}s"
+        let actual = planned_retry_delay_secs(&pool, id).await?;
+        // Exact, with no tolerance window: both timestamps come from the same
+        // `now()` in the failure statement, so the difference IS the planned
+        // delay.
+        assert_eq!(
+            actual, expected,
+            "{why}: the statement must plan exactly {expected}s, got {actual}s"
         );
     }
 

@@ -32,10 +32,15 @@
 - [x] 2.4 Unit matrix (analytic `Duration` assertions): hint > computed,
       hint < computed, hint absent, hint exactly at the clamp, hint far beyond
       the clamp.
-- [x] 2.5 Paused-clock `retry_bounded` test: a `429` + hint error yields exactly
-      one retry whose virtual delay is ≥ the hint, and the retry re-enters the
-      claim boundary (permit released/reacquired) rather than sleeping inside
-      the provider call.
+- [x] 2.5 Paused-clock `retry_bounded` tests: a `429` + hint error yields exactly
+      one retry whose virtual delay **is** the hint, a hint below the computed
+      backoff does not shorten it, an absurd hint waits the 120 s clamp and no
+      longer, a hint-less failure keeps the pre-#926 window, and a hint grants no
+      retry the budget forbids.
+      **The permit is retained across the retry, by design** — #871 explains why
+      (releasing and re-acquiring would let another job interleave between two
+      calls of the same chunk). The bounded permit-hold is what the 120 s clamp
+      asserts, so the omitted release/re-acquire lifecycle is not claimed here.
 
 ## 3. Job-level retry (`queue.rs::mark_failed`)
 

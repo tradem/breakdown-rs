@@ -4813,6 +4813,7 @@ impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
                         consecutive_failures: 0,
                         flap_count: 0,
                         closed_at: None,
+                        retry_at: None,
                     },
                 )
             });

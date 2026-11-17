@@ -363,6 +363,14 @@ Notes that keep this honest:
 - **A bad hint is never an error.** An absent, unparsable or absurd header
   degrades to "no hint" (or the one-day `MAX_SERVER_HINT` cap in the parser), and
   the request keeps its ordinary outcome.
+- **A hint-less failure never shortens a deferral an earlier hint earned.** The
+  `retry_at` write is unconditional, so the deadline is data on the row and
+  `BreakerCounters` carries it into the state machine: while it is unexpired the
+  probe keeps the later of it and the newly computed time. Without that, the
+  60 s open window of the next ordinary `503` would pull a 10-minute rate-limit
+  deferral forward and the probe would fire into a provider that is still
+  rate-limiting us. An **expired** stored deadline is discarded — nothing is left
+  to protect.
 - **Not honoured, deliberately:** the decision-scoring pass
   (`decision_scoring::decide_with_quick_retry`) and the pricing-catalog ticker.
   The first carries the hint into the job-level retry but keeps its own single

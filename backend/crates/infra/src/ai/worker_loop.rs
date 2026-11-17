@@ -580,7 +580,9 @@ async fn script_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
-                            error.retry_after(),
+                            // A non-retryable failure has no next attempt, so the hint cannot apply:
+                            // stating `None` is what marks the argument as inert.
+                            None,
                         )
                         .await?;
                     return Ok(());
@@ -635,7 +637,9 @@ async fn script_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
-                            error.retry_after(),
+                            // A non-retryable failure has no next attempt, so the hint cannot apply:
+                            // stating `None` is what marks the argument as inert.
+                            None,
                         )
                         .await?;
                     return Ok(());
@@ -829,7 +833,9 @@ async fn schedule_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
-                            error.retry_after(),
+                            // A non-retryable failure has no next attempt, so the hint cannot apply:
+                            // stating `None` is what marks the argument as inert.
+                            None,
                         )
                         .await?;
                     return Ok(());
@@ -880,7 +886,9 @@ async fn schedule_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
-                            error.retry_after(),
+                            // A non-retryable failure has no next attempt, so the hint cannot apply:
+                            // stating `None` is what marks the argument as inert.
+                            None,
                         )
                         .await?;
                     return Ok(());
@@ -992,7 +1000,9 @@ async fn finalize_job_result<Q: AiImportQueue + ?Sized>(
                     &error.to_string(),
                     Some(error.code().code),
                     false,
-                    error.retry_after(),
+                    // A non-retryable failure has no next attempt, so the hint cannot apply:
+                    // stating `None` is what marks the argument as inert.
+                    None,
                 )
                 .await
             {

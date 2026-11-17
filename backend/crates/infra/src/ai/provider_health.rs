@@ -225,6 +225,7 @@ impl ProviderHealth for PgProviderHealth {
                 consecutive_failures: snapshot.consecutive_failures,
                 flap_count: snapshot.flap_count,
                 closed_at,
+                retry_at: snapshot.retry_at,
             };
             // Issue #926: the provider's own wait hint becomes the floor of the
             // probe schedule, so `retry_at` (and therefore every hold's `until`)
@@ -257,6 +258,7 @@ impl ProviderHealth for PgProviderHealth {
                 consecutive_failures: snapshot.consecutive_failures,
                 flap_count: snapshot.flap_count,
                 closed_at,
+                retry_at: snapshot.retry_at,
             };
             let decision = on_success(counters);
             if self.cas(provider, model, counters, decision).await? {
@@ -396,6 +398,7 @@ impl ProviderHealth for PgProviderHealth {
                     consecutive_failures: 0,
                     flap_count: 0,
                     closed_at: None,
+                    retry_at: None,
                 });
                 Self::log_transition(lease.provider, &lease.model, &decision, "probe-reachable");
                 Ok(decision)
@@ -410,6 +413,7 @@ impl ProviderHealth for PgProviderHealth {
                     consecutive_failures: snapshot.consecutive_failures,
                     flap_count: snapshot.flap_count,
                     closed_at,
+                    retry_at: snapshot.retry_at,
                 };
                 let decision = on_probe_failure(counters, Utc::now());
                 let result = sqlx::query(

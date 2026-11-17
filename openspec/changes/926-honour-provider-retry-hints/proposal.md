@@ -95,9 +95,18 @@ number is:
   `ai-import.llm-provider-unavailable` code (D-X1, no new code) and logs the
   rate-limit hint alongside it.
 
-The clamp reuses `MAX_IN_ATTEMPT_HINT_SECS`: a hold's `until` is a *probe*
-time, and the hold-series deadline (`AI_IMPORT_MAX_PROVIDER_HOLD_SECS`) still
-bounds the whole series independently.
+The probe picks its **own** clamp, `MAX_PROBE_DEFER_SECS` (= `MAX_OPEN_SECS`,
+30 min), and deliberately does **not** reuse `MAX_IN_ATTEMPT_HINT_SECS`: a probe
+holds no concurrency permit, so the permit-driven 120 s cap would make the hint
+pointless here. A 10-minute hint therefore defers the probe by 10 minutes. The
+ceiling is the breaker's own maximum open window, so a remote party still cannot
+defer a probe indefinitely, and the hold-series deadline
+(`AI_IMPORT_MAX_PROVIDER_HOLD_SECS`) bounds the whole series independently.
+
+A later failure that carries **no** hint must not shorten a deadline an earlier
+hint earned: `retry_at` is written unconditionally, so `BreakerCounters` carries
+the stored deadline and `probe_at` keeps the later of it (while unexpired) and
+the newly computed probe time. An expired stored deadline is discarded.
 
 ## Non-goals (issue #926, unchanged)
 
