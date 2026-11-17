@@ -267,14 +267,15 @@ impl OpenAiCompatibleChatClient {
             if !status.is_success() {
                 // Issue #927: a `429` is two conditions, and only the provider's
                 // own error body tells them apart — a rate limit (wait) from an
-                // exhausted quota (dead-letter). The read is bounded and can
-                // never fail the path it runs on.
-                let detail = read_error_body(&mut response).await;
-                let verdict = classify_provider_body(self.provider, &detail);
+                // exhausted quota (dead-letter). The read is bounded in bytes AND
+                // in time, never fails the path it runs on, and an incomplete
+                // read is not evidence (so it stays retryable).
+                let body = read_error_body(&mut response).await;
+                let verdict = body.verdict(self.provider);
                 // Issue #926: the hint travels in the error payload, so the retry
                 // scheduler upstream honours it without a second header read.
                 return Err(classify_http_status_rich(
-                    status, &detail, hint.wait, verdict,
+                    status, &body.text, hint.wait, verdict,
                 ));
             }
             let envelope = response
@@ -790,15 +791,14 @@ pub enum RateLimitVerdict {
     RateLimited,
     /// The account has no quota left. Retrying burns paid calls that are
     /// answered `429` again, while holding an `ai_import.concurrency_permit`.
-    QuotaExhausted,
-}
-
-impl RateLimitVerdict {
-    /// Whether a `429` carrying this evidence deserves another attempt.
-    #[must_use]
-    pub(crate) const fn is_retryable(self) -> bool {
-        matches!(self, Self::RateLimited)
-    }
+    ///
+    /// `marker` is the curated table entry that fired (`insufficient_quota`,
+    /// `perdayperproject`, `free-models-per-day`, …). It travels in the verdict
+    /// on purpose: the attempt narrative truncates the raw body, and a provider
+    /// that puts the code behind a long `error.message` would otherwise
+    /// dead-letter a job whose history does not say why (CodeRabbit review, PR
+    /// #931). A `&'static str` keeps the verdict `Copy`.
+    QuotaExhausted { marker: &'static str },
 }
 
 /// Largest NON-2xx response body read before the failure is classified
@@ -812,37 +812,116 @@ impl RateLimitVerdict {
 /// finish streaming while a concurrency permit is held.
 pub(crate) const MAX_ERROR_BODY_BYTES: usize = 1024;
 
-/// Read at most [`MAX_ERROR_BODY_BYTES`] of a response body, chunk by chunk.
+/// Total wall-clock budget of one error-body read (issue #927).
+///
+/// The byte bound alone is not a time bound: a provider can send half a chunk
+/// and then stall, and `chunk().await` would wait for it until the request
+/// timeout (`AI_IMPORT_REQUEST_TIMEOUT_SECS`, default 120 s) — the whole permit
+/// hold for a body we only wanted as *evidence*. A provider that has already
+/// answered with a failure has sent its error text by then, so 5 s is generous
+/// and still far below any configured request timeout.
+pub(crate) const ERROR_BODY_DEADLINE: Duration = Duration::from_secs(5);
+
+/// What one bounded error-body read produced.
+///
+/// The two things a caller needs are deliberately separate: the bytes that
+/// arrived (for the narrative) and whether the read **completed**. A partial
+/// read is not evidence (issue #927, and CodeRabbit review PR #931): a stream cut
+/// mid-body by a proxy may have lost the part that changes the meaning, so the
+/// classifier falls back to its conservative default while the narrative still
+/// shows what arrived.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ErrorBody {
+    /// The bytes that arrived, as UTF-8 (lossy) and already byte-bounded.
+    pub(crate) text: String,
+    /// Whether the read ended on the body's own end or on the deliberate byte
+    /// bound — as opposed to an IO error or the [`ERROR_BODY_DEADLINE`], either
+    /// of which leaves the body's integrity unknown.
+    pub(crate) complete: bool,
+}
+
+impl ErrorBody {
+    /// The [`RateLimitVerdict`] this body supports.
+    ///
+    /// The one rule that matters lives here instead of at each call site: **an
+    /// incomplete read is never evidence**, so it stays retryable even when the
+    /// bytes that did arrive look like a quota code. A wrong "non-retryable"
+    /// verdict dead-letters a job a retry would have saved.
+    #[must_use]
+    pub(crate) fn verdict(&self, provider: LlmProvider) -> RateLimitVerdict {
+        if !self.complete {
+            tracing::debug!(
+                provider = provider.as_str(),
+                body_len = self.text.len(),
+                "#927 provider error body read did not complete; a 429 stays retryable"
+            );
+            return RateLimitVerdict::RateLimited;
+        }
+        classify_provider_body(provider, &self.text)
+    }
+}
+
+/// Read at most [`MAX_ERROR_BODY_BYTES`] of a response body within
+/// [`ERROR_BODY_DEADLINE`], chunk by chunk.
 ///
 /// Streams with [`reqwest::Response::chunk`] instead of `text()`/`bytes()`:
 /// those buffer whatever the provider sends, so an HTML gateway page or a
-/// hostile error could still stream for the whole request timeout while the
-/// caller holds an `ai_import.concurrency_permit`. The bound applies to the
-/// **read**, not only to the characters kept from an already-buffered string.
+/// hostile error would hold the caller — and with it an
+/// `ai_import.concurrency_permit` — for as long as it likes. Two bounds make
+/// that impossible: at most 1 KiB is read, and the whole read ends within 5 s.
 ///
-/// Never fails. It runs on a path that already decided the request failed; a
-/// read error keeps the bytes collected so far and logs at `debug`, because a
-/// broken read must not replace the provider's real failure with a parsing error
-/// of our own.
-pub(crate) async fn read_error_body(response: &mut reqwest::Response) -> String {
+/// Never fails. It runs on a path that already decided the request failed; an IO
+/// error or the deadline keeps the bytes collected so far and logs at `debug`,
+/// because a broken read must not replace the provider's real failure with a
+/// parsing error of our own — and it must not spend the timeout either.
+pub(crate) async fn read_error_body(response: &mut reqwest::Response) -> ErrorBody {
+    read_error_body_within(response, ERROR_BODY_DEADLINE).await
+}
+
+/// [`read_error_body`] against an explicit deadline (the test seam).
+#[must_use]
+async fn read_error_body_within(response: &mut reqwest::Response, deadline: Duration) -> ErrorBody {
+    let cutoff = tokio::time::Instant::now() + deadline;
     let mut collected: Vec<u8> = Vec::with_capacity(MAX_ERROR_BODY_BYTES);
+    let mut complete = true;
     while collected.len() < MAX_ERROR_BODY_BYTES {
-        match response.chunk().await {
-            Ok(Some(chunk)) => {
-                let remaining = MAX_ERROR_BODY_BYTES - collected.len();
-                collected.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+        let remaining = cutoff.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            tracing::debug!(
+                "#927 provider error body read hit its deadline; classifying on what arrived"
+            );
+            complete = false;
+            break;
+        }
+        match tokio::time::timeout(remaining, response.chunk()).await {
+            Ok(Ok(Some(chunk))) => {
+                let keep = (MAX_ERROR_BODY_BYTES - collected.len()).min(chunk.len());
+                collected.extend_from_slice(&chunk[..keep]);
             }
-            Ok(None) => break,
-            Err(error) => {
+            // The body ended (or the byte bound stopped us, which the loop
+            // condition sees): a complete-enough read.
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => {
                 tracing::debug!(
                     %error,
                     "#927 provider error body read failed; classifying on what arrived"
                 );
+                complete = false;
+                break;
+            }
+            Err(_elapsed) => {
+                tracing::debug!(
+                    "#927 provider error body deadline elapsed; classifying on what arrived"
+                );
+                complete = false;
                 break;
             }
         }
     }
-    String::from_utf8_lossy(&collected).into_owned()
+    ErrorBody {
+        text: String::from_utf8_lossy(&collected).into_owned(),
+        complete,
+    }
 }
 
 /// OpenAI-shaped accounts (OpenAI itself and its compatible gateways) name the
@@ -930,18 +1009,23 @@ pub fn classify_provider_body(provider: LlmProvider, body: &str) -> RateLimitVer
     };
     let mut evidence: Vec<String> = Vec::new();
     collect_strings(&value, &mut evidence);
-    let hit = evidence.iter().any(|candidate| {
+    let hit = evidence.iter().find_map(|candidate| {
         let lowered = candidate.to_ascii_lowercase();
-        markers.iter().any(|marker| lowered.contains(marker))
+        markers
+            .iter()
+            .find(|marker| lowered.contains(**marker))
+            .copied()
     });
-    if hit {
-        tracing::debug!(
-            provider = provider.as_str(),
-            "#927 provider 429 names an exhausted quota; the failure is terminal"
-        );
-        RateLimitVerdict::QuotaExhausted
-    } else {
-        RateLimitVerdict::RateLimited
+    match hit {
+        Some(marker) => {
+            tracing::debug!(
+                provider = provider.as_str(),
+                marker,
+                "#927 provider 429 names an exhausted quota; the failure is terminal"
+            );
+            RateLimitVerdict::QuotaExhausted { marker }
+        }
+        None => RateLimitVerdict::RateLimited,
     }
 }
 
@@ -1019,9 +1103,16 @@ pub fn classify_http_status_rich(
     };
     // The verdict only ever narrows a `429`: every other status keeps the
     // classification it had, so the quota table cannot misfile a 5xx or a 402.
-    if status == StatusCode::TOO_MANY_REQUESTS && !verdict.is_retryable() {
+    //
+    // The narrative names the MATCHED marker, not just the truncated body: a
+    // provider that puts its code behind a long `error.message` would otherwise
+    // dead-letter a job whose attempt row never says which evidence fired
+    // (CodeRabbit review, PR #931).
+    if status == StatusCode::TOO_MANY_REQUESTS
+        && let RateLimitVerdict::QuotaExhausted { marker } = verdict
+    {
         return DomainError::llm_provider_quota_exhausted(format!(
-            "LLM provider returned HTTP {status} with no quota left{suffix}"
+            "LLM provider returned HTTP {status} with no quota left ({marker}){suffix}"
         ));
     }
     // The classification itself is the shared retry core's (issue #925); the

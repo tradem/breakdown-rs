@@ -33,10 +33,18 @@ commits (ADR-020 D5).
   (an HTML gateway page), a failed read or an unknown code keeps today's
   behaviour plus a `debug` line. A wrong "non-retryable" verdict dead-letters a
   job a retry would have saved.
-- `client::read_error_body(&mut Response)` + `MAX_ERROR_BODY_BYTES` (1 KiB) are
-  the one bounded body read (streamed with `Response::chunk()`, never
-  `text()`/`bytes()`), shared by the hosted-chat and decision adapters: the
-  decision adapter's local copy of the same loop is gone.
+- `client::read_error_body(&mut Response)` is the one bounded body read, shared
+  by the hosted-chat and decision adapters (the decision adapter's local copy of
+  the same loop is gone). It is bounded in **bytes** (`MAX_ERROR_BODY_BYTES`
+  = 1 KiB) and in **time** (`ERROR_BODY_DEADLINE` = 5 s), streams with
+  `Response::chunk()` (never `text()`/`bytes()`) and returns
+  `ErrorBody { text, complete }`. An incomplete read — IO error or deadline — is
+  **not** evidence: `ErrorBody::verdict` keeps it retryable while the arrived
+  bytes still reach the narrative.
+- `RateLimitVerdict::QuotaExhausted` carries the curated `marker` that fired, and
+  the quota narrative always names it, so a provider code hidden behind a long
+  `error.message` still appears in the attempt row (the detail itself stays
+  truncated).
 - `client::classify_http_status_rich` takes the verdict as a fourth argument and
   maps `QuotaExhausted` — **for a `429` only** — to
   `DomainError::llm_provider_quota_exhausted`. A `5xx` carrying a quota-looking

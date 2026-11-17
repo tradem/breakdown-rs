@@ -681,6 +681,14 @@ const GEMINI_PER_MINUTE_BODY: &str = r#"{"error":{"code":429,"message":"Resource
 /// OpenRouter states its free-tier daily cap in prose, not in a code field.
 const OPENROUTER_FREE_TIER_BODY: &str = r#"{"error":{"message":"Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day","code":429}}"#;
 
+/// The marker a terminal verdict matched, or `None` for a retryable one.
+fn matched(verdict: RateLimitVerdict) -> Option<&'static str> {
+    match verdict {
+        RateLimitVerdict::RateLimited => None,
+        RateLimitVerdict::QuotaExhausted { marker } => Some(marker),
+    }
+}
+
 #[test]
 fn openai_shaped_providers_recognise_the_quota_codes() {
     for provider in [
@@ -690,23 +698,22 @@ fn openai_shaped_providers_recognise_the_quota_codes() {
         LlmProvider::OpenCodeGo,
     ] {
         assert_eq!(
-            classify_provider_body(provider, OPENAI_QUOTA_BODY),
-            RateLimitVerdict::QuotaExhausted,
-            "{provider:?} shares the OpenAI error shape"
+            matched(classify_provider_body(provider, OPENAI_QUOTA_BODY)),
+            Some("insufficient_quota"),
+            "{provider:?} shares the OpenAI error shape, and the verdict names the code"
         );
         for body in [
             r#"{"error":{"code":"credit_balance_exhausted"}}"#,
-            r#"{"error":{"code":"billing_hard_limit_reached","type":"insufficient_quota"}}"#,
+            r#"{"error":{"code":"billing_hard_limit_reached"}}"#,
         ] {
-            assert_eq!(
-                classify_provider_body(provider, body),
-                RateLimitVerdict::QuotaExhausted,
+            assert!(
+                matched(classify_provider_body(provider, body)).is_some(),
                 "{provider:?}: {body}"
             );
         }
         assert_eq!(
-            classify_provider_body(provider, OPENAI_RATE_LIMIT_BODY),
-            RateLimitVerdict::RateLimited,
+            matched(classify_provider_body(provider, OPENAI_RATE_LIMIT_BODY)),
+            None,
             "{provider:?}: a rate limit must stay retryable"
         );
     }
@@ -715,37 +722,46 @@ fn openai_shaped_providers_recognise_the_quota_codes() {
 #[test]
 fn gemini_distinguishes_a_per_day_quota_from_a_per_minute_limit() {
     assert_eq!(
-        classify_provider_body(LlmProvider::Gemini, GEMINI_PER_DAY_BODY),
-        RateLimitVerdict::QuotaExhausted,
-        "the per-day quota id is the terminal one"
+        matched(classify_provider_body(
+            LlmProvider::Gemini,
+            GEMINI_PER_DAY_BODY
+        )),
+        Some("perdayperproject"),
+        "the per-day quota id is the terminal one, and it is named"
     );
     assert_eq!(
-        classify_provider_body(LlmProvider::Gemini, GEMINI_PER_MINUTE_BODY),
-        RateLimitVerdict::RateLimited,
+        matched(classify_provider_body(
+            LlmProvider::Gemini,
+            GEMINI_PER_MINUTE_BODY
+        )),
+        None,
         "RPM exhaustion is exactly what a retry fixes"
     );
     // The spelling inside a `quota_limit` may use underscores.
     assert_eq!(
-        classify_provider_body(
+        matched(classify_provider_body(
             LlmProvider::Gemini,
             r#"{"error":{"details":[{"metadata":{"quota_limit":"requests_per_day_per_project"}}]}}"#
-        ),
-        RateLimitVerdict::QuotaExhausted
+        )),
+        Some("per_day_per_project")
     );
 }
 
 #[test]
 fn openrouter_recognises_its_free_tier_daily_cap() {
     assert_eq!(
-        classify_provider_body(LlmProvider::OpenRouter, OPENROUTER_FREE_TIER_BODY),
-        RateLimitVerdict::QuotaExhausted
+        matched(classify_provider_body(
+            LlmProvider::OpenRouter,
+            OPENROUTER_FREE_TIER_BODY
+        )),
+        Some("free-models-per-day")
     );
     assert_eq!(
-        classify_provider_body(
+        matched(classify_provider_body(
             LlmProvider::OpenRouter,
             r#"{"error":{"message":"Rate limit exceeded: free-models-per-minute","code":429}}"#
-        ),
-        RateLimitVerdict::RateLimited,
+        )),
+        None,
         "the per-minute cap is retryable"
     );
 }
@@ -757,8 +773,8 @@ fn a_provider_without_a_quota_concept_never_reports_one() {
     // into a dead-letter — there is no account quota to exhaust.
     for provider in [LlmProvider::EURouter, LlmProvider::Ollama] {
         assert_eq!(
-            classify_provider_body(provider, OPENAI_QUOTA_BODY),
-            RateLimitVerdict::RateLimited,
+            matched(classify_provider_body(provider, OPENAI_QUOTA_BODY)),
+            None,
             "{provider:?} has no quota evidence table"
         );
     }
@@ -775,8 +791,8 @@ fn an_unreadable_body_is_the_conservative_retryable_default() {
         "[1,2,3]",
     ] {
         assert_eq!(
-            classify_provider_body(LlmProvider::OpenAI, body),
-            RateLimitVerdict::RateLimited,
+            matched(classify_provider_body(LlmProvider::OpenAI, body)),
+            None,
             "a wrong non-retryable verdict dead-letters a job a retry would have saved: {body:?}"
         );
     }
@@ -788,8 +804,8 @@ fn only_json_values_are_evidence_never_keys() {
     // evidence has to come from what the provider said.
     let body = r#"{"insufficient_quota":{"message":"some unrelated complaint"}}"#;
     assert_eq!(
-        classify_provider_body(LlmProvider::OpenAI, body),
-        RateLimitVerdict::RateLimited
+        matched(classify_provider_body(LlmProvider::OpenAI, body)),
+        None
     );
 }
 
@@ -799,7 +815,9 @@ fn a_quota_verdict_is_terminal_and_keeps_the_registered_provider_code() {
         StatusCode::TOO_MANY_REQUESTS,
         OPENAI_QUOTA_BODY,
         Some(Duration::from_secs(30)),
-        RateLimitVerdict::QuotaExhausted,
+        RateLimitVerdict::QuotaExhausted {
+            marker: "insufficient_quota",
+        },
     );
 
     assert!(
@@ -821,6 +839,60 @@ fn a_quota_verdict_is_terminal_and_keeps_the_registered_provider_code() {
     );
 }
 
+/// CodeRabbit review, PR #931: the attempt narrative must name the matched code
+/// even when the provider hides it BEHIND the 400-character detail truncation.
+/// A long `error.message` used to push the code out of the persisted narrative
+/// while the verdict was still terminal — the operator then had no evidence in
+/// the row.
+#[test]
+fn the_narrative_names_the_matched_code_behind_a_long_provider_message() {
+    let long_message = "Quota exceeded for this project. ".repeat(30); // > 400 chars
+    let body = format!(
+        r#"{{"error":{{"message":"{long_message}","type":"insufficient_quota","code":"insufficient_quota"}}}}"#
+    );
+
+    let verdict = classify_provider_body(LlmProvider::OpenAI, &body);
+    assert_eq!(matched(verdict), Some("insufficient_quota"));
+    let error = classify_http_status_rich(StatusCode::TOO_MANY_REQUESTS, &body, None, verdict);
+    let narrative = error.to_string();
+    assert!(
+        narrative.contains("insufficient_quota"),
+        "the matched code must survive the detail truncation: {} chars",
+        narrative.len()
+    );
+    assert!(
+        narrative.len() < 1_000,
+        "the narrative stays bounded even when the provider is verbose"
+    );
+}
+
+/// CodeRabbit review, PR #931: an **incomplete** read is never evidence, even
+/// when the bytes that arrived contain a complete quota JSON. A stream cut by a
+/// proxy may have lost the part that changes the meaning, and a wrong
+/// "non-retryable" verdict dead-letters a job a retry would have saved.
+#[test]
+fn an_incomplete_body_read_is_retryable_even_with_quota_evidence() {
+    let cut = super::ErrorBody {
+        text: OPENAI_QUOTA_BODY.to_owned(),
+        complete: false,
+    };
+    assert_eq!(
+        matched(cut.verdict(LlmProvider::OpenAI)),
+        None,
+        "a cut stream is not evidence"
+    );
+
+    let whole = super::ErrorBody {
+        text: OPENAI_QUOTA_BODY.to_owned(),
+        complete: true,
+    };
+    assert_eq!(
+        matched(whole.verdict(LlmProvider::OpenAI)),
+        Some("insufficient_quota"),
+        "a fully read quota body stays terminal"
+    );
+}
+
 #[test]
 fn the_quota_verdict_applies_to_429_only() {
     // A 5xx that happens to carry a quota-looking body is a gateway fault, not
@@ -834,7 +906,9 @@ fn the_quota_verdict_applies_to_429_only() {
             status,
             OPENAI_QUOTA_BODY,
             None,
-            RateLimitVerdict::QuotaExhausted,
+            RateLimitVerdict::QuotaExhausted {
+                marker: "insufficient_quota",
+            },
         );
         assert!(
             error.is_retryable(),
@@ -850,4 +924,69 @@ fn the_quota_verdict_applies_to_429_only() {
     );
     assert!(error.is_retryable());
     assert_eq!(error.retry_after(), Some(Duration::from_secs(5)));
+}
+
+/// CodeRabbit review, PR #931: the byte bound is not a **time** bound. A
+/// provider that writes headers plus half a body and then stalls must not hold
+/// the concurrency permit until the request timeout (default 120 s) — the read
+/// ends at the deadline with `complete: false`, which keeps the verdict
+/// retryable while the arrived bytes still reach the narrative.
+#[tokio::test]
+async fn a_stalled_error_body_read_ends_at_the_deadline() {
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a loopback listener");
+    let addr = listener.local_addr().expect("a bound address");
+    let server = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let Ok((mut socket, _)) = listener.accept().await else {
+            return;
+        };
+        // Consume the request first, so this mock behaves like a real server.
+        let mut request = [0_u8; 1024];
+        let _ = socket.read(&mut request).await;
+        // Headers, the first half of the body, then silence: the declared body
+        // is never finished and the socket stays open.
+        let partial = b"HTTP/1.1 429 Too Many Requests\r\ncontent-length: 1000\r\n\r\n{\"error\":{\"code\":\"insufficient_quota\"}";
+        if let Err(error) = socket.write_all(partial).await {
+            eprintln!("mock write failed: {error}");
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    });
+
+    let mut response = reqwest::Client::new()
+        .get(format!("http://{addr}/"))
+        .send()
+        .await
+        .expect("the mock answers with a 429");
+
+    let started = std::time::Instant::now();
+    // A deadline far below the 30 s stall: 50 ms vs 30 s is a 600x margin, so
+    // the assertion cannot be won by the socket simply closing.
+    let body = super::read_error_body_within(&mut response, Duration::from_millis(50)).await;
+
+    assert!(
+        !body.complete,
+        "the deadline, not the body's end, must end an incomplete read"
+    );
+    assert!(
+        body.text.contains("insufficient_quota"),
+        "the arrived bytes are still kept for the narrative: {:?}",
+        body.text
+    );
+    assert_eq!(
+        matched(body.verdict(LlmProvider::OpenAI)),
+        None,
+        "an incomplete read is not evidence, even when it looks like a quota code"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "the read must end at its deadline, not at the request timeout: {:?}",
+        started.elapsed()
+    );
+
+    server.abort();
 }

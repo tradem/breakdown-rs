@@ -31,21 +31,25 @@ core reads the *headers* for a wait hint but never looks at the *body*.
   curated per-provider marker table is a `const` next to `CuratedProviderUrls`:
   `static`/const data, no `Arc<T>`, not user-configurable (the curated-URL trust
   rule), and **not** in `core`.
-- **A bounded body read in the #925 retry core.**
-  `retry::read_error_body(&mut Response)` streams with `Response::chunk()` and
-  stops at `MAX_ERROR_BODY_BYTES` (1 KiB, the bound `decision_client` already
-  used). `.text()`/`.bytes()` buffer whatever the provider sends; a hostile
-  error page would otherwise stream for the whole request timeout. The read never
-  fails — the caller is already on the error path.
+- **A bounded body read, with the read outcome kept separate from the text.**
+  `client::read_error_body(&mut Response)` streams with `Response::chunk()`,
+  stops at `MAX_ERROR_BODY_BYTES` (1 KiB) **and** at `ERROR_BODY_DEADLINE` (5 s):
+  `.text()`/`.bytes()` buffer whatever the provider sends, and a byte bound alone
+  is no time bound — a provider can send half a body and stall for the whole
+  request timeout while the caller holds a permit. It never fails; it returns
+  `ErrorBody { text, complete }`, and an **incomplete** read is never evidence
+  (the verdict stays retryable) while the arrived bytes still reach the
+  narrative.
 - **An honest, non-retryable error variant.**
   `DomainError::LlmProviderQuotaExhausted` renders the **existing** registered
   `ai-import.llm-provider-unavailable` code (#822 D-X1 decided against a new
   code, so the client keeps aggregating it and no Fluent/registry entry changes).
   The only difference to `ServiceUnavailable` is retryability, which is exactly
-  the fact we now know. The narrative names the status and carries the provider's
-  own bounded body, so the attempt row
+  the fact we now know. The narrative names the status and the **matched** quota
+  code from the curated table (plus the bounded body), so the attempt row
   (`ai_import.ai_import_job_attempt.error_summary` + `error_code`) says *why* it
-  was terminal.
+  was terminal even when the provider hides its code behind a long message and
+  the raw detail is truncated.
 - **Wiring, not a new channel.** `AiImportRuntime::fail` marks the job with
   `error.is_retryable()`, so a quota verdict dead-letters on the first attempt
   (`mark_failed(…, retryable = false)` → `status = dead_letter`), and

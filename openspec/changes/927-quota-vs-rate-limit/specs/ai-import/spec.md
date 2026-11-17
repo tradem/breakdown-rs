@@ -26,7 +26,8 @@ gateway page or an unknown code.
   `dead_letter` without consuming another paid call
 - **AND** the attempt row SHALL carry the registered
   `ai-import.llm-provider-unavailable` code and a narrative naming the status and
-  the provider's own code
+  the **matched** quota code — independent of where that code sits in the
+  provider's prose, so the evidence cannot be truncated out of the history
 - **AND** the terminal verdict SHALL NOT move the provider breaker counter, so a
   dead-letter can never be converted into a hold.
 
@@ -39,13 +40,19 @@ gateway page or an unknown code.
 - **AND** a `5xx` carrying a quota-looking body SHALL stay retryable, because the
   evidence table only applies to `429`.
 
-#### Scenario: The error body read is bounded
+#### Scenario: The error body read is bounded in bytes and in time
 
 - **WHEN** a non-2xx response carries a large or slowly-streamed body
-- **THEN** at most 1 KiB SHALL be read, streamed chunk by chunk, so the read
-  cannot hold the job's concurrency permit for the request timeout
-- **AND** a read failure SHALL keep the bytes collected so far and SHALL NOT
-  replace the provider's real failure with a parsing error.
+- **THEN** at most 1 KiB SHALL be read, streamed chunk by chunk, **and** the
+  whole read SHALL end within a fixed deadline (5 s) that is shorter than any
+  configured request timeout — the two bounds together are what keep the read
+  from holding the job's concurrency permit
+- **AND** an IO error or the deadline SHALL keep the bytes collected so far and
+  SHALL NOT replace the provider's real failure with a parsing error of our own
+- **AND** an **incomplete** read SHALL NOT be treated as evidence: it keeps the
+  conservative retryable default even when the bytes that arrived contain a
+  quota code, because a stream cut by a proxy may have lost the part that
+  changes the meaning.
 
 #### Scenario: `402`/`403` stay distinct from `429`
 

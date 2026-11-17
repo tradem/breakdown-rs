@@ -85,3 +85,18 @@
 - [x] 7.2 `core` MINOR (new public variant + constructor), `infra` MINOR (new
       transport surface), `api` unchanged (same code, same status, no Fluent key).
 - [x] 7.3 CHANGELOG entries for both bumped crates; `Cargo.lock` staged.
+
+## 8. CodeRabbit review (PR #931)
+
+- [x] 8.1 The read outcome is separate from the text: `ErrorBody { text, complete }`,
+      and an incomplete read (IO error or deadline) is never evidence — a stream
+      cut after a quota-looking prefix keeps the conservative retryable verdict.
+- [x] 8.2 The byte bound got a **time** bound: `ERROR_BODY_DEADLINE` (5 s) bounds
+      the whole read, so a provider that writes half a body and stalls cannot hold
+      the permit for `AI_IMPORT_REQUEST_TIMEOUT_SECS`. Spec, code docs and the
+      instruction register state the same two bounds.
+- [x] 8.3 `RateLimitVerdict::QuotaExhausted { marker }` carries the matched table
+      entry and the narrative always names it, so the classified code survives the
+      400-character detail truncation. Regression tests: a >400-character
+      `error.message` before the code, and a stalled body read (raw TCP mock,
+      50 ms deadline vs a 30 s stall).

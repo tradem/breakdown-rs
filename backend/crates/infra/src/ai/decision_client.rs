@@ -98,9 +98,7 @@ use std::collections::BTreeMap;
 
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
-use crate::ai::client::{
-    classify_http_status_rich, classify_provider_body, classify_transport_error, read_error_body,
-};
+use crate::ai::client::{classify_http_status_rich, classify_transport_error, read_error_body};
 use crate::retry::{log_hint, parse_retry_hint};
 
 #[cfg(test)]
@@ -712,21 +710,22 @@ impl DecisionClient for HttpDecisionClient {
             // alike — a wrong curated URL and a rejected rubric both surfaced
             // as an unexplained `scoring_failed` row (issue #767).
             //
-            // The read is bounded (`client::MAX_ERROR_BODY_BYTES`, streamed
-            // chunk by chunk; issue #927 shares the helper with the hosted-chat
-            // adapter): the 400-character cap in the classification applies
-            // after the body is in memory, so `Response::text()` would first
-            // buffer whatever the provider sends while holding the job's
-            // concurrency permit.
-            let detail = read_error_body(&mut response).await;
-            let verdict = classify_provider_body(self.provider, &detail);
+            // The read is bounded in bytes AND in time (`client::MAX_ERROR_BODY_BYTES`,
+            // `client::ERROR_BODY_DEADLINE`, streamed chunk by chunk; issue #927
+            // shares the helper with the hosted-chat adapter): the 400-character
+            // cap in the classification applies after the body is in memory, so
+            // `Response::text()` would first buffer whatever the provider sends
+            // while holding the job's concurrency permit.
+            let body = read_error_body(&mut response).await;
+            let verdict = body.verdict(self.provider);
             // Issue #926: the hint rides along even though this pass keeps its
             // own single fixed retry — when the SCORING failure is what ends the
             // attempt, the job-level scheduler is the one that honours it.
             // Issue #927: so does the verdict, so an exhausted quota ends the
-            // job instead of being retried.
+            // job instead of being retried (an incomplete body read stays
+            // retryable, because it is not evidence).
             return Err(classify_http_status_rich(
-                status, &detail, hint.wait, verdict,
+                status, &body.text, hint.wait, verdict,
             ));
         }
         let wire = response

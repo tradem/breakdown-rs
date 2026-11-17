@@ -417,10 +417,21 @@ Rules that must not drift:
 - **`X-RateLimit-Remaining: 0` is not evidence**: an RPM window reaches zero the
   same way. Header-only turnstiles stay retryable; the #926 hint still schedules
   the retry.
-- **The body read is bounded** (`client::MAX_ERROR_BODY_BYTES` = 1 KiB, streamed
-  chunk by chunk — never `text()`/`bytes()`): a chatty or hostile error page must
-  not stream for the whole request timeout while a permit is held, and a marker
-  behind the bound is deliberately not seen (conservative default).
+- **The body read is bounded in bytes AND in time**
+  (`client::MAX_ERROR_BODY_BYTES` = 1 KiB, `client::ERROR_BODY_DEADLINE` = 5 s,
+  streamed chunk by chunk — never `text()`/`bytes()`): a chatty or hostile error
+  page must not stream for the whole request timeout while a permit is held, and
+  a marker behind the bound is deliberately not seen (conservative default).
+- **An incomplete read is not evidence.** The reader returns
+  `ErrorBody { text, complete }`; an IO error or the deadline leaves
+  `complete = false`, which keeps the `429` retryable even when the bytes that
+  arrived look like a quota code (a proxy-cut stream may have lost the part that
+  changes the meaning). A stream that ends on its own end — or on the deliberate
+  byte bound — classifies normally.
+- **The narrative names the matched code.** The verdict carries the curated
+  marker that fired (`QuotaExhausted { marker }`), so the attempt row says
+  `… no quota left (insufficient_quota)` even when a long `error.message` pushes
+  the raw code past the 400-character detail truncation.
 - **A terminal verdict never moves the breaker counter.**
   `retry_bounded` records a provider failure only for a *retryable* one; counting
   a quota exhaustion would let three of them open the breaker, and the hold that
