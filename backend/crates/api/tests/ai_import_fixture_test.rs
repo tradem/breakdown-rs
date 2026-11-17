@@ -159,6 +159,42 @@ fn foreign_pending_job() -> AiImportJob {
     }
 }
 
+/// A resolved block for the block-scoped seed: the fixture reads the block
+/// projection and authorizes against ITS season, so the row has to exist (the
+/// fake's unknown-id fallback mints a random season and would refuse every
+/// target).
+async fn seed_block(
+    state: &AppState<FakePorts>,
+    block: breakdown_core::shared::BlockId,
+    season: breakdown_core::shared::SeasonId,
+) {
+    state.ports.block_repo.blocks.lock().await.insert(
+        block.0,
+        breakdown_core::block::views::BlockView {
+            id: block.0,
+            season_id: season,
+            project_id: breakdown_core::shared::ProjectId::new(),
+            number: 1,
+            start_date: None,
+            end_date: None,
+            version: breakdown_core::shared::AggregateVersion::INITIAL,
+            updated_at: chrono::Utc::now(),
+        },
+    );
+}
+
+/// Grant the dev caller a costume-dept role in `season` (the predicate
+/// `authorize_season_result` resolves through `effective_costume_role_in_season`).
+async fn allow_costume_role(state: &AppState<FakePorts>, season: breakdown_core::shared::SeasonId) {
+    state
+        .ports
+        .membership_repo
+        .piece_role_by_season
+        .lock()
+        .await
+        .insert(season.0, Ok(true));
+}
+
 #[tokio::test]
 async fn seeds_a_succeeded_job_whose_stored_preview_is_the_payload() {
     let state = AppState::new(FakePorts::default());
@@ -221,6 +257,10 @@ async fn the_optional_target_parameters_seed_a_block_scoped_job() {
     let app = test_app(state.clone());
     let season = SeasonId::new();
     let block = BlockId::new();
+    seed_block(&state, block, season).await;
+    // A block-scoped seed is authorized against the block's season, so the
+    // caller must hold a costume role there (the upload path's gate).
+    allow_costume_role(&state, season).await;
 
     let query = format!(
         "?season_id={}&season_number=3&block_id={}&block_number=7",
@@ -249,6 +289,88 @@ async fn the_optional_target_parameters_seed_a_block_scoped_job() {
     assert_eq!(target.season_id, season);
     assert_eq!(target.season_number, 3);
     assert_eq!(target.block_number, Some(7));
+}
+
+/// A block-scoped fixture seed is authorized against the **block's** season, not
+/// against the `season_id` the caller typed — otherwise a caller holding a role
+/// in season A could name A as the target and B's block as the write target, and
+/// `POST /apply` then writes scenes into block B.
+#[tokio::test]
+async fn a_target_whose_block_belongs_to_another_season_is_refused() {
+    use breakdown_core::shared::{BlockId, SeasonId};
+
+    let state = AppState::new(FakePorts::default());
+    let app = test_app(state.clone());
+    let claimed = SeasonId::new();
+    let real = SeasonId::new();
+    let block = BlockId::new();
+    seed_block(&state, block, real).await;
+    // The caller DOES hold a role in the season it claims — the fixture must
+    // still refuse, because the block says otherwise.
+    allow_costume_role(&state, claimed).await;
+
+    let query = format!(
+        "?season_id={}&season_number=1&block_id={}&block_number=1",
+        claimed.0, block.0
+    );
+    let (status, body) = post_fixture_with_query(&app, &script_payload(), &query).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "body: {body}");
+    assert!(
+        body.contains("domain.validation"),
+        "a contradictory target is a registered problem document, got: {body}"
+    );
+    assert!(
+        state.ports.ai_import_queue.jobs.lock().await.is_empty(),
+        "the target is checked before the blobs, so no job row may exist"
+    );
+}
+
+/// The block's season is the authorization scope: a caller with no costume role
+/// there gets the AI-import 403, and nothing is written.
+#[tokio::test]
+async fn a_block_scoped_target_without_a_costume_role_is_forbidden() {
+    use breakdown_core::shared::{BlockId, SeasonId};
+
+    let state = AppState::new(FakePorts::default());
+    let app = test_app(state.clone());
+    let season = SeasonId::new();
+    let block = BlockId::new();
+    seed_block(&state, block, season).await;
+
+    let query = format!(
+        "?season_id={}&season_number=1&block_id={}&block_number=1",
+        season.0, block.0
+    );
+    let (status, body) = post_fixture_with_query(&app, &script_payload(), &query).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
+    assert!(
+        body.contains("ai-import.forbidden"),
+        "the block gate reuses the scoped AI-import forbiddance, got: {body}"
+    );
+    assert!(
+        state.ports.ai_import_queue.jobs.lock().await.is_empty(),
+        "authorization precedes the blobs, so no job row may exist"
+    );
+}
+
+/// A query string the extractor cannot deserialize is a registered problem
+/// document (`http.bad-query-param`), not axum's plain-text rejection — the
+/// fixture route sits behind the same middleware stack as every real route.
+#[tokio::test]
+async fn a_malformed_query_parameter_answers_a_problem_document() {
+    let state = AppState::new(FakePorts::default());
+    let app = test_app(state.clone());
+
+    let (status, body) =
+        post_fixture_with_query(&app, &script_payload(), "?season_id=not-a-uuid").await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(
+        body.contains("http.bad-query-param"),
+        "a malformed query parameter must be the registered problem code, got: {body}"
+    );
 }
 
 /// A half-specified target cannot seed a job whose apply could resolve its

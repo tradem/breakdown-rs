@@ -31,7 +31,18 @@ pub trait BlockCommands: Send + Sync {
 /// Async read port returning flat `BlockView` projections.
 #[allow(async_fn_in_trait)]
 pub trait BlockRepository: Send + Sync {
-    async fn find_by_id(&self, id: Uuid) -> Result<BlockView, DomainError>;
+    /// Read one block projection row.
+    ///
+    /// Declared as an explicit `impl Future + Send` (rather than the bare
+    /// `async fn` the rest of this trait uses) because the cfg-gated AI-import
+    /// fixture route awaits it from a handler generic over `Ports`, and axum's
+    /// `Handler` requires that future to be `Send` — an `async fn` in a trait
+    /// does not imply a `Send` future, so a generic caller cannot prove it.
+    /// `async fn` implementations still satisfy this signature.
+    fn find_by_id(
+        &self,
+        id: Uuid,
+    ) -> impl std::future::Future<Output = Result<BlockView, DomainError>> + Send;
     /// List blocks of a season, ordered by number.
     async fn list_by_season(
         &self,

@@ -1575,6 +1575,11 @@ in compose), a 49-scene `ScriptContext` seeded through the `test-support` fixtur
 `POST /apply` — once with `PROJECTOR_DATABASE_MAX_CONNECTIONS=0` (pre-M3 topology) and once
 with `20` (M3). Fresh store per half, because the apply is idempotent-convergent.
 
+The seed is **block-scoped and season-authorized**: the fixture resolves the block from the
+projection and requires an active costume-dept role in the block's season, so on a fresh
+store the first attempts legitimately answer `404`/`403` while the block row and the season's
+bootstrapped membership land — the script retries (a refused attempt writes nothing).
+
 ```bash
 cd backend
 python3 scripts/bench-apply-attribution.py --mode both      # ~15 min, ~130 MB of logs
@@ -1604,8 +1609,13 @@ with the pool gauges pinned at `num_idle = 0` and a per-write acquire p50 of ~2 
 while the statement itself measured 4.3 ms. The lever is therefore **the separate
 projector pool** (M3), not a faster query, and it was measured, not assumed:
 
-- acquire per row: **44 375 ms → 27 ms**; wall: **348 s → 15 s** (≈23×);
-- statement per row barely moved (168 → 135 ms), which is the point — the query was never
+- acquire per row: **44 375 ms → 27 ms** — the clean signal, two orders of magnitude;
+- wall: **348 s → 15 s** (≈23×), but **not a matched-workload comparison**: the unsplit
+  runs also issued ≈40 % more appends (1 178 vs. 831) and 25 % more mapping writes
+  (1 722 vs. 1 372), so part of that ratio belongs to the retry effect described below
+  rather than to the pool. Quote it as "≈23× on the runs as measured", never as the
+  isolated pool effect — for the pool alone the acquire-per-row row above is the number;
+  statement per row barely moved (168 → 135 ms), which is the point — the query was never
   the cost, so an "optimised query" would have changed nothing;
 - the pool at the last write went from `20 / 0` (saturated) to `10 / 8` (idle headroom).
 

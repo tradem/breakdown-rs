@@ -194,11 +194,27 @@ class ApiProcess:
         self.log_file = None
 
     def start(self) -> None:
+        # Ownership before liveness: `healthy()` only proves *something* answers
+        # `/v1/health` on this port, and a dev API already listening would be
+        # accepted from the very first attempt — the benchmark would then send
+        # its hierarchy-creation writes to the real dev stack while its own child
+        # was still booting (or never came up at all). Refuse an occupied port
+        # instead of measuring someone else's server.
+        if port_open(self.port):
+            raise RuntimeError(
+                f"port {self.port} is already in use — pick a free --api-port; "
+                "a server that answers /v1/health there is NOT this benchmark's child"
+            )
         env = os.environ.copy()
         env.update(read_env_file(DEV_AI_ENV))
         env.update(
             {
+                # Both URLs, not only `DATABASE_URL`: the API boots its
+                # **migrator** from `MIGRATOR_DATABASE_URL` when the shell exports
+                # one, which would migrate the dev database instead of this
+                # throwaway one (and leave the throwaway one unmigrated).
                 "DATABASE_URL": self.stack.database_url,
+                "MIGRATOR_DATABASE_URL": self.stack.database_url,
                 "SIERRADB_URL": self.stack.sierradb_url,
                 "BIND_ADDR": f"127.0.0.1:{self.port}",
                 "DEV_AUTH_SUB": "bench-user-900",
@@ -432,12 +448,34 @@ def measure(mode: str, args: argparse.Namespace) -> Measurement:
         outfits = sum(len(row["outfits"]) for row in plan["scenes"])
         pieces = sum(len(o["pieces"]) for row in plan["scenes"] for o in row["outfits"])
         print(f"  plan: {args.scenes} scenes, {outfits} looks, {pieces} garments", flush=True)
+        # `DraftShootingDay::group_key` — `day:{number}`, first-seen order.
+        plan_day_refs: list[str] = []
+        for row in plan["scenes"]:
+            day_ref = f"day:{row['shooting_day']['number']}"
+            if day_ref not in plan_day_refs:
+                plan_day_refs.append(day_ref)
 
         fixture = (
             f"/v1/__fixtures/ai-import-preview?season_id={season}&season_number=1"
             f"&block_id={block}&block_number=1"
         )
-        status, seeded = api.call("POST", fixture, plan)
+        # A block-scoped seed is now gated twice more than a preview-only one:
+        # the fixture resolves the block from the projection and authorizes the
+        # caller's costume role in the block's season, so on a fresh store both
+        # the block row and the season's bootstrapped membership can still be
+        # catching up (`404` / `403`). Retry the way the attach below does
+        # instead of racing the projectors. A refused attempt writes nothing
+        # (the checks precede the blobs), so re-POSTing is safe.
+        status, seeded = retry_call(
+            api,
+            "POST",
+            fixture,
+            plan,
+            accept=(201,),
+            retry_on=(403, 409, 404),
+            timeout=120,
+            what="the fixture seed (waiting for the block and membership projections)",
+        )
         if status != 201 or not seeded or not seeded.get("job_id"):
             raise RuntimeError(f"fixture seed failed: {status} {seeded}")
         job = seeded["job_id"]
@@ -469,9 +507,13 @@ def measure(mode: str, args: argparse.Namespace) -> Measurement:
             "accept_as_is": True,
             "edit_distance": 0,
             "episode_groups": [],
+            # The handler refuses a decision for a day group the preview does not
+            # carry (issue #706, 422) and refuses more groups than it has, so the
+            # list is derived from the generated plan's distinct day refs — a
+            # hard-coded `day:1`/`day:2` breaks `--scenes 1`, where every row is
+            # day 1 and the preview carries one group.
             "shooting_days": [
-                {"day_ref": "day:1", "accepted": True},
-                {"day_ref": "day:2", "accepted": True},
+                {"day_ref": day_ref, "accepted": True} for day_ref in plan_day_refs
             ],
         }
         started = time.time()
