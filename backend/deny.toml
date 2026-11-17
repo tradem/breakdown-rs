@@ -138,6 +138,23 @@ yanked = "deny"
 # testcontainers migration we cannot perform locally. Revisit when
 # testcontainers migrates (bump testcontainers-modules in lockstep).
 #
+# RUSTSEC-2026-0543 (`chrono` unmaintained, issue #929): the advisory covers
+# EVERY chrono version, has no safe upgrade and recommends `jiff` / `time`.
+# This is the first ignore in this file for a DIRECT workspace dependency:
+# chrono is used by core/infra/api/test_support/fuzz-targets, by the `sqlx`
+# "chrono" feature (the `timestamptz` column mapping), by the `utoipa` "chrono"
+# feature (`format: date-time` in `openapi.yaml`) and by bson/kameo_es event
+# payloads — 156 files, ~490 `DateTime<Utc>` / `Utc::now` sites. The ignore is
+# the local action because the alternative is a workspace-wide time-type
+# migration that has to keep four contracts byte-compatible at the same time
+# (persisted event JSON through serde's RFC 3339 rendering, the `timestamptz`
+# columns, `format: date-time` in the OpenAPI contract, the bson payload shape)
+# — not a `sed`, and not reviewable inside an unrelated change. `unmaintained`
+# is a maintenance signal, not a CVE, and the entry is scoped to this one
+# advisory: every other unmaintained or vulnerable crate still fails the gate
+# (`unmaintained = "all"`, issues #70/#95). Revisit — and REMOVE the entry —
+# with the migration in issue #929.
+#
 # The former `zip 8.6.0` ignores (yanked backstop plus RUSTSEC-2026-0367 /
 # -0368 / -0369) were dropped once `utoipa-swagger-ui 10.0.2` moved the build
 # dependency to `zip 9.1.3` — they no longer matched anything and only
@@ -155,4 +172,5 @@ ignore = [
     "RUSTSEC-2024-0449", # unsafe-libyaml via serde_yaml (typst/hayagriva + dev-only openapi test)
     "RUSTSEC-2026-0440", # astral-tokio-tar — unmaintained upstream, non-optional via (dev) testcontainers
     "RUSTSEC-2026-0387", # crypto-bigint timing variability — verification-only via jsonwebtoken, no compatible upgrade path (see comment above)
+    "RUSTSEC-2026-0543", # chrono unmaintained, no safe upgrade — direct dep, migration is issue #929 (see comment above)
 ]
