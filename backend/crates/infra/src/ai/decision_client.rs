@@ -98,7 +98,7 @@ use std::collections::BTreeMap;
 
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
-use crate::ai::client::{classify_http_status_rich, classify_transport_error};
+use crate::ai::client::{classify_http_status_rich, classify_transport_error, read_error_body};
 use crate::retry::{log_hint, parse_retry_hint};
 
 #[cfg(test)]
@@ -131,12 +131,6 @@ pub fn decision_endpoint(provider: LlmProvider) -> Option<&'static str> {
         _ => None,
     }
 }
-
-/// Maximum number of bytes read from a NON-2xx response body before the
-/// failure is classified. The detail kept for the error is further truncated to
-/// 400 characters; this constant only bounds the READ, so a large error body
-/// cannot hold the worker's permit for the whole request timeout.
-const MAX_ERROR_DETAIL_BYTES: usize = 1024;
 
 /// Tolerance of the `score` distribution sum check. A provider that reports
 /// five 4-decimal probabilities can miss 1.0 by ≤ 0.00025; anything beyond a few
@@ -707,8 +701,7 @@ impl DecisionClient for HttpDecisionClient {
             .map_err(classify_transport_error)?;
         let status = response.status();
         // Issue #925: capture the server's retry hint before the body is
-        // consumed (the error path below reads it in chunks). Nothing acts on
-        // the hint yet.
+        // consumed (the error path below reads it in chunks).
         let hint = parse_retry_hint(response.headers(), status);
         log_hint("decision_request", &hint);
         if !status.is_success() {
@@ -716,26 +709,24 @@ impl DecisionClient for HttpDecisionClient {
             // a 404 names the route). Discarding it made every failure look
             // alike — a wrong curated URL and a rejected rubric both surfaced
             // as an unexplained `scoring_failed` row (issue #767).
-            // Bound the READ of that body, not just the characters kept: the
-            // 400-character cap below applies after the body is in memory, so
+            //
+            // The read is bounded in bytes AND in time (`client::MAX_ERROR_BODY_BYTES`,
+            // `client::error_body_budget`, streamed chunk by chunk; issue #927
+            // shares the helper with the hosted-chat adapter): the 400-character
+            // cap in the classification applies after the body is in memory, so
             // `Response::text()` would first buffer whatever the provider sends
-            // (a chatty or hostile error could stream for the whole request
-            // timeout while holding the job's concurrency permit). One KiB is
-            // far more than any provider error message needs, and the read stops
-            // there instead of waiting for the body to finish.
-            let mut collected: Vec<u8> = Vec::with_capacity(MAX_ERROR_DETAIL_BYTES);
-            while collected.len() < MAX_ERROR_DETAIL_BYTES {
-                let Some(chunk) = response.chunk().await.map_err(classify_transport_error)? else {
-                    break;
-                };
-                let remaining = MAX_ERROR_DETAIL_BYTES - collected.len();
-                collected.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
-            }
-            let detail = String::from_utf8_lossy(&collected);
+            // while holding the job's concurrency permit.
+            let body = read_error_body(&mut response, self.timeout).await;
+            let verdict = body.verdict(self.provider);
             // Issue #926: the hint rides along even though this pass keeps its
             // own single fixed retry — when the SCORING failure is what ends the
             // attempt, the job-level scheduler is the one that honours it.
-            return Err(classify_http_status_rich(status, &detail, hint.wait));
+            // Issue #927: so does the verdict, so an exhausted quota ends the
+            // job instead of being retried (an incomplete body read stays
+            // retryable, because it is not evidence).
+            return Err(classify_http_status_rich(
+                status, &body.text, hint.wait, verdict,
+            ));
         }
         let wire = response
             .json::<DecisionWireResponse>()

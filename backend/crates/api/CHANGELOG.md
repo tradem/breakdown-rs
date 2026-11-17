@@ -17,6 +17,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.69.4] - Unreleased
+
+### Changed — dependency pins only (issue #927)
+
+- Pins `breakdown_core` 0.72.0 and `infra` 0.83.0 for the terminal
+  `DomainError::LlmProviderQuotaExhausted` variant and the body-aware provider
+  classification. **No wire change**: the variant renders the same
+  `ai-import.llm-provider-unavailable` code and HTTP 503 as before, so the
+  OpenAPI document, the problem registry and the Fluent texts are untouched. The
+  attempt history's `retryable` flag is where the difference becomes visible.
+
 ## [0.69.2] - Unreleased
 
 ### Added — the preview fixture can name a target block, so a seeded preview can be applied (issue #900)

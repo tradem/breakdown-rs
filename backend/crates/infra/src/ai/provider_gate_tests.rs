@@ -700,3 +700,63 @@ async fn a_hint_does_not_create_a_retry_the_budget_forbids() {
     assert_eq!(calls, 1, "no retry is granted by a hint");
     assert_eq!(elapsed, std::time::Duration::ZERO, "and nothing is slept");
 }
+
+/// Issue #927: a **terminal** provider verdict costs exactly one call, opens
+/// nothing and records nothing.
+///
+/// A quota-exhausted `429` carries the provider code, so `is_provider_failure`
+/// matches it. Recording it would let three such verdicts open the breaker, and
+/// the hold that follows would park a job that has nothing left to wait for
+/// instead of dead-lettering it — the exact opposite of what the verdict says.
+#[tokio::test(start_paused = true)]
+async fn a_quota_exhausted_provider_failure_is_terminal_and_does_not_move_the_breaker() {
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenAI,
+        model: "m",
+        // Would open on the first recorded failure, so an unguarded
+        // `record_failure` cannot hide behind a high threshold.
+        threshold: 1,
+        enabled: true,
+    };
+    let calls = AtomicUsize::new(0);
+
+    let error: anyhow::Error = retry_bounded(
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err::<(), anyhow::Error>(anyhow::Error::new(
+                DomainError::llm_provider_quota_exhausted("HTTP 429 — insufficient_quota"),
+            ))
+        },
+        2, // a retry budget that must NOT be spent
+        &gate,
+    )
+    .await
+    .expect_err("a quota exhaustion is a failure");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a terminal verdict must not consume in-attempt retries"
+    );
+    assert!(
+        queue.recorded().is_empty(),
+        "a terminal verdict must not move the breaker counter: {:?}",
+        queue.recorded()
+    );
+    assert_eq!(
+        queue.state.lock().unwrap().clone(),
+        ProviderBreakerState::Closed
+    );
+    // The caller receives the TERMINAL error, not `breaker_open_error()` — that
+    // is what lets the worker dead-letter it with the provider narrative.
+    let domain = error
+        .downcast::<DomainError>()
+        .expect("the domain error must survive the retry loop");
+    assert!(!domain.is_retryable());
+    assert!(matches!(
+        domain,
+        DomainError::LlmProviderQuotaExhausted { .. }
+    ));
+}
