@@ -98,11 +98,29 @@ pub fn record_version_conflict() {
 mod tests {
     use super::*;
 
+    /// Serializes the cases below.
+    ///
+    /// The counters are process-wide statics, so a delta is only this case's
+    /// delta if no other case increments between the two reads — running the
+    /// three cases in parallel made `appended_events` read 3 instead of 2 in CI
+    /// (and in ~1 of 5 local runs). Production code is unaffected: it appends in
+    /// real windows, and a window legitimately spans whatever the process does.
+    static METRICS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Take the serialization lock, tolerating a case that panicked while
+    /// holding it (a poisoned lock still guards the counters).
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        METRICS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// The counters are process-wide statics that other tests in this crate also
     /// touch, so every assertion is written as a *delta* — a test that asserted
     /// absolute values would race the rest of the suite.
     #[test]
     fn appended_events_are_summed_not_counted_as_one() {
+        let _serial = serial();
         let before = append_metrics();
         record_append_attempt();
         record_appended_events(1);
@@ -116,6 +134,7 @@ mod tests {
 
     #[test]
     fn version_conflicts_are_counted_separately_from_attempts() {
+        let _serial = serial();
         let before = append_metrics();
 
         // First attempt of a 2-event command: the store answers `WRONGVER`, so
@@ -147,6 +166,7 @@ mod tests {
 
     #[test]
     fn since_never_wraps_when_the_window_is_empty() {
+        let _serial = serial();
         record_append_attempt();
         record_appended_events(1);
         let later = append_metrics();

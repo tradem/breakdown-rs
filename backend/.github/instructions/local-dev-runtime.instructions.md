@@ -90,6 +90,16 @@ cargo run --bin api
 > --features api/test-support`. It also seeds a placeholder *source* document
 > per call: clean the dev AI job list occasionally (`DELETE
 > /v1/ai-import/jobs/{id}` on terminal rows).
+>
+> **Optional target (issue #900):** the same route accepts
+> `?season_id=&season_number=&block_id=&block_number=` — all three identifying parts or
+> none. Naming them seeds a job that can actually be **applied** (`POST /apply` refuses a
+> block-less job with `ai-import.target-missing`, and the target attach needs the season the
+> job was authorized for). A block-scoped seed is authorized against the **block's** season
+> (an active costume-dept role there, exactly like the upload path's `X-Active-Block` arm),
+> and a `season_id` that disagrees with the block is refused with `domain.validation`.
+> `scripts/bench-apply-attribution.py` is that caller: it applies a
+> seeded 49-scene preview and reads the row-phase attribution numbers (runbooks §17 M4).
 
 In dev mode (single role, `DATABASE_URL` only), both pools use the same
 connection — the audit REVOKE is skipped gracefully.

@@ -1436,7 +1436,8 @@ apply *creates* the projection backlog those projectors write. Every line carrie
 `job_id`, so concurrent applies can be told apart.
 
 The API logs with `tracing_subscriber::fmt` (plain text with ANSI colour codes, not
-JSON), so the fields are stripped and re-emitted as TSV:
+JSON), so the fields are stripped and re-emitted as TSV. Do **not** reach for `jq`:
+there is no JSON layer and no `RUST_LOG` filter, and a single run writes ~130 MB of log.
 
 ```sh
 grep "AI import mapping write" api.log \
@@ -1446,7 +1447,10 @@ grep "AI import mapping write" api.log \
 That yields `job_id  operation  acquire_s  statement_s  pool_size  pool_num_idle` per
 write. Filter on column 1 (`job_id`) when several applies ran concurrently, then sort
 column 3 (`sort -k3 -g`) for acquire p50/p95 and column 4 (`sort -k4 -g`) for statement
-p50/p95. The same numbers arrive summed per run in the apply's own summary line
+p50/p95. `scripts/bench-apply-attribution.py` does exactly that for you — it runs a
+whole A/B and prints both percentiles per mode (§ "M4" below).
+
+The same numbers arrive summed per run in the apply's own summary line
 (`"AI import apply row phase finished"`), which is what decomposes `row_ms_avg`:
 
 | Field | Meaning |
@@ -1561,3 +1565,106 @@ A row phase that now shows `mapping_acquire_ms_per_row` near zero with an unchan
 `row_ms_avg` is the honest negative result: the pool was not the bottleneck, and the lever
 for that run is the next row of the decision table (batched confirms, duplicate writes, or
 the store's append tail) — not a bigger pool.
+
+### M4 — the measurement: both halves, one host, one plan
+
+The two measurements exist to pick a lever. `scripts/bench-apply-attribution.py` runs the
+A/B that picks it: a throwaway `postgres:16-alpine` + `tqwewe/sierradb:0.3.1` pair on spare
+ports (dev volumes untouched, `tqwewe/sierradb` pinned, `SIERRA_SYNC.IDLE_INTERVAL_MS=4` as
+in compose), a 49-scene `ScriptContext` seeded through the `test-support` fixture route, then
+`POST /apply` — once with `PROJECTOR_DATABASE_MAX_CONNECTIONS=0` (pre-M3 topology) and once
+with `20` (M3). Fresh store per half, because the apply is idempotent-convergent.
+
+The seed is **block-scoped and season-authorized**: the fixture resolves the block from the
+projection and requires an active costume-dept role in the block's season, so on a fresh
+store the first attempts legitimately answer `404`/`403` while the block row and the season's
+bootstrapped membership land — the script retries (a refused attempt writes nothing).
+
+The script also refuses to measure anything but its own process: ownership of `--api-port` is
+proven from `/proc/net/tcp` (the child must hold the LISTEN socket *now*, which a process in
+its shutdown sequence no longer does), every request travels on the single connection opened
+under that ownership, and losing that connection ends the run. The guards are Linux-only by
+construction (`procfs`), which matches the measured host, and they are covered by
+`backend/scripts/tests/bench-apply-attribution-test.sh` (CI job `bench-script-guards`).
+
+```bash
+cd backend
+python3 scripts/bench-apply-attribution.py --mode both      # ~15 min, ~130 MB of logs
+```
+
+Measured 2026-11-16 on the dev host (synthetic 49-scene plan: 49 scenes, 107 looks, 347
+garments, 4–5 day groups; two runs per half):
+
+| Signal | unsplit (`=0`, pre-M3) | split (`=20`, M3) |
+|---|---|---|
+| wall, dispatch → done | **348 s / 352 s** | **15 s / 15 s** |
+| row-phase `elapsed_ms` | 345 230 / 346 784 | 9 308 / 9 308 |
+| `row_ms_avg` / `row_ms_max` | 44 674–45 149 / 57 039–61 205 ms | 1 337 / 1 584 ms |
+| `mapping_acquire_ms_per_row` | **43 860–44 375 ms** | **27 ms** |
+| `mapping_statement_ms_per_row` | 168–188 ms | 135 ms |
+| per-write acquire p50/p95 | **1 967/2 003 ms** (1 973/2 004) | **0.5/1.7 ms** |
+| per-write statement p50/p95 | 4.3/8.1 ms | 4.1/9.2 ms |
+| pool `size`/`num_idle` at last write | **20 / 0–1** | 10 / 8 |
+| `event_appends` | 1 178 | 831 |
+| `append_conflicts` | 0 | 0 |
+| mapping writes (reserve/insert) | 1 722 | 1 372 |
+| store append p50/p95 | 14.7/41.9 ms | 44.0/75.2 ms |
+
+**Decision (the issue's table, first row).** Pool wait dominated by two orders of
+magnitude: 43 860–44 375 ms acquired per row against 168–188 ms of statement time (≈264×),
+with the pool gauges pinned at `num_idle = 0` and a per-write acquire p50 of ~2 000 ms —
+while the statement itself measured 4.3 ms. The lever is therefore **the separate
+projector pool** (M3), not a faster query, and it was measured, not assumed:
+
+- acquire per row: **44 375 ms → 27 ms** — the clean signal, two orders of magnitude;
+- wall: **348 s → 15 s** (≈23×), but **not a matched-workload comparison**: the unsplit
+  runs also issued ≈40 % more appends (1 178 vs. 831) and 25 % more mapping writes
+  (1 722 vs. 1 372), so part of that ratio **may reflect** the row-step retry effect
+  described below — it is a candidate explanation, not a proven one — rather than the
+  pool. Quote it as "≈23× on the runs as measured", never as the isolated pool effect:
+  for the pool alone the acquire-per-row line above is the number;
+  statement per row barely moved (168 → 135 ms), which is the point — the query was never
+  the cost, so an "optimised query" would have changed nothing;
+- the pool at the last write went from `20 / 0` (saturated) to `10 / 8` (idle headroom).
+
+**Not triggered by this run**, and that is a result too: `event_appends` = 831 (the issue's
+duplicate-write threshold is >1 500), `append_conflicts` = 0 (no `WRONGVER`), so rows 2 and 4
+of the decision table (cut duplicate writes / dedupe racing writes) are not indicated by
+these numbers.
+
+**One observation worth its own look before the next lever.** The unsplit runs issued
+1 178 appends and 1 722 mapping writes for the same plan the split runs applied with 831
+appends and 1 372 writes — ≈40 % more append calls while starving, with zero version
+conflicts. An idempotent re-dispatch appends again (that is exactly why M2 counts appends
+rather than dispatches), so the likely reading is row-step retries under pool starvation; it
+is a candidate explanation, not a proven mechanism. The store's own append p50 in the split
+regime (44 ms) is the append tail of ADR-016 §6 / #901, not this issue.
+
+**Limits of this measurement** (state them whenever quoting it): the plan is synthetic, so
+compare runs of this script with each other — never the real 7-minute job from the issue
+against a synthetic second; one host, one Postgres, one SierraDB, single-node, so absolute
+wall times are machine facts, not product promises; and payload blobs land in the dev Garage
+bucket — the script deletes its seeded job (and with it the source/preview blobs) before it
+takes the throwaway database down, because the payload GC selects candidates from that very
+database and could never collect them afterwards.
+
+**If that delete did not happen** (the script prints `! seeded job left behind`), the recoverable
+step depends on whether the throwaway database still exists:
+
+* `--keep`, or a run that died before `stack.down()`: the row still exists in that stack's
+  Postgres, but the script always stops the API process (`--keep` retains the containers, not
+  the child), so restart one against the retained database and event store —
+  `DATABASE_URL=<throwaway pg url> MIGRATOR_DATABASE_URL=<throwaway pg url>
+  SIERRADB_URL=<throwaway sierra url> BIND_ADDR=127.0.0.1:<port>
+  cargo run --bin api --features api/test-support` — both connection URLs, never only
+  `DATABASE_URL`: a shell-exported `MIGRATOR_DATABASE_URL` otherwise runs the boot migrations
+  against whatever database that names (the same trap the benchmark guards against). Then
+  `DELETE /v1/ai-import/jobs/{job_id}` removes the row and both blobs. The stack's URLs are the
+  ones the run printed (`--pg-port` / `--sierra-port`), and the retained Postgres container is
+  reachable as long as it is not removed;
+* after the default teardown the database — and with it the only record naming the job — is
+  gone, so **no job endpoint can retry it**: the two objects must be deleted directly in the
+  payload bucket (`AI_PAYLOAD_S3_BUCKET`, default `ai-import-payloads`) at
+  `ai-import/<job_id>/source` and `ai-import/<job_id>/preview`, with the job id the run
+  printed right after seeding (`fixture job <uuid>`) — `discard_seeded_job` repeats it on
+  failure, together with those two keys. That is the only path that still reaches them.

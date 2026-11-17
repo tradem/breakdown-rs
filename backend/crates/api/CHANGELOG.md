@@ -17,6 +17,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.69.2] - Unreleased
+
+### Added — the preview fixture can name a target block, so a seeded preview can be applied (issue #900)
+
+- `POST /v1/__fixtures/ai-import-preview` (test-support only) accepts optional
+  `season_id` / `season_number` / `block_id` / `block_number` query parameters.
+  All three identifying parts or none: a half-specified target would seed a job
+  whose apply could never resolve its block — the state the real upload path
+  refuses up front.
+- Why: `POST /apply` refuses a block-less job (`ai-import.target-missing`) and
+  the target attach authorizes against the season the job was created for, so a
+  body-less fixture job could be *looked at* but never *applied*. The issue #900
+  attribution benchmark needs the second, so it seeds the target together with
+  the preview instead of mutating the job afterwards.
+- The harness that consumes it — `scripts/bench-apply-attribution.py` — is the
+  reproducible A/B for the pool lever: 49-scene plan, throwaway Postgres +
+  SierraDB on spare ports, `PROJECTOR_DATABASE_MAX_CONNECTIONS` `0` vs `20`,
+  printing both halves plus the p50/p95 of acquire vs. statement. Its measured
+  result is recorded in `docs/operations/runbooks.md` §17 (M4).
+- `crates/api/tests/common/mod.rs`: the `FakePorts` queue now persists `target`
+  and `source_file_name` the way the Postgres adapter does, instead of
+  hardcoding `None` — a fixture's target would otherwise be invisible to every
+  test that reads the job back.
+
 ## [0.69.1] - Unreleased
 
 ### Changed — the read-model writers get their own Postgres pool (issue #900 M3)

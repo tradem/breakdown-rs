@@ -2785,8 +2785,12 @@ impl AiImportQueue for FakeAiImportQueue {
                 updated_at: now,
                 telemetry: None,
                 cost: None,
-                source_file_name: None,
-                target: None,
+                // Mirrors the real adapter, which persists the sanitized file name
+                // and the target snapshot the caller resolved (issues #763/#771).
+                // Hardcoding `None` here made the fake drift from production: a
+                // fixture that names a target was readable as target-less.
+                source_file_name: request.source_file_name,
+                target: request.target,
                 applied_episodes: Vec::new(),
                 // No Decision Model outcome recorded by a test fixture (issue #767).
                 decision_telemetry: None,
