@@ -344,6 +344,34 @@ def dead_child():
 # --- tests ----------------------------------------------------------------
 
 
+class _ForbiddingWait:
+    """Stand-in for `bench.wait_for` that fails the instant it is called.
+
+    A timestamp comparison (`elapsed < 5`) would pass or fail depending on how the
+    runner schedules the process — the property under test is *"this path never
+    waits"*, which is exactly what a forbidden call observes.
+    """
+
+    def __init__(self):
+        self.called = False
+
+    def __call__(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN401
+        self.called = True
+        raise AssertionError(f"wait_for must not be called here: args={args[1:]!r}")
+
+
+def without_waiting(action):
+    """Run `action` with `bench.wait_for` forbidden; restore it either way."""
+    original = bench.wait_for
+    stub = _ForbiddingWait()
+    bench.wait_for = stub
+    try:
+        action()
+    finally:
+        bench.wait_for = original
+    return stub
+
+
 def test_occupied_port_is_refused_before_spawn():
     port = free_port()
     foreign = listening_socket(port)
@@ -361,14 +389,10 @@ def test_occupied_port_is_refused_before_spawn():
                 repr(raised),
             )
             check("no child process was spawned", api.proc is None)
-            started = time.monotonic()
-            api.stop()
-            elapsed = time.monotonic() - started
-            check(
-                "stop() after a refused start returns at once",
-                elapsed < 5,
-                f"{elapsed:.1f}s",
-            )
+
+            # Cleanup must not wait for the FOREIGN listener to release the port.
+            stub = without_waiting(api.stop)
+            check("stop() after a refused start does not wait", stub.called is False)
     finally:
         foreign.close()
 
@@ -376,40 +400,42 @@ def test_occupied_port_is_refused_before_spawn():
 def test_stop_after_a_lost_bind_race_does_not_wait():
     port = free_port()
     foreign = listening_socket(port)
-    bench.PORT_RELEASE_GRACE_S = 1
+    probes = []
+    original_port_open = bench.port_open
+    bench.PORT_RELEASE_GRACE_S = 0.3
     try:
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "bench.log"
             # Spawned child, but no bind announcement: it lost the race.
-            log_path.write_text("ERROR breakdown_api: Address already in use\n")
+            log_path.write_text("ERROR breakdown_api: Address already in use" + chr(10))
             api = api_process(port, log_path)
             api.proc = dead_child()
-            started = time.monotonic()
-            api.stop()
+            stub = without_waiting(api.stop)
             check(
-                "stop() after a lost bind race returns at once",
-                time.monotonic() - started < 1,
+                "stop() after a lost bind race does not wait",
+                stub.called is False,
             )
 
-            # A child that DID announce the port gets the kernel grace and then
-            # reports the foreign listener instead of waiting on it.
+            # A child that DID announce the port gets the kernel grace — it must
+            # actually probe the port (not return blindly) — and then reports the
+            # foreign listener instead of waiting on it.
             log_path.write_text(MARKER.format(port=port) + "\n")
             api = api_process(port, log_path)
             api.proc = dead_child()
-            started = time.monotonic()
-            api.stop()
-            elapsed = time.monotonic() - started
+            bench.port_open = lambda p: (probes.append(p), original_port_open(p))[1]
+            stub = without_waiting(api.stop)
             check(
-                "stop() gives the kernel a grace when the child owned the port",
-                elapsed >= 1,
-                f"{elapsed:.1f}s",
+                "stop() probes the port when the child owned it",
+                len(probes) >= 2,
+                f"{len(probes)} probe(s)",
             )
             check(
-                "stop() does not blame a foreign listener for the release",
-                elapsed < 5,
-                f"{elapsed:.1f}s",
+                "stop() still does not wait on a foreign listener",
+                stub.called is False,
             )
     finally:
+        bench.port_open = original_port_open
+        bench.PORT_RELEASE_GRACE_S = 5
         foreign.close()
 
 

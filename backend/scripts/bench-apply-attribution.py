@@ -602,6 +602,31 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[index]
 
 
+def discard_seeded_job(api: ApiProcess, job: str) -> None:
+    """Delete the seeded job — the last chance to remove its payload blobs.
+
+    The source and preview blobs live in the **shared** Garage bucket, while the
+    payload GC picks its candidates from *this* stack's `ai_import_job` rows.
+    Teardown destroys that database, so a job left behind takes its blobs with it:
+    nothing selects them afterwards, and the runbook's `DELETE /v1/ai-import/jobs/
+    {id}` cannot reach a row that no longer exists. Best effort and never fatal —
+    the stack teardown must still run.
+    """
+    try:
+        status, body = api.call("DELETE", f"/v1/ai-import/jobs/{job}")
+    except RuntimeError as error:
+        print(f"  ! seeded job left behind: {error}", flush=True)
+        return
+    if status == 404:
+        # Already gone (a retried teardown, or the payload GC got there first):
+        # nothing can leak from a row that does not exist.
+        return
+    if status != 204:
+        print(f"  ! seeded job left behind: {status} {body}", flush=True)
+        return
+    print("  seeded job + payloads deleted", flush=True)
+
+
 def measure(mode: str, args: argparse.Namespace) -> Measurement:
     stack = Stack(tag=mode, pg_port=args.pg_port, sierra_port=args.sierra_port)
     log_path = Path(args.log_dir) / f"bench-900-{mode}.log"
@@ -614,6 +639,9 @@ def measure(mode: str, args: argparse.Namespace) -> Measurement:
     )
     measurement = Measurement(mode=mode)
     print(f"\n=== {mode} (log: {log_path}) ===", flush=True)
+    # Set once the fixture seeded a job; the teardown below uses it to remove the
+    # payloads it stored before the throwaway database (and its rows) disappear.
+    job: str | None = None
     try:
         stack.up()
         api.start()
@@ -729,20 +757,31 @@ def measure(mode: str, args: argparse.Namespace) -> Measurement:
         time.sleep(2)
         fill_measurement(measurement, log_path)
     finally:
-        # Stack cleanup must run even when the API cleanup fails: a refused start
-        # (occupied port) or a stuck shutdown must never leave the throwaway
-        # containers behind.
+        # Payloads first, while the API and its database still exist; then the API;
+        # then the stack. Each step is nested so a failure cannot skip the next:
+        # a refused start (occupied port) or a stuck shutdown must never leave the
+        # throwaway containers behind, and a teardown failure must never leave the
+        # shared bucket's blobs behind either.
         try:
-            api.stop()
+            if job is not None:
+                discard_seeded_job(api, job)
         finally:
-            if args.keep:
-                print(
-                    f"  kept stack: {stack.pg_container}, {stack.sierra_container}",
-                    flush=True,
-                )
-            else:
-                stack.down()
+            _stop_api(api, stack, args)
     return measurement
+
+
+def _stop_api(api: ApiProcess, stack: Stack, args: argparse.Namespace) -> None:
+    """Stop the API and tear the stack down — neither may skip the other."""
+    try:
+        api.stop()
+    finally:
+        if args.keep:
+            print(
+                f"  kept stack: {stack.pg_container}, {stack.sierra_container}",
+                flush=True,
+            )
+        else:
+            stack.down()
 
 
 def retry_call(

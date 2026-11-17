@@ -1644,5 +1644,8 @@ regime (44 ms) is the append tail of ADR-016 §6 / #901, not this issue.
 compare runs of this script with each other — never the real 7-minute job from the issue
 against a synthetic second; one host, one Postgres, one SierraDB, single-node, so absolute
 wall times are machine facts, not product promises; and payload blobs land in the dev Garage
-bucket, so clean the seeded jobs afterwards (`DELETE /v1/ai-import/jobs/{id}` on the terminal
-rows, or let the payload GC collect them).
+bucket — the script deletes its seeded job (and with it the source/preview blobs) before it
+takes the throwaway database down, because the payload GC selects candidates from that very
+database and could never collect them afterwards. A run that dies before the teardown, or a
+job whose `DELETE` failed (the script says so), still needs the manual
+`DELETE /v1/ai-import/jobs/{id}` on the dev instance.
