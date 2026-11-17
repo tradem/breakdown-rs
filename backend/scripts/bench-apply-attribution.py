@@ -182,6 +182,10 @@ def wait_for(predicate, timeout: float, what: str) -> None:  # noqa: ANN001
 
 # --- the API under test ----------------------------------------------------
 
+# How long `ApiProcess.stop` waits for OUR port to be released after the child is
+# gone. Module-level so the startup-guard test can shorten it.
+PORT_RELEASE_TIMEOUT_S = 60
+
 
 class ApiProcess:
     def __init__(self, stack: Stack, mode: str, log_path: Path, base_url: str, port: int):
@@ -273,12 +277,22 @@ class ApiProcess:
         raw = self.log_path.read_text(errors="replace").splitlines()[-lines:]
         return "\n".join(ANSI.sub("", line) for line in raw)
 
-    def healthy(self) -> bool:
+    def assert_alive(self) -> None:
+        """The child still owns the port: a live process keeps its bound socket.
+
+        Ownership is not a one-off fact — if the child dies mid-run it releases
+        the port, and a stranger (a dev API, a second benchmark) can bind it
+        before the next request. Checked before **every** call so a write can
+        never reach a server this run did not start.
+        """
         if self.proc is not None and self.proc.poll() is not None:
             raise RuntimeError(
-                f"the API exited with code {self.proc.returncode} during boot; log tail:\n"
-                f"{self.log_tail()}"
+                f"the API exited with code {self.proc.returncode} "
+                f"(port :{self.port} is no longer ours); log tail:\n{self.log_tail()}"
             )
+
+    def healthy(self) -> bool:
+        self.assert_alive()
         try:
             with urllib.request.urlopen(f"{self.base_url}/v1/health", timeout=5) as resp:
                 body = json.loads(resp.read())
@@ -316,18 +330,24 @@ class ApiProcess:
                 self.proc.wait(timeout=10)
         if self.log_file:
             self.log_file.close()
-        if not started:
-            # Nothing of ours ever bound the port (e.g. `start()` refused an
-            # occupied one). Waiting here would block on the FOREIGN listener for
-            # the full timeout and hide the original error, so return at once.
+        if not started or not self.owns_endpoint():
+            # Nothing of OURS ever bound the port: `start()` refused an occupied
+            # one, or the child was spawned and LOST the bind race, so the
+            # listener on the port belongs to someone else. Waiting here would
+            # block on that stranger for the full timeout and hide the startup
+            # error, so return at once — the child's own bind announcement is the
+            # only thing that makes the wait meaningful.
             return
         wait_for(
             lambda: not port_open(self.port),
-            timeout=60,
+            timeout=PORT_RELEASE_TIMEOUT_S,
             what=f"port {self.port} to be released",
         )
 
     def call(self, method: str, path: str, body=None, block: str | None = None):  # noqa: ANN001
+        # Every mutation re-checks ownership: the boot gate proved the child owned
+        # the port, not that it still does.
+        self.assert_alive()
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(self.base_url + path, data=data, method=method)
         request.add_header("content-type", "application/json")

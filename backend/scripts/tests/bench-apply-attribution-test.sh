@@ -64,11 +64,17 @@ def free_port():
 
 
 def listening_socket(port):
-    """A foreign listener on `port` — the "a dev API is already there" case."""
+    """A foreign listener on `port` — the "a dev API is already there" case.
+
+    The backlog is deliberately deep: every `port_open` probe completes a
+    handshake into the accept queue and is never `accept()`ed, so a backlog of 1
+    stops accepting after the first probe and the port then reads as closed —
+    which would make the wait-for-release control assertion vacuous.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", port))
-    sock.listen(1)
+    sock.listen(128)
     return sock
 
 
@@ -80,6 +86,33 @@ def api_process(port, log_path):
         base_url=f"http://127.0.0.1:{port}",
         port=port,
     )
+
+
+class DeadChild:
+    """A spawned child that already exited (a lost bind race looks like this)."""
+
+    returncode = 1
+
+    def poll(self):
+        return 1
+
+    def wait(self, timeout=None):  # noqa: ARG002, ANN001
+        return 1
+
+    def send_signal(self, _sig):
+        pass
+
+    def kill(self):
+        pass
+
+
+def with_dead_child(api):
+    """Pretend `start()` spawned a child that then lost the bind race."""
+    api.proc = DeadChild()
+    return api
+
+
+MARKER = "\U0001f680 Breakdown RS listening on 127.0.0.1:{port}"
 
 
 def test_occupied_port_is_refused_before_spawn():
@@ -160,9 +193,71 @@ def test_readiness_requires_ownership():
         )
 
 
+def test_stop_after_a_lost_bind_race_does_not_wait():
+    port = free_port()
+    foreign = listening_socket(port)
+    bench.PORT_RELEASE_TIMEOUT_S = 3
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / "bench.log"
+            # The child was spawned but never bound: no bind announcement.
+            log_path.write_text("ERROR breakdown_api: Address already in use\n")
+            api = with_dead_child(api_process(port, log_path))
+            started = time.monotonic()
+            api.stop()
+            elapsed = time.monotonic() - started
+            check(
+                "stop() after a lost bind race returns at once",
+                elapsed < 2,
+                f"{elapsed:.1f}s",
+            )
+
+            # Control: when the child DID announce the port, stop() is the one
+            # that waits for the release — the guard above must not have disabled
+            # the wait outright.
+            log_path.write_text(MARKER.format(port=port) + "\n")
+            api = with_dead_child(api_process(port, log_path))
+            timed_out = None
+            try:
+                api.stop()
+            except RuntimeError as err:
+                timed_out = str(err)
+            check(
+                "stop() still waits when the child owned the port",
+                timed_out is not None and "timed out" in timed_out,
+                repr(timed_out),
+            )
+    finally:
+        foreign.close()
+
+
+def test_a_dead_child_blocks_further_requests():
+    port = free_port()
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = Path(tmp) / "bench.log"
+        # Ownership at boot time is not ownership now: the child exited, so the
+        # port may belong to a stranger by the next request.
+        log_path.write_text(
+            "INFO breakdown_api: booting\n" + MARKER.format(port=port) + "\n"
+        )
+        api = with_dead_child(api_process(port, log_path))
+        raised = None
+        try:
+            api.call("POST", "/v1/seasons", {"project_id": "x", "number": 1})
+        except RuntimeError as err:
+            raised = str(err)
+        check(
+            "a request after the child exited is refused, not sent",
+            raised is not None and "no longer ours" in raised,
+            repr(raised),
+        )
+
+
 print("bench-apply-attribution startup guards")
 test_occupied_port_is_refused_before_spawn()
 test_readiness_requires_ownership()
+test_stop_after_a_lost_bind_race_does_not_wait()
+test_a_dead_child_blocks_further_requests()
 
 if FAILURES:
     print(f"\n{len(FAILURES)} check(s) failed: {', '.join(FAILURES)}")
