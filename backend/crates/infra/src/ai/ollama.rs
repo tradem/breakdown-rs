@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 
-use super::client::{classify_http_status, classify_transport_error};
+use super::client::{classify_http_status_rich, classify_transport_error};
 use super::transport::ollama_redirect_policy;
 use super::user_agent::resolve_user_agent;
 use super::{CuratedLlmProvider, CuratedProviderUrls};
@@ -131,9 +131,12 @@ impl OllamaChatClient {
         // Issue #925: read the hint before the body is consumed. Ollama itself
         // enforces no API rate limit, but deployments front it with a gateway
         // that does — the hint is what a follow-up would honour.
-        log_hint("ollama_chat", &parse_retry_hint(response.headers(), status));
+        let hint = parse_retry_hint(response.headers(), status);
+        log_hint("ollama_chat", &hint);
         if !status.is_success() {
-            return Err(classify_http_status(status));
+            // A rate-limiting gateway in front of Ollama can send a hint; the
+            // self-hosted server itself cannot. Issue #926.
+            return Err(classify_http_status_rich(status, "", hint.wait));
         }
         let payload = response.json::<OllamaResponse>().await.map_err(|error| {
             DomainError::validation(format!("invalid Ollama response: {error}"))

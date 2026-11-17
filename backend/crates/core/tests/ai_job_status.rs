@@ -216,6 +216,7 @@ impl AiImportQueue for DefaultingQueue {
         error_summary: &str,
         _error_code: Option<&str>,
         retryable: bool,
+        _retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
         self.writes.lock().unwrap().push(Write::Failed {
             summary: error_summary.to_owned(),
@@ -292,6 +293,7 @@ impl AiImportQueue for FailingQueue {
         _error_summary: &str,
         _error_code: Option<&str>,
         _retryable: bool,
+        _retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
         Err(DomainError::conflict(format!(
             "worker {worker_id} no longer owns job {}",

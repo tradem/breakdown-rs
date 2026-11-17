@@ -175,6 +175,7 @@ impl AiImportQueue for RecordingQueue {
         _error_summary: &str,
         _error_code: Option<&str>,
         retryable: bool,
+        _retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError> {
         self.transitions
             .lock()

@@ -263,9 +263,12 @@ impl OpenAiCompatibleChatClient {
             // is consumed (`Response::json` moves the response). Nothing acts on
             // it yet — honouring `Retry-After` (and separating quota 429s) are
             // the follow-ups, and they change the scheduling, not this plumbing.
-            log_hint("hosted_chat", &parse_retry_hint(response.headers(), status));
+            let hint = parse_retry_hint(response.headers(), status);
+            log_hint("hosted_chat", &hint);
             if !status.is_success() {
-                return Err(classify_http_status(status));
+                // Issue #926: the hint travels in the error payload, so the retry
+                // scheduler upstream honours it without a second header read.
+                return Err(classify_http_status_rich(status, "", hint.wait));
             }
             let envelope = response
                 .json::<ChatCompletionResponse>()
@@ -774,6 +777,26 @@ pub fn classify_http_status(status: StatusCode) -> DomainError {
 /// `scoring_failed` row (the issue #767 class). The suffix is truncated because
 /// a provider error can echo the request; it carries no credential.
 pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> DomainError {
+    classify_http_status_rich(status, detail, None)
+}
+
+/// [`classify_http_status_with_detail`] **plus the response's retry hint**
+/// (issue #926).
+///
+/// The hint becomes (a) the `retry_after` payload field the schedulers read —
+/// in-attempt backoff floor, `next_attempt_at` floor, breaker probe schedule —
+/// and (b) part of the narrative, which is what the attempt row's
+/// `error_summary` shows. Both come from the one `retry_after` input, so the
+/// typed value and the text cannot disagree, and no presentation `format!` moves
+/// into `core` (ADR-031).
+///
+/// A hint never changes the classification: the variant, code, status and
+/// retryability are identical to the hint-less call.
+pub fn classify_http_status_rich(
+    status: StatusCode,
+    detail: &str,
+    retry_after: Option<Duration>,
+) -> DomainError {
     let suffix = {
         let trimmed = detail.trim();
         if trimmed.is_empty() {
@@ -791,9 +814,18 @@ pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> Dom
         // generic `domain.service-unavailable` is shared with the mapping DB,
         // the pricing read model and payload storage, so a client could not
         // name this dependency from the attempt's stable code.
-        RetryClass::Retryable => DomainError::llm_provider_unavailable(format!(
-            "LLM provider returned HTTP {status}{suffix}"
-        )),
+        RetryClass::Retryable => match retry_after {
+            Some(wait) => DomainError::llm_provider_unavailable_with_hint(
+                format!(
+                    "LLM provider returned HTTP {status} and asked to wait {}s{suffix}",
+                    wait.as_secs()
+                ),
+                Some(wait),
+            ),
+            None => DomainError::llm_provider_unavailable(format!(
+                "LLM provider returned HTTP {status}{suffix}"
+            )),
+        },
         RetryClass::Rejected => DomainError::validation(format!(
             "LLM provider rejected request with HTTP {status}{suffix}"
         )),

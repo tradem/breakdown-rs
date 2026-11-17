@@ -499,6 +499,7 @@ async fn script_worker_tick(
                     &error.to_string(),
                     Some(error.code().code),
                     error.is_retryable(),
+                    error.retry_after(),
                 )
                 .await?;
             return Ok(());
@@ -535,6 +536,7 @@ async fn script_worker_tick(
                         &error.to_string(),
                         Some(error.code().code),
                         error.is_retryable(),
+                        error.retry_after(),
                     )
                     .await?;
                 return Ok(());
@@ -578,6 +580,7 @@ async fn script_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
+                            error.retry_after(),
                         )
                         .await?;
                     return Ok(());
@@ -632,6 +635,7 @@ async fn script_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
+                            error.retry_after(),
                         )
                         .await?;
                     return Ok(());
@@ -749,6 +753,7 @@ async fn schedule_worker_tick(
                     &error.to_string(),
                     Some(error.code().code),
                     error.is_retryable(),
+                    error.retry_after(),
                 )
                 .await?;
             return Ok(());
@@ -785,6 +790,7 @@ async fn schedule_worker_tick(
                         &error.to_string(),
                         Some(error.code().code),
                         error.is_retryable(),
+                        error.retry_after(),
                     )
                     .await?;
                 return Ok(());
@@ -823,6 +829,7 @@ async fn schedule_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
+                            error.retry_after(),
                         )
                         .await?;
                     return Ok(());
@@ -873,6 +880,7 @@ async fn schedule_worker_tick(
                             &error.to_string(),
                             Some(error.code().code),
                             false,
+                            error.retry_after(),
                         )
                         .await?;
                     return Ok(());
@@ -984,6 +992,7 @@ async fn finalize_job_result<Q: AiImportQueue + ?Sized>(
                     &error.to_string(),
                     Some(error.code().code),
                     false,
+                    error.retry_after(),
                 )
                 .await
             {
@@ -1015,9 +1024,20 @@ mod tests {
 
     use super::finalize_job_result;
 
+    /// One `mark_failed` call as the fake observed it: the job, the narrative,
+    /// the stable code, whether it is retryable, and the provider's wait hint
+    /// (issue #926).
+    type RecordedFailure = (
+        AiImportJobId,
+        String,
+        Option<String>,
+        bool,
+        Option<std::time::Duration>,
+    );
+
     #[derive(Default)]
     struct RecordingState {
-        mark_failed_calls: Vec<(AiImportJobId, String, Option<String>, bool)>,
+        mark_failed_calls: Vec<RecordedFailure>,
         mark_failed_result: Option<DomainError>,
         released: Vec<AiImportJobId>,
     }
@@ -1070,18 +1090,20 @@ mod tests {
             error_summary: &str,
             error_code: Option<&str>,
             retryable: bool,
+            retry_after: Option<std::time::Duration>,
         ) -> Result<(), DomainError> {
             let mut state = self.state.lock().unwrap();
             if let Some(error) = state.mark_failed_result.take() {
                 return Err(error);
             }
-            // Record the code too: the worker-to-queue call is what the
-            // database test cannot cover (it supplies a literal code).
+            // Record the code AND the hint: the worker-to-queue call is what the
+            // database test cannot cover (it supplies literals).
             state.mark_failed_calls.push((
                 id,
                 error_summary.to_owned(),
                 error_code.map(str::to_owned),
                 retryable,
+                retry_after,
             ));
             Ok(())
         }
@@ -1131,7 +1153,7 @@ mod tests {
         assert!(result.is_ok(), "a terminalized job is not a loop failure");
         let state = queue.state.lock().unwrap();
         assert_eq!(state.mark_failed_calls.len(), 1);
-        let (failed_id, summary, code, retryable) = &state.mark_failed_calls[0];
+        let (failed_id, summary, code, retryable, hint) = &state.mark_failed_calls[0];
         assert_eq!(*failed_id, id);
         assert!(summary.contains("rejected API key"));
         assert_eq!(
@@ -1140,6 +1162,10 @@ mod tests {
             "the worker must forward the error's registry code"
         );
         assert!(!*retryable, "permanent errors must be non-retryable");
+        assert_eq!(
+            *hint, None,
+            "a permanent rejection carries no server hint (issue #926)"
+        );
     }
 
     /// Issue #222: a transient error stays on the retryable path — the error

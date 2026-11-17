@@ -390,6 +390,7 @@ mod apply_run_state_default {
             _error_summary: &str,
             _error_code: Option<&str>,
             _retryable: bool,
+            _retry_after: Option<std::time::Duration>,
         ) -> Result<(), DomainError> {
             Err(unsupported())
         }

@@ -253,6 +253,55 @@ fn cap_server_hint(wait: Duration) -> Duration {
     wait.min(MAX_SERVER_HINT)
 }
 
+/// Cap a server-asked wait at the **in-attempt** bound
+/// ([`breakdown_core::ai::MAX_IN_ATTEMPT_HINT_SECS`]).
+///
+/// A separate, much smaller bound than [`MAX_SERVER_HINT`] because this wait is
+/// slept while an `ai_import.concurrency_permit` is held: the clamp is the number
+/// `AiImportBounds::attempt_worst_case_secs` multiplies (issue #926).
+fn cap_in_attempt_hint(wait: Duration) -> Duration {
+    wait.min(Duration::from_secs(
+        breakdown_core::ai::MAX_IN_ATTEMPT_HINT_SECS,
+    ))
+}
+
+/// The wait before an **in-attempt** retry, with a server-requested wait as a
+/// floor (issue #926).
+///
+/// `planned` is what the site's own [`Backoff`] computed (jitter included). The
+/// server hint wins when it is larger, so a provider that says "wait 5 s" is not
+/// retried after the ~1 s the first attempt's doubling yields — and the hint is
+/// clamped to [`cap_in_attempt_hint`] so it can never turn one retry into an
+/// hours-long permit hold.
+///
+/// Pure and clock-free on purpose: the whole selection matrix (hint above,
+/// below, absent, exactly at the clamp, far beyond it) is asserted analytically
+/// instead of slept through (AGENTS.md §4).
+#[must_use]
+pub(crate) fn effective_in_attempt_delay(
+    planned: Duration,
+    hint_wait: Option<Duration>,
+) -> Duration {
+    match hint_wait {
+        Some(wait) => planned.max(cap_in_attempt_hint(wait)),
+        None => planned,
+    }
+}
+
+/// The server-requested wait carried by a failure, if it carried one.
+///
+/// The hint travels **inside** the error payload (`DomainError::ServiceUnavailable
+/// ::retry_after`), so a scheduler downstream of an `await` reads it here
+/// instead of parsing the narrative text. Every non-provider failure — the
+/// mapping DB, payload storage, the pricing read model, a validation rejection —
+/// yields `None` and therefore keeps its existing timing.
+#[must_use]
+pub(crate) fn retry_hint_of(error: &anyhow::Error) -> Option<Duration> {
+    error
+        .downcast_ref::<breakdown_core::error::DomainError>()
+        .and_then(breakdown_core::error::DomainError::retry_after)
+}
+
 /// Read one header as text; an unreadable value is `None` plus a debug line.
 fn header_str<'a>(headers: &'a HeaderMap, name: &'static str) -> Option<&'a str> {
     let value = headers.get(name)?;

@@ -84,7 +84,7 @@ async fn open_breaker(health: &PgProviderHealth, threshold: u32) -> DateTime<Utc
     let mut retry_at = None;
     for _ in 0..threshold {
         let decision = health
-            .record_failure(PROVIDER, MODEL, threshold)
+            .record_failure(PROVIDER, MODEL, threshold, None)
             .await
             .unwrap();
         retry_at = decision.retry_at;
@@ -632,8 +632,8 @@ async fn only_retryable_failures_count_and_a_permanent_one_never_opens() -> Resu
     assert_eq!(snapshot.consecutive_failures, 0);
 
     // Two retryable failures are still below the threshold of three.
-    health.record_failure(PROVIDER, MODEL, 3).await?;
-    let snapshot = health.record_failure(PROVIDER, MODEL, 3).await?;
+    health.record_failure(PROVIDER, MODEL, 3, None).await?;
+    let snapshot = health.record_failure(PROVIDER, MODEL, 3, None).await?;
     assert!(!snapshot.opened);
     assert_eq!(
         health.state(PROVIDER, MODEL).await?.state,
@@ -646,7 +646,7 @@ async fn only_retryable_failures_count_and_a_permanent_one_never_opens() -> Resu
     );
 
     // The third opens it.
-    let opened = health.record_failure(PROVIDER, MODEL, 3).await?;
+    let opened = health.record_failure(PROVIDER, MODEL, 3, None).await?;
     assert!(opened.opened);
     assert_eq!(
         health.state(PROVIDER, MODEL).await?.state,
@@ -666,14 +666,14 @@ async fn the_flap_rule_escalates_the_open_window() -> Result<()> {
     let health = PgProviderHealth::new(pool.clone());
 
     // First outage: no prior close, so flap_count stays 0 (a 60 s window).
-    let first = health.record_failure(PROVIDER, MODEL, 1).await?;
+    let first = health.record_failure(PROVIDER, MODEL, 1, None).await?;
     assert_eq!(first.flap_count, 0);
     let first_window = first.retry_at.expect("open") - Utc::now();
 
     // Close it, then fail again immediately: that is a flap, so the window
     // doubles.
     health.record_success(PROVIDER, MODEL).await?;
-    let second = health.record_failure(PROVIDER, MODEL, 1).await?;
+    let second = health.record_failure(PROVIDER, MODEL, 1, None).await?;
     assert_eq!(
         second.flap_count, 1,
         "a close followed by a quick failure flaps"

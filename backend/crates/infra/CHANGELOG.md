@@ -16,6 +16,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.82.0] - Unreleased
+
+### Changed — the provider's retry hint now drives four schedulers (issue #926)
+
+- `retry::effective_in_attempt_delay(planned, hint)` — pure and clock-free:
+  `max(planned, min(hint, MAX_IN_ATTEMPT_HINT_SECS))`, so a server-requested wait
+  is a **floor** on the in-attempt backoff (jitter stays on the computed delay)
+  and is clamped at 120 s, because that pause holds an
+  `ai_import.concurrency_permit`. `retry::retry_hint_of(&anyhow::Error)` reads
+  the hint back out of the error payload; `workers::retry_bounded` uses both.
+- `client::classify_http_status_rich(status, detail, retry_after)` is the
+  hint-aware classification: same variant, same registered code, same
+  retryability, plus the `retry_after` payload and a narrative that names the
+  rate limit. Every provider site (hosted chat, decision adapter, Ollama, pricing
+  catalog) now reads the hint from the headers **before** consuming the body and
+  attaches it there.
+- `PgAiImportQueue::mark_failed` takes the hint and sets
+  `next_attempt_at = now + GREATEST(ladder, LEAST(hint, 6 h))`. The `COALESCE` is
+  load-bearing: Postgres' `LEAST`/`GREATEST` ignore NULLs, so a bare `LEAST` on a
+  NULL hint would have produced the opposite of the intent.
+- `PgProviderHealth::record_failure` passes the hint into the pure state machine,
+  which is what defers the probe while a hint is unexpired — no schema change, the
+  `retry_at` column already carried the probe schedule.
+
 ## [0.79.0] - Unreleased
 
 ### Fixed — an inline `(OT)` marker outranks the cast section it stands in

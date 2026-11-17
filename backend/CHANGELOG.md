@@ -28,6 +28,23 @@ tag. Never edit a released entry afterwards.
 
 ### Added
 
+- **The AI import now obeys a provider's own rate-limit wait (issue #926).** Every hosted
+  provider answers a rate limit with `429` + `Retry-After` / `X-RateLimit-*`, and since
+  #925 the transport can *parse* those headers — nothing acted on them: `429` was flattened
+  into a generic retryable `ServiceUnavailable` and three schedulers guessed.
+  `DomainError::ServiceUnavailable` now carries `retry_after: Option<Duration>` (no new
+  variant, no new problem code — ADR-031), the classification attaches it together with the
+  narrative the attempt row persists ("… asked to wait Ns"), and four schedulers honour it
+  as a **minimum** delay: the in-attempt backoff (`retry_bounded`, clamped to the new
+  `MAX_IN_ATTEMPT_HINT_SECS` = 120 s because that pause holds a concurrency permit), the
+  job-level ladder (`mark_failed`, `next_attempt_at = max(1 min·2^retries, hint)`, clamped
+  to the ladder's 6 h cap and logged), the breaker's probe schedule (`retry_at` — which is
+  also a held job's `until`), and therefore the hold series. Nothing sleeps on the hint
+  inside the provider call: that would hold an `ai_import.concurrency_permit` for the hint's
+  whole duration, the anti-pattern #871 removed.
+  The analytic permit window of one attempt is recomputed for the hint-aware backoff:
+  **22 min** hosted / **28 min** Ollama (was 19/25 min, issue #871).
+
 - **An AI-import apply now reports its own append count and version conflicts (issue #900 M2).**
   M1 attributes the apply's Postgres time; this is the other missing number. A run's 552
   mapping rows imply ≈740 appends, and if the store sees far more, the cost is **duplicate

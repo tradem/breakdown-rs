@@ -514,6 +514,15 @@ pub trait AiImportQueue: Send + Sync {
         worker_id: &str,
         preview_handle: &str,
     ) -> Result<(), DomainError>;
+    /// Record one failed attempt and schedule the next one.
+    ///
+    /// `retry_after` is the wait the provider asked for (`Retry-After` /
+    /// `X-RateLimit-Reset`, issue #926), carried from the failure's payload. When
+    /// the job keeps its retry budget, the implementation uses it as a **floor**
+    /// on `next_attempt_at` (clamped: a provider claiming `Retry-After: 86400`
+    /// must not freeze the queue for a day) and leaves the ladder untouched when
+    /// it is `None`. A waiting job holds no concurrency permit, which is why this
+    /// wait may be minutes where the in-attempt one is capped at seconds.
     async fn mark_failed(
         &self,
         id: AiImportJobId,
@@ -521,6 +530,7 @@ pub trait AiImportQueue: Send + Sync {
         error_summary: &str,
         error_code: Option<&str>,
         retryable: bool,
+        retry_after: Option<std::time::Duration>,
     ) -> Result<(), DomainError>;
 
     /// Terminate the job as [`JobStatus::PayloadUnavailable`] (issue #181).
@@ -548,7 +558,7 @@ pub trait AiImportQueue: Send + Sync {
         error_summary: &str,
         error_code: Option<&str>,
     ) -> Result<(), DomainError> {
-        self.mark_failed(id, worker_id, error_summary, error_code, false)
+        self.mark_failed(id, worker_id, error_summary, error_code, false, None)
             .await
     }
 
@@ -1124,6 +1134,7 @@ pub trait AiImportQueue: Send + Sync {
         Err(DomainError::ServiceUnavailable {
             code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
             reason: "seed_succeeded is not implemented by this AI import queue adapter".to_owned(),
+            retry_after: None,
         })
     }
 
@@ -1243,6 +1254,7 @@ pub trait AiImportQueue: Send + Sync {
         Err(DomainError::ServiceUnavailable {
             code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
             reason: "this AI import queue adapter cannot attach a target block".to_owned(),
+            retry_after: None,
         })
     }
 }
@@ -1530,11 +1542,17 @@ pub trait ProviderHealth: Send + Sync {
     ///
     /// When the returned decision has `opened`, the caller materializes the
     /// holds through [`AiImportQueue::hold_runnable_jobs`].
+    ///
+    /// `retry_after` is the provider's own wait hint (issue #926). It extends the
+    /// resulting `retry_at` when it is longer than the open window, which defers
+    /// the probe — and, because `ProviderHold::until` is that same instant, the
+    /// hold too — instead of re-discovering the same `429` immediately.
     async fn record_failure(
         &self,
         provider: LlmProvider,
         model: &str,
         threshold: u32,
+        retry_after: Option<std::time::Duration>,
     ) -> Result<BreakerDecision, DomainError>;
 
     /// Record that the endpoint answered a **paid call**: reset the failure

@@ -292,7 +292,14 @@ async fn gc_spares_a_retryable_failed_job_and_sweeps_terminal_ones() -> Result<(
     let retryable = seed_job(&queue, "gc-retryable", DocumentKind::Script).await;
     queue.claim_next("worker-a").await?.expect("claimable");
     queue
-        .mark_failed(retryable, "worker-a", "transient provider 503", None, true)
+        .mark_failed(
+            retryable,
+            "worker-a",
+            "transient provider 503",
+            None,
+            true,
+            None,
+        )
         .await?;
     assert_eq!(read_status(&pool, retryable).await, "failed");
 
@@ -422,7 +429,7 @@ async fn gc_sweeps_a_dead_lettered_job() -> Result<()> {
     // A non-retryable failure dead-letters immediately, regardless of the
     // remaining budget.
     queue
-        .mark_failed(id, "worker-a", "malformed document", None, false)
+        .mark_failed(id, "worker-a", "malformed document", None, false, None)
         .await?;
     assert_eq!(read_status(&pool, id).await, "dead_letter");
 

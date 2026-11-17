@@ -184,7 +184,7 @@ async fn retry_claim_resets_stale_progress() -> Result<()> {
 
     // Retryable failure: attempt 1 leaves stale progress behind.
     queue
-        .mark_failed(id, "worker-1", "boom", Some("dependency.test"), true)
+        .mark_failed(id, "worker-1", "boom", Some("dependency.test"), true, None)
         .await?;
     let failed = queue.get(id).await?.expect("job exists");
     assert_eq!(failed.status, JobStatus::Failed);
@@ -950,7 +950,14 @@ async fn dead_lettering_mark_failed_clears_progress() -> Result<()> {
     // A non-retryable failure is terminal by construction: no waiting for the
     // retry budget to run out.
     queue
-        .mark_failed(id, "worker-1", "hopeless", Some("dependency.test"), false)
+        .mark_failed(
+            id,
+            "worker-1",
+            "hopeless",
+            Some("dependency.test"),
+            false,
+            None,
+        )
         .await?;
 
     let job = queue.get(id).await?.expect("job exists");
@@ -990,7 +997,14 @@ async fn budget_exhaustion_clears_progress() -> Result<()> {
             )
             .await?;
         queue
-            .mark_failed(id, "worker-1", "transient", Some("dependency.test"), true)
+            .mark_failed(
+                id,
+                "worker-1",
+                "transient",
+                Some("dependency.test"),
+                true,
+                None,
+            )
             .await?;
         status = queue.get(id).await?.expect("job exists").status;
         if status == JobStatus::Failed {
@@ -1074,7 +1088,14 @@ async fn retryable_mark_failed_keeps_progress() -> Result<()> {
         )
         .await?;
     queue
-        .mark_failed(id, "worker-1", "transient", Some("dependency.test"), true)
+        .mark_failed(
+            id,
+            "worker-1",
+            "transient",
+            Some("dependency.test"),
+            true,
+            None,
+        )
         .await?;
 
     let job = queue.get(id).await?.expect("job exists");

@@ -9,8 +9,9 @@
 use chrono::{Duration, TimeZone, Utc};
 
 use super::{
-    BASE_OPEN_SECS, BreakerCounters, MAX_OPEN_SECS, STABLE_WINDOW_SECS, flap_count_on_open,
-    min_open, on_probe_failure, on_probe_success, on_retryable_failure, on_success,
+    BASE_OPEN_SECS, BreakerCounters, MAX_OPEN_SECS, MAX_PROBE_DEFER_SECS, STABLE_WINDOW_SECS,
+    flap_count_on_open, min_open, on_probe_failure, on_probe_success, on_retryable_failure,
+    on_success,
 };
 use crate::ai::views::ProviderBreakerState;
 
@@ -44,13 +45,13 @@ fn min_open_escalates_geometrically_and_caps() {
 
 #[test]
 fn failure_below_threshold_only_counts() {
-    let decision = on_retryable_failure(closed(0, 0), 3, now());
+    let decision = on_retryable_failure(closed(0, 0), 3, now(), None);
     assert_eq!(decision.state, ProviderBreakerState::Closed);
     assert_eq!(decision.consecutive_failures, 1);
     assert!(!decision.opened);
     assert_eq!(decision.retry_at, None);
 
-    let decision = on_retryable_failure(closed(1, 0), 3, now());
+    let decision = on_retryable_failure(closed(1, 0), 3, now(), None);
     assert_eq!(decision.state, ProviderBreakerState::Closed);
     assert_eq!(decision.consecutive_failures, 2);
     assert!(!decision.opened);
@@ -58,7 +59,7 @@ fn failure_below_threshold_only_counts() {
 
 #[test]
 fn nth_consecutive_failure_opens() {
-    let decision = on_retryable_failure(closed(2, 0), 3, now());
+    let decision = on_retryable_failure(closed(2, 0), 3, now(), None);
     assert_eq!(decision.state, ProviderBreakerState::Open);
     assert_eq!(decision.consecutive_failures, 3);
     assert!(decision.opened);
@@ -71,7 +72,7 @@ fn nth_consecutive_failure_opens() {
 
 #[test]
 fn threshold_one_opens_on_the_first_failure() {
-    let decision = on_retryable_failure(closed(0, 0), 1, now());
+    let decision = on_retryable_failure(closed(0, 0), 1, now(), None);
     assert_eq!(decision.state, ProviderBreakerState::Open);
     assert!(decision.opened);
 }
@@ -86,7 +87,7 @@ fn failure_while_open_does_not_flap() {
         flap_count: 2,
         closed_at: Some(now() - Duration::seconds(1)),
     };
-    let decision = on_retryable_failure(counters, 3, now());
+    let decision = on_retryable_failure(counters, 3, now(), None);
     assert_eq!(decision.state, ProviderBreakerState::Open);
     assert_eq!(decision.flap_count, 2);
     assert!(!decision.opened);
@@ -193,7 +194,7 @@ fn flapping_provider_settles_at_the_cap() {
     let mut windows = Vec::new();
     for _ in 0..8 {
         // Open it.
-        let opened = on_retryable_failure(counters, 1, now());
+        let opened = on_retryable_failure(counters, 1, now(), None);
         assert_eq!(opened.state, ProviderBreakerState::Open);
         windows.push((opened.retry_at.unwrap_or_default() - now()).num_seconds());
         // The probe answers: closes, keeping the flap count.
@@ -218,4 +219,88 @@ fn flapping_provider_settles_at_the_cap() {
         "{windows:?}"
     );
     assert_eq!(windows.last().copied(), Some(MAX_OPEN_SECS));
+}
+
+// ---------------------------------------------------------------------------
+// Hint-aware probe schedule (issue #926)
+// ---------------------------------------------------------------------------
+
+/// A hint's `Duration` in the `std` clock domain the state machine takes.
+fn wait(secs: u64) -> std::time::Duration {
+    std::time::Duration::from_secs(secs)
+}
+
+#[test]
+fn a_hint_longer_than_the_open_window_defers_the_probe() {
+    // `BASE_OPEN_SECS` is 60 s; the provider asked for 10 min. Probing after one
+    // window is exactly the "rediscover the 429" waste #926 removes.
+    let decision = on_retryable_failure(closed(2, 0), 3, now(), Some(wait(600)));
+    assert!(decision.opened);
+    assert_eq!(decision.retry_at, Some(now() + Duration::seconds(600)));
+}
+
+#[test]
+fn a_hint_shorter_than_the_open_window_is_ignored() {
+    // The hint is a floor, not a target: a provider asking for 5 s must not
+    // shorten the breaker's own cooling window.
+    let decision = on_retryable_failure(closed(2, 0), 3, now(), Some(wait(5)));
+    assert_eq!(
+        decision.retry_at,
+        Some(now() + Duration::seconds(BASE_OPEN_SECS))
+    );
+}
+
+#[test]
+fn a_hint_is_capped_at_the_maximum_open_window() {
+    // A remote party must not order an unbounded deferral: `Retry-After: 86400`
+    // defers the probe by the breaker's own maximum window, not by a day.
+    let decision = on_retryable_failure(closed(2, 0), 3, now(), Some(wait(86_400)));
+    assert_eq!(
+        decision.retry_at,
+        Some(now() + Duration::seconds(MAX_OPEN_SECS))
+    );
+    assert_eq!(MAX_PROBE_DEFER_SECS, MAX_OPEN_SECS as u64);
+}
+
+#[test]
+fn no_hint_keeps_the_pre_926_probe_time() {
+    // Byte-compatibility for every hint-less 429 and every non-provider failure:
+    // a `closed -> open` with no `closed_at` resets `flap_count`, so the probe
+    // time is the plain first window.
+    let decision = on_retryable_failure(closed(2, 3), 3, now(), None);
+    assert_eq!(
+        decision.flap_count, 0,
+        "a new incident resets the flap count"
+    );
+    assert_eq!(decision.retry_at, Some(now() + min_open(0)));
+}
+
+#[test]
+fn a_hint_extends_the_probe_time_while_the_breaker_is_open() {
+    // The already-open branch re-arms the window on every failure; the hint must
+    // extend THAT branch too, otherwise a retried chunk shortens the deferral the
+    // first failure asked for.
+    let counters = BreakerCounters {
+        state: ProviderBreakerState::Open,
+        consecutive_failures: 4,
+        flap_count: 1,
+        closed_at: None,
+    };
+    let decision = on_retryable_failure(counters, 3, now(), Some(wait(900)));
+    assert!(!decision.opened);
+    assert_eq!(decision.retry_at, Some(now() + Duration::seconds(900)));
+}
+
+#[test]
+fn an_unexpired_hint_is_not_selected_by_the_probe_predicate() {
+    // The probe (and the watch sweeper) select `state <> 'closed' AND retry_at <=
+    // now()`. Asserting the ordering property here is what keeps a hint-unexpired
+    // pair out of that set without a database round-trip.
+    let decision = on_retryable_failure(closed(2, 0), 3, now(), Some(wait(600)));
+    let retry_at = decision.retry_at.unwrap_or_else(now);
+    assert!(
+        retry_at > now(),
+        "a hint-deferred probe must not look due at the instant it was scheduled"
+    );
+    assert!(retry_at > now() + Duration::seconds(BASE_OPEN_SECS));
 }

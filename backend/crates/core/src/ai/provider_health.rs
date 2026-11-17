@@ -37,6 +37,21 @@ pub const MAX_OPEN_SECS: i64 = 30 * 60;
 /// must not be inherited by the next, unrelated incident.
 pub const STABLE_WINDOW_SECS: i64 = 10 * 60;
 
+/// The longest deferral a provider's own wait hint may impose on the **probe
+/// schedule** (issue #926).
+///
+/// Reuses [`MAX_OPEN_SECS`] rather than declaring a new knob: the probe schedule
+/// already refuses to back off further than its maximum open window, so a
+/// `Retry-After: 86400` must not defer a probe past the point where the breaker
+/// itself would have given up on the geometric escalation. Deliberately **not**
+/// `MAX_IN_ATTEMPT_HINT_SECS` — a probe holds no concurrency permit, so the
+/// permit-driven clamp would make the hint nearly pointless here.
+pub const MAX_PROBE_DEFER_SECS: u64 = MAX_OPEN_SECS as u64;
+
+/// [`MAX_PROBE_DEFER_SECS`] as a `std::time::Duration`, so the comparison does
+/// not leave the `std` clock domain.
+const MAX_PROBE_DEFER: std::time::Duration = std::time::Duration::from_secs(MAX_PROBE_DEFER_SECS);
+
 /// The open window after `flap_count` consecutive flaps:
 /// `min(BASE_OPEN · 2^n, MAX_OPEN)`.
 ///
@@ -78,7 +93,15 @@ pub fn flap_count_on_open(
 pub enum ProviderOutcome {
     /// A retryable provider failure (`domain.service-unavailable` with the
     /// provider code `ai-import.llm-provider-unavailable`).
-    RetryableFailure,
+    ///
+    /// `retry_after` is the wait the provider itself asked for (`Retry-After` /
+    /// `X-RateLimit-Reset`, issue #926), carried **by value** from the HTTP
+    /// response through the error payload. It extends the breaker's `retry_at`
+    /// — which is both the probe schedule and a held job's `until` — so a known
+    /// rate-limit window is respected instead of re-discovered by a probe.
+    RetryableFailure {
+        retry_after: Option<std::time::Duration>,
+    },
     /// A permanent failure — never counted, never opens the breaker.
     PermanentFailure,
     /// A paid call or a probe answered.
@@ -129,11 +152,19 @@ impl BreakerDecision {
 /// `threshold`; the caller then only bumps the counter. Once it reaches the
 /// threshold the breaker opens, the flap rule escalates the open window, and
 /// the caller materializes the holds.
+///
+/// `retry_after` is the provider's own hint (issue #926). It **extends** the
+/// probe time when it is longer than the open window, so a provider that says
+/// "wait 10 min" is not probed after the first 60 s window — and, because the
+/// same instant becomes a held job's `until`, the hold honours it too. The hint
+/// is clamped to [`MAX_OPEN_SECS`]: a probe is never deferred longer than the
+/// breaker's own maximum open window, whatever a remote party claims.
 #[must_use]
 pub fn on_retryable_failure(
     counters: BreakerCounters,
     threshold: u32,
     now: DateTime<Utc>,
+    retry_after: Option<std::time::Duration>,
 ) -> BreakerDecision {
     // A failure while already open or half-open is the same outage still
     // failing to clear: no flap increment (that belongs to `closed → open`),
@@ -144,7 +175,7 @@ pub fn on_retryable_failure(
             state: ProviderBreakerState::Open,
             consecutive_failures: counters.consecutive_failures.saturating_add(1),
             flap_count,
-            retry_at: Some(now + min_open(flap_count)),
+            retry_at: Some(probe_at(now, flap_count, retry_after)),
             opened: false,
             closed: false,
         };
@@ -167,10 +198,36 @@ pub fn on_retryable_failure(
         state: ProviderBreakerState::Open,
         consecutive_failures,
         flap_count,
-        retry_at: Some(now + min_open(flap_count)),
+        retry_at: Some(probe_at(now, flap_count, retry_after)),
         opened: true,
         closed: false,
     }
+}
+
+/// When the next probe may run: the later of the open window and the provider's
+/// own (clamped) wait hint (issue #926).
+///
+/// One instant serves three consumers on purpose — the probe selector
+/// (`state <> 'closed' AND retry_at <= now()`), [`BreakerDecision::retry_at`]
+/// and a held job's `ProviderHold::until` — so "the provider asked us to wait"
+/// is expressed once and inherited everywhere instead of being re-derived per
+/// consumer.
+fn probe_at(
+    now: DateTime<Utc>,
+    flap_count: u32,
+    retry_after: Option<std::time::Duration>,
+) -> DateTime<Utc> {
+    let window_end = now + min_open(flap_count);
+    let Some(hint) = retry_after else {
+        return window_end;
+    };
+    // A remote party must not be able to order an unbounded deferral, so the
+    // hint is capped at the breaker's own maximum open window. `from_std` cannot
+    // fail for a value we just clamped to 30 minutes; the fallback keeps the
+    // "no panics" rule absolute anyway.
+    let capped = hint.min(MAX_PROBE_DEFER);
+    let hint_end = Duration::from_std(capped).map_or(window_end, |wait| now + wait);
+    window_end.max(hint_end)
 }
 
 /// A successful **paid call** (`half_open → closed`, or a reset while closed).

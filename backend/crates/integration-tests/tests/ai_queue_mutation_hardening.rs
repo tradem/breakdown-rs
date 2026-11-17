@@ -260,7 +260,7 @@ async fn mark_failed_sets_failed_status_and_increments_retries() -> Result<()> {
     assert_eq!(job.retries, 0);
 
     queue
-        .mark_failed(job.id, "worker-1", "something went wrong", None, true)
+        .mark_failed(job.id, "worker-1", "something went wrong", None, true, None)
         .await?;
 
     let job = queue.get(id).await?.expect("job should exist");
@@ -291,6 +291,8 @@ async fn mark_failed_persists_the_attempt_error_code() -> Result<()> {
             "dependency authentication failed: invalid token",
             Some("dependency.auth-failed"),
             false,
+            // A permanent rejection carries no hint, so the ladder is unchanged.
+            None,
         )
         .await?;
 
@@ -306,6 +308,83 @@ async fn mark_failed_persists_the_attempt_error_code() -> Result<()> {
         attempt.error_summary.as_deref(),
         Some("dependency authentication failed: invalid token")
     );
+
+    Ok(())
+}
+
+/// How long until the job row may be retried, in whole seconds.
+///
+/// Read as a SQL difference against `now()` rather than compared to a Rust
+/// clock: the value is produced by SQL (`now() + …`), so reading it back in the
+/// same domain is what makes the assertion about the statement and not about how
+/// long the test took.
+async fn seconds_until_retry(pool: &sqlx::PgPool, id: AiImportJobId) -> Result<i64> {
+    let secs: Option<i64> = sqlx::query_scalar(
+        r#"
+        SELECT floor(EXTRACT(EPOCH FROM (next_attempt_at - now())))::bigint
+        FROM ai_import.ai_import_job
+        WHERE id = $1
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_one(pool)
+    .await?;
+    Ok(secs.unwrap_or(0))
+}
+
+/// Issue #926: a provider-requested wait is a FLOOR on the job-level ladder, and
+/// it is clamped so a provider cannot freeze the queue.
+///
+/// Three points, all analytic (no sleeping): below the ladder, between ladder and
+/// ceiling, and beyond the ceiling.
+#[tokio::test]
+async fn mark_failed_uses_the_provider_hint_as_a_floor_on_the_ladder() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+
+    // The ladder for the first retry is exactly `1 min * 2^0` = 60 s.
+    for (hint, expected, why) in [
+        (
+            Some(Duration::from_secs(1)),
+            60_i64,
+            "a hint below the ladder is ignored",
+        ),
+        (None, 60, "no hint keeps the pre-#926 ladder unchanged"),
+        (
+            Some(Duration::from_secs(600)),
+            600,
+            "a hint above the ladder becomes the wait",
+        ),
+        (
+            Some(Duration::from_secs(86_400)),
+            6 * 60 * 60,
+            "a 24 h hint is clamped to the ladder's own 6 h ceiling",
+        ),
+    ] {
+        let queue = PgAiImportQueue::new(pool.clone());
+        let request = make_enqueue_request("user-1", DocumentKind::Script);
+        let id = request.id;
+        queue.enqueue(request).await?;
+        queue.claim_next("worker-1").await?.expect("should claim");
+
+        queue
+            .mark_failed(
+                id,
+                "worker-1",
+                "service unavailable: LLM provider returned HTTP 429 Too Many Requests",
+                Some("ai-import.llm-provider-unavailable"),
+                true,
+                hint,
+            )
+            .await?;
+
+        let actual = seconds_until_retry(&pool, id).await?;
+        // One second of slack under the target: the statement's `now()` is
+        // strictly earlier than the read's, so the remainder can only be shorter.
+        assert!(
+            (expected - 2..=expected).contains(&actual),
+            "{why}: expected ~{expected}s until the retry, got {actual}s"
+        );
+    }
 
     Ok(())
 }
@@ -502,7 +581,7 @@ async fn a_reclaimed_attempt_never_inherits_the_previous_decision_outcome() -> R
         )
         .await?;
     queue
-        .mark_failed(job.id, "worker-2", "boom", None, false)
+        .mark_failed(job.id, "worker-2", "boom", None, false, None)
         .await?;
     let failed = queue.get(job.id).await?.expect("job row is readable");
     assert!(failed.decision_telemetry.is_none());
@@ -564,7 +643,7 @@ async fn owner_fenced_operations_fail_for_wrong_worker() -> Result<()> {
     assert!(result.is_err(), "wrong worker should fail mark_succeeded");
 
     let result = queue
-        .mark_failed(job.id, "worker-2", "error", None, true)
+        .mark_failed(job.id, "worker-2", "error", None, true, None)
         .await;
     assert!(result.is_err(), "wrong worker should fail mark_failed");
 

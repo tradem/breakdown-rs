@@ -376,6 +376,8 @@ async fn the_jobs_list_carries_the_attempt_codes() -> Result<()> {
                 "service unavailable: LLM provider returned HTTP 503 Service Unavailable",
                 Some("ai-import.llm-provider-unavailable"),
                 true,
+                // No `Retry-After` in this fixture: the ladder is used unchanged.
+                None,
             )
             .await?;
         sqlx::query("UPDATE ai_import.ai_import_job SET next_attempt_at = now() WHERE id = $1")
@@ -406,6 +408,8 @@ async fn the_jobs_list_carries_the_attempt_codes() -> Result<()> {
             "service unavailable: AI mapping database error",
             Some("domain.service-unavailable"),
             true,
+            // A mapping-DB failure has no server hint by construction.
+            None,
         )
         .await?;
 

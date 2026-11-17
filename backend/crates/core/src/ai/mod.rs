@@ -34,7 +34,8 @@ pub use apply_run::{
     ScriptApplyRunRequest,
 };
 pub use bounds::{
-    AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, OLLAMA_INNER_RETRIES,
+    AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, MAX_IN_ATTEMPT_HINT_SECS,
+    OLLAMA_INNER_RETRIES,
 };
 pub use commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
 pub use continuity::{

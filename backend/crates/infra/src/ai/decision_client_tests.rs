@@ -1189,6 +1189,59 @@ async fn a_rate_limited_answer_keeps_its_pre_925_error_and_costs_one_request() {
     // hint must not have introduced a second one. `expect(1)` above asserts it.
 }
 
+/// Issue #926: a `429` that carries `Retry-After` reaches the caller with the
+/// wait attached, and the narrative names the rate limit.
+///
+/// This is the one provider adapter whose endpoint is injectable, so it is the
+/// only place a mock can sit in front of the REAL header parser and the REAL
+/// classification. The hosted chat and Ollama clients pin curated origins
+/// (issue #170), so their half of the chain is covered by
+/// `classify_http_status_rich` + `parse_retry_hint` directly.
+#[tokio::test]
+async fn a_rate_limited_adapter_hands_the_wait_to_its_caller() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(429)
+                .insert_header("retry-after", "5")
+                .set_body_string("{\"error\":\"slow down\"}"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut client = HttpDecisionClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "k".into(),
+        Duration::from_secs(5),
+    )
+    .expect("a decision-capable provider builds a client");
+    client.endpoint = server.uri();
+
+    let error = client
+        .decide(request(LlmProvider::Neuralwatt, "clef-flash"))
+        .await
+        .expect_err("a 429 is a failure, hint or not");
+
+    assert_eq!(
+        error.retry_after(),
+        Some(Duration::from_secs(5)),
+        "the header must survive as typed scheduling data, not only as log text"
+    );
+    assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
+    assert!(
+        error.is_retryable(),
+        "a 429 stays retryable (non-goal: quota split)"
+    );
+    let narrative = error.to_string();
+    assert!(
+        narrative.contains("wait 5s"),
+        "the persisted narrative must name the wait: {narrative}"
+    );
+    // The adapter itself still does not retry: scheduling belongs to the worker.
+    // `expect(1)` on the mock asserts that.
+}
+
 /// Issue #925: a headless provider that sends the hint headers on a SUCCESS
 /// must still be decoded — a bad or unexpected header never fails a request
 /// that otherwise succeeded.

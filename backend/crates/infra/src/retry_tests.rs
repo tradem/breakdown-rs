@@ -13,8 +13,9 @@ use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, HeaderValue};
 
 use super::{
-    Backoff, MAX_SERVER_HINT, RetryClass, RetryHint, parse_limit_remaining, parse_limit_reset,
-    parse_retry_after, parse_retry_hint, parse_retry_hint_at,
+    Backoff, MAX_SERVER_HINT, RetryClass, RetryHint, effective_in_attempt_delay,
+    parse_limit_remaining, parse_limit_reset, parse_retry_after, parse_retry_hint,
+    parse_retry_hint_at,
 };
 
 /// The fixed reference clock every relative-header test parses against.
@@ -391,4 +392,88 @@ fn a_beyond_ceiling_attempt_is_finite_in_both_formulas() {
     ] {
         assert!(policy.delay(usize::MAX) <= Duration::from_secs(30));
     }
+}
+
+// ---------------------------------------------------------------------------
+// The in-attempt hint floor (issue #926)
+// ---------------------------------------------------------------------------
+
+/// The clamp the scheduling tests refer to, read from the single declaration in
+/// `core` rather than re-typed here.
+fn hint_clamp() -> Duration {
+    Duration::from_secs(breakdown_core::ai::MAX_IN_ATTEMPT_HINT_SECS)
+}
+
+#[test]
+fn a_hint_larger_than_the_computed_backoff_wins() {
+    // The motivating case: attempt 1 of the equal-jitter policy is ~1 s, and the
+    // provider asked for 5 s. Retrying after 1 s is what the pre-#926 build did.
+    let planned = Duration::from_millis(1_000);
+    assert_eq!(
+        effective_in_attempt_delay(planned, Some(Duration::from_secs(5))),
+        Duration::from_secs(5)
+    );
+}
+
+#[test]
+fn a_hint_smaller_than_the_computed_backoff_is_ignored() {
+    // The hint is a floor, not a target: a provider asking for 200 ms must not
+    // shorten a backoff the worker already decided on.
+    let planned = Duration::from_secs(8);
+    assert_eq!(
+        effective_in_attempt_delay(planned, Some(Duration::from_millis(200))),
+        planned
+    );
+}
+
+#[test]
+fn an_absent_hint_leaves_the_computed_backoff_untouched() {
+    // This is the byte-compatibility guarantee for every non-provider failure
+    // and every hint-less 429: the delay is exactly what `Backoff` returned.
+    let planned = Duration::from_millis(2_500);
+    assert_eq!(effective_in_attempt_delay(planned, None), planned);
+}
+
+#[test]
+fn a_hint_at_the_clamp_boundary_is_exactly_the_clamp() {
+    let planned = Duration::from_millis(1_000);
+    assert_eq!(
+        effective_in_attempt_delay(planned, Some(hint_clamp())),
+        hint_clamp()
+    );
+}
+
+#[test]
+fn a_hint_beyond_the_clamp_is_capped_at_the_clamp() {
+    // `Retry-After: 3600` must not hold a concurrency permit for an hour. The
+    // clamp is the number `attempt_worst_case_secs` multiplies, so this assertion
+    // is what keeps the documented 22/28 min honest.
+    let planned = Duration::from_millis(1_000);
+    assert_eq!(
+        effective_in_attempt_delay(planned, Some(Duration::from_secs(3_600))),
+        hint_clamp()
+    );
+    assert_eq!(
+        effective_in_attempt_delay(planned, Some(Duration::from_secs(86_400))),
+        hint_clamp()
+    );
+}
+
+#[test]
+fn a_clamped_hint_still_loses_to_a_larger_computed_backoff() {
+    // The clamp is applied to the hint BEFORE the maximum is taken, so a planned
+    // backoff above the clamp is never shortened by clamping the hint.
+    let planned = hint_clamp() + Duration::from_secs(10);
+    assert_eq!(
+        effective_in_attempt_delay(planned, Some(Duration::from_secs(3_600))),
+        planned
+    );
+}
+
+#[test]
+fn the_in_attempt_clamp_is_the_constant_from_core() {
+    // One declaration: `core::ai::MAX_IN_ATTEMPT_HINT_SECS` is what both the
+    // scheduler and the permit bound read, so retuning it cannot leave the
+    // documented worst case describing a different number.
+    assert_eq!(hint_clamp(), Duration::from_secs(120));
 }
