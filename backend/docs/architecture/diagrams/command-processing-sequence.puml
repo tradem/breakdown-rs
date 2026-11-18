@@ -2,46 +2,89 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Runtime view: how a command flows through the event-sourced write path.
+' Runtime view: end-to-end CQRS command, reservation claim, and lag sync.
 
 skinparam shadowing false
 skinparam sequenceArrowThickness 2
 
-participant "User /\nFrontend" as user
-participant "Axum\nHandler" as api
-participant "CommandService\n(kameo_es)" as svc
+participant "Flutter Client\n(Riverpod)" as client
+participant "Middleware\n(Auth + AuthZ)" as mw
+participant "Axum Handler\n(/v1/...)" as api
+participant "Command Adapter\n(kameo_es)" as svc
 participant "Aggregate\nActor" as agg
-database "SierraDB" as es
-participant "Projector" as proj
+database "SierraDB\n(Event Store)" as es
+participant "Projector\n(PostgresProcessor)" as proj
 database "PostgreSQL\n(Projection)" as db
 
-user -> api : POST /api/...\n(JSON Command)
+client -> mw : POST /v1/... (JSON command)
+activate mw
+mw -> db : check OIDC JWT + BlockMember policy
+db --> mw : allowed
+mw -> api : forward authenticated request
 activate api
-api -> svc : dispatch(command)\n(enriched with auth/audit ctx)
+api -> db : load command context + optional 409 pre-check
+db --> api : context (no projection conflict)
+api -> svc : execute(command)
 activate svc
-svc -> agg : execute(command, state)
-activate agg
-agg -> agg : validate invariants
-agg --> svc : Ok(Event(s))
-deactivate agg
-svc -> es : appendToStream(events, expectedVersion)
-activate es
-es --> svc : newStreamVersion
-deactivate es
-svc --> api : Reply (entity id / version)
-deactivate svc
-api --> user : 2xx + Location / DTO
-deactivate api
 
-es ->> proj : (async) subscription push
-activate proj
-proj -> db : UPSERT projection\n(idempotent, version-guarded)
-deactivate proj
+opt Global uniqueness invariant (ADR-036)
+  svc -> es : append Reserved (ExpectedVersion::Empty)
+  alt Fresh stream claimed
+    es --> svc : claimed
+  else WrongVer (stream exists)
+    svc -> es : read latest reservation stream state
+    alt Foreign reserved or consumed claim (or retries exhausted)
+      es --> svc : Conflict
+      svc --> api : Err(Conflict)
+      api --> mw : 409 (problem+json, no aggregate event)
+      mw --> client : 409 Conflict
+    else Released claim or owned by same aggregate
+      svc -> es : CAS re-claim (ExpectedVersion::Exact(last_ver))\nor reuse own claim
+      es --> svc : claimed
+    end
+  end
+end
 
-note over agg, es
-  Events are the single source of truth.
-  State is rebuilt by replaying events.
-end note
+group When reservation succeeds (or is not needed)
+  svc -> agg : handle(command)
+  activate agg
+  agg -> agg : check domain invariants
+  agg --> svc : Ok(Vec<Event>)
+  deactivate agg
+
+  svc -> es : append events (expected version)
+  activate es
+  es --> svc : ack_version
+  deactivate es
+  svc --> api : Ok((id, ack_version))
+  deactivate svc
+  api --> mw : 201 Created / 200 OK { id, ack_version }
+  deactivate api
+  mw --> client : 2xx { id, ack_version }
+  deactivate mw
+
+  client -> client : apply optimistic overlay (ack_version)
+
+  es ->> proj : async event delivery
+  activate proj
+  proj -> db : UPSERT projection\n(WHERE version < $N)
+  deactivate proj
+
+  loop Bounded-retry refetch
+    client -> mw : GET /v1/...
+    mw -> api : forward
+    api -> db : SELECT projection
+    db --> api : projected DTO (proj_version)
+    api --> mw : 200 OK
+    mw --> client : 200 OK (proj_version)
+    alt proj_version >= ack_version
+      client -> client : replace overlay with projected DTO (stop loop)
+    else proj_version < ack_version
+      client -> client : keep ack_version overlay and retry\n(or mark stale if retries exhaust)
+    end
+  end
+end
 
 @enduml

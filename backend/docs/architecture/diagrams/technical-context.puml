@@ -2,41 +2,47 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Technical context: external systems and protocols of Breakdown RS.
+' Technical context: monorepo subsystems, external services, and protocols.
 
 skinparam shadowing false
 skinparam linetype ortho
 
-cloud "Users\n(Web Browser)" as users
-cloud "OIDC Identity\nProvider" as idp
-
-together {
-  rectangle "Breakdown RS API\n(Axum)" as api
-  database "SierraDB\n(Event Store, RESP3)" as sierra
-  database "PostgreSQL\n(Projections / Read Model)" as pg
-  rectangle "Garage\n(S3 Object Store)" as garage
-  database "Vault\n(Secrets)" as vault
-  queue "AI Provider\n(LLM API)" as llm
+package "Breakdown RS Monorepo" {
+  rectangle "Flutter Client\n(Android / Desktop)\nDrift Cache + Pinned CA" as client
+  rectangle "Breakdown RS API\n(Rust / Axum)\n/v1 REST + SSE" as api
 }
 
-users --> api : HTTPS / JSON (REST)
-users .right.> idp : Login (OIDC)
-api --> idp : JWKS validation
-api --> sierra : RESP3 protocol
-api --> pg : SQL (TLS in prod)
-api --> garage : S3 API
-api ..> vault : secrets fetch
-api ..> llm : HTTPS (AI import queue)
+cloud "OIDC Identity Provider\n(Logto / Zitadel)" as idp
+cloud "Curated LLM Providers\n(OpenAI / OpenRouter /\nEURouter / Ollama)" as llm
+cloud "External Report Archive\n(Google Drive / S3)" as archive
+
+together {
+  database "SierraDB\n(Event Store)" as sierra
+  database "PostgreSQL 16\n(Projections + Queue)" as pg
+  rectangle "Garage\n(S3 Object Store)" as garage
+  database "HashiCorp Vault\n(Transit + KV-v2)" as vault
+}
+
+client --> api : HTTPS in prod / HTTP in local dev\n(JSON, RFC 9457, SSE)
+client .right.> idp : OIDC PKCE Login
+api --> idp : HTTPS (JWKS check)
+api --> sierra : RESP3 (TLS through stunnel in prod,\nplaintext in local dev)
+api --> pg : SQL (TLS verify-full in prod,\nplaintext in local dev)
+api --> garage : S3 API (HTTPS through Caddy :9443 in prod,\nHTTP in local dev)
+api ..> vault : HTTPS in prod / HTTP in local dev
+api ..> llm : HTTPS (JSON Schema)
+api ..> archive : HTTPS (OpenDAL)
 
 note bottom of pg
   Read side: flat projection tables,
-  updated asynchronously by projectors.
+  AI import job queue, and NOTIFY hub.
 end note
 
 note bottom of sierra
-  Write side: immutable event streams,
-  one stream per aggregate instance.
+  Write side: immutable event streams
+  and reservation streams (ADR-036).
 end note
 
 @enduml

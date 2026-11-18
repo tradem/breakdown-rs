@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: kimi-k3 (neuralwatt)
+// Co-authored-by: gemini-4-carbon (google)
 
 #import "template.typ": *
 
@@ -9,56 +10,73 @@
 
 == Requirements Overview
 
-Breakdown RS is a collaborative costume scheduling and scene continuity
-application for film and stage productions. Its job is to answer one core
-question reliably: *who wears what, in which scene, on which day* — and how
-did the plan change.
+Breakdown RS is a collaborative costume scheduling and scene continuity system
+for film, television, and stage productions. The system answers *who wears which
+outfit, in which scene, on which day*. It also shows how the actual shoot
+differs from the plan.
 
-=== Core Capabilities
+The monorepo contains two coordinated subsystems:
 
-- *Production planning*: organize work as a four-level hierarchy of
-  aggregates (Season → Block → Episode → Scene) below an opaque *Series*
-  seam, with shooting days per episode.
-- *Costume management*: season-scoped characters and costumes, with
-  categories (Oberteil, Unterteil, Schuhe) maintained per season.
-- *Continuity tracking*: planned vs. actual shoot order per day
-  (`SceneShoot`), plus continuity and costume photos.
-- *Reporting*: Soll-Ist diff, Dispo, and shoot-day reports generated from
-  the read model, archived as PDF when needed.
-- *AI-assisted import*: optional pipeline that parses scripts and shooting
-  schedules into structured scene/shooting-day candidates for review.
-- *Full audit trail*: every state change is an immutable event; no state is
-  silently overwritten.
+- *Rust backend (`backend/`)*: an event-sourced HTTP API with CQRS projections,
+  object storage, secret management, PDF rendering, and optional AI import workers.
+- *Flutter client (`frontend-flutter/`)*: an Android-first client (desktop
+  later) that uses the generated OpenAPI client, syncs projection lag, and
+  caches reads in SQLite.
+
+=== Core Functions
+
+- *Production hierarchy*: organize productions below a `ProjectId` tenant seam
+  as `Season` → `Block` → `Episode` → `Scene`, with `ShootingDay` records per
+  episode (#adr-ref(num: "035", slug: "production-kind-flexible-hierarchy", title: "Production-Kind-Flexible Hierarchy")).
+- *Split wardrobe model*: manage fundus garments as `Piece` aggregates with a
+  season repertoire and optional `CostumeCategory`. Manage character looks as
+  `Outfit` aggregates (`0..n` pieces and `variant_of` forks). Scenes cast
+  outfits through ordered `SceneOutfitBeat` entries.
+- *Continuity tracking*: record planned order (`Soll`) and actual order (`Ist`)
+  per scene and shooting day (`SceneShoot`), together with set notes and
+  continuity photos.
+- *PDF reporting and archival*: render `Dispo`, `Shoot Day`, and `Soll-Ist`
+  reports in-process with Typst (#adr-ref(num: "022", slug: "pdf-reporting-and-archival", title: "PDF Reporting and Archival")).
+  Archive day reports to S3 or Google Drive when needed.
+- *AI script and schedule import*: parse scripts and CSV schedules into static
+  previews and stream progress over SSE (#adr-ref(num: "030", slug: "ai-import-bounded-context", title: "AI Import Bounded Context"),
+  #adr-ref(num: "038", slug: "ai-import-sse-progress-and-event-hub", title: "AI Import SSE Progress"),
+  #adr-ref(num: "039", slug: "target-less-ai-import-declared-season-and-set-once-attach", title: "Target-Less AI Import")).
+  Apply reviewed changes through standard commands.
+- *Mobile-first client workflow*: read cached views from Drift SQLite and apply
+  optimistic overlays after `2xx` replies. Localize all UI copy in German and
+  English (#adr-ref(num: "034", slug: "flutter-app-localization-gen-l10n", title: "Flutter Localization")).
+- *Immutable audit trail*: store every domain change as an append-only event
+  and project an insert-only audit journal.
 
 === Stakeholders
 
 #table(
   columns: 3,
-  table.header([Role], [Primary Goal], [Key Artifact]),
-  [Production Manager], [Plan blocks, episodes, days; assess schedules], [Breakdown reports (PDF)],
-  [Costume Designer], [Define costumes per character per season], [Costume photos, categories],
-  [Wardrobe Supervisor], [Keep continuity, note changes after each shoot], [Continuity photos, Soll-Ist],
-  [Script / Continuity], [Import scripts; compare plan vs. reality], [AI import, scene lists],
-  [End User (Actor)], [See own costume assignments], [(read-only) overview],
-  [Platform Operator], [Keep service running, secure and observable], [Deployment view],
+  table.header([Role], [Primary Goal], [Key Artifacts]),
+  [Production Manager], [Plan seasons, blocks, episodes, and shooting days], [Dispo and Soll-Ist PDF reports],
+  [Costume Designer], [Manage fundus pieces, categories, and character outfits], [Piece repertoire, outfit variants, photos],
+  [Wardrobe Supervisor], [Track set continuity and record outfit changes], [Continuity photos, scene shoot notes, Soll-Ist],
+  [Script and Continuity], [Import scripts and schedules, compare plan with shoot], [AI import previews, scene lists],
+  [Actor], [Check assigned outfits for scheduled scenes (planned, current scene reads need active block membership)], [Planned read-only scene and outfit views],
+  [Platform Operator], [Run a secure, observable, and recoverable deployment], [Health endpoints, Vault, runbooks],
 )
 
 == Quality Goals
 
 #table(
   columns: 3,
-  table.header([Priority], [Quality], [How it is enforced]),
-  [1 (must)], [Auditability / integrity], [Event sourcing, insert-only audit projections, no panics],
-  [2 (must)], [Correctness], [CQRS write guard, mutation testing, architecture tests],
-  [3 (should)], [Operability], [OIDC auth, structured error surface (RFC 9457), metrics],
-  [4 (should)], [Extensibility], [Hexagonal ports/adapters; new aggregates without cross-cuts],
-  [5 (could)], [Performance], [Projections read directly from PostgreSQL; async projectors],
+  table.header([Priority], [Quality Goal], [Architectural Enforcement]),
+  [1 (Highest)], [Auditability and data integrity], [Append-only SierraDB streams, insert-only app-role audit access, byte-identical `jiff` timestamps],
+  [2 (High)], [Functional correctness], [CQRS boundary lints, ES reservation streams, CI mutation tests, nightly fuzzing],
+  [3 (High)], [Security and privacy], [OIDC RS256, deny-by-default AuthZ, public HTTPS edge + store TLS, Vault DEK crypto-shredding],
+  [4 (Medium)], [Operability and resilience], [RFC 9457 error registry, dead-letter isolation, lease fencing, circuit breakers],
+  [5 (Medium)], [Maintainability and extensibility], [Hexagonal Rust crates, Riverpod codegen, code-first OpenAPI drift checks],
+  [6 (Standard)], [Performance and offline tolerance], [Split app and projector DB pools, direct SQL reads, client Drift read cache],
 )
 
 #note[
-  *Quality goal 1* is a hard rule in this codebase: audit metadata must never
-  be lost because of a silent crash or a swallowed error. Panics and
-  discarded fallible results are lint-level errors.
+  *Quality Goal 1* is a strict rule across the codebase. Audit metadata must
+  never block a command, and production code must never panic or discard a
+  fallible result.
 ]
-
-// TODO: add measurable success metrics (e.g. adoption, report delivery time)

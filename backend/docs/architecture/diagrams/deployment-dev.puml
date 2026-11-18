@@ -2,34 +2,37 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Deployment view: local development stack (docker-compose.dev.yml).
+' Deployment view: local development stack and optional compose overlays.
 
 skinparam shadowing false
 skinparam linetype ortho
 
-node "Developer Machine" {
+node "Developer Workstation" {
 
-  node "cargo run -p api" <<process>> as app
-  note right of app
-    Env: DATABASE_URL,
-    SIERRADB_URL, S3_ENDPOINT
-  end note
+  node "Flutter App (dev flavor)\nAndroid Emulator / Desktop\nPinned dev/ca.pem" <<process>> as flutter
 
-  package "docker compose (dev)" as dc {
-    database "PostgreSQL 16\n:5432" as pg
-    database "SierraDB\n:9090 (RESP3)" as sierra
-    rectangle "Garage\n:3900 (S3)" as garage
+  node "cargo run --bin api\n0.0.0.0:3000\n(Migrator + App + Projector Pools)" <<process>> as app
+
+  package "docker-compose.dev.yml" as dc {
+    database "PostgreSQL 16\n:5432\n(migrator + app roles)" as pg
+    database "SierraDB 0.3.1\n:9090 (RESP3)" as sierra
+  }
+
+  package "Optional Dev Overlays" as overlays {
+    rectangle "Logto OIDC IdP\n:3301 HTTPS\n(docker-compose.idp.yml)" as idp
+    rectangle "Garage S3\n:3900 HTTP\n(docker-compose.dev.ai.yml)" as garage
+    database "HashiCorp Vault\n:8200 HTTP\n(docker-compose.dev.vault.yml)" as vault
   }
 }
 
-app --> pg
-app --> sierra
-app --> garage
-
-note bottom of dc
-  Optional: Logto IdP via
-  docker-compose.idp.yml overlay
-end note
+flutter --> app : HTTP/HTTPS REST + SSE
+flutter ..> idp : OIDC PKCE (optional)
+app --> pg : SQL
+app --> sierra : RESP3
+app ..> idp : JWKS (when OIDC_ISS is set)
+app ..> garage : S3 API (photos + AI blobs)
+app ..> vault : Transit + KV-v2 (optional)
 
 @enduml

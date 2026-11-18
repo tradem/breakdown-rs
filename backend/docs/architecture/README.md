@@ -1,71 +1,69 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: kimi-k3 (neuralwatt) -->
+<!-- Co-authored-by: gemini-4-carbon (google) -->
 
 # Architecture Documentation
 
-This directory is the single source of truth for architecture documentation.
+This directory holds the architecture documentation for the Breakdown RS monorepo.
 
 ```text
 docs/architecture/
-├── adrs/                 # Architecture Decision Records (Markdown)
-├── arc42-typst/          # arc42 architecture documentation (Typst)
+├── adrs/                 # Architecture Decision Records (Markdown, ADR-001..040)
+├── arc42-typst/          # arc42 architecture documentation in Typst (ASD-STE100)
 ├── diagrams/             # PlantUML diagram sources (*.puml)
-├── spikes/               # Research spikes
-└── templates/            # Shared templates
+└── spikes/               # Research spikes
 ```
 
-## Multi-format strategy (ADR-008)
+## Language and Format Strategy (ADR-008)
+
+All chapters in `arc42-typst/` use **ASD-STE100 Simplified Technical English
+(STE)**. Chapter 12 (*Glossary*) defines the approved project Technical Names
+(TN) and Technical Verbs (TV).
 
 | Type | Format | Tool | Hosting |
 |------|--------|------|---------|
-| ADRs | Markdown | (none) | GitHub (versioned) |
-| arc42 | Typst | `typst` CLI | GitHub Releases (PDF), GitHub Pages (HTML) |
-| Diagrams | PlantUML | `-tsvg` via Docker or local | embedded into the above |
+| ADRs | Markdown | (none) | GitHub repository (versioned) |
+| arc42 | Typst (ASD-STE100) | `typst` CLI | GitHub Releases (PDF + HTML), GitHub Pages (HTML) |
+| Diagrams | PlantUML | `plantuml -tsvg` | Embedded into arc42 PDF and HTML |
 
-## Building the arc42 documentation
+## Build the arc42 Documentation
 
-From `docs/architecture/arc42-typst/`:
+Run `./build.sh` from `backend/docs/architecture/arc42-typst/`:
 
 ```bash
-# one-shot (uses Docker for PlantUML rendering)
+# Default local build (uses Docker if local plantuml is absent)
 ./build.sh
 
-# override version / date (used by CI for releases)
+# Override version and build date (used by CI on release tags)
 DOCS_VERSION=1.2.3 DOCS_BUILD_DATE=2026-01-01 ./build.sh
 ```
 
-Artifacts are written to `dist/`.
+The script writes PDF and HTML artifacts to `arc42-typst/dist/`.
 
-The HTML is post-processed by `postprocess-html.py` (part of `build.sh`,
-issue #235): the experimental Typst HTML export ships without any CSS, so
-`build.sh` injects a `<style>` block that gives tables a visible grid and keeps
-PlantUML diagrams proportional (natural size, `max-width: 100%`).
+`postprocess-html.py` runs automatically at the end of `build.sh` (issue #235).
+It injects a `<style>` block into the Typst HTML export so tables show a grid
+and PlantUML SVG diagrams keep their aspect ratio.
 
-## CI pipeline (`docs.yml`)
+## CI Pipeline (`docs.yml`)
 
-The workflow `.github/workflows/docs.yml`:
+The workflow `.github/workflows/docs.yml` executes four steps:
 
-1. Renders PlantUML sources to SVG (Docker image, digest-pinned).
-2. Installs the pinned Typst CLI and builds PDF + HTML (version from the
-   `api-vX.Y.Z` tag, or `dev-<sha>` on main), then applies the Pages style
-   layer (`postprocess-html.py`).
-3. On `main`: publishes the HTML to GitHub Pages (always latest).
-4. On `api-v*` tags: attaches the versioned PDF + HTML to the GitHub Release.
+1. Render `diagrams/*.puml` to SVG with the digest-pinned PlantUML container.
+2. Install the pinned Typst CLI, compile PDF and HTML, and run `postprocess-html.py`.
+3. Publish the HTML file to GitHub Pages on pushes to `main`.
+4. Create the GitHub Release on `api-v*` tags with the versioned PDF and HTML
+   files attached, or skip upload when that release already exists.
 
-> Repository setting required once: *Settings → Pages → Build and deployment
-> source: GitHub Actions*.
+## Add or Update Diagrams
 
-## Adding diagrams
+1. Edit or create `diagrams/<name>.puml` with an `AGPL-3.0` SPDX header.
+2. Run `./build.sh` in `arc42-typst/` to render the SVG files.
+3. Reference the diagram in a Typst chapter with `#diagram("<name>", caption: […])`.
 
-1. Create or edit `diagrams/<name>.puml` (PlantUML, SPDX header optional).
-2. Run `./build.sh` to regenerate SVGs.
-3. Reference in a chapter: `#diagram("<name>", caption: […])`.
+Git ignores generated `arc42-typst/diagrams/*.svg` and `arc42-typst/dist/*`
+files. Commit only the `.puml` and `.typ` sources.
 
-Generated SVGs are git-ignored; commit only `.puml` files.
+## arc42 Chapters
 
-## arc42 chapters
-
-The Typst entry point is `arc42-typst/main.typ`. Chapters follow the
-official arc42 numbering (01–12).
-
+`arc42-typst/main.typ` includes all official arc42 chapters (`01` to `12`).

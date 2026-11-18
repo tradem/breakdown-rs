@@ -2,31 +2,41 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Runtime view: GET scenes query — read side only, no aggregate involved.
+' Runtime view: GET /v1/scenes read path with paginated fetch and Drift cache.
 
 skinparam shadowing false
 skinparam sequenceArrowThickness 2
 
-participant "User" as user
-participant "GET /api/v1/episodes/{id}/scenes\nHandler" as api
-participant "SceneRepository\n(Repository, sqlx)" as repo
+participant "Flutter Screen\n(ScenesController)" as ui
+participant "SceneRepository\n(Flutter + Drift)" as fl_repo
+participant "GET /v1/scenes\nHandler" as api
+participant "SceneRepository\n(Rust / sqlx)" as repo
 database "PostgreSQL\n(projection_scene)" as db
 
-user -> api : GET with filters (episode_id, shooting_day_id?)
-activate api
-api -> repo : list_by_episode(episode_id, filters)
-activate repo
-repo -> db : SELECT ... WHERE episode_id = $1\n(ORDER BY lexical sort key)
-db --> repo : rows
-repo --> api : Vec<SceneDto>
-deactivate repo
-api --> user : 200 OK { scenes: [...] }
-deactivate api
+ui -> fl_repo : watchScenes(episodeId)
+fl_repo --> ui : cached rows from Drift SQLite (fast start)
+
+loop fetchAllPages (offset += limit until short page)
+  fl_repo -> api : GET /v1/scenes?episode_id={id}&limit=50&offset={offset}
+  activate api
+  api -> repo : list_by_episode(episode_id, limit, offset)
+  activate repo
+  repo -> db : SELECT ... FROM projection_scene\nWHERE episode_id = $1\nORDER BY scene_number, updated_at DESC\nLIMIT $2 OFFSET $3
+  db --> repo : page rows
+  repo --> api : Vec<SceneView>
+  deactivate repo
+  api --> fl_repo : 200 OK [SceneView, ...]
+  deactivate api
+end
+
+fl_repo -> fl_repo : replace Drift SQLite snapshot\nafter all pages succeed
+fl_repo --> ui : updated AsyncData(allScenes)
 
 note over api, db
-  Read path never touches the event store.
-  Writes and reads use separate models (CQRS).
+  The read path never reads SierraDB or aggregates.
+  Projections serve all queries directly.
 end note
 
 @enduml

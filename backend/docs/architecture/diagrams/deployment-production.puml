@@ -2,37 +2,49 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Deployment view: production environment with TLS edge and Vault.
+' Deployment view: hardened Arch Linux VPS with step-ca internal TLS mesh.
 
 skinparam shadowing false
 skinparam linetype ortho
 
-cloud "Internet" as internet
-
-node "Caddy (Reverse Proxy)\nHTTPS, TLS termination\ncert rotation" as caddy
-
-node "App Container\ncrates/api (Rust)\n0.0.0.0:3000" as app
-
-together {
-  database "PostgreSQL 16+\n(breakdown)" as pg
-  database "SierraDB\n(Event Store)" as sierra
-  rectangle "Garage\n(S3-compatible)" as garage
-  database "Vault\n(Secrets)" as vault
+node "Android / Desktop Device" {
+  component "Flutter App (prod flavor)\nIntended ISRG Root CA from PINNED_CA_PEM\nor replaced prod/ca.pem (ADR-032)" as client
 }
 
-cloud "OIDC IdP\n(Logto/Zitadel)" as idp
+cloud "OIDC IdP\n(Logto Cloud / Zitadel)" as idp
+cloud "Curated LLM Providers &\nExternal Report Backup" as ext
 
-internet --> caddy : HTTPS (443)
-caddy --> app : internal TLS
-app --> pg : SQL (TLS, verify-full)
-app --> sierra : RESP3 (TLS)
-app --> garage : S3 API (HTTPS)
-app --> vault : secrets fetch
-app --> idp : JWKS, token validation
+node "Arch Linux VPS (LUKS2 At-Rest Encryption, nftables, auditd — ADR-023 / ADR-026)" as vps {
 
-note bottom of pg : Migrations via breakdown_migrator\n(DDL, schema owner)
-note bottom of sierra : Append-only streams;\nsingle logical DB per env
-note bottom of garage : Buckets: costume-photos,\nai-import-payloads
+  node "Caddy Reverse Proxy\nPublic :80/:443 (ACME TLS)\nInternal :9443 (Garage TLS)" as caddy
+
+  node "step-ca + tls-provision\nInternal Root CA\n24h Leaf Certs (12h Renewal)" as stepca
+
+  node "API Container\ncrates/api (:3000 internal)\nREQUIRE_IN_TRANSIT_TLS=true" as api
+
+  together {
+    database "PostgreSQL 16\nssl=on (verify-full)\nmigrator + app/projector pools" as pg
+    node "stunnel (:9091 TLS)\n+ SierraDB 0.3.1 (:9090)" as sierra
+    rectangle "Garage v1.0.1\n(Internal S3 Store)" as garage
+    database "HashiCorp Vault 1.20\n(:8200 TLS, Transit + KV-v2)" as vault
+  }
+}
+
+client --> caddy : HTTPS (:443)
+client ..> idp : OIDC PKCE
+caddy --> api : Docker-internal HTTP
+caddy --> garage : proxies :9443 TLS -> S3
+api --> pg : SQL over TLS (verify-full)
+api --> sierra : rediss://stunnel:9091 (RESP3)
+api --> caddy : https://caddy:9443 (S3 API)
+api --> vault : https://vault:8200 (app token)
+api --> idp : HTTPS JWKS
+api ..> ext : HTTPS (AI + OpenDAL backup)
+stepca ..> pg : issues 24h cert
+stepca ..> sierra : issues 24h cert
+stepca ..> caddy : issues 24h cert
+stepca ..> vault : issues 24h cert
 
 @enduml

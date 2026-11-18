@@ -2,52 +2,69 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Runtime view: POST scene command with authz gate.
+' Runtime view: POST /v1/scenes with middleware authorization and audit context.
 
 skinparam shadowing false
 skinparam sequenceArrowThickness 2
 
-participant "User" as user
-participant "POST /api/v1/episodes/{id}/scenes\nHandler" as api
-participant "AuthorizationPolicy\n(has_active_member_role)" as authz
-participant "CommandService" as svc
+participant "Flutter Client" as client
+participant "Middleware\n(Auth + AuthZ)" as mw
+participant "POST /v1/scenes\nHandler" as api
+participant "EpisodeRepository\n(Read Model)" as repo
+participant "SceneCommands\n(kameo_es)" as svc
 participant "SceneAggregate" as agg
 database "SierraDB" as es
 participant "SceneProjector" as proj
+participant "SceneAuditProjector" as aproj
 database "PostgreSQL" as db
 
-user -> api : POST { name, episode_id, shooting_day_id? }
-activate api
-api -> authz : check membership (block-scoped)
-activate authz
-authz --> api : allow / deny
-deactivate authz
-alt denied
-  api --> user : 403 (problem+json)
-else allowed
-  api -> svc : CreateScene { validated fields }
+client -> mw : POST /v1/scenes + X-Active-Block\n{ episode_id, details }
+activate mw
+mw -> mw : check OIDC JWT (TB1)
+alt Missing or invalid JWT
+  mw --> client : 401 Unauthorized (problem+json)
+else Missing or malformed X-Active-Block header
+  mw --> client : 400 Bad Request (fix header, do not re-login)
+else Caller lacks active BlockMember role (TB2)
+  mw --> client : 403 Forbidden (problem+json)
+else Authenticated and authorized
+  mw -> api : forward authenticated request
+  activate api
+  api -> repo : find_by_id(episode_id)
+  repo -> db : SELECT project_id FROM projection_episode
+  db --> repo : project_id
+  repo --> api : EpisodeView
+  api -> svc : create(CreateScene { id, episode_id, project_id, details, Manual })
   activate svc
-  svc -> agg : execute
+  svc -> agg : handle(CreateScene)
   activate agg
-  agg -> agg : validate (name unique? episode exists?)
-  alt validation fails
-    agg --> svc : DomainError::Validation
+  alt Invalid scene details
+    agg --> svc : SceneError
     deactivate agg
-    svc --> api : Err
-    api --> user : 4xx problem+json
-  else valid
-    agg --> svc : SceneCreated(event)
+    svc --> api : Err(DomainError)
+    api --> client : 422 (problem+json)
+  else Valid scene
+    agg --> svc : Ok(SceneCreated)
     deactivate agg
-    svc -> es : append event
+    svc -> es : append SceneCreated
     es --> svc : version
-    svc --> api : { id, version }
-    api --> user : 201 Created
+    svc --> api : Ok((id, version))
     deactivate svc
-    es ->> proj : SceneCreated
+    api --> client : 201 Created { id, version }
+    deactivate api
+
+    es ->> proj : SceneCreated (subscription 1)
     activate proj
     proj -> db : INSERT projection_scene
     deactivate proj
+
+    es ->> aproj : SceneCreated (subscription 2, own checkpoint)
+    activate aproj
+    aproj -> db : INSERT projection_audit
+    deactivate aproj
   end
 end
+deactivate mw
 @enduml

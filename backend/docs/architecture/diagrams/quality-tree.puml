@@ -2,42 +2,53 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' arc42 quality tree targets for Breakdown RS.
+' arc42 quality tree for the Breakdown RS monorepo.
 
 skinparam shadowing false
 left to right direction
 
-component "Auditability & Integrity" as q1
-component "Correctness" as q2
-component "Operability" as q3
-component "Extensibility" as q4
-component "Performance" as q5
+rectangle "Breakdown RS\nQuality Goals" as root
 
-component "Event sourcing, immutable events,\nno silent crashes" as q1a
-component "Insert-only audit projections,\nfull traceability" as q1b
-component "CQRS boundary enforced\n(ast-grep)" as q2a
-component "No panics in\nproduction code" as q2b
-component "Mutation testing\n(zero survivors)" as q2c
-component "OIDC + RBAC\n(AUTHZ-GATE)" as q3a
-component "Structured errors\n(RFC 9457)" as q3b
-component "Tracing + Metrics\n(OTel planned)" as q3c
-component "Hexagonal\nports/adapters" as q4a
-component "Event-driven sagas,\nno cross-cutting deps" as q4b
-component "Direct projection reads,\nno aggregate for queries" as q5a
-component "Async projectors,\neventual consistency" as q5b
+component "1. Auditability &\nData Integrity" as q1
+component "2. Functional\nCorrectness" as q2
+component "3. Security &\nPrivacy" as q3
+component "4. Operability &\nResilience" as q4
+component "5. Maintainability &\nExtensibility" as q5
+component "6. Performance &\nOffline Tolerance" as q6
+
+component "Append-only SierraDB streams +\ninsert-only app-role audit access" as q1a
+component "Replay-identical jiff timestamps\n+ stable persisted wire keys" as q1b
+component "CQRS boundary lint + ADR-036\nreservation streams" as q2a
+component "No panics / no throws +\nCI mutants, fuzzing, coverde" as q2b
+component "OIDC RS256 + deny-by-default\n+ scoped AUTHZ-GATE" as q3a
+component "Caddy HTTPS + step-ca store TLS\n+ Vault DEK crypto-shredding" as q3b
+component "RFC 9457 problem codes +\nserver/client localization" as q4a
+component "Dead-letter isolation, lease\nfencing, and circuit breakers" as q4b
+component "Hexagonal Rust crates +\nlayered Riverpod Flutter app" as q5a
+component "Code-first OpenAPI contract\nwith CI client drift gate" as q5b
+component "Split app/projector DB pools\n+ direct SQL read queries" as q6a
+component "Client optimistic overlays +\nDrift SQLite read cache" as q6b
+
+root --> q1
+root --> q2
+root --> q3
+root --> q4
+root --> q5
+root --> q6
 
 q1 --> q1a
 q1 --> q1b
 q2 --> q2a
 q2 --> q2b
-q2 --> q2c
 q3 --> q3a
 q3 --> q3b
-q3 --> q3c
 q4 --> q4a
 q4 --> q4b
 q5 --> q5a
 q5 --> q5b
+q6 --> q6a
+q6 --> q6b
 
 @enduml

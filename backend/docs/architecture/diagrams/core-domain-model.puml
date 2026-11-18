@@ -1,16 +1,10 @@
 @startuml core-domain-model
 ' SPDX-License-Identifier: AGPL-3.0
-' Copyright (C) 2024 Breakdown RS Contributors
+' Copyright (C) 2024-2026 Breakdown RS Contributors
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Domain Model des Core Bounded Context (crates/core)
-' Aggregates (Aggregate Roots), Entities, Value Objects und deren Beziehungen.
-'
-' Legende:
-'   (*) Aggregate Root  (entity)
-'   (E) Entity          (eigenständige Identität innerhalb eines Aggregats)
-'   (V) Value Object    (strukturelle Gleichheit, keine Identität)
-'   --o>   Aggregation / Komposition (das Aggregat enthält den Typ)
-'   ..o>   Referenz nach ID auf ein anderes Aggregat (Aggregate-Übergreifend)
+' Core domain aggregates and value objects in backend/crates/core.
+' Cross-aggregate links use UUIDv7 identifiers only.
 
 skinparam shadowing false
 skinparam packageStyle rectangle
@@ -20,156 +14,161 @@ skinparam entity {
 hide circle
 hide methods
 
-' ===== Gemeinsame Value Objects (shared.rs) =====
-package "Shared (Value Objects)" #EEEEEE {
+package "Shared Value Objects" #EEEEEE {
   class ProjectId << (V) >> {
-    + uuid : Uuid  <<UUIDv7>>
+    + 0 : Uuid <<UUIDv7>>
+  }
+  class LexicalSortKey << (V) >> {
+    + as_str : String
   }
   class AggregateVersion << (V) >> {
     + value : u64
-    INITIAL = 1
-    + next() : AggregateVersion
   }
 }
 
-' ====================================================================
-' SZENE
-' ====================================================================
-package "Scene Bounded Context" #F4F8FF {
-  class SceneAggregate << (E,*) Aggregate Root >> {
-    + id : Uuid
+package "Production Aggregates" #F4F8FF {
+  class SeasonAggregate << (A) >> {
+    + id : SeasonId
     + project_id : ProjectId
+    + number : u32
+    + title : Option<String>
+    + archived : bool
+  }
+  class BlockAggregate << (A) >> {
+    + id : BlockId
+    + project_id : ProjectId
+    + season_id : SeasonId
+    + number : u32
+  }
+  class EpisodeAggregate << (A) >> {
+    + id : EpisodeId
+    + project_id : ProjectId
+    + block_id : BlockId
+    + number : u32
+  }
+  class ShootingDayAggregate << (A) >> {
+    + id : ShootingDayId
+    + episode_id : EpisodeId
+    + label : Option<String>
+    + order_key : LexicalSortKey
+    + date : Option<Date>
+    + wrapped_at : Option<Timestamp>
+    + archived : bool
+  }
+  class SceneAggregate << (A) >> {
+    + id : Uuid
+    + episode_id : EpisodeId
     + details : SceneDetails
-    + assigned_characters : Vec<Uuid>
-    + version : AggregateVersion
+    + characters : Vec<Uuid>
+    + outfit_beats : Vec<SceneOutfitBeat>
+    + shooting_days : Vec<ShootingDayId>
   }
-  class SceneDetails << (V) >> {
-    + scene_number : Option<u32>
-    + location : Option<String>
-    + mood : Option<String>
-    + is_schedule_set : bool
+  class SceneOutfitBeat << (V) >> {
+    + character_id : Uuid
+    + outfit_id : Uuid
+    + order : u32
+    + note : Option<String>
   }
-  SceneAggregate "1" *-- "1" SceneDetails : details
-  SceneAggregate *-- "0..*" Uuid : assigned_characters
-  SceneAggregate ..> ProjectId
+  class SceneShootAggregate << (A) >> {
+    + id : SceneShootId
+    + scene_id : Uuid
+    + shooting_day_id : ShootingDayId
+    + planned_order : Option<u32>
+    + actual_order : Option<u32>
+    + status : SceneShootStatus
+    + planned_order_frozen : bool
+  }
+
+  SceneAggregate "1" *-- "0..*" SceneOutfitBeat : outfit_beats
 }
 
-' ====================================================================
-' CHARAKTER
-' ====================================================================
-package "Character Bounded Context" #F4FFF4 {
-  class CharacterAggregate << (E,*) Aggregate Root >> {
+package "Wardrobe Aggregates" #FFF8F0 {
+  class CharacterAggregate << (A) >> {
     + id : Uuid
-    + project_id : ProjectId
+    + season_id : SeasonId
     + name : String
     + is_extra : bool
-    + is_main_character : bool
     + measurements : CharacterMeasurements
-    + contact_info : ContactInfo
-    + version : AggregateVersion
   }
-  class CharacterMeasurements << (V) >> {
-    + shoe_size : Option<Decimal>
-    + hat_size : Option<Decimal>
-    + height : Option<Decimal>
-    + weight : Option<Decimal>
-    + chest : Option<Decimal>
-    + waist : Option<Decimal>
-    + hips : Option<Decimal>
-  }
-  class ContactInfo << (V) >> {
-    + phone : Option<String>
-    + email : Option<String>
-  }
-  CharacterAggregate "1" *-- "1" CharacterMeasurements : measurements
-  CharacterAggregate "1" *-- "1" ContactInfo : contact_info
-  CharacterAggregate ..> ProjectId
-}
-
-' ====================================================================
-' KOSTÜM
-' ====================================================================
-package "Costume Bounded Context" #FFF8F0 {
-  class CostumeAggregate << (E,*) Aggregate Root >> {
-    + id : Uuid
-    + project_id : ProjectId
-    + character_id : Option<Uuid>
-    + notes : String
-    + details : Vec<CostumeDetail>
-    + photos : Vec<Uuid>
-    + version : AggregateVersion
-  }
-  class CostumeDetail << (E) >> {
-    + id : Uuid
-    + text : String
-  }
-  CostumeAggregate "1" *-- "0..*" CostumeDetail : details
-  CostumeAggregate *-- "0..*" Uuid : photos
-  CostumeAggregate ..> ProjectId
-}
-
-' ====================================================================
-' KALKULATION
-' ====================================================================
-package "Calculation Bounded Context" #FFF4F4 {
-  class CalculationAggregate << (E,*) Aggregate Root >> {
-    + id : Uuid
-    + project_id : ProjectId
-    + header : CalculationHeader
-    + items : Vec<CalculationItem>
-    + version : AggregateVersion
-  }
-  class CalculationHeader << (V) >> {
-    + subjects : Option<String>
-    + sender_name : Option<String>
-    + date : Option<String>
-  }
-  class CalculationItem << (E) >> {
-    + id : Uuid
+  class CostumeCategoryAggregate << (A) >> {
+    + id : CostumeCategoryId
+    + season_id : SeasonId
     + name : String
-    + quantity : Decimal
-    + unit_price : Decimal
-    + is_paid : bool
+    + order_key : LexicalSortKey
+    + archived : bool
   }
-  CalculationAggregate "1" *-- "1" CalculationHeader : header
-  CalculationAggregate "1" *-- "0..*" CalculationItem : items
-  CalculationAggregate ..> ProjectId
+  class PieceAggregate << (A) >> {
+    + id : PieceId
+    + name : String
+    + category_id : Option<CostumeCategoryId>
+    + seasons : BTreeSet<SeasonId>
+    + details : Vec<PieceDetail>
+    + photos : Vec<Uuid>
+  }
+  class OutfitAggregate << (A) >> {
+    + id : OutfitId
+    + character_id : Uuid
+    + name : String
+    + piece_ids : Vec<PieceId>
+    + variant_of : Option<OutfitId>
+    + photos : Vec<Uuid>
+  }
 }
 
-' ====================================================================
-' Aggregate-Übergreifende Referenzen (per ID, lockere Kopplung)
-' ====================================================================
-' Scene referenziert Character per character_id:
-SceneAggregate "1" o.. "*" CharacterAggregate : "assigned_characters\n(per ID)"
-' Costume wird (optional) einem Character zugeordnet:
-CostumeAggregate "0..1" o.. "1" CharacterAggregate : "character_id\n(per ID)"
-' CharacterAggregate empfängt die Zuordnung von Scene (Rückrichtung通报):
-CharacterAggregate "1" <-- SceneAggregate : "wird zugewiesen"
+package "Media & Access Aggregates" #F4FFF4 {
+  class PhotoAggregate << (A) >> {
+    + id : PhotoId
+    + binding : PhotoBinding
+    + content_type : String
+    + thumb_status : VariantStatus
+    + medium_status : VariantStatus
+  }
+  class MembershipAggregate << (A) >> {
+    + id : Uuid
+    + block_id : BlockId
+    + members : Map<UserId, MembershipState>
+  }
+  class ProjectMembershipAggregate << (A) >> {
+    + project_id : ProjectId
+    + entries : Map<UserId, Role>
+  }
+  class SettingsAggregate << (A) >> {
+    + id : SettingsId
+    + vault_key_id : String
+  }
+}
 
-' ====================================================================
-' Notizen
-' ====================================================================
-note as RelationsNote
-**Aggregate-Übergreifende Referenzen per ID** (nicht direkte Objekt-Referenzen):
-  * SceneAggregate.assigned_characters : Vec<Uuid>
-        -> Referenzen auf CharacterAggregate
-  * CostumeAggregate.character_id : Option<Uuid>
-        -> Referenz auf CharacterAggregate
-  * CostumeAggregate.photos : Vec<Uuid>
-        -> Referenzen auf externe Photos (nicht in core)
-
-**Gemeinsame Value Objects** (shared.rs, Context-übergreifend):
-  * ProjectId (UUIDv7) - kennzeichnet das übergeordnete Projekt
-  * AggregateVersion (u64) - für Optimistic Locking
-
-Jedes Aggregat ist ein kameo_es::Entity (Event-Sourced):
-  type ID = Uuid, type Event = <Context>Event, type Metadata = ()
-State wird ausschließlich durch Replaying von Events aufgebaut (apply).
+note bottom of MembershipAggregate
+  MembershipState transitions from
+  Pending { role } to Active { role }
+  on AcceptInvitation.
+  ProjectMembershipAggregate stores
+  active costume Role entries directly.
 end note
 
-SceneAggregate .. RelationsNote
-CharacterAggregate .. RelationsNote
-CostumeAggregate .. RelationsNote
-CalculationAggregate .. RelationsNote
+note bottom of SettingsAggregate
+  SettingsAggregate stores no owner field.
+  The projector recovers owner from
+  EventMetadata.actor into projection_settings,
+  where handlers check ownership.
+end note
+
+SeasonAggregate ..> ProjectId
+BlockAggregate ..> SeasonAggregate : season_id
+EpisodeAggregate ..> BlockAggregate : block_id
+ShootingDayAggregate ..> EpisodeAggregate : episode_id
+SceneAggregate ..> EpisodeAggregate : episode_id
+SceneShootAggregate ..> SceneAggregate : scene_id
+SceneShootAggregate ..> ShootingDayAggregate : shooting_day_id
+CharacterAggregate ..> SeasonAggregate : season_id
+CostumeCategoryAggregate ..> SeasonAggregate : season_id
+PieceAggregate ..> SeasonAggregate : seasons (m..n)
+PieceAggregate ..> CostumeCategoryAggregate : category_id
+OutfitAggregate ..> CharacterAggregate : character_id
+OutfitAggregate ..> PieceAggregate : piece_ids (0..n)
+SceneOutfitBeat ..> OutfitAggregate : outfit_id
+PhotoAggregate ..> PieceAggregate : Piece binding
+PhotoAggregate ..> OutfitAggregate : Outfit binding
+PhotoAggregate ..> SceneShootAggregate : Continuity binding
 
 @enduml
