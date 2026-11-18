@@ -2,57 +2,76 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Crate-level structure of the Rust workspace and dependency directions.
+' Monorepo workspace structure across backend/ and frontend-flutter/.
 
 skinparam shadowing false
 skinparam linetype ortho
 left to right direction
 
-package "crates/core" as core {
-  component "Commands\n(imperative)" as cmd
-  [Events] as evt
+package "frontend-flutter/" as flutter {
+  component "features/\n(Screens + @riverpod)" as fl_feat
+  component "domain/\n(Use Cases + Lag Sync)" as fl_dom
+  component "data/\n(Repositories + Drift SQLite)" as fl_data
+  component "auth/ + core/\n(OIDC, Result, ProblemError)" as fl_core
+  component "vendor/breakdown_api/\n(Generated Dio Client)" as fl_gen
+  component "tool/breakdown_lints_runner\n(Static Analyzer Rules)" as fl_lint
+
+  fl_feat --> fl_dom
+  fl_dom --> fl_data
+  fl_data --> fl_gen
+  fl_data --> fl_core
+}
+
+artifact "backend/openapi.yaml\n(Code-First Contract)" as openapi
+
+package "backend/crates/core" as core {
+  component "Commands + Events" as cmd
   [Aggregates] as agg
-  [Ports (traits)] as ports
-  [Read-Model DTOs] as dto
+  [Port Traits] as ports
+  [Read DTOs] as dto
   [Error Registry] as err
-  cmd --> evt
+  agg --> cmd
   agg ..> ports
 }
 
-package "crates/infra" as infra {
-  component "Event Store adapters\n(kameo_es / SierraDB)" as es
-  component "Projectors\n(PostgresProcessor)" as proj
-  component "Repositories + Queries\n(sqlx)" as repo
-  component "Photo Storage\n(OpenDAL / Garage)" as s3
-  component "Sagas" as sagas
-  component "AI Import workers" as ai
+package "backend/crates/infra" as infra {
+  component "Event Store + Reservations\n(kameo_es / SierraDB)" as es
+  component "Projectors + Dead-Letter\n(PostgresProcessor)" as proj
+  component "Queries + db_time\n(sqlx + jiff)" as repo
+  component "Photo + Payload Storage\n(OpenDAL / Garage)" as s3
+  component "Sagas + Typst Reports +\nAI Workers + Vault" as workers
+
   es ..> ports : implements
   repo ..> ports : implements
   s3 ..> ports : implements
-  sagas ..> ports
-  proj --> evt
-  ai --> cmd
+  workers ..> ports : implements
+  proj --> cmd
 }
 
-package "crates/api" as api {
-  component "HTTP Handlers\n(axum + utoipa)" as handlers
-  component "Middleware\n(OIDC validation)" as mw
+package "backend/crates/api" as api {
+  component "HTTP /v1 Handlers +\nAUTHZ-GATE (axum, utoipa)" as handlers
+  component "Auth + AuthZ Middleware\n+ RFC 9457 Problems" as mw
   component "Composition Root\n(main.rs)" as root
+
   handlers --> cmd
   handlers --> dto
+  handlers --> err
   root ..> infra
   root ..> core
 }
 
-package "Test crates" as tests {
-  component "crates/integration-tests\n(Tier 1-4, testcontainers)" as it
-  component "crates/architecture\n(rust_arkitect, cargo-deny)" as at
-  component "crates/fuzz-targets" as fuzz
+package "backend/ Test Crates" as tests {
+  component "crates/architecture\n(rust_arkitect)" as arch
+  component "crates/integration-tests\n(Tiers 1-4, testcontainers)" as it
+  component "crates/fuzz-targets +\ncrates/test_support" as fuzz
 }
 
-it ..> core : pub API only
-it ..> infra : pub API only
-at ..> core : boundary rules (ADR-017)
+handlers ..> openapi : generates
+openapi ..> fl_gen : generates
+it ..> core : pub API
+it ..> infra : pub API
+arch ..> core : checks boundaries
 
 @enduml

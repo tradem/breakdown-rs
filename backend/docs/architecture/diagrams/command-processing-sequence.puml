@@ -2,46 +2,58 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Runtime view: how a command flows through the event-sourced write path.
+' Runtime view: end-to-end CQRS command, reservation claim, and lag sync.
 
 skinparam shadowing false
 skinparam sequenceArrowThickness 2
 
-participant "User /\nFrontend" as user
-participant "Axum\nHandler" as api
-participant "CommandService\n(kameo_es)" as svc
+participant "Flutter Client\n(Riverpod)" as client
+participant "Axum Handler\n(/v1/...)" as api
+participant "Command Adapter\n(kameo_es)" as svc
 participant "Aggregate\nActor" as agg
-database "SierraDB" as es
-participant "Projector" as proj
+database "SierraDB\n(Event Store)" as es
+participant "Projector\n(PostgresProcessor)" as proj
 database "PostgreSQL\n(Projection)" as db
 
-user -> api : POST /api/...\n(JSON Command)
+client -> api : POST /v1/... (JSON command)
 activate api
-api -> svc : dispatch(command)\n(enriched with auth/audit ctx)
+api -> db : AuthZ check + optional 409 pre-check
+db --> api : allowed + context
+api -> svc : execute(command)
 activate svc
-svc -> agg : execute(command, state)
+
+opt Global uniqueness invariant (ADR-036)
+  svc -> es : claim reservation-* (ExpectedVersion::Empty)
+  es --> svc : claimed (or WrongVer -> 409 Conflict)
+end
+
+svc -> agg : handle(command)
 activate agg
-agg -> agg : validate invariants
-agg --> svc : Ok(Event(s))
+agg -> agg : check domain invariants
+agg --> svc : Ok(Vec<Event>)
 deactivate agg
-svc -> es : appendToStream(events, expectedVersion)
+
+svc -> es : append events (expected version)
 activate es
-es --> svc : newStreamVersion
+es --> svc : new stream version
 deactivate es
-svc --> api : Reply (entity id / version)
+svc --> api : Ok((id, version))
 deactivate svc
-api --> user : 2xx + Location / DTO
+api --> client : 201 Created / 200 OK
 deactivate api
 
-es ->> proj : (async) subscription push
+client -> client : apply optimistic overlay
+
+es ->> proj : async event delivery
 activate proj
-proj -> db : UPSERT projection\n(idempotent, version-guarded)
+proj -> db : UPSERT projection\n(WHERE version < $N)
 deactivate proj
 
-note over agg, es
-  Events are the single source of truth.
-  State is rebuilt by replaying events.
-end note
+client -> api : bounded-retry GET /v1/...
+api -> db : SELECT projection
+db --> api : projected DTO
+api --> client : 200 OK (replaces overlay)
 
 @enduml

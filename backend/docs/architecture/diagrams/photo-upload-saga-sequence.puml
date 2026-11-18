@@ -2,45 +2,52 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Runtime view: photo upload with thumbnail saga.
+' Runtime view: piece photo upload with inline compensation and thumbnail saga.
 
 skinparam shadowing false
 skinparam sequenceArrowThickness 2
 
-participant "User" as user
-participant "POST /costumes/{id}/photos\nHandler" as api
-participant "CommandService" as svc
-participant "PhotoAggregate" as agg
+participant "Flutter Client" as client
+participant "POST /v1/pieces/{id}/photos\nHandler" as api
+participant "Garage\n(S3 Store)" as s3
+participant "Command Adapters\n(Photo + Wardrobe)" as svc
 database "SierraDB" as es
 participant "PhotoThumbnailSaga" as saga
-participant "Garage (S3)" as s3
 database "PostgreSQL" as pg
 
-user -> api : multipart upload { bytes, binding: Costume{id} }
+client -> api : POST image bytes (JPEG/PNG/WebP)
 activate api
-api -> svc : UploadPhoto { meta, bytes }
-svc -> agg : execute
-agg --> svc : PhotoUploaded { photo_id, meta }
-svc -> es : append
-svc --> api : { photo_id }
-api --> user : 202 Accepted
+api -> pg : load piece + AUTHZ-GATE\n(authorize_piece_in_project)
+pg --> api : project_id (or 403 / 422)
+api -> s3 : store Original bytes (PhotoId)
+s3 --> api : stored
+api -> svc : UploadPhoto + LinkPiecePhoto
+activate svc
+svc -> es : append PhotoUploaded + PiecePhotoLinked
+es --> svc : versions
+svc --> api : Ok(photo_version)
+deactivate svc
+api --> client : 201 Created (PhotoView, variants pending)
 deactivate api
 
 es ->> saga : PhotoUploaded
 activate saga
-saga -> s3 : fetch original bytes
+saga -> s3 : read Original bytes
 s3 --> saga : bytes
-saga -> saga : decode, strip EXIF,\ngenerate Thumb/Medium
-saga -> s3 : put Thumb, Medium\n(content-addressed)
-saga -> svc : GenerateVariantsCompleted { photo_id }
-svc -> es : append
+saga -> saga : decode image, strip EXIF,\nrender Thumb (200x200) and Medium (800x800)
+saga -> s3 : store Thumb and Medium
+saga -> svc : record generated variants
+svc -> es : append variant events
 deactivate saga
 
-es ->> pg : all Photo events
-note right of pg
-  thumbnail projector updates
-  projection_photo variants
+es ->> pg : project Photo and PiecePhoto rows
+
+note right of api
+  If UploadPhoto or LinkPiecePhoto fails,
+  the handler deletes stored Original bytes
+  inline before it returns the error.
 end note
 
 @enduml

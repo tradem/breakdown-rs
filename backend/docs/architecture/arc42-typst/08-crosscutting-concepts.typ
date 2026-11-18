@@ -2,125 +2,107 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: kimi-k3 (neuralwatt)
 // Co-authored-by: ox-alpha-free (opencode-go)
+// Co-authored-by: gemini-4-carbon (google)
 
 #import "template.typ": *
 
 
 = Crosscutting Concepts
 
-== Error Surface (RFC 9457)
+== HTTP Error Contract (RFC 9457)
 
 #adr-ref(num: "031", slug: "http-error-surface", title: "HTTP Error Surface")
 
-- All failures return `application/problem+json` built by a single problem builder.
-- Problem codes are registered centrally (`error_registry.rs`) and exposed only via
-  the `problem_codes!` macro.
-- Handlers propagate `Result<_, ApiError>`; there is no per-handler status mapping.
-- Extension fields are classified S0 / S1 / S2; S1 only after AUTHZ-GATE.
-- `detail` is localized server-side (Fluent, `de` default) — never in core.
+- Every HTTP failure returns `application/problem+json` from one central builder
+  (`crates/api/src/problems`).
+- `crates/core/src/error_registry.rs` declares all problem codes through the
+  `problem_codes!` macro. CI rejects standalone `ProblemCode` constants.
+- Extension fields use sensitivity tiers `S0` (public) and `S1` (after
+  `AUTHZ-GATE`). Tier `S2` (PII such as OIDC `sub` or email) never enters
+  error responses.
+- The server localizes `detail` with Fluent (`de` default). The Flutter client
+  branches on the stable `code` field and renders its own ARB copy.
 
-== Authentication and Authorization
+== Authentication and Scoped Authorization
 
-- *Authentication*: OIDC JWT (#adr-ref(num: "010", slug: "authentication-with-oidc", title: "OIDC Auth")), validated against JWKS.
-- *Authorization*: season-scoped role membership checked per handler; some
-  endpoints (photo handlers) additionally call `AuthorizationPolicy` explicitly.
-- *Dev toggle*: `DEV_AUTH_SUB` runs authentication in development without
-  reaching an IdP; production never reaches it (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC JWT Validation & Dev-Auth Toggle").
-- *Boundary*: `Requirement::Authenticated` middleware alone is not enough —
-  sensitive handlers add their own AUTHZ-GATE inside the handler body.
+Full control pointers live in
+#link("../../security/security-architecture.md")[`backend/docs/security/security-architecture.md`].
 
-== Security Architecture (Overview)
+=== Trust Boundaries and Deny-by-Default Routing
 
-#adr-ref(num: "010", slug: "authentication-with-oidc", title: "OIDC Auth") and
-#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC JWT Validation & Dev-Auth Toggle") define the
-identity stack; the authoritative deep-dive with threat model, control index,
-and file pointers lives in
-#link("../../security/security-architecture.md")[`backend/docs/security/security-architecture.md`] (issue #85).
+- *TB1 (`auth_middleware`)*: checks RS256 OIDC JWT signatures, `iss`, `aud`, and
+  `exp` against cached JWKS keys (3600 s TTL, refreshed on miss or verification
+  failure). `DEV_AUTH_SUB` works only when `OIDC_ISS` is unset (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC Validation")).
+- *TB2 (`authorize_middleware`)*: classifies every path through
+  `requirement_for()`. Unlisted paths default to `Requirement::BlockMember`.
+- *Fail-closed isolation*: `authorize_middleware` runs policy evaluation in a
+  spawned task so a panic maps to `403 Deny`, never `500`.
 
-=== Trust boundaries
+=== Effective Role Scopes and Handler Gates
 
-- *TB1* — `auth_middleware`: verifies the OIDC JWT (RS256, `iss`/`aud`/`exp`)
-  before any handler runs; JWKS cached with a 3600 s TTL, refreshed on miss or
-  validation failure.
-- *TB2* — `authorize_middleware`: enforces the membership policy for
-  block-scoped requests after authentication.
-- SierraDB is *untrusted durability*: projectors must be idempotent (version guards).
-- Garage is an IAM-less API-key byte store; Postgres is the least-privilege read model
-  (`breakdown_migrator` DDL vs. `breakdown_app` DML).
+- *Block and project scopes*: `effective_costume_role_in_season` checks an
+  active block-scoped role first (`projection_membership`) and falls back to an
+  active project-scoped costume role (`projection_project_membership`). Manual
+  report archival stays block-only by design.
+- *Project-wide piece photos*: piece photo handlers check
+  `authorize_piece_in_project` so wardrobe staff can manage carried-over pieces
+  across seasons of the same project.
+- *Owner-scoped Vault bindings*: `/v1/settings/{id}*` and AI config key links
+  check both `has_active_credential_role` and `owner == caller` (#adr-ref(num: "028", slug: "settings-aggregates-access-control", title: "Settings Access Control")).
+- *Explicit `AUTHZ-GATE` markers*: every `Requirement::Authenticated` handler
+  that accesses scoped data calls `membership_gate` and carries an
+  `// AUTHZ-GATE:` comment. The Flutter client checks `currentMembershipProvider`
+  for actions and reads global capabilities from `GET /v1/me/capabilities`.
 
-=== Deny-by-default and fail-closed
+== Cryptography and GDPR Right to Erasure
 
-- Every route passes through both middlewares; the only allowlist is the
-  declarative path map `requirement_for()` in `crates/api/src/auth/authorization.rs`.
-  Its default arm is `Requirement::BlockMember` — unclassified paths are block-scoped, never open.
-- Allowlisted exceptions (`Authenticated` only) are safe by construction:
-  public docs (path-check inside the middleware, not layer omission), block
-  create/list, invitation acceptance (domain command binds the caller's `sub`),
-  photo/AI-import/report handlers (internal AUTHZ-GATE + `// AUTHZ-GATE:` marker).
-- *Fail-closed*: a panicking policy yields `403`, never `500` — the async policy
-  call is isolated via `tokio::task::spawn(...).await.unwrap_or(PolicyDecision::Deny)`;
-  repository errors collapse to `Deny` as well.
-- `AUTHZ_ENFORCE=false` enables log-only staged rollout; dev mode defaults enforcement off.
+- *Encryption in transit and at rest*: `step-ca` secures internal links, and
+  Caddy secures public HTTPS (#adr-ref(num: "024", slug: "database-encryption-in-transit", title: "Encryption in Transit")).
+  The Flutter client pins its flavor Root CA (`withTrustedRoots: false`), and
+  LUKS2 encrypts VPS volumes (#adr-ref(num: "023", slug: "database-encryption-at-rest", title: "Encryption at Rest"),
+  #adr-ref(num: "032", slug: "flutter-client-tls-pinning-rotation", title: "Client TLS Pinning")).
+- *GDPR Article 17 in an append-only log* (#adr-ref(num: "029", slug: "gdpr-right-to-erasure-append-only-log", title: "GDPR Right to Erasure")):
+  SierraDB event streams never rewrite history. Instead, the system destroys
+  per-credential Vault Transit DEKs (crypto-shredding), scrubs personal fields
+  in mutable PostgreSQL projections, and keeps raw PII out of error payloads.
 
-=== Security-test pyramid (target)
-
-#align(center)[
-  #table(
-    columns: 2,
-    align: (left, center),
-    table.header([Layer], [Status]),
-    [Fuzzing (nightly, cargo-fuzz)], [⏳],
-    [Property-based tests (proptest)], [🟡],
-    [Mutation testing in-diff (cargo-mutants)], [🟡],
-    [Integration tests Tier-4 round-trip], [✅],
-    [Auth tests (authz, jwks)], [✅],
-    [Architecture tests (cargo-deny, rust_arkitect)], [✅],
-    [Unit tests (core)], [✅],
-  )
-]
-
-Status legend: ✅ present · 🟡 partially present (gap tracked in epic #83:
-property tests #89, mutation review gate #90, fuzzing #91).
-
-== Event Sourcing and Sagas
-
-- Events are immutable facts; state rebuilds by replaying.
-- Sagas react to events by dispatching follow-up commands (e.g. `PhotoUploaded` → `GeneratePhotoVariants`).
-- Sagas must never query a projection — any derived context comes from
-  the event or command. The sole exception is the AI-import worker's
-  deterministic mapping lookup, which uses an explicit
-  `// ast-grep-ignore: cqrs-boundary` suppression per call (issue #148).
-- Projectors are idempotent via version guards (`WHERE version < $N`) and correctly replayed.
-
-== Error Classifications in Projectors and Workers
+== Event Sourcing, Projectors, and Error Hygiene
 
 #table(
   columns: 3,
-  table.header([Classification], [Example], [Behaviour]),
-  [Transient (`ServiceUnavailable`)], [network hiccup, Garage down], [retry loop (`retry_transient`)],
-  [Permanent (`ValidationError`)], [unsupported file type], [fall through to redelivery/dead-letter],
-  [Not found (`NotFound`)], [expected path missing], [handle as success in delete paths],
+  table.header([Error Class], [Typical Cause], [System Action]),
+  [Transient (`ServiceUnavailable`)], [Network blip, Garage or DB restart], [Retry with backoff (`retry_transient`) or hold behind circuit breaker],
+  [Permanent (`ValidationError` / SQL 22, 23)], [Invalid payload or constraint conflict], [Skip known uniqueness race in savepoint (`#404`) or record in `projection_dead_letter` (`#37`) and advance checkpoint],
+  [Not found (`NotFound`)], [Object already absent on delete], [Treat as idempotent success in delete and GC flows],
 )
 
 #important[
-  Never discard a fallible result with `let _ = <call>`. Propagate (`?` / `map_err`), handle explicitly, or suppress with
-  `// ast-grep-ignore: discard-result` + justification.
+  Production code never discards fallible results. Rust enforces `discard-result`
+  with `ast-grep`, and Flutter enforces `discard_result` and
+  `no_throw_in_data_domain` with `breakdown_lints`.
 ]
 
-== Observability
+== Time, Identity, Localization, and Observability
 
-- Structured logging via `tracing` (spans on handlers, aggregates, projectors).
-- Planned full OpenTelemetry export (#adr-ref(num: "011", slug: "observability-with-opentelemetry", title: "Observability with OpenTelemetry")).
-- Projector lag measured; GC runs emit counters and dry-run logs first.
+- *Identifiers and sort order*: all entities use `UUIDv7` (#adr-ref(num: "004", slug: "use-uuidv7", title: "Use UUIDv7")).
+  Ordered lists use `LexicalSortKey` for fractional insertion without renumbering.
+- *Timestamps*: `jiff` and `infra::db_time` handle all instants and civil dates
+  while preserving byte-identical RFC 3339 event serialization (#adr-ref(num: "040", slug: "jiff-replaces-chrono", title: "jiff Replaces chrono")).
+- *Localization*: the backend uses Fluent (`errors.ftl`), and Typst reports
+  format for `de-DE` (#adr-ref(num: "022", slug: "pdf-reporting-and-archival", title: "PDF Reporting")).
+  The Flutter app uses `flutter gen-l10n` ARB catalogs (`de` and `en` with CI
+  parity checks, #adr-ref(num: "034", slug: "flutter-app-localization-gen-l10n", title: "Flutter Localization")).
+- *Observability*: `tracing` spans instrument HTTP handlers, aggregates, sagas,
+  and projectors, with OpenTelemetry OTLP export hooks (#adr-ref(num: "011", slug: "observability-with-opentelemetry", title: "Observability"))
+  and operator diagnostics at `GET /v1/ops/projector-health`.
 
-== Configuration
+== Verification Pyramids
 
-- Everything is env-driven; secrets never in code (gitleaks enforced).
-- `REQUIRE_IN_TRANSIT_TLS` startup gate enforces TLS URLs in production
-  (#adr-ref(num: "024", slug: "database-encryption-in-transit", title: "Database Encryption in Transit")).
-
-== Domain Identifiers
-
-- UUIDv7 only (`uuid::Uuid::now_v7()`); no sequential IDs anywhere.
-
-// TODO: document report archival flow (ADR-022) once the production backup targets are stable
+#table(
+  columns: 3,
+  table.header([Verification Layer], [Backend (`backend/`)], [Flutter Client (`frontend-flutter/`)]),
+  [Static and boundary gates], [`clippy` deny, `cargo-deny`, `rust_arkitect`, `ast-grep`], [`flutter analyze`, `breakdown_lints_runner`, OpenAPI drift check],
+  [Unit and property tests], [Deterministic `core` tests + `proptest`], [Pure `core/` + `data/` + `domain/` tests (`Ok` and `Err` branches)],
+  [Component / integration], [`axum` auth/contract tests + `testcontainers` Tiers 1–4], [Semantic-finder widget tests + `matchesGoldenFile` goldens],
+  [Acceptance / adversarial], [CI `cargo-mutants --in-diff` + nightly `cargo-fuzz`], [On-device `flutter_gherkin` critical flows + `integration_test` + `coverde`],
+)

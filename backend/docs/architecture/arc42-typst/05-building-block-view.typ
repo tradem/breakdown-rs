@@ -1,85 +1,127 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: kimi-k3 (neuralwatt)
+// Co-authored-by: gemini-4-carbon (google)
 
 #import "template.typ": *
 
 
 = Building Block View
 
-== Workspace Structure
+== Level 1: Monorepo Overview
 
-The workspace follows hexagonal layers as cargo crates. The `architecture`
-crate runs boundary tests; the `integration-tests` crate exercises the full
-command→event→projection round-trip against live containers.
+The Breakdown RS monorepo splits into the event-sourced Rust backend
+(`backend/`), the Flutter client (`frontend-flutter/`), and the shared OpenAPI
+wire contract (`backend/openapi.yaml`).
 
-#diagram("workspace-structure", caption: [Crates and dependency directions])
+#diagram("workspace-structure", caption: [Monorepo subsystems, Rust crates, Flutter layers, and contract seam])
+
+== Level 2a: Backend Workspace (`backend/crates/*`)
 
 #table(
   columns: 3,
-  table.header([Crate], [Responsibility], [Key dependencies]),
-  [`crates/core`], [Commands, events, aggregates, port traits, read DTOs, error registry], [`serde`, `uuid`, `jiff`, no infra],
-  [`crates/infra`], [Event-store adapter, projectors, queries, photo storage (OpenDAL), sagas, AI import, reporting], [`sqlx`, `kameo_es`, `opendal`, `typst`],
-  [`crates/api`], [Axum routes, OIDC middleware, composition root, lifecycle], [`axum`, `utoipa`, `core`, `infra`],
-  [`crates/architecture`], [Boundary tests (`rust_arkitect`)], [core, infra, api],
-  [`crates/integration-tests`], [Tiers 1–4, black-box over live PG / SierraDB], [`testcontainers`],
+  table.header([Crate], [Responsibility], [Key Dependencies]),
+  [`crates/core`], [Commands, events, aggregates, port traits, read DTOs, `error_registry.rs`], [`serde`, `uuid`, `jiff`, `thiserror` (zero infra crates)],
+  [`crates/infra`], [SierraDB adapters, reservation reaper, projectors, `sqlx` queries, `db_time`, OpenDAL photo/payload stores, Typst reports, AI workers, Vault client], [`sqlx`, `kameo_es`, `opendal`, `typst`, `reqwest`, `jiff-sqlx`],
+  [`crates/api`], [Axum `/v1` handlers, OIDC + AuthZ middleware, RFC 9457 builder, `main.rs` composition root], [`axum`, `utoipa`, `core`, `infra`],
+  [`crates/architecture`], [Source-level boundary tests (`rust_arkitect`, #adr-ref(num: "017", slug: "architecture-testing-strategy", title: "Architecture Testing"))], [`core`, `infra`, `api`],
+  [`crates/integration-tests`], [Black-box Tier 1–4 tests against live PostgreSQL and SierraDB containers], [`testcontainers`, `core`, `infra`],
+  [`crates/test_support`], [Shared deterministic test context helpers (`make_ctx`)], [`core`],
+  [`crates/fuzz-targets`], [Nightly `cargo-fuzz` targets for request deserialization], [`libfuzzer-sys`, `api`, `core`],
 )
 
-== Core Bounded Contexts
+== Level 2b: Core Domain Modules (`crates/core`)
 
-The core crate is organized by domain module. Each module owns its commands,
-events, aggregate and projection shape; nothing crosses a module boundary
-without going through a port trait.
+Each module in `crates/core` owns its commands, events, aggregate state, and
+read DTOs. Modules interact across boundaries only through `UUIDv7` identifiers
+and port traits.
 
-#diagram("core-modules", caption: [Domain modules and their relationships])
+#diagram("core-modules", caption: [Bounded contexts inside crates/core])
+
+#diagram("core-domain-model", caption: [Core aggregate roots and value objects])
 
 === Production Hierarchy
 
-Four levels, series being an opaque seam for a future additive aggregate.
-Each level's aggregate emits hierarchy context (`project_id`, `season_id`)
-into events so audit never needs read-model lookups.
+- *Hierarchy chain*: `ProjectId` (opaque tenant seam, #adr-ref(num: "035", slug: "production-kind-flexible-hierarchy", title: "Production-Kind-Flexible Hierarchy")) → `season` → `block` → `episode` → `scene`.
+- *Season lifecycle*: `ArchiveSeason` sets a terminal `archived` flag. Archived
+  seasons reject mutations with `409 season.archived`, keep their number
+  reserved, and stay readable.
+- *Shooting days and continuity*: `shooting_day` tracks calendar days per
+  episode and sets `wrapped_at` on `WrapShootingDay`. `scene_shoot` tracks one
+  scene execution on one shooting day with `planned_order` (`Soll`),
+  `actual_order` (`Ist`), notes, and continuity photos.
 
-=== Costume Domain
+=== Wardrobe Domain (`piece` and `outfit`)
 
-`Character` is season-scoped, `Costume` is owned by a character, and
-`CostumeCategory` is a season-scoped vocabulary. The costume projector
-resolves the category name at read time.
+- *Piece (fundus garment)*: `PieceAggregate` owns a name, an optional
+  `costume_category` reference, descriptive details, photos, and an `m:n`
+  season repertoire (`PieceAggregate.seasons`). A piece has no character owner.
+- *Outfit (character look)*: `OutfitAggregate` belongs to one mandatory
+  `character`, groups `0..n` ordered `PieceId` entries (layering permitted),
+  and supports copy-on-write forks (`variant_of`).
+- *Scene casting*: `SceneAggregate` casts outfits per character as ordered
+  `SceneOutfitBeat` records. Scenes never cast bare pieces.
+- *Category seeding*: `SeasonSeedingSaga` reacts to `SeasonCreated` and creates
+  default categories from `config/default_costume_categories.toml` once per
+  season.
 
 === Photo Context
 
-Photos live once per *binding* (`Costume` or `Continuity`). Byte storage is
-CRUD on Garage via OpenDAL (#adr-ref(num: "019", slug: "costume-photo-storage", title: "Costume Photo Storage")). Three sagas react to lifecycle events:
-thumbnail generation, deletion (refcount via projection), and bytes cleanup.
+`PhotoAggregate` records metadata and variant states for three `PhotoBinding`
+variants: `Piece`, `Outfit`, and `Continuity` (#adr-ref(num: "019", slug: "costume-photo-storage", title: "Costume Photo Storage")).
+OpenDAL writes image bytes to Garage. Four reactive tasks manage lifecycle work:
+`PhotoThumbnailSaga`, `PhotoDeletionSaga` (refcounted across pieces and
+outfits), `ContinuityDeletionSaga`, and `PhotoBytesCleanupSaga`, backed by an
+advisory-locked orphan garbage collector.
 
-=== AI Import
+=== Access, Credentials, Audit, and Reporting
 
-Optional bounded context (default off). Owners enqueue per-project
-concurrency permits, heartbeat renewal, lease fencing, and terminal-state
-payload GC — all visible in chapter 6 and 7.
+- *Authorization scopes*: `membership` manages block-scoped roles, while
+  `project_membership` manages project-scoped costume roles bootstrapped on
+  season creation.
+- *Secrets bindings*: `settings` binds owner-scoped external credentials stored
+  in HashiCorp Vault (#adr-ref(num: "027", slug: "secrets-vault-for-external-credentials", title: "Secrets Vault"), #adr-ref(num: "028", slug: "settings-aggregates-access-control", title: "Settings Access Control")).
+- *Audit and reporting*: `audit` projects an insert-only event log. `reporting`
+  renders deterministic PDFs in-process with Typst (`Dispo`, `Shoot Day`, and
+  day/episode/season `Soll-Ist`) and archives day reports through OpenDAL (#adr-ref(num: "022", slug: "pdf-reporting-and-archival", title: "PDF Reporting")).
 
-== Persistence Strategy (Level 2 Whitebox)
+=== AI Import Context
+
+`ai` runs as an operational queue in the `ai_import` PostgreSQL schema rather
+than as an event-sourced aggregate (#adr-ref(num: "030", slug: "ai-import-bounded-context", title: "AI Import")).
+Workers store source and preview blobs in Garage and enforce circuit breakers
+and owner-fenced leases. They stream progress over a PostgreSQL `NOTIFY` SSE
+hub (#adr-ref(num: "038", slug: "ai-import-sse-progress-and-event-hub", title: "AI Import SSE Progress"))
+and apply approved previews through domain commands.
+
+== Level 2c: Flutter Client (`frontend-flutter/lib/*`)
+
+#table(
+  columns: 2,
+  table.header([Directory], [Responsibility]),
+  [`core/`], [Framework-free `Result`/`Either` pipelines, `ProblemError` routing, and value objects.],
+  [`auth/`], [OIDC PKCE client, `flutter_secure_storage` tokens, and `currentMembershipProvider` gates.],
+  [`vendor/breakdown_api/`], [Rebuild-only `dio` client generated from `backend/openapi.yaml` (`regen-client.sh`).],
+  [`data/`], [Repositories that wrap `breakdown_api` and update the local Drift SQLite read cache.],
+  [`domain/`], [Use-case orchestration, optimistic overlays, and bounded-retry projection-lag sync.],
+  [`features/`], [One feature folder per aggregate boundary with `@riverpod` controllers and Material 3 screens.],
+  [`design/` + `l10n/`], [Design tokens, reusable widgets, and ARB localization catalogs (`de` and `en`).],
+)
+
+== Persistence Layout
 
 #table(
   columns: 4,
-  table.header([Aggregate], [Event store], [Projection table], [Projector]),
-  [Scene, SceneShoot, ShootingDay, Character], [SierraDB topic per category + UUIDv7 ID], [`projection_scene`, etc.], [PostgresProcessor per projection set],
-  [Photo], [SierraDB on costume / scene_shoot streams], [`projection_photo`], [photo projector],
-  [AI imports], [none (queue owned by infra)], [`ai_import.job`], [PG job table — no events],
+  table.header([Data Class], [Primary Store], [Read / Cache Store], [Update Mechanism]),
+  [Domain aggregates], [SierraDB stream per category + UUIDv7], [`projection_*` tables in PostgreSQL], [`PostgresProcessor` projectors],
+  [Uniqueness claims], [SierraDB `reservation-*` streams], [`projection_reservation_claim`], [Command adapter + reservation reaper],
+  [Photo and AI blobs], [Garage buckets (`costume-photos`, `ai-import-payloads`)], [`projection_photo` / `ai_import` metadata], [OpenDAL CRUD + cleanup sagas / GC],
+  [AI import jobs], [PostgreSQL `ai_import.ai_import_job`], [SSE Event Hub (`LISTEN/NOTIFY`)], [Owner-fenced worker updates],
+  [External secrets], [HashiCorp Vault (Transit + KV-v2)], [`projection_settings` (`vault_key_id` only)], [`SettingsAggregate` + Vault client],
+  [Client read views], [Backend PostgreSQL projections], [Local Drift SQLite on device], [TTL + on-write invalidation + refetch],
 )
 
 #important[
-  The projection table layout is intentionally flat and query-friendly. Do
-  not denormalize back to aggregates for reads.
+  Projections stay flat and query-optimized. Write-side sagas and adapters must
+  never read projections to fill in audit fields (`cqrs-boundary` CI rule).
 ]
-
-== CQRS Boundary Rule
-
-A saga or aggregate must never resolve audit/derived context (e.g. a
-`project_id`) by reading a projection. That context travels in the event data
-and, when needed, is enriched at the API edge before dispatch. The one
-permitted exception is the AI-import job worker: it performs deterministic
-mapping lookups (preview draft → aggregate id) under explicit
-`// ast-grep-ignore: cqrs-boundary` suppressions with justifications (issue
-#148). This is mechanically enforced.
-
-// TODO: describe scene_shoot and shooting_day aggregates in detail (level 3)

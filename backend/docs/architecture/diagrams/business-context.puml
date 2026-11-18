@@ -2,8 +2,9 @@
 ' SPDX-License-Identifier: AGPL-3.0
 ' Copyright (C) 2024-2026 Breakdown RS Contributors
 ' Co-authored-by: kimi-k3 (neuralwatt)
+' Co-authored-by: gemini-4-carbon (google)
 '
-' Business context: actors and the flows between them and Breakdown RS.
+' Business context: actors and use cases of Breakdown RS.
 
 skinparam shadowing false
 skinparam linetype ortho
@@ -13,23 +14,32 @@ actor "Production\nManager" as pm
 actor "Costume\nDesigner" as cd
 actor "Wardrobe\nSupervisor" as ws
 actor "Continuity /\nScript Dept." as cont
+actor "Actor\n(Read-Only)" as act
+actor "Platform\nOperator" as ops
 
-rectangle "Breakdown RS" as sys {
-  usecase "Costume Planning" as uc1
-  usecase "Scene Continuity\nTracking" as uc2
-  usecase "Shooting Day\nReports (Soll-Ist)" as uc3
-  usecase "Photo\nDocumentation" as uc4
-  usecase "AI Script / Schedule\nImport" as uc5
+rectangle "Breakdown RS\n(Flutter App + Rust API)" as sys {
+  usecase "Plan Seasons, Blocks,\nEpisodes, and Shooting Days" as uc1
+  usecase "Manage Fundus Pieces\nand Character Outfits" as uc2
+  usecase "Cast Outfits on Scenes\nand Track Continuity" as uc3
+  usecase "Capture Piece, Outfit,\nand Continuity Photos" as uc4
+  usecase "Generate and Archive\nPDF Reports (Soll-Ist, Dispo)" as uc5
+  usecase "Import Scripts and\nSchedules with AI" as uc6
+  usecase "Monitor Health,\nAudit Log, and Credentials" as uc7
 }
 
 pm --> uc1
-cd --> uc1
-ws --> uc2
-cont --> uc2
-pm --> uc3
-ws --> uc3
+pm --> uc5
+cd --> uc2
+cd --> uc3
 cd --> uc4
+ws --> uc2
+ws --> uc3
 ws --> uc4
+ws --> uc5
+cont --> uc3
 cont --> uc5
+cont --> uc6
+act --> uc3
+ops --> uc7
 
 @enduml
