@@ -39,6 +39,21 @@ commits (ADR-020 D5).
 - `cargo deny check advisories` is green again **without** an ignore entry:
   `RUSTSEC-2026-0543`'s temporary ignore is removed.
 
+### Fixed — a leftover `DEV_AUTH_SUB` can no longer defuse `AUTHZ_ENFORCE` (issue #935)
+
+- `AuthorizationState::from_env_or_dev` no longer treats the mere presence of
+  `DEV_AUTH_SUB` as dev mode. It reads the *same* predicate as the auth layer —
+  `auth::dev_auth_active` (`OIDC_ISS` unset **and** `DEV_AUTH_SUB` set) — so a
+  deployment that verifies real OIDC JWTs and merely left `DEV_AUTH_SUB` set now
+  enforces by default (`403` on policy denial) instead of silently dropping to
+  log-only forwarding of block-scoped requests. `AUTHZ_ENFORCE=false` remains
+  the explicit opt-out, in every mode.
+- `main.rs` warns at startup (`mixed auth configuration`) when `OIDC_*` and
+  `DEV_AUTH_*` are configured at once, naming the ignored variables
+  (`auth::mixed_dev_and_oidc_config`). The `AuthState` dev/`OIDC_*` selection
+  itself is unchanged; the predicate is now exported and shared, so the
+  authentication mode and the authorization default cannot drift apart again.
+
 ## [0.69.4] - Unreleased
 
 ### Changed — dependency pins only (issue #927)

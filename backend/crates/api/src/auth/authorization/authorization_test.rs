@@ -79,6 +79,54 @@ fn authz_env_variants() {
     });
 }
 
+/// Issue #935: a leftover `DEV_AUTH_SUB` must not defuse the authorization
+/// default while real OIDC is configured. Only a genuine dev-auth boot (no
+/// `OIDC_ISS`) may default to log-only.
+#[test]
+fn from_env_or_dev_enforces_when_oidc_configured_despite_dev_sub() {
+    with_clean_env(|| {
+        set_env("DEV_AUTH_SUB", "leftover-dev-user");
+        set_env("OIDC_ISS", "https://iss");
+        set_env("OIDC_AUDIENCE", "aud");
+        set_env("OIDC_JWKS_URL", "https://iss/.well-known/jwks");
+
+        // The mixed pair that used to default to log-only mode.
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(
+            st.enforce(),
+            "OIDC configured + leftover DEV_AUTH_SUB must enforce by default"
+        );
+
+        // An explicit opt-out still reaches log-only mode.
+        set_env("AUTHZ_ENFORCE", "false");
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(
+            !st.enforce(),
+            "explicit AUTHZ_ENFORCE=false must still disable enforcement"
+        );
+    });
+}
+
+/// The authorization default and the authentication mode share one predicate
+/// (`crate::auth::dev_auth_active`): dev default-off applies only while the dev
+/// override is really active, i.e. with `OIDC_ISS` absent.
+#[test]
+fn from_env_or_dev_stays_log_only_only_in_real_dev_mode() {
+    with_clean_env(|| {
+        set_env("DEV_AUTH_SUB", "dev-user");
+        assert!(crate::auth::dev_auth_active());
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(!st.enforce(), "genuine dev mode keeps log-only default");
+
+        // A stray OIDC_AUDIENCE without OIDC_ISS does not leave dev mode, so
+        // the two predicates still agree.
+        set_env("OIDC_AUDIENCE", "aud");
+        assert!(crate::auth::dev_auth_active());
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(!st.enforce(), "no OIDC_ISS -> still dev, still log-only");
+    });
+}
+
 /// Policy that always panics — used to verify the fail-closed guarantee.
 struct PanickingPolicy;
 #[async_trait]

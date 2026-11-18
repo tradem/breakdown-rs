@@ -288,10 +288,21 @@ implementing issue #342).
 ### Staged rollout & dev mode
 
 - `AUTHZ_ENFORCE=false` → log-only mode: denials are logged (`AUTHZ(log-only)`),
-  requests allowed. Used for staged rollout observation.
-- Dev mode (`DEV_AUTH_SUB` set, `OIDC_ISS` unset) defaults enforcement **off**
-  so local development works without seeded membership. Production always sets
-  `OIDC_ISS` and therefore cannot reach dev mode (ADR-018).
+  requests allowed. Used for staged rollout observation. It is the **only**
+  explicit opt-out — it applies in every mode, including production.
+- Enforcement defaults **on** for every configuration except a genuine dev-auth
+  boot.
+- Dev mode defaults enforcement **off** so local development works without
+  seeded membership. Dev mode is decided by the *same* predicate the
+  authentication layer uses — `crate::auth::dev_auth_active`: `OIDC_ISS` unset
+  **and** `DEV_AUTH_SUB` set. Production always sets `OIDC_ISS` and therefore
+  cannot reach dev mode (ADR-018).
+- A leftover `DEV_AUTH_SUB` next to real OIDC is ignored by both layers: tokens
+  are verified **and** denials return `403` (issue #935 — before the fix the
+  authorization predicate tested `DEV_AUTH_SUB` alone and silently dropped to
+  log-only, forwarding block-scoped requests on policy denial). `main.rs` logs
+  a `mixed auth configuration` warning at startup when OIDC and `DEV_AUTH_*`
+  are configured at once, naming the ignored variables.
 
 ---
 
@@ -305,7 +316,7 @@ Implementation: `crates/api/src/auth/{mod.rs,jwks.rs}` (ADR-010, ADR-018).
 | Key source | JWKS document fetched via `StaticJwksProvider`, cached by `CachingJwksProvider` (TTL 3600 s, refresh on cache miss **and** on validation failure — key rotation self-heals within one request) |
 | Claims enforced | `iss`, `aud`, `exp` |
 | Algorithm confusion | Header `alg` must be RS256; unknown `kid` rejects rather than falling back |
-| Dev-mode gating | Only reachable when `OIDC_ISS` is unset **and** `DEV_AUTH_SUB` is set — structurally unreachable in production |
+| Dev-mode gating | Only reachable when `OIDC_ISS` is unset **and** `DEV_AUTH_SUB` is set — structurally unreachable in production. The authorization default reads the same predicate (`auth::dev_auth_active`), so verified-token deployments always enforce unless `AUTHZ_ENFORCE=false` is explicit (issue #935) |
 
 ---
 

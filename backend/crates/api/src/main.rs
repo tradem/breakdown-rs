@@ -1018,6 +1018,11 @@ async fn main() -> Result<()> {
     }
 
     // --- OIDC authentication + authorization wiring ---
+    // Issue #935: when OIDC and a leftover dev-auth override are configured at
+    // once, OIDC wins (both for token verification and for the AUTHZ_ENFORCE
+    // default) — say so loudly instead of silently narrowing authorization to
+    // log-only.
+    api::auth::warn_on_mixed_dev_and_oidc_config();
     let auth = Arc::new(
         AuthState::from_env_or_dev().map_err(|e| anyhow::anyhow!("auth configuration: {e}"))?,
     );

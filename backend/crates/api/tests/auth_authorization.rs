@@ -106,7 +106,39 @@ fn authz_env_variants() {
     }
     let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
     assert!(st.enforce());
+
+    // Issue #935: a leftover DEV_AUTH_SUB next to real OIDC must NOT default
+    // AUTHZ_ENFORCE to false — only a genuine dev-auth boot (no OIDC_ISS) may
+    // be log-only.
     unsafe {
+        std::env::set_var("DEV_AUTH_SUB", "leftover-dev-user");
+    }
+    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+    assert!(
+        st.enforce(),
+        "OIDC configured + leftover DEV_AUTH_SUB must enforce by default"
+    );
+    // The startup guard rail recognises the same mix and names both families.
+    assert_eq!(
+        api::auth::mixed_dev_and_oidc_config(),
+        Some((
+            vec!["OIDC_ISS", "OIDC_AUDIENCE", "OIDC_JWKS_URL"],
+            vec!["DEV_AUTH_SUB"]
+        )),
+        "mixed OIDC + dev-auth config must be reported at startup"
+    );
+    // An explicit opt-out still reaches log-only mode.
+    unsafe {
+        std::env::set_var("AUTHZ_ENFORCE", "false");
+    }
+    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+    assert!(
+        !st.enforce(),
+        "explicit AUTHZ_ENFORCE=false must still disable enforcement"
+    );
+    unsafe {
+        std::env::remove_var("AUTHZ_ENFORCE");
+        std::env::remove_var("DEV_AUTH_SUB");
         std::env::remove_var("OIDC_ISS");
         std::env::remove_var("OIDC_AUDIENCE");
         std::env::remove_var("OIDC_JWKS_URL");

@@ -247,24 +247,32 @@ impl AuthorizationState {
 
     /// Read the enforcement flag from `AUTHZ_ENFORCE` (default: enforce).
     pub fn enforce_from_env() -> bool {
+        Self::enforce_flag_from_env(true)
+    }
+
+    /// Parse `AUTHZ_ENFORCE` (`"false"` / `"0"` disable), falling back to
+    /// `default` when it is unset.
+    fn enforce_flag_from_env(default: bool) -> bool {
         std::env::var("AUTHZ_ENFORCE")
             .map(|v| v != "false" && v != "0")
-            .unwrap_or(true)
+            .unwrap_or(default)
     }
 
     /// Build the authorization state from the environment.
     ///
-    /// In dev mode (`DEV_AUTH_SUB` set, i.e. the auth layer is not really
-    /// verifying tokens) enforcement defaults to *off* (log-only) so local
-    /// development works without seeded membership; set `AUTHZ_ENFORCE=true`
-    /// to force enforcement even in dev. Production (no `DEV_AUTH_SUB`)
-    /// enforces by default.
+    /// Enforcement defaults to *off* (log-only) only when the auth layer really
+    /// runs in dev-override mode — [`crate::auth::dev_auth_active`]: `OIDC_ISS`
+    /// absent **and** `DEV_AUTH_SUB` set — so local development works without
+    /// seeded membership; set `AUTHZ_ENFORCE=true` to force enforcement even in
+    /// dev.
+    ///
+    /// Every other configuration enforces by default (issue #935). With OIDC
+    /// configured, a leftover `DEV_AUTH_SUB` is ignored here exactly as the auth
+    /// layer ignores it, so tokens are verified *and* policy denials return
+    /// `403`; `AUTHZ_ENFORCE=false` stays the explicit opt-in to log-only mode.
     pub fn from_env_or_dev(policy: Arc<dyn AuthorizationPolicy>) -> Self {
-        let dev = std::env::var("DEV_AUTH_SUB").is_ok();
-        let enforce = if dev {
-            std::env::var("AUTHZ_ENFORCE")
-                .map(|v| v != "false" && v != "0")
-                .unwrap_or(false)
+        let enforce = if crate::auth::dev_auth_active() {
+            Self::enforce_flag_from_env(false)
         } else {
             Self::enforce_from_env()
         };

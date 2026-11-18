@@ -130,16 +130,21 @@ projectors that subscribe to SierraDB and update the Postgres projections.
 - `AUTHZ_ENFORCE` – `false`/`0` disables authorization enforcement
   (denials are logged, requests allowed — staged rollout / log-only); any other value
   (or unset) enforces, returning `403` for non-members. **Dev auth mode defaults
-  enforcement OFF** so local development works without seeded membership.
+  enforcement OFF** so local development works without seeded membership; every
+  other configuration (including one that merely left `DEV_AUTH_SUB` set beside
+  `OIDC_*`) enforces by default (issue #935).
 - `DEV_AUTH_SUB` – when set (and `OIDC_ISS` unset), auth runs in dev mode:
   tokens are NOT verified and a fixed dummy `CurrentUser` (`sub = DEV_AUTH_SUB`)
-  is injected. **Never set in production.** `DEV_AUTH_EMAIL` optionally supplies the
+  is injected. **Never set in production**, and never together with `OIDC_*` —
+  OIDC wins, the variable is ignored, and the API logs a `mixed auth
+  configuration` startup warning. `DEV_AUTH_EMAIL` optionally supplies the
   dummy user's email.
 
 > Dev auth mode is an explicit, env-gated bypass used only for local development
 > and tests. `main.rs` only ever enters it when `OIDC_ISS` is absent and
 > `DEV_AUTH_SUB` is present; production deployments set `OIDC_ISS` and therefore
-> can never reach dev mode.
+> can never reach dev mode. The authorization default follows the same predicate
+> (issue #935).
 
 ### Optional: Local IdP for OIDC Development
 
