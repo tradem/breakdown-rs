@@ -35,8 +35,8 @@ opt Global uniqueness invariant (ADR-036)
     es --> svc : claimed
   else WrongVer (stream exists)
     svc -> es : read latest reservation stream state
-    alt Foreign permanent holder (or retries exhausted)
-      es --> svc : Permanent conflict
+    alt Foreign reserved or consumed claim (or retries exhausted)
+      es --> svc : Conflict
       svc --> api : Err(Conflict)
       api --> mw : 409 (problem+json, no aggregate event)
       mw --> client : 409 Conflict

@@ -58,7 +58,7 @@ The monorepo contains two coordinated subsystems:
   [Costume Designer], [Manage fundus pieces, categories, and character outfits], [Piece repertoire, outfit variants, photos],
   [Wardrobe Supervisor], [Track set continuity and record outfit changes], [Continuity photos, scene shoot notes, Soll-Ist],
   [Script and Continuity], [Import scripts and schedules, compare plan with shoot], [AI import previews, scene lists],
-  [Actor], [Check assigned outfits for scheduled scenes (planned, current scene reads need an active block costume role)], [Planned read-only scene and outfit views],
+  [Actor], [Check assigned outfits for scheduled scenes (planned, current scene reads need active block membership)], [Planned read-only scene and outfit views],
   [Platform Operator], [Run a secure, observable, and recoverable deployment], [Health endpoints, Vault, runbooks],
 )
 
