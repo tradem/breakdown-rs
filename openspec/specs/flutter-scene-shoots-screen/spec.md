@@ -15,9 +15,7 @@ optimistic-after-2xx + bounded-retry reconciliation discipline, the
 guarded wrap with finality copy, and the continuity photos bound to
 scene shoots (AUTHZ-GATED capture/list/unlink reusing the Phase 2
 capture pipeline).
-
 ## Requirements
-
 ### Requirement: Contract-Gated Implementation
 The scene-shoot execution screens SHALL be implemented only against
 routes present in the generated Dart client (regenerated from
@@ -94,3 +92,35 @@ localized 403 narrative issued before any network call.
   affordances (refresh / capture again), and the state is
   distinguishable from `Ready` and `Failed` in both the widget and
   Gherkin coverage.
+
+### Requirement: Labelled Reports Entry
+
+The day board's reports entry SHALL satisfy the glossary visible-label norm:
+it SHALL carry a **visible** label alongside its icon, so the destination is
+identifiable without hover or a long-press. The day board is the on-set
+surface, so one tap from the board SHALL remain the whole path. When the app
+bar is too narrow to carry the label and a readable title together, the entry
+SHALL collapse into an overflow-menu item that is **itself labelled** — it
+SHALL NOT revert to an icon-only affordance. Design D8 (the report is
+strictly day-scoped and stays anchored in the day board) is unchanged by
+this requirement: no season- or episode-level report entry is added.
+
+#### Scenario: entry shows a visible label
+
+- **WHEN** the day board renders with room for the label
+- **THEN** the reports action is a labelled control — icon plus the visible
+  text `sceneShootsReportsLabel` — and a semantic finder on that text
+  succeeds (a test that would fail if the label regressed to icon-only)
+
+#### Scenario: narrow app bar keeps a labelled item
+
+- **WHEN** the day board renders narrower than the label breakpoint
+- **THEN** the reports action moves into the overflow menu as a labelled item
+  (icon plus the same visible text), never as a bare icon button
+
+#### Scenario: entry key is stable across both forms
+
+- **THEN** the tap target carries the Gherkin contract key `reports-open` in
+  both forms, so the day-context step `I open the reports for shooting day
+  {string}` keeps resolving without a scenario change
+

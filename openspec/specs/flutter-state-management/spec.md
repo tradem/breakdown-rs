@@ -18,6 +18,17 @@ Riverpod is compile-safe and its `override` system is honest DI (not a hidden
 service locator), which the AGENTS.md accepts as the cost of widget-test
 velocity.
 
+Notifier-backed providers SHALL be declared through codegen
+(`@Riverpod(keepAlive: …)` on a class extending the generated `_$ClassName`),
+not as a hand-written `Notifier` + `NotifierProvider` pair. A hand-written pair
+SHALL carry a documented exception stating why codegen cannot express it, and
+SHALL NOT be copied as a template for new providers (issue #905).
+
+A migration to codegen SHALL preserve the provider's **existing lifetime**
+(a hand-written `NotifierProvider` is keep-alive, whereas `@Riverpod` defaults
+to auto-dispose), its public notifier methods and its provider name — a rename
+visible at a call site is a separate, reviewed decision.
+
 #### Scenario: A widget reads reactive state
 - **WHEN** a `ConsumerWidget` calls `ref.watch` on an asynchronous provider
   (`Future`, `Stream`, or `AsyncNotifier`).
@@ -31,6 +42,30 @@ velocity.
 [seasonsRepositoryProvider.overrideWithValue(fakeRepo)])` and passes it
 via `UncontrolledProviderScope`, with no global mutable singleton and no
 runtime lookup that could fail at build time.
+
+#### Scenario: A hand-written `NotifierProvider` is found
+- **WHEN** a review finds a `class X extends Notifier<T>` plus
+  `final xProvider = NotifierProvider<X, T>(X.new)` under `lib/`.
+- **THEN** it is migrated to `@Riverpod(keepAlive: true) class X extends _$X`
+  with the existing provider name and public methods preserved, and every
+  call site (including `xProvider.notifier`) keeps compiling unchanged — unless
+  a documented exception explains why codegen cannot express it.
+
+#### Scenario: A shared notifier base class needs a codegen subclass
+- **WHEN** several providers share behaviour through a base type (e.g. the
+  optimistic overlay stores) and one of them must become a codegen provider.
+- **THEN** the shared base is expressed as a mixin over Riverpod's public
+  notifier root (`mixin Base<E> on AnyNotifier<List<E>, List<E>>`) rather than
+  an `abstract class … extends Notifier<…>`, because a generated notifier must
+  extend its own generated base and Dart allows only one superclass.
+
+#### Scenario: A family provider is seeded by a bootstrap override
+- **WHEN** a `NotifierProvider.family` takes its family argument as a
+  constructor field and is seeded through a subclass with `overrideWith`
+  (today: `easterEggProvider` / `HydratedEasterEggs`).
+- **THEN** it MAY stay hand-written, with the exception documented at the
+  declaration and in the change that inventoried it; it is not proof that other
+  hand-written providers are justified.
 
 ### Requirement: No Business Logic in Widgets
 Widgets SHALL only render and dispatch; all domain/data orchestration
