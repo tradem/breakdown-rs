@@ -16,7 +16,6 @@ device), version-echo edits without automatic re-dispatch on 409,
 credential-role denial surfaced as a localized narrative (the
 documented D4 session-only gate exception), and an honest unresolved
 state after an ambiguous revoke.
-
 ## Requirements
 ### Requirement: Vault-Backed AI Configuration Screens
 The configuration screen SHALL manage the caller's AI import
@@ -110,3 +109,15 @@ AI-literacy support, (EU) 2024/1689).
 - **WHEN** the static inline-copy gate (`tool/check_inline_copy.sh`) runs.
 - **THEN** the helper card surfaces no user-facing string literal outside
   the ARB catalogs.
+
+### Requirement: Optional Decision Model configuration and split-billing key toggle
+`AiConfigScreen` SHALL allow the user to configure or clear an optional Decision Model (`decisionProvider`, `decisionModel`). When the selected Decision Model provider matches the extraction provider, the screen SHALL display a **"Use same API key as extraction"** toggle (enabled by default). When the toggle is disabled or when the Decision Model provider differs from the extraction provider, the client SHALL resolve a remembered decision credential from `AiImportHandoffStore` or prompt for a separate API key bound to the Decision Model provider.
+
+#### Scenario: Same provider reuses extraction key by default
+- **WHEN** the user selects `neuralwatt` for both extraction and Decision Model and leaves "Use same API key as extraction" checked
+- **THEN** the config save dispatches with `decisionVaultKeyId == vaultKeyId` without prompting for a second secret
+
+#### Scenario: Unchecking same-key toggle binds a separate credential for split billing
+- **WHEN** the user unchecks "Use same API key as extraction" and enters a second API key
+- **THEN** the client creates a second `Settings` credential binding, stores its opaque reference in `AiImportHandoffStore`, and saves `AiConfig` with the distinct `decisionVaultKeyId`
+
