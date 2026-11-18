@@ -8,6 +8,7 @@
 use thiserror::Error;
 
 use crate::shared::{AggregateVersion, ShootingDayId};
+
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum SceneError {
     #[error("Validation error: {0}")]

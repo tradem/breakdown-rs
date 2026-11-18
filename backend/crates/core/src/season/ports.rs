@@ -5,10 +5,12 @@
 
 use uuid::Uuid;
 
-use super::commands::{ArchiveSeason, CreateSeason, RenameSeason};
-use super::views::SeasonView;
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, ProjectId, UserId};
+
+use super::commands::{ArchiveSeason, CreateSeason, RenameSeason};
+use super::views::SeasonView;
+
 /// Async write port for the `SeasonAggregate`.
 #[allow(async_fn_in_trait)]
 pub trait SeasonCommands: Send + Sync {

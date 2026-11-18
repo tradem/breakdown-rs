@@ -13,10 +13,12 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
+use crate::shared::{AggregateVersion, EventMetadata};
+
 use super::commands::*;
 use super::error::OutfitError;
 use super::events::*;
-use crate::shared::{AggregateVersion, EventMetadata};
+
 /// State persisted by the `Outfit` aggregate.
 #[derive(Debug, Clone, Default)]
 pub struct OutfitAggregate {

@@ -7,6 +7,7 @@
 use thiserror::Error;
 
 use crate::membership::Role;
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ProjectMembershipError {
     /// Only the costume-department roles may be granted at project scope. The

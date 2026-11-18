@@ -11,16 +11,18 @@
 //! [`CachingJwksProvider`], which fetches the IdP JWKS document, caches it for
 //! a short TTL, and refreshes on miss or on a validation failure.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
 use async_trait::async_trait;
 use base64::Engine;
 use jsonwebtoken::DecodingKey;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
+
 /// Errors that can occur while resolving decoding keys from a JWKS document.
 #[derive(Debug, Error)]
 pub enum JwksError {

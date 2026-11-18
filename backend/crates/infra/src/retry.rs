@@ -32,9 +32,11 @@
 //! never a validation error — a header we cannot read must not fail a request
 //! that otherwise succeeded.
 
+use std::time::{Duration, SystemTime};
+
 use reqwest::StatusCode;
 use reqwest::header::HeaderMap;
-use std::time::{Duration, SystemTime};
+
 /// Base delay of the exponential backoff strategy: 500 ms, i.e. attempt `n`
 /// waits `500 ms · 2^n` (plus jitter) before its retry.
 ///

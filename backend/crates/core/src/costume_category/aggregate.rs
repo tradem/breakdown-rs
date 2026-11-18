@@ -7,10 +7,12 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
+use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata, LexicalSortKey, SeasonId};
+
 use super::commands::*;
 use super::error::CostumeCategoryError;
 use super::events::CostumeCategoryEvent;
-use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata, LexicalSortKey, SeasonId};
+
 /// State persisted by the CostumeCategory aggregate.
 ///
 /// A CostumeCategory is scoped to exactly one `Season` (matching `Character`).

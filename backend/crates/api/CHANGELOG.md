@@ -28,12 +28,14 @@ commits (ADR-020 D5).
   migration (the `openapi_drift` test sees zero diff), including all 36
   `format: date-time` and 8 `format: date` properties. `utoipa` 6 ships only a
   `jiff_0_2` bridge; it resolves schemas by type name, which jiff 1.x keeps.
-- `SceneShoot`'s `start_dt`/`end_dt` keep their naive wall-clock wire shape
-  (`jiff::civil::DateTime` on the Rust side, still `type: [string, "null"]` +
-  `format: date-time` in the contract). `utoipa` has no bridge for the civil
-  datetime type, so both fields carry an explicit
-  `#[schema(value_type = Option<String>, format = DateTime)]` — the `Option` is
-  load-bearing (rule `openapi-value-type-nullable`, issue #423).
+- `SceneShoot`'s `start_dt`/`end_dt` are `Option<jiff::Timestamp>` and are
+  decoded by `deserialize_opt_instant_or_naive_utc` in `handlers/mod.rs`: both
+  canonical RFC 3339 instants (`...Z` and `...+02:00`, converted to the exact
+  UTC instant — what `format: date-time` and the generated Flutter client
+  emit) and legacy naive wall-clock strings (`YYYY-MM-DDTHH:MM:SS`, pinned to
+  UTC) are accepted; out-of-range values are rejected with 422 instead of
+  falling back to `Timestamp::now()`. The published schema is unchanged
+  (`type: [string, "null"]` + `format: date-time`, via the `jiff_0_2` bridge).
 - `cargo deny check advisories` is green again **without** an ignore entry:
   `RUSTSEC-2026-0543`'s temporary ignore is removed.
 

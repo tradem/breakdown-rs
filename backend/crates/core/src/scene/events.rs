@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
+
 /// Provenance discriminator for how a `Scene` came into existence.
 ///
 /// `Manual` is the user-created path (REST handler). `AiExtracted` marks a

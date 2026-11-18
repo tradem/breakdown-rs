@@ -16,13 +16,15 @@
 //! registers the deprecated `/v1` prefixes here and ships the next `api`
 //! MAJOR, per ADR-020 D2 / ADR-021 D2).
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderValue, Request};
 use axum::middleware::Next;
 use axum::response::Response;
-use std::collections::HashMap;
-use std::sync::Arc;
+
 /// `Deprecation` response header emitted on deprecated routes (ADR-021 D4).
 ///
 /// The `http` crate does not expose a constant for this draft-standard header

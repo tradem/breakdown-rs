@@ -21,6 +21,7 @@
 
 use breakdown_core::ai::LlmProvider;
 use reqwest::header::HeaderValue;
+
 /// Global override for the AI provider `User-Agent`.
 pub(crate) const AI_USER_AGENT_ENV: &str = "AI_IMPORT_USER_AGENT";
 

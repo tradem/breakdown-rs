@@ -32,6 +32,7 @@
 //! startup fast with a clear error.
 
 use std::collections::BTreeMap;
+
 /// Connection strings and endpoints the production startup must validate.
 #[derive(Debug, Clone, Default)]
 pub struct TlsConfig {

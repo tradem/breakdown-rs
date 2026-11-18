@@ -15,6 +15,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::SceneShootId;
+
 /// Discriminates what a photo is attached to.
 ///
 /// `Piece` — a single fundus garment's Anprobe/planning photo.

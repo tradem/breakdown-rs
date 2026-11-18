@@ -2,11 +2,13 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
-use breakdown_core::ai::AiImportBounds;
-use breakdown_core::error::DomainError;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use breakdown_core::ai::AiImportBounds;
+use breakdown_core::error::DomainError;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
+
 #[cfg(test)]
 #[path = "concurrency_tests.rs"]
 mod concurrency_tests;

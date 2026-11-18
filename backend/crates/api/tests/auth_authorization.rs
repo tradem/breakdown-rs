@@ -15,6 +15,7 @@
     clippy::dbg_macro
 )]
 #![allow(unsafe_code)] // test-only JWT/socket stubs
+use std::sync::Arc;
 
 use api::auth::authorization::{
     AuthorizationState, MembershipAuthorizationPolicy, Requirement, SeasonPhotoAccessPolicy,
@@ -28,7 +29,6 @@ use axum::middleware::from_fn_with_state;
 use axum::routing::post;
 use breakdown_core::membership::policy::{AuthContext, AuthorizationPolicy, PolicyDecision};
 use breakdown_core::shared::BlockId;
-use std::sync::Arc;
 use tower::ServiceExt;
 
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -10,13 +10,14 @@
 
 use uuid::Uuid;
 
+use crate::error::DomainError;
+use crate::shared::{AggregateVersion, SeasonId, UserId};
+
 use super::category::CharacterCategory;
 use super::commands::{
     CreateCharacter, UpdateCharacterCategory, UpdateContactInfo, UpdateMeasurements,
 };
 use super::views::{CharacterAppearanceView, CharacterView};
-use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 /// Async write port for the `CharacterAggregate`.
 #[allow(async_fn_in_trait)]

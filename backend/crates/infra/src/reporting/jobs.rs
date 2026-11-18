@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Durable report-archival job repository (`report_ops.report_job`).
 //!
@@ -17,7 +18,6 @@ use breakdown_core::reporting::{
     ReportJobId, ReportJobStatus, ReportKind, ReportLocale, SnapshotIdentity,
 };
 use breakdown_core::shared::ShootingDayId;
-use jiff::SignedDuration;
 use jiff::Timestamp;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::time::Duration;
@@ -324,8 +324,10 @@ impl PgReportArchivalQueue {
             ReportJobStatus::Failed
         };
 
+        // Saturating: `backoff` is an unbounded `Duration`, and `Timestamp +
+        // duration` panics on overflow instead of degrading.
         let next_attempt = if status == ReportJobStatus::Failed {
-            Some(now + SignedDuration::try_from(backoff).unwrap_or(SignedDuration::from_secs(30)))
+            Some(now.checked_add(backoff).unwrap_or(Timestamp::MAX))
         } else {
             None
         };
@@ -431,8 +433,11 @@ impl PgReportArchivalQueue {
         &self,
         stale_after: Duration,
     ) -> Result<Vec<ReportJobRow>, ReportArchivalError> {
+        // Saturating for the same reason as `mark_failure`'s backoff: a huge
+        // `stale_after` must widen the window, not panic the sweeper.
         let cutoff = Timestamp::now()
-            - SignedDuration::try_from(stale_after).unwrap_or(SignedDuration::from_mins(15));
+            .checked_sub(stale_after)
+            .unwrap_or(Timestamp::MIN);
         let rows = sqlx::query(
             r#"
             SELECT

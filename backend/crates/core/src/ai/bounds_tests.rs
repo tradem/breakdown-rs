@@ -2,12 +2,11 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
-use std::env;
-
 use super::{
     AiImportBounds, HOSTED_INNER_RETRIES, MAX_ATTEMPT_BACKOFF_SECS, MAX_IN_ATTEMPT_HINT_SECS,
     OLLAMA_INNER_RETRIES, bounded_u32, bounded_u64,
 };
+use std::env;
 
 // ---------------------------------------------------------------------------
 // Helper: run a closure with a temporary env var, restoring the original

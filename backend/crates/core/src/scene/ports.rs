@@ -10,14 +10,15 @@
 
 use uuid::Uuid;
 
+use crate::error::DomainError;
+use crate::shared::{AggregateVersion, EpisodeId, UserId};
+
 use super::commands::{
     AddOutfitBeat, AssignCharacter, CreateScene, RemoveCharacter, RemoveOutfitBeat,
     ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
     UpdateSceneDetails,
 };
 use super::views::SceneView;
-use crate::error::DomainError;
-use crate::shared::{AggregateVersion, EpisodeId, UserId};
 
 /// Async write port for the `SceneAggregate`. Mockable seam used by API handlers.
 #[allow(async_fn_in_trait)]

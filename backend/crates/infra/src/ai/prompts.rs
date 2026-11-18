@@ -6,6 +6,7 @@
 use breakdown_core::ai::DocumentKind;
 use breakdown_core::error::DomainError;
 use serde::Deserialize;
+
 #[derive(Debug, Deserialize)]
 struct PromptFile {
     script: PromptEntry,

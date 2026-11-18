@@ -4,14 +4,16 @@
 
 //! Unit tests for PdfTextExtractor.
 
+use std::time::Duration;
+
+use breakdown_core::error::DomainError;
+
+use super::PdfTextExtractor;
+
 // ===========================================================================
 // Constructor
 // ===========================================================================
 
-use breakdown_core::error::DomainError;
-use std::time::Duration;
-
-use super::PdfTextExtractor;
 #[test]
 fn new_creates_extractor() {
     let extractor = PdfTextExtractor::new(1024, Duration::from_secs(30));

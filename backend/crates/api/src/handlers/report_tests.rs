@@ -10,10 +10,9 @@
 //! - `dispo_report_pdf` / `shoot_day_report_pdf` / `planned_vs_actual_report_pdf`
 //!   — authz gate and response behavior
 
-
-
 use axum::http::StatusCode;
 use axum::{Json, extract::State};
+
 use breakdown_core::reporting::ReportRenderError;
 use breakdown_core::shared::ShootingDayId;
 

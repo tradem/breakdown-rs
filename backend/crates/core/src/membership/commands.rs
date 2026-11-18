@@ -4,12 +4,13 @@
 
 //! Membership domain commands.
 
+use crate::shared::{BlockId, ProjectId, UserId};
 use kameo_es::CommandName;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::membership::Role;
-use crate::shared::{BlockId, ProjectId, UserId};
+
 /// Invite a `user_id` to the block with a proposed `role` (pending until accepted).
 ///
 /// `project_id` is carried for the `EventMetadata` audit trail (the audit

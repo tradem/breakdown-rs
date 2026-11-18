@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
 /// Exhaustive category for a Character.
 ///
 /// Designed for **purely additive extension**: a new variant can be appended

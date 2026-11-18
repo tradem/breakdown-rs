@@ -4,14 +4,15 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+use std::collections::{HashMap, HashSet};
+use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::Instant;
+
 use breakdown_core::ai::{
     AiImportJobId, AiImportMapping, AiImportMappingRepository, PRIMARY_ORDINAL,
 };
 use breakdown_core::error::DomainError;
 use sqlx::{PgPool, Row};
-use std::collections::{HashMap, HashSet};
-use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::Instant;
 use uuid::Uuid;
 
 use super::mapping_metrics::{MappingWriteOp, record_mapping_write};

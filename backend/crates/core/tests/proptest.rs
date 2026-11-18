@@ -21,7 +21,7 @@
 //! 4. **`BlockMembership` state machine** – event idempotency, state invariants,
 //!    and reapply determinism.
 
-// ── Strategies ──────────────────────────────────────────────────────
+use proptest::prelude::*;
 
 use breakdown_core::membership::Role;
 use breakdown_core::membership::aggregate::BlockMembership;
@@ -29,8 +29,10 @@ use breakdown_core::membership::aggregate::MembershipState;
 use breakdown_core::membership::events::MembershipEvent;
 use breakdown_core::shared::{BlockId, LexicalSortKey, UserId};
 use kameo_es::{Apply, Metadata};
-use proptest::prelude::*;
 use uuid::Uuid;
+
+// ── Strategies ──────────────────────────────────────────────────────
+
 /// Generate a valid `LexicalSortKey` (non-empty, bytes in `[b'!', b'~']`,
 /// max 64 chars).
 fn any_lexical_sort_key() -> impl Strategy<Value = LexicalSortKey> {

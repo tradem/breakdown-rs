@@ -23,6 +23,8 @@
 //! cert keep the process-wide default transport installed by the `opendal`
 //! facade.
 
+use std::mem;
+
 use futures::TryStreamExt;
 use futures::future;
 use http::{Request, Response};
@@ -32,7 +34,6 @@ use opendal::{
     Buffer, Error, ErrorKind, HttpBody, HttpTransport, HttpTransporter, OperationContext, Operator,
     Result,
 };
-use std::mem;
 
 /// Read the PEM-encoded root CA file referenced by an env var, if set.
 ///

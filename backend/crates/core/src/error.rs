@@ -7,6 +7,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::time::Duration;
+
 use thiserror::Error;
 use uuid::Uuid;
 

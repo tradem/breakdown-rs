@@ -10,6 +10,8 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
+use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, ShootingDayId};
+
 use super::commands::{
     AddOutfitBeat, AssignCharacter, CreateScene, DeleteScene, RemoveCharacter, RemoveOutfitBeat,
     ScheduleSceneOnShootingDay, UnscheduleSceneFromShootingDay, UpdateOutfitBeat,
@@ -18,8 +20,8 @@ use super::commands::{
 use super::error::SceneError;
 use super::events::SceneEvent;
 use super::outfit::SceneOutfitBeat;
+
 use crate::scene::events::{SceneDetails, SceneSource};
-use crate::shared::{AggregateVersion, EpisodeId, EventMetadata, ShootingDayId};
 
 /// State persisted by the Scene aggregate.
 ///

@@ -17,6 +17,9 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+use std::sync::Arc;
+
+use crate::auth::authorization::MembershipAuthorizationPolicy;
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiImportMappingRepository, AiImportQueue,
     AiModelPricingRepository,
@@ -24,14 +27,15 @@ use breakdown_core::ai::{
 use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
 use breakdown_core::character::{CharacterCommands, CharacterRepository};
+use breakdown_core::outfit::{OutfitCommands, OutfitRepository};
+use breakdown_core::piece::{PieceCommands, PieceRepository};
+
 use breakdown_core::costume_category::{CostumeCategoryCommands, CostumeCategoryRepository};
 use breakdown_core::episode::{EpisodeCommands, EpisodeRepository};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use breakdown_core::membership::{MembershipCommands, MembershipRepository};
 use breakdown_core::ops::ProjectorHealthRepository as ProjectorHealthRepositoryPort;
-use breakdown_core::outfit::{OutfitCommands, OutfitRepository};
 use breakdown_core::photo::ports::{PhotoCommands, PhotoRepository, PhotoStorage};
-use breakdown_core::piece::{PieceCommands, PieceRepository};
 use breakdown_core::reporting::{ReportArchivalQueue, ReportRenderer};
 use breakdown_core::scene::{SceneCommands, SceneRepository};
 use breakdown_core::scene_shoot::{
@@ -62,9 +66,6 @@ use infra::queries::{
 };
 use infra::reporting::PgReportArchivalQueue;
 use infra::vault::VaultClient;
-use std::sync::Arc;
-
-use crate::auth::authorization::MembershipAuthorizationPolicy;
 
 /// The hexagonal seam surface used by API handlers. Production implements it
 /// with the concrete `kameo_es` write adapters and `sqlx` read adapters.

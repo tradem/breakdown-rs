@@ -13,10 +13,12 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
+use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata, SeasonId};
+
 use super::commands::*;
 use super::error::PieceError;
 use super::events::*;
-use crate::shared::{AggregateVersion, CostumeCategoryId, EventMetadata, SeasonId};
+
 /// State persisted by the `Piece` aggregate.
 ///
 /// Deliberately **character-free**: the character binding lives on the

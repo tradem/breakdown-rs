@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Reservation reaper (ADR-036 §3.2): crash-orphan compensation for
 //! reservation claims.
@@ -163,7 +164,11 @@ async fn run_reaper_pass_locked(
 ) -> Result<(), anyhow::Error> {
     // Runtime is monotonically cheaper than `now() - interval` per row and
     // keeps the query an exact static literal (no string-interpolated SQL).
-    let cutoff = jiff::Timestamp::now() - Duration::from_secs(config.claim_ttl_secs);
+    // Saturating: `claim_ttl_secs` is an unrestricted `u64`, and `Timestamp -
+    // duration` panics on overflow instead of degrading.
+    let cutoff = jiff::Timestamp::now()
+        .checked_sub(Duration::from_secs(config.claim_ttl_secs))
+        .unwrap_or(jiff::Timestamp::MIN);
 
     let candidates = sqlx::query_as::<_, (String, Uuid)>(
         r#"

@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use super::events::PieceDetail;
 use crate::shared::{AggregateVersion, CostumeCategoryId, ProjectId, SeasonId};
+
 /// Catalogue a new fundus piece.
 ///
 /// `name` is required (non-blank) — a garment without a name is unreachable

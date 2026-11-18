@@ -23,10 +23,12 @@
     clippy::dbg_macro
 )]
 
+use std::collections::HashSet;
+
 use breakdown_core::error_registry::{PROBLEM_CODES, problem_code};
 use fluent_bundle::FluentResource;
 use fluent_syntax::ast::Entry;
-use std::collections::HashSet;
+
 /// Message ids in a bundle (the raw FTL entry names).
 fn bundle_keys(source: &str) -> HashSet<String> {
     let resource = FluentResource::try_new(source.to_owned()).expect("bundle must parse");

@@ -9,6 +9,8 @@
 //! migration command. The API binary and all report workers load GDrive
 //! material exclusively through Settings/Vault.
 
+use std::env;
+
 use anyhow::{Context, Result, bail};
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::ports::{CredentialVault, SettingsCommands, SettingsRepository};
@@ -21,8 +23,8 @@ use infra::vault::VaultClient;
 use kameo_es::command_service::CommandService;
 use redis::Client as RedisClient;
 use sqlx::postgres::PgPoolOptions;
-use std::env;
 use uuid::Uuid;
+
 struct Options {
     settings_id: Uuid,
     actor: UserId,

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use super::events::{SceneDetails, SceneSource, default_scene_source};
 use crate::shared::{AggregateVersion, EpisodeId, ProjectId, ShootingDayId};
+
 /// Create a scene within an episode.
 ///
 /// `project_id` is carried for the `EventMetadata` audit trail (the audit

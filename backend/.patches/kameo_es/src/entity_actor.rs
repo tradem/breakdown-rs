@@ -276,6 +276,12 @@ impl<E: Entity + Apply> EntityActor<E> {
     {
         let total_start = Instant::now();
 
+        // Converted once per batch, not once per event: the instant is the same
+        // for every event of this append and the conversion is fallible, so a
+        // failure must abort before anything is written.
+        let system_timestamp =
+            to_system_time(timestamp).map_err(|_| AppendEventsError::InvalidTimestamp)?;
+
         let serialize_start = Instant::now();
         let mut metadata_buf = Vec::new();
         if !metadata.is_empty() {
@@ -305,10 +311,7 @@ impl<E: Entity + Apply> EntityActor<E> {
                         .payload(payload)
                         .metadata(&metadata_buf)
                         .expected_version(expected_version)
-                        .timestamp(
-                            to_system_time(timestamp)
-                                .map_err(|_| AppendEventsError::InvalidTimestamp)?,
-                        ),
+                        .timestamp(system_timestamp),
                 )
             })
             .collect::<Result<Vec<_>, AppendEventsError<_, _>>>()?;
@@ -346,7 +349,7 @@ impl<E: Entity + Apply> EntityActor<E> {
                 &self.stream_id,
                 version,
                 metadata.clone(),
-                to_system_time(timestamp).map_err(|_| AppendEventsError::InvalidTimestamp)?,
+                system_timestamp,
             );
             version += 1;
         }

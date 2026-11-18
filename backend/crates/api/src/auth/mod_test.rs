@@ -2,12 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy3 (opencode-go)
 
-use axum::http::HeaderValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::http::HeaderValue;
+
 use super::*;
 use crate::auth::test_env::*;
+
 #[test]
 fn is_dev_reflects_override() {
     assert!(AuthState::dev(CurrentUser::dummy("x")).is_dev());

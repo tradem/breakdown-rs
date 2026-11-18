@@ -6,6 +6,9 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: longcat-2.0 (opencode-go)
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::commands::{GenerateVariant, MarkVariantFailed, NormalizeOriginal};
@@ -26,8 +29,6 @@ use redis::Client as RedisClient;
 use sierradb_client::AsyncCommands;
 use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tracing::warn;
 
 use crate::photo::sagas::retry_transient;

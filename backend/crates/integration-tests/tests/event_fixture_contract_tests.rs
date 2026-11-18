@@ -573,6 +573,42 @@ fn legacy_offset_spellings_still_replay() {
     }
 }
 
+/// Calendar dates (`chrono::NaiveDate` → `jiff::civil::Date`) sit inside
+/// persisted `Block` and `ShootingDay` events too, so their `"YYYY-MM-DD"`
+/// rendering must likewise round-trip byte-for-byte through JSON and CBOR.
+/// Same gate, same reason: `projection_audit.event_key` is derived from the
+/// re-serialized payload (issue #929, ADR-040).
+#[test]
+fn pre_migration_dates_round_trip_byte_identically() {
+    for date in ["2026-08-06", "2028-02-29"] {
+        // The literal payload a pre-migration binary wrote for
+        // `ShootingDayRescheduled`; `2028-02-29` is a leap day, so no date
+        // arithmetic shortcut can pass this test.
+        let frozen = format!(
+            r#"{{"ShootingDayRescheduled":{{"id":"019e7044-8800-7007-8000-000000000007","date":"{date}","version":2}}}}"#
+        );
+
+        let event: ShootingDayEvent =
+            serde_json::from_str(&frozen).unwrap_or_else(|e| panic!("{date} must replay: {e}"));
+
+        let rewritten = serde_json::to_string(&event).expect("event serializes");
+        assert_eq!(
+            rewritten, frozen,
+            "the ISO 8601 date rendering of {date} changed — replayed audit keys would drift"
+        );
+
+        let mut payload = Vec::new();
+        ciborium::into_writer(&event, &mut payload).expect("event encodes to CBOR");
+        assert!(
+            payload.windows(date.len()).any(|w| w == date.as_bytes()),
+            "the CBOR payload of {date} must carry the identical YYYY-MM-DD text"
+        );
+        let replayed: ShootingDayEvent =
+            ciborium::from_reader(payload.as_slice()).expect("event decodes from CBOR");
+        assert_eq!(replayed, event, "{date} must survive a CBOR round trip");
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Part B: projector replay (Postgres-only tier) — the current projector
 // binary still consumes the captured fixtures and stamps projector_version

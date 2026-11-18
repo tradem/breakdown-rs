@@ -7,6 +7,7 @@
 use thiserror::Error;
 
 use crate::shared::AggregateVersion;
+
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum BlockError {
     #[error("Validation error: {0}")]

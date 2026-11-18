@@ -2,11 +2,11 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
 // Co-authored-by: deepseek-v4-flash (opencode-go)
-
 use serde::{Deserialize, Serialize};
 
 use crate::photo::binding::PhotoBinding;
 use crate::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PhotoEvent {
     /// A photo has been uploaded. All three variants are initially `Pending`.

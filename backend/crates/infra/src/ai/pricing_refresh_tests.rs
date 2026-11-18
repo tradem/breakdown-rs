@@ -9,17 +9,16 @@
 //! `#[tokio::test]` harness; the pure parser paths below cover the decimal
 //! scaling deterministically (AGENTS.md §4: no wall-clock gating).
 
-use breakdown_core::ai::{
-    AiModelPricingRepository, Currency, LlmProvider, ModelPricing, ModelPricingRow, PricingSource,
-};
-use breakdown_core::error::DomainError;
-use std::sync::Mutex;
-
 use super::{
     CatalogSource as CS, fetch_json_with, parse_decimal, parse_decimal_to_nano_per_million,
     parse_decimal_to_nano_per_million_from_per_token, parse_models_dev,
     parse_per_token_provider_feed, store_rows,
 };
+use breakdown_core::ai::{
+    AiModelPricingRepository, Currency, LlmProvider, ModelPricing, ModelPricingRow, PricingSource,
+};
+use breakdown_core::error::DomainError;
+use std::sync::Mutex;
 
 #[test]
 fn per_million_decimal_scaling() {

@@ -13,7 +13,6 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-
 use breakdown_core::character::*;
 use breakdown_core::shared::{AggregateVersion, ProjectId, SeasonId};
 use kameo_es::{Apply, Command};
@@ -21,6 +20,7 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 use test_support::make_ctx;
 use uuid::Uuid;
+
 fn project_id() -> ProjectId {
     ProjectId::new()
 }

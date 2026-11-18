@@ -4,16 +4,18 @@
 
 //! BlockMembership aggregate using `kameo_es` event-sourced actor pattern.
 
-use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use std::collections::HashMap;
+
+use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
+
+use crate::shared::{BlockId, EventMetadata};
 
 use super::commands::{
     AcceptInvitation, BootstrapOwner, GrantRole, InviteMember, LeaveBlock, RemoveMember,
 };
 use super::error::MembershipError;
 use super::events::MembershipEvent;
-use crate::shared::{BlockId, EventMetadata};
 
 /// Audit/actor metadata attached to every membership command.
 ///

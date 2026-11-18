@@ -103,7 +103,13 @@ site depends on the wrapper crate directly.
 `jiff_0_2` bridge. It resolves schemas by **type name** (`Timestamp`, `Date`,
 `Zoned`), which `jiff` 1.0 keeps, so the feature is enabled as-is; the `openapi_drift`
 test is the proof (see Consequences). `jiff::civil::DateTime` is **not** covered —
-those fields carry an explicit `#[schema(value_type = Option<String>, format = DateTime)]`.
+a future DTO field of that type carries an explicit
+`#[schema(value_type = Option<String>, format = DateTime)]`. No DTO uses it today:
+`SceneShoot`'s `start_dt`/`end_dt` are `Option<jiff::Timestamp>`, decoded by
+`deserialize_opt_instant_or_naive_utc` in `handlers/mod.rs`, which accepts canonical
+RFC 3339 instants (`Z` and `±HH:MM`, resolved to the exact UTC instant — never with the
+offset silently dropped) next to the legacy naive wall-clock string (pinned to UTC), and
+rejects out-of-range values with 422 instead of substituting `Timestamp::now()`.
 
 ### The vendored `kameo_es` patch
 
@@ -128,13 +134,17 @@ those fields carry an explicit `#[schema(value_type = Option<String>, format = D
   to change if `sqlx` ever grows native jiff support.
 - The wire format is proven, not assumed: `crates/integration-tests/tests/event_fixture_contract_tests.rs`
   gained `pre_migration_timestamps_round_trip_byte_identically` (JSON **and** CBOR, six
-  instant shapes) and `legacy_offset_spellings_still_replay` (`+00:00` and lower-case `z`
-  still decode; the writer stays canonical). Both are container-free, so they run in
+  instant shapes), `legacy_offset_spellings_still_replay` (`+00:00` and lower-case `z`
+  still decode; the writer stays canonical) and
+  `pre_migration_dates_round_trip_byte_identically` (the `jiff::civil::Date` rendering
+  inside `Block`/`ShootingDay` events). All three are container-free, so they run in
   the pure-serde gate on every PR.
 - `openapi.yaml` is **byte-identical** across the migration (the drift test sees zero
   diff), so the generated client models need no coordination.
-- jiff's civil types make the naive/absolute distinction explicit at the type level,
-  which is what the `SceneShoot` start/end DTOs were already doing implicitly.
+- jiff's civil types make the naive/absolute distinction explicit at the type level:
+  a `jiff::Timestamp` in a DTO can only ever mean an instant, so the API edge has to
+  state its parsing rule (`deserialize_opt_instant_or_naive_utc`) instead of leaving a
+  civil datetime to be silently reinterpreted.
 
 ### Negative
 
@@ -146,7 +156,7 @@ those fields carry an explicit `#[schema(value_type = Option<String>, format = D
   is the only thing that would catch a regression. Noted in `backend/Cargo.toml` next to
   the feature.
 - `jiff::civil::DateTime` needs a manual `#[schema(...)]` override wherever it appears
-  in an API DTO (two fields today). utoipa's rule (`openapi-value-type-nullable`) also
+  in an API DTO (no field today). utoipa's rule (`openapi-value-type-nullable`) also
   requires the `Option<…>` form of the override.
 - The vendored `kameo_es` patch diverges further from upstream than before. Restoring
   it is part of any future kameo_es upgrade.

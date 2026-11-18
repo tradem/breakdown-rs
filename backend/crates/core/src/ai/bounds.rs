@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
 /// Cost and concurrency ceilings for the import pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AiImportBounds {

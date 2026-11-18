@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use super::category::CharacterCategory;
 use crate::shared::{AggregateVersion, SeasonId};
+
 /// Payload for measurement fields updated as a God-Command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, ToSchema)]
 pub struct CharacterMeasurements {

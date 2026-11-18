@@ -7,6 +7,7 @@
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, ProjectId};
+
 /// Create a new season in a project.
 #[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
 pub struct CreateSeason {

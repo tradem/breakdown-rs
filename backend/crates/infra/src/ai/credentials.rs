@@ -2,13 +2,15 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::{CredentialVault, SecretValue, VaultBinding};
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::vault::settings_id_from_binding_key;
+
 /// AI-specific binding facade over the shared CredentialVault port. The
 /// aggregate stores only the returned opaque `vault_key_id`; secret material
 /// remains inside this edge adapter and the vault implementation.

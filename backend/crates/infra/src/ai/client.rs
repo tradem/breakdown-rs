@@ -7,6 +7,8 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use breakdown_core::ai::{
     CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
@@ -14,12 +16,12 @@ use breakdown_core::ai::{
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
+
 use reqwest::StatusCode;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::time::Duration;
 
 use super::CuratedProviderUrls;
 use super::transport::build_hosted_client_with_user_agent;

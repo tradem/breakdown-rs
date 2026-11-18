@@ -16,10 +16,11 @@
 //! whole process dies. This module therefore only has to keep the permit alive
 //! for exactly the operation's lifetime and release it on the normal path.
 
-use breakdown_core::error::DomainError;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+
+use breakdown_core::error::DomainError;
 
 use super::pg_concurrency::{
     PgAiConcurrencyLimiter, PgAiConcurrencyPermit, permit_renewal_interval,

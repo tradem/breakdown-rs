@@ -7,16 +7,18 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 
+use std::collections::HashMap;
+
 use kameo_es::test_utils::GivenEntity;
 use kameo_es::{Apply, Entity, Metadata};
-use std::collections::HashMap;
 use uuid::Uuid;
+
+use crate::shared::{AggregateVersion, UserId};
 
 use super::{
     AiConfig, AiConfigError, AiConfigEvent, CostDisplayPreference, CreateAiConfig, DocumentKind,
     LlmProvider, RevokeAiConfig, UpdateAiConfig,
 };
-use crate::shared::{AggregateVersion, UserId};
 
 // ---------------------------------------------------------------------------
 // Helpers

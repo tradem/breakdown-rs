@@ -6,14 +6,15 @@
 
 use uuid::Uuid;
 
+use crate::error::DomainError;
+use crate::shared::{AggregateVersion, SeasonId, UserId};
+
 use super::commands::{
     AddPieceDetail, AddPieceToSeason, CreatePiece, LinkPiecePhoto, RemovePieceDetail,
     RemovePieceFromSeason, RenamePiece, SetPieceCategory, UnlinkPiecePhoto, UpdatePieceDetail,
     UpdatePieceNotes,
 };
 use super::views::PieceView;
-use crate::error::DomainError;
-use crate::shared::{AggregateVersion, SeasonId, UserId};
 
 /// Async write port for the `PieceAggregate`.
 #[allow(async_fn_in_trait)]

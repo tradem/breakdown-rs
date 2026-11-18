@@ -14,6 +14,7 @@
 //! endpoint (issue #201) must be `https://` with a pinned root cert.
 
 use api::tls_config::TlsConfig;
+
 fn cfg(db: &str, migrator: Option<&str>, sierra: &str, s3: &str) -> TlsConfig {
     TlsConfig {
         database_url: Some(db.into()),

@@ -9,6 +9,8 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
+use crate::shared::{AggregateVersion, EventMetadata, SeasonId};
+
 use super::category::CharacterCategory;
 use super::commands::{
     CreateCharacter, DeleteCharacter, UpdateCharacterCategory, UpdateContactInfo,
@@ -16,7 +18,6 @@ use super::commands::{
 };
 use super::error::CharacterError;
 use super::events::{CharacterEvent, CharacterMeasurements, ContactInfo};
-use crate::shared::{AggregateVersion, EventMetadata, SeasonId};
 
 /// State persisted by the Character aggregate.
 ///

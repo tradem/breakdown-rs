@@ -2,17 +2,18 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: space-bunny-free (opencode-go)
-
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 use zeroize::Zeroize;
 
-use super::commands::{CreateCredentialBinding, RevokeCredential, RotateCredentialBinding};
-use super::views::SettingsView;
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, UserId};
+
+use super::commands::{CreateCredentialBinding, RevokeCredential, RotateCredentialBinding};
+use super::views::SettingsView;
+
 /// A secret value that cannot be serialized or formatted for logs and is
 /// zeroized when dropped. It is accepted only by the Vault port at the API
 /// boundary and is never passed to a command or event.

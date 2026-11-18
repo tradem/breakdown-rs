@@ -16,8 +16,10 @@ use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::{ReportKind, ReportLocale};
 use crate::shared::ShootingDayId;
+
+use super::{ReportKind, ReportLocale};
+
 /// Opaque identifier of a durable report-archival job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(transparent)]

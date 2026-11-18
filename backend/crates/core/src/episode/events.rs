@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, BlockId, ProjectId};
+
 /// Events emitted by the `EpisodeAggregate`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EpisodeEvent {

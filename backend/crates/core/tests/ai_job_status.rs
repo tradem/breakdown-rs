@@ -22,16 +22,17 @@
     clippy::panic
 )]
 
+use std::future::Future;
+use std::pin::pin;
+use std::sync::Mutex;
+use std::task::{Context, Poll, Waker};
+
 use async_trait::async_trait;
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportQueue,
     DocumentKind, JobStatus, Telemetry,
 };
 use breakdown_core::error::DomainError;
-use std::future::Future;
-use std::pin::pin;
-use std::sync::Mutex;
-use std::task::{Context, Poll, Waker};
 
 /// Drive a future to completion on the current thread.
 ///

@@ -4426,30 +4426,49 @@ pub struct ReplanSceneShootRequest {
     pub version: AggregateVersion,
 }
 
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct StartSceneShootRequest {
-    // Naive wall-clock instant: the aggregate stores an absolute instant, so
-    // the handler pins a missing offset to UTC. utoipa 6 has no bridge for
-    // `jiff::civil::DateTime` (only `Timestamp`/`Date`/`Zoned`), so the schema
-    // is declared explicitly — and it must stay `date-time` + nullable, which
-    // the `openapi_drift` test proves by seeing zero diff in `openapi.yaml`
-    // (ADR-040). Kept as a `//` comment on purpose: a `///` one would surface
-    // as a new `description` property in the published contract.
-    #[schema(value_type = Option<String>, format = DateTime)]
-    pub start_dt: Option<jiff::civil::DateTime>,
-    pub version: AggregateVersion,
+/// Deserializes an optional scene-shoot timestamp that accepts both canonical
+/// RFC 3339 instants (`...Z`, `...+02:00` — what `format: date-time` and the
+/// generated Flutter client emit, converted to the exact UTC instant) and
+/// legacy naive ISO 8601 date-times (`YYYY-MM-DDTHH:MM:SS`, pinned to UTC).
+/// Out-of-range values fail deserialization (422) instead of falling back to
+/// `Timestamp::now()`.
+///
+/// Kept as a free function (not a `///` field doc) on purpose: a field doc
+/// would surface as a new `description` property in the published contract.
+fn deserialize_opt_instant_or_naive_utc<'de, D>(
+    deserializer: D,
+) -> Result<Option<jiff::Timestamp>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Some(raw) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    let Some((_, time_part)) = raw.split_once(['T', 't', ' ']) else {
+        return Err(serde::de::Error::custom(
+            "expected an RFC 3339 or ISO 8601 date-time string",
+        ));
+    };
+    if time_part.contains(['+', '-', 'Z', 'z', '[']) {
+        return raw
+            .parse::<jiff::Timestamp>()
+            .map(Some)
+            .map_err(serde::de::Error::custom);
+    }
+    let civil = raw
+        .parse::<jiff::civil::DateTime>()
+        .map_err(serde::de::Error::custom)?;
+    jiff::tz::Offset::UTC
+        .to_timestamp(civil)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
-impl StartSceneShootRequest {
-    fn resolve_start_dt(&self) -> jiff::Timestamp {
-        self.start_dt
-            .map(|d| {
-                d.to_zoned_datetime(jiff::tz::TimeZone::UTC)
-                    .map(|zdt| zdt.timestamp())
-                    .unwrap_or_else(|_| jiff::Timestamp::now())
-            })
-            .unwrap_or_else(jiff::Timestamp::now)
-    }
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct StartSceneShootRequest {
+    #[serde(default, deserialize_with = "deserialize_opt_instant_or_naive_utc")]
+    pub start_dt: Option<jiff::Timestamp>,
+    pub version: AggregateVersion,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -4460,22 +4479,9 @@ pub struct SetActualOrderRequest {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct FinishSceneShootRequest {
-    // Same naive-instant contract as `StartSceneShootRequest::start_dt`.
-    #[schema(value_type = Option<String>, format = DateTime)]
-    pub end_dt: Option<jiff::civil::DateTime>,
+    #[serde(default, deserialize_with = "deserialize_opt_instant_or_naive_utc")]
+    pub end_dt: Option<jiff::Timestamp>,
     pub version: AggregateVersion,
-}
-
-impl FinishSceneShootRequest {
-    fn resolve_end_dt(&self) -> jiff::Timestamp {
-        self.end_dt
-            .map(|d| {
-                d.to_zoned_datetime(jiff::tz::TimeZone::UTC)
-                    .map(|zdt| zdt.timestamp())
-                    .unwrap_or_else(|_| jiff::Timestamp::now())
-            })
-            .unwrap_or_else(jiff::Timestamp::now)
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -4629,7 +4635,7 @@ pub async fn start_scene_shoot<P: Ports>(
     let cmd = StartSceneShoot {
         id: shoot_id,
         shooting_day_id: day_id,
-        start_dt: req.resolve_start_dt(),
+        start_dt: req.start_dt.unwrap_or_else(jiff::Timestamp::now),
         project_id,
         version: req.version,
     };
@@ -4705,7 +4711,7 @@ pub async fn finish_scene_shoot<P: Ports>(
     let cmd = FinishSceneShoot {
         id: shoot_id,
         shooting_day_id: day_id,
-        end_dt: req.resolve_end_dt(),
+        end_dt: req.end_dt.unwrap_or_else(jiff::Timestamp::now),
         project_id,
         version: req.version,
     };

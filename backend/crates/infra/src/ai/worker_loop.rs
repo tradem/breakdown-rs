@@ -29,19 +29,22 @@
 //! permit and the `AI_IMPORT_MAX_CONCURRENT_JOBS_*` ceilings were documentation
 //! only.
 
+use std::sync::Arc;
+use std::time::Duration;
+
+use super::heartbeat::LeaseHeartbeat;
+use super::heartbeat::claim_lost;
 use breakdown_core::ai::{
     AiImportBounds, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind, LlmProvider,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::CredentialVault;
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{info, warn};
 
+use crate::vault::settings_id_from_binding_key;
+
 use super::client::OpenAiCompatibleChatClient;
-use super::heartbeat::LeaseHeartbeat;
-use super::heartbeat::claim_lost;
 use super::ollama::OllamaChatClient;
 use super::pdf::PdfTextExtractor;
 use super::preview_store::AiDocumentSource;
@@ -53,7 +56,6 @@ use super::workers::{
 };
 use crate::ai::{DecisionPass, HttpDecisionClient};
 use crate::queries::ai_config::{AiConfigRepositoryImpl, AiWorkerConfig, AiWorkerDecisionConfig};
-use crate::vault::settings_id_from_binding_key;
 
 /// How long a worker sleeps when the queue is empty before polling again.
 /// Bounded so a worker notices a shutdown signal within one interval.

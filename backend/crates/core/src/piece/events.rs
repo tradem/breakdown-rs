@@ -14,6 +14,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, CostumeCategoryId};
+
 /// Pure-description element of a piece (e.g. "Knöpfe vorne").
 ///
 /// Since the clean cut there is **no** `category_id` on a detail: the single

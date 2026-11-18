@@ -28,6 +28,9 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+use crate::common;
+
+use std::sync::Arc;
 
 use api::auth::CurrentUser;
 use api::me::get_my_capabilities;
@@ -35,6 +38,7 @@ use api::problems::Json;
 use api::state::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
+
 use breakdown_core::error::DomainError;
 use breakdown_core::membership::Role;
 use breakdown_core::membership::policy::{
@@ -42,9 +46,6 @@ use breakdown_core::membership::policy::{
 };
 use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use common::*;
-use std::sync::Arc;
-
-use crate::common;
 
 /// An active membership row in its own (irrelevant) block/season/project:
 /// both global predicates are deployment-scoped, so the scope never matters.

@@ -58,12 +58,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
 use breakdown_core::ai::{
     AiImportEnqueueRequest, AiImportJobId, AiImportQueue as _, AiImportTarget, DocumentKind,
     ScriptContext, SourceFormat,
 };
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 // `BlockRepository` is imported for method resolution on the generic
 // `P::BlockRepo` port (same seam `handlers` uses).
 use breakdown_core::block::ports::BlockRepository as _;
@@ -79,7 +80,6 @@ use crate::auth::CurrentUser;
 // must be an RFC 9457 problem document (`http.bad-query-param`), not axum's
 // plain-text `400` (ADR-031).
 use crate::problems::{ApiError, Query};
-
 use crate::state::AppState;
 
 /// The placeholder source document stored for the fixture job. The job never

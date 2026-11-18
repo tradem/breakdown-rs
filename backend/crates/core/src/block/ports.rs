@@ -5,10 +5,12 @@
 
 use uuid::Uuid;
 
-use super::commands::{CreateBlock, UpdateBlockTimeSpan};
-use super::views::BlockView;
 use crate::error::DomainError;
 use crate::shared::{AggregateVersion, ProjectId, SeasonId, UserId};
+
+use super::commands::{CreateBlock, UpdateBlockTimeSpan};
+use super::views::BlockView;
+
 /// Async write port for the `BlockAggregate`.
 #[allow(async_fn_in_trait)]
 pub trait BlockCommands: Send + Sync {

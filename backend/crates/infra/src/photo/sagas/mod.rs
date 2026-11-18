@@ -13,10 +13,11 @@ pub mod continuity_deletion;
 pub mod deletion;
 pub mod thumbnail;
 
+use std::time::Duration;
+
 use anyhow::Result;
 use breakdown_core::error::DomainError;
 use futures::Future;
-use std::time::Duration;
 
 use crate::projectors::supervisor;
 

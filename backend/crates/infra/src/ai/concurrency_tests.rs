@@ -7,6 +7,7 @@
 use breakdown_core::ai::AiImportBounds;
 
 use super::AiConcurrencyLimiter;
+
 /// Helper to create bounds with specific concurrency limits.
 fn bounds(global: u32, per_user: u32) -> AiImportBounds {
     AiImportBounds {

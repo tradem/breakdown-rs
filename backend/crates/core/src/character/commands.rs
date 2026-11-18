@@ -10,6 +10,7 @@ use uuid::Uuid;
 use super::category::CharacterCategory;
 use super::events::{CharacterMeasurements, ContactInfo};
 use crate::shared::{AggregateVersion, ProjectId, SeasonId};
+
 /// Create a new character role with an externally supplied UUIDv7 id.
 ///
 /// `project_id` is carried for the `EventMetadata` audit trail (the audit

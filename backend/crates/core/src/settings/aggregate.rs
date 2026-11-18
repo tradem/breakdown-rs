@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
-
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
+
+use crate::shared::{AggregateVersion, EventMetadata};
 
 use super::commands::{CreateCredentialBinding, RevokeCredential, RotateCredentialBinding};
 use super::error::SettingsError;
 use super::events::SettingsEvent;
 use super::views::CredentialBindingState;
-use crate::shared::{AggregateVersion, EventMetadata};
+
 #[derive(Debug, Clone, Default)]
 pub struct SettingsAggregate {
     pub id: Uuid,

@@ -5,9 +5,10 @@
 
 //! Router-Definitionen
 
+use std::sync::Arc;
+
 use axum::Router;
 use axum::middleware;
-use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
 use utoipa_swagger_ui::SwaggerUi;
@@ -17,6 +18,7 @@ use crate::handlers;
 use crate::problems::{self, locale::negotiate_language, route_not_found};
 use crate::state::{AppState, ProductionPorts};
 use crate::versioning::{DeprecationRegistry, deprecation_middleware};
+
 /// Apply the production middleware stack around a versioned API router:
 /// `auth` (outermost) → `authorize` → `deprecation` (innermost).
 ///

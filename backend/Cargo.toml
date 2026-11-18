@@ -4,6 +4,7 @@
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
 # Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 [workspace]
 resolver = "2"
@@ -96,7 +97,8 @@ getrandom = "0.4"
 # name, which jiff 1.0 keeps unchanged — the `openapi_drift` test is the
 # proof that `format: date-time` / `format: date` stay put (ADR-040).
 # `jiff::civil::DateTime` is NOT covered; such fields need an explicit
-# `#[schema(value_type = String, format = DateTime)]`.
+# `#[schema(value_type = Option<String>, format = DateTime)]` — the `Option`
+# is load-bearing (rule `openapi-value-type-nullable`, issue #423).
 utoipa = { version = "6", features = ["axum_extras", "jiff_0_2", "uuid"] }
 utoipa-swagger-ui = { version = "10", features = ["axum"] }
 

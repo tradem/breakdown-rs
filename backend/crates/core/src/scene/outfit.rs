@@ -12,6 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
 /// One outfit state of one character within one scene.
 ///
 /// `order` is dense, zero-based and unique per character within the scene;

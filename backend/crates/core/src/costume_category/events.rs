@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, LexicalSortKey, SeasonId};
+
 /// Events emitted by the `CostumeCategoryAggregate`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CostumeCategoryEvent {

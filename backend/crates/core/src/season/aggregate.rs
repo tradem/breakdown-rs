@@ -8,10 +8,12 @@
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
 use uuid::Uuid;
 
+use crate::shared::{AggregateVersion, EventMetadata, ProjectId};
+
 use super::commands::{ArchiveSeason, CreateSeason, RenameSeason};
 use super::error::SeasonError;
 use super::events::SeasonEvent;
-use crate::shared::{AggregateVersion, EventMetadata, ProjectId};
+
 /// State persisted by the Season aggregate.
 ///
 /// A Season is scoped to exactly one `ProjectId`. It does NOT own per-Block or

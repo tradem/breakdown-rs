@@ -35,12 +35,13 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::shared::{BlockId, EpisodeId, ProjectId, SeasonId, UserId};
+
 use super::preview::{
     ApplyMapping, CategoryVocabularyEntry, EpisodeGroupPlan, OutfitContinuitySelection,
     ShootingDayPlan, UncertaintyAcknowledgement,
 };
 use super::views::{AiImportJobId, ApplyRunId, Telemetry};
-use crate::shared::{BlockId, EpisodeId, ProjectId, SeasonId, UserId};
 
 /// Display identity of one episode an apply lands rows in (issue #763).
 ///

@@ -16,6 +16,8 @@
 //! and leaves every score honestly `None` — the extraction job never fails
 //! and never discards extracted data because of a decision-model outage.
 
+use std::collections::BTreeMap;
+
 use breakdown_core::ai::{
     DecisionClient, DecisionQuestion, DecisionRequest, DecisionRubric, DraftScene,
     DraftShootingDay, UsageAccumulator, compute_scene_score, compute_shooting_day_score,
@@ -23,7 +25,6 @@ use breakdown_core::ai::{
 };
 use breakdown_core::error::DomainError;
 use serde_json::json;
-use std::collections::BTreeMap;
 
 use super::workers::DecisionPass;
 

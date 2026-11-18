@@ -13,13 +13,13 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::*;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, ProjectId, ShootingDayId};
 use kameo_es::Command;
 use test_support::make_ctx;
 use uuid::Uuid;
+
 fn project_id() -> ProjectId {
     ProjectId::new()
 }

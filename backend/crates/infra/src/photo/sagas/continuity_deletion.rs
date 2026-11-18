@@ -10,6 +10,9 @@
 //! stream. Checks refcount via `projection_continuity_photo` and dispatches
 //! `DeletePhoto` when zero.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
 use breakdown_core::photo::aggregate::PhotoAggregate;
 use breakdown_core::photo::commands::DeletePhoto;
@@ -27,8 +30,6 @@ use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
-use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::event_store::map_version_only;

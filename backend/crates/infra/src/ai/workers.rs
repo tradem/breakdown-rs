@@ -53,7 +53,6 @@ use breakdown_core::shared::{
     ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
-use jiff::SignedDuration;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -65,22 +64,15 @@ use serde_json::to_vec;
 use uuid::Uuid;
 
 use super::heartbeat::LeaseHeartbeat;
-
 use super::mapping_metrics::scope_mapping_writes;
-
 use super::pdf::PdfTextExtractor;
-
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
-
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
-
 use super::runtime::run_with_renewal;
-
 use super::schedule_apply::{
     AppliedDay, DayDraft, ScheduleApplyWorker, derive_id, recover_version,
 };
 use crate::photo::sagas::is_transient;
-
 use crate::retry::{effective_in_attempt_delay, retry_hint_of};
 
 /// Acquire capacity for an already-claimed job and link the permit to it.
@@ -4726,19 +4718,14 @@ pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
         return queue.release_claim(id, worker_id).await;
     };
     let hold = ProviderHold {
-        provider: gate.provider,
-        model: gate.model.to_string(),
-        // #822's registered code, reused: no new problem code (D-X1).
-        reason_code: "ai-import.llm-provider-unavailable".to_string(),
-        state: breaker.state,
-        until,
-        // The queue re-derives this from the job's own series clock (D-C4);
-        // this value keeps the struct self-describing.
-        hold_deadline: until
-            + SignedDuration::from_secs(
-                i64::try_from(bounds.max_provider_hold_secs).unwrap_or(i64::MAX),
-            ),
         chunks_done,
+        ..super::provider_watch::hold_for(
+            gate.provider,
+            gate.model,
+            breaker.state,
+            until,
+            bounds.max_provider_hold_secs,
+        )
     };
     queue
         .mark_held(id, worker_id, hold, bounds.max_provider_hold_secs)

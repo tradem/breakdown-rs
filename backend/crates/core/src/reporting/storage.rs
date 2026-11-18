@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
+
 /// Compile-time template version baked into the binary.
 ///
 /// Because templates are trusted static assets, a template change produces a

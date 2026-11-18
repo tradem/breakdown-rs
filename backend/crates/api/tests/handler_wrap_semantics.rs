@@ -21,8 +21,8 @@
 
 use api::auth::CurrentUser;
 use api::handlers::{
-    AddNoteRequest, PlanSceneShootRequest, StartSceneShootRequest, add_scene_shoot_note,
-    plan_scene_shoot, start_scene_shoot,
+    AddNoteRequest, FinishSceneShootRequest, PlanSceneShootRequest, StartSceneShootRequest,
+    add_scene_shoot_note, plan_scene_shoot, start_scene_shoot,
 };
 use api::problems::{Json, Path};
 use api::state::AppState;
@@ -349,4 +349,57 @@ async fn execution_via_unrelated_wrapped_day_returns_404_not_spurious_409() {
 
     assert_eq!(problem.status, 404);
     assert_eq!(problem.code, "domain.not-found");
+}
+
+/// The request timestamps of the scene-shoot transitions are absolute instants
+/// on the aggregate, and `format: date-time` in `openapi.yaml` promises RFC 3339.
+/// Both spellings — the canonical `Z` instant the generated Flutter client
+/// emits and a numeric `±HH:MM` offset — must therefore resolve to the same UTC
+/// instant, and an out-of-range value must be a 422, never a silent
+/// `Timestamp::now()` fallback (ADR-040).
+#[test]
+fn scene_shoot_requests_parse_rfc3339_offsets_and_naive_utc_without_silent_fallback() {
+    let expected_utc: jiff::Timestamp = "2026-11-17T08:30:00Z".parse().expect("valid instant");
+
+    // 1. Omitted and explicit null both deserialize to None.
+    let omitted: StartSceneShootRequest =
+        serde_json::from_str(r#"{"version":1}"#).expect("omitted start_dt");
+    assert_eq!(omitted.start_dt, None);
+    let explicit_null: FinishSceneShootRequest =
+        serde_json::from_str(r#"{"end_dt":null,"version":1}"#).expect("null end_dt");
+    assert_eq!(explicit_null.end_dt, None);
+
+    // 2. Canonical Z instant (emitted by the generated Flutter client) works.
+    let zulu: StartSceneShootRequest =
+        serde_json::from_str(r#"{"start_dt":"2026-11-17T08:30:00Z","version":1}"#)
+            .expect("Z instant must parse");
+    assert_eq!(zulu.start_dt, Some(expected_utc));
+
+    // 3. Numeric offset is converted to UTC (10:30+02:00 == 08:30Z), never stripped.
+    let offset: StartSceneShootRequest =
+        serde_json::from_str(r#"{"start_dt":"2026-11-17T10:30:00+02:00","version":1}"#)
+            .expect("+02:00 instant must parse");
+    assert_eq!(offset.start_dt, Some(expected_utc));
+    let finish_offset: FinishSceneShootRequest =
+        serde_json::from_str(r#"{"end_dt":"2026-11-17T10:30:00+02:00","version":2}"#)
+            .expect("+02:00 end_dt must parse");
+    assert_eq!(finish_offset.end_dt, Some(expected_utc));
+
+    // 4. Legacy naive ISO 8601 without offset stays supported and pins to UTC.
+    let naive: StartSceneShootRequest =
+        serde_json::from_str(r#"{"start_dt":"2026-11-17T08:30:00","version":1}"#)
+            .expect("naive datetime must parse as UTC");
+    assert_eq!(naive.start_dt, Some(expected_utc));
+
+    // 5. Out-of-range datetimes and bare dates fail (422) instead of falling back to now().
+    for invalid in [
+        r#"{"start_dt":"9999-12-31T12:00:00","version":1}"#,
+        r#"{"start_dt":"9999-12-30T21:00:00-02:00","version":1}"#,
+        r#"{"start_dt":"2026-11-17","version":1}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<StartSceneShootRequest>(invalid).is_err(),
+            "invalid payload {invalid} must be rejected, not replaced with Timestamp::now()"
+        );
+    }
 }

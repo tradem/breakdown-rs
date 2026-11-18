@@ -10,12 +10,13 @@
     unsafe_code // test-only env seeding (std::env::set_var is unsafe in edition 2024)
 )]
 
+use std::io::{Read, Write};
+
 use http::HeaderMap;
 use infra::tls::{
     effective_content_length, from_value, is_temporary_error, root_cert_from_env, should_send_body,
 };
 use opendal::Buffer;
-use std::io::{Read, Write};
 
 // ---------------------------------------------------------------------------
 // from_value (already covered, kept for regression)

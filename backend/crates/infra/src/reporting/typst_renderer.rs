@@ -11,12 +11,13 @@
 //! and the in-memory `report.json` data file. Host FS, network, and package
 //! access are denied.
 
-use breakdown_core::reporting::{
-    ReportBytes, ReportKind, ReportRenderError, ReportRenderRequest, ReportRenderer,
-};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+
+use breakdown_core::reporting::{
+    ReportBytes, ReportKind, ReportRenderError, ReportRenderRequest, ReportRenderer,
+};
 use typst::diag::FileError;
 use typst::foundations::Bytes;
 use typst::syntax::{FileId, Source, VirtualPath};

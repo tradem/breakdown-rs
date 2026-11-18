@@ -22,6 +22,22 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+use crate::common;
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use axum::Router;
+use axum::body::Body as AxumBody;
+use axum::extract::DefaultBodyLimit;
+use axum::http::{Request, StatusCode, header};
+use axum::response::IntoResponse as _;
+use axum::routing;
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header as JwtHeader, encode};
+use rsa::pkcs1::{EncodeRsaPrivateKey, EncodeRsaPublicKey};
+use rsa::{RsaPrivateKey, rand_core::OsRng};
+use tower::ServiceExt;
+use tower_http::catch_panic::CatchPanicLayer;
 
 use api::auth::authorization::{AuthorizationState, MembershipAuthorizationPolicy};
 use api::auth::jwks::StaticJwksProvider;
@@ -31,23 +47,9 @@ use api::problems::{self, PROBLEM_CONTENT_TYPE, route_not_found};
 use api::routes::apply_api_middleware;
 use api::state::AppState;
 use api::versioning::DeprecationRegistry;
-use axum::Router;
-use axum::body::Body as AxumBody;
-use axum::extract::DefaultBodyLimit;
-use axum::http::{Request, StatusCode, header};
-use axum::response::IntoResponse as _;
-use axum::routing;
 use breakdown_core::shared::{BlockId, UserId};
 use common::{FakeMembershipRepo, FakePorts};
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header as JwtHeader, encode};
-use rsa::pkcs1::{EncodeRsaPrivateKey, EncodeRsaPublicKey};
-use rsa::{RsaPrivateKey, rand_core::OsRng};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tower::ServiceExt;
-use tower_http::catch_panic::CatchPanicLayer;
 
-use crate::common;
 const DEV_SUB: &str = "dev-user";
 const ISSUER: &str = "https://iss.example";
 const AUDIENCE: &str = "audience";

@@ -21,6 +21,10 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
 
+use std::env;
+use std::str::FromStr;
+use std::sync::Arc;
+
 use anyhow::Result;
 use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
@@ -60,9 +64,6 @@ use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
 use redis::Client as RedisClient;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use std::env;
-use std::str::FromStr;
-use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;

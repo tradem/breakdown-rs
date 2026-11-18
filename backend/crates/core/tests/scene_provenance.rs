@@ -24,6 +24,7 @@ use kameo_es::Command;
 use serde_json::json;
 use test_support::make_ctx;
 use uuid::Uuid;
+
 #[test]
 fn legacy_scene_created_event_without_source_replays_as_manual() {
     let legacy = json!({

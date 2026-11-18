@@ -9,13 +9,15 @@
 //! held across an `.await` (clippy `await_holding_lock` is deny): the async
 //! test resolves the agent inside a scoped helper and drops the lock first.
 
-use breakdown_core::ai::LlmProvider;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use breakdown_core::ai::LlmProvider;
+
 use super::{AI_USER_AGENT_ENV, default_user_agent, provider_override_env, resolve_user_agent};
+
 /// Serializes env-var access across the parallel tests in this module. Only
 /// this module reads the `AI_IMPORT_USER_AGENT*` variables, so a local lock is
 /// sufficient to keep the tests deterministic.

@@ -25,9 +25,10 @@
 //! real Postgres and SierraDB instances deterministically.
 #![allow(dead_code)] // public API consumed by various test binaries compiled separately
 
-// ---------------------------------------------------------------------------
-// Container helpers
-// ---------------------------------------------------------------------------
+use std::collections::HashMap;
+use std::env;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use breakdown_core::error::DomainError;
@@ -37,19 +38,21 @@ use breakdown_core::scene::ports::{SceneCommands, SceneRepository};
 use breakdown_core::shared::PhotoId;
 use infra::photo::repository::PhotoRepositoryImpl;
 use infra::photo::storage::OpenDalPhotoStorage;
-use kameo_es::command_service::CommandService;
 use redis::Client as RedisClient;
 use sqlx::PgPool;
-use std::collections::HashMap;
-use std::env;
-use std::sync::Arc;
-use std::time::Duration;
-use tempfile::NamedTempFile;
 use testcontainers::core::{ContainerPort, ExecCommand, Mount, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ContainerRequest, Image, ImageExt, ReuseDirective};
 use testcontainers_modules::hashicorp_vault::HashicorpVault;
 use testcontainers_modules::postgres::Postgres as PostgresImage;
+
+use kameo_es::command_service::CommandService;
+use tempfile::NamedTempFile;
+
+// ---------------------------------------------------------------------------
+// Container helpers
+// ---------------------------------------------------------------------------
+
 /// Starts an ephemeral Postgres container and returns a configured pool.
 pub async fn spawn_postgres() -> Result<(PgPool, ContainerAsync<PostgresImage>)> {
     spawn_postgres_with_connections(5).await

@@ -21,6 +21,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use utoipa::ToSchema;
+
 /// Distinct LLM co-authors of this repository, deduped by `(model, provider)`.
 ///
 /// Aggregation source (issue #655): the repo-wide

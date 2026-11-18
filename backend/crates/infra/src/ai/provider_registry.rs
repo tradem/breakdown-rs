@@ -13,6 +13,7 @@
 //! provider-key parsing resolve from this registry.
 
 use breakdown_core::ai::{LlmProvider, ModelInfo};
+
 /// Curated metadata for one LLM provider.
 #[derive(Debug, Clone, Copy)]
 pub struct ProviderEntry {

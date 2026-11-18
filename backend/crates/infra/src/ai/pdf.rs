@@ -3,11 +3,13 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: kimi-k3 (neuralwatt)
 
-use breakdown_core::error::DomainError;
 use std::process::Stdio;
 use std::time::Duration;
+
+use breakdown_core::error::DomainError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
+
 #[cfg(test)]
 #[path = "pdf_tests.rs"]
 mod pdf_tests;

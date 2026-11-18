@@ -6,6 +6,9 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use anyhow::Result;
 use breakdown_core::outfit::aggregate::OutfitAggregate;
 use breakdown_core::outfit::events::OutfitEvent;
@@ -24,13 +27,12 @@ use kameo_es::{Entity, Event};
 use redis::Client as RedisClient;
 use sierradb_client::ExpectedVersion;
 use sierradb_client::SierraAsyncClientExt;
-use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::event_store::map_version_only;
 use crate::photo::repository::PhotoRepositoryImpl;
 use crate::projectors::supervisor;
+
 /// Saga that reacts to `PhotoUnlinked` events on the `piece` and `outfit`
 /// streams. When the combined refcount reaches zero, dispatches `DeletePhoto`
 /// on the `Photo` aggregate directly via `Aggregate::execute` with

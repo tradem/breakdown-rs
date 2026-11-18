@@ -10,6 +10,7 @@ use std::fmt;
 use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
+
 /// Cross-cutting metadata attached to every event-sourced command.
 ///
 /// `EventMetadata` captures *who* triggered each event (`actor`), *how*

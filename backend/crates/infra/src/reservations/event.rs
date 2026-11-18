@@ -13,9 +13,11 @@
 //! reservation payloads, plus the key construction shared with the store and
 //! the reaper.
 
-use breakdown_core::shared::EventMetadata;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use breakdown_core::shared::EventMetadata;
+
 /// SierraDB category of all reservation streams (`reservation-<rest>`).
 pub const RESERVATION_CATEGORY: &str = "reservation";
 

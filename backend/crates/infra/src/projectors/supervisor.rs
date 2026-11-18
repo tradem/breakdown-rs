@@ -3,10 +3,12 @@
 // Co-authored-by: glm-5.2 (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use anyhow::Result;
 use std::future::Future;
 use std::time::{Duration, Instant};
+
+use anyhow::Result;
 use tokio::time::sleep;
+
 /// Base delay for exponential backoff (milliseconds).
 ///
 /// The millisecond view of [`crate::retry::BACKOFF_BASE`]: since issue #925 the

@@ -9,6 +9,7 @@
 //! still looks intentional is the failure mode these tests rule out.
 
 use super::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
+
 #[test]
 fn plain_name_is_kept_verbatim() {
     assert_eq!(
