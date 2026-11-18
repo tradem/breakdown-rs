@@ -35,10 +35,12 @@
 
 - *Trigger*: two concurrent clients send `POST /v1/seasons` with the same
   `(project_id, number)` before the projection row exists.
-- *Response*: one request claims `reservation-seasnum-*` with
-  `ExpectedVersion::Empty` and returns `201 Created`. The losing request fails
-  the SierraDB version check and receives `409 season.number-already-exists`
-  without writing a duplicate `SeasonCreated` event (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate-uniqueness", title: "Reservation Streams")).
+- *Response*: for a never-used key, one request claims
+  `seasnum-{project_uuid_simple}-{number}` with `ExpectedVersion::Empty` (or
+  reclaims a released key after `ReservationReleased` with
+  `ExpectedVersion::Exact(last_version)`) and returns `201 Created`. The losing
+  request receives `409 season.number-already-exists` with no duplicate
+  `SeasonCreated` event (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate-uniqueness", title: "Reservation Streams")).
 
 === Scenario 4: RFC 9457 Error Contract and Client Localization
 

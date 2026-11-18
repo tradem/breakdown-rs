@@ -42,7 +42,7 @@ package "Access, Operations, and AI" {
 }
 
 project --> season : 1..n
-season --> block : 1..n
+season --> block : 0..n
 block --> episode : 1..n
 episode --> scene : 1..n
 episode --> day : 1..n

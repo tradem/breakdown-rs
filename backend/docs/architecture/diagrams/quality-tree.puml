@@ -18,12 +18,12 @@ component "4. Operability &\nResilience" as q4
 component "5. Maintainability &\nExtensibility" as q5
 component "6. Performance &\nOffline Tolerance" as q6
 
-component "Append-only SierraDB streams\n+ insert-only audit table" as q1a
+component "Append-only SierraDB streams +\ninsert-only app-role audit access" as q1a
 component "Replay-identical jiff timestamps\n+ stable persisted wire keys" as q1b
 component "CQRS boundary lint + ADR-036\nreservation streams" as q2a
 component "No panics / no throws +\nCI mutants, fuzzing, coverde" as q2b
 component "OIDC RS256 + deny-by-default\n+ scoped AUTHZ-GATE" as q3a
-component "TLS everywhere + Vault DEK\ncrypto-shredding (GDPR)" as q3b
+component "Caddy HTTPS + step-ca store TLS\n+ Vault DEK crypto-shredding" as q3b
 component "RFC 9457 problem codes +\nserver/client localization" as q4a
 component "Dead-letter isolation, lease\nfencing, and circuit breakers" as q4b
 component "Hexagonal Rust crates +\nlayered Riverpod Flutter app" as q5a

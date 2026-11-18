@@ -47,7 +47,7 @@ and an internal `step-ca` TLS mesh (#adr-ref(num: "024", slug: "database-encrypt
   [Event store], [`stunnel` (`:9091`) + SierraDB (`:9090`)], [Handles internal TLS at `stunnel` before Docker-internal RESP3],
   [Object store], [Garage v1.0.1 behind `caddy:9443`], [Serves `costume-photos`, `ai-import-payloads`, and S3 report archives over TLS],
   [Secrets vault], [HashiCorp Vault 1.20 + `vault-bootstrap`], [Runs internal TLS and mounts only a 24 h least-privilege app token into `api` (#adr-ref(num: "027", slug: "secrets-vault-for-external-credentials", title: "Secrets Vault"))],
-  [Mobile client], [Signed Android APK (`prod` flavor)], [Pins stable public ACME Root CAs (`ISRG Root X1` / `X2`, #adr-ref(num: "032", slug: "flutter-client-tls-pinning-rotation", title: "Client TLS Pinning"))],
+  [Mobile client], [Signed Android APK (`prod` flavor)], [Targets public ACME roots (`ISRG Root X1` / `X2`), supplied at release build through `PINNED_CA_PEM` or replacing the placeholder `assets/certs/prod/ca.pem` (#adr-ref(num: "032", slug: "flutter-client-tls-pinning-rotation", title: "Client TLS Pinning"))],
 )
 
 == Release Artifacts

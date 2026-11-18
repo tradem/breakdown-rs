@@ -35,14 +35,17 @@ aggregates directly.
   aggregates run as `kameo_es` actors and append immutable CBOR events to
   SierraDB.
 - *Cross-aggregate uniqueness* (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate-uniqueness", title: "Reservation Streams")):
-  command adapters claim a synthetic `reservation-*` stream with
-  `ExpectedVersion::Empty` before the aggregate append. Competing commands get
-  a deterministic `409 Conflict` without orphan events.
+  command adapters claim a `reservation` stream with `ExpectedVersion::Empty`
+  before the aggregate append. On `WrongVer`, the adapter checks the stream
+  state in SierraDB. It returns `409 Conflict` when another aggregate holds the
+  key. It reclaims a released key with `ExpectedVersion::Exact(last_version)`
+  and continues on a same-owner retry.
 - *Read side*: 30 `PostgresProcessor` consumers update flat PostgreSQL tables
   with version guards (`WHERE version < $N`).
 - *CQRS hard rule*: write-side adapters, sagas, and aggregates never read
-  projections to derive audit context. Only API handlers read projections before
-  they send a command.
+  projections for audit or derived context. Justified non-audit lookups (such as
+  saga `ExpectedVersion` checks or AI-apply draft mapping) need an explicit
+  `// ast-grep-ignore: cqrs-boundary` comment.
 
 === 3. Code-First Wire Contract and RFC 9457 Errors
 
@@ -56,18 +59,22 @@ aggregates directly.
   `problem_codes!` registry. The client branches on the stable `code` field and
   never parses localized `detail` text.
 
-=== 4. Defense-in-Depth Security and Pinned TLS
+=== 4. Defense-in-Depth Security and Transport TLS
 
 - *Identity and AuthZ* (#adr-ref(num: "010", slug: "authentication-with-oidc", title: "OIDC Auth"),
   #adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC Validation")):
   middleware checks RS256 OIDC JWTs and enforces deny-by-default `BlockMember`
-  access. Non-block routes run explicit `// AUTHZ-GATE:` checks inside handlers
-  and mirror those gates on the Flutter client.
-- *End-to-end TLS* (#adr-ref(num: "024", slug: "database-encryption-in-transit", title: "Encryption in Transit"),
+  access. Privileged `Authenticated`-only handlers (photo, piece, settings, AI
+  import, and reports) run explicit `// AUTHZ-GATE:` checks and mirror action
+  gates on Flutter. Non-privileged `GET /v1/meta` and public `/v1/health` carry
+  no membership gate.
+- *Edge HTTPS, store TLS, and pinned CA* (#adr-ref(num: "024", slug: "database-encryption-in-transit", title: "Encryption in Transit"),
   #adr-ref(num: "025", slug: "https-edge-and-cert-rotation", title: "HTTPS Edge"),
   #adr-ref(num: "032", slug: "flutter-client-tls-pinning-rotation", title: "Client TLS Pinning")):
-  Caddy handles public HTTPS, `step-ca` rotates 24-hour internal leaf
-  certificates, and the Flutter app pins only its flavor Root CA.
+  Caddy ends public HTTPS and forwards over Docker-internal HTTP to `api`. The
+  `api` container uses 24-hour `step-ca` TLS links to PostgreSQL, Vault,
+  `stunnel` (for SierraDB), and `caddy:9443` (for Garage). `stunnel` and Caddy
+  forward over internal plaintext, and the Flutter app pins its flavor Root CA.
 
 === 5. Replay-Safe Identifiers and Timestamps
 
@@ -87,7 +94,7 @@ aggregates directly.
   columns: 2,
   table.header([Architectural Rule], [Automated CI Check]),
   [`core` has no infra or web dependencies], [`cargo deny check bans` + `rust_arkitect` (`crates/architecture`)],
-  [Write side never queries read projections], [`ast-grep` rule `cqrs-boundary`],
+  [Write side never queries projections for audit/derived context], [`ast-grep` rule `cqrs-boundary` (non-audit exceptions need justified suppression)],
   [No panics in Rust or `throw` in Dart domain/data], [`clippy` (`unwrap_used`/`expect_used`/`panic` deny) + `breakdown_lints`],
   [No discarded fallible results], [`ast-grep` `discard-result` + `breakdown_lints` `discard_result`],
   [No string-interpolated SQL], [`ast-grep` rule `no-string-interpolation-sql`],

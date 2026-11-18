@@ -24,7 +24,7 @@ actors, and operators work against one shared production history.
   [Production structure], [Organize seasons, blocks, episodes, scenes, and shooting days under a `ProjectId`.],
   [Wardrobe management], [Keep fundus `Piece` records per season repertoire and compose character `Outfit` looks.],
   [Scene casting and continuity], [Assign outfit beats to scenes and compare `SceneShoot` planned order (`Soll`) with actual order (`Ist`).],
-  [Photo documentation], [Store original images and strip EXIF metadata to generate `Thumb` and `Medium` variants.],
+  [Photo documentation], [Replace `Original` with an EXIF-stripped JPEG and create `Thumb` and `Medium` variants on valid decode, or keep raw `Original` bytes if decode fails.],
   [PDF reporting and backup], [Render `Dispo`, `Shoot Day`, and `Soll-Ist` PDFs and archive day reports to S3 or Google Drive.],
   [AI script and schedule import], [Extract draft episodes, scenes, characters, and schedules for human review before command execution.],
 )
@@ -48,7 +48,8 @@ databases, object stores, Vault, external backup targets, and LLM gateways.
   [PostgreSQL 16], [Projections, `ai_import` queue, `NOTIFY`], [SQL over TLS], [`sslmode=verify-full` + split `migrator` and `app` roles],
   [Garage], [Photos, AI blobs, S3 report archive], [S3 API over HTTPS], [Internal Caddy `:9443` TLS proxy + S3 access key],
   [HashiCorp Vault], [Transit DEKs and KV-v2 ciphertexts], [HTTPS (`:8200`)], [Pinned `step-ca` root + 24 h least-privilege app token (#adr-ref(num: "027", slug: "secrets-vault-for-external-credentials", title: "Secrets Vault"))],
-  [Google Drive / External S3], [Automated PDF report backup], [HTTPS (OpenDAL)], [Owner-scoped credentials decrypted on demand from Vault (#adr-ref(num: "022", slug: "pdf-reporting-and-archival", title: "PDF Reporting"))],
+  [Google Drive Archive], [Automated PDF report backup], [HTTPS (OpenDAL)], [Owner-scoped Settings/Vault binding (`REPORT_BACKUP_SETTINGS_ID`, #adr-ref(num: "022", slug: "pdf-reporting-and-archival", title: "PDF Reporting"))],
+  [External S3 Archive], [Automated PDF report backup], [HTTPS (OpenDAL)], [`REPORT_BACKUP_ACCESS_KEY` and `REPORT_BACKUP_SECRET_KEY` (with `S3_*` fallbacks)],
   [Curated LLM Gateways], [Schema-constrained script parsing], [HTTPS], [Hardcoded provider hosts, DNS pinning, no redirects, Vault keys (#adr-ref(num: "030", slug: "ai-import-bounded-context", title: "AI Import"))],
 )
 

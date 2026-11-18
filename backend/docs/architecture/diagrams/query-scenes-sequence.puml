@@ -4,7 +4,7 @@
 ' Co-authored-by: kimi-k3 (neuralwatt)
 ' Co-authored-by: gemini-4-carbon (google)
 '
-' Runtime view: GET /v1/scenes read path with client Drift cache.
+' Runtime view: GET /v1/scenes read path with paginated fetch and Drift cache.
 
 skinparam shadowing false
 skinparam sequenceArrowThickness 2
@@ -18,19 +18,21 @@ database "PostgreSQL\n(projection_scene)" as db
 ui -> fl_repo : watchScenes(episodeId)
 fl_repo --> ui : cached rows from Drift SQLite (fast start)
 
-fl_repo -> api : GET /v1/scenes?episode_id={id}&limit=50&offset=0
-activate api
-api -> repo : list_by_episode(episode_id, limit, offset)
-activate repo
-repo -> db : SELECT ... FROM projection_scene\nWHERE episode_id = $1\nORDER BY order_key ASC
-db --> repo : rows
-repo --> api : Vec<SceneView>
-deactivate repo
-api --> fl_repo : 200 OK [SceneView, ...]
-deactivate api
+loop fetchAllPages (offset += limit until short page)
+  fl_repo -> api : GET /v1/scenes?episode_id={id}&limit=50&offset={offset}
+  activate api
+  api -> repo : list_by_episode(episode_id, limit, offset)
+  activate repo
+  repo -> db : SELECT ... FROM projection_scene\nWHERE episode_id = $1\nORDER BY scene_number, updated_at DESC\nLIMIT $2 OFFSET $3
+  db --> repo : page rows
+  repo --> api : Vec<SceneView>
+  deactivate repo
+  api --> fl_repo : 200 OK [SceneView, ...]
+  deactivate api
+end
 
-fl_repo -> fl_repo : refresh Drift SQLite cache
-fl_repo --> ui : updated AsyncData(scenes)
+fl_repo -> fl_repo : replace Drift SQLite snapshot\nafter all pages succeed
+fl_repo --> ui : updated AsyncData(allScenes)
 
 note over api, db
   The read path never reads SierraDB or aggregates.

@@ -64,5 +64,6 @@ specs.
   boundary with synthetic `reservation-*` streams and reaper (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate-uniqueness", title: "Reservation Streams")).
 - *Monolithic `Costume` aggregate*: split cleanly into `Piece` (fundus) and
   `Outfit` (character look), and deleted the obsolete `Calculation` context.
-- *Single Postgres DML pool contention (`#900`)*: split into separate `app` and
-  `projector` connection pools so AI apply bursts never starve behind projectors.
+- *Postgres DML pool contention (`#900`)*: by default, projectors use their own
+  pool and leave `app` pool connections free on PostgreSQL. Setting
+  `PROJECTOR_DATABASE_MAX_CONNECTIONS=0` restores a shared pool.

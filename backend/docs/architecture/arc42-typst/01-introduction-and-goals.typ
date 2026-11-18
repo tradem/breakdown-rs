@@ -58,7 +58,7 @@ The monorepo contains two coordinated subsystems:
   [Costume Designer], [Manage fundus pieces, categories, and character outfits], [Piece repertoire, outfit variants, photos],
   [Wardrobe Supervisor], [Track set continuity and record outfit changes], [Continuity photos, scene shoot notes, Soll-Ist],
   [Script and Continuity], [Import scripts and schedules, compare plan with shoot], [AI import previews, scene lists],
-  [Actor], [Check assigned outfits for scheduled scenes], [Read-only scene and outfit views],
+  [Actor], [Check assigned outfits for scheduled scenes (planned, current scene reads need an active block costume role)], [Planned read-only scene and outfit views],
   [Platform Operator], [Run a secure, observable, and recoverable deployment], [Health endpoints, Vault, runbooks],
 )
 
@@ -67,9 +67,9 @@ The monorepo contains two coordinated subsystems:
 #table(
   columns: 3,
   table.header([Priority], [Quality Goal], [Architectural Enforcement]),
-  [1 (Highest)], [Auditability and data integrity], [Append-only SierraDB streams, insert-only audit table, byte-identical `jiff` timestamps],
+  [1 (Highest)], [Auditability and data integrity], [Append-only SierraDB streams, insert-only app-role audit access, byte-identical `jiff` timestamps],
   [2 (High)], [Functional correctness], [CQRS boundary lints, ES reservation streams, CI mutation tests, nightly fuzzing],
-  [3 (High)], [Security and privacy], [OIDC RS256, deny-by-default AuthZ, TLS everywhere, Vault DEK crypto-shredding],
+  [3 (High)], [Security and privacy], [OIDC RS256, deny-by-default AuthZ, public HTTPS edge + store TLS, Vault DEK crypto-shredding],
   [4 (Medium)], [Operability and resilience], [RFC 9457 error registry, dead-letter isolation, lease fencing, circuit breakers],
   [5 (Medium)], [Maintainability and extensibility], [Hexagonal Rust crates, Riverpod codegen, code-first OpenAPI drift checks],
   [6 (Standard)], [Performance and offline tolerance], [Split app and projector DB pools, direct SQL reads, client Drift read cache],

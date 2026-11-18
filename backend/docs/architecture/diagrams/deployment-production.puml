@@ -10,7 +10,7 @@ skinparam shadowing false
 skinparam linetype ortho
 
 node "Android / Desktop Device" {
-  component "Flutter App (prod flavor)\nPinned ISRG Root CA (ADR-032)" as client
+  component "Flutter App (prod flavor)\nIntended ISRG Root CA from PINNED_CA_PEM\nor replaced prod/ca.pem (ADR-032)" as client
 }
 
 cloud "OIDC IdP\n(Logto Cloud / Zitadel)" as idp

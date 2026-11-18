@@ -36,7 +36,7 @@
   [*Scene*], [Script unit inside an episode that casts characters and outfit beats.],
   [*SceneShoot*], [Planned and actual execution record of one scene on one shooting day.],
   [*Season*], [Production container below a project that owns blocks, characters, and categories.],
-  [*Series*], [Historical name for `Project`, kept only as `series_id` in persisted event bytes.],
+  [*Series*], [Historical name for `Project`, kept in persisted `series_id` event keys and the public `GET /v1/series/{id}/membership` route (which stays `/series`, not `/projects`).],
   [*Shooting day*], [Calendar shoot unit (*Drehtag*) inside an episode.],
   [*Soll-Ist*], [Comparison report between planned shoot order (*Soll*) and actual shoot order (*Ist*).],
   [*Wrapped*], [Closed state of a shooting day (`wrapped_at` set), which marks day reports `final`.],

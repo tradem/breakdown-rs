@@ -52,7 +52,8 @@ The workflow `.github/workflows/docs.yml` executes four steps:
 1. Render `diagrams/*.puml` to SVG with the digest-pinned PlantUML container.
 2. Install the pinned Typst CLI, compile PDF and HTML, and run `postprocess-html.py`.
 3. Publish the HTML file to GitHub Pages on pushes to `main`.
-4. Attach the versioned PDF and HTML files to the GitHub Release on `api-v*` tags.
+4. Create the GitHub Release on `api-v*` tags with the versioned PDF and HTML
+   files attached, or skip upload when that release already exists.
 
 ## Add or Update Diagrams
 

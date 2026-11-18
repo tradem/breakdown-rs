@@ -14,7 +14,7 @@ actor "Production\nManager" as pm
 actor "Costume\nDesigner" as cd
 actor "Wardrobe\nSupervisor" as ws
 actor "Continuity /\nScript Dept." as cont
-actor "Actor\n(Read-Only)" as act
+actor "Actor\n(Planned)" as act
 actor "Platform\nOperator" as ops
 
 rectangle "Breakdown RS\n(Flutter App + Rust API)" as sys {
@@ -22,24 +22,31 @@ rectangle "Breakdown RS\n(Flutter App + Rust API)" as sys {
   usecase "Manage Fundus Pieces\nand Character Outfits" as uc2
   usecase "Cast Outfits on Scenes\nand Track Continuity" as uc3
   usecase "Capture Piece, Outfit,\nand Continuity Photos" as uc4
-  usecase "Generate and Archive\nPDF Reports (Soll-Ist, Dispo)" as uc5
+  usecase "Generate PDF Reports\n(Soll-Ist, Dispo, Shoot Day)" as uc5a
+  usecase "Archive Day Reports Manually\n(Block Costume Role Only)" as uc5b
+  usecase "Run Automated Report\nBackup Worker" as uc5c
   usecase "Import Scripts and\nSchedules with AI" as uc6
   usecase "Monitor Health,\nAudit Log, and Credentials" as uc7
+  usecase "View Assigned Outfits\nfor Scheduled Scenes (Planned)" as uc8
 }
 
 pm --> uc1
-pm --> uc5
+pm --> uc5a
 cd --> uc2
 cd --> uc3
 cd --> uc4
+cd --> uc5a
+cd --> uc5b : block grant only
 ws --> uc2
 ws --> uc3
 ws --> uc4
-ws --> uc5
+ws --> uc5a
+ws --> uc5b : block grant only
 cont --> uc3
-cont --> uc5
+cont --> uc5a
 cont --> uc6
-act --> uc3
+act ..> uc8 : planned read-only role
+ops --> uc5c
 ops --> uc7
 
 @enduml

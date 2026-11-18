@@ -49,7 +49,7 @@ package "Production Aggregates" #F4F8FF {
   class ShootingDayAggregate << (A) >> {
     + id : ShootingDayId
     + episode_id : EpisodeId
-    + label : String
+    + label : Option<String>
     + order_key : LexicalSortKey
     + date : Option<Date>
     + wrapped_at : Option<Timestamp>
@@ -126,7 +126,7 @@ package "Media & Access Aggregates" #F4FFF4 {
   class MembershipAggregate << (A) >> {
     + id : Uuid
     + block_id : BlockId
-    + entries : Map<UserId, Role>
+    + members : Map<UserId, MembershipState>
   }
   class ProjectMembershipAggregate << (A) >> {
     + project_id : ProjectId
@@ -134,10 +134,24 @@ package "Media & Access Aggregates" #F4FFF4 {
   }
   class SettingsAggregate << (A) >> {
     + id : SettingsId
-    + owner : UserId
     + vault_key_id : String
   }
 }
+
+note bottom of MembershipAggregate
+  MembershipState transitions from
+  Pending { role } to Active { role }
+  on AcceptInvitation.
+  ProjectMembershipAggregate stores
+  active costume Role entries directly.
+end note
+
+note bottom of SettingsAggregate
+  SettingsAggregate stores no owner field.
+  The projector recovers owner from
+  EventMetadata.actor into projection_settings,
+  where handlers check ownership.
+end note
 
 SeasonAggregate ..> ProjectId
 BlockAggregate ..> SeasonAggregate : season_id

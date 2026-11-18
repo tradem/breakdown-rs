@@ -94,18 +94,18 @@ and owner-fenced leases. They stream progress over a PostgreSQL `NOTIFY` SSE
 hub (#adr-ref(num: "038", slug: "ai-import-sse-progress-and-event-hub", title: "AI Import SSE Progress"))
 and apply approved previews through domain commands.
 
-== Level 2c: Flutter Client (`frontend-flutter/lib/*`)
+== Level 2c: Flutter Client (`frontend-flutter/`)
 
 #table(
   columns: 2,
   table.header([Directory], [Responsibility]),
-  [`core/`], [Framework-free `Result`/`Either` pipelines, `ProblemError` routing, and value objects.],
-  [`auth/`], [OIDC PKCE client, `flutter_secure_storage` tokens, and `currentMembershipProvider` gates.],
-  [`vendor/breakdown_api/`], [Rebuild-only `dio` client generated from `backend/openapi.yaml` (`regen-client.sh`).],
-  [`data/`], [Repositories that wrap `breakdown_api` and update the local Drift SQLite read cache.],
-  [`domain/`], [Use-case orchestration, optimistic overlays, and bounded-retry projection-lag sync.],
-  [`features/`], [One feature folder per aggregate boundary with `@riverpod` controllers and Material 3 screens.],
-  [`design/` + `l10n/`], [Design tokens, reusable widgets, and ARB localization catalogs (`de` and `en`).],
+  [`lib/core/`], [Framework-free `Result`/`Either` pipelines, `ProblemError` routing, and value objects.],
+  [`lib/auth/`], [OIDC PKCE client, `flutter_secure_storage` tokens, and `currentMembershipProvider` gates.],
+  [`vendor/breakdown_api/`], [Rebuild-only `dio` client outside `lib/`, generated from `backend/openapi.yaml` (`regen-client.sh`).],
+  [`lib/data/`], [Repositories that wrap `breakdown_api` and update the local Drift SQLite read cache.],
+  [`lib/domain/`], [Use-case orchestration, optimistic overlays, and bounded-retry projection-lag sync.],
+  [`lib/features/`], [One feature folder per aggregate boundary with `@riverpod` controllers and Material 3 screens.],
+  [`lib/design/` + `lib/l10n/`], [Design tokens, reusable widgets, and ARB localization catalogs (`de` and `en`).],
 )
 
 == Persistence Layout
@@ -114,7 +114,7 @@ and apply approved previews through domain commands.
   columns: 4,
   table.header([Data Class], [Primary Store], [Read / Cache Store], [Update Mechanism]),
   [Domain aggregates], [SierraDB stream per category + UUIDv7], [`projection_*` tables in PostgreSQL], [`PostgresProcessor` projectors],
-  [Uniqueness claims], [SierraDB `reservation-*` streams], [`projection_reservation_claim`], [Command adapter + reservation reaper],
+  [Uniqueness claims], [SierraDB `reservation` streams (`seasnum-*`, `blocknum-*`, `epnum-*`, `sspair-*`)], [`projection_number_reservation`], [Command adapter + reservation reaper],
   [Photo and AI blobs], [Garage buckets (`costume-photos`, `ai-import-payloads`)], [`projection_photo` / `ai_import` metadata], [OpenDAL CRUD + cleanup sagas / GC],
   [AI import jobs], [PostgreSQL `ai_import.ai_import_job`], [SSE Event Hub (`LISTEN/NOTIFY`)], [Owner-fenced worker updates],
   [External secrets], [HashiCorp Vault (Transit + KV-v2)], [`projection_settings` (`vault_key_id` only)], [`SettingsAggregate` + Vault client],

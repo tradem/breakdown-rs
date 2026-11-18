@@ -25,13 +25,13 @@ together {
   database "HashiCorp Vault\n(Transit + KV-v2)" as vault
 }
 
-client --> api : HTTPS (JSON, RFC 9457, SSE)
+client --> api : HTTPS in prod / HTTP in local dev\n(JSON, RFC 9457, SSE)
 client .right.> idp : OIDC PKCE Login
 api --> idp : HTTPS (JWKS check)
-api --> sierra : RESP3 over TLS
-api --> pg : SQL over TLS
-api --> garage : S3 API over HTTPS
-api ..> vault : HTTPS (app token)
+api --> sierra : RESP3 (TLS through stunnel in prod,\nplaintext in local dev)
+api --> pg : SQL (TLS verify-full in prod,\nplaintext in local dev)
+api --> garage : S3 API (HTTPS through Caddy :9443 in prod,\nHTTP in local dev)
+api ..> vault : HTTPS in prod / HTTP in local dev
 api ..> llm : HTTPS (JSON Schema)
 api ..> archive : HTTPS (OpenDAL)
 

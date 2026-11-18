@@ -32,11 +32,19 @@ Full control pointers live in
 
 - *TB1 (`auth_middleware`)*: checks RS256 OIDC JWT signatures, `iss`, `aud`, and
   `exp` against cached JWKS keys (3600 s TTL, refreshed on miss or verification
-  failure). `DEV_AUTH_SUB` works only when `OIDC_ISS` is unset (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC Validation")).
-- *TB2 (`authorize_middleware`)*: classifies every path through
-  `requirement_for()`. Unlisted paths default to `Requirement::BlockMember`.
+  failure). Dev authentication (`DEV_AUTH_SUB`) activates only when OIDC
+  variables (`OIDC_ISS`) are unset (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC Validation")).
+- *Authorization enforcement toggle*: `AuthorizationState` evaluates its own
+  condition (`AUTHZ_ENFORCE`, defaulting off when `DEV_AUTH_SUB` is set).
+  Deployments with `OIDC_ISS` must never leave `DEV_AUTH_SUB` set (issue `#935`).
+- *TB2 (`authorize_middleware`)*: forwards `/v1/health`, `/health`, and paths
+  starting with `/swagger-ui` or `/api-docs` directly. For all other paths,
+  `requirement_for()` classifies access and defaults unlisted paths to
+  `Requirement::BlockMember`.
 - *Fail-closed isolation*: `authorize_middleware` runs policy evaluation in a
-  spawned task so a panic maps to `403 Deny`, never `500`.
+  spawned task so a panic maps to `Deny`. With enforcement on, this returns
+  `403`, never `500`. In log-only mode (`AUTHZ_ENFORCE=false`), the middleware
+  logs the denial and forwards the request.
 
 === Effective Role Scopes and Handler Gates
 

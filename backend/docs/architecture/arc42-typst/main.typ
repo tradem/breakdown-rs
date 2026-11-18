@@ -54,8 +54,9 @@ Technical Names (TN) and Technical Verbs (TV).
 The `./build.sh` script renders them to SVG before Typst compiles the document.
 
 *Outputs*: The CI workflow `.github/workflows/docs.yml` builds PDF and HTML
-files from this source. GitHub Pages hosts the latest HTML from `main`, and
-each `api-vX.Y.Z` release attaches the versioned PDF and HTML files.
+files from this source. GitHub Pages hosts the latest HTML from `main`. On
+`api-vX.Y.Z` tags, CI creates the release with the versioned PDF and HTML files
+attached and skips upload if that release already exists.
 
 #pagebreak()
 
@@ -101,19 +102,25 @@ DOCS_VERSION=1.2.3 DOCS_BUILD_DATE=2026-01-01 ./build.sh
 
 === Manual Build Steps
 
-+ Render the PlantUML sources to SVG files.
++ Render the PlantUML sources to SVG files with Docker or local `plantuml`.
++ Create the `dist/` output directory.
 + Compile the PDF output with `typst compile`.
 + Compile the HTML output with `--features html --format html`.
 + Run `postprocess-html.py` to add table borders and proportional image rules.
 
 ```bash
-# 1. Render PlantUML diagrams to SVG
+# 1a. Render PlantUML diagrams to SVG with Docker
+mkdir -p diagrams
 docker run --rm \
   -v ../diagrams:/src:ro \
   -v ./diagrams:/out \
   plantuml/plantuml:1.2026.6 -tsvg -o /out /src/*.puml
 
-# 2. Compile PDF and HTML
+# 1b. Alternative: render with a local plantuml installation
+plantuml -tsvg -o ./diagrams ../diagrams/*.puml
+
+# 2. Create dist/ and compile PDF and HTML
+mkdir -p dist
 typst compile main.typ dist/architecture.pdf \
   --input version=1.2.3 --input build-date=2026-01-01
 typst compile main.typ dist/architecture.html \

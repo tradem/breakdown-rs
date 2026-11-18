@@ -221,10 +221,37 @@
   ]
 }
 
-// Reference to an ADR document in the sibling `adrs/` directory.
-// `num`: zero-padded ADR number, `slug`: filename suffix.
+// Compute the repository revision for GitHub file links.
+// - Explicit `--input git-ref=...` wins when set.
+// - Release builds (`X.Y.Z`) resolve to tag `api-vX.Y.Z`.
+// - CI main builds (`dev-<sha>`) resolve to `<sha>`.
+// - Local preview builds (`dev`) resolve to `main`.
+#let docs-git-ref = {
+  let explicit = sys.inputs.at("git-ref", default: none)
+  let ver = sys.inputs.at("version", default: "dev")
+  if explicit != none and explicit != "" {
+    explicit
+  } else if ver.starts-with("dev-") {
+    ver.trim("dev-", at: start, repeat: false)
+  } else if ver.match(regex("^\d+\.\d+\.\d+")) != none {
+    "api-v" + ver
+  } else {
+    "main"
+  }
+}
+
+#let adr-url(num, slug) = {
+  "https://github.com/tradem/breakdown-rs/blob/" + docs-git-ref + "/backend/docs/architecture/adrs/ADR-" + num + "-" + slug + ".md"
+}
+
+// Reference an ADR document on GitHub pinned to the build revision.
 #let adr-ref(num: str, slug: str, title: str) = {
-  link("../adrs/ADR-" + num + "-" + slug + ".md")[ADR-#num: #title]
+  link(adr-url(num, slug))[ADR-#num: #title]
+}
+
+// Short numeric link used in the Chapter 9 ADR index table.
+#let adr-id(num, slug) = {
+  link(adr-url(num, slug))[#num]
 }
 
 // Reference a PlantUML diagram stored in `diagrams/`.

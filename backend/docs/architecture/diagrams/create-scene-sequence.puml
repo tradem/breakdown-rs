@@ -17,14 +17,19 @@ participant "SceneCommands\n(kameo_es)" as svc
 participant "SceneAggregate" as agg
 database "SierraDB" as es
 participant "SceneProjector" as proj
+participant "SceneAuditProjector" as aproj
 database "PostgreSQL" as db
 
 client -> mw : POST /v1/scenes + X-Active-Block\n{ episode_id, details }
 activate mw
-mw -> mw : check OIDC JWT (TB1)\ncheck BlockMember policy (TB2)
-alt denied
-  mw --> client : 401 / 403 (problem+json)
-else allowed
+mw -> mw : check OIDC JWT (TB1)
+alt Missing or invalid JWT
+  mw --> client : 401 Unauthorized (problem+json)
+else Missing or malformed X-Active-Block header
+  mw --> client : 400 Bad Request (fix header, do not re-login)
+else Caller lacks active BlockMember role (TB2)
+  mw --> client : 403 Forbidden (problem+json)
+else Authenticated and authorized
   mw -> api : forward authenticated request
   activate api
   api -> repo : find_by_id(episode_id)
@@ -35,12 +40,12 @@ else allowed
   activate svc
   svc -> agg : handle(CreateScene)
   activate agg
-  alt invalid details
+  alt Invalid scene details
     agg --> svc : SceneError
     deactivate agg
     svc --> api : Err(DomainError)
     api --> client : 422 (problem+json)
-  else valid
+  else Valid scene
     agg --> svc : Ok(SceneCreated)
     deactivate agg
     svc -> es : append SceneCreated
@@ -49,10 +54,16 @@ else allowed
     deactivate svc
     api --> client : 201 Created { id, version }
     deactivate api
-    es ->> proj : SceneCreated
+
+    es ->> proj : SceneCreated (subscription 1)
     activate proj
-    proj -> db : INSERT projection_scene + projection_audit
+    proj -> db : INSERT projection_scene
     deactivate proj
+
+    es ->> aproj : SceneCreated (subscription 2, own checkpoint)
+    activate aproj
+    aproj -> db : INSERT projection_audit
+    deactivate aproj
   end
 end
 deactivate mw

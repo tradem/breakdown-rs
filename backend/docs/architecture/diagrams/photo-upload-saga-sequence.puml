@@ -4,7 +4,7 @@
 ' Co-authored-by: kimi-k3 (neuralwatt)
 ' Co-authored-by: gemini-4-carbon (google)
 '
-' Runtime view: piece photo upload with inline compensation and thumbnail saga.
+' Runtime view: piece photo upload with best-effort cleanup and thumbnail saga.
 
 skinparam shadowing false
 skinparam sequenceArrowThickness 2
@@ -21,7 +21,7 @@ client -> api : POST image bytes (JPEG/PNG/WebP)
 activate api
 api -> pg : load piece + AUTHZ-GATE\n(authorize_piece_in_project)
 pg --> api : project_id (or 403 / 422)
-api -> s3 : store Original bytes (PhotoId)
+api -> s3 : store raw Original bytes (PhotoId)
 s3 --> api : stored
 api -> svc : UploadPhoto + LinkPiecePhoto
 activate svc
@@ -36,8 +36,8 @@ es ->> saga : PhotoUploaded
 activate saga
 saga -> s3 : read Original bytes
 s3 --> saga : bytes
-saga -> saga : decode image, strip EXIF,\nrender Thumb (200x200) and Medium (800x800)
-saga -> s3 : store Thumb and Medium
+saga -> saga : decode image, strip EXIF,\nrender Thumb (max 200x200) and Medium (max 800x800)
+saga -> s3 : overwrite Original (EXIF-stripped)\n+ store Thumb and Medium
 saga -> svc : record generated variants
 svc -> es : append variant events
 deactivate saga
@@ -45,9 +45,11 @@ deactivate saga
 es ->> pg : project Photo and PiecePhoto rows
 
 note right of api
-  If UploadPhoto or LinkPiecePhoto fails,
-  the handler deletes stored Original bytes
-  inline before it returns the error.
+  If UploadPhoto fails, no PhotoUploaded event exists
+  and the handler attempts best-effort delete_all inline.
+  If LinkPiecePhoto fails after UploadPhoto succeeds,
+  the handler attempts delete_all and logs storage errors;
+  periodic PhotoGcSweepTask reconciles any leftover blobs.
 end note
 
 @enduml

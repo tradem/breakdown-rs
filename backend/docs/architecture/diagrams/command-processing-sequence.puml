@@ -10,6 +10,7 @@ skinparam shadowing false
 skinparam sequenceArrowThickness 2
 
 participant "Flutter Client\n(Riverpod)" as client
+participant "Middleware\n(Auth + AuthZ)" as mw
 participant "Axum Handler\n(/v1/...)" as api
 participant "Command Adapter\n(kameo_es)" as svc
 participant "Aggregate\nActor" as agg
@@ -17,43 +18,73 @@ database "SierraDB\n(Event Store)" as es
 participant "Projector\n(PostgresProcessor)" as proj
 database "PostgreSQL\n(Projection)" as db
 
-client -> api : POST /v1/... (JSON command)
+client -> mw : POST /v1/... (JSON command)
+activate mw
+mw -> db : check OIDC JWT + BlockMember policy
+db --> mw : allowed
+mw -> api : forward authenticated request
 activate api
-api -> db : AuthZ check + optional 409 pre-check
-db --> api : allowed + context
+api -> db : load command context + optional 409 pre-check
+db --> api : context (no projection conflict)
 api -> svc : execute(command)
 activate svc
 
 opt Global uniqueness invariant (ADR-036)
-  svc -> es : claim reservation-* (ExpectedVersion::Empty)
-  es --> svc : claimed (or WrongVer -> 409 Conflict)
+  svc -> es : append Reserved (ExpectedVersion::Empty)
+  alt Fresh stream claimed
+    es --> svc : claimed
+  else WrongVer (stream exists)
+    svc -> es : read latest reservation stream state
+    alt Foreign permanent holder (or retries exhausted)
+      es --> svc : Permanent conflict
+      svc --> api : Err(Conflict)
+      api --> mw : 409 (problem+json, no aggregate event)
+      mw --> client : 409 Conflict
+    else Released claim or owned by same aggregate
+      svc -> es : CAS re-claim (ExpectedVersion::Exact(last_ver))\nor reuse own claim
+      es --> svc : claimed
+    end
+  end
 end
 
-svc -> agg : handle(command)
-activate agg
-agg -> agg : check domain invariants
-agg --> svc : Ok(Vec<Event>)
-deactivate agg
+group When reservation succeeds (or is not needed)
+  svc -> agg : handle(command)
+  activate agg
+  agg -> agg : check domain invariants
+  agg --> svc : Ok(Vec<Event>)
+  deactivate agg
 
-svc -> es : append events (expected version)
-activate es
-es --> svc : new stream version
-deactivate es
-svc --> api : Ok((id, version))
-deactivate svc
-api --> client : 201 Created / 200 OK
-deactivate api
+  svc -> es : append events (expected version)
+  activate es
+  es --> svc : ack_version
+  deactivate es
+  svc --> api : Ok((id, ack_version))
+  deactivate svc
+  api --> mw : 201 Created / 200 OK { id, ack_version }
+  deactivate api
+  mw --> client : 2xx { id, ack_version }
+  deactivate mw
 
-client -> client : apply optimistic overlay
+  client -> client : apply optimistic overlay (ack_version)
 
-es ->> proj : async event delivery
-activate proj
-proj -> db : UPSERT projection\n(WHERE version < $N)
-deactivate proj
+  es ->> proj : async event delivery
+  activate proj
+  proj -> db : UPSERT projection\n(WHERE version < $N)
+  deactivate proj
 
-client -> api : bounded-retry GET /v1/...
-api -> db : SELECT projection
-db --> api : projected DTO
-api --> client : 200 OK (replaces overlay)
+  loop Bounded-retry refetch
+    client -> mw : GET /v1/...
+    mw -> api : forward
+    api -> db : SELECT projection
+    db --> api : projected DTO (proj_version)
+    api --> mw : 200 OK
+    mw --> client : 200 OK (proj_version)
+    alt proj_version >= ack_version
+      client -> client : replace overlay with projected DTO (stop loop)
+    else proj_version < ack_version
+      client -> client : keep ack_version overlay and retry\n(or mark stale if retries exhaust)
+    end
+  end
+end
 
 @enduml

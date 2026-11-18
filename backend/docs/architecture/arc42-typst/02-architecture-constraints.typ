@@ -22,7 +22,7 @@
   [Secrets store], [HashiCorp Vault OSS 1.20 (Transit + KV-v2)], [Envelope encryption and crypto-shredding for external credentials (#adr-ref(num: "027", slug: "secrets-vault-for-external-credentials", title: "Secrets Vault"))],
   [Client stack], [Flutter / Dart (Android first), Riverpod codegen, Drift SQLite, `fpdart`], [Typed offline read cache and explicit `Result` error values (#adr-ref(num: "033", slug: "flutter-client-versioning", title: "Flutter Versioning"), #adr-ref(num: "034", slug: "flutter-app-localization-gen-l10n", title: "Flutter Localization"))],
   [Wire contract], [Code-first `backend/openapi.yaml` (`utoipa` 6 → `breakdown_api`)], [Single contract checked for drift on both backend and client (#adr-ref(num: "006", slug: "utoipa-openapi-codegen", title: "utoipa OpenAPI"), #adr-ref(num: "021", slug: "api-versioning", title: "API Versioning"))],
-  [Transport security], [Caddy edge, `step-ca` internal TLS, pinned client Root CA], [End-to-end TLS without system-store trust gaps (#adr-ref(num: "024", slug: "database-encryption-in-transit", title: "Encryption in Transit"), #adr-ref(num: "025", slug: "https-edge-and-cert-rotation", title: "HTTPS Edge"), #adr-ref(num: "032", slug: "flutter-client-tls-pinning-rotation", title: "Client TLS Pinning"))],
+  [Transport security], [Caddy HTTPS edge, `step-ca` internal store TLS, pinned client Root CA], [Public HTTPS at Caddy, TLS on API-to-store links, and pinned client CA (#adr-ref(num: "024", slug: "database-encryption-in-transit", title: "Encryption in Transit"), #adr-ref(num: "025", slug: "https-edge-and-cert-rotation", title: "HTTPS Edge"), #adr-ref(num: "032", slug: "flutter-client-tls-pinning-rotation", title: "Client TLS Pinning"))],
   [Documentation], [Typst 0.15.1 + PlantUML in ASD-STE100], [Single-binary PDF/HTML pipeline and clear English (#adr-ref(num: "008", slug: "documentation-tooling-and-structure", title: "Documentation Tooling"))],
 )
 
@@ -42,9 +42,12 @@
 == Licensing and Repository Conventions
 
 - All hand-written source, spec, workflow, and documentation files carry an
-  `AGPL-3.0` SPDX header and one `Co-authored-by:` line per contributor.
-- CI enforces header compliance with `./scripts/add-spdx-headers.sh --check` and
-  skips regenerated trees such as `vendor/breakdown_api/` and `*.g.dart`.
+  `AGPL-3.0` SPDX header and one `Co-authored-by:` line per contributor by
+  project convention.
+- CI runs `./scripts/add-spdx-headers.sh --check` to verify `SPDX-License-Identifier`
+  markers on supported source and doc extensions while skipping regenerated
+  trees (`vendor/breakdown_api/`, `*.g.dart`). `Co-authored-by:` lines and
+  `.puml` headers are reviewed conventions rather than automated script checks.
 - `gitleaks` scans commits across Rust, Dart, YAML, and ARB files to prevent
   secret leaks.
 - All entity and event identifiers use `UUIDv7` (`uuid::Uuid::now_v7()`).

@@ -20,8 +20,9 @@
   attach `project_id` to `CreateScene` before command execution.
 - `SceneAggregate` checks domain invariants and emits `SceneCreated` (`Manual`
   source) to SierraDB.
-- `SceneProjector` inserts rows into `projection_scene` and `projection_audit`
-  asynchronously.
+- `SceneProjector` writes `projection_scene`, while `SceneAuditProjector` writes
+  `projection_audit` from a separate subscription and checkpoint, so a scene can
+  appear before its audit row.
 
 == Scenario 2: Cross-Aggregate Uniqueness Reservation
 
@@ -31,11 +32,12 @@ pairs (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate
 
 + The API handler runs an advisory read-model check and returns `409` if a
   conflict already exists in PostgreSQL.
-+ The command adapter appends a claim event to a deterministic
-  `reservation-*` SierraDB stream with `ExpectedVersion::Empty`.
-+ If a concurrent request already claimed that stream, SierraDB rejects the
-  claim. The adapter then returns the `409` problem code without writing an
-  aggregate event.
++ For a never-used key, the command adapter appends a claim event to the
+  deterministic `reservation` stream with `ExpectedVersion::Empty`.
++ If the stream already exists (`WrongVer`), the adapter reads its latest event.
+  It reclaims a released key with `ExpectedVersion::Exact(last_version)` or
+  reuses an existing claim owned by the same aggregate. It returns `409` only
+  for a competing holder or exhausted CAS retries.
 + After the aggregate event appends, the background reservation reaper marks
   realized claims consumed and releases orphaned crash claims after TTL expiry.
 + Projectors keep savepoint-isolated unique constraints (`#404`) and the
@@ -49,8 +51,9 @@ pairs (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate
 
 - The Flutter repository emits cached rows from local Drift SQLite immediately
   for fast startup and brief network drops.
-- `GET /v1/scenes?episode_id=...` queries `projection_scene` directly in
-  PostgreSQL ordered by `LexicalSortKey`.
+- `GET /v1/scenes?episode_id=...` queries `projection_scene` in PostgreSQL
+  ordered by `scene_number, updated_at DESC`. The client reads all pages before
+  it replaces the Drift snapshot.
 - Neither SierraDB nor any aggregate actor runs on the read path.
 
 == Scenario 4: Upload Piece Photo and Thumbnail Saga
@@ -62,13 +65,14 @@ pairs (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate
 - The handler checks MIME type (`image/jpeg`, `image/png`, or `image/webp`),
   enforces `PHOTO_MAX_SIZE_MB`, and runs the project-scoped `AUTHZ-GATE`.
 - The handler stores `Original` bytes in Garage, then sends `UploadPhoto` and
-  `LinkPiecePhoto`. If either command fails, the handler deletes the stored
-  bytes immediately before it returns an error.
+  `LinkPiecePhoto`. If a command fails, the handler attempts best-effort byte
+  deletion (`delete_all`) and logs any storage error. It then returns the
+  command error, and an accepted `PhotoUploaded` event is not rolled back.
 - The handler builds `PhotoView` from the command result and returns
   `201 Created` without waiting for the projector.
-- `PhotoThumbnailSaga` reacts to `PhotoUploaded`, strips EXIF metadata, writes
-  `Thumb` (`200x200`) and `Medium` (`800x800`) variants to Garage, and records
-  variant completion events.
+- `PhotoThumbnailSaga` reacts to `PhotoUploaded` and overwrites `Original` with
+  an EXIF-stripped JPEG. It writes `Thumb` (max `200x200`) and `Medium` (max
+  `800x800`) variants to Garage and records variant completion events.
 - When users unlink photos, `PhotoDeletionSaga` and `ContinuityDeletionSaga`
   check combined reference counts and send `DeletePhoto` only at zero.
 
@@ -76,10 +80,13 @@ pairs (#adr-ref(num: "036", slug: "es-native-reservation-streams-cross-aggregate
 
 + The client uploads a screenplay or CSV schedule with `X-Active-Block` or
   `X-Declared-Season` (#adr-ref(num: "039", slug: "target-less-ai-import-declared-season-and-set-once-attach", title: "Target-Less AI Import")).
-+ The handler checks `effective_costume_role_in_season`, writes the source
-  document to Garage (`ai-import-payloads`), and inserts a `pending` job row.
-+ A worker acquires a cancellation-safe concurrency permit and an owner-fenced
-  claim lease, renewing both at one-third of the lease window.
++ The handler checks `effective_costume_role_in_season` and writes the source
+  blob to Garage. A new import inserts a `pending` job. A deduplicated match
+  returns `200` with the existing job ID and attempts to delete the duplicate
+  blob.
++ A worker claims the job, starts its claim lease heartbeat, and loads the
+  source document from Garage before it acquires a cancellation-safe extraction
+  concurrency permit.
 + If a `(provider, model)` pair hits repeated transient errors, the durable
   circuit breaker opens and holds matching jobs until a probe succeeds.
 + During extraction, the worker writes fenced progress updates and sends
