@@ -12,8 +12,10 @@ use breakdown_core::ai::{
     AiModelPricingRepository, Currency, LlmProvider, ModelPricing, ModelPricingRow, PricingSource,
 };
 use breakdown_core::error::DomainError;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
+
+use crate::db_time::{PgRowTimeExt, sql_ts};
 
 /// Parse a pricing row's `currency` text. Unknown values are a projection
 /// integrity defect (the CHECK constraint admits only USD/EUR) — surfaced as
@@ -127,7 +129,7 @@ impl AiModelPricingRepository for PgAiModelPricingRepository {
                         .try_get("image_nano_per_unit")
                         .map_err(map_sqlx_error)?,
                     pricing_source: row.try_get("pricing_source").map_err(map_sqlx_error)?,
-                    price_as_of: row.try_get("price_as_of").map_err(map_sqlx_error)?,
+                    price_as_of: row.get_ts("price_as_of").map_err(map_sqlx_error)?,
                 };
                 Ok(ModelPricingRow {
                     provider,
@@ -178,7 +180,7 @@ impl AiModelPricingRepository for PgAiModelPricingRepository {
             .bind(entry.pricing.image_output_nano_per_million)
             .bind(entry.pricing.image_nano_per_unit)
             .bind(pricing_source_str(entry.pricing.pricing_source))
-            .bind(entry.pricing.price_as_of)
+            .bind(sql_ts(entry.pricing.price_as_of))
             .execute(&mut *tx)
             .await
             .map_err(map_sqlx_error)?;
@@ -211,7 +213,8 @@ struct PricingRecord {
     image_output_nano_per_million: Option<i64>,
     image_nano_per_unit: Option<i64>,
     pricing_source: String,
-    price_as_of: DateTime<Utc>,
+    #[sqlx(try_from = "crate::db_time::SqlTimestamp")]
+    price_as_of: Timestamp,
 }
 
 impl PricingRecord {

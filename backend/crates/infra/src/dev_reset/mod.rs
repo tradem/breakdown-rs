@@ -415,9 +415,9 @@ fn event_store_label(url: &str) -> String {
 }
 
 /// Small helper for the backup + report paths: ISO-ish UTC stamp without a
-/// dependency on a formatting crate beyond `chrono`.
-pub fn timestamp_slug(now: chrono::DateTime<chrono::Utc>) -> String {
-    now.format("%Y%m%dT%H%M%SZ").to_string()
+/// dependency on a formatting crate beyond `jiff`.
+pub fn timestamp_slug(now: jiff::Timestamp) -> String {
+    now.strftime("%Y%m%dT%H%M%SZ").to_string()
 }
 
 /// Convenience for the SQL helpers: count of a static statement.
@@ -503,11 +503,7 @@ mod tests {
 
     #[test]
     fn timestamp_slug_is_filename_safe() {
-        let slug = timestamp_slug(
-            chrono::DateTime::parse_from_rfc3339("2026-01-02T03:04:05Z")
-                .unwrap()
-                .with_timezone(&chrono::Utc),
-        );
+        let slug = timestamp_slug("2026-01-02T03:04:05Z".parse().expect("fixture instant"));
         assert_eq!(slug, "20260102T030405Z");
         assert!(!slug.contains(':'));
     }

@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
-use super::PROJECTOR_VERSION;
+
 use breakdown_core::settings::aggregate::SettingsAggregate;
 use breakdown_core::settings::events::SettingsEvent;
 use breakdown_core::shared::EventMetadata;
@@ -11,6 +11,8 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 #[derive(Clone, Default, Debug)]
 pub struct SettingsProjector;
 
@@ -69,7 +71,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 .bind(version.0 as i64)
                 .bind(PROJECTOR_VERSION)
                 .bind(owner.clone())
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -105,7 +107,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 .bind(vault_key_id)
                 .bind(vault_version as i64)
                 .bind(version.0 as i64)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -119,7 +121,7 @@ impl<'a> EntityEventHandler<SettingsAggregate, Transaction<'a, Postgres>> for Se
                 )
                 .bind(id)
                 .bind(version.0 as i64)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }

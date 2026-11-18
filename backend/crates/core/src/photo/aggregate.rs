@@ -5,16 +5,14 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use kameo_es::{Apply, Command, Context, Entity, Metadata};
-
-use crate::photo::binding::PhotoBinding;
-use crate::shared::{AggregateVersion, EventMetadata, PhotoId, PhotoVariant, VariantStatus};
 
 use super::commands::*;
 use super::error::PhotoError;
 use super::events::*;
-
+use crate::photo::binding::PhotoBinding;
+use crate::shared::{AggregateVersion, EventMetadata, PhotoId, PhotoVariant, VariantStatus};
 /// A record of a single variant's generation state (internal aggregate state).
 #[derive(Debug, Clone)]
 pub struct PhotoVariantRecord {
@@ -33,9 +31,9 @@ pub struct PhotoAggregate {
     pub size_bytes: u64,
     pub variants: Vec<PhotoVariantRecord>,
     /// When the EXIF-stripped original was stored, if normalization completed.
-    pub exif_stripped_at: Option<DateTime<Utc>>,
+    pub exif_stripped_at: Option<Timestamp>,
     /// When the photo was soft-deleted. `None` means active.
-    pub deleted_at: Option<DateTime<Utc>>,
+    pub deleted_at: Option<Timestamp>,
     /// What this photo is attached to (Costume or Continuity).
     pub binding: PhotoBinding,
     pub version: AggregateVersion,
@@ -108,7 +106,7 @@ impl Apply for PhotoAggregate {
                     original.status = VariantStatus::Ready;
                 }
                 self.size_bytes = new_size;
-                self.exif_stripped_at = Some(Utc::now());
+                self.exif_stripped_at = Some(Timestamp::now());
                 self.version = version;
             }
             PhotoEvent::VariantGenerated {
@@ -132,7 +130,7 @@ impl Apply for PhotoAggregate {
                 self.version = version;
             }
             PhotoEvent::PhotoDeleted { version, .. } => {
-                self.deleted_at = Some(Utc::now());
+                self.deleted_at = Some(Timestamp::now());
                 self.version = version;
             }
         }
@@ -273,7 +271,6 @@ mod tests {
     use std::sync::LazyLock;
     use std::time::Instant;
 
-    use chrono::Utc;
     use kameo_es::{Command, Context, Metadata, StreamId};
 
     use super::*;
@@ -293,7 +290,7 @@ mod tests {
         Context {
             metadata,
             causation_tracking: &TRACKING,
-            time: Utc::now(),
+            time: Timestamp::now(),
             executed_at: Instant::now(),
         }
     }
@@ -335,7 +332,7 @@ mod tests {
     #[test]
     fn delete_photo_on_deleted_aggregate_is_rejected() {
         let mut photo = sample_photo();
-        photo.deleted_at = Some(Utc::now());
+        photo.deleted_at = Some(Timestamp::now());
 
         let cmd = DeletePhoto {
             id: photo.id,

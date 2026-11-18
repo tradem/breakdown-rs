@@ -5,9 +5,6 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use breakdown_core::ai::{
     AiImportJobId, AiImportMapping, AiImportMappingRepository, MergedPreview, PRIMARY_ORDINAL,
     ensure_merge_applyable, mapping_kind,
@@ -24,6 +21,8 @@ use breakdown_core::shooting_day::commands::CreateShootingDay;
 use breakdown_core::shooting_day::events::ShootingDaySource;
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Reviewed schedule-side apply request. `project_id` is supplied by the API
@@ -504,7 +503,7 @@ pub(crate) struct DayDraft {
     pub draft_ref: String,
     pub episode_id: EpisodeId,
     pub label: Option<String>,
-    pub date: Option<chrono::NaiveDate>,
+    pub date: Option<jiff::civil::Date>,
     pub project_id: Option<ProjectId>,
     /// Hybrid day score (issue #722) →
     /// `ShootingDaySource::AiExtracted.confidence`. `None` stays honest

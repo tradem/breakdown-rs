@@ -22,11 +22,6 @@
 )]
 #![allow(unsafe_code)] // test-only env var manipulation
 
-use crate::common;
-
-use axum::body::Bytes;
-use axum::extract::State;
-
 use api::auth::CurrentUser;
 use api::handlers::{
     LinkContinuityPhotoRequest, ListParams, PhotoBytesQuery, VersionRequest, delete_piece_photo,
@@ -36,6 +31,8 @@ use api::handlers::{
 };
 use api::problems::{Json, Path, Query};
 use api::state::AppState;
+use axum::body::Bytes;
+use axum::extract::State;
 use breakdown_core::block::BlockView;
 use breakdown_core::character::CharacterView;
 use breakdown_core::episode::EpisodeView;
@@ -47,6 +44,8 @@ use breakdown_core::shared::{
 use breakdown_core::shooting_day::ShootingDayView;
 use common::FakePorts;
 use uuid::Uuid;
+
+use crate::common;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -104,7 +103,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
             start_date: None,
             end_date: None,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports.episode_repo.episodes.lock().await.insert(
@@ -116,7 +115,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
             number: 1,
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports.shooting_day_repo.days.lock().await.insert(
@@ -131,7 +130,7 @@ async fn seed_shooting_day_chain(ports: &FakePorts) -> (ShootingDayId, SeasonId)
             archived: false,
             wrapped_at: None,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     (sd_id, sid)
@@ -153,7 +152,7 @@ async fn seed_piece_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
             measurements: breakdown_core::character::CharacterMeasurements::default(),
             contact: breakdown_core::character::ContactInfo::default(),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports.piece_repo.pieces.lock().await.insert(
@@ -167,7 +166,7 @@ async fn seed_piece_chain(ports: &FakePorts) -> (uuid::Uuid, SeasonId) {
             details: vec![],
             photos: vec![],
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
             season_ids: vec![],
         },
     );
@@ -1020,7 +1019,7 @@ async fn get_audit_history_returns_series_journal_for_series_member() {
             project_id: Some(sid.0),
             actor: Some(breakdown_core::shared::UserId::from_sub(USER)),
             payload: serde_json::json!({ "number": 1 }),
-            occurred_at: chrono::Utc::now(),
+            occurred_at: jiff::Timestamp::now(),
         });
     // Entry of a foreign series must not leak into the result.
     ports
@@ -1037,7 +1036,7 @@ async fn get_audit_history_returns_series_journal_for_series_member() {
             project_id: Some(other_series),
             actor: Some(breakdown_core::shared::UserId::from_sub("other-user")),
             payload: serde_json::json!({ "number": 2 }),
-            occurred_at: chrono::Utc::now(),
+            occurred_at: jiff::Timestamp::now(),
         });
 
     let state = app_state(ports);

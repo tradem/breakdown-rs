@@ -16,6 +16,32 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.84.0] - Unreleased
+
+### Changed — BREAKING: `jiff` time types and the `db_time` bridge (issue #929, ADR-040)
+
+- Cascading MAJOR from `core` 0.73.0 (ADR-020 D3): every public adapter,
+  projection row and `AiImportQueue`/`ReportArchivalQueue` signature that
+  carried `chrono::DateTime<Utc>` now carries `jiff::Timestamp`.
+- `sqlx` 0.9 has no `jiff` feature and the orphan rule forbids implementing
+  `Type`/`Encode`/`Decode` for `jiff::Timestamp` here, so the mapping lives in
+  the new module `infra::db_time`, backed by the `jiff-sqlx` companion crate
+  (published from the `jiff` repository, tracks `sqlx ^0.9`). It is the single
+  place a temporal column crosses between row and domain type:
+  `ts`/`ts_opt`/`date`/`date_opt` for decoding, `sql_ts`/`sql_ts_opt`/
+  `sql_date`/`sql_date_opt` for binds, and the `PgRowTimeExt` trait
+  (`row.get_ts("…")`) so row mappings read like the rest of the adapter code.
+  The `sqlx` "chrono" feature is gone; columns keep their native
+  `timestamptz`/`date` types and microsecond precision.
+- `convert_to_timezone` keeps its `(i32, u8, u8, u8, u8)` signature and its
+  fixed CET (+01:00) behaviour, now expressed with `jiff::tz::Offset::constant`.
+- The vendored `kameo_es` patch (`.patches/kameo_es`) moved with us: its
+  `Event::timestamp`, `Context::time` and `AppendedEvent::timestamp` are
+  `jiff::Timestamp`, and its `chrono`→`SystemTime` `From` conversions became two
+  fallible helpers feeding the pre-existing `InvalidTimestamp` variants (a
+  `Timestamp` spans ±9 999 years, `SystemTime`'s range is platform-defined).
+  Its optional `bson` dependency no longer enables `chrono-0_4`.
+
 ## [0.83.0] - Unreleased
 
 ### Changed — a quota-exhausted `429` is terminal, a rate-limited one is not (issue #927)

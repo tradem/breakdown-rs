@@ -171,7 +171,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.69.4"
+version = "0.70.0"
 dependencies = [
  "accept-language",
  "anyhow",
@@ -179,7 +179,6 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "breakdown_core",
- "chrono",
  "fluent",
  "fluent-bundle",
  "fluent-syntax",
@@ -189,6 +188,7 @@ dependencies = [
  "hyper",
  "indexmap 2.14.2",
  "infra",
+ "jiff 1.0.0",
  "jsonwebtoken",
  "kameo",
  "kameo_es",
@@ -771,7 +771,7 @@ name = "breakdown-fuzz-targets"
 version = "0.3.1"
 dependencies = [
  "breakdown_core",
- "chrono",
+ "jiff 1.0.0",
  "libfuzzer-sys",
  "serde",
  "serde_json",
@@ -780,11 +780,11 @@ dependencies = [
 
 [[package]]
 name = "breakdown_core"
-version = "0.72.0"
+version = "0.73.0"
 dependencies = [
  "async-trait",
- "chrono",
  "futures",
+ "jiff 1.0.0",
  "kameo",
  "kameo_es",
  "proptest",
@@ -841,7 +841,6 @@ dependencies = [
  "ahash",
  "base64 0.22.1",
  "bitvec",
- "chrono",
  "getrandom 0.3.4",
  "hex",
  "indexmap 2.14.2",
@@ -970,10 +969,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -1786,7 +1783,7 @@ dependencies = [
  "anstream",
  "anstyle",
  "env_filter",
- "jiff",
+ "jiff 0.2.35",
  "log",
 ]
 
@@ -3183,14 +3180,13 @@ checksum = "a588916bfdfd92e71cacef98a63d9b1f0d74d6599980d11894290e7ddefffcf7"
 
 [[package]]
 name = "infra"
-version = "0.83.0"
+version = "0.84.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
  "async-trait",
  "base64 0.23.1",
  "breakdown_core",
- "chrono",
  "ciborium",
  "csv",
  "fastrand",
@@ -3199,6 +3195,8 @@ dependencies = [
  "http",
  "httpdate",
  "image",
+ "jiff 1.0.0",
+ "jiff-sqlx",
  "kamadak-exif",
  "kameo",
  "kameo_es",
@@ -3244,10 +3242,11 @@ dependencies = [
  "anyhow",
  "async-trait",
  "breakdown_core",
- "chrono",
  "ciborium",
  "fastrand",
  "infra",
+ "jiff 1.0.0",
+ "jiff-sqlx",
  "kameo_es",
  "lazy_static",
  "opendal",
@@ -3347,15 +3346,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "668b7183bd07af9a4885f5c35b0cc5c83c4607a913c16b7e17291832910d2dcc"
 dependencies = [
  "defmt",
- "jiff-core",
- "jiff-static",
- "jiff-tzdb-platform",
+ "jiff-core 0.1.0",
+ "jiff-static 0.2.35",
+ "jiff-tzdb-platform 0.1.3",
  "js-sys",
  "log",
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
  "wasm-bindgen",
+ "windows-link",
+]
+
+[[package]]
+name = "jiff"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cc767b5763de45e810109520123bb2829a653f3a7ed9be40b2bc4f81158f595"
+dependencies = [
+ "jiff-core 1.0.0",
+ "jiff-static 1.0.0",
+ "jiff-tzdb-platform 1.0.0",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
  "windows-link",
 ]
 
@@ -3369,15 +3384,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "jiff-core"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "894f7ac42105f584100691b3bf6e6b92dd12fcfa225f6c397f95c8a94b47b68f"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "jiff-sqlx"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4996ad290ff7f7081becdda47e28556fbebb81618c599eac5d09182b5a60e38"
+dependencies = [
+ "jiff 1.0.0",
+ "sqlx",
+]
+
+[[package]]
 name = "jiff-static"
 version = "0.2.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a69dcb3a21cfb32ce1cd056169337ca284af0766dd766e7878819b251a49204"
 dependencies = [
- "jiff-core",
+ "jiff-core 0.1.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "jiff-static"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "955491488dc99b572ea6d67b172dcd98787d00744b1fb44a5689b4e6413695a6"
+dependencies = [
+ "jiff-core 1.0.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -3387,12 +3433,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "142bd39932ad231f10513df9ab62661fead8719872150b7ad02a2df79f4e141e"
 
 [[package]]
+name = "jiff-tzdb"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12e71a1b68a875a44a33bb7a1dd84392cb77145a3367a552a3cfe6a4f5cf3afc"
+
+[[package]]
 name = "jiff-tzdb-platform"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
 dependencies = [
- "jiff-tzdb",
+ "jiff-tzdb 0.1.8",
+]
+
+[[package]]
+name = "jiff-tzdb-platform"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc65b284afcfa8f6cf189c7274c805505314a7ab975c60e1f548bff56525420e"
+dependencies = [
+ "jiff-tzdb 1.0.0",
 ]
 
 [[package]]
@@ -3521,9 +3582,9 @@ dependencies = [
  "async-stream",
  "backon",
  "bson 3.1.0",
- "chrono",
  "ciborium",
  "futures",
+ "jiff 1.0.0",
  "kameo",
  "kameo_es_core",
  "lru",
@@ -3547,8 +3608,8 @@ dependencies = [
 name = "kameo_es_core"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "ciborium",
+ "jiff 1.0.0",
  "kameo_es_macros",
  "serde",
  "uuid",
@@ -4278,7 +4339,7 @@ dependencies = [
  "bytes",
  "futures",
  "http",
- "jiff",
+ "jiff 0.2.35",
  "log",
  "md-5",
  "percent-encoding",
@@ -5553,7 +5614,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "http",
- "jiff",
+ "jiff 0.2.35",
  "log",
  "mea",
  "percent-encoding",
@@ -6257,7 +6318,7 @@ dependencies = [
  "hex",
  "indexmap 1.9.3",
  "indexmap 2.14.2",
- "jiff",
+ "jiff 0.2.35",
  "schemars 0.9.0",
  "schemars 1.2.3",
  "serde_core",
@@ -6539,7 +6600,6 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cfg-if",
- "chrono",
  "crc",
  "crossbeam-queue",
  "either",
@@ -6615,7 +6675,6 @@ dependencies = [
  "bitflags 2.13.1",
  "byteorder",
  "bytes",
- "chrono",
  "crc",
  "digest 0.11.3",
  "dotenvy",
@@ -6644,7 +6703,6 @@ dependencies = [
  "base64 0.22.1",
  "bitflags 2.13.1",
  "byteorder",
- "chrono",
  "crc",
  "dotenvy",
  "etcetera",
@@ -6678,7 +6736,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488e99c397a62007e4229aec669a179816339afc6d2620ca6fa420dbee2e982c"
 dependencies = [
  "atoi",
- "chrono",
  "flume",
  "form_urlencoded",
  "futures-channel",
@@ -6955,7 +7012,7 @@ name = "test_support"
 version = "0.3.2"
 dependencies = [
  "breakdown_core",
- "chrono",
+ "jiff 1.0.0",
  "kameo",
  "kameo_es",
 ]

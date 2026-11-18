@@ -20,26 +20,26 @@
 // `.expect()` with explicit messages.
 #![allow(clippy::expect_used)]
 
-use crate::common;
-
-use api::problems::Path;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
-use http_body_util::BodyExt;
-
 use api::auth::CurrentUser;
 use api::handlers::{
     ApplyStreamVerdict, SSE_APPLY_TICK_SECS, classify_apply_run, stream_ai_import_apply_events,
 };
+use api::problems::Path;
 use api::state::AppState;
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
 use breakdown_core::ai::{
     AiImportJob, AiImportJobId, AiImportQueue, ApplyProgress, ApplyRunId, ApplyRunState,
     ApplyStage, DocumentKind, JobStatus, SourceFormat,
 };
 use breakdown_core::shared::UserId;
-use chrono::{Duration as ChronoDuration, Utc};
 use common::FakePorts;
+use http_body_util::BodyExt;
+use jiff::SignedDuration;
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const TEST_SUB: &str = "ai-apply-sse-test-user";
 
@@ -74,8 +74,8 @@ fn succeeded_job(id: AiImportJobId) -> AiImportJob {
         next_attempt_at: None,
         attempts: Vec::new(),
         max_retries: 5,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         telemetry: None,
         cost: None,
         source_file_name: None,
@@ -93,7 +93,7 @@ fn succeeded_job(id: AiImportJobId) -> AiImportJob {
 
 /// A payload of `run_id` (issue #800: progress always belongs to a run).
 fn progress_of(run_id: ApplyRunId, applied: u32, total: u32) -> ApplyProgress {
-    let now = Utc::now();
+    let now = Timestamp::now();
     ApplyProgress {
         stage: ApplyStage::Applying,
         applied,
@@ -237,7 +237,7 @@ fn the_frame_reports_the_owner_then_the_outcomes_run() {
 
 #[test]
 fn classify_apply_run_reports_a_live_run() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let run_id = ApplyRunId::new();
     let live = progress_of(run_id, 3, 9);
     let ApplyStreamVerdict::Running(seen) = classify_apply_run(
@@ -259,13 +259,13 @@ fn classify_apply_run_treats_a_stale_payload_as_finished() {
     // LIVE run's payload fresh, so a stale one really means the process is gone.
     let run_id = ApplyRunId::new();
     let mut stale = progress_of(run_id, 3, 9);
-    stale.updated_at = Utc::now() - ApplyProgress::STALE_AFTER - ChronoDuration::seconds(1);
+    stale.updated_at = Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     assert!(matches!(
         classify_apply_run(
             &run_state(Some(run_id), 1, Some(stale)),
             0,
             true,
-            Utc::now()
+            Timestamp::now()
         ),
         ApplyStreamVerdict::Finished
     ));
@@ -276,12 +276,12 @@ fn classify_apply_run_distinguishes_never_started_from_finished() {
     // Before anything started the stream must WAIT (a client subscribes a
     // moment before its POST lands) …
     assert!(matches!(
-        classify_apply_run(&run_state(None, 0, None), 0, false, Utc::now()),
+        classify_apply_run(&run_state(None, 0, None), 0, false, Timestamp::now()),
         ApplyStreamVerdict::Idle
     ));
     // … but once a run was observed, an absent payload IS the end signal.
     assert!(matches!(
-        classify_apply_run(&run_state(None, 1, None), 0, true, Utc::now()),
+        classify_apply_run(&run_state(None, 1, None), 0, true, Timestamp::now()),
         ApplyStreamVerdict::Finished
     ));
 }
@@ -294,12 +294,12 @@ fn classify_apply_run_distinguishes_never_started_from_finished() {
 #[test]
 fn classify_apply_run_reports_a_run_that_started_and_ended_unseen() {
     assert!(matches!(
-        classify_apply_run(&run_state(None, 1, None), 0, false, Utc::now()),
+        classify_apply_run(&run_state(None, 1, None), 0, false, Timestamp::now()),
         ApplyStreamVerdict::Finished
     ));
     // The same counter as the subscriber's baseline means nothing happened yet.
     assert!(matches!(
-        classify_apply_run(&run_state(None, 3, None), 3, false, Utc::now()),
+        classify_apply_run(&run_state(None, 3, None), 3, false, Timestamp::now()),
         ApplyStreamVerdict::Idle
     ));
 }
@@ -310,7 +310,12 @@ fn classify_apply_run_reports_a_run_that_started_and_ended_unseen() {
 fn classify_apply_run_waits_for_a_claimed_run_without_a_payload() {
     let run_id = ApplyRunId::new();
     assert!(matches!(
-        classify_apply_run(&run_state(Some(run_id), 1, None), 0, false, Utc::now()),
+        classify_apply_run(
+            &run_state(Some(run_id), 1, None),
+            0,
+            false,
+            Timestamp::now()
+        ),
         ApplyStreamVerdict::Idle
     ));
 }

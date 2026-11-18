@@ -20,8 +20,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{
     AddOutfitPieceRequest, CreateOutfitRequest, CreateOutfitVariantRequest, RenameOutfitRequest,
@@ -42,9 +40,11 @@ use breakdown_core::outfit::views::OutfitView;
 use breakdown_core::piece::views::PieceView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId, SeasonId, UserId};
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const USER: &str = "test-user";
 
@@ -77,7 +77,7 @@ async fn seed_archived_season_wardrobe(ports: &FakePorts) -> ArchivedWardrobe {
             measurements: CharacterMeasurements::default(),
             contact: ContactInfo::default(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports.season_repo.seasons.lock().await.insert(
@@ -90,7 +90,7 @@ async fn seed_archived_season_wardrobe(ports: &FakePorts) -> ArchivedWardrobe {
             // The terminal lifecycle state (issue #533).
             archived: true,
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     // The role is active on purpose: the refusal must come from the archived
@@ -119,7 +119,7 @@ async fn seed_archived_season_wardrobe(ports: &FakePorts) -> ArchivedWardrobe {
             notes: String::new(),
             photos: Vec::new(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports.piece_repo.pieces.lock().await.insert(
@@ -133,7 +133,7 @@ async fn seed_archived_season_wardrobe(ports: &FakePorts) -> ArchivedWardrobe {
             details: Vec::new(),
             photos: Vec::new(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             season_ids: vec![season_id.0],
         },
     );

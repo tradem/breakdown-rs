@@ -4,7 +4,6 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::ai::aggregate::AiConfig;
 use breakdown_core::ai::events::AiConfigEvent;
 use breakdown_core::shared::EventMetadata;
@@ -13,6 +12,8 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 #[derive(Clone, Default, Debug)]
 pub struct AiConfigProjector;
 
@@ -91,7 +92,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                     ))
                 })?)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -148,7 +149,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         "AI config aggregate version exceeds database range: {error}"
                     ))
                 })?)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -166,7 +167,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         "AI config aggregate version exceeds database range: {error}"
                     ))
                 })?)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }

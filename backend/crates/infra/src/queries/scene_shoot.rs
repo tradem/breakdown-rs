@@ -9,10 +9,11 @@ use breakdown_core::error_registry::SCENE_SHOOT_NOT_FOUND;
 use breakdown_core::scene_shoot::ports::SceneShootRepository;
 use breakdown_core::scene_shoot::views::{SceneShootView, SerializedNote};
 use breakdown_core::shared::{AggregateVersion, LexicalSortKey, SceneShootId, ShootingDayId};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for scene-shoot projections.
 #[derive(Clone, Debug)]
 pub struct SceneShootRepositoryImpl {
@@ -127,13 +128,13 @@ fn map_scene_shoot_row(row: sqlx::postgres::PgRow) -> Result<SceneShootView, Dom
     let shooting_day_id: Uuid = row.try_get("shooting_day_id").map_err(map_err)?;
     let planned_order_str: String = row.try_get("planned_order").map_err(map_err)?;
     let actual_order_str: Option<String> = row.try_get("actual_order").map_err(map_err)?;
-    let start_dt: Option<DateTime<Utc>> = row.try_get("start_dt").map_err(map_err)?;
-    let end_dt: Option<DateTime<Utc>> = row.try_get("end_dt").map_err(map_err)?;
+    let start_dt: Option<Timestamp> = row.get_ts_opt("start_dt").map_err(map_err)?;
+    let end_dt: Option<Timestamp> = row.get_ts_opt("end_dt").map_err(map_err)?;
     let status: String = row.try_get("status").map_err(map_err)?;
     let notes_json: serde_json::Value = row.try_get("notes").map_err(map_err)?;
     let continuity_ids: Vec<Uuid> = row.try_get("continuity_photo_ids").map_err(map_err)?;
     let version: i64 = row.try_get("version").map_err(map_err)?;
-    let updated_at: DateTime<Utc> = row.try_get("updated_at").map_err(map_err)?;
+    let updated_at: Timestamp = row.get_ts("updated_at").map_err(map_err)?;
 
     let planned_order =
         LexicalSortKey::new(planned_order_str).map_err(|e| DomainError::conflict(e.to_string()))?;

@@ -21,8 +21,8 @@ crate-type = ["lib"]
 [dev-dependencies]
 lazy_static = "1.4"
 
-breakdown_core = { path = "../core", version = "0.72.0" }
-infra = { path = "../infra", version = "0.83.0", features = ["test-support"] }
+breakdown_core = { path = "../core", version = "0.73.0" }
+infra = { path = "../infra", version = "0.84.0", features = ["test-support"] }
 test_support = { path = "../test_support", version = "0.3.0" }
 
 # Event-sourcing traits used by the in-memory aggregate command checks.
@@ -40,7 +40,7 @@ async-trait.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 
 # Database access & migrations
-sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "chrono", "json", "migrate"] }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "json", "migrate"] }
 
 # Container runtime
 testcontainers = { version = "0.27", features = ["reusable-containers"] }
@@ -50,7 +50,8 @@ testcontainers-modules = { version = "0.15", features = ["postgres", "hashicorp_
 redis.workspace = true
 
 # Timestamps used by projector tests
-chrono = { workspace = true }
+jiff = { workspace = true }
+jiff-sqlx = { workspace = true }
 
 # Deterministic IDs
 uuid = { workspace = true, features = ["v7"] }

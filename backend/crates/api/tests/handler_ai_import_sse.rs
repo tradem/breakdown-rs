@@ -11,25 +11,24 @@
 // `.expect()` with explicit messages. No other lints are suppressed.
 #![allow(clippy::expect_used)]
 
-use crate::common;
-
+use api::auth::CurrentUser;
+use api::handlers::stream_ai_import_job_events;
 use api::problems::Path; // ADR-031 wrapper extractor used by the handlers
+use api::state::AppState;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
-use http_body_util::BodyExt;
-
-use api::auth::CurrentUser;
-use api::handlers::stream_ai_import_job_events;
-use api::state::AppState;
 use breakdown_core::ai::{
     AiImportJob, AiImportJobId, AiImportProgress, AiImportStage, DecisionCostBreakdown,
     DocumentKind, JobStatus, SourceFormat,
 };
 use breakdown_core::shared::UserId;
-use chrono::Utc;
 use common::FakePorts;
+use http_body_util::BodyExt;
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const TEST_SUB: &str = "ai-sse-test-user";
 
@@ -80,8 +79,8 @@ fn running_job(id: AiImportJobId) -> AiImportJob {
         next_attempt_at: None,
         attempts: Vec::new(),
         max_retries: 5,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         telemetry: None,
         cost: None,
         source_file_name: None,
@@ -166,7 +165,7 @@ async fn first_frame_is_a_full_snapshot_with_id_and_progress() {
         .await
         .expect("snapshot frame arrives immediately");
     assert_eq!(frame_event(&frame), Some("job"));
-    let expected_id = job.updated_at.timestamp_micros().to_string();
+    let expected_id = job.updated_at.as_microsecond().to_string();
     assert_eq!(frame_id(&frame), Some(expected_id.as_str()));
     let payload = frame_data(&frame).expect("snapshot carries JSON data");
     assert_eq!(payload["job"]["status"], "running");
@@ -192,7 +191,7 @@ async fn reconnect_with_last_event_id_receives_a_fresh_snapshot() {
     assert_eq!(status, StatusCode::OK);
 
     let frame = next_frame(&mut body).await.expect("snapshot frame");
-    let expected_id = job.updated_at.timestamp_micros().to_string();
+    let expected_id = job.updated_at.as_microsecond().to_string();
     assert_ne!(frame_id(&frame), Some("42"));
     assert_eq!(frame_id(&frame), Some(expected_id.as_str()));
     let payload = frame_data(&frame).expect("snapshot data");
@@ -225,7 +224,7 @@ async fn live_progress_and_status_frames_are_pushed_and_terminal_closes() {
         total_bytes: None,
         written_at: None,
     });
-    updated.updated_at = Utc::now();
+    updated.updated_at = Timestamp::now();
     ports
         .ai_import_queue
         .update_and_notify(updated.clone())
@@ -239,7 +238,7 @@ async fn live_progress_and_status_frames_are_pushed_and_terminal_closes() {
     let mut terminal = updated;
     terminal.status = JobStatus::Succeeded;
     terminal.preview_handle = Some("preview".to_owned());
-    terminal.updated_at = Utc::now();
+    terminal.updated_at = Timestamp::now();
     ports.ai_import_queue.update_and_notify(terminal).await;
     let terminal_frame = next_frame(&mut body).await.expect("terminal frame");
     let payload = frame_data(&terminal_frame).expect("terminal data");
@@ -256,7 +255,7 @@ async fn already_terminal_job_emits_one_snapshot_and_closes() {
     let ports = FakePorts::default();
     let mut job = running_job(AiImportJobId::new());
     job.status = JobStatus::DeadLetter;
-    job.updated_at = Utc::now();
+    job.updated_at = Timestamp::now();
     ports.ai_import_queue.seed(job.clone()).await;
     let app = state(ports);
 
@@ -384,7 +383,7 @@ async fn terminal_succeeded_frame_carries_the_job_cost_snapshot() {
         cached_tokens_in: 0,
         energy_millijoules: 0,
         currency: Some(breakdown_core::ai::Currency::Usd),
-        price_as_of: Some(Utc::now()),
+        price_as_of: Some(Timestamp::now()),
         pricing_source: Some(breakdown_core::ai::PricingSource::ProviderLive),
         input_rate_nano_per_million: Some(292_500_000),
         output_rate_nano_per_million: Some(1_170_000_000),
@@ -396,7 +395,7 @@ async fn terminal_succeeded_frame_carries_the_job_cost_snapshot() {
     terminal.cost = Some(CostBreakdown {
         status: breakdown_core::ai::CostStatus::Known,
         currency: Some(breakdown_core::ai::Currency::Usd),
-        price_as_of: Some(Utc::now()),
+        price_as_of: Some(Timestamp::now()),
         pricing_source: Some(breakdown_core::ai::PricingSource::ProviderLive),
         token_cost: Some(breakdown_core::ai::TokenCostBreakdown {
             tokens_in: 1_000,
@@ -416,7 +415,7 @@ async fn terminal_succeeded_frame_carries_the_job_cost_snapshot() {
         },
         decision: Some(decision),
     });
-    terminal.updated_at = Utc::now();
+    terminal.updated_at = Timestamp::now();
     ports.ai_import_queue.update_and_notify(terminal).await;
     let terminal_frame = next_frame(&mut body).await.expect("terminal frame");
     let payload = frame_data(&terminal_frame).expect("terminal data");
@@ -467,7 +466,7 @@ async fn terminal_succeeded_frame_without_pricing_keeps_cost_unknown_not_null() 
     let mut terminal = job;
     terminal.status = JobStatus::Succeeded;
     terminal.cost = Some(breakdown_core::ai::CostBreakdown::unknown());
-    terminal.updated_at = Utc::now();
+    terminal.updated_at = Timestamp::now();
     ports.ai_import_queue.update_and_notify(terminal).await;
     let terminal_frame = next_frame(&mut body).await.expect("terminal frame");
     let payload = frame_data(&terminal_frame).expect("terminal data");

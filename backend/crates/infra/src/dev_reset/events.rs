@@ -19,15 +19,14 @@
 //!   on the same stream id — the store assigns the same stream versions, so the
 //!   replayed history is byte-identical from the projectors' point of view.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use redis::aio::MultiplexedConnection;
 use serde::{Deserialize, Serialize};
 use sierradb_client::{
     AsyncTypedCommands, EMAppendEvent, ExpectedVersion, SierraError, stream_partition_key,
 };
 use sqlx::PgPool;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use super::classification::{AggregateCategory, AggregateClass};
@@ -64,7 +63,7 @@ pub struct ExportedStream {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeepListExport {
     pub format_version: u32,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub database_target: String,
     pub streams: Vec<ExportedStream>,
 }
@@ -261,7 +260,7 @@ pub async fn export_keep_list(
     }
     let export = KeepListExport {
         format_version: EXPORT_FORMAT_VERSION,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         database_target: database_target.to_string(),
         streams,
     };
@@ -595,7 +594,7 @@ mod tests {
     fn export_with_streams(streams: Vec<ExportedStream>) -> KeepListExport {
         KeepListExport {
             format_version: EXPORT_FORMAT_VERSION,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             database_target: "localhost/breakdown".to_string(),
             streams,
         }
@@ -741,7 +740,7 @@ mod tests {
     fn export_document_round_trips_through_json() {
         let export = KeepListExport {
             format_version: EXPORT_FORMAT_VERSION,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             database_target: "localhost/breakdown".to_string(),
             streams: vec![ExportedStream {
                 stream_id: "ai_config-0199a0c0-0000-7000-8000-000000000000".to_string(),

@@ -1086,7 +1086,7 @@ async fn scene_shoot_start_rejected_on_wrapped_day_write_side() -> Result<()> {
             StartSceneShoot {
                 id: shoot_id,
                 shooting_day_id: day_id,
-                start_dt: chrono::Utc::now(),
+                start_dt: jiff::Timestamp::now(),
                 project_id: Some(ProjectId::new()),
                 version: shoot_version,
             },

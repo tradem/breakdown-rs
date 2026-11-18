@@ -7,17 +7,15 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use chrono::{DateTime, Utc};
+use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::shared::{AggregateVersion, BlockId, SeasonId, UserId};
-
 use super::ports::LlmProvider;
 use super::preview::DraftEpisode;
-
+use crate::shared::{AggregateVersion, BlockId, SeasonId, UserId};
 /// The two document kinds supported by the import pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -218,12 +216,12 @@ pub struct ProviderHold {
     /// `open`/`half_open` while waiting; `expired` on the terminal expiry write.
     pub state: ProviderBreakerState,
     /// The breaker's next probe time — also this job's `next_attempt_at`.
-    pub until: DateTime<Utc>,
+    pub until: Timestamp,
     /// Absolute deadline of the whole hold **series** (D-C4): the job
     /// dead-letters at this instant without spending a retry. Lives on the job
     /// row (`provider_hold_series_started_at`) rather than in this struct, so a
     /// short recovery cannot restart the budget.
-    pub hold_deadline: DateTime<Utc>,
+    pub hold_deadline: Timestamp,
     /// Chunks already paid for and stored — the resume point (D-B2). `0` in a
     /// build without the chunk store, which is honest: nothing was stored.
     pub chunks_done: u32,
@@ -375,7 +373,7 @@ pub struct AiImportProgress {
     /// never a fabricated one. A retry starts cleanly because the claim clears
     /// [`Self::chunk`]/[`Self::done_bytes`] and writes a fresh anchor.
     #[serde(default)]
-    pub started_at: Option<DateTime<Utc>>,
+    pub started_at: Option<Timestamp>,
     /// Source-text bytes already extracted (issue #762), summed over the
     /// **completed** chunks. `0` is a deliberate published state, mirroring
     /// [`Self::chunk`].
@@ -425,7 +423,7 @@ pub struct AiImportProgress {
     /// deserializes as `None`, and a client then falls back to its own clock as
     /// it did before.
     #[serde(default)]
-    pub written_at: Option<DateTime<Utc>>,
+    pub written_at: Option<Timestamp>,
 }
 
 impl AiImportProgress {
@@ -580,7 +578,7 @@ pub struct AiImportJob {
     /// omitted it, so neither the UI nor operators could explain a stalled
     /// import ("why is this job not running yet?").
     #[serde(default)]
-    pub next_attempt_at: Option<DateTime<Utc>>,
+    pub next_attempt_at: Option<Timestamp>,
     /// Why this job is waiting on its provider, when it is (issue #871).
     ///
     /// `Some` while the job is **held** for a degraded `(provider, model)`
@@ -595,8 +593,8 @@ pub struct AiImportJob {
     /// rendering `#822`'s banner from `last_error`.
     #[serde(default)]
     pub provider_hold: Option<ProviderHold>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     /// Live extraction progress of a **running** job, when the worker already
     /// published it (issue #664). `None` for pending jobs, for freshly
     /// re-claimed retry attempts (the claim SQL resets stale progress) and —
@@ -799,14 +797,14 @@ pub struct ApplyProgress {
     pub total: u32,
     /// When this run started: the anchor an ETA needs (the same role
     /// [`AiImportProgress::started_at`] plays for extraction).
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// Last write of this payload. The stream uses it to recognise a run whose
     /// process died: an abandoned run must not keep a stream open forever, so
     /// a payload older than [`ApplyProgress::STALE_AFTER`] is treated as
     /// finished. The worker **heartbeats** it while a single row is in flight
     /// (issue #800), so a slow row can no longer make a live run look dead —
     /// staleness now means "the process is gone".
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// The run this payload belongs to (issue #800). Additive with
     /// `serde(default)`: a pre-#800 payload decodes to the nil id, which never
     /// owns a claim.
@@ -825,14 +823,14 @@ impl ApplyProgress {
     /// this far more often than this window; only a crashed run keeps a stale
     /// payload. The stream then emits a final `null` frame and closes instead
     /// of holding the connection forever.
-    pub const STALE_AFTER: chrono::Duration = chrono::Duration::minutes(10);
+    pub const STALE_AFTER: SignedDuration = SignedDuration::from_mins(10);
 
     /// True when this payload is too old to describe a running apply
     /// (issue #762). Pure, so the stream's close condition is testable without
     /// a clock.
     #[must_use]
-    pub fn is_stale_at(&self, now: DateTime<Utc>) -> bool {
-        now.signed_duration_since(self.updated_at) > Self::STALE_AFTER
+    pub fn is_stale_at(&self, now: Timestamp) -> bool {
+        now.duration_since(self.updated_at) > Self::STALE_AFTER
     }
 
     /// Fraction of the planned work that is done, clamped into `0.0..=1.0`.
@@ -1067,7 +1065,7 @@ pub struct ApplyRunAccepted {
     pub stage: ApplyStage,
     /// When the run was claimed — the anchor the client renders and the value a
     /// re-attaching client compares against the frames it receives.
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// The slot state at the moment of the answer (always
     /// [`ApplyState::Requested`]). Explicit rather than implied, so a client
     /// reads the re-entry state machine off one shape.
@@ -1133,7 +1131,7 @@ pub struct ApplyRunState {
     /// `None` when the slot reports no claim instant (a claim made before the
     /// column existed, or an adapter that cannot report it): the refusal then
     /// reports no age at all rather than inventing one.
-    pub owner_claimed_at: Option<DateTime<Utc>>,
+    pub owner_claimed_at: Option<Timestamp>,
     /// Lifecycle state of the slot (issue #899) — the fact that turns "no
     /// payload" into three distinguishable answers: nothing was ever asked for
     /// ([`ApplyState::Idle`]), a run is queued or live
@@ -1188,7 +1186,7 @@ impl ApplyRunState {
     /// to zero: a negative age is not a fact, and the client would render it as
     /// "just now" anyway.
     #[must_use]
-    pub fn owner_silence_at(&self, now: DateTime<Utc>) -> Option<chrono::Duration> {
+    pub fn owner_silence_at(&self, now: Timestamp) -> Option<SignedDuration> {
         let last_write = match (&self.progress, self.owner) {
             // The newer of frame and lease stamp — the same `GREATEST` the steal
             // predicate applies (issue #911).
@@ -1202,10 +1200,7 @@ impl ApplyRunState {
             // No run owns the slot: there is no owner to age.
             (None, None) => return None,
         };
-        Some(
-            now.signed_duration_since(last_write)
-                .max(chrono::Duration::zero()),
-        )
+        Some(now.duration_since(last_write).max(SignedDuration::ZERO))
     }
 }
 
@@ -1303,7 +1298,7 @@ pub struct AiImportAttempt {
     /// Whether the attempt was classified as retryable.
     pub retryable: bool,
     /// When the attempt was recorded.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Whether an import job ever reached the apply step, and with what outcome.
@@ -1463,7 +1458,7 @@ pub struct ModelPricing {
     pub pricing_source: PricingSource,
     /// When this price was captured. A completed job's persisted cost
     /// snapshot never changes when newer prices arrive.
-    pub price_as_of: DateTime<Utc>,
+    pub price_as_of: Timestamp,
 }
 
 /// Whether a job's cost could be computed honestly.
@@ -1575,7 +1570,7 @@ pub struct DecisionCostBreakdown {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<Currency>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub price_as_of: Option<DateTime<Utc>>,
+    pub price_as_of: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pricing_source: Option<PricingSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1646,7 +1641,7 @@ pub struct CostBreakdown {
     pub currency: Option<Currency>,
     /// Price snapshot timestamp of the pricing row used for computation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub price_as_of: Option<DateTime<Utc>>,
+    pub price_as_of: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pricing_source: Option<PricingSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -34,16 +34,15 @@
 //! into nano-units ($10^{-9}$ of the currency unit) with `i128` intermediates.
 //! No floating-point arithmetic anywhere in this module.
 
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
-
 use breakdown_core::ai::{
     AiModelPricingRepository, Currency, LlmProvider, ModelPricing, ModelPricingRow, PricingSource,
 };
 use breakdown_core::error::DomainError;
-use chrono::Utc;
 use futures::FutureExt;
+use jiff::Timestamp;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 
 use super::transport::build_hosted_client_with_user_agent;
 use super::user_agent::resolve_user_agent;
@@ -413,7 +412,7 @@ pub(crate) fn parse_per_token_provider_feed(
         .get("data")
         .and_then(|d| d.as_array())
         .ok_or_else(|| DomainError::service_unavailable("pricing catalog has no `data` array"))?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut rows = Vec::new();
     for entry in entries {
         let Some(model) = entry.get("id").and_then(|v| v.as_str()) else {
@@ -470,7 +469,7 @@ pub(crate) fn parse_models_dev(
         .as_object()
         .ok_or_else(|| DomainError::service_unavailable("models.dev catalog is not an object"))?;
     let mut rows = Vec::new();
-    let now = Utc::now();
+    let now = Timestamp::now();
     for (vendor, vendor_obj) in vendors {
         let provider = match vendor.as_str() {
             "openai" => Some(LlmProvider::OpenAI),

@@ -5,8 +5,7 @@
 
 use breakdown_core::ai::{ShootingSchedule, ShootingScheduleRow, parse_schedule_scene_ref};
 use breakdown_core::error::DomainError;
-use chrono::NaiveDate;
-
+use jiff::civil::Date;
 /// Parse a flat, header-based shooting schedule without involving an LLM.
 /// Supported headers are `scene_number`, `shooting_day_label`, `date`,
 /// `location`, and `order`; unknown columns are ignored. The `scene_number`
@@ -66,7 +65,7 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
         let order = parse_optional_u32(value("order"), "order")?;
         let date = value("date")
             .map(|raw| {
-                raw.parse::<NaiveDate>().map_err(|error| {
+                raw.parse::<Date>().map_err(|error| {
                     DomainError::validation(format!("invalid schedule date {raw}: {error}"))
                 })
             })

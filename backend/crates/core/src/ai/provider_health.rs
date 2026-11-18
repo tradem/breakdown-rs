@@ -14,10 +14,10 @@
 //! accepts exactly the three breaker states below — [`ProviderBreakerState::Expired`]
 //! is a *job-hold* state only and never reaches this module.
 
-use chrono::{DateTime, Duration, Utc};
+use jiff::SignedDuration;
+use jiff::Timestamp;
 
 use super::views::ProviderBreakerState;
-
 /// First open window: a provider that fails once is re-probed after this.
 pub const BASE_OPEN_SECS: i64 = 60;
 
@@ -58,10 +58,10 @@ const MAX_PROBE_DEFER: std::time::Duration = std::time::Duration::from_secs(MAX_
 /// The exponent is clamped before it is applied so a long outage series cannot
 /// overflow the shift — the ceiling is reached at `n = 5` anyway.
 #[must_use]
-pub fn min_open(flap_count: u32) -> Duration {
+pub fn min_open(flap_count: u32) -> SignedDuration {
     let exponent = flap_count.min(16);
     let secs = BASE_OPEN_SECS.saturating_mul(1_i64 << exponent);
-    Duration::seconds(secs.min(MAX_OPEN_SECS))
+    SignedDuration::from_secs(secs.min(MAX_OPEN_SECS))
 }
 
 /// The `flap_count` a `closed → open` transition must record.
@@ -71,12 +71,12 @@ pub fn min_open(flap_count: u32) -> Duration {
 /// resets. `None` (a breaker that has never closed) resets as well.
 #[must_use]
 pub fn flap_count_on_open(
-    closed_at: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
+    closed_at: Option<Timestamp>,
+    now: Timestamp,
     current_flap_count: u32,
 ) -> u32 {
     match closed_at {
-        Some(closed_at) if now - closed_at < Duration::seconds(STABLE_WINDOW_SECS) => {
+        Some(closed_at) if now - closed_at < SignedDuration::from_secs(STABLE_WINDOW_SECS) => {
             current_flap_count.saturating_add(1)
         }
         _ => 0,
@@ -114,7 +114,7 @@ pub struct BreakerCounters {
     pub state: ProviderBreakerState,
     pub consecutive_failures: u32,
     pub flap_count: u32,
-    pub closed_at: Option<DateTime<Utc>>,
+    pub closed_at: Option<Timestamp>,
     /// The `retry_at` the **stored row currently holds** (issue #926 review).
     ///
     /// `None` for a pair nobody has deferred, and — since
@@ -124,7 +124,7 @@ pub struct BreakerCounters {
     /// is often much shorter than a real rate-limit window, so recomputing
     /// `now + min_open(..)` alone would let the probe fire while the provider is
     /// still rate-limiting us.
-    pub retry_at: Option<DateTime<Utc>>,
+    pub retry_at: Option<Timestamp>,
 }
 
 /// What a transition decided.
@@ -134,7 +134,7 @@ pub struct BreakerDecision {
     pub consecutive_failures: u32,
     pub flap_count: u32,
     /// The next probe time; `None` once the breaker is `closed`.
-    pub retry_at: Option<DateTime<Utc>>,
+    pub retry_at: Option<Timestamp>,
     /// Whether the breaker just opened (the caller then materializes the holds,
     /// D-A4) or just closed (the caller then releases them, D-A6).
     pub opened: bool,
@@ -173,7 +173,7 @@ impl BreakerDecision {
 pub fn on_retryable_failure(
     counters: BreakerCounters,
     threshold: u32,
-    now: DateTime<Utc>,
+    now: Timestamp,
     retry_after: Option<std::time::Duration>,
 ) -> BreakerDecision {
     // A failure while already open or half-open is the same outage still
@@ -231,11 +231,11 @@ pub fn on_retryable_failure(
 /// **expired** stored deadline is deliberately discarded — there is nothing left
 /// to protect, and keeping it would extend the outage for free.
 fn probe_at(
-    now: DateTime<Utc>,
+    now: Timestamp,
     flap_count: u32,
     retry_after: Option<std::time::Duration>,
-    stored_retry_at: Option<DateTime<Utc>>,
-) -> DateTime<Utc> {
+    stored_retry_at: Option<Timestamp>,
+) -> Timestamp {
     let window_end = now + min_open(flap_count);
     let deferred = stored_retry_at.filter(|stored| *stored > now);
     let earned = deferred.map_or(window_end, |stored| window_end.max(stored));
@@ -243,11 +243,11 @@ fn probe_at(
         return earned;
     };
     // A remote party must not be able to order an unbounded deferral, so the
-    // hint is capped at the breaker's own maximum open window. `from_std` cannot
-    // fail for a value we just clamped to 30 minutes; the fallback keeps the
-    // "no panics" rule absolute anyway.
+    // hint is capped at the breaker's own maximum open window. `try_from`
+    // cannot fail for a value we just clamped to 30 minutes; the fallback keeps
+    // the "no panics" rule absolute anyway.
     let capped = hint.min(MAX_PROBE_DEFER);
-    let hint_end = Duration::from_std(capped).map_or(earned, |wait| now + wait);
+    let hint_end = SignedDuration::try_from(capped).map_or(earned, |wait| now + wait);
     earned.max(hint_end)
 }
 
@@ -278,7 +278,7 @@ pub fn on_success(counters: BreakerCounters) -> BreakerDecision {
 /// new one. The open window is re-armed from the current flap count, which is
 /// what makes probe frequency decay instead of oscillating.
 #[must_use]
-pub fn on_probe_failure(counters: BreakerCounters, now: DateTime<Utc>) -> BreakerDecision {
+pub fn on_probe_failure(counters: BreakerCounters, now: Timestamp) -> BreakerDecision {
     BreakerDecision {
         state: ProviderBreakerState::Open,
         consecutive_failures: counters.consecutive_failures,

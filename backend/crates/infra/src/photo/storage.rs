@@ -3,21 +3,19 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 
-use std::fmt;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::photo::ports::PhotoStorage;
 use breakdown_core::photo::views::PhotoBytes;
 use breakdown_core::shared::{PhotoId, PhotoVariant};
-use chrono::{DateTime, Utc};
 use futures::StreamExt;
+use jiff::Timestamp;
 use opendal::Operator;
+use std::fmt;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::warn;
 use zeroize::Zeroizing;
-
 /// Map an OpenDAL storage error to a domain error.
 ///
 /// Errors flagged as temporary by OpenDAL (`is_temporary()`) map to
@@ -244,14 +242,14 @@ impl OpenDalPhotoStorage {
         &self,
         id: PhotoId,
         variant: PhotoVariant,
-    ) -> Result<Option<DateTime<Utc>>, DomainError> {
+    ) -> Result<Option<Timestamp>, DomainError> {
         let key = Self::object_key(id, variant);
         match self.operator().await?.stat(&key).await {
             Ok(meta) => {
                 if let Some(metadata_map) = meta.user_metadata() {
                     if let Some(stored_at_str) = metadata_map.get("stored_at") {
-                        match DateTime::parse_from_rfc3339(stored_at_str) {
-                            Ok(dt) => Ok(Some(dt.with_timezone(&Utc))),
+                        match stored_at_str.parse::<Timestamp>() {
+                            Ok(stored_at) => Ok(Some(stored_at)),
                             Err(e) => {
                                 warn!("Failed to parse stored_at metadata for {key}: {e}");
                                 Ok(None)
@@ -296,7 +294,7 @@ impl PhotoStorage for OpenDalPhotoStorage {
             .await?
             .write_with(&key, bytes)
             .content_type(&content_type)
-            .user_metadata([("stored_at".to_string(), Utc::now().to_rfc3339())])
+            .user_metadata([("stored_at".to_string(), Timestamp::now().to_string())])
             .await
             .map_err(|e| map_storage_error(&key, e))?;
         Ok(())

@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use jiff::SignedDuration;
 mod fixtures;
 
 use anyhow::Result;
@@ -18,6 +19,7 @@ use breakdown_core::ai::{
     ApplyProgress, ApplyRunId, ApplyRunRequest, ApplyStage, DocumentKind, ScriptApplyRunRequest,
 };
 use infra::ai::queue::PgAiImportQueue;
+use infra::db_time::sql_ts;
 use uuid::Uuid;
 
 /// The smallest persistable reviewer request this file needs: it only has to
@@ -239,7 +241,7 @@ async fn mark_progress_on_a_non_running_job_is_rejected() -> Result<()> {
 
 /// An apply payload owned by `run_id` (issues #762, #800).
 fn apply_run_frame(run_id: ApplyRunId, applied: u32, total: u32) -> ApplyProgress {
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     ApplyProgress {
         stage: ApplyStage::Applying,
         applied,
@@ -270,11 +272,11 @@ async fn succeeded_job(queue: &PgAiImportQueue, user: &str) -> Result<AiImportJo
 async fn backdate_claim_stamp(
     pool: &sqlx::PgPool,
     id: AiImportJobId,
-    instant: chrono::DateTime<chrono::Utc>,
+    instant: jiff::Timestamp,
 ) -> Result<()> {
     sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
         .bind(id.as_uuid())
-        .bind(instant)
+        .bind(sql_ts(instant))
         .execute(pool)
         .await?;
     Ok(())
@@ -473,7 +475,7 @@ async fn a_stale_claim_is_stolen_by_the_next_apply() -> Result<()> {
     assert!(queue.claim_apply_run(id, dead).await?);
     let mut stale = apply_run_frame(dead, 3, 57);
     stale.updated_at =
-        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+        jiff::Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     queue.mark_apply_progress(id, dead, Some(&stale)).await?;
     backdate_claim_stamp(&pool, id, stale.updated_at).await?;
 
@@ -512,10 +514,10 @@ async fn a_claim_without_a_published_payload_is_not_stolen() -> Result<()> {
     );
 
     let stale_before =
-        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+        jiff::Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
         .bind(id.as_uuid())
-        .bind(stale_before)
+        .bind(sql_ts(stale_before))
         .execute(&pool)
         .await?;
 
@@ -579,10 +581,10 @@ async fn a_late_run_scoped_write_cannot_extend_a_claims_window() -> Result<()> {
     // steal must follow the claim, or a dead owner could block for a second
     // window on the strength of somebody else's write.
     let stale_claim =
-        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+        jiff::Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
         .bind(id.as_uuid())
-        .bind(stale_claim)
+        .bind(sql_ts(stale_claim))
         .execute(&pool)
         .await?;
     sqlx::query("UPDATE ai_import.ai_import_job SET updated_at = now() WHERE id = $1")
@@ -614,10 +616,11 @@ async fn renewing_a_claim_keeps_a_silent_run_alive() -> Result<()> {
     // The run has been executing for longer than the window. No payload
     // exists (a schedule merge publishes none), so the steal predicate falls
     // through to `apply_claim_at`.
-    let silence = chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    let silence =
+        jiff::Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
         .bind(id.as_uuid())
-        .bind(silence)
+        .bind(sql_ts(silence))
         .execute(&pool)
         .await?;
 
@@ -629,7 +632,7 @@ async fn renewing_a_claim_keeps_a_silent_run_alive() -> Result<()> {
     // The refusal now reports the refreshed silence, not the pre-renewal one.
     let state = queue.apply_run_state(id).await?.expect("run slot");
     let silence = state
-        .owner_silence_at(chrono::Utc::now())
+        .owner_silence_at(jiff::Timestamp::now())
         .expect("a live owner always has an age");
     assert!(
         silence < ApplyProgress::STALE_AFTER,
@@ -669,7 +672,7 @@ async fn a_dead_payload_with_a_live_lease_is_not_stolen() -> Result<()> {
     // A frame published long ago — older than the window on its own.
     let mut frame = apply_run_frame(live, 3, 57);
     frame.updated_at =
-        chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+        jiff::Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     queue.mark_apply_progress(id, live, Some(&frame)).await?;
     // …and a renewal now: the owner is demonstrably alive.
     assert!(
@@ -703,7 +706,7 @@ async fn a_dead_payload_with_a_live_lease_is_not_stolen() -> Result<()> {
         .apply_run_state(id)
         .await?
         .expect("run slot")
-        .owner_silence_at(chrono::Utc::now())
+        .owner_silence_at(jiff::Timestamp::now())
         .expect("a live owner has an age");
     assert!(
         silence < ApplyProgress::STALE_AFTER,
@@ -711,7 +714,8 @@ async fn a_dead_payload_with_a_live_lease_is_not_stolen() -> Result<()> {
     );
 
     // Now the owner dies: both stamps age out and the slot becomes stealable.
-    let both_dead = chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    let both_dead =
+        jiff::Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     backdate_claim_stamp(&pool, id, both_dead).await?;
     let mut dead_frame = frame.clone();
     dead_frame.updated_at = both_dead;
@@ -752,10 +756,11 @@ async fn a_taken_over_runs_renewal_reports_false() -> Result<()> {
 
     // The owner went silent (a crashed replica): its stamp slides past the
     // window and the next poll takes the slot over under a fresh identity.
-    let silence = chrono::Utc::now() - ApplyProgress::STALE_AFTER - chrono::Duration::seconds(1);
+    let silence =
+        jiff::Timestamp::now() - ApplyProgress::STALE_AFTER - SignedDuration::from_secs(1);
     sqlx::query("UPDATE ai_import.ai_import_job SET apply_claim_at = $2 WHERE id = $1")
         .bind(id.as_uuid())
-        .bind(silence)
+        .bind(sql_ts(silence))
         .execute(&pool)
         .await?;
     let takeover = ApplyRunId::new();
@@ -854,11 +859,14 @@ async fn apply_progress_is_refused_for_a_running_job_and_leaves_the_lease_alone(
     let id = request.id;
     queue.enqueue(request).await?;
     let claimed = queue.claim_next("worker-1").await?.expect("claimable");
-    let lease_before: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT lease_expires_at FROM ai_import.ai_import_job WHERE id = $1")
-            .bind(id.as_uuid())
-            .fetch_one(&pool)
-            .await?;
+    let lease_before: Option<jiff::Timestamp> =
+        sqlx::query_scalar::<_, Option<infra::db_time::SqlTimestamp>>(
+            "SELECT lease_expires_at FROM ai_import.ai_import_job WHERE id = $1",
+        )
+        .bind(id.as_uuid())
+        .fetch_one(&pool)
+        .await?
+        .map(infra::db_time::ts);
 
     // Issue #800: the claim is the gate, and a non-`succeeded` job has no slot
     // at all — so there is nothing an apply could write to.
@@ -877,13 +885,14 @@ async fn apply_progress_is_refused_for_a_running_job_and_leaves_the_lease_alone(
         "a running job never carries apply progress"
     );
     assert_eq!(job.status, JobStatus::Running, "the status is untouched");
-    let (lease_after, worker_id): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) =
-        sqlx::query_as(
+    let (lease_after, worker_id): (Option<jiff::Timestamp>, Option<String>) =
+        sqlx::query_as::<_, (Option<infra::db_time::SqlTimestamp>, Option<String>)>(
             "SELECT lease_expires_at, worker_id FROM ai_import.ai_import_job WHERE id = $1",
         )
         .bind(id.as_uuid())
         .fetch_one(&pool)
-        .await?;
+        .await
+        .map(|(lease, worker_id)| (lease.map(infra::db_time::ts), worker_id))?;
     assert_eq!(lease_after, lease_before, "the lease is not disturbed");
     assert_eq!(
         worker_id.as_deref(),

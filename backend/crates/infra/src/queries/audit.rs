@@ -9,10 +9,11 @@ use breakdown_core::audit::ports::AuditRepository;
 use breakdown_core::audit::views::AuditEntry;
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::{BlockId, ProjectId, UserId};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::{PgRowTimeExt, sql_ts};
 /// PostgreSQL read adapter for audit projections.
 #[derive(Clone, Debug)]
 pub struct AuditRepositoryImpl {
@@ -68,14 +69,14 @@ impl AuditRepository for AuditRepositoryImpl {
 
     async fn list_by_time_range(
         &self,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
+        from: Timestamp,
+        to: Timestamp,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {
         let rows = sqlx::query("SELECT id, entity_type, entity_id, event_type, block_id, project_id, actor, payload, occurred_at FROM projection_audit WHERE occurred_at BETWEEN $1 AND $2 ORDER BY occurred_at DESC, id DESC LIMIT $3 OFFSET $4")
-        .bind(from)
-        .bind(to)
+        .bind(sql_ts(from))
+        .bind(sql_ts(to))
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -149,8 +150,8 @@ fn map_audit_row(row: sqlx::postgres::PgRow) -> Result<AuditEntry, DomainError> 
     let payload: serde_json::Value = row
         .try_get("payload")
         .map_err(|e| DomainError::conflict(e.to_string()))?;
-    let occurred_at: DateTime<Utc> = row
-        .try_get("occurred_at")
+    let occurred_at: Timestamp = row
+        .get_ts("occurred_at")
         .map_err(|e| DomainError::conflict(e.to_string()))?;
 
     Ok(AuditEntry {

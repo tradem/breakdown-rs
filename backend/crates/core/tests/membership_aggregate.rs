@@ -11,16 +11,16 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
 use breakdown_core::membership::aggregate::MembershipState;
 use breakdown_core::membership::*;
 use breakdown_core::shared::{BlockId, EventMetadata, ProjectId, Provenance, UserId};
-use chrono::Utc;
+use jiff::Timestamp;
 use kameo_es::{Apply, Command, Context, Metadata, StreamId};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Instant;
-
 type CausationTracking = HashMap<StreamId, (u64, HashSet<Cow<'static, str>>)>;
 
 /// Build a `Context` with the given `actor` in command metadata. Leaks a
@@ -40,7 +40,7 @@ fn ctx_with(actor: Option<UserId>) -> Context<'static, BlockMembership> {
     Context {
         metadata,
         causation_tracking: &TRACKING,
-        time: Utc::now(),
+        time: Timestamp::now(),
         executed_at: Instant::now(),
     }
 }

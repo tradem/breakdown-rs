@@ -3,6 +3,8 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+use jiff::Timestamp;
+
 use super::{
     cached_input_cost_nano, cap_energy_by_token, cost_breakdown, cost_breakdown_unpriced,
     decision_cost_breakdown, div_half_up_nonneg, energy_cost_raw_nano, token_cost_breakdown,
@@ -22,8 +24,7 @@ fn usd_pricing() -> ModelPricing {
         image_output_nano_per_million: None,
         image_nano_per_unit: None,
         pricing_source: PricingSource::CuratedSeed,
-        price_as_of: chrono::DateTime::from_timestamp(1_768_478_400, 0)
-            .expect("static valid timestamp"),
+        price_as_of: Timestamp::from_second(1_768_478_400).expect("static valid timestamp"),
     }
 }
 
@@ -304,8 +305,7 @@ fn decision_pricing() -> ModelPricing {
         image_output_nano_per_million: None,
         image_nano_per_unit: None,
         pricing_source: PricingSource::ProviderLive,
-        price_as_of: chrono::DateTime::from_timestamp(1_768_564_800, 0)
-            .expect("static valid timestamp"),
+        price_as_of: Timestamp::from_second(1_768_564_800).expect("static valid timestamp"),
     }
 }
 

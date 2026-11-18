@@ -11,21 +11,20 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
+use api::auth::CurrentUser;
+use api::handlers::{CreateSceneRequest, create_scene, get_scene};
 use api::problems::Json; // test-only alias for the wrapper extractor (ADR-031)
+use api::state::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::scene::events::{SceneDetails, SceneSource};
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
-use chrono::Utc;
+use jiff::Timestamp;
 use uuid::Uuid;
 
-use api::auth::CurrentUser;
-use api::handlers::{CreateSceneRequest, create_scene, get_scene};
-use api::state::AppState;
-
 use crate::common;
-
 #[tokio::test]
 async fn create_scene_returns_201_with_id_and_version() {
     let state = AppState::new(common::FakePorts::default());
@@ -62,7 +61,7 @@ async fn get_scene_returns_view_from_repo() {
         assigned_characters: Vec::new(),
         outfit_beats: Vec::new(),
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
         source: Some(SceneSource::Manual),
     };
     ports

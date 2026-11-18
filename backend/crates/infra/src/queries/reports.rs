@@ -15,6 +15,9 @@ use breakdown_core::shared::{EpisodeId, LexicalSortKey, PhotoId, SeasonId, Shoot
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
+use crate::db_time::{SqlTimestamp, ts};
+
 /// PostgreSQL read adapter for shoot-day reports.
 #[derive(Clone, Debug)]
 pub struct SceneShootReportRepositoryImpl {
@@ -94,8 +97,10 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         &self,
         shooting_day_id: ShootingDayId,
     ) -> Result<SollIstReport, DomainError> {
-        // Check wrapped_at for finality.
-        let wrapped_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        // Check wrapped_at for finality. The scalar query decodes through the
+        // `jiff-sqlx` wrapper and converts once (ADR-040) — a `NULL` wrapped_at
+        // means "not wrapped", so `flatten` still collapses the double option.
+        let wrapped_at: Option<jiff::Timestamp> = sqlx::query_scalar::<_, Option<SqlTimestamp>>(
             r#"
             SELECT wrapped_at
             FROM projection_shooting_day
@@ -106,7 +111,8 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DomainError::conflict(e.to_string()))?
-        .flatten();
+        .flatten()
+        .map(ts);
 
         let is_final = wrapped_at.is_some();
 
@@ -164,8 +170,8 @@ impl SceneShootReportRepository for SceneShootReportRepositoryImpl {
                 let planned_str: String = row.try_get("planned_order").map_err(map_err)?;
                 let actual_str: Option<String> = row.try_get("actual_order").map_err(map_err)?;
                 let status_str: String = row.try_get("status").map_err(map_err)?;
-                let start_dt: Option<chrono::DateTime<chrono::Utc>> =
-                    row.try_get("start_dt").map_err(map_err)?;
+                let start_dt: Option<jiff::Timestamp> =
+                    row.get_ts_opt("start_dt").map_err(map_err)?;
 
                 let planned_order = Some(
                     LexicalSortKey::new(planned_str)
@@ -339,8 +345,7 @@ fn build_aggregate_report(
             let planned_str: String = row.try_get("planned_order").map_err(map_err)?;
             let actual_str: Option<String> = row.try_get("actual_order").map_err(map_err)?;
             let status_str: String = row.try_get("status").map_err(map_err)?;
-            let start_dt: Option<chrono::DateTime<chrono::Utc>> =
-                row.try_get("start_dt").map_err(map_err)?;
+            let start_dt: Option<jiff::Timestamp> = row.get_ts_opt("start_dt").map_err(map_err)?;
 
             let planned_order = Some(
                 LexicalSortKey::new(planned_str)
@@ -427,8 +432,8 @@ fn map_shoot_day_row(row: sqlx::postgres::PgRow) -> Result<ShootDayRow, DomainEr
         script_day: row.try_get("script_day").map_err(map_err)?,
         location: row.try_get("location").map_err(map_err)?,
         status,
-        start_dt: row.try_get("start_dt").map_err(map_err)?,
-        end_dt: row.try_get("end_dt").map_err(map_err)?,
+        start_dt: row.get_ts_opt("start_dt").map_err(map_err)?,
+        end_dt: row.get_ts_opt("end_dt").map_err(map_err)?,
         notes,
         continuity_photo_ids: continuity_ids.into_iter().map(PhotoId::from_uuid).collect(),
     })

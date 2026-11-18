@@ -16,6 +16,42 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.73.0] - Unreleased
+
+### Changed — BREAKING: the time type is `jiff::Timestamp`, not `chrono::DateTime<Utc>` (issue #929, ADR-040)
+
+- Every public timestamp is now `jiff::Timestamp` (was `chrono::DateTime<Utc>`),
+  every date is `jiff::civil::Date` (was `chrono::NaiveDate`), every wall-clock
+  datetime is `jiff::civil::DateTime` (was `chrono::NaiveDateTime`) and every
+  duration is `jiff::SignedDuration` (was `chrono::Duration`/`TimeDelta`).
+  `Utc::now()` → `Timestamp::now()`. `chrono` is gone from the dependency graph
+  because `RUSTSEC-2026-0543` declares it unmaintained for **all** versions with
+  no safe upgrade.
+- **This is a public-API MAJOR** under ADR-020 D2 (a `pub` struct field
+  retyped), hence the `0.72.0 → 0.73.0` bump; `infra` and `api` cascade per
+  D3. The *wire* contract does not move: `jiff::Timestamp`'s serde rendering is
+  byte-identical to chrono's (RFC 3339, `Z`, 0/3/6/9 fractional digits,
+  `fractions`-less whole seconds included), which
+  `crates/integration-tests/tests/event_fixture_contract_tests.rs` now pins as
+  a regression test (`pre_migration_timestamps_round_trip_byte_identically`,
+  JSON **and** CBOR, plus `legacy_offset_spellings_still_replay`).
+- Why this matters beyond compilation: `projection_audit.event_key` is derived
+  from the **re-serialized** event payload (ADR-035 layer 2), so a serializer
+  that normalized `.123` to `.123000000` or dropped the fraction would silently
+  duplicate every replayed audit row. The regression test is the gate for that,
+  not the JSON diff.
+- `ApplyProgress::STALE_AFTER` and friends keep their names and meanings;
+  durations switched type only. Arithmetic follows jiff's shape
+  (`a - b` → `SignedDuration`, `a + SignedDuration`, `checked_add`), and
+  `DateTime`'s infallible `From<SystemTime>` conversions are `TryFrom` now —
+  the event-store paths surface that as `InvalidTimestamp`, never a silent
+  clamp.
+- `SceneShoot`'s request DTOs keep accepting a naive wall-clock instant
+  (`jiff::civil::DateTime`) and pin it to UTC in the handler; `utoipa` has no
+  schema bridge for that civil type, so the field carries an explicit
+  `#[schema(value_type = Option<String>, format = DateTime)]`. `openapi.yaml` is
+  byte-identical after the migration.
+
 ## [0.72.0] - Unreleased
 
 ### Added — a quota-exhausted provider failure is its own, terminal variant (issue #927)

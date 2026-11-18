@@ -38,10 +38,11 @@ use breakdown_core::ai::{
     SourceFormat,
 };
 use breakdown_core::shared::UserId;
-use chrono::{DateTime, Duration, Utc};
 use infra::ai::provider_health::PgProviderHealth;
 use infra::ai::provider_watch::{ProviderWatchConfig, run_provider_watch_tick};
 use infra::ai::queue::PgAiImportQueue;
+use jiff::SignedDuration;
+use jiff::Timestamp;
 use sqlx::PgPool;
 
 const PROVIDER: LlmProvider = LlmProvider::OpenCodeGo;
@@ -80,7 +81,7 @@ async fn seed_job(
 
 /// Drive the breaker to `open` through the public health API, and return the
 /// probe time it scheduled.
-async fn open_breaker(health: &PgProviderHealth, threshold: u32) -> DateTime<Utc> {
+async fn open_breaker(health: &PgProviderHealth, threshold: u32) -> Timestamp {
     let mut retry_at = None;
     for _ in 0..threshold {
         let decision = health
@@ -102,8 +103,8 @@ struct HoldRowRaw {
     status: String,
     retries: i32,
     hold_state: Option<String>,
-    next_attempt_at: Option<DateTime<Utc>>,
-    series_started_at: Option<DateTime<Utc>>,
+    next_attempt_at: Option<infra::db_time::SqlTimestamp>,
+    series_started_at: Option<infra::db_time::SqlTimestamp>,
 }
 
 /// The assertion-facing form: the series clock is only ever asked for presence.
@@ -111,7 +112,7 @@ struct HoldRow {
     status: String,
     retries: i32,
     hold_state: Option<String>,
-    next_attempt_at: Option<DateTime<Utc>>,
+    next_attempt_at: Option<Timestamp>,
     series_started: bool,
 }
 
@@ -134,7 +135,7 @@ async fn read_hold_state(pool: &PgPool, id: AiImportJobId) -> HoldRow {
         status: raw.status,
         retries: raw.retries,
         hold_state: raw.hold_state,
-        next_attempt_at: raw.next_attempt_at,
+        next_attempt_at: raw.next_attempt_at.map(infra::db_time::ts),
         series_started: raw.series_started_at.is_some(),
     }
 }
@@ -147,14 +148,14 @@ async fn attempt_count(pool: &PgPool, id: AiImportJobId) -> i64 {
         .unwrap()
 }
 
-fn hold_for(until: DateTime<Utc>, state: ProviderBreakerState) -> ProviderHold {
+fn hold_for(until: Timestamp, state: ProviderBreakerState) -> ProviderHold {
     ProviderHold {
         provider: PROVIDER,
         model: MODEL.to_owned(),
         reason_code: "ai-import.llm-provider-unavailable".to_owned(),
         state,
         until,
-        hold_deadline: until + Duration::seconds(i64::try_from(HOLD_WINDOW).unwrap_or(0)),
+        hold_deadline: until + SignedDuration::from_secs(i64::try_from(HOLD_WINDOW).unwrap_or(0)),
         chunks_done: 0,
     }
 }
@@ -218,8 +219,8 @@ async fn a_hintless_failure_keeps_the_deferred_probe() -> Result<()> {
     // round trip truncates sub-microsecond digits. The instant is the same.
     let retained = after.retry_at.expect("an open breaker has a probe time");
     assert_eq!(
-        retained.timestamp_micros(),
-        deferred.timestamp_micros(),
+        retained.as_microsecond(),
+        deferred.as_microsecond(),
         "the unexpired hint deadline must not be shortened by a hint-less failure"
     );
     // The durable row, not only the returned decision.
@@ -228,8 +229,8 @@ async fn a_hintless_failure_keeps_the_deferred_probe() -> Result<()> {
             .state(PROVIDER, MODEL)
             .await?
             .retry_at
-            .map(|stored| stored.timestamp_micros()),
-        Some(deferred.timestamp_micros()),
+            .map(|stored| stored.as_microsecond()),
+        Some(deferred.as_microsecond()),
         "the CAS must persist the retained deadline"
     );
 
@@ -298,7 +299,7 @@ async fn mark_held_charges_no_retry_and_writes_no_attempt_row() -> Result<()> {
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     queue.claim_next("w1").await?.expect("claimable");
 
-    let until = Utc::now() + Duration::seconds(60);
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
     queue
         .mark_held(
             id,
@@ -338,7 +339,7 @@ async fn mark_held_is_owner_fenced() -> Result<()> {
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     queue.claim_next("w1").await?.expect("claimable");
 
-    let until = Utc::now() + Duration::seconds(60);
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
     let result = queue
         .mark_held(
             id,
@@ -376,7 +377,7 @@ async fn hold_runnable_jobs_reaches_a_job_enqueued_while_the_breaker_is_open() -
     // materialization it would be invisible AND unexpirable.
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
 
-    let until = Utc::now() + Duration::seconds(60);
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
     let held = queue
         .hold_runnable_jobs(
             PROVIDER,
@@ -419,7 +420,7 @@ async fn hold_runnable_jobs_skips_a_running_job() -> Result<()> {
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     queue.claim_next("w1").await?.expect("claimable");
 
-    let until = Utc::now() + Duration::seconds(60);
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
     let held = queue
         .hold_runnable_jobs(
             PROVIDER,
@@ -451,7 +452,7 @@ async fn a_successful_close_releases_the_rows_but_keeps_the_series_clock() -> Re
     let health = PgProviderHealth::new(pool.clone());
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     open_breaker(&health, 3).await;
-    let until = Utc::now() + Duration::seconds(60);
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
     queue
         .hold_runnable_jobs(
             PROVIDER,
@@ -488,7 +489,7 @@ async fn a_release_never_revives_an_expired_marker() -> Result<()> {
     // The job id is not needed: this test asserts on the RETURNED id list.
     let _ = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     open_breaker(&PgProviderHealth::new(pool.clone()), 3).await;
-    let until = Utc::now() - Duration::seconds(60);
+    let until = Timestamp::now() - SignedDuration::from_secs(60);
     queue
         .hold_runnable_jobs(
             PROVIDER,
@@ -517,7 +518,7 @@ async fn the_expiry_dead_letters_once_without_charging_a_retry() -> Result<()> {
     let health = PgProviderHealth::new(pool.clone());
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     open_breaker(&health, 3).await;
-    let until = Utc::now() + Duration::seconds(60);
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
     queue
         .hold_runnable_jobs(
             PROVIDER,
@@ -718,7 +719,7 @@ async fn the_flap_rule_escalates_the_open_window() -> Result<()> {
     // First outage: no prior close, so flap_count stays 0 (a 60 s window).
     let first = health.record_failure(PROVIDER, MODEL, 1, None).await?;
     assert_eq!(first.flap_count, 0);
-    let first_window = first.retry_at.expect("open") - Utc::now();
+    let first_window = first.retry_at.expect("open") - Timestamp::now();
 
     // Close it, then fail again immediately: that is a flap, so the window
     // doubles.
@@ -728,7 +729,7 @@ async fn the_flap_rule_escalates_the_open_window() -> Result<()> {
         second.flap_count, 1,
         "a close followed by a quick failure flaps"
     );
-    let second_window = second.retry_at.expect("open") - Utc::now();
+    let second_window = second.retry_at.expect("open") - Timestamp::now();
     assert!(
         second_window > first_window,
         "a flap must lengthen the open window ({second_window:?} vs {first_window:?})"
@@ -763,7 +764,7 @@ async fn two_holds_expiring_in_one_tick_each_get_their_own_attempt_row() -> Resu
 
     let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     let second = seed_job(&queue, "u1", "d2", Some((PROVIDER, MODEL))).await;
-    let until = Utc::now() + Duration::seconds(60);
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
     queue
         .hold_runnable_jobs(
             PROVIDER,
@@ -832,7 +833,7 @@ async fn a_disabled_breaker_admits_a_held_job_once_its_hold_is_due() -> Result<(
 
     // The pair is degraded and the job is held with a FUTURE resume time.
     open_breaker(&health, 3).await;
-    let until = Utc::now() + Duration::hours(1);
+    let until = Timestamp::now() + SignedDuration::from_hours(1);
     queue
         .hold_runnable_jobs(
             PROVIDER,

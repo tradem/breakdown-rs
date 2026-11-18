@@ -14,12 +14,12 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+
 use breakdown_core::piece::*;
 use breakdown_core::shared::{AggregateVersion, CostumeCategoryId, ProjectId, SeasonId};
 use kameo_es::{Apply, Command};
 use test_support::make_ctx;
 use uuid::Uuid;
-
 fn project_id() -> ProjectId {
     ProjectId::new()
 }
@@ -716,7 +716,7 @@ fn test_piece_view_serialises_category_and_detail_is_pure_description() {
         photos: vec![],
         season_ids: vec![],
         version: AggregateVersion(1),
-        updated_at: chrono::Utc::now(),
+        updated_at: jiff::Timestamp::now(),
     };
     let value = serde_json::to_value(&view).expect("PieceView serializes");
     assert!(value["category_id"].is_string());

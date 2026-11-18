@@ -18,6 +18,7 @@
 //! programmatic health signal.
 
 // Test-only file: unwrap/expect/panic are allowed in test code.
+
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -27,6 +28,7 @@
     clippy::dbg_macro
 )]
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -37,7 +39,6 @@ use breakdown_core::ops::DeadLetterEntry;
 use breakdown_core::piece::events::PieceDetail;
 use breakdown_core::piece::events::PieceEvent;
 use breakdown_core::shared::AggregateVersion;
-use chrono::Utc;
 // Trait method scope for the #37 health adapter (issue #409 port split).
 use breakdown_core::ops::ProjectorHealthRepository as _;
 use infra::projectors::{ProjectorFlushConfig, ProjectorHealthRepository, spawn_piece_projector};
@@ -81,7 +82,7 @@ async fn eappend(
     payload: &[u8],
 ) -> Result<()> {
     let mut conn = redis_client.get_multiplexed_async_connection().await?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_type)

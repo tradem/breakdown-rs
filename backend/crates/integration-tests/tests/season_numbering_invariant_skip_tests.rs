@@ -26,6 +26,7 @@
 //! `scene_shoot_invariant_skip_tests.rs` (PR #406, commit b672e94).
 
 // Test-only file: unwrap/expect/panic are allowed in test code.
+
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -35,6 +36,7 @@
     clippy::dbg_macro
 )]
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -46,7 +48,6 @@ use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::season::ports::SeasonRepository as _;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, ProjectId};
-use chrono::Utc;
 use infra::projectors::spawn_season_projector;
 use infra::queries::SeasonRepositoryImpl;
 use lazy_static::lazy_static;
@@ -169,7 +170,7 @@ async fn eappend(
     payload: &[u8],
 ) -> Result<()> {
     let mut conn = redis_client.get_multiplexed_async_connection().await?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_type)

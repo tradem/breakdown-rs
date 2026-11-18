@@ -8,10 +8,10 @@ use breakdown_core::block::views::BlockView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::BLOCK_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, ProjectId, SeasonId};
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for block projections.
 #[derive(Clone, Debug)]
 pub struct BlockRepositoryImpl {
@@ -103,12 +103,10 @@ fn map_block_row(row: sqlx::postgres::PgRow) -> Result<BlockView, DomainError> {
         season_id: SeasonId(row.try_get("season_id").map_err(map_err)?),
         project_id: ProjectId(row.try_get("project_id").map_err(map_err)?),
         number: row.try_get("number").map_err(map_err)?,
-        start_date: row.try_get("start_date").map_err(map_err)?,
-        end_date: row.try_get("end_date").map_err(map_err)?,
+        start_date: row.get_date_opt("start_date").map_err(map_err)?,
+        end_date: row.get_date_opt("end_date").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
     })
 }
 

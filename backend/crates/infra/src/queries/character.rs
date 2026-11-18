@@ -12,9 +12,10 @@ use breakdown_core::character::views::{
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::CHARACTER_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, EpisodeId, SeasonId};
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+use crate::db_time::PgRowTimeExt;
 
 /// PostgreSQL read adapter for character projections.
 #[derive(Clone, Debug)]
@@ -170,9 +171,7 @@ fn map_character_row(row: sqlx::postgres::PgRow) -> Result<CharacterView, Domain
         measurements: serde_json::from_value(measurements_json).unwrap_or_default(),
         contact: serde_json::from_value(contact_json).unwrap_or_default(),
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
     })
 }
 

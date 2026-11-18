@@ -12,14 +12,14 @@
 //! event store), which is why there is no `invariant_skip` interaction here:
 //! reservation rows carry no unique constraint beyond the primary key.
 
-use crate::reservations::event::{ReservationEntity, ReservationEvent, ReservationKind};
 use breakdown_core::shared::EventMetadata;
 use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Acquire, Postgres, Transaction};
 
 use super::PROJECTOR_VERSION;
-
+use crate::db_time::sql_ts;
+use crate::reservations::event::{ReservationEntity, ReservationEvent, ReservationKind};
 /// Idempotent projector for the synthetic `ReservationEntity`.
 #[derive(Clone, Default, Debug)]
 pub struct ReservationProjector;
@@ -78,10 +78,10 @@ impl<'a> EntityEventHandler<ReservationEntity, Transaction<'a, Postgres>> for Re
                 .bind(key)
                 .bind(kind.as_str())
                 .bind(aggregate_id)
-                .bind(event.timestamp)
+                .bind(sql_ts(event.timestamp))
                 .bind(event.stream_version as i64)
                 .bind(PROJECTOR_VERSION)
-                .bind(event.timestamp)
+                .bind(sql_ts(event.timestamp))
                 .execute(&mut *sp)
                 .await?;
                 sp.commit().await?;
@@ -103,7 +103,7 @@ impl<'a> EntityEventHandler<ReservationEntity, Transaction<'a, Postgres>> for Re
                     "#,
                 )
                 .bind(key)
-                .bind(event.timestamp)
+                .bind(sql_ts(event.timestamp))
                 .bind(aggregate_id)
                 .bind(event.stream_version as i64)
                 .bind(PROJECTOR_VERSION)
@@ -128,7 +128,7 @@ impl<'a> EntityEventHandler<ReservationEntity, Transaction<'a, Postgres>> for Re
                 .bind(aggregate_id)
                 .bind(event.stream_version as i64)
                 .bind(PROJECTOR_VERSION)
-                .bind(event.timestamp)
+                .bind(sql_ts(event.timestamp))
                 .execute(&mut **ctx)
                 .await?;
             }

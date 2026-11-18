@@ -9,13 +9,13 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
+use jiff::Timestamp;
 mod fixtures;
 
 use anyhow::Result;
 use breakdown_core::scene::aggregate::SceneAggregate;
 use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
-use chrono::Utc;
 use infra::projectors::SceneProjector;
 use kameo_es::event_handler::EntityEventHandler;
 use kameo_es::{Entity, EventType};
@@ -60,7 +60,7 @@ async fn scene_created_event_projects_to_projection_scene() -> Result<()> {
         name: event.event_type().to_string(),
         data: event,
         metadata: Metadata::default(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     };
 
     SceneProjector
@@ -144,7 +144,7 @@ async fn scene_scores_persist_on_create_and_survive_details_update() -> Result<(
                 name: create.event_type().to_string(),
                 data: create,
                 metadata: Metadata::default(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             },
         )
         .await?;
@@ -199,7 +199,7 @@ async fn scene_scores_persist_on_create_and_survive_details_update() -> Result<(
                 name: update.event_type().to_string(),
                 data: update,
                 metadata: Metadata::default(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             },
         )
         .await?;

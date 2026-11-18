@@ -52,6 +52,7 @@
 //! nothing to do with this rename. Building the `ciborium::Value` directly is
 //! what makes these fixtures byte-faithful to what a pre-rename build wrote.
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -63,7 +64,6 @@ use breakdown_core::season::aggregate::SeasonAggregate;
 use breakdown_core::season::events::SeasonEvent;
 use breakdown_core::season::ports::SeasonRepository as _;
 use breakdown_core::shared::{AggregateVersion, EventMetadata, ProjectId};
-use chrono::Utc;
 use ciborium::Value as Cbor;
 use infra::projectors::AuditCategory;
 use infra::queries::{AuditRepositoryImpl, SeasonRepositoryImpl};
@@ -155,7 +155,7 @@ async fn eappend_legacy_cbor(
     let metadata = cbor_bytes(&legacy_event_metadata_cbor())?;
     let encoded = cbor_bytes(payload)?;
     let mut conn = client.get_multiplexed_async_connection().await?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_name)

@@ -8,7 +8,6 @@
 //! with explicit IANA time zone conversion.
 
 use breakdown_core::reporting::ReportRenderError;
-
 /// Validate an IANA timezone identifier against the allowlist.
 pub fn validate_timezone(tz: &str) -> Result<(), ReportRenderError> {
     // Basic validation: must be a valid IANA timezone format
@@ -38,20 +37,17 @@ pub fn validate_timezone(tz: &str) -> Result<(), ReportRenderError> {
 }
 
 /// Convert a UTC timestamp to a specific timezone and return (year, month, day, hour, minute).
-pub fn convert_to_timezone(
-    utc_dt: &chrono::DateTime<chrono::Utc>,
-    _timezone: &str,
-) -> (i32, u8, u8, u8, u8) {
-    // For now, use chrono's timezone support
-    // In production, this should use ICU4X's timezone support
-    #[allow(clippy::expect_used)] // FixedOffset::east_opt(3600) for CET is always Some
-    let berlin = chrono::FixedOffset::east_opt(3600).expect("CET = UTC+3600s is always valid"); // CET
-    let local = utc_dt.with_timezone(&berlin);
+pub fn convert_to_timezone(utc_dt: &jiff::Timestamp, _timezone: &str) -> (i32, u8, u8, u8, u8) {
+    // For now, a fixed CET (+01:00) offset stands in for real timezone support
+    // (unchanged behaviour, ADR-040: jiff has no `FixedOffset` type — a fixed
+    // offset is `jiff::tz::Offset`, and `Timestamp::to_zoned` projects into it).
+    // `Offset::constant` is const-constructible for +01:00, so this cannot fail.
+    let berlin =
+        (*utc_dt).to_zoned_datetime(jiff::tz::TimeZone::fixed(jiff::tz::Offset::constant(1)));
+    let local = berlin.datetime();
 
-    use chrono::Datelike;
-    use chrono::Timelike;
     (
-        local.year(),
+        i32::from(local.year()),
         local.month() as u8,
         local.day() as u8,
         local.hour() as u8,

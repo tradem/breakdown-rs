@@ -7,9 +7,6 @@
 //! Unit tests for workers.rs — kills mutations in acquire_for_claim,
 //! release_permit_logging_errors, claim_lost_error, start_heartbeat.
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use breakdown_core::ai::{
     AiImportBounds, AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportProgress,
     AiImportQueue, AiImportStage, DocumentKind, DraftEpisode, DraftScene, JobStatus,
@@ -18,6 +15,8 @@ use breakdown_core::ai::{
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::shared::UserId;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::ai::pdf::PdfTextExtractor;
@@ -78,8 +77,8 @@ impl MockQueue {
             next_attempt_at: None,
             attempts: Vec::new(),
             max_retries: 5,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: jiff::Timestamp::now(),
+            updated_at: jiff::Timestamp::now(),
             telemetry: None,
             cost: None,
             source_file_name: None,
@@ -126,8 +125,8 @@ impl AiImportQueue for MockQueue {
             next_attempt_at: None,
             attempts: Vec::new(),
             max_retries: 5,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: jiff::Timestamp::now(),
+            updated_at: jiff::Timestamp::now(),
             telemetry: None,
             cost: None,
             source_file_name: None,
@@ -918,7 +917,6 @@ async fn merge_worker_publishes_merging_and_storing_progress() {
     use breakdown_core::scene::events::SceneSource;
     use breakdown_core::scene::views::SceneView;
     use breakdown_core::shared::{AggregateVersion, EpisodeId};
-    use chrono::TimeZone;
 
     let queue = Arc::new(MockQueue::new());
     queue.enqueue_job(DocumentKind::Schedule).await;
@@ -947,7 +945,7 @@ async fn merge_worker_publishes_merging_and_storing_progress() {
         assigned_characters: Vec::new(),
         outfit_beats: Vec::new(),
         version: AggregateVersion::INITIAL,
-        updated_at: chrono::Utc.timestamp_opt(0, 0).single().unwrap(),
+        updated_at: jiff::Timestamp::UNIX_EPOCH,
         source: Some(SceneSource::Manual),
     };
     let input = MergeInput {

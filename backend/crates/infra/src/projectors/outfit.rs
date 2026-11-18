@@ -12,7 +12,6 @@
 //! the projector never has to derive ordering from projection state. All
 //! statements are version-guarded and idempotent.
 
-use super::PROJECTOR_VERSION;
 use breakdown_core::outfit::aggregate::OutfitAggregate;
 use breakdown_core::outfit::events::OutfitEvent;
 use breakdown_core::shared::EventMetadata;
@@ -21,6 +20,8 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `OutfitAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct OutfitProjector;
@@ -146,7 +147,7 @@ impl<'a> EntityEventHandler<OutfitAggregate, Transaction<'a, Postgres>> for Outf
                 .bind(id)
                 .bind(name)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -162,7 +163,7 @@ impl<'a> EntityEventHandler<OutfitAggregate, Transaction<'a, Postgres>> for Outf
                 .bind(id)
                 .bind(notes)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -251,7 +252,7 @@ impl OutfitProjector {
         name: &str,
         notes: &str,
         version: i64,
-        updated_at: chrono::DateTime<chrono::Utc>,
+        updated_at: jiff::Timestamp,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -277,7 +278,7 @@ impl OutfitProjector {
         .bind(notes)
         .bind(version)
         .bind(PROJECTOR_VERSION)
-        .bind(updated_at)
+        .bind(sql_ts(updated_at))
         .execute(&mut **ctx)
         .await?;
         Ok(())
@@ -308,7 +309,7 @@ impl OutfitProjector {
         ctx: &mut Transaction<'b, Postgres>,
         id: Uuid,
         version: i64,
-        updated_at: chrono::DateTime<chrono::Utc>,
+        updated_at: jiff::Timestamp,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -319,7 +320,7 @@ impl OutfitProjector {
         )
         .bind(id)
         .bind(version)
-        .bind(updated_at)
+        .bind(sql_ts(updated_at))
         .execute(&mut **ctx)
         .await?;
         Ok(())

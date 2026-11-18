@@ -3,6 +3,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: grok-4.5 (opencode-go)
 // Co-authored-by: hy3 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Durable report-archival job repository (`report_ops.report_job`).
 //!
@@ -11,17 +12,18 @@
 //! the provider accepted them. It is **not** a source of business facts and
 //! no domain query path imports this module.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use breakdown_core::reporting::{
     EnqueueArchivalRequest, EnqueueArchivalResult, ReportArchivalError, ReportArchivalQueue,
     ReportJobId, ReportJobStatus, ReportKind, ReportLocale, SnapshotIdentity,
 };
 use breakdown_core::shared::ShootingDayId;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::time::Duration;
 use uuid::Uuid;
+
+use crate::db_time::{PgRowTimeExt, sql_ts, sql_ts_opt};
 
 /// Default max retries before dead-letter (overridable via env).
 pub const DEFAULT_MAX_RETRIES: i32 = 5;
@@ -41,16 +43,16 @@ pub struct ReportJobRow {
     pub content_digest: Option<String>,
     pub provider_object_id: Option<String>,
     pub provider_etag: Option<String>,
-    pub provider_recorded_at: Option<DateTime<Utc>>,
+    pub provider_recorded_at: Option<Timestamp>,
     pub retries: i32,
     pub max_retries: i32,
     pub status: ReportJobStatus,
     pub last_error: Option<String>,
-    pub claimed_at: Option<DateTime<Utc>>,
+    pub claimed_at: Option<Timestamp>,
     pub claimed_by: Option<String>,
-    pub next_attempt_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub next_attempt_at: Option<Timestamp>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// PostgreSQL-backed archival job queue + claim API.
@@ -86,7 +88,7 @@ impl PgReportArchivalQueue {
     ) -> Result<EnqueueArchivalResult, ReportArchivalError> {
         let dedup = req.dedup_key();
         let id = ReportJobId::new();
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         // Try insert; on unique violation, fetch the existing row.
         let inserted = sqlx::query(
@@ -114,9 +116,9 @@ impl PgReportArchivalQueue {
         .bind(req.trigger.as_str())
         .bind(self.max_retries)
         .bind(ReportJobStatus::Pending.as_str())
-        .bind(now)
-        .bind(now)
-        .bind(now)
+        .bind(sql_ts(now))
+        .bind(sql_ts(now))
+        .bind(sql_ts(now))
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -159,7 +161,7 @@ impl PgReportArchivalQueue {
         worker_id: &str,
     ) -> Result<Option<ReportJobRow>, ReportArchivalError> {
         let mut tx: Transaction<'_, Postgres> = self.pool.begin().await.map_err(map_sqlx_err)?;
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         let row = sqlx::query(
             r#"
@@ -172,7 +174,7 @@ impl PgReportArchivalQueue {
             LIMIT 1
             "#,
         )
-        .bind(now)
+        .bind(sql_ts(now))
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx_err)?;
@@ -195,7 +197,7 @@ impl PgReportArchivalQueue {
         )
         .bind(id)
         .bind(ReportJobStatus::Claimed.as_str())
-        .bind(now)
+        .bind(sql_ts(now))
         .bind(worker_id)
         .execute(&mut *tx)
         .await
@@ -213,7 +215,7 @@ impl PgReportArchivalQueue {
         staged_handle: &str,
         content_digest: &str,
     ) -> Result<(), ReportArchivalError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         sqlx::query(
             r#"
             UPDATE report_ops.report_job
@@ -229,7 +231,7 @@ impl PgReportArchivalQueue {
         .bind(ReportJobStatus::Staged.as_str())
         .bind(staged_handle)
         .bind(content_digest)
-        .bind(now)
+        .bind(sql_ts(now))
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -238,7 +240,7 @@ impl PgReportArchivalQueue {
 
     /// Mark external upload in flight.
     pub async fn mark_uploading(&self, id: ReportJobId) -> Result<(), ReportArchivalError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         sqlx::query(
             r#"
             UPDATE report_ops.report_job
@@ -248,7 +250,7 @@ impl PgReportArchivalQueue {
         )
         .bind(id.0)
         .bind(ReportJobStatus::Uploading.as_str())
-        .bind(now)
+        .bind(sql_ts(now))
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -262,7 +264,7 @@ impl PgReportArchivalQueue {
         provider_object_id: &str,
         provider_etag: Option<&str>,
     ) -> Result<(), ReportArchivalError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         sqlx::query(
             r#"
             UPDATE report_ops.report_job
@@ -281,7 +283,7 @@ impl PgReportArchivalQueue {
         .bind(ReportJobStatus::Succeeded.as_str())
         .bind(provider_object_id)
         .bind(provider_etag)
-        .bind(now)
+        .bind(sql_ts(now))
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -295,7 +297,7 @@ impl PgReportArchivalQueue {
         error_summary: &str,
         backoff: Duration,
     ) -> Result<ReportJobStatus, ReportArchivalError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         // Read current retries under a short transaction.
         let mut tx = self.pool.begin().await.map_err(map_sqlx_err)?;
         let row = sqlx::query(
@@ -322,8 +324,10 @@ impl PgReportArchivalQueue {
             ReportJobStatus::Failed
         };
 
+        // Saturating: `backoff` is an unbounded `Duration`, and `Timestamp +
+        // duration` panics on overflow instead of degrading.
         let next_attempt = if status == ReportJobStatus::Failed {
-            Some(now + chrono::Duration::from_std(backoff).unwrap_or(chrono::Duration::seconds(30)))
+            Some(now.checked_add(backoff).unwrap_or(Timestamp::MAX))
         } else {
             None
         };
@@ -345,8 +349,8 @@ impl PgReportArchivalQueue {
         .bind(status.as_str())
         .bind(next_retries)
         .bind(&summary)
-        .bind(next_attempt)
-        .bind(now)
+        .bind(sql_ts_opt(next_attempt))
+        .bind(sql_ts(now))
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx_err)?;
@@ -361,7 +365,7 @@ impl PgReportArchivalQueue {
         id: ReportJobId,
         error_summary: &str,
     ) -> Result<(), ReportArchivalError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         sqlx::query(
             r#"
             UPDATE report_ops.report_job
@@ -377,7 +381,7 @@ impl PgReportArchivalQueue {
         .bind(id.0)
         .bind(ReportJobStatus::DeadLetter.as_str())
         .bind(truncate_error(error_summary))
-        .bind(now)
+        .bind(sql_ts(now))
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -386,7 +390,7 @@ impl PgReportArchivalQueue {
 
     /// Clear staged handle after successful retention.
     pub async fn clear_staged_handle(&self, id: ReportJobId) -> Result<(), ReportArchivalError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         sqlx::query(
             r#"
             UPDATE report_ops.report_job
@@ -395,7 +399,7 @@ impl PgReportArchivalQueue {
             "#,
         )
         .bind(id.0)
-        .bind(now)
+        .bind(sql_ts(now))
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -429,8 +433,11 @@ impl PgReportArchivalQueue {
         &self,
         stale_after: Duration,
     ) -> Result<Vec<ReportJobRow>, ReportArchivalError> {
-        let cutoff = Utc::now()
-            - chrono::Duration::from_std(stale_after).unwrap_or(chrono::Duration::minutes(15));
+        // Saturating for the same reason as `mark_failure`'s backoff: a huge
+        // `stale_after` must widen the window, not panic the sweeper.
+        let cutoff = Timestamp::now()
+            .checked_sub(stale_after)
+            .unwrap_or(Timestamp::MIN);
         let rows = sqlx::query(
             r#"
             SELECT
@@ -445,7 +452,7 @@ impl PgReportArchivalQueue {
               AND claimed_at < $1
             "#,
         )
-        .bind(cutoff)
+        .bind(sql_ts(cutoff))
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -479,7 +486,7 @@ impl PgReportArchivalQueue {
 
     /// Release a stale claim back to `pending`/`staged` so another worker can pick it up.
     pub async fn release_stale_claim(&self, id: ReportJobId) -> Result<(), ReportArchivalError> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         sqlx::query(
             r#"
             UPDATE report_ops.report_job
@@ -496,7 +503,7 @@ impl PgReportArchivalQueue {
             "#,
         )
         .bind(id.0)
-        .bind(now)
+        .bind(sql_ts(now))
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_err)?;
@@ -548,6 +555,15 @@ async fn load_job_tx(
     map_job_row(row)
 }
 
+/// Row-decode failure for the temporal columns, which decode through the
+/// `jiff-sqlx` wrapper and are therefore fallible where the plain `.get()`
+/// columns are not (ADR-040).
+fn map_job_row_err(err: sqlx::Error) -> ReportArchivalError {
+    ReportArchivalError::Internal {
+        detail: err.to_string(),
+    }
+}
+
 fn map_job_row(row: sqlx::postgres::PgRow) -> Result<ReportJobRow, ReportArchivalError> {
     let kind_str: String = row.get("kind");
     let kind = parse_kind(&kind_str)?;
@@ -570,16 +586,18 @@ fn map_job_row(row: sqlx::postgres::PgRow) -> Result<ReportJobRow, ReportArchiva
         content_digest: row.get("content_digest"),
         provider_object_id: row.get("provider_object_id"),
         provider_etag: row.get("provider_etag"),
-        provider_recorded_at: row.get("provider_recorded_at"),
+        provider_recorded_at: row
+            .get_ts_opt("provider_recorded_at")
+            .map_err(map_job_row_err)?,
         retries: row.get("retries"),
         max_retries: row.get("max_retries"),
         status,
         last_error: row.get("last_error"),
-        claimed_at: row.get("claimed_at"),
+        claimed_at: row.get_ts_opt("claimed_at").map_err(map_job_row_err)?,
         claimed_by: row.get("claimed_by"),
-        next_attempt_at: row.get("next_attempt_at"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
+        next_attempt_at: row.get_ts_opt("next_attempt_at").map_err(map_job_row_err)?,
+        created_at: row.get_ts("created_at").map_err(map_job_row_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_job_row_err)?,
     })
 }
 

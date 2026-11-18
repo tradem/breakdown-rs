@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, fmt, time::Instant};
 
-use chrono::Utc;
+use jiff::Timestamp;
 
 use crate::{Apply, Command, CommandName, Entity, Metadata};
 
@@ -73,7 +73,7 @@ where
         let ctx = crate::Context {
             metadata: &metadata,
             causation_tracking: &HashMap::new(),
-            time: Utc::now(),
+            time: Timestamp::now(),
             executed_at: Instant::now(),
         };
         let is_idempotent = self.entity.is_idempotent(&self.cmd, ctx);
@@ -105,7 +105,7 @@ where
         let ctx = crate::Context {
             metadata: &metadata,
             causation_tracking: &HashMap::new(),
-            time: Utc::now(),
+            time: Timestamp::now(),
             executed_at: Instant::now(),
         };
         let true_err = self
@@ -125,7 +125,7 @@ where
         let ctx = crate::Context {
             metadata: &metadata,
             causation_tracking: &HashMap::new(),
-            time: Utc::now(),
+            time: Timestamp::now(),
             executed_at: Instant::now(),
         };
         let is_idempotent = self.entity.is_idempotent(&self.cmd, ctx);
@@ -145,7 +145,7 @@ where
         let ctx = crate::Context {
             metadata: &metadata,
             causation_tracking: &HashMap::new(),
-            time: Utc::now(),
+            time: Timestamp::now(),
             executed_at: Instant::now(),
         };
         let events = self

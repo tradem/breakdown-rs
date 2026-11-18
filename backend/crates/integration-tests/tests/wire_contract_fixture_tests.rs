@@ -40,9 +40,6 @@
 //!     capture_wire_fixtures -- --ignored --nocapture
 //! ```
 
-use std::collections::BTreeSet;
-use std::path::PathBuf;
-
 use anyhow::{Result, bail};
 use breakdown_core::block::views::BlockView;
 use breakdown_core::character::category::CharacterCategory;
@@ -62,9 +59,11 @@ use breakdown_core::shared::{
 };
 use breakdown_core::shooting_day::events::ShootingDaySource;
 use breakdown_core::shooting_day::views::ShootingDayView;
-use chrono::{DateTime, TimeZone, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 /// Directory holding the frozen wire snapshots.
 const FIXTURES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/wire");
@@ -195,7 +194,7 @@ fn fixed_uuid_produces_uuidv7() {
 /// A representative sample of every wire DTO backing the `/v1` read routes,
 /// frozen as JSON snapshots (ADR-021 D6).
 fn sample_views() -> Vec<(&'static str, Value)> {
-    let t: DateTime<Utc> = Utc.with_ymd_and_hms(2026, 8, 6, 9, 0, 0).unwrap();
+    let t: Timestamp = "2026-08-06T09:00:00Z".parse().expect("fixture instant");
     let season_id = fixed_uuid(1);
     let block_id = fixed_uuid(2);
     let episode_id = fixed_uuid(3);

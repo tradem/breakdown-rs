@@ -21,9 +21,6 @@
     clippy::print_stderr,
     clippy::dbg_macro
 )]
-use axum::extract::State;
-use chrono::Utc;
-use uuid::Uuid;
 
 use api::auth::CurrentUser;
 use api::handlers::{
@@ -32,11 +29,14 @@ use api::handlers::{
 };
 use api::problems::{Json, Path, Query};
 use api::state::AppState;
+use axum::extract::State;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::SCENE_CHARACTER_NOT_IN_SCENE;
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
+use jiff::Timestamp;
+use uuid::Uuid;
 
 use crate::common;
 
@@ -63,7 +63,7 @@ async fn seed_scene(ports: &common::FakePorts, scene_id: Uuid) {
             outfit_beats: Vec::new(),
             source: Some(SceneSource::Manual),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
 }

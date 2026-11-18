@@ -24,8 +24,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{
     PieceDetailRequest, UpdatePieceDetailRequest, VersionRequest, remove_piece_detail,
@@ -39,9 +37,11 @@ use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::PIECE_DETAIL_NOT_FOUND;
 use breakdown_core::piece::PieceView;
 use breakdown_core::shared::{AggregateVersion, SeasonId};
-use chrono::Utc;
 use common::{DetailCommandKind, FakePorts};
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const USER: &str = "test-user";
 
@@ -62,7 +62,7 @@ async fn seed_piece(ports: &FakePorts, repertoire: &[SeasonId]) -> Uuid {
             details: vec![],
             photos: vec![],
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             season_ids: vec![],
         },
     );

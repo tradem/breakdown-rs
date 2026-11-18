@@ -26,17 +26,14 @@
 //! The probe (D-A3) is the third writer and needs a vaulted credential, so it
 //! lives in [`super::provider_probe`].
 
-use std::time::Duration;
-
 use breakdown_core::ai::ports::{AiImportQueue, LlmProvider, ProviderHealth};
 use breakdown_core::ai::views::{ProviderBreakerState, ProviderHold};
 use breakdown_core::error::DomainError;
-use chrono::Utc;
 use sqlx::PgPool;
+use std::time::Duration;
 
 use super::provider_probe::ProviderProbe;
 use super::queue::PgAiImportQueue;
-
 /// The advisory lock id of the provider watch: `"AI_PROV_WATCH"` as `i64`.
 ///
 /// A distinct id from the payload GC and the reservation reaper, so the three
@@ -220,7 +217,7 @@ pub fn hold_for(
     provider: LlmProvider,
     model: &str,
     state: ProviderBreakerState,
-    until: chrono::DateTime<Utc>,
+    until: jiff::Timestamp,
     hold_window_secs: u64,
 ) -> ProviderHold {
     ProviderHold {
@@ -231,8 +228,11 @@ pub fn hold_for(
         // job-hold state written by the expiry itself).
         state,
         until,
+        // Saturating on purpose: `hold_window_secs` is an unrestricted `u64`,
+        // and `Timestamp + duration` panics on overflow instead of degrading.
         hold_deadline: until
-            + chrono::Duration::seconds(i64::try_from(hold_window_secs).unwrap_or(i64::MAX)),
+            .checked_add(Duration::from_secs(hold_window_secs))
+            .unwrap_or(jiff::Timestamp::MAX),
         chunks_done: 0,
     }
 }
@@ -310,17 +310,28 @@ fn read_u64(name: &str, default: u64, min: u64, max: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
+    use jiff::SignedDuration;
 
-    fn now() -> chrono::DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 11, 4, 7, 0, 0)
-            .single()
-            .unwrap_or_default()
+    /// Fixed UTC instant spelled as civil time — `Utc.with_ymd_and_hms`'s jiff
+    /// equivalent, without the fallible `Offset`/`TimeZone` construction at every
+    /// call site (ADR-040).
+    fn utc(y: i16, mo: i8, d: i8, h: i8, mi: i8, s: i8) -> jiff::Timestamp {
+        // A UTC civil datetime is never ambiguous, so the `Result` is always `Ok`;
+        // the fallback keeps the helper panic-free without an `unwrap`.
+        jiff::civil::date(y, mo, d)
+            .at(h, mi, s, 0)
+            .to_zoned_datetime(jiff::tz::TimeZone::UTC)
+            .map(|zdt| zdt.timestamp())
+            .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+    }
+
+    fn now() -> jiff::Timestamp {
+        utc(2026, 11, 4, 7, 0, 0)
     }
 
     #[test]
     fn materialized_hold_carries_the_breaker_state_and_reason() {
-        let until = now() + chrono::Duration::seconds(60);
+        let until = now() + SignedDuration::from_secs(60);
         let hold = hold_for(
             LlmProvider::OpenCodeGo,
             "some-model",
@@ -336,10 +347,24 @@ mod tests {
         assert_eq!(hold.until, until);
         assert_eq!(
             hold.hold_deadline,
-            until + chrono::Duration::seconds(21_600)
+            until + SignedDuration::from_secs(21_600)
         );
         // Workstream B supplies the real count; 0 is honest here.
         assert_eq!(hold.chunks_done, 0);
+    }
+
+    /// `hold_window_secs` comes from config as an unrestricted `u64`; a huge value
+    /// must saturate at `Timestamp::MAX` instead of panicking in the sweeper task.
+    #[test]
+    fn hold_for_saturates_on_u64_max_window() {
+        let hold = hold_for(
+            LlmProvider::OpenAI,
+            "gpt-5",
+            ProviderBreakerState::Open,
+            now(),
+            u64::MAX,
+        );
+        assert_eq!(hold.hold_deadline, jiff::Timestamp::MAX);
     }
 
     #[test]

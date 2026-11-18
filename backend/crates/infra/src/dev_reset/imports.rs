@@ -27,16 +27,7 @@
 //! episodes are therefore resolved **heuristically** from the job's `block_id`
 //! plus `created_at` recency, and the report says so.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use anyhow::{Context as _, Result};
-use chrono::{DateTime, Utc};
-use kameo_es::command_service::CommandService;
-use serde::{Deserialize, Serialize};
-use sierradb_client::ExpectedVersion;
-use sqlx::PgPool;
-use uuid::Uuid;
-
 use breakdown_core::character::aggregate::CharacterAggregate;
 use breakdown_core::character::commands::DeleteCharacter;
 use breakdown_core::episode::aggregate::EpisodeAggregate;
@@ -52,15 +43,21 @@ use breakdown_core::scene_shoot::commands::DeleteSceneShoot;
 use breakdown_core::shared::{EventMetadata, ProjectId, Provenance, SceneShootId, ShootingDayId};
 use breakdown_core::shooting_day::aggregate::ShootingDayAggregate;
 use breakdown_core::shooting_day::commands::DeleteShootingDay;
-
-use crate::ai::payload_storage::OpenDalAiPayloadStorage;
-use crate::ai::preview_store::{AiDocumentStore, AiPreviewStore};
-use crate::reservations::event::{episode_number_key, scene_shoot_pair_key};
-use crate::reservations::store::{LifecycleVariant, ReservationStore};
+use jiff::Timestamp;
+use kameo_es::command_service::CommandService;
+use serde::{Deserialize, Serialize};
+use sierradb_client::ExpectedVersion;
+use sqlx::PgPool;
+use std::collections::{BTreeMap, BTreeSet};
+use uuid::Uuid;
 
 use super::backup::{self, BackupManifest, MANIFEST_FORMAT_VERSION};
 use super::{Context, ResetOptions, ResetPlan, ResetReport};
-
+use crate::ai::payload_storage::OpenDalAiPayloadStorage;
+use crate::ai::preview_store::{AiDocumentStore, AiPreviewStore};
+use crate::db_time::sql_ts;
+use crate::reservations::event::{episode_number_key, scene_shoot_pair_key};
+use crate::reservations::store::{LifecycleVariant, ReservationStore};
 /// Deletion order — **children before parents**.
 ///
 /// The projection schema cascades child rows from the parent (a `scene` delete
@@ -107,7 +104,8 @@ pub struct ImportJobRow {
     pub user_id: String,
     pub block_id: Option<Uuid>,
     pub status: String,
-    pub created_at: DateTime<Utc>,
+    #[sqlx(try_from = "crate::db_time::SqlTimestamp")]
+    pub created_at: Timestamp,
     pub source_handle: String,
     pub preview_handle: Option<String>,
 }
@@ -254,7 +252,7 @@ pub async fn execute(
             .context("write imports.json")?;
         let manifest = BackupManifest {
             format_version: MANIFEST_FORMAT_VERSION,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             level: plan.level.as_str().to_string(),
             phase: plan.phase.as_str().to_string(),
             database_target: plan.database_target.clone(),
@@ -462,7 +460,7 @@ pub async fn resolve_episodes(pool: &PgPool, jobs: &[ImportJobRow]) -> Result<Ve
         "#,
     )
     .bind(&block_ids)
-    .bind(earliest)
+    .bind(sql_ts(earliest))
     .fetch_all(pool)
     .await
     .context("resolve import-created episodes")?;

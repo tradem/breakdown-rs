@@ -13,6 +13,7 @@ use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Postgres, Transaction};
 
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `PhotoAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct PhotoProjector;
@@ -61,8 +62,8 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 .bind(id.0)
                 .bind(&content_type)
                 .bind(size_bytes as i64)
-                .bind(updated_at)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
+                .bind(sql_ts(updated_at))
                 .bind(binding_json)
                 .bind(crate::projectors::PROJECTOR_VERSION)
                 .execute(&mut **ctx)
@@ -89,7 +90,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                     .bind(variant.as_str())
                     .bind(status_as_str(status))
                     .bind(size)
-                    .bind(updated_at)
+                    .bind(sql_ts(updated_at))
                     .execute(&mut **ctx)
                     .await?;
                 }
@@ -146,7 +147,7 @@ impl<'a> EntityEventHandler<PhotoAggregate, Transaction<'a, Postgres>> for Photo
                 )
                 .bind(id.0)
                 .bind(new_size as i64)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
 
@@ -232,7 +233,7 @@ impl PhotoProjector {
         ctx: &mut Transaction<'b, Postgres>,
         id: PhotoId,
         version: i64,
-        updated_at: chrono::DateTime<chrono::Utc>,
+        updated_at: jiff::Timestamp,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -243,7 +244,7 @@ impl PhotoProjector {
         )
         .bind(id.0)
         .bind(version)
-        .bind(updated_at)
+        .bind(sql_ts(updated_at))
         .execute(&mut **ctx)
         .await?;
         Ok(())

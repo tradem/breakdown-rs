@@ -4,6 +4,7 @@
 # Co-authored-by: deepseek-v4-flash (opencode-go)
 # Co-authored-by: glm-5.3-flash (opencode-go)
 # Co-authored-by: deepseek-v4.1-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 [workspace]
 resolver = "2"
@@ -35,9 +36,17 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Datenbank & Event Sourcing
-sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "chrono", "json", "migrate"] }
+sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-native-tls", "uuid", "json", "migrate"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+# Date/time (ADR-040, issue #929): `jiff` replaces `chrono`, which
+# RUSTSEC-2026-0543 declares unmaintained with no safe upgrade. `jiff`'s
+# serde rendering of `Timestamp` is byte-identical to chrono's
+# `DateTime<Utc>` (RFC 3339, `Z`, 0/3/6/9 fractional digits), so persisted
+# event payloads keep replaying. sqlx has no built-in jiff support; the
+# companion crate `jiff-sqlx` (published from the jiff repo) supplies the
+# `timestamptz`/`date`/`timestamp` mappings in `infra`'s DB layer.
+jiff = { version = "1", features = ["serde"] }
+jiff-sqlx = { version = "1", features = ["postgres"] }
 
 # Logging / Tracing
 tracing = "0.1"
@@ -83,7 +92,14 @@ getrandom = "0.4"
 # (E0308, "expected `utoipa::openapi::OpenApi`, found a different ..."). Same
 # failure mode as the OpenTelemetry family, hence the `utoipa` Dependabot group
 # in ../.github/dependabot.yml. Pairing: utoipa 6 <-> utoipa-swagger-ui 10.
-utoipa = { version = "6", features = ["axum_extras", "chrono", "uuid"] }
+# utoipa 6 ships only a `jiff_0_2` bridge for jiff (there is no `jiff_1`
+# feature yet). It resolves `jiff::Timestamp` / `jiff::civil::Date` by type
+# name, which jiff 1.0 keeps unchanged — the `openapi_drift` test is the
+# proof that `format: date-time` / `format: date` stay put (ADR-040).
+# `jiff::civil::DateTime` is NOT covered; such fields need an explicit
+# `#[schema(value_type = Option<String>, format = DateTime)]` — the `Option`
+# is load-bearing (rule `openapi-value-type-nullable`, issue #423).
+utoipa = { version = "6", features = ["axum_extras", "jiff_0_2", "uuid"] }
 utoipa-swagger-ui = { version = "10", features = ["axum"] }
 
 # JSON Schema generation for LLM schema-constrained decoding (ADR-013 / ai context).

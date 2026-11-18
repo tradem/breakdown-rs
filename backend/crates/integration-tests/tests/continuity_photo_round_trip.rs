@@ -22,6 +22,7 @@
 //! Drives the full chain: EAPPEND → SierraDB → projectors → Postgres projections
 //! and Garage byte storage.
 
+use jiff::Timestamp;
 mod fixtures;
 
 fn test_user() -> breakdown_core::shared::UserId {
@@ -41,7 +42,6 @@ use breakdown_core::shared::{
     AggregateVersion, LexicalSortKey, PhotoId, PhotoVariant, SceneShootId, SceneShootStatus,
     ShootingDayId,
 };
-use chrono::Utc;
 use fixtures::{await_photo, build_storage, spawn_garage, spawn_postgres, spawn_sierradb};
 use infra::event_store::PhotoCommandsImpl;
 use infra::photo::repository::PhotoRepositoryImpl;
@@ -69,7 +69,7 @@ async fn eappend(
     payload: &[u8],
 ) -> Result<()> {
     let mut conn = client.get_multiplexed_async_connection().await?;
-    let ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream)
         .arg(etype)

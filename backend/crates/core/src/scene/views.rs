@@ -11,14 +11,13 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::scene::events::SceneSource;
 use crate::shared::{AggregateVersion, EpisodeId, ShootingDayId};
-
 /// Complete scene read model.
 ///
 /// `updated_at` is sourced from the timestamp of the last applied `SceneEvent`,
@@ -62,7 +61,7 @@ pub struct SceneView {
     pub source: Option<SceneSource>,
     /// Aggregate version of the last applied event; echo back in optimistic-locking commands.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// One outfit beat of a scene, enriched by the query layer: character and

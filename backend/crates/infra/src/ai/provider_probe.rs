@@ -34,16 +34,16 @@
 //! `dependency.auth-failed` through the existing permanent path (#637), and
 //! terminalizes itself with the honest code the client already localizes.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use breakdown_core::ai::DocumentKind;
+use breakdown_core::ai::ports::AiImportQueue as _;
 use breakdown_core::ai::ports::{LlmModelCatalog, LlmProvider, ProbeOutcome, ProviderHealth};
 use breakdown_core::settings::CredentialVault;
 use breakdown_core::shared::UserId;
-use chrono::Utc;
+use jiff::Timestamp;
 use serde::Deserialize;
 use sqlx::{PgPool, Row};
+use std::time::Duration;
 use uuid::Uuid;
 
 use super::CuratedProviderUrls;
@@ -51,8 +51,6 @@ use super::catalog::OpenAiCompatibleModelCatalog;
 use super::provider_watch::PROVIDER_UNAVAILABLE_CODE;
 use super::queue::PgAiImportQueue as PgQueue;
 use crate::queries::ai_config::AiConfigRepositoryImpl;
-use breakdown_core::ai::ports::AiImportQueue as _;
-
 /// How many donor jobs one tick may try for one pair. A pair whose held jobs all
 /// have unusable credentials is not probed forever: the bound keeps one tick
 /// from turning into a credential sweep.
@@ -318,7 +316,7 @@ pub async fn run_probes(
         let Some(retry_at) = breaker.retry_at else {
             continue;
         };
-        if retry_at > Utc::now() {
+        if retry_at > Timestamp::now() {
             continue;
         }
         let donors = donor_jobs(pool, breaker.provider, &breaker.model).await?;

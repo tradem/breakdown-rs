@@ -26,6 +26,7 @@
 //! - A trailing event on the authoritative stream proves the projector
 //!   processed *through* the poison event and its follow-ups.
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -39,7 +40,6 @@ use breakdown_core::scene_shoot::views::SceneShootView;
 use breakdown_core::shared::{
     AggregateVersion, LexicalSortKey, SceneShootId, SceneShootStatus, ShootingDayId,
 };
-use chrono::Utc;
 use infra::projectors::spawn_scene_shoot_projector;
 use infra::queries::SceneShootRepositoryImpl;
 use uuid::Uuid;
@@ -61,7 +61,7 @@ async fn eappend(
     payload: &[u8],
 ) -> Result<()> {
     let mut conn = redis_client.get_multiplexed_async_connection().await?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_type)
@@ -214,7 +214,7 @@ async fn duplicate_pair_is_skipped_and_follow_up_events_are_harmless() -> Result
     //    error nor create a projection row.
     let started_b = SceneShootEvent::SceneShootStarted {
         id: shoot_b,
-        start_dt: Utc::now(),
+        start_dt: Timestamp::now(),
         version: AggregateVersion(2),
     };
     eappend(

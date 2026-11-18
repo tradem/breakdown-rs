@@ -23,13 +23,11 @@
 //! schedule apply publishes no frames while it merges — so it renews its claim
 //! stamp from inside the run's own future instead of from a spawned task.
 
+use breakdown_core::ai::{AiImportJobId, AiImportQueue};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-
-use breakdown_core::ai::{AiImportJobId, AiImportQueue};
 use tokio::task::JoinHandle;
-
 /// How many renewals fit inside one lease window.
 ///
 /// Three gives two spare renewals before the lease would lapse, so a single
@@ -154,8 +152,7 @@ pub fn claim_lost(heartbeat: Option<&LeaseHeartbeat>) -> bool {
 /// the conversion cannot fail, and the fallback keeps the function panic-free
 /// (the same rule `workers::apply_heartbeat_interval` follows).
 pub fn apply_run_lease_window() -> Duration {
-    breakdown_core::ai::ApplyProgress::STALE_AFTER
-        .to_std()
+    Duration::try_from(breakdown_core::ai::ApplyProgress::STALE_AFTER)
         .unwrap_or(Duration::from_secs(600))
 }
 
@@ -668,8 +665,7 @@ mod tests {
         // the renewal cadence and the steal predicate with it.
         assert_eq!(
             test_apply_window(),
-            breakdown_core::ai::ApplyProgress::STALE_AFTER
-                .to_std()
+            std::time::Duration::try_from(breakdown_core::ai::ApplyProgress::STALE_AFTER)
                 .expect("the staleness window is a positive duration")
         );
         assert!(

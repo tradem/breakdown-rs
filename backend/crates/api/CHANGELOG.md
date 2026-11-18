@@ -17,6 +17,28 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.70.0] - Unreleased
+
+### Changed — BREAKING: `jiff` time types in the handler/DTO layer (issue #929, ADR-040)
+
+- Cascading MAJOR from `core` 0.73.0 / `infra` 0.84.0 (ADR-020 D3): request
+  and response types that carried `chrono::DateTime<Utc>` now carry
+  `jiff::Timestamp`.
+- **The HTTP contract is unchanged.** `openapi.yaml` is byte-identical after the
+  migration (the `openapi_drift` test sees zero diff), including all 36
+  `format: date-time` and 8 `format: date` properties. `utoipa` 6 ships only a
+  `jiff_0_2` bridge; it resolves schemas by type name, which jiff 1.x keeps.
+- `SceneShoot`'s `start_dt`/`end_dt` are `Option<jiff::Timestamp>` and are
+  decoded by `deserialize_opt_instant_or_naive_utc` in `handlers/mod.rs`: both
+  canonical RFC 3339 instants (`...Z` and `...+02:00`, converted to the exact
+  UTC instant — what `format: date-time` and the generated Flutter client
+  emit) and legacy naive wall-clock strings (`YYYY-MM-DDTHH:MM:SS`, pinned to
+  UTC) are accepted; out-of-range values are rejected with 422 instead of
+  falling back to `Timestamp::now()`. The published schema is unchanged
+  (`type: [string, "null"]` + `format: date-time`, via the `jiff_0_2` bridge).
+- `cargo deny check advisories` is green again **without** an ignore entry:
+  `RUSTSEC-2026-0543`'s temporary ignore is removed.
+
 ## [0.69.4] - Unreleased
 
 ### Changed — dependency pins only (issue #927)

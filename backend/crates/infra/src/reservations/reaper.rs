@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3 (neuralwatt)
 // Co-authored-by: glm-5.3-flash (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Reservation reaper (ADR-036 §3.2): crash-orphan compensation for
 //! reservation claims.
@@ -29,20 +30,19 @@
 //! read and append — never an error; the next pass resolves on the fresh
 //! state. A single-instance sweep is enforced by a Postgres advisory lock.
 
-use std::time::Duration;
-
-use sqlx::PgPool;
-use uuid::Uuid;
-
 use breakdown_core::block::events::BlockEvent;
 use breakdown_core::episode::events::EpisodeEvent;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::season::events::SeasonEvent;
+use sqlx::PgPool;
+use std::time::Duration;
+use uuid::Uuid;
 
 use super::event::{
     ReservationKind, block_number_key, episode_number_key, scene_shoot_pair_key, season_number_key,
 };
 use super::store::{LifecycleVariant, ReservationStore, StreamState, decode_lifecycle};
+use crate::db_time::sql_ts;
 
 /// Reaper configuration (env; documented with the other env contract in
 /// `AGENTS.md`-adjacent docs and the runbook). Default TTL 600 s: the
@@ -164,7 +164,11 @@ async fn run_reaper_pass_locked(
 ) -> Result<(), anyhow::Error> {
     // Runtime is monotonically cheaper than `now() - interval` per row and
     // keeps the query an exact static literal (no string-interpolated SQL).
-    let cutoff = chrono::Utc::now() - Duration::from_secs(config.claim_ttl_secs);
+    // Saturating: `claim_ttl_secs` is an unrestricted `u64`, and `Timestamp -
+    // duration` panics on overflow instead of degrading.
+    let cutoff = jiff::Timestamp::now()
+        .checked_sub(Duration::from_secs(config.claim_ttl_secs))
+        .unwrap_or(jiff::Timestamp::MIN);
 
     let candidates = sqlx::query_as::<_, (String, Uuid)>(
         r#"
@@ -176,7 +180,7 @@ async fn run_reaper_pass_locked(
         LIMIT $2
         "#,
     )
-    .bind(cutoff)
+    .bind(sql_ts(cutoff))
     .bind(config.batch_size)
     .fetch_all(pool)
     .await?;

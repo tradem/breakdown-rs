@@ -362,7 +362,7 @@ async fn ai_payload_storage_lifecycle_survives_restart() -> Result<()> {
     );
     assert_eq!(
         schedule.rows[0].date,
-        Some(chrono::NaiveDate::from_ymd_opt(2026, 1, 2).expect("static date"))
+        Some(jiff::civil::Date::new(2026, 1, 2).expect("static date"))
     );
     assert_eq!(schedule.rows[1].location.as_deref(), Some("Muenchen"));
 

@@ -39,6 +39,7 @@
 //! Requirements: Docker (or a compatible container runtime) and network access
 //! to pull the SierraDB image. Excluded from `cargo-mutants` (`.mutants.toml`).
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -50,7 +51,6 @@ use breakdown_core::scene::commands::{CreateScene, UpdateSceneDetails};
 use breakdown_core::scene::events::{SceneDetails, SceneEvent, SceneSource};
 use breakdown_core::scene::ports::{SceneCommands as _, SceneRepository as _};
 use breakdown_core::shared::{AggregateVersion, EpisodeId, UserId};
-use chrono::Utc;
 use infra::event_store::SceneCommandsImpl;
 use infra::queries::SceneRepositoryImpl;
 use kameo_es::command_service::CommandService;
@@ -129,7 +129,7 @@ async fn eappend_scene_created_round_trips_into_projection() -> Result<()> {
     ciborium::into_writer(&created_event, &mut payload)
         .map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
 
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
 
     // Append directly via EAPPEND, bypassing the broken ESCAN path.
     let mut conn = redis_client.get_multiplexed_async_connection().await?;
@@ -247,7 +247,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     ciborium::into_writer(&created_event, &mut payload)
         .map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
 
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
 
     let mut conn = redis_client.get_multiplexed_async_connection().await?;
     let _resp: redis::Value = redis::cmd("EAPPEND")
@@ -278,7 +278,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     ciborium::into_writer(&assigned_event, &mut payload)
         .map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
 
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
 
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(&stream_id)
@@ -310,7 +310,7 @@ async fn eappend_character_assigned_twice_is_idempotent() -> Result<()> {
     ciborium::into_writer(&assigned_event, &mut payload)
         .map_err(|e| anyhow!("CBOR encode failed: {e}"))?;
 
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
 
     let _resp: redis::Value = redis::cmd("EAPPEND")
         .arg(&stream_id)

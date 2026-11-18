@@ -27,8 +27,9 @@ mod fixtures;
 use anyhow::Result;
 use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::shared::EpisodeId;
-use chrono::{DateTime, Utc};
+use infra::db_time::sql_ts;
 use infra::queries::CharacterRepositoryImpl;
+use jiff::Timestamp;
 use uuid::Uuid;
 
 /// Insert one scene projection row. `scene_number` is `Option` so the
@@ -39,7 +40,7 @@ async fn insert_scene(
     episode_id: EpisodeId,
     scene_number: Option<i32>,
     summary: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<()> {
     sqlx::query(
         r#"
@@ -55,7 +56,7 @@ async fn insert_scene(
     .bind("Studio")
     .bind("Neutral")
     .bind(summary)
-    .bind(now)
+    .bind(sql_ts(now))
     .execute(pool)
     .await?;
     Ok(())
@@ -67,7 +68,7 @@ async fn insert_episode(
     pool: &sqlx::PgPool,
     episode_id: EpisodeId,
     number: i32,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<()> {
     sqlx::query(
         r#"
@@ -81,7 +82,7 @@ async fn insert_episode(
     .bind(Uuid::now_v7())
     .bind(number)
     .bind(format!("Episode {number}"))
-    .bind(now)
+    .bind(sql_ts(now))
     .execute(pool)
     .await?;
     Ok(())
@@ -102,7 +103,7 @@ async fn assign_character(pool: &sqlx::PgPool, scene_id: Uuid, character_id: Uui
 }
 
 /// Insert an outfit (the composed look a scene casts) and return its id.
-async fn insert_outfit(pool: &sqlx::PgPool, name: &str, now: DateTime<Utc>) -> Result<Uuid> {
+async fn insert_outfit(pool: &sqlx::PgPool, name: &str, now: Timestamp) -> Result<Uuid> {
     let outfit_id = Uuid::now_v7();
     let character_id = Uuid::now_v7();
     sqlx::query(
@@ -115,7 +116,7 @@ async fn insert_outfit(pool: &sqlx::PgPool, name: &str, now: DateTime<Utc>) -> R
     .bind(outfit_id)
     .bind(character_id)
     .bind(name)
-    .bind(now)
+    .bind(sql_ts(now))
     .execute(pool)
     .await?;
     Ok(outfit_id)
@@ -161,7 +162,7 @@ async fn appearances_are_script_ordered_with_the_characters_own_pieces() -> Resu
     let episode_2 = EpisodeId::new();
     let hero = Uuid::now_v7();
     let extra = Uuid::now_v7();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     insert_episode(&pool, episode_1, 1, now).await?;
     insert_episode(&pool, episode_2, 2, now).await?;

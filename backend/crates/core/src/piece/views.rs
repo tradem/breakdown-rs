@@ -4,14 +4,13 @@
 
 //! Flat read-model DTOs for the Piece (fundus) context.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::photo::views::PhotoVariantView;
 use crate::shared::{AggregateVersion, CostumeCategoryId};
-
 /// Description element of a piece (e.g. belt, hat, shoes).
 ///
 /// Pure description: the category lives on the piece
@@ -59,7 +58,7 @@ pub struct PieceView {
     pub photos: Vec<PiecePhotoView>,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// The piece's season repertoire, populated from `projection_piece_season`.
     /// Ordered by season id (deterministic). Empty for a piece not yet filed
     /// into any season.

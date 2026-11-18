@@ -16,12 +16,11 @@
 //! layer can serve them on the wire directly (`ToSchema`) while `infra`
 //! maps rows into them — `core` stays free of `sqlx`/`axum` (ADR-017).
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::error::DomainError;
-
 /// One durably recorded poison event (row of `projection_dead_letter`).
 ///
 /// Wire shape of `GET /v1/ops/projector-health` → `dead_letters`.
@@ -45,8 +44,8 @@ pub struct DeadLetterEntry {
     pub error_message: String,
     /// How often the event was dead-lettered (replays bump, never duplicate).
     pub attempts: i32,
-    pub first_seen_at: DateTime<Utc>,
-    pub last_seen_at: DateTime<Utc>,
+    pub first_seen_at: Timestamp,
+    pub last_seen_at: Timestamp,
 }
 
 /// Checkpoint progress of one partition of one projection.

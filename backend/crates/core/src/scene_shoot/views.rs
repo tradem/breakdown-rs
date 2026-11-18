@@ -4,7 +4,7 @@
 
 //! Flat read-model DTOs for the SceneShoot context.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -25,13 +25,13 @@ pub struct SceneShootView {
     pub planned_order: LexicalSortKey,
     pub actual_order: Option<LexicalSortKey>,
     pub status: SceneShootStatus,
-    pub start_dt: Option<DateTime<Utc>>,
-    pub end_dt: Option<DateTime<Utc>>,
+    pub start_dt: Option<Timestamp>,
+    pub end_dt: Option<Timestamp>,
     pub notes: Vec<SerializedNote>,
     pub continuity_photo_ids: Vec<PhotoId>,
     /// Aggregate version of the last applied event; echo back in optimistic-locking commands.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// A note as exposed in the read model (flattened for JSON serialisation).
@@ -66,8 +66,8 @@ pub struct ShootDayRow {
     pub script_day: Option<String>,
     pub location: Option<String>,
     pub status: SceneShootStatus,
-    pub start_dt: Option<DateTime<Utc>>,
-    pub end_dt: Option<DateTime<Utc>>,
+    pub start_dt: Option<Timestamp>,
+    pub end_dt: Option<Timestamp>,
     pub notes: Vec<SerializedNote>,
     pub continuity_photo_ids: Vec<PhotoId>,
 }

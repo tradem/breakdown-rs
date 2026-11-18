@@ -42,9 +42,6 @@
 //! duplicate aggregate, because every create goes through `derive_id` +
 //! `ExpectedVersion::Empty` + `created_now` recovery.
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use breakdown_core::ai::{
     AiImportJobId, ApplyImportSummary, ApplyRunAccepted, ApplyRunId, ApplyRunOutcome,
     ApplyRunRequest, ApplyStage, ClaimedApplyRun, ScheduleApplyRunRequest, ScriptApplyRunRequest,
@@ -55,6 +52,8 @@ use infra::ai::worker_loop::ShutdownSignal;
 use infra::ai::{
     ApplyScriptRequest, ApplyWorker, CachedMappings, ScheduleApplyRequest, ScheduleApplyWorker,
 };
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{info, warn};
 
 // Imported for method resolution on `P::AiImportQueue` / `P::AiPreviewStore`.
@@ -411,10 +410,7 @@ impl<P: Ports> ApplyRunner<P> {
 }
 
 /// Build the `202 Accepted` descriptor for a dispatched run (design D2).
-pub fn accepted_run(
-    run_id: ApplyRunId,
-    started_at: chrono::DateTime<chrono::Utc>,
-) -> ApplyRunAccepted {
+pub fn accepted_run(run_id: ApplyRunId, started_at: jiff::Timestamp) -> ApplyRunAccepted {
     ApplyRunAccepted {
         run_id,
         stage: ApplyStage::Applying,

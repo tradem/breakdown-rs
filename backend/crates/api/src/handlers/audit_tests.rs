@@ -2,13 +2,14 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 
+
+
 use api::problems::Json;  // test-only alias for the wrapper extractor (ADR-031)
 use axum::extract::State;
 use api::problems::{Path, Query};
 use axum::http::StatusCode;
 use breakdown_core::audit::AuditEntry;
 use breakdown_core::shared::{BlockId, UserId};
-use chrono::Utc;
 use serde_json::json;
 use utoipa::OpenApi;
 use uuid::Uuid;
@@ -16,7 +17,6 @@ use uuid::Uuid;
 use super::get_block_audit;
 use super::test_helpers::*;
 use crate::state::AppState;
-
 #[tokio::test]
 async fn get_block_audit_returns_journal_entries_for_block() {
     let ports = FakePorts::default();
@@ -30,7 +30,7 @@ async fn get_block_audit_returns_journal_entries_for_block() {
         project_id: None,
         actor: Some(UserId::from_sub("user-1")),
         payload: json!({ "role": "costume_assistant" }),
-        occurred_at: Utc::now(),
+        occurred_at: Timestamp::now(),
     });
 
     let result = get_block_audit::<FakePorts>(

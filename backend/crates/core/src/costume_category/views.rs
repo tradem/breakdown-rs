@@ -3,13 +3,12 @@
 
 //! Flat read-model DTOs for the CostumeCategory context.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, LexicalSortKey, SeasonId};
-
 /// Complete costume-category read model (season-scoped vocabulary entry).
 ///
 /// `updated_at` is sourced from the timestamp of the last applied
@@ -23,5 +22,5 @@ pub struct CostumeCategoryView {
     pub archived: bool,
     /// Aggregate version for optimistic-locking round-trips.
     pub version: AggregateVersion,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }

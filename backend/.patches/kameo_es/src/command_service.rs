@@ -7,8 +7,8 @@ use std::{
 };
 
 use anyhow::anyhow;
-use chrono::{DateTime, Utc};
 use futures::{future::BoxFuture, FutureExt};
+use jiff::Timestamp;
 use kameo::prelude::*;
 use kameo_es_core::CommandName;
 use lru::LruCache;
@@ -24,6 +24,7 @@ use crate::{
     connection_pool::ConnectionPool,
     entity_actor::{self, EntityActor, EntityTransactionActor},
     error::{parse_stream_version_string, ExecuteError, ParsedStream},
+    to_system_time,
     transaction::{self, Transaction, TransactionOutcome},
     Apply, Command, Entity, Event, EventCausation, EventType, Metadata, StreamId,
 };
@@ -341,7 +342,7 @@ pub struct AppendedEvent<E> {
     pub partition_id: u16,
     pub partition_sequence: u64,
     pub stream_version: u64,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 #[derive(Debug)]
@@ -355,7 +356,7 @@ where
     partition_key: Option<Uuid>,
     metadata: Metadata<E::Metadata>,
     expected_version: ExpectedVersion,
-    time: DateTime<Utc>,
+    time: Timestamp,
     dry_run: bool,
     executed_at: Instant,
     transaction: T,
@@ -379,7 +380,7 @@ where
                 data: None,
             },
             expected_version: ExpectedVersion::Any,
-            time: Utc::now(),
+            time: Timestamp::now(),
             dry_run: false,
             executed_at: Instant::now(),
             transaction: tx,
@@ -424,7 +425,7 @@ where
         self
     }
 
-    pub fn current_time(mut self, time: DateTime<Utc>) -> Self {
+    pub fn current_time(mut self, time: Timestamp) -> Self {
         self.time = time;
         self
     }
@@ -601,7 +602,10 @@ where
                                 .payload(payload)
                                 .metadata(metadata_buf.clone())
                                 .expected_version(self.expected_version)
-                                .timestamp(self.time.into()),
+                                .timestamp(
+                                    to_system_time(self.time)
+                                        .map_err(|_| ExecuteError::InvalidTimestamp)?,
+                                ),
                         );
                     }
 
@@ -666,7 +670,7 @@ where
     partition_key: Option<Uuid>,
     metadata: Metadata<E::Metadata>,
     expected_version: ExpectedVersion,
-    time: DateTime<Utc>,
+    time: Timestamp,
     dry_run: bool,
     executed_at: Instant,
     phantom: PhantomData<E>,

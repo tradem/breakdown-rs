@@ -6,8 +6,6 @@
 
 //! Episode projection handler: `EpisodeEvent` -> `projection_episode`.
 
-use super::PROJECTOR_VERSION;
-use super::invariant_skip::{EPISODE_NUMBER_CONSTRAINT, is_unique_violation_on};
 use breakdown_core::episode::aggregate::EpisodeAggregate;
 use breakdown_core::episode::events::EpisodeEvent;
 use breakdown_core::shared::EventMetadata;
@@ -16,6 +14,9 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Acquire, Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use super::invariant_skip::{EPISODE_NUMBER_CONSTRAINT, is_unique_violation_on};
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `EpisodeAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct EpisodeProjector;
@@ -83,7 +84,7 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
                 .bind(name)
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut *sp)
                 .await
                 {
@@ -111,7 +112,7 @@ impl<'a> EntityEventHandler<EpisodeAggregate, Transaction<'a, Postgres>> for Epi
                 .bind(id)
                 .bind(name)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }

@@ -23,6 +23,7 @@
 //! against the test process' clock.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+use jiff::SignedDuration;
 mod fixtures;
 
 use anyhow::Result;
@@ -376,10 +377,10 @@ async fn an_expired_hold_drops_the_stored_chunks() -> Result<()> {
                 model: MODEL.to_owned(),
                 reason_code: "ai-import.llm-provider-unavailable".to_owned(),
                 state: breakdown_core::ai::ProviderBreakerState::Open,
-                until: chrono::Utc::now() + chrono::Duration::minutes(5),
+                until: jiff::Timestamp::now() + SignedDuration::from_mins(5),
                 // Self-describing only; the adapter re-derives the deadline from
                 // the job's own series clock.
-                hold_deadline: chrono::Utc::now() + chrono::Duration::minutes(5),
+                hold_deadline: jiff::Timestamp::now() + SignedDuration::from_mins(5),
                 chunks_done: 2,
             },
             HOLD_WINDOW,

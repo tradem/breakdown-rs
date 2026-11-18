@@ -9,10 +9,6 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-
 use anyhow::anyhow;
 use async_trait::async_trait;
 use breakdown_core::ai::{
@@ -32,8 +28,12 @@ use breakdown_core::scene::events::SceneSource;
 use breakdown_core::season::ports::SeasonRepository;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::UserId;
-use chrono::Utc;
+use jiff::SignedDuration;
+use jiff::Timestamp;
 use reqwest::StatusCode;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use super::mapping::CachedMappings;
@@ -155,8 +155,8 @@ async fn merge_worker_empty_input_is_non_retryable() {
                 next_attempt_at: None,
                 attempts: Vec::new(),
                 max_retries: 5,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
                 telemetry: None,
                 cost: None,
                 source_file_name: None,
@@ -268,7 +268,6 @@ async fn merge_worker_success_records_telemetry() {
     use breakdown_core::scene::events::SceneSource;
     use breakdown_core::scene::views::SceneView;
     use breakdown_core::shared::{AggregateVersion, EpisodeId};
-    use chrono::TimeZone;
 
     /// Wraps the in-memory store and guarantees a ≥ 2 ms delay inside the
     /// worker's measured latency window (tokio timers never fire early, so
@@ -388,7 +387,7 @@ async fn merge_worker_success_records_telemetry() {
             assigned_characters: Vec::new(),
             outfit_beats: Vec::new(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
+            updated_at: jiff::Timestamp::UNIX_EPOCH,
             source: Some(SceneSource::Manual),
         }
     }
@@ -434,8 +433,8 @@ async fn merge_worker_success_records_telemetry() {
         next_attempt_at: None,
         attempts: Vec::new(),
         max_retries: 3,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         telemetry: None,
         cost: None,
         source_file_name: None,
@@ -607,7 +606,7 @@ struct FakeQueueState {
     /// the run's own lease renewal — the analogue of the production
     /// `apply_claim_at` column (issues #863, #911). Run-scoped progress writes
     /// deliberately do NOT re-stamp it, exactly like the adapter.
-    apply_run_claimed_at: Option<chrono::DateTime<chrono::Utc>>,
+    apply_run_claimed_at: Option<jiff::Timestamp>,
 }
 
 #[async_trait]
@@ -687,7 +686,7 @@ impl AiImportQueue for FakeQueue {
             // The claim stamps the owner-scoped claim instant, exactly like the
             // production `UPDATE` — this stamp is what ages an owner that never
             // publishes (#863).
-            state.apply_run_claimed_at = Some(chrono::Utc::now());
+            state.apply_run_claimed_at = Some(jiff::Timestamp::now());
         }
         // Park the winner so a concurrent apply is guaranteed to meet a live
         // claim (the mutex is released above: the gate must not hold it).
@@ -923,8 +922,8 @@ fn script_job(id: AiImportJobId) -> AiImportJob {
         next_attempt_at: None,
         attempts: Vec::new(),
         max_retries: 3,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         telemetry: None,
         cost: None,
         source_file_name: None,
@@ -1033,8 +1032,8 @@ fn schedule_job(format: SourceFormat) -> AiImportJob {
         next_attempt_at: None,
         attempts: Vec::new(),
         max_retries: 3,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         telemetry: None,
         cost: None,
         source_file_name: None,
@@ -2270,7 +2269,7 @@ impl ScheduleApplyFixture {
             assigned_characters: Vec::new(),
             outfit_beats: Vec::new(),
             version: breakdown_core::shared::AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             source: Some(SceneSource::Manual),
         };
         let schedule = breakdown_core::ai::ShootingSchedule {
@@ -3351,7 +3350,7 @@ impl SeasonRepository for FakeSeasonRepo {
             title: None,
             archived: self.archived.lock().unwrap().unwrap_or(false),
             version: Version::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         })
     }
 
@@ -4112,7 +4111,7 @@ fn apply_progress_frame(
     applied: u32,
     total: u32,
 ) -> breakdown_core::ai::ApplyProgress {
-    let now = chrono::Utc::now();
+    let now = jiff::Timestamp::now();
     breakdown_core::ai::ApplyProgress {
         stage: breakdown_core::ai::ApplyStage::Applying,
         applied,
@@ -4194,8 +4193,7 @@ async fn a_superseded_run_cannot_touch_the_current_runs_progress() {
 /// window, or a live run could still be classified as finished.
 #[test]
 fn apply_heartbeat_fits_inside_the_staleness_window() {
-    let window = breakdown_core::ai::ApplyProgress::STALE_AFTER
-        .to_std()
+    let window = std::time::Duration::try_from(breakdown_core::ai::ApplyProgress::STALE_AFTER)
         .expect("the staleness window is a positive duration");
     let cadence = super::workers::apply_heartbeat_interval();
     assert!(cadence > std::time::Duration::ZERO, "a heartbeat must tick");
@@ -4222,7 +4220,7 @@ async fn the_heartbeat_refreshes_a_live_runs_payload() {
     // A payload from an hour ago: without a heartbeat the stream would already
     // treat this run as finished.
     let mut payload = apply_progress_frame(run_id, 3, 9);
-    payload.updated_at = chrono::Utc::now() - chrono::Duration::hours(1);
+    payload.updated_at = jiff::Timestamp::now() - SignedDuration::from_hours(1);
     queue
         .mark_apply_progress(job, run_id, Some(&payload))
         .await
@@ -7177,8 +7175,7 @@ fn pricing_at(
         image_output_nano_per_million: None,
         image_nano_per_unit: None,
         pricing_source: source,
-        price_as_of: chrono::DateTime::from_timestamp(1_768_564_800, 0)
-            .expect("static valid timestamp"),
+        price_as_of: Timestamp::from_second(1_768_564_800).expect("static valid timestamp"),
     }
 }
 
@@ -7852,7 +7849,7 @@ async fn a_breaker_hold_keeps_the_stored_chunk_progress() {
             state: breakdown_core::ai::ProviderBreakerState::Open,
             consecutive_failures: 3,
             flap_count: 0,
-            retry_at: Some(Utc::now() + chrono::Duration::minutes(5)),
+            retry_at: Some(Timestamp::now() + SignedDuration::from_mins(5)),
         });
     }
     let previews = Arc::new(MemoryAiPreviewStore::default());
@@ -8341,7 +8338,7 @@ impl CachedScheduleFixture {
                 assigned_characters: Vec::new(),
                 outfit_beats: Vec::new(),
                 version: breakdown_core::shared::AggregateVersion::INITIAL,
-                updated_at: Utc::now(),
+                updated_at: Timestamp::now(),
                 source: Some(SceneSource::Manual),
             });
             rows.push(ShootingScheduleRow {

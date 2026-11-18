@@ -30,6 +30,8 @@
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod ai;
+// ADR-040 (issue #929): the one jiff <-> sqlx bridge for `timestamptz`/`date`.
+pub mod db_time;
 // Issue #770: dev-only data reset (maintenance binary, never an HTTP route).
 pub mod dev_reset;
 pub mod event_store;

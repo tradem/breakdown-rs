@@ -26,6 +26,33 @@ tag. Never edit a released entry afterwards.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (internal Rust API): `jiff` replaces `chrono` — `RUSTSEC-2026-0543`
+  (issue #929, ADR-040).** `chrono` is unmaintained for *every* published version
+  with no safe upgrade, it was the one *direct* workspace dependency in
+  `deny.toml`'s ignore list, and it serialized every persisted aggregate
+  timestamp. The workspace now uses `jiff` 1.x (`core` 0.73.0, `infra` 0.84.0,
+  `api` 0.70.0 — cascading MAJORs per ADR-020 D3), with `jiff-sqlx` as the
+  `timestamptz`/`date` bridge in the new `infra::db_time` module and `utoipa`'s
+  `jiff_0_2` feature for the schema side. The temporary `RUSTSEC-2026-0543`
+  ignore is **removed**: `cargo deny check advisories` is green on its own and
+  `cargo tree -i chrono` is empty.
+  `jiff` was chosen over `time` because its serde rendering is byte-identical to
+  chrono's (RFC 3339, `Z`, 0/3/6/9 fractional digits), whereas `time` would have
+  needed a hand-written RFC 3339 writer on every persisted timestamp. **No wire
+  contract moved:** persisted event payloads (CBOR) render identically,
+  `timestamptz` columns keep their native type and microsecond precision, and
+  `openapi.yaml` is byte-identical. The compat claim is a test, not a promise:
+  `pre_migration_timestamps_round_trip_byte_identically` +
+  `legacy_offset_spellings_still_replay` in
+  `crates/integration-tests/tests/event_fixture_contract_tests.rs` replay
+  pre-migration spellings through JSON **and** CBOR. The vendored `kameo_es`
+  patch moved with it (`Event::timestamp`/`Context::time` are `jiff::Timestamp`,
+  and its chrono→`SystemTime` `From` conversions became fallible helpers feeding
+  the existing `InvalidTimestamp` variants). Rationale and the four
+  byte-compatibility contracts: `docs/architecture/adrs/ADR-040-jiff-replaces-chrono.md`.
+
 ### Added
 
 - **The AI import now obeys a provider's own rate-limit wait (issue #926).** Every hosted

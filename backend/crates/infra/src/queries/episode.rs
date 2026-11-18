@@ -8,10 +8,10 @@ use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::EPISODE_NOT_FOUND;
 use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId};
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for episode projections.
 #[derive(Clone, Debug)]
 pub struct EpisodeRepositoryImpl {
@@ -130,9 +130,7 @@ fn map_episode_row(row: sqlx::postgres::PgRow) -> Result<EpisodeView, DomainErro
         number: row.try_get("number").map_err(map_err)?,
         name: row.try_get("name").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
     })
 }
 

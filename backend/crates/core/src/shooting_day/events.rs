@@ -4,12 +4,11 @@
 
 //! Events and the import-provenance source discriminator for `ShootingDay`.
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::{Timestamp, civil::Date};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::shared::{AggregateVersion, EpisodeId, LexicalSortKey, ShootingDayId};
-
 /// Provenance discriminator for how a `ShootingDay` came into existence.
 ///
 /// `Manual` is the user-created path. `AiExtracted` marks a day created by the
@@ -46,7 +45,7 @@ pub enum ShootingDayEvent {
         episode_id: EpisodeId,
         label: Option<String>,
         order_key: LexicalSortKey,
-        date: Option<NaiveDate>,
+        date: Option<Date>,
         source: ShootingDaySource,
         version: AggregateVersion,
     },
@@ -57,7 +56,7 @@ pub enum ShootingDayEvent {
     },
     ShootingDayRescheduled {
         id: ShootingDayId,
-        date: Option<NaiveDate>,
+        date: Option<Date>,
         version: AggregateVersion,
     },
     ShootingDayReordered {
@@ -75,7 +74,7 @@ pub enum ShootingDayEvent {
     /// Wrapping is idempotent and does not prevent archiving.
     ShootingDayWrapped {
         id: ShootingDayId,
-        wrapped_at: DateTime<Utc>,
+        wrapped_at: Timestamp,
         version: AggregateVersion,
     },
     /// The ShootingDay was deleted (issue #770, dev data reset). The projector

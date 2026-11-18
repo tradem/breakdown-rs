@@ -6,9 +6,9 @@
 // Co-authored-by: omen-alpha (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
+
 use std::collections::HashMap;
 use std::sync::Arc;
-
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
 use breakdown_core::block::ports::{BlockCommands, BlockRepository};
 use breakdown_core::block::views::BlockView;
@@ -72,7 +72,6 @@ use breakdown_core::shooting_day::ports::{ShootingDayCommands, ShootingDayReposi
 use breakdown_core::shooting_day::views::ShootingDayView;
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
 use async_trait::async_trait;
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::membership::commands::{
@@ -81,7 +80,7 @@ use breakdown_core::membership::commands::{
 use breakdown_core::membership::ports::{MembershipCommands, MembershipRepository};
 use breakdown_core::membership::{MembershipStateKind, MembershipView, Role};
 use breakdown_core::shared::{ProjectId, UserId};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use std::collections::HashSet;
 
 use crate::state::Ports;
@@ -406,7 +405,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 user_id,
                 role: *role,
                 state: *state,
-                joined_at: Utc::now(),
+                joined_at: Timestamp::now(),
             }));
         }
         if self
@@ -420,7 +419,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 user_id,
                 role: Role::CostumeAssistant,
                 state: MembershipStateKind::Active,
-                joined_at: Utc::now(),
+                joined_at: Timestamp::now(),
             }))
         } else {
             Ok(None)
@@ -457,7 +456,7 @@ impl MembershipRepository for FakeMembershipRepo {
                 user_id: u,
                 role,
                 state,
-                joined_at: Utc::now(),
+                joined_at: Timestamp::now(),
             })
             .collect())
     }
@@ -843,8 +842,8 @@ impl AuditRepository for FakeAuditRepo {
     }
     async fn list_by_time_range(
         &self,
-        _from: DateTime<Utc>,
-        _to: DateTime<Utc>,
+        _from: Timestamp,
+        _to: Timestamp,
         _limit: i64,
         _offset: i64,
     ) -> Result<Vec<AuditEntry>, DomainError> {

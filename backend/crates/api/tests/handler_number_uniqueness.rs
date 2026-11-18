@@ -19,8 +19,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{
     CreateBlockRequest, CreateEpisodeRequest, CreateSeasonRequest, create_block, create_episode,
@@ -34,9 +32,11 @@ use breakdown_core::block::views::BlockView;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, BlockId, ProjectId, SeasonId};
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const USER: &str = "test-user";
 
@@ -52,7 +52,7 @@ fn season_view(id: Uuid, project_id: ProjectId, number: i32) -> SeasonView {
         title: None,
         archived: false,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -65,7 +65,7 @@ fn block_view(id: Uuid, project_id: ProjectId, number: i32) -> BlockView {
         start_date: None,
         end_date: None,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -77,7 +77,7 @@ fn episode_view(id: Uuid, project_id: ProjectId, number: i32) -> EpisodeView {
         number,
         name: None,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 

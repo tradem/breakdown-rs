@@ -7,6 +7,7 @@
 
 //! `sqlx`-backed implementation of the `MembershipRepository` port.
 
+use async_trait::async_trait;
 use breakdown_core::error::DomainError;
 use breakdown_core::membership::Role;
 use breakdown_core::membership::ports::MembershipRepository;
@@ -14,8 +15,7 @@ use breakdown_core::membership::views::{MembershipStateKind, MembershipView};
 use breakdown_core::shared::{BlockId, ProjectId, SeasonId, UserId};
 use sqlx::{PgPool, Row};
 
-use async_trait::async_trait;
-
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for membership projections.
 #[derive(Clone, Debug)]
 pub struct MembershipRepositoryImpl {
@@ -333,7 +333,7 @@ fn map_membership_row(row: sqlx::postgres::PgRow) -> Result<MembershipView, Doma
         role,
         state,
         joined_at: row
-            .try_get("joined_at")
+            .get_ts("joined_at")
             .map_err(|e| DomainError::internal(e.to_string()))?,
     })
 }

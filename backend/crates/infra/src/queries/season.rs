@@ -8,10 +8,10 @@ use breakdown_core::error_registry::SEASON_NOT_FOUND;
 use breakdown_core::season::ports::SeasonRepository;
 use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{AggregateVersion, ProjectId};
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use crate::db_time::PgRowTimeExt;
 /// PostgreSQL read adapter for season projections.
 #[derive(Clone, Debug)]
 pub struct SeasonRepositoryImpl {
@@ -132,9 +132,7 @@ fn map_season_row(row: sqlx::postgres::PgRow) -> Result<SeasonView, DomainError>
         title: row.try_get("title").map_err(map_err)?,
         archived: row.try_get("archived").map_err(map_err)?,
         version: AggregateVersion(row.try_get::<i64, _>("version").map_err(map_err)? as u64),
-        updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
-            .map_err(map_err)?,
+        updated_at: row.get_ts("updated_at").map_err(map_err)?,
     })
 }
 

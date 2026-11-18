@@ -19,18 +19,15 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
-use axum::extract::State;
-use axum::http::StatusCode;
-
 use api::auth::CurrentUser;
 use api::handlers::{
-    AddNoteRequest, PlanSceneShootRequest, StartSceneShootRequest, add_scene_shoot_note,
-    plan_scene_shoot, start_scene_shoot,
+    AddNoteRequest, FinishSceneShootRequest, PlanSceneShootRequest, StartSceneShootRequest,
+    add_scene_shoot_note, plan_scene_shoot, start_scene_shoot,
 };
 use api::problems::{Json, Path};
 use api::state::AppState;
+use axum::extract::State;
+use axum::http::StatusCode;
 use breakdown_core::episode::views::EpisodeView;
 use breakdown_core::scene::events::SceneSource;
 use breakdown_core::scene::views::SceneView;
@@ -43,6 +40,8 @@ use breakdown_core::shooting_day::events::ShootingDaySource;
 use common::FakePorts;
 use uuid::Uuid;
 
+use crate::common;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -54,10 +53,7 @@ fn dummy_user() -> CurrentUser {
 }
 
 /// Seed a shooting day with the given `wrapped_at` state.
-async fn seed_day(
-    ports: &FakePorts,
-    wrapped_at: Option<chrono::DateTime<chrono::Utc>>,
-) -> ShootingDayId {
+async fn seed_day(ports: &FakePorts, wrapped_at: Option<jiff::Timestamp>) -> ShootingDayId {
     let day_id = ShootingDayId::new();
     ports.shooting_day_repo.days.lock().await.insert(
         day_id,
@@ -71,7 +67,7 @@ async fn seed_day(
             archived: false,
             wrapped_at,
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     day_id
@@ -91,7 +87,7 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
             number: 1,
             name: Some("Episode 1".into()),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
     ports.scene_repo.scenes.lock().await.insert(
@@ -111,7 +107,7 @@ async fn seed_scene_with_episode(ports: &FakePorts) -> Uuid {
             assigned_characters: Vec::new(),
             outfit_beats: Vec::new(),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
             source: Some(SceneSource::Manual),
         },
     );
@@ -140,7 +136,7 @@ async fn seed_scene_shoot(
             notes: Vec::new(),
             continuity_photo_ids: Vec::new(),
             version: AggregateVersion::INITIAL,
-            updated_at: chrono::Utc::now(),
+            updated_at: jiff::Timestamp::now(),
         },
     );
 }
@@ -152,7 +148,7 @@ async fn seed_scene_shoot(
 #[tokio::test]
 async fn wrap_then_plan_returns_201() {
     let ports = FakePorts::default();
-    let day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let day = seed_day(&ports, Some(jiff::Timestamp::now())).await;
     let scene = seed_scene_with_episode(&ports).await;
     let state = AppState::new(ports);
 
@@ -207,7 +203,7 @@ async fn plan_returns_409_when_pair_already_projected() {
 #[tokio::test]
 async fn wrap_then_start_returns_409_shooting_day_wrapped() {
     let ports = FakePorts::default();
-    let day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let day = seed_day(&ports, Some(jiff::Timestamp::now())).await;
     let scene = seed_scene_with_episode(&ports).await;
     let shoot = SceneShootId::new();
     seed_scene_shoot(&ports, shoot, scene, day).await;
@@ -240,7 +236,7 @@ async fn wrap_then_start_returns_409_shooting_day_wrapped() {
 #[tokio::test]
 async fn wrap_then_add_note_returns_409_shooting_day_wrapped() {
     let ports = FakePorts::default();
-    let day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let day = seed_day(&ports, Some(jiff::Timestamp::now())).await;
     let scene = seed_scene_with_episode(&ports).await;
     let shoot = SceneShootId::new();
     seed_scene_shoot(&ports, shoot, scene, day).await;
@@ -303,7 +299,7 @@ async fn start_on_open_day_is_not_blocked_by_the_wrap_gate() {
 #[tokio::test]
 async fn execution_via_unrelated_open_day_cannot_bypass_wrap_freeze() {
     let ports = FakePorts::default();
-    let wrapped_day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let wrapped_day = seed_day(&ports, Some(jiff::Timestamp::now())).await;
     let open_day = seed_day(&ports, None).await;
     let shoot = SceneShootId::new();
     seed_scene_shoot(&ports, shoot, Uuid::now_v7(), wrapped_day).await;
@@ -332,7 +328,7 @@ async fn execution_via_unrelated_open_day_cannot_bypass_wrap_freeze() {
 #[tokio::test]
 async fn execution_via_unrelated_wrapped_day_returns_404_not_spurious_409() {
     let ports = FakePorts::default();
-    let wrapped_day = seed_day(&ports, Some(chrono::Utc::now())).await;
+    let wrapped_day = seed_day(&ports, Some(jiff::Timestamp::now())).await;
     let open_day = seed_day(&ports, None).await;
     let shoot = SceneShootId::new();
     seed_scene_shoot(&ports, shoot, Uuid::now_v7(), open_day).await;
@@ -353,4 +349,57 @@ async fn execution_via_unrelated_wrapped_day_returns_404_not_spurious_409() {
 
     assert_eq!(problem.status, 404);
     assert_eq!(problem.code, "domain.not-found");
+}
+
+/// The request timestamps of the scene-shoot transitions are absolute instants
+/// on the aggregate, and `format: date-time` in `openapi.yaml` promises RFC 3339.
+/// Both spellings — the canonical `Z` instant the generated Flutter client
+/// emits and a numeric `±HH:MM` offset — must therefore resolve to the same UTC
+/// instant, and an out-of-range value must be a 422, never a silent
+/// `Timestamp::now()` fallback (ADR-040).
+#[test]
+fn scene_shoot_requests_parse_rfc3339_offsets_and_naive_utc_without_silent_fallback() {
+    let expected_utc: jiff::Timestamp = "2026-11-17T08:30:00Z".parse().expect("valid instant");
+
+    // 1. Omitted and explicit null both deserialize to None.
+    let omitted: StartSceneShootRequest =
+        serde_json::from_str(r#"{"version":1}"#).expect("omitted start_dt");
+    assert_eq!(omitted.start_dt, None);
+    let explicit_null: FinishSceneShootRequest =
+        serde_json::from_str(r#"{"end_dt":null,"version":1}"#).expect("null end_dt");
+    assert_eq!(explicit_null.end_dt, None);
+
+    // 2. Canonical Z instant (emitted by the generated Flutter client) works.
+    let zulu: StartSceneShootRequest =
+        serde_json::from_str(r#"{"start_dt":"2026-11-17T08:30:00Z","version":1}"#)
+            .expect("Z instant must parse");
+    assert_eq!(zulu.start_dt, Some(expected_utc));
+
+    // 3. Numeric offset is converted to UTC (10:30+02:00 == 08:30Z), never stripped.
+    let offset: StartSceneShootRequest =
+        serde_json::from_str(r#"{"start_dt":"2026-11-17T10:30:00+02:00","version":1}"#)
+            .expect("+02:00 instant must parse");
+    assert_eq!(offset.start_dt, Some(expected_utc));
+    let finish_offset: FinishSceneShootRequest =
+        serde_json::from_str(r#"{"end_dt":"2026-11-17T10:30:00+02:00","version":2}"#)
+            .expect("+02:00 end_dt must parse");
+    assert_eq!(finish_offset.end_dt, Some(expected_utc));
+
+    // 4. Legacy naive ISO 8601 without offset stays supported and pins to UTC.
+    let naive: StartSceneShootRequest =
+        serde_json::from_str(r#"{"start_dt":"2026-11-17T08:30:00","version":1}"#)
+            .expect("naive datetime must parse as UTC");
+    assert_eq!(naive.start_dt, Some(expected_utc));
+
+    // 5. Out-of-range datetimes and bare dates fail (422) instead of falling back to now().
+    for invalid in [
+        r#"{"start_dt":"9999-12-31T12:00:00","version":1}"#,
+        r#"{"start_dt":"9999-12-30T21:00:00-02:00","version":1}"#,
+        r#"{"start_dt":"2026-11-17","version":1}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<StartSceneShootRequest>(invalid).is_err(),
+            "invalid payload {invalid} must be rejected, not replaced with Timestamp::now()"
+        );
+    }
 }

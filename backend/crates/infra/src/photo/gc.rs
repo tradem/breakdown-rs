@@ -8,20 +8,20 @@
 //! projection) older than a configurable age gate. Acquires a Postgres
 //! advisory lock at sweep start so at most one sweep runs per cycle.
 
-use std::time::Duration;
-
 use anyhow::Result;
 use breakdown_core::photo::ports::{PhotoRepository, PhotoStorage};
 use breakdown_core::photo::views::PhotoGcConfig;
 use breakdown_core::shared::PhotoVariant;
-use chrono::{DateTime, Utc};
+use jiff::SignedDuration;
+use jiff::Timestamp;
 use sqlx::PgPool;
+use std::time::Duration;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::db_time::sql_ts;
 use crate::photo::repository::PhotoRepositoryImpl;
 use crate::photo::storage::OpenDalPhotoStorage;
-
 /// Build a `PhotoGcConfig` from environment variables.
 pub fn gc_config_from_env() -> PhotoGcConfig {
     let enabled = std::env::var("PHOTO_GC_ENABLED")
@@ -78,7 +78,7 @@ pub async fn run_gc_sweep(
         return Ok(());
     }
 
-    let started_at = Utc::now();
+    let started_at = Timestamp::now();
 
     // 1. Advisory lock.
     let lock_acquired: Option<bool> =
@@ -107,7 +107,7 @@ async fn try_run_sweep(
     storage: &OpenDalPhotoStorage,
     repo: &PhotoRepositoryImpl,
     config: &PhotoGcConfig,
-    started_at: DateTime<Utc>,
+    started_at: Timestamp,
 ) -> Result<()> {
     // 2. List Garage objects.
     let garage_ids = storage.list().await?;
@@ -133,7 +133,7 @@ async fn try_run_sweep(
 
     // 5-6. Filter by age gate and batch size, then delete.
     let mut orphans_deleted: i64 = 0;
-    let max_age = chrono::Duration::seconds(config.max_age_secs as i64);
+    let max_age = SignedDuration::from_secs(config.max_age_secs as i64);
 
     for photo_id in orphans.iter().take(config.batch_size as usize) {
         // Check the age of the original variant's `stored_at` metadata.
@@ -147,7 +147,7 @@ async fn try_run_sweep(
                     // Too young — skip deletion.
                     info!(
                         photo_id = %photo_id.0,
-                        age_secs = ?age.num_seconds(),
+                        age_secs = ?age.as_secs(),
                         max_age_secs = config.max_age_secs,
                         "Orphan is too young for deletion"
                     );
@@ -173,7 +173,7 @@ async fn try_run_sweep(
 
     // 7. Write history row.
     let run_id = Uuid::now_v7();
-    let finished_at = Utc::now();
+    let finished_at = Timestamp::now();
 
     sqlx::query(
         r#"
@@ -183,8 +183,8 @@ async fn try_run_sweep(
         "#,
     )
     .bind(run_id)
-    .bind(started_at)
-    .bind(finished_at)
+    .bind(sql_ts(started_at))
+    .bind(sql_ts(finished_at))
     .bind(scanned)
     .bind(orphans_found)
     .bind(orphans_deleted)

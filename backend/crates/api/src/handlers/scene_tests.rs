@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 
+
+
 use api::problems::Json;  // test-only alias for the wrapper extractor (ADR-031)
 use axum::extract::State;
 use axum::http::StatusCode;
 use breakdown_core::scene::events::SceneDetails;
 use breakdown_core::scene::views::SceneView;
 use breakdown_core::shared::{AggregateVersion, EpisodeId};
-use chrono::Utc;
 use uuid::Uuid;
 
 use super::test_helpers::*;
 use crate::handlers::{CreateSceneRequest, create_scene, get_scene};
 use crate::state::AppState;
-
 #[tokio::test]
 async fn create_scene_returns_201_with_id_and_version() {
     let state = AppState::new(FakePorts::default());
@@ -46,7 +46,7 @@ async fn get_scene_returns_view_from_repo() {
         shooting_day_ids: Vec::new(),
         assigned_characters: Vec::new(),
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
         source: Some(SceneSource::Manual),    };
     ports
         .scene_repo

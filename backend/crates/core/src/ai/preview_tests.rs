@@ -6,14 +6,11 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use chrono::{TimeZone, Utc};
 use uuid::Uuid;
 
+use super::*;
 use crate::scene::views::SceneView;
 use crate::shared::{AggregateVersion, CostumeCategoryId, EpisodeId};
-
-use super::*;
-
 fn scene(number: u32) -> SceneView {
     SceneView {
         id: Uuid::now_v7(),
@@ -30,7 +27,7 @@ fn scene(number: u32) -> SceneView {
         assigned_characters: Vec::new(),
         outfit_beats: Vec::new(),
         version: AggregateVersion::INITIAL,
-        updated_at: Utc.timestamp_opt(0, 0).single().unwrap(),
+        updated_at: jiff::Timestamp::UNIX_EPOCH,
         source: Some(SceneSource::Manual),
     }
 }

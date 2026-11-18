@@ -6,8 +6,6 @@
 
 //! Block projection handler: `BlockEvent` -> `projection_block`.
 
-use super::PROJECTOR_VERSION;
-use super::invariant_skip::{BLOCK_NUMBER_CONSTRAINT, is_unique_violation_on};
 use breakdown_core::block::aggregate::BlockAggregate;
 use breakdown_core::block::events::BlockEvent;
 use breakdown_core::shared::EventMetadata;
@@ -16,6 +14,9 @@ use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Acquire, Postgres, Transaction};
 use uuid::Uuid;
 
+use super::PROJECTOR_VERSION;
+use super::invariant_skip::{BLOCK_NUMBER_CONSTRAINT, is_unique_violation_on};
+use crate::db_time::{sql_date_opt, sql_ts};
 /// Idempotent projector for the `BlockAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct BlockProjector;
@@ -70,11 +71,11 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
                 .bind(season_id.0)
                 .bind(project_id.0)
                 .bind(number)
-                .bind(start_date)
-                .bind(end_date)
+                .bind(sql_date_opt(start_date))
+                .bind(sql_date_opt(end_date))
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut *sp)
                 .await
                 {
@@ -105,10 +106,10 @@ impl<'a> EntityEventHandler<BlockAggregate, Transaction<'a, Postgres>> for Block
                     "#,
                 )
                 .bind(id)
-                .bind(start_date)
-                .bind(end_date)
+                .bind(sql_date_opt(start_date))
+                .bind(sql_date_opt(end_date))
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }

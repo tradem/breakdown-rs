@@ -11,10 +11,9 @@ use breakdown_core::photo::binding::PhotoBinding;
 use breakdown_core::photo::ports::PhotoRepository;
 use breakdown_core::photo::views::{PhotoVariantView, PhotoView};
 use breakdown_core::shared::{AggregateVersion, PhotoId, PhotoVariant, VariantStatus};
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
-
 /// PostgreSQL read adapter for photo projections.
 #[derive(Clone, Debug)]
 pub struct PhotoRepositoryImpl {
@@ -49,7 +48,7 @@ impl PhotoRepository for PhotoRepositoryImpl {
 
         let photo_id: Uuid = row.try_get("photo_id").map_err(map_err)?;
         let version: i64 = row.try_get("version").map_err(map_err)?;
-        let exif_stripped_at: Option<DateTime<Utc>> = None; // projected from events
+        let exif_stripped_at: Option<Timestamp> = None; // projected from events
 
         // Fetch variants
         let variant_rows = sqlx::query(

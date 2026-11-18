@@ -8,13 +8,8 @@
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use anyhow::Error as AnyhowError;
-use std::collections::HashMap;
-
 pub use super::provider_health::{BREAKER_OPEN_REASON, breaker_open_error, is_breaker_open};
+use anyhow::Error as AnyhowError;
 use breakdown_core::ai::{
     AiImportBounds, AiImportChunkStore, AiImportJob, AiImportJobId, AiImportMapping,
     AiImportMappingRepository, AiImportProgress, AiImportQueue, AiImportStage,
@@ -58,6 +53,9 @@ use breakdown_core::shared::{
     ShootingDayId, UserId,
 };
 use breakdown_core::shooting_day::ports::ShootingDayCommands;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 #[cfg(test)]
 #[path = "worker_mutation_tests.rs"]
@@ -163,7 +161,7 @@ pub(crate) async fn publish_progress<Q: AiImportQueue + ?Sized>(
     // funnel every worker frame goes through: the stamp describes exactly this
     // write, so no call site can forget it and no two frames can disagree.
     let mut frame = progress.clone();
-    frame.written_at = Some(chrono::Utc::now());
+    frame.written_at = Some(jiff::Timestamp::now());
     if let Err(error) = queue.mark_progress(id, worker_id, &frame).await {
         if matches!(error, DomainError::Conflict { .. }) {
             return Err(error);
@@ -2607,8 +2605,8 @@ where
             stage: ApplyStage::Applying,
             applied: 0,
             total: u32::try_from(plan.scenes.len()).unwrap_or(u32::MAX),
-            started_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            started_at: jiff::Timestamp::now(),
+            updated_at: jiff::Timestamp::now(),
             run_id,
         };
         // At most ~20 frames for the row phase, and always the last row: a
@@ -2841,7 +2839,7 @@ where
         // carries it) would report zero completed rows for the rest of the run.
         apply_progress.applied = u32::try_from(result.applied.len()).unwrap_or(u32::MAX);
         apply_progress.stage = ApplyStage::Finalizing;
-        apply_progress.updated_at = chrono::Utc::now();
+        apply_progress.updated_at = jiff::Timestamp::now();
         progress_tx.send_replace(apply_progress.clone());
         self.publish_apply_progress(preview_id, run_id, &apply_progress)
             .await;
@@ -2933,7 +2931,7 @@ where
         progress: &ApplyProgress,
     ) {
         let mut frame = progress.clone();
-        frame.updated_at = chrono::Utc::now();
+        frame.updated_at = jiff::Timestamp::now();
         if let Err(error) = self
             .queue
             .mark_apply_progress(preview_id, run_id, Some(&frame))
@@ -4720,19 +4718,14 @@ pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
         return queue.release_claim(id, worker_id).await;
     };
     let hold = ProviderHold {
-        provider: gate.provider,
-        model: gate.model.to_string(),
-        // #822's registered code, reused: no new problem code (D-X1).
-        reason_code: "ai-import.llm-provider-unavailable".to_string(),
-        state: breaker.state,
-        until,
-        // The queue re-derives this from the job's own series clock (D-C4);
-        // this value keeps the struct self-describing.
-        hold_deadline: until
-            + chrono::Duration::seconds(
-                i64::try_from(bounds.max_provider_hold_secs).unwrap_or(i64::MAX),
-            ),
         chunks_done,
+        ..super::provider_watch::hold_for(
+            gate.provider,
+            gate.model,
+            breaker.state,
+            until,
+            bounds.max_provider_hold_secs,
+        )
     };
     queue
         .mark_held(id, worker_id, hold, bounds.max_provider_hold_secs)
@@ -5050,8 +5043,7 @@ where
 pub(super) fn apply_heartbeat_interval() -> std::time::Duration {
     // `STALE_AFTER` is a fixed positive constant, so the conversion cannot
     // fail; the fallback keeps the function panic-free regardless.
-    ApplyProgress::STALE_AFTER
-        .to_std()
+    std::time::Duration::try_from(ApplyProgress::STALE_AFTER)
         .unwrap_or(std::time::Duration::from_secs(600))
         / 4
 }
@@ -5096,7 +5088,7 @@ impl ApplyRunHeartbeat {
                 // Cloned out of the channel before the await: the guard must not
                 // be held across it.
                 let mut frame = progress.borrow_and_update().clone();
-                frame.updated_at = chrono::Utc::now();
+                frame.updated_at = jiff::Timestamp::now();
                 if let Err(error) = queue.mark_apply_progress(id, run_id, Some(&frame)).await {
                     // Advisory, exactly like every other progress write: a lost
                     // heartbeat costs a stale bar, never a broken apply.

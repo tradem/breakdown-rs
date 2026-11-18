@@ -7,8 +7,6 @@
 
 //! SceneShoot projection handler: `SceneShootEvent` -> `projection_scene_shoot`.
 
-use super::PROJECTOR_VERSION;
-use super::invariant_skip::{SCENE_SHOOT_PAIR_CONSTRAINT, is_unique_violation_on};
 use breakdown_core::scene_shoot::aggregate::SceneShootAggregate;
 use breakdown_core::scene_shoot::events::SceneShootEvent;
 use breakdown_core::shared::{EventMetadata, SceneShootId};
@@ -16,6 +14,9 @@ use kameo_es::Event;
 use kameo_es::event_handler::{EntityEventHandler, EventHandler};
 use sqlx::{Acquire, Postgres, Transaction};
 
+use super::PROJECTOR_VERSION;
+use super::invariant_skip::{SCENE_SHOOT_PAIR_CONSTRAINT, is_unique_violation_on};
+use crate::db_time::sql_ts;
 /// Idempotent projector for the `SceneShootAggregate`.
 #[derive(Clone, Default, Debug)]
 pub struct SceneShootProjector;
@@ -86,7 +87,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(status.as_str())
                 .bind(version)
                 .bind(PROJECTOR_VERSION)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut *sp)
                 .await
                 {
@@ -118,7 +119,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(planned_order.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -136,9 +137,9 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     "#,
                 )
                 .bind(id.0)
-                .bind(start_dt)
+                .bind(sql_ts(start_dt))
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -162,7 +163,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(actual_order.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -180,9 +181,9 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                     "#,
                 )
                 .bind(id.0)
-                .bind(end_dt)
+                .bind(sql_ts(end_dt))
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -197,7 +198,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 )
                 .bind(id.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -223,7 +224,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(serde_json::json!([{"id": note_id, "body": body}]).to_string())
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -256,7 +257,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(note_id.to_string())
                 .bind(&body)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -282,7 +283,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(note_id.to_string())
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -309,7 +310,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(photo_id.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }
@@ -334,7 +335,7 @@ impl<'a> EntityEventHandler<SceneShootAggregate, Transaction<'a, Postgres>>
                 .bind(id.0)
                 .bind(photo_id.0)
                 .bind(version)
-                .bind(updated_at)
+                .bind(sql_ts(updated_at))
                 .execute(&mut **ctx)
                 .await?;
             }

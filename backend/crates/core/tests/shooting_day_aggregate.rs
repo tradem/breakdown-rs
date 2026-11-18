@@ -16,6 +16,7 @@ use breakdown_core::shared::{
     AggregateVersion, EpisodeId, LexicalSortKey, ProjectId, ShootingDayId,
 };
 use breakdown_core::shooting_day::*;
+use jiff::SignedDuration;
 use kameo_es::Command;
 use test_support::make_ctx;
 
@@ -55,7 +56,7 @@ fn test_create_shooting_day_success() {
             project_id: Some(project_id()),
             label: Some("Tag 1".into()),
             order_key: LexicalSortKey::new("a").unwrap(),
-            date: Some(chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()),
+            date: Some(jiff::civil::Date::new(2026, 1, 2).unwrap()),
             source: ShootingDaySource::Manual,
         },
         make_ctx(),
@@ -94,7 +95,7 @@ fn test_rename_preserves_order_key() {
 #[test]
 fn test_reschedule_sets_and_clears_date() {
     let mut agg = create_day("a");
-    let date = chrono::NaiveDate::from_ymd_opt(2026, 3, 4).unwrap();
+    let date = jiff::civil::Date::new(2026, 3, 4).unwrap();
     let events = agg
         .handle(
             RescheduleShootingDay {
@@ -254,7 +255,7 @@ fn test_view_shape_round_trips_source() {
         archived: false,
         wrapped_at: None,
         version: AggregateVersion::INITIAL,
-        updated_at: chrono::Utc::now(),
+        updated_at: jiff::Timestamp::now(),
     };
     let json = serde_json::to_string(&manual).unwrap();
     assert!(json.contains("\"source\":{\"Manual\":null}") || json.contains("Manual"));
@@ -333,7 +334,7 @@ fn test_wrap_sets_wrapped_at() {
     match &events[0] {
         ShootingDayEvent::ShootingDayWrapped { wrapped_at, .. } => {
             // wrapped_at should be set to a recent timestamp
-            assert!(*wrapped_at > chrono::Utc::now() - chrono::TimeDelta::try_seconds(10).unwrap());
+            assert!(*wrapped_at > jiff::Timestamp::now() - SignedDuration::from_secs(10));
         }
         other => panic!("expected ShootingDayWrapped, got {other:?}"),
     }

@@ -31,6 +31,7 @@
 //! Requirements: Docker (or a compatible container runtime) and network access
 //! to pull the SierraDB image. Excluded from `cargo-mutants` (`.mutants.toml`).
 
+use jiff::Timestamp;
 mod fixtures;
 
 use std::sync::Arc;
@@ -45,7 +46,6 @@ use breakdown_core::shared::{AggregateVersion, EpisodeId, LexicalSortKey, Shooti
 use breakdown_core::shooting_day::events::{ShootingDayEvent, ShootingDaySource};
 use breakdown_core::shooting_day::ports::ShootingDayRepository as _;
 use breakdown_core::shooting_day::views::ShootingDayView;
-use chrono::Utc;
 use infra::queries::{SceneRepositoryImpl, ShootingDayRepositoryImpl};
 use uuid::Uuid;
 
@@ -69,7 +69,7 @@ async fn eappend(
     payload: &[u8],
 ) -> Result<()> {
     let mut conn = redis_client.get_multiplexed_async_connection().await?;
-    let now_ms = Utc::now().timestamp_millis().try_into().unwrap_or(0u64);
+    let now_ms = Timestamp::now().as_millisecond().try_into().unwrap_or(0u64);
     let _: redis::Value = redis::cmd("EAPPEND")
         .arg(stream_id)
         .arg(event_type)
@@ -264,7 +264,11 @@ async fn eappend_shooting_day_created_round_trips_into_list() -> Result<()> {
         episode_id,
         label: Some("Day 1 — Penthouse".into()),
         order_key: LexicalSortKey("a".into()),
-        date: Some(Utc::now().date_naive()),
+        date: Some(
+            Timestamp::now()
+                .to_zoned_datetime(jiff::tz::TimeZone::UTC)
+                .date(),
+        ),
         source: ShootingDaySource::Manual,
         version: AggregateVersion::INITIAL,
     };
@@ -359,7 +363,11 @@ async fn eappend_schedule_scene_links_join_and_reverse_query() -> Result<()> {
         episode_id,
         label: Some("Day 2 — Rooftop".into()),
         order_key: LexicalSortKey("b".into()),
-        date: Some(Utc::now().date_naive()),
+        date: Some(
+            Timestamp::now()
+                .to_zoned_datetime(jiff::tz::TimeZone::UTC)
+                .date(),
+        ),
         source: ShootingDaySource::Manual,
         version: AggregateVersion::INITIAL,
     };
@@ -471,7 +479,11 @@ async fn eappend_archive_while_referenced_hides_from_picker_keeps_link() -> Resu
         episode_id,
         label: Some("Day 9 — Studio".into()),
         order_key: LexicalSortKey("m".into()),
-        date: Some(Utc::now().date_naive()),
+        date: Some(
+            Timestamp::now()
+                .to_zoned_datetime(jiff::tz::TimeZone::UTC)
+                .date(),
+        ),
         source: ShootingDaySource::Manual,
         version: AggregateVersion::INITIAL,
     };

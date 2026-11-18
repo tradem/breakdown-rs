@@ -22,8 +22,6 @@
     clippy::dbg_macro
 )]
 
-use crate::common;
-
 use api::auth::CurrentUser;
 use api::handlers::{
     CreatePieceRequest, PhotoBytesQuery, create_piece, delete_piece_photo, get_piece_photo_bytes,
@@ -45,9 +43,11 @@ use breakdown_core::season::views::SeasonView;
 use breakdown_core::shared::{
     AggregateVersion, BlockId, PhotoId, PhotoVariant, ProjectId, SeasonId, UserId,
 };
-use chrono::Utc;
 use common::FakePorts;
+use jiff::Timestamp;
 use uuid::Uuid;
+
+use crate::common;
 
 const USER: &str = "test-user";
 
@@ -64,7 +64,7 @@ fn block_view(id: Uuid, season_id: SeasonId, project_id: ProjectId) -> BlockView
         start_date: None,
         end_date: None,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -187,7 +187,7 @@ async fn seed_repertoire_piece_with_series(
             details: vec![],
             photos: vec![],
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             season_ids: vec![],
         },
     );
@@ -208,7 +208,7 @@ async fn seed_repertoire_piece_with_series(
                 title: None,
                 archived: false,
                 version: AggregateVersion::INITIAL,
-                updated_at: Utc::now(),
+                updated_at: Timestamp::now(),
             },
         );
     }
@@ -263,7 +263,7 @@ async fn seed_scoped_piece(
             measurements: breakdown_core::character::events::CharacterMeasurements::default(),
             contact: breakdown_core::character::events::ContactInfo::default(),
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         },
     );
     ports.piece_repo.pieces.lock().await.insert(
@@ -277,7 +277,7 @@ async fn seed_scoped_piece(
             details: vec![],
             photos: vec![],
             version: AggregateVersion::INITIAL,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             season_ids: vec![],
         },
     );
@@ -294,7 +294,7 @@ async fn seed_scoped_piece(
         title: None,
         archived: false,
         version: AggregateVersion::INITIAL,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     };
     ports
         .season_repo
@@ -312,7 +312,7 @@ async fn seed_scoped_piece(
                 title: None,
                 archived: false,
                 version: AggregateVersion::INITIAL,
-                updated_at: Utc::now(),
+                updated_at: Timestamp::now(),
             },
         );
     }

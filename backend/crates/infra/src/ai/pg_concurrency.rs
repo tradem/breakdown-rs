@@ -42,16 +42,16 @@
 //! Neither mechanism can double-free: release, drop-reclaim and lease-reclaim
 //! are all `DELETE ... WHERE id = $1`, which is idempotent by construction.
 
+use breakdown_core::error::DomainError;
+use jiff::Timestamp;
+use sqlx::PgPool;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-
-use breakdown_core::error::DomainError;
-use chrono::{DateTime, Utc};
-use sqlx::PgPool;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
 
+use crate::db_time::{SqlTimestamp, ts};
 /// How many renewals fit in one lease window (two spare renewals absorb a
 /// transient database blip), mirroring [`super::heartbeat`].
 const RENEWALS_PER_LEASE: u32 = 3;
@@ -532,8 +532,8 @@ impl PgAiConcurrencyPermit {
     /// "capacity at risk" without reading the table directly. The value comes
     /// from the database, so it is comparable with other deadlines regardless
     /// of the caller's clock.
-    pub async fn deadline(&self) -> Result<Option<DateTime<Utc>>, DomainError> {
-        sqlx::query_scalar(
+    pub async fn deadline(&self) -> Result<Option<Timestamp>, DomainError> {
+        sqlx::query_scalar::<_, Option<SqlTimestamp>>(
             r#"
             SELECT expires_at FROM ai_import.concurrency_permit WHERE id = $1
             "#,
@@ -542,6 +542,7 @@ impl PgAiConcurrencyPermit {
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx_error)
+        .map(|deadline| deadline.flatten().map(ts))
     }
 
     /// Return the capacity. Idempotent: the row is deleted by id, and the drop
