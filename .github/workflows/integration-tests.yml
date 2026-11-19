@@ -357,9 +357,16 @@ jobs:
           #
           # Note: --test <name> flags go BEFORE the first -- (Cargo option);
           # --nocapture goes AFTER -- (test runner option).
+          #
+          # `ai_import_provider_breaker` is listed explicitly because a test file
+          # that no `--test` list names never runs in CI at all — the exclusive
+          # list is the only thing that decides. It holds the durable-breaker
+          # contract (claim filter, holds, trial token, probe leases) and was
+          # green only in local runs until it was added here.
           cargo test -p integration-tests \
             --test ai_concurrency_permit_cancellation \
             --test ai_import_permit_reconciliation \
+            --test ai_import_provider_breaker \
             --test ai_import_queue_lease \
             --test ai_payload_gc_cleanup_state \
             -- \
