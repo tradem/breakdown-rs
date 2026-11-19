@@ -1107,10 +1107,19 @@ pub fn classify_http_status_with_detail(status: StatusCode, detail: &str) -> Dom
 /// A hint never changes the classification: the variant, code, status and
 /// retryability are identical to the hint-less call. The **verdict** does, and
 /// only for a `429`: [`RateLimitVerdict::QuotaExhausted`] produces the terminal
-/// [`DomainError::llm_provider_quota_exhausted`], which keeps the registered
-/// provider code (#822 D-X1) but does not retry. A `5xx` that happens to carry a
+/// [`DomainError::llm_provider_quota_exhausted`]. A `5xx` that happens to carry a
 /// quota-looking body stays retryable — the evidence table is a `429` fact, and a
 /// gateway error page must never dead-letter a job.
+///
+/// Since issue #942 W3 the same terminal verdict is produced by an upstream
+/// `402 Payment Required`, which is the shape EURouter's budget/spend cap
+/// actually takes (`quota_markers` is deliberately empty for it): a `402` is not
+/// a burst and not a validation problem, it is an empty account. It previously
+/// fell through to `RetryClass::Rejected` → `DomainError::validation`, so the
+/// app rendered "invalid request" for a top-up. It is **terminal**
+/// (`is_retryable() == false`) and therefore dead-letters immediately without
+/// touching the deployment-wide `(provider, model)` breaker (#927's invariant,
+/// `provider_gate_tests::a_quota_exhausted_provider_failure_is_terminal_*`).
 pub fn classify_http_status_rich(
     status: StatusCode,
     detail: &str,
@@ -1138,6 +1147,16 @@ pub fn classify_http_status_rich(
     {
         return DomainError::llm_provider_quota_exhausted(format!(
             "LLM provider returned HTTP {status} with no quota left ({marker}){suffix}"
+        ));
+    }
+    // Issue #942 W3: `402 Payment Required` is an exhausted account, not a
+    // malformed request. It is classified BEFORE the generic retry core for the
+    // same reason as the quota `429` above: a client must branch on the code
+    // (ADR-031 D2), and `domain.validation` told the user their request was
+    // wrong when their wallet was empty.
+    if status == StatusCode::PAYMENT_REQUIRED {
+        return DomainError::llm_provider_quota_exhausted(format!(
+            "LLM provider returned HTTP {status} — no budget or credit left{suffix}"
         ));
     }
     // The classification itself is the shared retry core's (issue #925); the

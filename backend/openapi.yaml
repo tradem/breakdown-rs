@@ -11699,6 +11699,11 @@ x-code-registry:
   status: 503
   title: AI provider unavailable
   type: https://docs.breakdown.example/problems/ai-import.llm-provider-unavailable
+- code: ai-import.provider-quota-exhausted
+  extensions: []
+  status: 402
+  title: AI provider quota exhausted
+  type: https://docs.breakdown.example/problems/ai-import.provider-quota-exhausted
 - code: ai-import.job-not-deletable
   extensions: []
   status: 409

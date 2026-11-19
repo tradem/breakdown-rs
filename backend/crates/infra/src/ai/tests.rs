@@ -591,6 +591,9 @@ struct FakeQueueState {
     progress: Vec<breakdown_core::ai::AiImportProgress>,
     /// Every hold the worker materialized (issue #871, D-A4).
     holds: Vec<breakdown_core::ai::ProviderHold>,
+    /// The evidence carried by each hold, index-aligned with `holds` (issue
+    /// #942 W2: a hold must never arrive without a reason).
+    hold_evidence: Vec<Option<breakdown_core::ai::HoldEvidence>>,
     /// The breaker verdict this fake reports for every pair. `None` is the
     /// `closed` default, which is what keeps every pre-#871 test on the path it
     /// was written for (claim admitted, hold released).
@@ -774,7 +777,15 @@ impl AiImportQueue for FakeQueue {
         worker_id: &str,
         hold: breakdown_core::ai::ProviderHold,
         _hold_window_secs: u64,
+        evidence: Option<&breakdown_core::ai::HoldEvidence>,
     ) -> Result<(), DomainError> {
+        // Issue #942 W2: the fake keeps the evidence next to the hold so a test
+        // can assert that a hold never arrives without a reason.
+        self.state
+            .lock()
+            .unwrap()
+            .hold_evidence
+            .push(evidence.cloned());
         self.state.lock().unwrap().holds.push(hold);
         // The port's default is the honest fallback for a backend without a
         // durable breaker; keep it so a held job stays claimable here too.
@@ -7850,6 +7861,7 @@ async fn a_breaker_hold_keeps_the_stored_chunk_progress() {
             consecutive_failures: 3,
             flap_count: 0,
             retry_at: Some(Timestamp::now() + SignedDuration::from_mins(5)),
+            trial_job: None,
         });
     }
     let previews = Arc::new(MemoryAiPreviewStore::default());

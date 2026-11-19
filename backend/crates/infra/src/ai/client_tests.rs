@@ -809,8 +809,47 @@ fn only_json_values_are_evidence_never_keys() {
     );
 }
 
+/// Issue #942 W3: EURouter's budget/spend cap arrives as `402 Payment Required`
+/// (its `429` is plan RPM, which is why its marker table is empty). Before this
+/// it fell through to `RetryClass::Rejected` → `DomainError::validation`, so the
+/// job dead-lettered with `domain.validation` and the app told the user their
+/// request was malformed instead of that the account needs a top-up.
 #[test]
-fn a_quota_verdict_is_terminal_and_keeps_the_registered_provider_code() {
+fn a_payment_required_status_is_a_terminal_quota_verdict_not_a_validation_error() {
+    let error = classify_http_status_rich(
+        StatusCode::PAYMENT_REQUIRED,
+        r#"{"error":{"message":"Insufficient credit","code":402}}"#,
+        None,
+        RateLimitVerdict::RateLimited,
+    );
+
+    assert!(
+        matches!(
+            error,
+            breakdown_core::error::DomainError::LlmProviderQuotaExhausted { .. }
+        ),
+        "a 402 is an empty account, not a malformed request: {error:?}"
+    );
+    assert_eq!(error.code().code, "ai-import.provider-quota-exhausted");
+    assert_eq!(error.code().status, 402);
+    assert!(
+        !error.is_retryable(),
+        "nothing about the request may spend the retry budget on an empty account"
+    );
+    assert_eq!(
+        error.retry_after(),
+        None,
+        "a terminal failure has nothing to schedule"
+    );
+    let narrative = error.to_string();
+    assert!(
+        narrative.contains("402"),
+        "the attempt row must name the status that fired: {narrative}"
+    );
+}
+
+#[test]
+fn a_quota_verdict_is_terminal_and_renders_the_dedicated_quota_code() {
     let error = classify_http_status_rich(
         StatusCode::TOO_MANY_REQUESTS,
         OPENAI_QUOTA_BODY,
@@ -827,8 +866,15 @@ fn a_quota_verdict_is_terminal_and_keeps_the_registered_provider_code() {
         ),
         "a quota exhaustion is terminal, not a hint-bearing outage: {error:?}"
     );
-    // #822 D-X1: the client aggregates this code, so it must not change.
-    assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
+    // Issue #942 W3: the exhausted-account code, deliberately NOT the outage
+    // code — the client branches on `code` alone (ADR-031 D2), and sharing it
+    // made a top-up render as "provider unreachable".
+    assert_eq!(error.code().code, "ai-import.provider-quota-exhausted");
+    assert_ne!(
+        error.code().code,
+        "ai-import.llm-provider-unavailable",
+        "an exhausted quota is not an outage (issue #942 W3)"
+    );
     assert!(!error.is_retryable());
     // No scheduler may wait for a job that is about to dead-letter.
     assert_eq!(error.retry_after(), None);
@@ -895,6 +941,8 @@ fn an_incomplete_body_read_is_retryable_even_with_quota_evidence() {
 
 #[test]
 fn the_quota_verdict_applies_to_429_only() {
+    // The VERDICT (parsed quota evidence) narrows a `429` only; a plain `402` is
+    // handled separately and terminally (`a_payment_required_status_is_a_…`).
     // A 5xx that happens to carry a quota-looking body is a gateway fault, not
     // an account verdict: it must keep its retryable classification.
     for status in [

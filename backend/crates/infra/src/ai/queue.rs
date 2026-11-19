@@ -11,9 +11,9 @@ use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
     ApplyRunState, BreakerCounters, BreakerDecision, CostBreakdown, DecisionTelemetry,
-    DocumentKind, JobStatus, JobTelemetrySummary, LlmProvider, ProviderBreakerSnapshot,
-    ProviderBreakerState, ProviderHold, ProviderOutcome, SourceFormat, TargetAttachOutcome,
-    Telemetry, mapping_kind,
+    DocumentKind, HoldEvidence, JobStatus, JobTelemetrySummary, LlmProvider,
+    ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold, ProviderOutcome, SourceFormat,
+    TargetAttachOutcome, Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_IMPORT_APPLY_IN_FLIGHT;
@@ -275,13 +275,25 @@ impl PgAiImportQueue {
                 SELECT attempt.*,
                        row_number() OVER (
                            PARTITION BY attempt.job_id
-                           ORDER BY attempt.attempt_no DESC
+                           -- Issue #942 W2 follow-up: `attempt_no` alone is not a
+                           -- chronological key. A hold numbers its row
+                           -- `retries + 1` without consuming a retry, so a later
+                           -- `mark_failed` reuses the same number — the tie must
+                           -- be broken chronologically, or the history limit can
+                           -- drop the newer evidence and mis-order the pair.
+                           -- `id` (UUIDv7) is the final, fully deterministic
+                           -- tiebreak for two rows written in the same
+                           -- microsecond.
+                           ORDER BY attempt.attempt_no DESC,
+                                    attempt.created_at DESC,
+                                    attempt.id DESC
                        ) AS rank_in_job
                 FROM ai_import.ai_import_job_attempt AS attempt
                 WHERE attempt.job_id = ANY($1)
             ) AS ranked
             WHERE ranked.rank_in_job <= $2
-            ORDER BY ranked.job_id, ranked.attempt_no DESC
+            ORDER BY ranked.job_id, ranked.attempt_no DESC, ranked.created_at DESC,
+                     ranked.id DESC
             "#,
         )
         .bind(&jobs)
@@ -513,6 +525,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -594,6 +617,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -679,6 +713,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -758,6 +803,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -1183,6 +1239,7 @@ impl AiImportQueue for PgAiImportQueue {
                     updated_at = now()
                 WHERE id = $1 AND status = 'running' AND worker_id = $2
                 RETURNING id, retries, status, last_error,
+                    breaker_provider, breaker_model,
                     pg_notify('ai_import_job_events', id::text)
             ),
             -- Issue #871 (D-B1): only the TERMINAL branch drops the chunk rows. A
@@ -1191,6 +1248,26 @@ impl AiImportQueue for PgAiImportQueue {
             cleared AS (
                 DELETE FROM ai_import.ai_import_job_chunk
                 WHERE job_id IN (SELECT id FROM updated WHERE status = 'dead_letter')
+            ),
+            -- Issue #942 W1 follow-up: a trial token consumed by a TERMINAL
+            -- failure must be released here, in the same statement that ends the
+            -- job. A revoked key or an exhausted quota is a PERMANENT failure, so
+            -- it never touches the breaker's counters (D-A1), and the row stays
+            -- `half_open` holding a token that names a dead job: `begin_provider_trial`
+            -- only grants when `trial_job_id IS NULL`, so no other held job of the
+            -- pair could ever run a trial again. Clearing the token changes no
+            -- counter, and `retry_at` is left alone, so the pair still costs at
+            -- most one paid call per window. Fenced on the failing job's id: a
+            -- different holder is never cleared.
+            released AS (
+                UPDATE ai_import.provider_health AS ph
+                SET trial_job_id = NULL,
+                    updated_at = now()
+                FROM updated
+                WHERE updated.status = 'dead_letter'
+                  AND ph.provider = updated.breaker_provider
+                  AND ph.model = updated.breaker_model
+                  AND ph.trial_job_id = updated.id
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)
@@ -1254,12 +1331,26 @@ impl AiImportQueue for PgAiImportQueue {
                     updated_at = now()
                 WHERE id = $1 AND status = 'running' AND worker_id = $2
                 RETURNING id, retries, status, last_error,
+                    breaker_provider, breaker_model,
                     pg_notify('ai_import_job_events', id::text)
             ),
             -- Issue #871 (D-B1): terminal, so the chunk rows go with it.
             cleared AS (
                 DELETE FROM ai_import.ai_import_job_chunk
                 WHERE job_id IN (SELECT id FROM updated)
+            ),
+            -- Issue #942 W1 follow-up: this is the second TERMINAL write, so it
+            -- releases the half-open trial token for the same reason `mark_failed`
+            -- does — a token on a terminal job blocks every later trial of the
+            -- pair. Fenced on the job's own id.
+            released AS (
+                UPDATE ai_import.provider_health AS ph
+                SET trial_job_id = NULL,
+                    updated_at = now()
+                FROM updated
+                WHERE ph.provider = updated.breaker_provider
+                  AND ph.model = updated.breaker_model
+                  AND ph.trial_job_id = updated.id
             )
             INSERT INTO ai_import.ai_import_job_attempt
                 (id, job_id, attempt_no, status, error_summary, error_code, retryable)
@@ -1290,8 +1381,14 @@ impl AiImportQueue for PgAiImportQueue {
     ///
     /// * `retries` is untouched — the budget must not be consumed by an attempt
     ///   that never reached the provider;
-    /// * no `ai_import_job_attempt` row is appended — the history must not fill
-    ///   with identical rows;
+    /// * **at most one** `ai_import_job_attempt` row is appended per hold
+    ///   *series* (issue #942 W2): the first hold of a series records the bounded
+    ///   failure narrative in `error_summary` and its registered code in
+    ///   `error_code`, and every re-hold of the same series appends nothing. That
+    ///   is the difference between "the history does not fill with identical
+    ///   rows" and "the history is empty": before #942 a held job carried only a
+    ///   problem code, so the single most common real provider state had zero
+    ///   diagnosable evidence in the database;
     /// * `next_attempt_at` is the breaker's probe time, not the per-job backoff,
     ///   so the whole fleet re-probes at one instant (D-C3).
     ///
@@ -1310,9 +1407,53 @@ impl AiImportQueue for PgAiImportQueue {
         worker_id: &str,
         hold: ProviderHold,
         hold_window_secs: u64,
+        evidence: Option<&HoldEvidence>,
     ) -> Result<(), DomainError> {
+        // Issue #942 W2: the narrative the operator needs. A hold whose caller
+        // had no first-hand failure (the breaker was already open when the
+        // attempt looked) still records WHY it is parked — a held row with an
+        // empty summary is what made this invisible in the first place.
+        let fallback = HoldEvidence {
+            summary: format!(
+                "no paid call was started: the provider breaker for {} / {} is {} until {}",
+                hold.provider.as_str(),
+                hold.model,
+                hold.state.as_str(),
+                hold.until
+            ),
+            code: Some(hold.reason_code.clone()),
+        };
+        let evidence = evidence.unwrap_or(&fallback);
+        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        // Issue #942 W2 follow-up: whether THIS write starts a hold series must be
+        // read in its own statement. A `before` CTE inside the writing statement
+        // cannot answer it: every query of one statement shares the transaction's
+        // view, so once the `held` UPDATE has run, the same statement's read sees
+        // the NEW clock and "starts the series" is false forever — the attempt row
+        // was never written at all (caught by
+        // `mark_held_charges_no_retry_and_records_one_attempt_row_per_hold_series`).
+        //
+        // `FOR UPDATE` locks the row across the two statements, so the clock cannot
+        // move between the read and the write even if another writer tried.
+        let starts_series: Option<bool> = sqlx::query_scalar(
+            r#"
+            SELECT provider_hold_series_started_at IS NULL
+            FROM ai_import.ai_import_job
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx_error)?;
+        // No owned running row: the UPDATE below reports it and `ensure_claim_owned`
+        // turns it into the established conflict.
+        let starts_series = starts_series.unwrap_or(false);
         let result = sqlx::query(
             r#"
+            WITH held AS (
             UPDATE ai_import.ai_import_job
             SET status = 'failed',
                 next_attempt_at = $4,
@@ -1338,7 +1479,31 @@ impl AiImportQueue for PgAiImportQueue {
                 permit_id = NULL,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
-            RETURNING pg_notify('ai_import_job_events', id::text)
+            RETURNING id
+            ),
+            -- Issue #942 W2: ONE attempt row per hold SERIES. `$10` is the series
+            -- clock as it was BEFORE this write (read above, under the row lock), so
+            -- the row is appended exactly when this write starts the series — a
+            -- re-hold of the same series appends nothing, which is what keeps the
+            -- history free of identical rows while retries stays untouched.
+            --
+            -- `attempt_no` is `retries + 1`, the same numbering
+            -- `mark_payload_unavailable` uses for a transition that leaves
+            -- `retries` alone: it is the attempt that discovered the outage.
+            -- `retryable` is TRUE — a hold is resumable, unlike a dead letter.
+            recorded AS (
+                INSERT INTO ai_import.ai_import_job_attempt
+                    (id, job_id, attempt_no, status, error_summary, error_code, retryable)
+                -- `LEFT` bounds the narrative here, not only at the caller:
+                -- `mark_held` is a public port method, so the SQL must be safe on
+                -- its own (the same `LEFT(…, 1000)` the job row's `last_error`
+                -- gets).
+                SELECT $7, held.id, job.retries + 1, 'failed', LEFT($8, 1000), $9, TRUE
+                FROM held
+                JOIN ai_import.ai_import_job AS job ON job.id = held.id
+                WHERE $10
+            )
+            SELECT pg_notify('ai_import_job_events', id::text) FROM held
             "#,
         )
         .bind(id.as_uuid())
@@ -1349,10 +1514,20 @@ impl AiImportQueue for PgAiImportQueue {
             DomainError::validation(format!("provider hold is not serializable: {error}"))
         })?)
         .bind(i64::try_from(hold_window_secs).unwrap_or(i64::MAX))
-        .execute(&self.pool)
+        .bind(Uuid::now_v7())
+        // The narrative is bounded at the source (`classify_http_status_rich`
+        // caps the provider detail at 400 chars) AND bounded again by the
+        // `LEFT($8, 1000)` in the insert above, mirroring `mark_failed`'s reason
+        // column so no call site — including an out-of-tree implementation of the
+        // port — can persist an unbounded body.
+        .bind(&evidence.summary)
+        .bind(evidence.code.as_deref())
+        .bind(starts_series)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx_error)?;
         ensure_claim_owned(result.rows_affected(), id, worker_id, "hold")?;
+        tx.commit().await.map_err(map_sqlx_error)?;
         self.hub.notify(id);
         Ok(())
     }
@@ -1437,6 +1612,13 @@ impl AiImportQueue for PgAiImportQueue {
     /// A held row follows the breaker: without this its `until` would show a
     /// resume time that has already passed while the claim predicate — which
     /// reads the breaker, not the job — keeps it unclaimable.
+    ///
+    /// The half-open **trial holder is excluded** (issue #942 W1 follow-up).
+    /// `run_probes` grants the trial and then still owns a `retry_at`, so this
+    /// refresh runs in the same tick and would push the freshly granted holder
+    /// back to `now + min_open(flap_count)` — the token would then be consumed
+    /// only after a whole open window, which is indistinguishable from no grant
+    /// at all. The other held rows of the pair keep following the breaker.
     async fn refresh_held_jobs(
         &self,
         provider: LlmProvider,
@@ -1459,6 +1641,14 @@ impl AiImportQueue for PgAiImportQueue {
               -- An EXPIRED marker is terminal: it must never be revived by a
               -- later probe failure (D-C4).
               AND COALESCE(provider_hold ->> 'state', '') <> 'expired'
+              -- Issue #942 W1 follow-up: never delay the half-open trial holder,
+              -- or the trial granted in this very tick waits for the next open
+              -- window instead of running now.
+              AND NOT EXISTS (
+                  SELECT 1 FROM ai_import.provider_health ph
+                  WHERE ph.provider = $1 AND ph.model = $2
+                    AND ph.trial_job_id = ai_import.ai_import_job.id
+              )
             RETURNING id, pg_notify('ai_import_job_events', id::text)
             "#,
         )
@@ -1733,7 +1923,7 @@ impl AiImportQueue for PgAiImportQueue {
     ) -> Result<ProviderBreakerSnapshot, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT state, consecutive_failures, flap_count, retry_at
+            SELECT state, consecutive_failures, flap_count, retry_at, trial_job_id
             FROM ai_import.provider_health
             WHERE provider = $1 AND model = $2
             "#,
@@ -1765,6 +1955,9 @@ impl AiImportQueue for PgAiImportQueue {
             )
             .unwrap_or(0),
             retry_at: row.get_ts_opt("retry_at").map_err(map_sqlx_error)?,
+            trial_job: row
+                .try_get::<Option<Uuid>, _>("trial_job_id")
+                .map_err(map_sqlx_error)?,
         })
     }
 
@@ -2431,7 +2624,11 @@ impl AiImportQueue for PgAiImportQueue {
             SELECT attempt_no, status, error_summary, error_code, retryable, created_at
             FROM ai_import.ai_import_job_attempt
             WHERE job_id = $1
-            ORDER BY attempt_no DESC
+            -- Issue #942 W2 follow-up: `attempt_no` is not unique per job (a hold
+            -- numbers its row `retries + 1` without charging a retry, so the next
+            -- failure reuses that number), so the chronological columns decide the
+            -- order of a tie — the same key the jobs-list read uses.
+            ORDER BY attempt_no DESC, created_at DESC, id DESC
             LIMIT $2
             "#,
         )

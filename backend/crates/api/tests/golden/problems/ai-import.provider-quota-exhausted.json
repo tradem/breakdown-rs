@@ -1,0 +1,7 @@
+{
+  "code": "ai-import.provider-quota-exhausted",
+  "detail": "Das Guthaben bzw. Kontingent Ihres KI-Anbieters ist aufgebraucht. Das liegt nicht an Ihrem Dokument – laden Sie Guthaben nach oder wechseln Sie in den Einstellungen zu einem anderen Anbieter. Automatische Wiederholungen helfen hier nicht.",
+  "status": 402,
+  "title": "AI provider quota exhausted",
+  "type": "https://docs.breakdown.example/problems/ai-import.provider-quota-exhausted"
+}

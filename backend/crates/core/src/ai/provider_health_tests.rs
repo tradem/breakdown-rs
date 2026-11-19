@@ -187,8 +187,15 @@ fn failed_probe_reopens_without_flapping() {
     assert!(!decision.closed);
 }
 
+/// Issue #942 W1 (AC1b): a passing preflight must **not** close the breaker.
+///
+/// The live evidence: `GET /key` answers `200` in 0.2 s while the very same
+/// model's `POST /chat/completions` stalls at 120 s. Closing on that `200`
+/// released the whole fleet into another `3 × 120 s` round and pushed
+/// `flap_count` to 3 in 30 minutes. The preflight now only opens the
+/// single-trial door; a real paid call is what closes (`on_success`).
 #[test]
-fn successful_probe_closes() {
+fn a_passing_preflight_opens_the_trial_door_without_closing() {
     let counters = BreakerCounters {
         state: ProviderBreakerState::HalfOpen,
         consecutive_failures: 3,
@@ -196,9 +203,60 @@ fn successful_probe_closes() {
         closed_at: None,
         retry_at: None,
     };
-    let decision = on_probe_success(counters);
-    assert_eq!(decision.state, ProviderBreakerState::Closed);
-    assert!(decision.closed);
+    let decision = on_probe_success(counters, now());
+    assert_eq!(
+        decision.state,
+        ProviderBreakerState::HalfOpen,
+        "a metadata 200 proves the account, not the (provider, model) chat path"
+    );
+    assert!(decision.trial_due, "exactly one trial must be granted");
+    assert!(
+        !decision.closed,
+        "only a real paid call may close the breaker"
+    );
+    assert!(
+        decision.retry_at.is_some(),
+        "the trial window must be armed, so a hung trial cannot wedge half_open"
+    );
+    // The escalation survives the preflight: the window is re-armed from the
+    // pair's own flap history, not reset to the first 60 s window.
+    assert_eq!(decision.flap_count, 1);
+
+    // The contract in one place: `on_success` is the only closer.
+    let closed = on_success(counters);
+    assert_eq!(closed.state, ProviderBreakerState::Closed);
+    assert!(closed.closed);
+    assert!(!closed.trial_due);
+}
+
+/// A **failed trial** is a flap: the preflight explicitly cleared the endpoint
+/// and the paid call still failed, so the window escalates instead of re-arming
+/// the first window forever (issue #942 W1, anti-flap).
+#[test]
+fn a_failed_trial_escalates_the_open_window() {
+    let counters = BreakerCounters {
+        state: ProviderBreakerState::HalfOpen,
+        consecutive_failures: 3,
+        flap_count: 1,
+        closed_at: None,
+        retry_at: None,
+    };
+    let decision = on_retryable_failure(counters, 3, now(), None);
+    assert_eq!(decision.state, ProviderBreakerState::Open);
+    assert!(
+        decision.opened,
+        "the fleet must re-arm the hold immediately"
+    );
+    assert_eq!(
+        decision.flap_count, 2,
+        "a paid call failing right after a passing preflight is a new incident"
+    );
+    assert_eq!(
+        decision.retry_at,
+        Some(now() + SignedDuration::from_secs(BASE_OPEN_SECS * 4)),
+        "the window is the escalated one, not the base window"
+    );
+    assert!(!decision.trial_due, "a reopened breaker grants no trial");
 }
 
 #[test]
@@ -213,22 +271,40 @@ fn flapping_provider_settles_at_the_cap() {
         let opened = on_retryable_failure(counters, 1, now(), None);
         assert_eq!(opened.state, ProviderBreakerState::Open);
         windows.push((opened.retry_at.unwrap_or_default() - now()).as_secs());
-        // The probe answers: closes, keeping the flap count.
-        let closed_again = on_probe_success(BreakerCounters {
-            state: ProviderBreakerState::HalfOpen,
-            consecutive_failures: opened.consecutive_failures,
-            flap_count: opened.flap_count,
-            closed_at: None,
-            retry_at: None,
-        });
-        assert_eq!(closed_again.state, ProviderBreakerState::Closed);
-        // It fails again within the stable window.
+        // The preflight passes — it opens the trial door but never closes
+        // (issue #942 W1) …
+        let trial = on_probe_success(
+            BreakerCounters {
+                state: ProviderBreakerState::HalfOpen,
+                consecutive_failures: opened.consecutive_failures,
+                flap_count: opened.flap_count,
+                closed_at: None,
+                retry_at: opened.retry_at,
+            },
+            now(),
+        );
+        assert_eq!(trial.state, ProviderBreakerState::HalfOpen);
+        assert!(trial.trial_due);
+        // … and the single trial call fails, which is a flap.
+        let reopened = on_retryable_failure(
+            BreakerCounters {
+                state: trial.state,
+                consecutive_failures: trial.consecutive_failures,
+                flap_count: trial.flap_count,
+                closed_at: None,
+                retry_at: trial.retry_at,
+            },
+            1,
+            now(),
+            None,
+        );
+        assert_eq!(reopened.state, ProviderBreakerState::Open);
         counters = BreakerCounters {
-            state: ProviderBreakerState::Closed,
-            consecutive_failures: 0,
-            flap_count: closed_again.flap_count,
-            closed_at: Some(now() - SignedDuration::from_secs(1)),
-            retry_at: None,
+            state: reopened.state,
+            consecutive_failures: reopened.consecutive_failures,
+            flap_count: reopened.flap_count,
+            closed_at: None,
+            retry_at: reopened.retry_at,
         };
     }
     // Monotone non-decreasing, capped.

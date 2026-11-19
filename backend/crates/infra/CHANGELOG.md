@@ -16,6 +16,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.85.0] - Unreleased
+### Changed (issue #942 W1/W2/W3)
+
+- The recovery probe is capability-accurate: `GET {base}/key` for
+  `eurouter`/`openrouter`, the unchanged unauthenticated `GET /api/tags` for
+  Ollama, and no synthetic preflight for the remaining providers (a public
+  `/models` read answers `200` for an invalid key and is never proof).
+- A passing preflight grants **one** trial
+  (`provider_health.trial_job_id`, migration `20261119000001`) and only the token
+  holder is claimable while `half_open`; a trial runs one un-retried request.
+- `mark_held` appends one `ai_import_job_attempt` row per hold series with the
+  bounded failure narrative and its registered code.
+- `402 Payment Required` classifies as the terminal
+  `ai-import.provider-quota-exhausted` verdict.
+
 ## [0.84.0] - Unreleased
 
 ### Changed — BREAKING: `jiff` time types and the `db_time` bridge (issue #929, ADR-040)

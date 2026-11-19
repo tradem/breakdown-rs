@@ -206,21 +206,96 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
   entitlement 4xx is `dependency.auth-failed`-class permanent (#637) and must
   never open a breaker: that would convert one user's misconfiguration into an
   outage for everyone on the endpoint.
-- **A held job is `failed` with `retries` unchanged and no attempt row.** The
-  wire carries an additive `provider_hold` (`provider`, `model`, `reason_code`,
-  `state`, `until`, `hold_deadline`, `chunks_done`); `last_error` keeps #822's
-  narrative so an older client still renders. `provider_hold` is cleared by every
-  other lifecycle write, with exactly one exception: the hold-expiry write keeps
-  it with `state = expired`, because that marker is the only durable signal
-  separating an expiry from a spent retry budget.
-- **Recovery is a probe, never elapsed time.** "Elapsed ⇒ closed" would resume
-  paying into a still-broken endpoint. The probe is the model-catalog read the
-  AI-config screen already uses (no tokens), authenticated with **one actively
-  held job's own vaulted key** — never a synthetic credential — and Ollama is
-  probed **unauthenticated** (`GET {base}/api/tags`), because the hosted catalog
-  client requires a non-empty key and always sends a bearer token, which would
-  leak one to a plain-HTTP curated origin (CWE-319). The probe judges
-  reachability only: it never retires or terminalizes a job.
+- **A held job is `failed` with `retries` unchanged and one attempt row per hold
+  *series* (issue #942 W2).** The wire carries an additive `provider_hold`
+  (`provider`, `model`, `reason_code`, `state`, `until`, `hold_deadline`,
+  `chunks_done`); `last_error` keeps #822's narrative so an older client still
+  renders. `provider_hold` is cleared by every other lifecycle write, with
+  exactly one exception: the hold-expiry write keeps it with `state = expired`,
+  because that marker is the only durable signal separating an expiry from a
+  spent retry budget.
+  Do not "restore" the pre-#942 rule of appending **no** attempt row: it made the
+  most common real provider state (repeated failures → hold) the one state with
+  zero diagnosable evidence — `last_error` held a bare problem code and the
+  attempt history stayed empty, so a client-timeout hold, an HTTP-status hold and
+  a bounded-body hold were indistinguishable from Postgres alone. The row is
+  written by the **first** hold of a series (`provider_hold_series_started_at`
+  was NULL before it), carries the bounded failure narrative in `error_summary`
+  and the fired registered code in `error_code`, and is `retryable = TRUE`
+  (a hold resumes; a dead letter does not). "First of the series" is read under the
+  row's `FOR UPDATE` lock in its **own** statement: a same-statement `before` CTE
+  cannot see a pre-update value (the transaction's own `held` UPDATE is already
+  visible to it), so it silently answered "not first" and wrote no row at all.
+  A re-hold inside the same series
+  appends nothing, and `retries` stays untouched on every path. The sweeper's
+  `hold_runnable_jobs` path (a job enqueued while the breaker was already open)
+  writes no row — it has no first-hand failure — so a held job may legitimately
+  have none. `error_summary` is bounded twice (the classifier's 400-char detail
+  and `LEFT(…, 1000)` in the insert), because `mark_held` is a public port method
+  and the SQL must be safe on its own.
+- **`attempt_no` is not unique per job; both history readers break the tie
+  chronologically.** A hold numbers its row `retries + 1` without charging a retry,
+  so the next `mark_failed` reuses that number. Ordering by `attempt_no` alone let
+  the history `LIMIT` drop the newer evidence and mis-order the tied pair, so
+  `list_attempts` and the jobs-list `newest_attempts` window order by
+  `attempt_no DESC, created_at DESC, id DESC`.
+- **Recovery is a two-stage probe, never elapsed time, and a probe never closes
+  (issue #942 W1).** "Elapsed ⇒ closed" would resume paying into a still-broken
+  endpoint. The preflight is **capability-accurate** (`probe_capability`,
+  `core::ai::ports`), because the former `GET {base}/models` read was blindness
+  in two directions: EURouter serves it *publicly* (`200` in 0.2 s for a bogus
+  bearer token, so a dead key looked healthy), and a healthy account does not
+  prove a healthy `(provider, model)` chat path (`GET /key` `200` while
+  `POST /chat/completions` stalled at 120 s — `flap_count` reached 3 in 30 min).
+  - `KeyEndpoint` (`eurouter`, `openrouter`): authenticated `GET {base}/key`,
+    zero tokens. `200` with positive/absent `limit_remaining` ⇒ **usable**;
+    `200` with `limit_remaining <= 0`, `401`/`402`/`403`, any other status,
+    transport error or timeout ⇒ **not usable** (the breaker stays `open`).
+  - `LocalTags` (`ollama`): unauthenticated `GET {base}/api/tags`, unchanged —
+    the hosted deadline-bearing client would leak a token onto a plain-HTTP
+    curated origin (CWE-319).
+  - `NoPreflight` (the other five): **no** synthetic metadata probe. The elapsed
+    window itself grants the single trial; a `200` from any public endpoint must
+    never be treated as proof of usability.
+  - A usable preflight moves `open → half_open` and grants **one** trial token
+    (`provider_health.trial_job_id`), never `closed`. `closed` happens only when
+    a real **paid call** answers (`record_success`), which also releases the
+    pair's held jobs.
+  - While `half_open`, the claim predicate admits exactly the token holder
+    (`ph.trial_job_id = job.id`); every other job of the pair stays held. That
+    fence is SQL-only for a reason: the in-process gates never see a job id, so
+    they admit `half_open` and rely on the claim predicate to name the one job.
+  - A trial run uses **0** in-attempt retries (`ProviderGate::attempt_retries`),
+    so a broken model costs `1 × request_timeout` per window instead of
+    `(1 + AI_IMPORT_MAX_ATTEMPT_RETRIES) ×`. A retryable trial failure re-opens
+    the breaker **immediately with `flap_count + 1`** (a paid call failing right
+    after a passing preflight is a new incident, not the same outage), which is
+    what makes the window escalate instead of oscillating. Trial ownership is
+    decided **per paid call**, not per attempt: a chunk loop re-reads it before
+    each chunk, so the chunks after the one that closed the breaker get the
+    ordinary retry budget back instead of running un-retried on a stale flag.
+  - A trial consumed by a **terminal** failure (revoked key, exhausted quota)
+    releases the holder **in the same statement that ends the job** (`mark_failed`
+    / `mark_payload_unavailable`, fenced on the failing job's id) and leaves
+    `half_open` with no holder; the sweeper then grants the next single trial when
+    the window elapses (`begin_provider_trial`). Releasing the token touches no
+    counter and no `retry_at`, so the pair still costs at most one paid call per
+    window. Without that release the pair stayed `half_open` holding a token that
+    named a dead job — and since a grant requires `trial_job_id IS NULL`, no other
+    held job of the pair could ever run a trial again. The probe never retires or
+    terminalizes a job.
+  - **A grant needs "no holder" AND "no outstanding probe lease".** `half_open`
+    with no holder has two meanings and only one is grantable: a finished probe
+    (lease released — grant now) and a probe in flight (lease held — leave the
+    transition to it, or its own fenced result clears the token it would stamp and
+    grants a second trial in the same window). A **stale** lease is not grantable
+    either: the recovery for a hung prober is the takeover branch of
+    `try_begin_probe` (`open_breakers.probe_started_at` + `probe_lease_is_live` is
+    what lets `run_probes` tell those three apart).
+  - **A held-row refresh never delays the trial holder.** `refresh_held_jobs`
+    excludes the job named by `trial_job_id`: the grant and the refresh happen in
+    the same sweep tick, and re-pointing the holder at `now + min_open(…)` meant
+    the trial it had just been granted could not be claimed until the next window.
 - **The probe is a task, not a claimed job.** Only `closed` admits a claim, so no
   worker runs for the pair when the probe is due. It runs as lease CAS → request
   **outside any transaction** → fenced result, so a hung probe cannot hold the
@@ -228,6 +303,17 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
 - **Mid-run abort happens at the chunk boundary.** The in-flight request is not
   aborted (an aborted HTTP request is not refunded), so the overspend bound is
   exactly one chunk per worker.
+- **Quota exhaustion has its own code (issue #942 W3).** An upstream
+  `402 Payment Required` (EURouter's budget/spend cap) and a `429` whose body
+  matches the provider's quota markers both produce
+  `DomainError::LlmProviderQuotaExhausted` → `ai-import.provider-quota-exhausted`
+  (402), superseding #822 D-X1 / #927's reuse of
+  `ai-import.llm-provider-unavailable`. The split is presentation-only: the
+  variant stays `is_retryable() == false`, so it dead-letters immediately, and
+  `retry_bounded` still refuses to count it toward the breaker — an empty account
+  must never open the deployment-wide `(provider, model)` breaker for other
+  users (#927's invariant, pinned by
+  `provider_gate_tests::a_quota_exhausted_provider_failure_is_terminal_*`).
 - **Operability:** the durable row plus the `#871 provider breaker` log marker;
   see `docs/operations/runbooks.md` §16. `GET /v1/health` gains **no** provider
   check (unauthenticated, 2 s timeout, no credential).

@@ -258,7 +258,7 @@ async fn a_half_open_breaker_still_filters_the_claim() -> Result<()> {
         "a half_open breaker must still filter: only the probe may end a non-closed state"
     );
     health
-        .finish_probe(&lease, ProbeOutcome::Unreachable)
+        .finish_probe(&lease, ProbeOutcome::NotUsable)
         .await
         .ok();
     Ok(())
@@ -288,17 +288,298 @@ async fn make_probe_due(pool: &PgPool) {
         .unwrap();
 }
 
-// ---------------------------------------------------------------------------
-// 2. mark_held is not mark_failed (D-A4)
-// ---------------------------------------------------------------------------
+/// Put the pair into `half_open` with no trial holder (issue #942 W1).
+///
+/// An **upsert**, not an `UPDATE` (issue #942 review): nothing else in this file
+/// creates the pair's `provider_health` row before the grant — `enqueue`,
+/// `claim_next` and `mark_held` never write it — so an `UPDATE` matches zero rows
+/// and `begin_provider_trial` (which joins on that row) cannot find a candidate to
+/// grant, panicking at the `expect` instead of testing the contract.
+///
+/// The probe columns are cleared in the same write: the upsert stands in for the
+/// state a finished preflight leaves behind, and a leftover lease would (correctly)
+/// block the grant under the `probe_lease_id IS NULL` fence.
+async fn make_half_open_without_holder(pool: &PgPool) {
+    sqlx::query(
+        "INSERT INTO ai_import.provider_health
+             (provider, model, state, trial_job_id, retry_at)
+         VALUES ($1, $2, 'half_open', NULL, now())
+         ON CONFLICT (provider, model) DO UPDATE
+            SET state = 'half_open',
+                trial_job_id = NULL,
+                retry_at = now(),
+                probe_owner = NULL,
+                probe_lease_id = NULL,
+                probe_started_at = NULL",
+    )
+    .bind(PROVIDER.as_str())
+    .bind(MODEL)
+    .execute(pool)
+    .await
+    .unwrap();
+}
 
+/// Issue #942 W1 (AC1): a passing preflight must not close the breaker, and a
+/// `half_open` pair admits **exactly one** job — the trial token holder.
+///
+/// This is the anti-flap fence: before #942 a metadata `200` closed the breaker
+/// and released the whole fleet into another `3 × 120 s` of doomed paid calls
+/// (`flap_count` reached 3 in 30 minutes).
 #[tokio::test]
-async fn mark_held_charges_no_retry_and_writes_no_attempt_row() -> Result<()> {
+async fn only_the_trial_token_holder_is_claimable_while_half_open() -> Result<()> {
+    use breakdown_core::ai::ProviderHealth as _;
+
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let queue = PgAiImportQueue::new(pool.clone());
+    // Two waiting jobs on the same pair, both held.
+    let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let second = seed_job(&queue, "u2", "d2", Some((PROVIDER, MODEL))).await;
+    queue.claim_next("w1").await?.expect("first claimable");
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue
+        .mark_held(
+            first,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    queue.claim_next("w2").await?.expect("second claimable");
+    queue
+        .mark_held(
+            second,
+            "w2",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+
+    // The breaker reaches `half_open` with no trial holder: nothing is claimable.
+    let health = infra::ai::provider_health::PgProviderHealth::new(pool.clone());
+    make_half_open_without_holder(&pool).await;
+    assert!(
+        queue.claim_next("w3").await?.is_none(),
+        "half_open without a trial holder must admit no claim"
+    );
+
+    // Granting the trial makes EXACTLY that job claimable.
+    let trial = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("one waiting job earns the trial");
+    assert!(trial == first || trial == second);
+    let claimed = queue
+        .claim_next("w4")
+        .await?
+        .expect("the trial job is claimable");
+    assert_eq!(claimed.id, trial, "only the token holder may run the trial");
+    assert!(
+        queue.claim_next("w5").await?.is_none(),
+        "the other held job stays held — one trial call, not a fleet storm"
+    );
+
+    // A real paid call closing the breaker releases the rest.
+    queue
+        .record_provider_outcome(
+            PROVIDER,
+            MODEL,
+            breakdown_core::ai::ProviderOutcome::Success,
+            3,
+        )
+        .await?;
+    let released = queue.release_held_jobs(PROVIDER, MODEL).await?;
+    assert_eq!(released.len(), 1, "the remaining held job is released");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 1b. The trial grant's fences and its release (issue #942 W1 follow-up)
+// ---------------------------------------------------------------------------
+
+/// A probe verdict with no network, and no credential: the tick is what these
+/// cases assert, not the HTTP call (D-X4).
+struct UsableProbe;
+
+#[async_trait::async_trait]
+impl infra::ai::provider_probe::ProviderProbe for UsableProbe {
+    async fn probe(
+        &self,
+        _provider: LlmProvider,
+        _donor: &infra::ai::provider_probe::DonorJob,
+    ) -> ProbeOutcome {
+        ProbeOutcome::Usable
+    }
+}
+
+/// A **delayed** sweep may not take a probe lease over a trial that is already
+/// running, and an expired trial window must stay recoverable.
+///
+/// The sequence (no sleeps, no scheduler dependence): a sweeper reads the pair
+/// while it is still due, another sweeper grants the single trial in between, and
+/// the delayed sweeper then calls `try_begin_probe` with that stale snapshot. Its
+/// probe would clear the live `trial_job_id` in `finish_probe(Usable)` and grant a
+/// second trial behind a paid call that is still running, so the acquisition — not
+/// the sweeper's caller — has to refuse it.
+#[tokio::test]
+async fn a_delayed_sweep_cannot_probe_over_a_live_trial() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let health = PgProviderHealth::new(pool.clone());
+    let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let second = seed_job(&queue, "u2", "d2", Some((PROVIDER, MODEL))).await;
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue.claim_next("w1").await?.expect("first claimable");
+    queue
+        .mark_held(
+            first,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    queue.claim_next("w2").await?.expect("second claimable");
+    queue
+        .mark_held(
+            second,
+            "w2",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    make_half_open_without_holder(&pool).await;
+
+    // The delayed sweeper's snapshot: the pair is due and has no holder.
+    let snapshot = health
+        .open_breakers(64)
+        .await?
+        .into_iter()
+        .find(|breaker| breaker.provider == PROVIDER && breaker.model == MODEL)
+        .expect("the degraded pair is listed for the sweep");
+    assert!(snapshot.trial_job.is_none());
+
+    // The other sweeper grants the trial while the delayed one is still deciding.
+    let trial = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("one waiting job earns the trial");
+
+    assert!(
+        health
+            .try_begin_probe(PROVIDER, MODEL, "delayed-sweeper")
+            .await?
+            .is_none(),
+        "a probe must not be acquired while a paid trial is inside its window"
+    );
+    assert_eq!(
+        health.state(PROVIDER, MODEL).await?.trial_job,
+        Some(trial.as_uuid()),
+        "the live token must survive the refused acquisition"
+    );
+
+    // Once the trial's window has elapsed the SAME acquisition is the recovery:
+    // the probe may run, and its passing result grants the next single trial.
+    make_probe_due(&pool).await;
+    let lease = health
+        .try_begin_probe(PROVIDER, MODEL, "delayed-sweeper")
+        .await?
+        .expect("an expired trial window must stay recoverable");
+    let decision = health.finish_probe(&lease, ProbeOutcome::Usable).await?;
+    assert!(decision.trial_due, "the recovered window grants a trial");
+    assert_eq!(
+        health.state(PROVIDER, MODEL).await?.state,
+        ProviderBreakerState::HalfOpen
+    );
+    Ok(())
+}
+
+/// The sweep must leave a pair alone while its probe lease is LIVE, and recover a
+/// STALE lease through the takeover instead of granting a trial.
+///
+/// This is the routing half of the grant fence (the SQL predicate is covered by
+/// `a_grant_is_fenced_off_while_a_probe_lease_is_live`). Without the live-lease
+/// branch a second tick grants a trial whose holder the in-flight probe's own
+/// fenced result then clears — two paid trials in one window. Without the
+/// fall-through a stale lease leaves the pair `half_open` forever, because
+/// `try_begin_probe` is the only thing that can take it over.
+#[tokio::test]
+async fn the_sweep_grants_no_trial_while_a_probe_lease_is_live_and_recovers_a_stale_one()
+-> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let health = PgProviderHealth::new(pool.clone());
+    let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue.claim_next("w1").await?.expect("claimable");
+    queue
+        .mark_held(
+            id,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    make_half_open_without_holder(&pool).await;
+
+    // A probe is in flight: no grant, and the lease stays with its owner.
+    let lease = health
+        .try_begin_probe(PROVIDER, MODEL, "prober-a")
+        .await?
+        .expect("the probe lease");
+    infra::ai::provider_probe::run_probes(&pool, &health, &queue, &UsableProbe, "sweeper").await?;
+    assert!(
+        health.state(PROVIDER, MODEL).await?.trial_job.is_none(),
+        "a live probe lease must leave the grant to the probe's own fenced result"
+    );
+    assert!(
+        health.state(PROVIDER, MODEL).await?.state == ProviderBreakerState::HalfOpen,
+        "the sweeper must not move the state either"
+    );
+
+    // Now let the lease go stale (a hung prober): the takeover is the recovery.
+    sqlx::query(
+        "UPDATE ai_import.provider_health
+         SET probe_started_at = now() - interval '1 hour'
+         WHERE provider = $1 AND model = $2",
+    )
+    .bind(PROVIDER.as_str())
+    .bind(MODEL)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let _ = &lease;
+    infra::ai::provider_probe::run_probes(&pool, &health, &queue, &UsableProbe, "sweeper").await?;
+
+    // The takeover probe passed, so exactly one trial is granted and the stale
+    // lease is gone.
+    let snapshot = health.state(PROVIDER, MODEL).await?;
+    assert_eq!(snapshot.state, ProviderBreakerState::HalfOpen);
+    assert_eq!(
+        snapshot.trial_job,
+        Some(id.as_uuid()),
+        "a recovered stale lease grants the single trial to the waiting job"
+    );
+    Ok(())
+}
+
+/// A grant may not stamp a holder while a probe lease is outstanding.
+///
+/// `half_open` with no holder has two meanings: a **finished** probe (the lease is
+/// released — grant now) and a probe **in flight** (the lease is held — do not).
+/// Granting into the second case put two paid trials in one window, because the
+/// in-flight probe's own fenced `finish_probe` clears `trial_job_id` on success and
+/// grants again behind it.
+#[tokio::test]
+async fn a_grant_is_fenced_off_while_a_probe_lease_is_live() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let health = PgProviderHealth::new(pool.clone());
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     queue.claim_next("w1").await?.expect("claimable");
-
     let until = Timestamp::now() + SignedDuration::from_secs(60);
     queue
         .mark_held(
@@ -306,6 +587,231 @@ async fn mark_held_charges_no_retry_and_writes_no_attempt_row() -> Result<()> {
             "w1",
             hold_for(until, ProviderBreakerState::Open),
             HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    make_half_open_without_holder(&pool).await;
+
+    // A probe is now in flight on a `half_open` pair with no holder: exactly the
+    // shape a second sweep would mistake for "the window elapsed, grant now".
+    let lease = health
+        .try_begin_probe(PROVIDER, MODEL, "prober")
+        .await?
+        .expect("the probe lease");
+    assert!(
+        health
+            .begin_provider_trial(PROVIDER, MODEL)
+            .await?
+            .is_none(),
+        "a live probe lease must block the grant — its own result would clear the token"
+    );
+
+    // The probe's fenced result is what makes the pair grantable, and only once.
+    let decision = health.finish_probe(&lease, ProbeOutcome::Usable).await?;
+    assert!(decision.trial_due, "a passing preflight grants one trial");
+    let trial = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("the released lease makes the grant possible");
+    assert_eq!(trial, id, "the one waiting job earns the single trial");
+    assert!(
+        health
+            .begin_provider_trial(PROVIDER, MODEL)
+            .await?
+            .is_none(),
+        "the second grant in the same window stamps nothing"
+    );
+    Ok(())
+}
+
+/// A held-row refresh must never delay the job that just earned the trial.
+///
+/// `run_probes` grants the trial and still owns a `retry_at`, so the
+/// `refresh_held_jobs` branch runs in the SAME tick. Without the holder exclusion
+/// the grabbed token was pushed back to `now + min_open(flap_count)` — the job
+/// could not claim the trial it had just been given.
+#[tokio::test]
+async fn a_held_row_refresh_never_delays_the_trial_holder() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let health = PgProviderHealth::new(pool.clone());
+    let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let second = seed_job(&queue, "u2", "d2", Some((PROVIDER, MODEL))).await;
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue.claim_next("w1").await?.expect("first claimable");
+    queue
+        .mark_held(
+            first,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    queue.claim_next("w2").await?.expect("second claimable");
+    queue
+        .mark_held(
+            second,
+            "w2",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    make_half_open_without_holder(&pool).await;
+    let trial = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("one waiting job earns the trial");
+    let other = if trial == first { second } else { first };
+
+    let later = Timestamp::now() + SignedDuration::from_secs(600);
+    let refreshed = queue.refresh_held_jobs(PROVIDER, MODEL, later).await?;
+    assert_eq!(
+        refreshed,
+        vec![other],
+        "only the non-holder follows the breaker; the holder keeps its grant"
+    );
+    let claimed = queue
+        .claim_next("w3")
+        .await?
+        .expect("the grant must make its holder claimable in the same tick");
+    assert_eq!(claimed.id, trial);
+    Ok(())
+}
+
+/// A trial consumed by a TERMINAL failure releases the holder, so the next window
+/// can grant the pair's next single trial.
+///
+/// A revoked key or an exhausted quota is a permanent failure: it never touches
+/// the breaker's counters (D-A1), so nothing in the state machine cleared
+/// `trial_job_id`. The pair stayed `half_open` holding a token that named a dead
+/// job, and because `begin_provider_trial` only grants when the token is NULL, no
+/// other held job of the pair could ever run a trial again.
+#[tokio::test]
+async fn a_terminal_trial_failure_releases_the_holder_for_the_next_trial() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let health = PgProviderHealth::new(pool.clone());
+    let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let second = seed_job(&queue, "u2", "d2", Some((PROVIDER, MODEL))).await;
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue.claim_next("w1").await?.expect("first claimable");
+    queue
+        .mark_held(
+            first,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    queue.claim_next("w2").await?.expect("second claimable");
+    queue
+        .mark_held(
+            second,
+            "w2",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    make_half_open_without_holder(&pool).await;
+
+    let trial = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("one waiting job earns the trial");
+    let other = if trial == first { second } else { first };
+    assert_eq!(
+        queue.claim_next("w3").await?.map(|job| job.id),
+        Some(trial),
+        "only the token holder may run the trial"
+    );
+
+    // The trial call answers `401`: permanent, so `retryable = false`.
+    queue
+        .mark_failed(
+            trial,
+            "w3",
+            "provider answered 401 unauthorized",
+            Some("dependency.auth-failed"),
+            false,
+            None,
+        )
+        .await?;
+
+    assert!(
+        health.state(PROVIDER, MODEL).await?.trial_job.is_none(),
+        "a terminal trial failure must release the holder it ends"
+    );
+    assert_eq!(
+        health.state(PROVIDER, MODEL).await?.state,
+        ProviderBreakerState::HalfOpen,
+        "releasing the token changes no counter and no state"
+    );
+
+    // The window elapses and the pair grants its next single trial — to the other
+    // waiting job, not to nobody.
+    make_probe_due(&pool).await;
+    let next = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("the freed token lets the next window grant a trial");
+    assert_eq!(next, other, "the trial moves on to the next waiting job");
+    assert_eq!(queue.claim_next("w4").await?.map(|job| job.id), Some(other));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 2. mark_held is not mark_failed (D-A4)
+// ---------------------------------------------------------------------------
+/// The persisted `(error_summary, error_code)` of the job's attempt rows, oldest
+/// first (issue #942 W2).
+async fn attempt_narratives(
+    pool: &PgPool,
+    id: AiImportJobId,
+) -> Vec<(Option<String>, Option<String>)> {
+    sqlx::query_as(
+        r#"
+        SELECT error_summary, error_code
+        FROM ai_import.ai_import_job_attempt
+        WHERE job_id = $1
+        ORDER BY attempt_no
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// Issue #942 W2: a hold charges no retry but **does** leave evidence.
+///
+/// Before this, the most common real provider state — repeated failures ending
+/// in a hold — had zero diagnosable evidence: `last_error` carried a bare code
+/// and the attempt history stayed empty, so an operator could not tell a client
+/// timeout from an HTTP status from a bounded provider body. The row is appended
+/// once per hold SERIES: a re-hold inside the same series must not multiply it.
+#[tokio::test]
+async fn mark_held_charges_no_retry_and_records_one_attempt_row_per_hold_series() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    queue.claim_next("w1").await?.expect("claimable");
+
+    let evidence = breakdown_core::ai::HoldEvidence {
+        summary: "LLM provider transport unavailable: operation timed out after 120s".to_owned(),
+        code: Some("ai-import.llm-provider-unavailable".to_owned()),
+    };
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue
+        .mark_held(
+            id,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            Some(&evidence),
         )
         .await?;
 
@@ -324,10 +830,142 @@ async fn mark_held_charges_no_retry_and_writes_no_attempt_row() -> Result<()> {
         next_attempt_at.is_some(),
         "next_attempt_at is the probe time"
     );
+
+    let narratives = attempt_narratives(&pool, id).await;
+    assert_eq!(
+        narratives.len(),
+        1,
+        "the first hold of a series records exactly one attempt row"
+    );
+    let (summary, code) = narratives.into_iter().next().expect("one row");
+    let summary = summary.expect("the hold narrative must be persisted, not only a code");
+    assert!(
+        summary.contains("timed out after 120s"),
+        "the operator must be able to tell a timeout from an HTTP status: {summary}"
+    );
+    assert_eq!(
+        code.as_deref(),
+        Some("ai-import.llm-provider-unavailable"),
+        "the row's code is the registered problem code of the failure that fired"
+    );
+
+    // A re-hold inside the same series must not append a second row, and must
+    // still charge no retry.
+    //
+    // Issue #942 W2 review: the re-hold cannot be staged with
+    // `release_claim` + `claim_next`. A held job is `status = 'failed'` with
+    // `worker_id = NULL` and a FUTURE `next_attempt_at`, so `release_claim` finds
+    // no owned running row (it errors, and `?` would end the test) and a claim
+    // would both be unreliable and **end the series** — `claim_next` clears
+    // `provider_hold_series_started_at`, which is the exact opposite of what this
+    // assertion is about. The row is therefore restored to an owned running state
+    // directly, keeping the series clock, and the SAME worker re-holds it.
+    sqlx::query(
+        "UPDATE ai_import.ai_import_job
+         SET status = 'running',
+             worker_id = 'w1',
+             lease_expires_at = now() + interval '5 minutes'
+         WHERE id = $1",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let later = Timestamp::now() + SignedDuration::from_secs(120);
+    queue
+        .mark_held(
+            id,
+            "w1",
+            hold_for(later, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            Some(&evidence),
+        )
+        .await?;
     assert_eq!(
         attempt_count(&pool, id).await,
+        1,
+        "a re-hold of the same series must reuse the row, not multiply it"
+    );
+    assert_eq!(
+        read_hold_state(&pool, id).await.retries,
         0,
-        "a hold must never append an attempt row — the history must not fill with identical rows"
+        "the retry budget stays untouched by every hold"
+    );
+    Ok(())
+}
+
+/// The mirror case of the re-hold above (issue #942 W2 review): a hold that
+/// follows an ORDINARY claim belongs to a NEW series, so it records its own
+/// attempt row.
+///
+/// `claim_next` clears the series clock by design ("a claim ends the hold
+/// series", D-C4), which is what separates "the same episode re-parked" from
+/// "the job ran again and was parked afresh". Both halves need coverage: one row
+/// per series, and a row per series.
+#[tokio::test]
+async fn a_hold_after_an_ordinary_claim_starts_a_new_series_with_its_own_attempt_row() -> Result<()>
+{
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    queue.claim_next("w1").await?.expect("claimable");
+
+    let evidence = breakdown_core::ai::HoldEvidence {
+        summary: "LLM provider transport unavailable: operation timed out after 120s".to_owned(),
+        code: Some("ai-import.llm-provider-unavailable".to_owned()),
+    };
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue
+        .mark_held(
+            id,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            Some(&evidence),
+        )
+        .await?;
+    assert_eq!(attempt_count(&pool, id).await, 1);
+
+    // The breaker closed, so the hold is released and the job becomes claimable
+    // again. Its `next_attempt_at` is in the past for the same reason every other
+    // "due" state in this file is written rather than slept out.
+    queue.release_held_jobs(PROVIDER, MODEL).await?;
+    sqlx::query(
+        "UPDATE ai_import.ai_import_job SET next_attempt_at = now() - interval '1 second'
+         WHERE id = $1",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    queue
+        .claim_next("w2")
+        .await?
+        .expect("the released job is claimable again");
+    assert!(
+        !read_hold_state(&pool, id).await.series_started,
+        "a claim ends the hold series (D-C4)"
+    );
+
+    let later = Timestamp::now() + SignedDuration::from_secs(120);
+    queue
+        .mark_held(
+            id,
+            "w2",
+            hold_for(later, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            Some(&evidence),
+        )
+        .await?;
+    assert_eq!(
+        attempt_count(&pool, id).await,
+        2,
+        "a NEW hold series records its own attempt row"
+    );
+    assert_eq!(
+        read_hold_state(&pool, id).await.retries,
+        0,
+        "a hold never charges the retry budget, in either series"
     );
     Ok(())
 }
@@ -346,6 +984,7 @@ async fn mark_held_is_owner_fenced() -> Result<()> {
             "someone-else",
             hold_for(until, ProviderBreakerState::Open),
             HOLD_WINDOW,
+            None,
         )
         .await;
     assert!(
@@ -650,7 +1289,7 @@ async fn the_probe_lease_admits_one_prober_and_fences_the_result() -> Result<()>
     // The superseded prober's result writes nothing.
     assert!(
         health
-            .finish_probe(&lease, ProbeOutcome::Reachable)
+            .finish_probe(&lease, ProbeOutcome::Usable)
             .await
             .is_err(),
         "a superseded lease's result must be discarded"
@@ -658,14 +1297,30 @@ async fn the_probe_lease_admits_one_prober_and_fences_the_result() -> Result<()>
     let snapshot = health.state(PROVIDER, MODEL).await?;
     assert_eq!(snapshot.state, ProviderBreakerState::HalfOpen);
 
-    // The current lease closes it.
-    let closed = health
-        .finish_probe(&takeover, ProbeOutcome::Reachable)
-        .await?;
-    assert!(closed.closed);
+    // The current lease records the preflight — which, since issue #942 W1,
+    // grants the single trial instead of closing the breaker.
+    let decision = health.finish_probe(&takeover, ProbeOutcome::Usable).await?;
+    assert!(decision.trial_due, "a passing preflight grants one trial");
+    assert!(
+        !decision.closed,
+        "a metadata 200 must never close the (provider, model) breaker"
+    );
+    let snapshot = health.state(PROVIDER, MODEL).await?;
+    assert_eq!(snapshot.state, ProviderBreakerState::HalfOpen);
+    assert_eq!(snapshot.consecutive_failures, 0);
+    assert!(
+        snapshot.retry_at.is_some(),
+        "the trial window must be armed, or a hung trial wedges half_open"
+    );
+    assert!(
+        snapshot.trial_job.is_none(),
+        "the preflight itself names no holder; the sweeper grants it"
+    );
+
+    // Only a real paid call closes it.
+    health.record_success(PROVIDER, MODEL).await?;
     let snapshot = health.state(PROVIDER, MODEL).await?;
     assert_eq!(snapshot.state, ProviderBreakerState::Closed);
-    assert_eq!(snapshot.consecutive_failures, 0);
     assert!(snapshot.retry_at.is_none());
     Ok(())
 }

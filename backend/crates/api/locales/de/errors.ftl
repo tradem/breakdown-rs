@@ -63,6 +63,9 @@ problem-ai-import-forbidden =
 problem-ai-import-llm-provider-unavailable =
     Der KI-Anbieter ist derzeit nicht erreichbar. Das liegt nicht an Ihrem Dokument und nicht an Ihrer Konfiguration – warten Sie die nächste Wiederholung ab.
 
+problem-ai-import-provider-quota-exhausted =
+    Das Guthaben bzw. Kontingent Ihres KI-Anbieters ist aufgebraucht. Das liegt nicht an Ihrem Dokument – laden Sie Guthaben nach oder wechseln Sie in den Einstellungen zu einem anderen Anbieter. Automatische Wiederholungen helfen hier nicht.
+
 problem-ai-import-not-found =
     Dieser KI-Importauftrag existiert nicht.
 

@@ -63,6 +63,9 @@ problem-ai-import-forbidden =
 problem-ai-import-llm-provider-unavailable =
     The AI provider is currently unreachable. This is neither your document nor your configuration — wait for the next retry.
 
+problem-ai-import-provider-quota-exhausted =
+    Your AI provider's budget or quota is exhausted. This is not your document — top up the account or switch to another provider in the settings. Automatic retries cannot help here.
+
 problem-ai-import-not-found =
     This AI import job does not exist.
 

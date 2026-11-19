@@ -139,6 +139,14 @@ pub struct BreakerDecision {
     /// D-A4) or just closed (the caller then releases them, D-A6).
     pub opened: bool,
     pub closed: bool,
+    /// The preflight passed and the breaker is `half_open` **without** a trial
+    /// holder: the caller grants the single trial (issue #942 W1).
+    ///
+    /// Never set together with [`Self::closed`]: a metadata probe may not close
+    /// a breaker, because a `200` from a zero-token endpoint proves the account,
+    /// not that the model's chat path works — the exact flap loop issue #942 F2
+    /// documents.
+    pub trial_due: bool,
 }
 
 impl BreakerDecision {
@@ -152,6 +160,7 @@ impl BreakerDecision {
             retry_at: None,
             opened: false,
             closed: false,
+            trial_due: false,
         }
     }
 }
@@ -176,9 +185,30 @@ pub fn on_retryable_failure(
     now: Timestamp,
     retry_after: Option<std::time::Duration>,
 ) -> BreakerDecision {
-    // A failure while already open or half-open is the same outage still
-    // failing to clear: no flap increment (that belongs to `closed → open`),
-    // and the open window is re-armed from the current flap count.
+    // A failure while already `open` is the same outage still failing to clear:
+    // no flap increment (that belongs to `closed → open`), and the open window is
+    // re-armed from the current flap count.
+    //
+    // A failure while `half_open` is different since issue #942 W1: that attempt
+    // was a **paid call the preflight explicitly cleared**, so the endpoint
+    // flapped — the probe said usable and the chat path still failed. That is a
+    // new incident by definition, so it escalates (`flap_count + 1`, the same
+    // punishment a `closed → open` flap earns) instead of re-arming the first
+    // 60 s window forever. It also re-opens *immediately* rather than granting
+    // another trial, which is what bounds a broken model to one paid call per
+    // window.
+    if counters.state == ProviderBreakerState::HalfOpen {
+        let flap_count = counters.flap_count.saturating_add(1);
+        return BreakerDecision {
+            state: ProviderBreakerState::Open,
+            consecutive_failures: counters.consecutive_failures.saturating_add(1),
+            flap_count,
+            retry_at: Some(probe_at(now, flap_count, retry_after, counters.retry_at)),
+            opened: true,
+            closed: false,
+            trial_due: false,
+        };
+    }
     if counters.state != ProviderBreakerState::Closed {
         let flap_count = counters.flap_count;
         return BreakerDecision {
@@ -188,6 +218,7 @@ pub fn on_retryable_failure(
             retry_at: Some(probe_at(now, flap_count, retry_after, counters.retry_at)),
             opened: false,
             closed: false,
+            trial_due: false,
         };
     }
 
@@ -200,6 +231,7 @@ pub fn on_retryable_failure(
             retry_at: None,
             opened: false,
             closed: false,
+            trial_due: false,
         };
     }
 
@@ -211,6 +243,7 @@ pub fn on_retryable_failure(
         retry_at: Some(probe_at(now, flap_count, retry_after, counters.retry_at)),
         opened: true,
         closed: false,
+        trial_due: false,
     }
 }
 
@@ -269,6 +302,7 @@ pub fn on_success(counters: BreakerCounters) -> BreakerDecision {
         retry_at: None,
         opened: false,
         closed: true,
+        trial_due: false,
     }
 }
 
@@ -286,13 +320,34 @@ pub fn on_probe_failure(counters: BreakerCounters, now: Timestamp) -> BreakerDec
         retry_at: Some(now + min_open(counters.flap_count)),
         opened: false,
         closed: false,
+        trial_due: false,
     }
 }
 
-/// A **successful probe** (`half_open → closed`, D-A6).
+/// A **passing preflight**: `open → half_open` plus one trial token
+/// (issue #942 W1, superseding the `half_open → closed` table of D-A6).
+///
+/// Why it must not close: the preflight proves the *account* (credential
+/// accepted, budget left) — verified against the live endpoint, EURouter's
+/// `GET /key` answers `200` in 0.2 s while the very same model's
+/// `POST /chat/completions` stalls at 120 s. Closing on that `200` released the
+/// whole fleet into another `3 × 120 s` of timeouts and pushed `flap_count` to
+/// 3 in 30 minutes (issue #942 F2). Only [`on_success`] — a real paid call
+/// answered — closes.
 #[must_use]
-pub fn on_probe_success(counters: BreakerCounters) -> BreakerDecision {
-    on_success(counters)
+pub fn on_probe_success(counters: BreakerCounters, now: Timestamp) -> BreakerDecision {
+    BreakerDecision {
+        state: ProviderBreakerState::HalfOpen,
+        consecutive_failures: 0,
+        flap_count: counters.flap_count,
+        // The trial may start immediately; the window is re-armed by every
+        // consumed trial so a permanently broken model costs one call per
+        // window instead of a fleet-wide storm.
+        retry_at: Some(now + min_open(counters.flap_count)),
+        opened: false,
+        closed: false,
+        trial_due: true,
+    }
 }
 
 #[cfg(test)]
