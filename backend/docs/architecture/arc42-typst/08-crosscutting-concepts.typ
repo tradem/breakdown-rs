@@ -39,11 +39,13 @@ Full control pointers live in
   `auth::authorization_enforce_default` — `AUTHZ_ENFORCE` defaults *off* only
   for a **clean** dev-auth boot (`DEV_AUTH_SUB` set, `OIDC_ISS` unset, **no**
   other `OIDC_*` variable set) and is enforced otherwise, so log-only mode is
-  only reachable through an explicit `AUTHZ_ENFORCE=false`. Two mixed cases are
-  reported as a `mixed auth configuration` startup warning (issue `#935`): with
-  `OIDC_ISS` set the dev override is ignored (tokens verified, enforced); without
-  `OIDC_ISS` a partial OIDC config leaves dev authentication active but still
-  enforces by default, so the half-configured deployment fails closed.
+  only reachable through an explicit `AUTHZ_ENFORCE=false` or `AUTHZ_ENFORCE=0`.
+  Two mixed cases are reported as a `mixed auth configuration` startup warning
+  (issue `#935`): with `OIDC_ISS` set the dev override is ignored (tokens
+  verified, enforced); without `OIDC_ISS` a partial OIDC config leaves dev
+  authentication active (unverified dummy identity) but still enforces policy
+  denials by default — the misconfiguration no longer also downgrades
+  authorization, though it remains a dev-auth deployment, not a verified one.
 - *TB2 (`authorize_middleware`)*: forwards `/v1/health`, `/health`, and paths
   starting with `/swagger-ui` or `/api-docs` directly. For all other paths,
   `requirement_for()` classifies access and defaults unlisted paths to

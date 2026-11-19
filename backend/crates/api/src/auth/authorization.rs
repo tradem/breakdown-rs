@@ -264,7 +264,7 @@ impl AuthorizationState {
     /// (issue #935): log-only is the default only for a *clean* dev-auth boot
     /// (`DEV_AUTH_SUB` set, `OIDC_ISS` absent, no other OIDC variable set), so
     /// local development works without seeded membership; `AUTHZ_ENFORCE=true`
-    /// forces enforcement there, and `AUTHZ_ENFORCE=false` is the explicit
+    /// forces enforcement there, and `AUTHZ_ENFORCE=false` / `0` is the explicit
     /// log-only opt-out in every mode.
     ///
     /// Every other configuration enforces by default. With OIDC configured, a

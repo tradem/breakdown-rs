@@ -51,8 +51,8 @@ commits (ADR-020 D5).
   instead of silently dropping to log-only forwarding of block-scoped requests;
   a *partial* OIDC config (`OIDC_AUDIENCE`/`OIDC_JWKS_URL` without `OIDC_ISS`)
   keeps dev authentication but also enforces, so a half-finished OIDC migration
-  fails closed. `AUTHZ_ENFORCE=false` remains the explicit opt-out, in every
-  mode.
+  no longer also downgrades authorization. `AUTHZ_ENFORCE=false` / `0` remains
+  the explicit opt-out, in every mode.
 - `main.rs` warns at startup (`mixed auth configuration`) when `OIDC_*` and
   `DEV_AUTH_*` are configured at once, describing which family won: with
   `OIDC_ISS` the dev override is ignored (the warning names the ignored

@@ -134,7 +134,8 @@ projectors that subscribe to SierraDB and update the Postgres projections.
   membership — clean meaning `DEV_AUTH_SUB` set with **no** `OIDC_*` variable at
   all. Every other configuration enforces by default, including a partial OIDC
   config (`OIDC_AUDIENCE`/`OIDC_JWKS_URL` without `OIDC_ISS`) that still runs dev
-  auth: it fails closed rather than open (issue #935).
+  auth: policy denials return `403` there instead of being logged and forwarded
+  (the identity stays the unverified dev dummy — issue #935).
 - `DEV_AUTH_SUB` – when set (and `OIDC_ISS` unset), auth runs in dev mode:
   tokens are NOT verified and a fixed dummy `CurrentUser` (`sub = DEV_AUTH_SUB`)
   is injected. **Never set in production**, and never together with `OIDC_*` —

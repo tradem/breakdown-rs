@@ -287,9 +287,11 @@ implementing issue #342).
 
 ### Staged rollout & dev mode
 
-`AUTHZ_ENFORCE=false` → log-only mode: denials are logged (`AUTHZ(log-only)`),
-requests allowed. Used for staged rollout observation. It is the **only**
-explicit opt-out and it wins over every default below.
+`AUTHZ_ENFORCE=false` **or** `AUTHZ_ENFORCE=0` → log-only mode: denials are
+logged (`AUTHZ(log-only)`), requests allowed. Used for staged rollout
+observation. It is the **only** explicit opt-out and it wins over every default
+below (any other value, including `true`/`1`/unset-by-default, follows the
+table).
 
 The *default* is decided by `crate::auth::authorization_enforce_default`, which
 reads the same variables as the authentication layer (`dev_auth_active` for the
@@ -301,7 +303,7 @@ separate environment readings (issue #935):
 | all three `OIDC_*` | OIDC JWT verification | **enforced** |
 | all three `OIDC_*` + `DEV_AUTH_*` | OIDC JWT verification (dev override ignored, startup warning) | **enforced** |
 | `DEV_AUTH_SUB` only, **no** `OIDC_*` | dev override, no verification | log-only |
-| `OIDC_*` **without** `OIDC_ISS` + `DEV_AUTH_SUB` | dev override (the OIDC variables are inert), startup warning | **enforced** (fail closed) |
+| `OIDC_*` **without** `OIDC_ISS` + `DEV_AUTH_SUB` | dev override (the OIDC variables are inert), startup warning | **enforced** |
 | nothing usable | startup error | n/a |
 
 - Log-only stays reserved for a *clean* dev boot, so local development works
@@ -313,8 +315,12 @@ separate environment readings (issue #935):
   log-only, forwarding block-scoped requests on policy denial.
 - A *partial* OIDC config (`OIDC_AUDIENCE`/`OIDC_JWKS_URL` without `OIDC_ISS`)
   is a misconfiguration the auth layer still treats as dev mode, but it must not
-  also narrow authorization: enforcement is the default, so the half-migrated
-  deployment fails closed rather than open.
+  also narrow authorization: enforcement is the default, so policy denials
+  return `403` instead of being logged and forwarded. Note what this does *not*
+  buy: dev authentication means the caller identity is unverified (a dummy
+  `CurrentUser`), so the enforced policy is not a security boundary in that
+  state — the configuration is simply no longer doubly degraded, and the startup
+  warning tells the operator to finish the OIDC migration or remove `DEV_AUTH_*`.
 - `main.rs` logs a `mixed auth configuration` warning at startup whenever `OIDC_*`
   and `DEV_AUTH_*` are configured at once, describing which of the two won
   (OIDC wins with `OIDC_ISS`; dev auth stays active without it).

@@ -217,8 +217,9 @@ pub fn mixed_dev_and_oidc_config() -> Option<(Vec<&'static str>, Vec<&'static st
 /// - `OIDC_ISS` absent (partial OIDC config) → dev auth stays active (tokens
 ///   are **not** verified) and the configured OIDC variables are inert, while
 ///   the authorization default still enforces
-///   ([`authorization_enforce_default`]) — the deployment fails closed until one
-///   of the two families is removed.
+///   ([`authorization_enforce_default`]) — the misconfiguration no longer also
+///   downgrades authorization, but policy is evaluated against the unverified
+///   dev identity.
 pub fn warn_on_mixed_dev_and_oidc_config() {
     let Some((oidc, dev)) = mixed_dev_and_oidc_config() else {
         return;
@@ -231,7 +232,7 @@ pub fn warn_on_mixed_dev_and_oidc_config() {
             oidc = %oidc,
             ignored = %dev,
             "mixed auth configuration: OIDC is configured, so the dev-auth override is ignored \
-             and AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false explicitly for \
+             and AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false or 0 explicitly for \
              log-only mode); unset DEV_AUTH_SUB/DEV_AUTH_EMAIL (issue #935)"
         ),
         // Partial OIDC config: dev auth stays selected, but the misconfiguration
@@ -241,8 +242,8 @@ pub fn warn_on_mixed_dev_and_oidc_config() {
             dev = %dev,
             "mixed auth configuration without OIDC_ISS: dev authentication remains active \
              (tokens are NOT verified) and the configured OIDC variables are inert, while \
-             AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false for log-only mode) — \
-             configure OIDC_ISS or unset the OIDC_* variables (issue #935)"
+             AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false or 0 for log-only \
+             mode) — configure OIDC_ISS or unset the OIDC_* variables (issue #935)"
         ),
         // Only DEV_AUTH_EMAIL without DEV_AUTH_SUB: `AuthState::from_env_or_dev`
         // fails the boot, so there is nothing to warn about here.
