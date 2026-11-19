@@ -287,22 +287,37 @@ implementing issue #342).
 
 ### Staged rollout & dev mode
 
-- `AUTHZ_ENFORCE=false` → log-only mode: denials are logged (`AUTHZ(log-only)`),
-  requests allowed. Used for staged rollout observation. It is the **only**
-  explicit opt-out — it applies in every mode, including production.
-- Enforcement defaults **on** for every configuration except a genuine dev-auth
-  boot.
-- Dev mode defaults enforcement **off** so local development works without
-  seeded membership. Dev mode is decided by the *same* predicate the
-  authentication layer uses — `crate::auth::dev_auth_active`: `OIDC_ISS` unset
-  **and** `DEV_AUTH_SUB` set. Production always sets `OIDC_ISS` and therefore
-  cannot reach dev mode (ADR-018).
-- A leftover `DEV_AUTH_SUB` next to real OIDC is ignored by both layers: tokens
-  are verified **and** denials return `403` (issue #935 — before the fix the
+`AUTHZ_ENFORCE=false` → log-only mode: denials are logged (`AUTHZ(log-only)`),
+requests allowed. Used for staged rollout observation. It is the **only**
+explicit opt-out and it wins over every default below.
+
+The *default* is decided by `crate::auth::authorization_enforce_default`, which
+reads the same variables as the authentication layer (`dev_auth_active` for the
+auth mode, `configured_oidc_vars` for the mix) — the two layers cannot invent
+separate environment readings (issue #935):
+
+| Configuration | Authentication | `AUTHZ_ENFORCE` default |
+|---|---|---|
+| all three `OIDC_*` | OIDC JWT verification | **enforced** |
+| all three `OIDC_*` + `DEV_AUTH_*` | OIDC JWT verification (dev override ignored, startup warning) | **enforced** |
+| `DEV_AUTH_SUB` only, **no** `OIDC_*` | dev override, no verification | log-only |
+| `OIDC_*` **without** `OIDC_ISS` + `DEV_AUTH_SUB` | dev override (the OIDC variables are inert), startup warning | **enforced** (fail closed) |
+| nothing usable | startup error | n/a |
+
+- Log-only stays reserved for a *clean* dev boot, so local development works
+  without seeded membership (ADR-018). Production always sets `OIDC_ISS` and
+  therefore cannot reach dev mode.
+- A leftover `DEV_AUTH_SUB` next to a complete OIDC config is ignored by both
+  layers: tokens are verified **and** denials return `403`. Before the fix the
   authorization predicate tested `DEV_AUTH_SUB` alone and silently dropped to
-  log-only, forwarding block-scoped requests on policy denial). `main.rs` logs
-  a `mixed auth configuration` warning at startup when OIDC and `DEV_AUTH_*`
-  are configured at once, naming the ignored variables.
+  log-only, forwarding block-scoped requests on policy denial.
+- A *partial* OIDC config (`OIDC_AUDIENCE`/`OIDC_JWKS_URL` without `OIDC_ISS`)
+  is a misconfiguration the auth layer still treats as dev mode, but it must not
+  also narrow authorization: enforcement is the default, so the half-migrated
+  deployment fails closed rather than open.
+- `main.rs` logs a `mixed auth configuration` warning at startup whenever `OIDC_*`
+  and `DEV_AUTH_*` are configured at once, describing which of the two won
+  (OIDC wins with `OIDC_ISS`; dev auth stays active without it).
 
 ---
 
@@ -316,7 +331,7 @@ Implementation: `crates/api/src/auth/{mod.rs,jwks.rs}` (ADR-010, ADR-018).
 | Key source | JWKS document fetched via `StaticJwksProvider`, cached by `CachingJwksProvider` (TTL 3600 s, refresh on cache miss **and** on validation failure — key rotation self-heals within one request) |
 | Claims enforced | `iss`, `aud`, `exp` |
 | Algorithm confusion | Header `alg` must be RS256; unknown `kid` rejects rather than falling back |
-| Dev-mode gating | Only reachable when `OIDC_ISS` is unset **and** `DEV_AUTH_SUB` is set — structurally unreachable in production. The authorization default reads the same predicate (`auth::dev_auth_active`), so verified-token deployments always enforce unless `AUTHZ_ENFORCE=false` is explicit (issue #935) |
+| Dev-mode gating | Only reachable when `OIDC_ISS` is unset **and** `DEV_AUTH_SUB` is set — structurally unreachable in production. The authorization default is computed separately (`auth::authorization_enforce_default`): it defers to log-only only for a clean `DEV_AUTH_SUB`-only environment, so any configured `OIDC_*` variable (even a partial config) keeps enforcement on (issue #935) |
 
 ---
 

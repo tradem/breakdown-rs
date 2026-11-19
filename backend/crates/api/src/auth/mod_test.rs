@@ -122,6 +122,10 @@ fn dev_auth_active_requires_oidc_iss_absence() {
     with_clean_env(|| {
         assert!(!dev_auth_active(), "nothing configured is not dev mode");
         assert_eq!(dev_auth_subject(), None);
+        assert!(
+            authorization_enforce_default(),
+            "an unconfigured environment defaults to enforcement"
+        );
 
         set_env("DEV_AUTH_SUB", "dev-user");
         assert!(
@@ -129,6 +133,20 @@ fn dev_auth_active_requires_oidc_iss_absence() {
             "DEV_AUTH_SUB without OIDC_ISS is dev mode"
         );
         assert_eq!(dev_auth_subject().as_deref(), Some("dev-user"));
+        assert!(
+            !authorization_enforce_default(),
+            "a clean dev boot is the only log-only default"
+        );
+
+        // A partial OIDC configuration without OIDC_ISS keeps dev auth active
+        // but must not disable enforcement (issue #935 review finding).
+        set_env("OIDC_AUDIENCE", "aud");
+        assert!(dev_auth_active(), "only OIDC_ISS leaves dev mode");
+        assert!(
+            authorization_enforce_default(),
+            "any configured OIDC variable keeps the enforced default"
+        );
+        remove_env("OIDC_AUDIENCE");
 
         set_env("OIDC_ISS", "https://iss");
         assert!(
@@ -136,6 +154,7 @@ fn dev_auth_active_requires_oidc_iss_absence() {
             "OIDC_ISS present wins over a leftover DEV_AUTH_SUB"
         );
         assert_eq!(dev_auth_subject(), None);
+        assert!(authorization_enforce_default());
     });
 }
 

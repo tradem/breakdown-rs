@@ -138,6 +138,24 @@ pub const OIDC_ENV_VARS: &[&str] = &["OIDC_ISS", "OIDC_AUDIENCE", "OIDC_JWKS_URL
 /// `DEV_AUTH_EMAIL` is optional.
 pub const DEV_AUTH_ENV_VARS: &[&str] = &["DEV_AUTH_SUB", "DEV_AUTH_EMAIL"];
 
+/// The subset of `vars` that is currently set, in declaration order.
+fn configured(vars: &'static [&'static str]) -> Vec<&'static str> {
+    vars.iter()
+        .copied()
+        .filter(|var| std::env::var(var).is_ok())
+        .collect()
+}
+
+/// The OIDC variables that are currently set (usually none or all three).
+pub fn configured_oidc_vars() -> Vec<&'static str> {
+    configured(OIDC_ENV_VARS)
+}
+
+/// The dev-auth variables that are currently set.
+pub fn configured_dev_auth_vars() -> Vec<&'static str> {
+    configured(DEV_AUTH_ENV_VARS)
+}
+
 /// The dev-auth subject when the dev override applies, else `None`.
 ///
 /// The override applies **only** when OIDC is not configured (`OIDC_ISS`
@@ -152,29 +170,39 @@ pub fn dev_auth_subject() -> Option<String> {
 /// Whether the auth layer boots in dev-override mode (tokens are not verified;
 /// see [`dev_auth_subject`]).
 ///
-/// This is the single predicate both [`AuthState::from_env_or_dev`] and
-/// [`authorization::AuthorizationState::from_env_or_dev`] consult, so the
-/// authorization default can never drift from the authentication mode again
-/// (issue #935).
+/// Consulted by [`AuthState::from_env_or_dev`]. The *authorization* default is
+/// [`authorization_enforce_default`] — a separate question with its own rule
+/// (a partial OIDC configuration must not disable enforcement, issue #935), but
+/// defined here beside the auth predicate so neither layer can invent its own
+/// environment reading.
 pub fn dev_auth_active() -> bool {
     dev_auth_subject().is_some()
 }
 
+/// Whether authorization enforces by default for the current environment
+/// (issue #935) — the default `AUTHZ_ENFORCE` falls back to, consulted by
+/// [`authorization::AuthorizationState::from_env_or_dev`].
+///
+/// Enforcement only defaults *off* (log-only) for a **clean** dev-auth
+/// configuration: `DEV_AUTH_SUB` set, `OIDC_ISS` absent, and **no other OIDC
+/// variable** set. Any configured OIDC variable — including a partial
+/// configuration that is missing `OIDC_ISS` — keeps enforcement the default, so
+/// a leftover can never narrow authorization while the deployment is being
+/// moved to OIDC. `AUTHZ_ENFORCE=false` stays the explicit opt-out in every
+/// mode.
+pub fn authorization_enforce_default() -> bool {
+    !(dev_auth_active() && configured_oidc_vars().is_empty())
+}
+
 /// The configured variables when OIDC and the dev-auth override are both
-/// present — the mix the docs forbid, because it turns `DEV_AUTH_SUB` into a
-/// silent no-op. `None` means the configuration is unambiguous.
+/// present — the mix the docs forbid, because one of the two families ends up
+/// silently inert. `None` means the configuration is unambiguous.
 ///
 /// Returns `(oidc_vars, dev_vars)`, each in [`OIDC_ENV_VARS`] /
 /// [`DEV_AUTH_ENV_VARS`] order.
 pub fn mixed_dev_and_oidc_config() -> Option<(Vec<&'static str>, Vec<&'static str>)> {
-    fn configured(vars: &'static [&'static str]) -> Vec<&'static str> {
-        vars.iter()
-            .copied()
-            .filter(|var| std::env::var(var).is_ok())
-            .collect()
-    }
-    let oidc = configured(OIDC_ENV_VARS);
-    let dev = configured(DEV_AUTH_ENV_VARS);
+    let oidc = configured_oidc_vars();
+    let dev = configured_dev_auth_vars();
     if oidc.is_empty() || dev.is_empty() {
         return None;
     }
@@ -182,21 +210,43 @@ pub fn mixed_dev_and_oidc_config() -> Option<(Vec<&'static str>, Vec<&'static st
 }
 
 /// Startup guard rail (issue #935): warn loudly when OIDC and the dev-auth
-/// override are configured at once.
+/// override are configured at once, describing the mode that actually won.
 ///
-/// OIDC wins — `DEV_AUTH_SUB` is ignored by the auth layer and `AUTHZ_ENFORCE`
-/// defaults to *enforced* — so a leftover dev variable can never downgrade
-/// authorization to log-only. The warning names the ignored variables so the
-/// operator deletes them.
+/// - `OIDC_ISS` set → OIDC wins: tokens are verified, `DEV_AUTH_*` is ignored,
+///   and authorization enforces by default.
+/// - `OIDC_ISS` absent (partial OIDC config) → dev auth stays active (tokens
+///   are **not** verified) and the configured OIDC variables are inert, while
+///   the authorization default still enforces
+///   ([`authorization_enforce_default`]) — the deployment fails closed until one
+///   of the two families is removed.
 pub fn warn_on_mixed_dev_and_oidc_config() {
-    if let Some((oidc, dev)) = mixed_dev_and_oidc_config() {
-        tracing::warn!(
-            oidc = %oidc.join(", "),
-            ignored = %dev.join(", "),
+    let Some((oidc, dev)) = mixed_dev_and_oidc_config() else {
+        return;
+    };
+    let oidc = oidc.join(", ");
+    let dev = dev.join(", ");
+    match std::env::var("OIDC_ISS") {
+        // OIDC wins: tokens verified, the dev override is inert.
+        Ok(_) => tracing::warn!(
+            oidc = %oidc,
+            ignored = %dev,
             "mixed auth configuration: OIDC is configured, so the dev-auth override is ignored \
              and AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false explicitly for \
              log-only mode); unset DEV_AUTH_SUB/DEV_AUTH_EMAIL (issue #935)"
-        );
+        ),
+        // Partial OIDC config: dev auth stays selected, but the misconfiguration
+        // must not also disable enforcement.
+        Err(_) if dev_auth_active() => tracing::warn!(
+            oidc = %oidc,
+            dev = %dev,
+            "mixed auth configuration without OIDC_ISS: dev authentication remains active \
+             (tokens are NOT verified) and the configured OIDC variables are inert, while \
+             AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false for log-only mode) — \
+             configure OIDC_ISS or unset the OIDC_* variables (issue #935)"
+        ),
+        // Only DEV_AUTH_EMAIL without DEV_AUTH_SUB: `AuthState::from_env_or_dev`
+        // fails the boot, so there is nothing to warn about here.
+        Err(_) => {}
     }
 }
 
