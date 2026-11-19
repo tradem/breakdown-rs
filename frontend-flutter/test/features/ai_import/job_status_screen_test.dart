@@ -1978,16 +1978,23 @@ void main() {
 
     expect(find.byKey(const Key('ai-job-provider-hold')), findsOneWidget);
     // The dependency is NAMED, with the wire spelling the AI-config screen uses.
-    // Issue #942 F3/F5: the copy says what was OBSERVED (no timely answer) and
-    // not a cause nobody measured — the live failure was a client-side request
-    // timeout, while "unreachable" was the old, wrong assertion.
-    expect(find.text('opencode-go did not answer in time'), findsOneWidget);
+    // Issue #942 F3/F5: the title states the one measured fact (repeated failed
+    // attempts on this pair) and no cause nobody measured. "Unreachable" was the
+    // old, wrong assertion — and so was "did not answer in time", which is false
+    // for a hold the breaker opened on retryable 5xx/429 answers (review).
+    expect(find.text('opencode-go: repeated failed attempts'), findsOneWidget);
     expect(find.text('opencode-go is unreachable'), findsNothing);
+    expect(find.textContaining('did not answer'), findsNothing);
     // The two clock boundaries are rendered, and the wait is stated as free.
     final body = tester
         .widget<Text>(find.byKey(const Key('ai-job-provider-hold-body')))
         .data!;
     expect(RegExp(r'\d{1,2}:\d{2}').allMatches(body).length, 2);
+    // The cause stays open: a timeout, a provider error answer and a slow answer
+    // are indistinguishable from here, and the history (this fixture has NONE)
+    // only MAY name details.
+    expect(body, contains('may contain details'));
+    expect(body.contains('names the exact cause'), isFalse);
     // Issue #942 W5: "no retry consumed" is stated, and the unknowable half —
     // whether the abandoned call was still billed — is stated as unknowable
     // instead of being silently equated with "free".
@@ -2028,7 +2035,7 @@ void main() {
     await pumpScreen(tester);
 
     expect(find.byKey(const Key('ai-job-provider-hold')), findsOneWidget);
-    expect(find.textContaining('did not answer until'), findsOneWidget);
+    expect(find.textContaining('did not recover until'), findsOneWidget);
     // The spent-budget narrative belongs to a genuine exhaustion — the expiry
     // never spent the budget, so this copy must not appear.
     expect(find.textContaining('retry budget is used up'), findsNothing);

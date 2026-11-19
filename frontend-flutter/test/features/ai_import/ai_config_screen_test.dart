@@ -2846,6 +2846,37 @@ void main() {
       );
     });
 
+    testWidgets('a granted trial says so instead of claiming a running call', (
+      tester,
+    ) async {
+      // `trial_granted` is the GRANT: the server stamps the job id and returns
+      // the job to the queue, so no provider call needs to be running yet. Copy
+      // that says "in flight" asserts an execution nobody observed.
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(
+          breakers: [
+            AiProviderBreakerView(
+              (b) => b
+                ..provider = LlmProvider.openai
+                ..model = 'gpt-5.6-luna'
+                ..state = ProviderBreakerState.halfOpen
+                ..consecutiveFailures = 3
+                ..flapCount = 1
+                ..trialGranted = true,
+            ),
+          ],
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.text(l10nEn().aiConfigProviderHealthTrial('gpt-5.6-luna')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('in flight'), findsNothing);
+    });
+
     testWidgets('a resolved capability denial renders no permission and no '
         'retry', (tester) async {
       // The RENDERING of the denial. The gate itself (that nothing is

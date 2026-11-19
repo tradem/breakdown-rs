@@ -259,7 +259,15 @@ async fn a_provider_without_a_budget_read_reports_null_never_zero() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["probe_status"], "usable");
-    assert_eq!(body["budget"]["remaining"], serde_json::Value::Null);
+    // The `budget` OBJECT must exist and say `remaining: null`. Indexing
+    // (`body["budget"]["remaining"]`) cannot tell a missing key from an explicit
+    // null, so it would also pass for `budget: null` — the collapse this case
+    // forbids.
+    assert_eq!(
+        body.get("budget"),
+        Some(&serde_json::json!({ "remaining": serde_json::Value::Null })),
+        "an unconfigured limit is a budget OBJECT with a null remaining: {body}"
+    );
 }
 
 #[tokio::test]
@@ -516,4 +524,89 @@ async fn an_over_long_model_query_is_422() {
         .await
         .expect_err("an unbounded key must be refused");
     assert_eq!(error.into_problem().status, 422);
+}
+
+#[tokio::test]
+async fn an_active_config_behind_a_page_of_revoked_ones_is_still_found() {
+    // Revoked rows are history and never become bindings — but they must not be
+    // able to HIDE a live one. A single fixed page would have read only the 50
+    // newest (here: all revoked) rows and answered `credential_configured:
+    // false` for a caller whose binding is intact.
+    let ports = FakePorts::default();
+    seed_credential_member(&ports, USER_A).await;
+    seed_own_credential(&ports, USER_A, VAULT_KEY_A, "sk-caller-a").await;
+    {
+        let mut views = ports.ai_config_repo.views.lock().await;
+        // Deterministic order (the fake mirrors production's newest-first by
+        // id): every revoked row outranks the one active row, which therefore
+        // only appears on the SECOND page.
+        for index in 0..120u128 {
+            let mut revoked = ai_config(USER_A, VAULT_KEY_A);
+            revoked.id = uuid::Uuid::from_u128(1_000_000 + index);
+            revoked.revoked = true;
+            views.insert(revoked.id, revoked);
+        }
+        for view in views.values_mut() {
+            if !view.revoked {
+                view.id = uuid::Uuid::from_u128(1);
+            }
+        }
+    }
+    *ports.ai_provider_account_probe.snapshot.lock().await = AccountProbeSnapshot {
+        status: AccountProbeStatus::Usable,
+        budget: None,
+    };
+    let state = state(ports.clone()).await;
+
+    let (status, body) = body_json(
+        call(&state, USER_A, "eurouter", None)
+            .await
+            .expect("the read succeeds"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["credential_configured"], true,
+        "the active config behind the revoked page is the caller's credential"
+    );
+    let recorded = ports.ai_provider_account_probe.recorded().await;
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].vault_key_id, VAULT_KEY_A);
+}
+
+#[tokio::test]
+async fn a_model_scoped_read_still_reports_the_callers_provider_credential() {
+    // `?model=` scopes the breaker snapshot; it does not answer "do I have a
+    // credential at this provider". A caller with a binding for model A and a
+    // request for model B has one, and every hosted probe is account-scoped.
+    let ports = FakePorts::default();
+    seed_credential_member(&ports, USER_A).await;
+    seed_own_credential(&ports, USER_A, VAULT_KEY_A, "sk-caller-a").await;
+    *ports.ai_provider_account_probe.snapshot.lock().await = AccountProbeSnapshot {
+        status: AccountProbeStatus::Usable,
+        budget: None,
+    };
+    let state = state(ports.clone()).await;
+
+    let (_, body) = body_json(
+        call(
+            &state,
+            USER_A,
+            "eurouter",
+            Some("a-model-nobody-configured"),
+        )
+        .await
+        .expect("the read succeeds"),
+    )
+    .await;
+
+    assert_eq!(
+        body["credential_configured"], true,
+        "an unmatched model must fall back to the provider's first binding"
+    );
+    let recorded = ports.ai_provider_account_probe.recorded().await;
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].vault_key_id, VAULT_KEY_A);
+    assert_eq!(recorded[0].key.as_deref(), Some("sk-caller-a"));
 }

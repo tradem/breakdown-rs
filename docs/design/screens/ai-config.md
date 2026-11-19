@@ -75,7 +75,7 @@ N/A — the screen is not part of the planning hierarchy and is pushed without a
 | Card title | Text (title-small) | Names the role and the provider wire key — never the Dart enum spelling | `aiConfigProviderHealthTitle` |
 | Account line | Text (body) | One of: usable / key rejected or quota exhausted / unknown / no key stored / no permission / read failed / checking | `aiConfigProviderHealth{Usable,NotUsable,Unknown,Unconfigured,Forbidden,Failed,Checking}` |
 | Budget line | Text (body) | Three-valued and never a fabricated zero: a figure, "no limit configured", or "unknown" | `aiConfigProviderHealthBudget{Remaining,Unlimited,Unknown}` |
-| Paused models | Text list | Only non-`closed` breaker rows; a granted half-open trial reads as "trial in flight", a scheduled probe names its time | `aiConfigProviderHealthHeldTitle`, `…HeldPair`, `…HeldPairNoEta`, `…Trial` |
+| Paused models | Text list | Only non-`closed` breaker rows; a granted half-open trial reads as "trial granted" (the grant is what the server published — the call may not have started yet), a scheduled probe names its time | `aiConfigProviderHealthHeldTitle`, `…HeldPair`, `…HeldPairNoEta`, `…Trial` |
 | Retry | Outlined button | Re-reads the health route (only for a failed read; a denial has no retry — retrying cannot flip a role) | `commonRetry` |
 
 ## States

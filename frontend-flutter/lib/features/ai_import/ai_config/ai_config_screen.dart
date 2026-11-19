@@ -22,6 +22,7 @@ import '../../../l10n/locale_formatters.dart';
 import '../clippy/clippy_trigger.dart';
 import '../cost_format.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
+import '../import_jobs/import_state.dart' show aiProviderWireKey;
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
 import '../../../design/components/breakdown_app_bar.dart';
@@ -1596,18 +1597,23 @@ enum _ProviderHealthRole { extraction, decision }
 
 /// The canonical wire key of [provider] (`/ai-import/providers` `key` field).
 ///
-/// `LlmProvider.name` is the DART constant name, which differs from the wire key
-/// for the hyphenated providers (`opencodeGo` vs `opencode-go`), so the resolved
-/// catalog is the authority and the enum name is only the pre-catalog fallback —
-/// the health route takes the key, not the enum.
-String? _providerWireKey(AiConfigScreenState state, LlmProvider provider) {
+/// The resolved catalog is the authority (it is what the backend serves), and
+/// [`aiProviderWireKey`] is the client's single enum→wire mapping for the
+/// pre-catalog window — the health route takes the KEY, never the Dart constant
+/// name (`opencodeGo` vs `opencode-go`, which the route answers with a `422`).
+///
+/// Deliberately NOT `state.selectedProviderKey`: that holds the DRAFT selection,
+/// which may belong to a different provider than [provider] and may not be
+/// resolvable to a wire key at all. A wrong key is worse than a slow one — it
+/// renders "status unreadable" for a provider that is fine.
+String _providerWireKey(AiConfigScreenState state, LlmProvider provider) {
   final rows = state.providers.value;
   if (rows != null) {
     for (final row in rows) {
       if (row.provider == provider) return row.key;
     }
   }
-  return state.selectedProviderKey ?? provider.name;
+  return aiProviderWireKey(provider);
 }
 
 /// Provider health + remaining budget (issue #942 W5).
@@ -1625,7 +1631,11 @@ String? _providerWireKey(AiConfigScreenState state, LlmProvider provider) {
 class _ProviderHealthCard extends ConsumerWidget {
   const _ProviderHealthCard({required this.providerKey, required this.role});
 
-  /// The provider's wire key, or `null` before the catalog resolved.
+  /// The provider's wire key ([_providerWireKey] — catalog-resolved when it is
+  /// available, the canonical enum→wire mapping otherwise; never the Dart enum
+  /// name, which the route answers with a `422`). `null` only for a caller that
+  /// has no key to ask about (the extraction key is never null, the decision key
+  /// is until the draft or the config names one).
   final String? providerKey;
   final _ProviderHealthRole role;
 

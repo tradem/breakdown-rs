@@ -993,7 +993,7 @@ components:
         Deliberately **not** the raw `ProviderBreakerSnapshot`: that struct carries
         `trial_job`, the id of the job currently allowed to run the half-open trial.
         Serializing it would publish another user's job id, so the wire keeps a
-        boolean instead — the client only needs to know that a trial is in flight.
+        boolean instead — the client only needs to know that a trial was granted.
       properties:
         consecutive_failures:
           description: Consecutive retryable failures on this pair, across all users and jobs.
@@ -1023,6 +1023,10 @@ components:
           description: |-
             Whether one un-retried trial call is currently granted for this pair.
             A boolean, never the trial's job id (see the type doc).
+
+            `true` means the GRANT, not that a call is running: `begin_provider_trial`
+            stamps the id and returns the job to the queue, so a worker may not have
+            claimed it yet. Copy must not claim "trial in flight" from this bit.
           type: boolean
       required:
       - provider

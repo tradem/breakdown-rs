@@ -48,14 +48,26 @@ The provider-health read SHALL consult the global credential capability first.
 
 ### Requirement: Hold copy distinguishes the observed failure from a guess
 
-The held-job copy SHALL state that the provider did not answer in time, SHALL NOT
-assert that it was unreachable, SHALL state that no retry was consumed, and SHALL
-state that whether the aborted call was still billed is not observable.
+The held-job copy SHALL state that the `(provider, model)` pair failed repeatedly
+SHALL NOT name which failure it was — a timeout, a provider error response and a
+slow answer are indistinguishable from the client —, SHALL NOT assert that the
+provider was unreachable, SHALL state that no retry was consumed, and SHALL state
+that whether the aborted call was still billed is not observable.
 
 #### Scenario: a chunk-timeout hold
-- **THEN** the title reads "{provider} hat nicht rechtzeitig geantwortet"
-- **AND** the body points at the attempt history for the exact cause and names the
-  cost question as open.
+- **THEN** the title reads "{provider}: wiederholte Fehlversuche"
+- **AND** the body names timeout, error response and slow answer as
+  indistinguishable from the client.
+
+#### Scenario: a hold opened by repeated HTTP error responses
+- **GIVEN** the breaker opened on retryable `5xx`/`429` answers, not on a timeout
+- **THEN** the same title renders — it asserts no cause, so it stays true.
+
+#### Scenario: a hold without any attempt row
+- **GIVEN** the breaker was already open when the attempt looked (a hold series
+  whose only writer was `hold_runnable_jobs`)
+- **THEN** the body says the attempt history MAY contain details — it never
+  promises that the exact cause is named.
 
 ### Requirement: German and English copy stay at parity
 

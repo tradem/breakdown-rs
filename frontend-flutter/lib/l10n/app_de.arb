@@ -1568,10 +1568,10 @@
   "sceneUpdateErrorConflict": "Die Szene wurde zwischenzeitlich geändert. Aktualisiere die Ansicht und versuche es erneut.",
   "sceneUpdateErrorNetwork": "Netzwerkproblem – die Änderung wurde nicht gespeichert. Versuche es erneut.",
   "sceneUpdateErrorGeneric": "Die Szene konnte nicht gespeichert werden ({code}).",
-  "aiJobProviderHoldTitle": "{provider} hat nicht rechtzeitig geantwortet",
-  "aiJobProviderHoldBody": "Der Auftrag wartet bis {until}; spätestens bis {deadline}. Ob der Anbieter unerreichbar war oder das Modell zu lange gebraucht hat, lässt sich von hier aus nicht unterscheiden – die Versuchshistorie nennt die genaue Ursache. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar. Der Import läuft nach der Pause weiter, sobald der Anbieter antwortet.",
-  "aiJobProviderHoldExpiredBody": "Der Anbieter hat bis {deadline} nicht geantwortet. Der Auftrag wurde deshalb beendet, ohne einen Wiederholungsversuch zu verbrauchen – ob der Anbieter die abgebrochenen Aufrufe dennoch berechnet hat, ist von hier aus nicht erkennbar. Laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.",
-  "aiJobsRowProviderHold": "{provider} antwortet nicht · wartet bis {until}",
+  "aiJobProviderHoldTitle": "{provider}: wiederholte Fehlversuche",
+  "aiJobProviderHoldBody": "Der Auftrag wartet bis {until}; spätestens bis {deadline}. Woran die Versuche gescheitert sind – Zeitüberschreitung, Fehlerantwort des Anbieters oder eine zu langsame Antwort –, lässt sich von hier aus nicht unterscheiden; die Versuchshistorie kann Details dazu enthalten. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar. Der Import läuft nach der Pause weiter, sobald der Anbieter antwortet.",
+  "aiJobProviderHoldExpiredBody": "Der Anbieter hat sich bis {deadline} nicht erholt. Der Auftrag wurde deshalb beendet, ohne einen Wiederholungsversuch zu verbrauchen – ob der Anbieter die abgebrochenen Aufrufe dennoch berechnet hat, ist von hier aus nicht erkennbar. Laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.",
+  "aiJobsRowProviderHold": "{provider}: wiederholte Fehlversuche · wartet bis {until}",
   "@aiJobProviderHoldTitle": {
     "placeholders": {
       "provider": {
@@ -1606,7 +1606,7 @@
       }
     }
   },
-  "aiJobProviderHoldExpiredTitle": "{provider} ist nicht zurückgekommen",
+  "aiJobProviderHoldExpiredTitle": "{provider} hat sich nicht erholt",
   "@aiJobProviderHoldExpiredTitle": {
     "placeholders": {
       "provider": {
@@ -1675,7 +1675,7 @@
       }
     }
   },
-  "aiConfigProviderHealthTrial": "{model}: Testversuch läuft",
+  "aiConfigProviderHealthTrial": "{model}: Testversuch erteilt",
   "aiConfigProviderHealthHeldPairNoEta": "{model}: pausiert",
   "@aiConfigProviderHealthHeldPairNoEta": {
     "placeholders": {

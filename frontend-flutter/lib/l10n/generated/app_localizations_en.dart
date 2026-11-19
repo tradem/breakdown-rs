@@ -4257,27 +4257,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String aiJobProviderHoldTitle(String provider) {
-    return '$provider did not answer in time';
+    return '$provider: repeated failed attempts';
   }
 
   @override
   String aiJobProviderHoldBody(String until, String deadline) {
-    return 'The job waits until $until; at the latest until $deadline. Whether the provider was unreachable or the model simply took too long cannot be told from here – the attempt history names the exact cause. No retry is consumed; whether the provider still bills the aborted call is not observable from here. The import continues after the pause as soon as the provider answers.';
+    return 'The job waits until $until; at the latest until $deadline. Why the attempts failed – a timeout, an error response from the provider, or a slow answer – cannot be told from here; the attempt history may contain details. No retry is consumed; whether the provider still bills the aborted call is not observable from here. The import continues after the pause as soon as the provider answers.';
   }
 
   @override
   String aiJobProviderHoldExpiredBody(String deadline) {
-    return 'The provider did not answer until $deadline. The job was therefore ended without consuming a retry – whether the provider still billed the aborted calls is not observable from here. Upload the document again once the provider answers.';
+    return 'The provider did not recover until $deadline. The job was therefore ended without consuming a retry – whether the provider still billed the aborted calls is not observable from here. Upload the document again once the provider answers.';
   }
 
   @override
   String aiJobsRowProviderHold(String provider, String until) {
-    return '$provider not answering · waits until $until';
+    return '$provider: repeated failures · waits until $until';
   }
 
   @override
   String aiJobProviderHoldExpiredTitle(String provider) {
-    return '$provider did not come back';
+    return '$provider did not recover';
   }
 
   @override
@@ -4349,7 +4349,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String aiConfigProviderHealthTrial(Object model) {
-    return '$model: trial call in flight';
+    return '$model: trial granted';
   }
 
   @override

@@ -12,7 +12,7 @@ import 'package:built_value/serializer.dart';
 
 part 'ai_provider_breaker_view.g.dart';
 
-/// One `(provider, model)` breaker row (issue #942 W4).  Deliberately **not** the raw `ProviderBreakerSnapshot`: that struct carries `trial_job`, the id of the job currently allowed to run the half-open trial. Serializing it would publish another user's job id, so the wire keeps a boolean instead — the client only needs to know that a trial is in flight.
+/// One `(provider, model)` breaker row (issue #942 W4).  Deliberately **not** the raw `ProviderBreakerSnapshot`: that struct carries `trial_job`, the id of the job currently allowed to run the half-open trial. Serializing it would publish another user's job id, so the wire keeps a boolean instead — the client only needs to know that a trial was granted.
 ///
 /// Properties:
 /// * [consecutiveFailures] - Consecutive retryable failures on this pair, across all users and jobs.
@@ -21,7 +21,7 @@ part 'ai_provider_breaker_view.g.dart';
 /// * [provider]
 /// * [retryAt] - The next scheduled probe (`null` while `closed`).
 /// * [state] - `closed` admits paid calls; `open`/`half_open` hold them.
-/// * [trialGranted] - Whether one un-retried trial call is currently granted for this pair. A boolean, never the trial's job id (see the type doc).
+/// * [trialGranted] - Whether one un-retried trial call is currently granted for this pair. A boolean, never the trial's job id (see the type doc).  `true` means the GRANT, not that a call is running: `begin_provider_trial` stamps the id and returns the job to the queue, so a worker may not have claimed it yet. Copy must not claim \"trial in flight\" from this bit.
 @BuiltValue()
 abstract class AiProviderBreakerView
     implements Built<AiProviderBreakerView, AiProviderBreakerViewBuilder> {
@@ -50,7 +50,7 @@ abstract class AiProviderBreakerView
   ProviderBreakerState get state;
   // enum stateEnum {  closed,  open,  half_open,  expired,  };
 
-  /// Whether one un-retried trial call is currently granted for this pair. A boolean, never the trial's job id (see the type doc).
+  /// Whether one un-retried trial call is currently granted for this pair. A boolean, never the trial's job id (see the type doc).  `true` means the GRANT, not that a call is running: `begin_provider_trial` stamps the id and returns the job to the queue, so a worker may not have claimed it yet. Copy must not claim \"trial in flight\" from this bit.
   @BuiltValueField(wireName: r'trial_granted')
   bool get trialGranted;
 

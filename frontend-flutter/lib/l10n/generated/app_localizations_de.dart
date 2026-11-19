@@ -4304,27 +4304,27 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String aiJobProviderHoldTitle(String provider) {
-    return '$provider hat nicht rechtzeitig geantwortet';
+    return '$provider: wiederholte Fehlversuche';
   }
 
   @override
   String aiJobProviderHoldBody(String until, String deadline) {
-    return 'Der Auftrag wartet bis $until; spätestens bis $deadline. Ob der Anbieter unerreichbar war oder das Modell zu lange gebraucht hat, lässt sich von hier aus nicht unterscheiden – die Versuchshistorie nennt die genaue Ursache. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar. Der Import läuft nach der Pause weiter, sobald der Anbieter antwortet.';
+    return 'Der Auftrag wartet bis $until; spätestens bis $deadline. Woran die Versuche gescheitert sind – Zeitüberschreitung, Fehlerantwort des Anbieters oder eine zu langsame Antwort –, lässt sich von hier aus nicht unterscheiden; die Versuchshistorie kann Details dazu enthalten. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar. Der Import läuft nach der Pause weiter, sobald der Anbieter antwortet.';
   }
 
   @override
   String aiJobProviderHoldExpiredBody(String deadline) {
-    return 'Der Anbieter hat bis $deadline nicht geantwortet. Der Auftrag wurde deshalb beendet, ohne einen Wiederholungsversuch zu verbrauchen – ob der Anbieter die abgebrochenen Aufrufe dennoch berechnet hat, ist von hier aus nicht erkennbar. Laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.';
+    return 'Der Anbieter hat sich bis $deadline nicht erholt. Der Auftrag wurde deshalb beendet, ohne einen Wiederholungsversuch zu verbrauchen – ob der Anbieter die abgebrochenen Aufrufe dennoch berechnet hat, ist von hier aus nicht erkennbar. Laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.';
   }
 
   @override
   String aiJobsRowProviderHold(String provider, String until) {
-    return '$provider antwortet nicht · wartet bis $until';
+    return '$provider: wiederholte Fehlversuche · wartet bis $until';
   }
 
   @override
   String aiJobProviderHoldExpiredTitle(String provider) {
-    return '$provider ist nicht zurückgekommen';
+    return '$provider hat sich nicht erholt';
   }
 
   @override
@@ -4397,7 +4397,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String aiConfigProviderHealthTrial(Object model) {
-    return '$model: Testversuch läuft';
+    return '$model: Testversuch erteilt';
   }
 
   @override

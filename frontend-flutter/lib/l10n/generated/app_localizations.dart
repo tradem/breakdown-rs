@@ -6939,31 +6939,31 @@ abstract class AppLocalizations {
   /// No description provided for @aiJobProviderHoldTitle.
   ///
   /// In de, this message translates to:
-  /// **'{provider} hat nicht rechtzeitig geantwortet'**
+  /// **'{provider}: wiederholte Fehlversuche'**
   String aiJobProviderHoldTitle(String provider);
 
   /// No description provided for @aiJobProviderHoldBody.
   ///
   /// In de, this message translates to:
-  /// **'Der Auftrag wartet bis {until}; spätestens bis {deadline}. Ob der Anbieter unerreichbar war oder das Modell zu lange gebraucht hat, lässt sich von hier aus nicht unterscheiden – die Versuchshistorie nennt die genaue Ursache. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar. Der Import läuft nach der Pause weiter, sobald der Anbieter antwortet.'**
+  /// **'Der Auftrag wartet bis {until}; spätestens bis {deadline}. Woran die Versuche gescheitert sind – Zeitüberschreitung, Fehlerantwort des Anbieters oder eine zu langsame Antwort –, lässt sich von hier aus nicht unterscheiden; die Versuchshistorie kann Details dazu enthalten. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar. Der Import läuft nach der Pause weiter, sobald der Anbieter antwortet.'**
   String aiJobProviderHoldBody(String until, String deadline);
 
   /// No description provided for @aiJobProviderHoldExpiredBody.
   ///
   /// In de, this message translates to:
-  /// **'Der Anbieter hat bis {deadline} nicht geantwortet. Der Auftrag wurde deshalb beendet, ohne einen Wiederholungsversuch zu verbrauchen – ob der Anbieter die abgebrochenen Aufrufe dennoch berechnet hat, ist von hier aus nicht erkennbar. Laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.'**
+  /// **'Der Anbieter hat sich bis {deadline} nicht erholt. Der Auftrag wurde deshalb beendet, ohne einen Wiederholungsversuch zu verbrauchen – ob der Anbieter die abgebrochenen Aufrufe dennoch berechnet hat, ist von hier aus nicht erkennbar. Laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.'**
   String aiJobProviderHoldExpiredBody(String deadline);
 
   /// No description provided for @aiJobsRowProviderHold.
   ///
   /// In de, this message translates to:
-  /// **'{provider} antwortet nicht · wartet bis {until}'**
+  /// **'{provider}: wiederholte Fehlversuche · wartet bis {until}'**
   String aiJobsRowProviderHold(String provider, String until);
 
   /// No description provided for @aiJobProviderHoldExpiredTitle.
   ///
   /// In de, this message translates to:
-  /// **'{provider} ist nicht zurückgekommen'**
+  /// **'{provider} hat sich nicht erholt'**
   String aiJobProviderHoldExpiredTitle(String provider);
 
   /// No description provided for @aiJobStageResumed.
@@ -7071,7 +7071,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConfigProviderHealthTrial.
   ///
   /// In de, this message translates to:
-  /// **'{model}: Testversuch läuft'**
+  /// **'{model}: Testversuch erteilt'**
   String aiConfigProviderHealthTrial(Object model);
 
   /// No description provided for @aiConfigProviderHealthHeldPairNoEta.

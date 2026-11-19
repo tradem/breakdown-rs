@@ -450,12 +450,13 @@ not assert a cause nobody measured.
   {/ <b>Auftrag № 12 · Skript} |
     { "Status" | "Fehlgeschlagen — Wiederholung geplant" }
     --
-    { (hourglass_top) **eurouter hat nicht rechtzeitig geantwortet** }
-    { "Der Auftrag wartet bis 10:30; spätestens bis 13:06. Ob der Anbieter
-      unerreichbar war oder das Modell zu lange gebraucht hat, lässt sich von
-      hier aus nicht unterscheiden – die Versuchshistorie nennt die genaue
-      Ursache. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den
-      abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar." }
+    { (hourglass_top) **eurouter: wiederholte Fehlversuche** }
+    { "Der Auftrag wartet bis 10:30; spätestens bis 13:06. Woran die Versuche
+      gescheitert sind – Zeitüberschreitung, Fehlerantwort des Anbieters oder
+      eine zu langsame Antwort –, lässt sich von hier aus nicht unterscheiden;
+      die Versuchshistorie kann Details dazu enthalten. Kein
+      Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen
+      Aufruf dennoch berechnet, ist von hier aus nicht erkennbar." }
   }
 }
 @endsalt
@@ -463,19 +464,26 @@ not assert a cause nobody measured.
 
 Two honesty rules, both from the live run recorded in issue #942:
 
-1. **No invented cause.** The observed failure was a client-side request timeout
-   (three 120 s requests, no HTTP response at all), not a refused connection. The
-   copy therefore says the provider *did not answer in time* and points at the
-   attempt history — which since #942 W2 carries the bounded failure narrative
-   the worker actually saw (timeout after N s / HTTP status + retry hint /
-   bounded provider body). "Ist nicht erreichbar" is the one claim the client
-   cannot make.
+1. **No invented cause — and no single cause either.** The observed failure was a
+   client-side request timeout (three 120 s requests, no HTTP response at all),
+   not a refused connection. But a hold is materialized from the
+   `(provider, model)` breaker, and that breaker opens on **any** retryable
+   failure: a client timeout, a `5xx`, or a provider error response the worker
+   classified as retryable. A title that says the provider *did not answer in
+   time* is therefore wrong for a hold opened by repeated `503`s — the provider
+   did answer, with an error. The title states the one measured fact (repeated
+   failed attempts on this pair) and the body names the candidates as
+   indistinguishable *from here*; the attempt history — which since #942 W2
+   carries the bounded failure narrative the worker actually saw (timeout after
+   N s / HTTP status + retry hint / bounded provider body) — **may** contain the
+   details, and a hold opened while the breaker was already open may have none at
+   all. "Ist nicht erreichbar" is the one claim the client cannot make.
 2. **"No retry consumed" is not "no cost incurred".** A timed-out request is
    aborted client-side; whether the provider still bills the abandoned
    generation is not observable from here. The banner states the retry fact and
    names the cost question as open instead of implying the wait was free.
 
-The expired variant keeps the same discipline: the provider did not answer until
+The expired variant keeps the same discipline: the provider did not recover until
 the deadline, the job ended without consuming a retry, and the cost question
 stays open. Copy keys: `aiJobProviderHoldTitle`, `aiJobProviderHoldBody`,
 `aiJobProviderHoldExpiredTitle`, `aiJobProviderHoldExpiredBody`,

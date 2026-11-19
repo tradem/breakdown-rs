@@ -82,6 +82,17 @@ const MAX_MODEL_QUERY_CHARS: usize = 200;
 /// per-pair list can usefully explain.
 const BREAKER_VIEW_LIMIT: i64 = 100;
 
+/// One page of the caller's config scan (the repository clamps `limit` to 100).
+const CONFIG_SCAN_PAGE: i64 = 100;
+
+/// Hard stop for the config scan.
+///
+/// A caller cannot paginate away the problem the page size solves — but a health
+/// read must also not become an unbounded query loop over a pathological (or
+/// hostile) data set. 50 pages is 5.000 configs for ONE user, far past any
+/// legitimate history, and the bound is logged when it bites.
+const CONFIG_SCAN_MAX_PAGES: usize = 50;
+
 /// Query of `GET /v1/ai-import/providers/{provider}/health`.
 #[derive(Debug, Deserialize)]
 pub struct AiProviderHealthQuery {
@@ -99,7 +110,7 @@ pub struct AiProviderHealthQuery {
 /// Deliberately **not** the raw `ProviderBreakerSnapshot`: that struct carries
 /// `trial_job`, the id of the job currently allowed to run the half-open trial.
 /// Serializing it would publish another user's job id, so the wire keeps a
-/// boolean instead — the client only needs to know that a trial is in flight.
+/// boolean instead — the client only needs to know that a trial was granted.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AiProviderBreakerView {
     pub provider: LlmProvider,
@@ -115,6 +126,10 @@ pub struct AiProviderBreakerView {
     pub retry_at: Option<jiff::Timestamp>,
     /// Whether one un-retried trial call is currently granted for this pair.
     /// A boolean, never the trial's job id (see the type doc).
+    ///
+    /// `true` means the GRANT, not that a call is running: `begin_provider_trial`
+    /// stamps the id and returns the job to the queue, so a worker may not have
+    /// claimed it yet. Copy must not claim "trial in flight" from this bit.
     pub trial_granted: bool,
 }
 
@@ -204,11 +219,7 @@ pub async fn get_ai_provider_health<P: Ports>(
     let provider = parse_ai_provider(&provider)?;
     let requested_model = normalize_requested_model(query.model.as_deref())?;
 
-    let configs = state
-        .ports
-        .ai_config_repo()
-        .list_for_user(&current_user.sub, 50, 0)
-        .await?;
+    let configs = list_caller_configs(&state, &current_user.sub).await?;
     let bindings = configured_bindings(&configs, provider);
 
     // The credential: the caller's OWN binding for the requested model, else the
@@ -335,14 +346,56 @@ fn push_binding(bindings: &mut Vec<ConfiguredBinding>, model: &str, vault_key_id
 
 /// The binding whose credential this read probes: the requested model's, else the
 /// first configured one.
+///
+/// The `else` covers **both** an absent `?model=` and a requested model the
+/// caller has no config for. The query parameter scopes the breaker snapshot; it
+/// does not redefine "do I have a credential for this provider", which is a
+/// provider-scoped question answered by any of the caller's bindings. A
+/// model-scoped `find` alone reported `credential_configured: false` for a caller
+/// who very much has one (every hosted probe is account-scoped, not
+/// model-scoped).
 fn select_binding<'a>(
     bindings: &'a [ConfiguredBinding],
     requested_model: Option<&str>,
 ) -> Option<&'a ConfiguredBinding> {
-    match requested_model {
-        Some(model) => bindings.iter().find(|binding| binding.model == model),
-        None => bindings.first(),
+    requested_model
+        .and_then(|model| bindings.iter().find(|binding| binding.model == model))
+        .or_else(|| bindings.first())
+}
+
+/// Every config of the caller, paged to the end.
+///
+/// **Not one fixed page.** `configured_bindings` keeps only the non-revoked rows,
+/// so a single 50-row page silently drops a still-active config once older rows
+/// accumulate — a user who revokes and re-creates a key 50 times would read as
+/// "no credential configured" while their binding is intact upstream. Revoked
+/// rows are history and stay excluded from the bindings, but they must not be
+/// able to hide an active one.
+async fn list_caller_configs<P: Ports>(
+    state: &AppState<P>,
+    caller: &UserId,
+) -> Result<Vec<AiConfigView>, ApiError> {
+    let mut configs: Vec<AiConfigView> = Vec::new();
+    let mut offset: i64 = 0;
+    for _ in 0..CONFIG_SCAN_MAX_PAGES {
+        let batch = state
+            .ports
+            .ai_config_repo()
+            .list_for_user(caller, CONFIG_SCAN_PAGE, offset)
+            .await?;
+        let is_last_page = (batch.len() as i64) < CONFIG_SCAN_PAGE;
+        configs.extend(batch);
+        if is_last_page {
+            return Ok(configs);
+        }
+        offset += CONFIG_SCAN_PAGE;
     }
+    tracing::warn!(
+        caller = caller.as_str(),
+        scanned = configs.len(),
+        "#942 health: config scan hit its page ceiling — older configs are not considered"
+    );
+    Ok(configs)
 }
 
 /// Read the caller's own credential for `vault_key_id`.

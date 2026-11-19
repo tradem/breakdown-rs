@@ -260,15 +260,50 @@ struct KeyBudget {
 
 #[derive(Deserialize)]
 struct KeyBudgetData {
-    /// `None` means "no limit configured" — a usable account.
-    #[serde(default)]
-    limit_remaining: Option<f64>,
+    /// `null` means "no limit configured" — a usable account. ABSENT means the
+    /// body did not answer the budget question at all, which is *not* the same
+    /// claim, so the two levels of `Option` are load-bearing (`Some(None)` =
+    /// explicit null, `None` = field missing). Serde's own `Option` reads `null`
+    /// as `None`, hence [`explicit_or_absent`].
+    #[serde(default, deserialize_with = "explicit_or_absent")]
+    limit_remaining: Option<Option<f64>>,
+}
+
+/// Distinguish an explicit `null` (`Some(None)`) from a missing field (`None`).
+///
+/// A plain `Option<Option<T>>` cannot: serde maps `null` to the OUTER `None`, so
+/// "the provider says there is no limit" and "the body never mentioned a limit"
+/// would both arrive as `None`. The attribute's `default` still supplies the
+/// missing-field case; this function only ever sees a PRESENT value, so wrapping
+/// it in `Some` is exactly the distinction.
+fn explicit_or_absent<'de, D>(deserializer: D) -> Result<Option<Option<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<f64>::deserialize(deserializer).map(Some)
+}
+
+/// What `/key` said about the remaining budget — three-valued, never a guess.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum RemainingBudget {
+    /// `limit_remaining: <n>` — a measured amount.
+    Measured(f64),
+    /// `limit_remaining: null` — the provider states there is no limit.
+    Unlimited,
+    /// No `limit_remaining` field (or no `data` object) — the body did not answer
+    /// the budget question, so the budget stays `None` (unknown) instead of
+    /// being reported as unlimited.
+    Unstated,
 }
 
 impl KeyBudget {
-    /// The remaining budget, when the provider reports one.
-    fn remaining(&self) -> Option<f64> {
-        self.data.as_ref().and_then(|data| data.limit_remaining)
+    /// What the body said about the remaining budget.
+    fn remaining(&self) -> RemainingBudget {
+        match self.data.as_ref().and_then(|data| data.limit_remaining) {
+            Some(Some(measured)) => RemainingBudget::Measured(measured),
+            Some(None) => RemainingBudget::Unlimited,
+            None => RemainingBudget::Unstated,
+        }
     }
 }
 
@@ -284,7 +319,8 @@ impl KeyBudget {
 /// |---|---|---|---|
 /// | `200` + `limit_remaining <= 0` | `NotUsable` | `Some(0)` | the account cannot pay |
 /// | `200` + positive `limit_remaining` | `Usable` | `Some(n)` | the account can pay |
-/// | `200` + no `limit_remaining` | `Usable` | `Some(None)` | no limit configured — never a fabricated `0` |
+/// | `200` + `limit_remaining: null` | `Usable` | `Some(None)` | the provider STATES "no limit configured" — never a fabricated `0` |
+/// | `200` + no `limit_remaining` field | `Usable` | `None` | the body did not answer the budget question — unknown, never "unlimited" |
 /// | `200` (unparsable body) | `Usable` | `None` | the credential was accepted — the one thing this read proves |
 /// | `401`/`402`/`403` | `NotUsable` | `None` | dead or unpaid credential (F2: the old `/models` read answered `200` here) |
 /// | any other status | `Unknown` | `None` | unknown — never resume paying, never claim "unusable" |
@@ -339,7 +375,7 @@ async fn read_key_endpoint(
     }
     match response.json::<KeyBudget>().await {
         Ok(budget) => match budget.remaining() {
-            Some(remaining) if remaining <= 0.0 => {
+            RemainingBudget::Measured(remaining) if remaining <= 0.0 => {
                 tracing::warn!(
                     provider = provider.as_str(),
                     remaining,
@@ -352,15 +388,43 @@ async fn read_key_endpoint(
                     }),
                 }
             }
-            other => {
+            RemainingBudget::Measured(remaining) => {
                 tracing::warn!(
                     provider = provider.as_str(),
-                    limit_remaining = ?other,
+                    limit_remaining = remaining,
                     "#942 probe: /key accepted the credential"
                 );
                 AccountProbeSnapshot {
                     status: AccountProbeStatus::Usable,
-                    budget: Some(AccountBudget { remaining: other }),
+                    budget: Some(AccountBudget {
+                        remaining: Some(remaining),
+                    }),
+                }
+            }
+            // An explicit `null` is the provider's own "no limit configured".
+            RemainingBudget::Unlimited => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    "#942 probe: /key accepted the credential and reports no limit"
+                );
+                AccountProbeSnapshot {
+                    status: AccountProbeStatus::Usable,
+                    budget: Some(AccountBudget { remaining: None }),
+                }
+            }
+            // The body carried no budget field at all: the credential is
+            // accepted (the one thing a 200 proves), the budget is UNKNOWN.
+            // Reading `remaining: null` into this case would turn "the body did
+            // not say" into "the provider says unlimited" — the same invented
+            // fact the `unknown` status exists to avoid (#942 F5).
+            RemainingBudget::Unstated => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    "#942 probe: /key accepted the credential but reported no budget field — budget stays unknown"
+                );
+                AccountProbeSnapshot {
+                    status: AccountProbeStatus::Usable,
+                    budget: None,
                 }
             }
         },
@@ -1020,5 +1084,47 @@ mod tests {
             probe_timeout(),
             super::super::provider_health::probe_lease_window()
         );
+    }
+
+    /// Issue #942 review: an explicit `limit_remaining: null` is the provider
+    /// saying "no limit configured"; a body that simply has no such field
+    /// answered nothing. Collapsing the second into the first reports an
+    /// unlimited budget nobody stated — the invented fact `unknown` exists for.
+    #[test]
+    fn a_missing_budget_field_is_unknown_not_unlimited() {
+        let explicit_null: KeyBudget = serde_json::from_str(r#"{"data":{"limit_remaining":null}}"#)
+            .expect("the documented body shape parses");
+        assert_eq!(explicit_null.remaining(), RemainingBudget::Unlimited);
+
+        for body in [r#"{"data":{}}"#, r#"{}"#, r#"{"data":{"limit":5.0}}"#] {
+            let unstated: KeyBudget =
+                serde_json::from_str(body).expect("an empty body is still a body");
+            assert_eq!(
+                unstated.remaining(),
+                RemainingBudget::Unstated,
+                "a body without limit_remaining does not establish a budget: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reported_budget_is_measured_whatever_its_sign() {
+        for (body, expected) in [
+            (
+                r#"{"data":{"limit_remaining":12.5}}"#,
+                RemainingBudget::Measured(12.5),
+            ),
+            (
+                r#"{"data":{"limit_remaining":0}}"#,
+                RemainingBudget::Measured(0.0),
+            ),
+            (
+                r#"{"data":{"limit_remaining":-3.25}}"#,
+                RemainingBudget::Measured(-3.25),
+            ),
+        ] {
+            let budget: KeyBudget = serde_json::from_str(body).expect("a numeric budget parses");
+            assert_eq!(budget.remaining(), expected, "measured value from {body}");
+        }
     }
 }

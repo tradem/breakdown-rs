@@ -1376,6 +1376,12 @@ class AiConfigController extends _$AiConfigController {
               view.vaultKeyId == vaultKeyId) {
             ref.invalidate(aiConfigDiscoveryProvider);
             ref.invalidate(configuredAiNamingProvider);
+            // The binding that pays for this provider just changed (issue #942
+            // W5 review): the health card's family key is the PROVIDER key, so
+            // a replacement credential for the same provider would otherwise
+            // keep rendering the previous key's configured state, probe verdict
+            // and budget until a manual retry.
+            ref.invalidate(aiProviderHealthProvider);
             if (ref.mounted) state = state.copyWith(clearCommandError: true);
             return Right<ProblemError, int>(view.version);
           }
@@ -1438,6 +1444,11 @@ class AiConfigController extends _$AiConfigController {
         }
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(configuredAiNamingProvider);
+        // Every successful save may have replaced the credential behind the
+        // provider, so a cached health entry is stale by construction (see the
+        // reconciled-timeout branch above). A bare family invalidate drops every
+        // parameter entry — the extraction and the decision key alike.
+        ref.invalidate(aiProviderHealthProvider);
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);
         }
