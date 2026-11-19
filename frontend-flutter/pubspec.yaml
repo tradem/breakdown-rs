@@ -61,7 +61,7 @@ dependencies:
   # Phase 2 photo pipeline (flutter-costume-domains D4): `image` is pure-Dart
   # decode/encode for background-isolate resizing; `image_picker` captures
   # via the system camera/gallery at point of use only (both FOSS).
-  image: ^4.12.0
+  image: ^4.13.1
   image_picker: ^1.2.4
   json_annotation: ^4.12.0
   riverpod_annotation: ^4.0.6
@@ -125,7 +125,7 @@ dependencies:
   # Word-cloud credits screen (issue #655): SVG rendering of the bundled
   # technology logos (Rust, Flutter) in the "Auf der Schulter von Riesen"
   # section. FOSS package (dart.dev), no native platform channels.
-  flutter_svg: ^2.3.2
+  flutter_svg: ^2.4.0
   connectivity_plus: ^7.3.2
 
   # The following adds the Cupertino Icons font to your application.
