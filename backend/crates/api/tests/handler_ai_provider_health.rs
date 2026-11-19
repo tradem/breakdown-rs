@@ -610,3 +610,33 @@ async fn a_model_scoped_read_still_reports_the_callers_provider_credential() {
     assert_eq!(recorded[0].vault_key_id, VAULT_KEY_A);
     assert_eq!(recorded[0].key.as_deref(), Some("sk-caller-a"));
 }
+
+#[tokio::test]
+async fn an_unfinished_config_scan_is_a_503_not_a_partial_credential_state() {
+    // The page loop is bounded, so it can stop before the end. An incomplete
+    // scan must NOT be answered: it would report `credential_configured` from
+    // rows nobody read, which is the very defect the paging fixes, one order of
+    // magnitude further out. Failing closed is the honest answer, and the route
+    // already declares the 503 the client renders as "read failed + retry".
+    let ports = FakePorts::default();
+    seed_credential_member(&ports, USER_A).await;
+    seed_own_credential(&ports, USER_A, VAULT_KEY_A, "sk-caller-a").await;
+    {
+        let mut views = ports.ai_config_repo.views.lock().await;
+        // Exactly the ceiling: every page comes back full, so the loop cannot
+        // prove it reached the end.
+        for index in 0..5000u128 {
+            let mut config = ai_config(USER_A, VAULT_KEY_A);
+            config.id = uuid::Uuid::from_u128(2_000_000 + index);
+            config.revoked = true;
+            views.insert(config.id, config);
+        }
+    }
+    let state = state(ports.clone()).await;
+
+    let error = call(&state, USER_A, "eurouter", None)
+        .await
+        .expect_err("an unfinished scan must not answer a credential state");
+    assert_eq!(error.into_problem().status, 503);
+    assert!(ports.ai_provider_account_probe.recorded().await.is_empty());
+}

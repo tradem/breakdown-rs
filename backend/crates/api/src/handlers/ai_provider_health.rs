@@ -90,7 +90,9 @@ const CONFIG_SCAN_PAGE: i64 = 100;
 /// A caller cannot paginate away the problem the page size solves — but a health
 /// read must also not become an unbounded query loop over a pathological (or
 /// hostile) data set. 50 pages is 5.000 configs for ONE user, far past any
-/// legitimate history, and the bound is logged when it bites.
+/// legitimate history — and when the bound bites the read **fails closed**
+/// (`503`) rather than answering from a partial scan (see
+/// [`list_caller_configs`]).
 const CONFIG_SCAN_MAX_PAGES: usize = 50;
 
 /// Query of `GET /v1/ai-import/providers/{provider}/health`.
@@ -371,6 +373,17 @@ fn select_binding<'a>(
 /// "no credential configured" while their binding is intact upstream. Revoked
 /// rows are history and stay excluded from the bindings, but they must not be
 /// able to hide an active one.
+///
+/// **An incomplete scan is an ERROR, never a partial answer** (review of #942).
+/// The page loop is bounded so a pathological data set cannot make this read
+/// unbounded work, and a bounded loop can stop early — which would re-introduce
+/// the very defect the paging fixes, one order of magnitude further out: a
+/// caller whose active config sits past the ceiling would read as "no credential
+/// configured" while the log line stayed on the server. So the ceiling fails
+/// closed with `503` (`service.unavailable`, already declared on this route and
+/// rendered by the client as "read failed + retry"): a health read may say "I
+/// could not answer", it must never answer `credential_configured: false` from
+/// an unfinished scan.
 async fn list_caller_configs<P: Ports>(
     state: &AppState<P>,
     caller: &UserId,
@@ -390,12 +403,15 @@ async fn list_caller_configs<P: Ports>(
         }
         offset += CONFIG_SCAN_PAGE;
     }
-    tracing::warn!(
+    tracing::error!(
         caller = caller.as_str(),
         scanned = configs.len(),
-        "#942 health: config scan hit its page ceiling — older configs are not considered"
+        "#942 health: the config scan did not finish — refusing to answer a partial credential state"
     );
-    Ok(configs)
+    Err(DomainError::service_unavailable(
+        "the caller's AI configs could not be read completely, so the credential state is unknown",
+    )
+    .into())
 }
 
 /// Read the caller's own credential for `vault_key_id`.
