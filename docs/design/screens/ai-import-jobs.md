@@ -438,6 +438,50 @@ back to the row that dresses that figure — never by parsing the server's note
 prose. A picked candidate counts as a review edit, so `accept_as_is` stays a
 truthful statement about the review.
 
+## Provider held — the wait, and the copy that must not guess (issues #871, #942)
+
+A held job waits for a degraded `(provider, model)` pair without spending a retry.
+The banner states the two clock boundaries (next probe, hold deadline) and must
+not assert a cause nobody measured.
+
+```plantuml
+@startsalt
+{
+  {/ <b>Auftrag № 12 · Skript} |
+    { "Status" | "Fehlgeschlagen — Wiederholung geplant" }
+    --
+    { (hourglass_top) **eurouter hat nicht rechtzeitig geantwortet** }
+    { "Der Auftrag wartet bis 10:30; spätestens bis 13:06. Ob der Anbieter
+      unerreichbar war oder das Modell zu lange gebraucht hat, lässt sich von
+      hier aus nicht unterscheiden – die Versuchshistorie nennt die genaue
+      Ursache. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den
+      abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar." }
+  }
+}
+@endsalt
+```
+
+Two honesty rules, both from the live run recorded in issue #942:
+
+1. **No invented cause.** The observed failure was a client-side request timeout
+   (three 120 s requests, no HTTP response at all), not a refused connection. The
+   copy therefore says the provider *did not answer in time* and points at the
+   attempt history — which since #942 W2 carries the bounded failure narrative
+   the worker actually saw (timeout after N s / HTTP status + retry hint /
+   bounded provider body). "Ist nicht erreichbar" is the one claim the client
+   cannot make.
+2. **"No retry consumed" is not "no cost incurred".** A timed-out request is
+   aborted client-side; whether the provider still bills the abandoned
+   generation is not observable from here. The banner states the retry fact and
+   names the cost question as open instead of implying the wait was free.
+
+The expired variant keeps the same discipline: the provider did not answer until
+the deadline, the job ended without consuming a retry, and the cost question
+stays open. Copy keys: `aiJobProviderHoldTitle`, `aiJobProviderHoldBody`,
+`aiJobProviderHoldExpiredTitle`, `aiJobProviderHoldExpiredBody`,
+`aiJobsRowProviderHold`.
+
+
 ## Provider degraded — repeated LLM-provider failures (issue #822)
 
 A provider outage used to read exactly like a one-off hiccup: every failed

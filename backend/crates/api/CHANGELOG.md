@@ -17,6 +17,19 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.71.0] - Unreleased
+### Added (issue #942 W4)
+
+- `GET /v1/ai-import/providers/{provider}/health?model=` — the caller's own
+  account usability, remaining budget and the `(provider, model)` breaker rows.
+  Credentials resolve strictly from the caller's own `AiConfig` → settings
+  binding → Vault (`donor_jobs` credentials never reach this route), the breaker
+  list is pair-shaped, `trial_job_id` is published as `trial_granted: bool`, and
+  the response is `no-store`.
+- New schemas `AiProviderHealthView`, `AiProviderBreakerView`,
+  `AiProviderBudgetView` (+ the re-exported `AccountProbeStatus`), so
+  `openapi.yaml` gains one path and the Dart client one operation.
+
 ## [0.70.1] - Unreleased
 ### Changed (issue #942 W3)
 

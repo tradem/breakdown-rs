@@ -31,6 +31,12 @@ configuration entry point is never hidden by an unresolved scope — it
 renders its state and lets the server answer (issue #809, see
 Interactions).
 
+The **provider** health of a configured account (key accepted? budget left?
+which models are paused?) is NOT a Settings concern: it lives on the
+AI-configuration screen itself (issue #942 W5), so this tile never conflates a
+provider problem with backend reachability. See
+[ai-config.md](ai-config.md).
+
 ## Location & Context
 N/A — settings are not a planning-hierarchy surface; the screen is
 pushed without a `PlanningLocation` argument, so the location strip

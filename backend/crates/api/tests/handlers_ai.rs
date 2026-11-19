@@ -28,5 +28,10 @@ mod handler_ai_import_apply_sse;
 #[path = "handler_ai_import_pg_composition.rs"]
 mod handler_ai_import_pg_composition;
 
+// Issue #942 W4: the provider-health + budget read (caller-owned credential,
+// tenant isolation, no tenant material on the wire).
+#[path = "handler_ai_provider_health.rs"]
+mod handler_ai_provider_health;
+
 #[path = "handler_audit.rs"]
 mod handler_audit;

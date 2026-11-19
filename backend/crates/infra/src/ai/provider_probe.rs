@@ -47,13 +47,18 @@ use async_trait::async_trait;
 use breakdown_core::ai::DocumentKind;
 use breakdown_core::ai::ports::AiImportQueue as _;
 use breakdown_core::ai::ports::{LlmProvider, ProbeOutcome, ProviderHealth};
-use breakdown_core::ai::{ProbeCapability, probe_capability};
+use breakdown_core::ai::{
+    AccountBudget, AccountProbeRequest, AccountProbeSnapshot, AccountProbeStatus, ProbeCapability,
+    ProviderAccountProbe, probe_capability,
+};
 use breakdown_core::settings::CredentialVault;
 use breakdown_core::shared::UserId;
 use jiff::Timestamp;
 use serde::Deserialize;
 use sqlx::{PgPool, Row};
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use super::CuratedProviderUrls;
@@ -175,31 +180,17 @@ impl ProviderProbe for CatalogProviderProbe {
         }
         if provider.is_local() {
             // Unauthenticated on purpose: no vault read at all on this path.
-            let url = ollama_probe_url(provider);
-            return match self.http.get(url).send().await {
-                Ok(response) if response.status().is_success() => {
-                    match response.json::<OllamaTags>().await {
-                        Ok(_) => ProbeOutcome::Usable,
-                        Err(error) => {
-                            tracing::warn!(
-                                error = %error,
-                                "#871 probe: Ollama answered but the body did not decode"
-                            );
-                            ProbeOutcome::NotUsable
-                        }
-                    }
-                }
-                Ok(response) => {
-                    tracing::warn!(
-                        status = %response.status(),
-                        "#871 probe: Ollama endpoint rejected the probe"
-                    );
-                    ProbeOutcome::NotUsable
-                }
-                Err(error) => {
-                    tracing::warn!(error = %error, "#871 probe: Ollama endpoint unreachable");
-                    ProbeOutcome::NotUsable
-                }
+            // Shared with the user-facing health read (issue #942 W4) so the two
+            // callers can never disagree about what the local endpoint answered;
+            // `Unknown` becomes `NotUsable` here, because a paid-call gate must
+            // never resume on an unknown.
+            return if read_local_endpoint(provider, &self.http)
+                .await
+                .admits_paid_call()
+            {
+                ProbeOutcome::Usable
+            } else {
+                ProbeOutcome::NotUsable
             };
         }
 
@@ -281,87 +272,351 @@ impl KeyBudget {
     }
 }
 
+/// `GET {base}/key` — the account-scoped usability read shared by the breaker's
+/// recovery probe and the user-facing health endpoint (issue #942 W1 + W4).
+///
+/// One function, two consumers, on purpose: the fleet's "may we resume paying"
+/// answer and the operator's "is this account usable, and how much is left"
+/// answer must never disagree about what `/key` said. The verdict table, in the
+/// order it is applied:
+///
+/// | response | status | budget | why |
+/// |---|---|---|---|
+/// | `200` + `limit_remaining <= 0` | `NotUsable` | `Some(0)` | the account cannot pay |
+/// | `200` + positive `limit_remaining` | `Usable` | `Some(n)` | the account can pay |
+/// | `200` + no `limit_remaining` | `Usable` | `Some(None)` | no limit configured — never a fabricated `0` |
+/// | `200` (unparsable body) | `Usable` | `None` | the credential was accepted — the one thing this read proves |
+/// | `401`/`402`/`403` | `NotUsable` | `None` | dead or unpaid credential (F2: the old `/models` read answered `200` here) |
+/// | any other status | `Unknown` | `None` | unknown — never resume paying, never claim "unusable" |
+/// | transport error / timeout | `Unknown` | `None` | the outage the breaker exists for |
+///
+/// A `200` never closes the breaker: it grants one un-retried trial, because a
+/// healthy account does not prove a healthy `(provider, model)` chat path.
+async fn read_key_endpoint(
+    provider: LlmProvider,
+    client: &reqwest::Client,
+    key: &str,
+) -> AccountProbeSnapshot {
+    let url = key_probe_url(provider);
+    let response = match client
+        .get(&url)
+        .bearer_auth(key)
+        .header(
+            reqwest::header::USER_AGENT,
+            super::user_agent::resolve_user_agent(provider),
+        )
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = %error,
+                "#942 probe: /key request failed — no verdict"
+            );
+            return AccountProbeSnapshot::unknown();
+        }
+    };
+    let status = response.status();
+    if !status.is_success() {
+        tracing::warn!(
+            provider = provider.as_str(),
+            status = %status,
+            "#942 probe: /key rejected the credential (an unused `/models` read answers 200 here)",
+        );
+        // A rejection is a verdict; anything else (5xx, a redirect the curated
+        // policy refused) is not, and must not be rendered as "your account is
+        // broken" (#816: an unknown answer is never a denial).
+        return if matches!(status.as_u16(), 401..=403) {
+            AccountProbeSnapshot {
+                status: AccountProbeStatus::NotUsable,
+                budget: None,
+            }
+        } else {
+            AccountProbeSnapshot::unknown()
+        };
+    }
+    match response.json::<KeyBudget>().await {
+        Ok(budget) => match budget.remaining() {
+            Some(remaining) if remaining <= 0.0 => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    remaining,
+                    "#942 probe: /key reports no budget left"
+                );
+                AccountProbeSnapshot {
+                    status: AccountProbeStatus::NotUsable,
+                    budget: Some(AccountBudget {
+                        remaining: Some(remaining),
+                    }),
+                }
+            }
+            other => {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    limit_remaining = ?other,
+                    "#942 probe: /key accepted the credential"
+                );
+                AccountProbeSnapshot {
+                    status: AccountProbeStatus::Usable,
+                    budget: Some(AccountBudget { remaining: other }),
+                }
+            }
+        },
+        Err(error) => {
+            // A `200` whose body we cannot read still proves the credential
+            // was accepted, which is the strongest honest verdict available.
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = %error,
+                "#942 probe: /key answered 200 with an unreadable body — treating the credential as accepted"
+            );
+            AccountProbeSnapshot {
+                status: AccountProbeStatus::Usable,
+                budget: None,
+            }
+        }
+    }
+}
+
+/// The unauthenticated local read (Ollama), shared by both probe callers.
+///
+async fn read_local_endpoint(
+    provider: LlmProvider,
+    client: &reqwest::Client,
+) -> AccountProbeSnapshot {
+    let url = ollama_probe_url(provider);
+    match client.get(url).send().await {
+        Ok(response) if response.status().is_success() => {
+            match response.json::<OllamaTags>().await {
+                Ok(_) => AccountProbeSnapshot {
+                    status: AccountProbeStatus::Usable,
+                    budget: None,
+                },
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "#871 probe: Ollama answered but the body did not decode"
+                    );
+                    AccountProbeSnapshot {
+                        status: AccountProbeStatus::NotUsable,
+                        budget: None,
+                    }
+                }
+            }
+        }
+        Ok(response) => {
+            tracing::warn!(
+                status = %response.status(),
+                "#871 probe: Ollama endpoint rejected the probe"
+            );
+            AccountProbeSnapshot {
+                status: AccountProbeStatus::NotUsable,
+                budget: None,
+            }
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "#871 probe: Ollama endpoint unreachable");
+            AccountProbeSnapshot::unknown()
+        }
+    }
+}
+
 impl CatalogProviderProbe {
-    /// `GET {base}/key` — the account-scoped usability preflight (issue #942 W1).
+    /// The breaker's mapping of the shared `/key` read onto its own verdict.
     ///
-    /// The verdict table, in the order it is applied:
-    ///
-    /// | response | verdict | why |
-    /// |---|---|---|
-    /// | `200` + `limit_remaining <= 0` | `NotUsable` | the account cannot pay |
-    /// | `200` (any shape, incl. unparsable) | `Usable` | the credential was accepted — the one thing this read proves |
-    /// | `401`/`402`/`403` | `NotUsable` | dead or unpaid credential (F2: the old `/models` read answered `200` here) |
-    /// | any other status | `NotUsable` | unknown — never resume paying on an unknown |
-    /// | transport error / timeout | `NotUsable` | the outage the breaker exists for |
-    ///
-    /// A `200` never closes the breaker: it grants one un-retried trial, because
-    /// a healthy account does not prove a healthy `(provider, model)` chat path.
+    /// `Unknown` becomes `NotUsable` here — and only here: a paid-call gate must
+    /// never resume on an unknown (issue #942 W1), while the *display* of the
+    /// same read keeps the honest `unknown`.
     async fn probe_key_endpoint(
         &self,
         provider: LlmProvider,
         client: &reqwest::Client,
         key: &str,
     ) -> ProbeOutcome {
-        let url = key_probe_url(provider);
-        let response = match client
-            .get(&url)
-            .bearer_auth(key)
-            .header(
-                reqwest::header::USER_AGENT,
-                super::user_agent::resolve_user_agent(provider),
-            )
-            .send()
+        if read_key_endpoint(provider, client, key)
             .await
+            .admits_paid_call()
         {
-            Ok(response) => response,
-            Err(error) => {
-                tracing::warn!(
-                    provider = provider.as_str(),
-                    error = %error,
-                    "#942 probe: /key request failed — staying open"
-                );
-                return ProbeOutcome::NotUsable;
-            }
-        };
-        let status = response.status();
-        if !status.is_success() {
-            tracing::warn!(
-                provider = provider.as_str(),
-                status = %status,
-                "#942 probe: /key rejected the credential (an unused `/models` read answers 200 here)",
-            );
-            return ProbeOutcome::NotUsable;
+            ProbeOutcome::Usable
+        } else {
+            ProbeOutcome::NotUsable
         }
-        match response.json::<KeyBudget>().await {
-            Ok(budget) => match budget.remaining() {
-                Some(remaining) if remaining <= 0.0 => {
-                    tracing::warn!(
-                        provider = provider.as_str(),
-                        remaining,
-                        "#942 probe: /key reports no budget left"
-                    );
-                    ProbeOutcome::NotUsable
-                }
-                other => {
-                    tracing::warn!(
-                        provider = provider.as_str(),
-                        limit_remaining = ?other,
-                        "#942 probe: /key accepted the credential — granting one trial"
-                    );
-                    ProbeOutcome::Usable
-                }
+    }
+}
+
+/// The account-usability probe the HTTP health read uses (issue #942 W4).
+///
+/// Deliberately its own adapter instead of a second method on
+/// [`CatalogProviderProbe`]: the breaker's probe reads a **donor job's**
+/// credential and its answer gates the whole fleet, while this one reads **the
+/// caller's own** credential and its answer is rendered to that caller. Keeping
+/// them on one type would make the security rule that separates them (a donor
+/// credential must never populate a user-visible response) a comment instead of
+/// a type boundary.
+///
+/// The clients are the same two the breaker probe uses: the curated redirect
+/// policy, no proxy, the provider's descriptive `User-Agent`, and the short
+/// [`probe_timeout`] — never a chat client, and never a user-supplied URL
+/// (ADR-024 SSRF policy).
+pub struct KeyEndpointAccountProbe {
+    /// `None` when the client could not be built: the read then degrades to
+    /// `unknown` rather than probing without the transport rules.
+    hosted: Option<reqwest::Client>,
+    local: Option<reqwest::Client>,
+}
+
+impl KeyEndpointAccountProbe {
+    #[must_use]
+    pub fn new() -> Self {
+        let hosted = reqwest::Client::builder()
+            .timeout(probe_timeout())
+            .redirect(super::transport::curated_provider_redirect_policy())
+            .no_proxy()
+            .build()
+            .ok();
+        let local = CatalogProviderProbe::local_http_client(probe_timeout()).ok();
+        Self { hosted, local }
+    }
+
+    /// The status a provider without any verified zero-token endpoint reports:
+    /// `unknown`, never `usable` and never `not_usable` — nothing was measured.
+    async fn read(&self, provider: LlmProvider, key: Option<&str>) -> AccountProbeSnapshot {
+        match probe_capability(provider) {
+            ProbeCapability::NoPreflight => AccountProbeSnapshot::unknown(),
+            ProbeCapability::LocalTags => match &self.local {
+                Some(client) => read_local_endpoint(provider, client).await,
+                None => AccountProbeSnapshot::unknown(),
             },
-            Err(error) => {
-                // A `200` whose body we cannot read still proves the credential
-                // was accepted, which is the strongest honest verdict available.
-                tracing::warn!(
-                    provider = provider.as_str(),
-                    error = %error,
-                    "#942 probe: /key answered 200 with an unreadable body — treating the credential as accepted"
-                );
-                ProbeOutcome::Usable
+            ProbeCapability::KeyEndpoint => match (&self.hosted, key) {
+                (Some(client), Some(key)) if !key.is_empty() => {
+                    read_key_endpoint(provider, client, key).await
+                }
+                // No credential to measure: unknown, never a claim about it.
+                _ => AccountProbeSnapshot::unknown(),
+            },
+        }
+    }
+}
+
+impl Default for KeyEndpointAccountProbe {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl ProviderAccountProbe for KeyEndpointAccountProbe {
+    async fn probe_account(&self, request: AccountProbeRequest<'_>) -> AccountProbeSnapshot {
+        self.read(request.provider, request.key).await
+    }
+}
+
+/// How long one account probe answer may be reused (issue #942 W4).
+///
+/// Short on purpose: the read exists to tell an operator whether *right now* is
+/// a good moment to start an import, and a stale "usable" that outlives the
+/// provider's own recovery window would be worse than no answer. One minute also
+/// bounds the upstream `/key` traffic a retry-happy screen can generate.
+pub const ACCOUNT_PROBE_CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// The maximum number of cached account answers. A bound, not a target: the
+/// cache exists to absorb a UI that re-reads on every rebuild, not to be a
+/// second source of truth.
+pub const ACCOUNT_PROBE_CACHE_CAPACITY: usize = 256;
+
+/// A [`ProviderAccountProbe`] that reuses an answer for
+/// [`ACCOUNT_PROBE_CACHE_TTL`] (issue #942 W4).
+///
+/// **The cache key includes the identity, not just the provider.** A budget
+/// number is account-scoped: keyed by `provider` alone, the first caller's
+/// balance would be served to every other caller of the same provider — the
+/// exact tenant leak the endpoint's credential rule exists to prevent. Keying by
+/// `(user_id, provider, vault_key_id)` additionally makes a key rotation a cache
+/// miss instead of a stale number for a credential that no longer exists.
+#[derive(Clone)]
+pub struct CachedAccountProbe {
+    inner: Arc<dyn ProviderAccountProbe>,
+    ttl: Duration,
+    /// Shared across clones on purpose: the cache exists to answer *the
+    /// deployment's* repeated reads, so a clone (the composition root hands the
+    /// same probe to `ProductionPorts`) must not start with an empty map.
+    entries: Arc<std::sync::Mutex<HashMap<AccountProbeCacheKey, (Instant, AccountProbeSnapshot)>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct AccountProbeCacheKey {
+    user_id: UserId,
+    provider: LlmProvider,
+    vault_key_id: String,
+}
+
+impl CachedAccountProbe {
+    #[must_use]
+    pub fn new(inner: Arc<dyn ProviderAccountProbe>) -> Self {
+        Self::with_ttl(inner, ACCOUNT_PROBE_CACHE_TTL)
+    }
+
+    #[must_use]
+    pub fn with_ttl(inner: Arc<dyn ProviderAccountProbe>, ttl: Duration) -> Self {
+        Self {
+            inner,
+            ttl,
+            entries: Arc::new(std::sync::Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// A poisoned lock only means another request panicked; the map it guards is
+    /// still readable, and an empty answer is never better than a cached one.
+    fn lock(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<AccountProbeCacheKey, (Instant, AccountProbeSnapshot)>>
+    {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+#[async_trait]
+impl ProviderAccountProbe for CachedAccountProbe {
+    async fn probe_account(&self, request: AccountProbeRequest<'_>) -> AccountProbeSnapshot {
+        let key = AccountProbeCacheKey {
+            user_id: request.user_id.clone(),
+            provider: request.provider,
+            vault_key_id: request.vault_key_id.to_owned(),
+        };
+        {
+            let entries = self.lock();
+            if let Some((stamped, snapshot)) = entries.get(&key)
+                && stamped.elapsed() < self.ttl
+            {
+                return *snapshot;
             }
         }
+        // The upstream call runs outside the lock: a slow provider must never
+        // serialize every other caller's read behind it.
+        let snapshot = self.inner.probe_account(request).await;
+        {
+            let mut entries = self.lock();
+            if entries.len() >= ACCOUNT_PROBE_CACHE_CAPACITY {
+                entries.retain(|_, (stamped, _)| stamped.elapsed() < self.ttl);
+                // Still full after dropping the expired entries: evict the oldest
+                // answer instead of growing without a bound.
+                if entries.len() >= ACCOUNT_PROBE_CACHE_CAPACITY {
+                    let oldest = entries
+                        .iter()
+                        .min_by_key(|(_, (stamped, _))| *stamped)
+                        .map(|(key, _)| key.clone());
+                    if let Some(oldest) = oldest {
+                        entries.remove(&oldest);
+                    }
+                }
+            }
+            entries.insert(key, (Instant::now(), snapshot));
+        }
+        snapshot
     }
 }
 

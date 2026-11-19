@@ -16,6 +16,17 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.75.0] - Unreleased
+### Added (issue #942 W4)
+
+- New `ProviderAccountProbe` port + `AccountProbeRequest`: the account-scoped
+  usability read of ONE caller's credential (the breaker's `ProviderProbe` reads
+  a donor job's and stays fleet-wide, so the two never share a signature).
+- New `AccountProbeStatus` (`usable`/`not_usable`/`unknown`), `AccountBudget`
+  (three-valued: absent / no limit / a figure) and `AccountProbeSnapshot` with
+  `admits_paid_call()` — `Unknown` is a first-class answer for the display and
+  never admits a paid call.
+
 ## [0.74.0] - Unreleased
 ### Changed (issue #942 W1/W2/W3)
 

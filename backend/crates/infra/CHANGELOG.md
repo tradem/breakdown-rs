@@ -16,6 +16,20 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.86.0] - Unreleased
+### Added (issue #942 W4)
+
+- `KeyEndpointAccountProbe`: the user-facing account read (`GET {base}/key` for
+  the hosted providers, the unauthenticated `GET /api/tags` for Ollama), built on
+  the same curated redirect/proxy/User-Agent policy and the same short
+  `probe_timeout()` as the breaker probe.
+- `CachedAccountProbe`: a 60 s TTL cache keyed `(user_id, provider, vault_key_id)`
+  — keyed by provider alone it would serve one user's balance to another, and the
+  Vault reference makes a key rotation a miss instead of a stale number.
+- The `/key` verdict table is now ONE shared read (`read_key_endpoint`), so the
+  breaker's gate and the health display cannot disagree; the breaker maps
+  `Unknown ⇒ NotUsable`, the display keeps `unknown`.
+
 ## [0.85.0] - Unreleased
 ### Changed (issue #942 W1/W2/W3)
 

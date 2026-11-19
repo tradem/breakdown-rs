@@ -14,6 +14,7 @@ export 'package:breakdown_api/src/model/date.dart';
 
 export 'package:breakdown_api/src/api/handlers_api.dart';
 
+export 'package:breakdown_api/src/model/account_probe_status.dart';
 export 'package:breakdown_api/src/model/add_note_request.dart';
 export 'package:breakdown_api/src/model/add_outfit_piece_request.dart';
 export 'package:breakdown_api/src/model/add_piece_detail_request.dart';
@@ -35,6 +36,9 @@ export 'package:breakdown_api/src/model/ai_preview_payload.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 export 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
+export 'package:breakdown_api/src/model/ai_provider_breaker_view.dart';
+export 'package:breakdown_api/src/model/ai_provider_budget_view.dart';
+export 'package:breakdown_api/src/model/ai_provider_health_view.dart';
 export 'package:breakdown_api/src/model/ai_provider_info.dart';
 export 'package:breakdown_api/src/model/appearance_outfit_view.dart';
 export 'package:breakdown_api/src/model/applied_episode.dart';

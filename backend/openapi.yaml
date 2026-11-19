@@ -1,5 +1,22 @@
 components:
   schemas:
+    AccountProbeStatus:
+      description: |-
+        What a **zero-token account probe** observed about one credential
+        (issue #942 W4).
+
+        Deliberately three members and no free text: the status is what the client
+        renders and what the operator reads, so it must never carry an upstream
+        body (ADR-031 forbids raw provider `detail` on the wire). `Unknown` is a
+        first-class answer, not a failure: the provider may expose no verified
+        endpoint, or the read may time out — and an unknown account state must
+        never be rendered as "unusable" (`#816`: an unknown answer is not a
+        denial) nor admitted as "usable" by a paid-call gate.
+      enum:
+      - usable
+      - not_usable
+      - unknown
+      type: string
     AddNoteRequest:
       properties:
         body:
@@ -969,6 +986,105 @@ components:
         - data
         - kind
         type: object
+    AiProviderBreakerView:
+      description: |-
+        One `(provider, model)` breaker row (issue #942 W4).
+
+        Deliberately **not** the raw `ProviderBreakerSnapshot`: that struct carries
+        `trial_job`, the id of the job currently allowed to run the half-open trial.
+        Serializing it would publish another user's job id, so the wire keeps a
+        boolean instead — the client only needs to know that a trial is in flight.
+      properties:
+        consecutive_failures:
+          description: Consecutive retryable failures on this pair, across all users and jobs.
+          format: int32
+          minimum: 0
+          type: integer
+        flap_count:
+          description: How often the pair has reopened; a high count is a flapping provider.
+          format: int32
+          minimum: 0
+          type: integer
+        model:
+          description: The model half of the breaker key.
+          type: string
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+        retry_at:
+          description: The next scheduled probe (`null` while `closed`).
+          format: date-time
+          type:
+          - string
+          - 'null'
+        state:
+          $ref: '#/components/schemas/ProviderBreakerState'
+          description: '`closed` admits paid calls; `open`/`half_open` hold them.'
+        trial_granted:
+          description: |-
+            Whether one un-retried trial call is currently granted for this pair.
+            A boolean, never the trial's job id (see the type doc).
+          type: boolean
+      required:
+      - provider
+      - model
+      - state
+      - consecutive_failures
+      - flap_count
+      - trial_granted
+      type: object
+    AiProviderBudgetView:
+      description: |-
+        The account's remaining budget, where the provider reports one (issue #942
+        W4).
+
+        `remaining: null` is meaningful and must not be collapsed into the absent
+        `budget` object: it means the provider answered and reports **no limit
+        configured**, which is the opposite of an exhausted account.
+      properties:
+        remaining:
+          format: double
+          type:
+          - number
+          - 'null'
+      type: object
+    AiProviderHealthView:
+      description: 'The provider-health read (issue #942 W4).'
+      properties:
+        breakers:
+          description: |-
+            The `(provider, model)` breaker rows, ordered by model for a stable
+            rendering.
+          items:
+            $ref: '#/components/schemas/AiProviderBreakerView'
+          type: array
+        budget:
+          oneOf:
+          - $ref: '#/components/schemas/AiProviderBudgetView'
+            description: |-
+              The remaining budget, or `null` when the provider reports none / there is
+              no credential to read it with.
+          - type: 'null'
+        credential_configured:
+          description: |-
+            Whether the caller has an active Vault binding for this provider.
+
+            `false` is a complete answer: `probe_status` is then `unknown` and
+            `budget` is `null` — the route never fabricates a verdict it did not
+            measure, and never answers `404` for a user who simply has not saved a
+            key yet.
+          type: boolean
+        probe_status:
+          $ref: '#/components/schemas/AccountProbeStatus'
+          description: The account-usability verdict of the zero-token read.
+        provider:
+          $ref: '#/components/schemas/LlmProvider'
+          description: The provider this answer is about, echoed as the canonical wire key.
+      required:
+      - provider
+      - credential_configured
+      - probe_status
+      - breakers
+      type: object
     AiProviderInfo:
       properties:
         decision_capable:
@@ -6225,6 +6341,59 @@ paths:
         `list_ai_models` with the decision-model catalog — the same pricing
         enrichment, the same credential-role gate, and `pricing: null` honest
         degradation on a pricing read-model failure.
+      tags:
+      - handlers
+  /v1/ai-import/providers/{provider}/health:
+    get:
+      description: |-
+        Answers "is my AI account usable right now, how much budget is left, and which
+        `(provider, model)` pairs are held" without spending a paid call.
+      operationId: get_ai_provider_health
+      parameters:
+      - description: Curated provider key (e.g. eurouter, neuralwatt)
+        in: path
+        name: provider
+        required: true
+        schema:
+          type: string
+      - description: Restrict the breaker snapshot to one model of the provider
+        in: query
+        name: model
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiProviderHealthView'
+          description: Provider health + budget snapshot
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Credential management forbidden
+        '404':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: AI import disabled
+        '422':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Unknown provider key
+        '503':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Read model unavailable
+      summary: '`GET /ai-import/providers/{provider}/health`'
       tags:
       - handlers
   /v1/ai-import/providers/{provider}/image-models:

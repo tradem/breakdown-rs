@@ -317,6 +317,43 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
 - **Operability:** the durable row plus the `#871 provider breaker` log marker;
   see `docs/operations/runbooks.md` §16. `GET /v1/health` gains **no** provider
   check (unauthenticated, 2 s timeout, no credential).
+- **`GET /v1/ai-import/providers/{provider}/health?model=` is the user-facing
+  read of the same facts (issue #942 W4), and it is a DIFFERENT read from the
+  probe above — do not merge them.**
+  - **The credential is the caller's own**, resolved from *their* `AiConfig`
+    rows (`vault_key_id` / `decision_vault_key_id`) →
+    `settings_id_from_binding_key` → an ownership check against *their* settings
+    binding → the Vault read. The background probe's `donor_jobs` credentials
+    are confined to its fleet-wide verdict and must **never** populate this
+    response (that would publish another account's verdict and balance). A
+    missing, foreign or unreadable binding degrades to
+    `credential_configured: false`, never to `404`/`500` and never to an
+    existence oracle.
+  - **`(provider, model)`-shaped, never a single provider verdict:**
+    `ai_import.provider_health` is keyed by the pair. The response carries the
+    requested pair, else the caller's configured models, plus every non-`closed`
+    row of the provider (an outage that holds the fleet is what a user needs to
+    see before starting an import, and a row carries no tenant data).
+  - **`trial_job_id` never crosses the wire.** It names a job that may belong to
+    another user, so the DTO exposes `trial_granted: bool` instead.
+  - **Three-valued budget, never a fabricated `0`:** absent `budget` = the
+    provider reports no budget read (or there is no credential to read it with);
+    `budget.remaining: null` = the provider answered and reports **no limit**; a
+    number = a real figure (including a measured `0`).
+  - **`unknown` is a first-class verdict.** No verified endpoint, a transport
+    failure or a timeout answers `probe_status: unknown` — never `not_usable`
+    (that would render an unmeasured state as a denial, `frontend-flutter`
+    AGENTS §1/#816). The *breaker* mapping is the opposite direction and stays
+    as it was: `Unknown ⇒ NotUsable` for the paid-call gate, so no money is
+    spent on an unknown.
+  - **The cache key is `(user_id, provider, vault_key_id)`** with a 60 s TTL
+    (`CachedAccountProbe`). Keying by provider alone would serve one user's
+    balance to another; including the Vault reference makes a key rotation a
+    miss instead of a stale number.
+  - **AUTHZ-GATE:** `authorize_credential_role` inside the handler (ADR-027; no
+    new `*_in_season` predicate, ADR-035 B2), and `GET /v1/ai-import/configs`
+    stays pure Postgres — the health route is the only one that may leave the
+    process.
 
 #### Chunk-level resume (issue #871, workstream B)
 

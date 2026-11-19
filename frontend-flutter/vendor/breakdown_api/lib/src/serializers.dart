@@ -16,6 +16,7 @@ import 'package:built_value/iso_8601_date_time_serializer.dart';
 import 'package:breakdown_api/src/date_serializer.dart';
 import 'package:breakdown_api/src/model/date.dart';
 
+import 'package:breakdown_api/src/model/account_probe_status.dart';
 import 'package:breakdown_api/src/model/add_note_request.dart';
 import 'package:breakdown_api/src/model/add_outfit_piece_request.dart';
 import 'package:breakdown_api/src/model/add_piece_detail_request.dart';
@@ -37,6 +38,9 @@ import 'package:breakdown_api/src/model/ai_preview_payload.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of1.dart';
 import 'package:breakdown_api/src/model/ai_preview_payload_one_of2.dart';
+import 'package:breakdown_api/src/model/ai_provider_breaker_view.dart';
+import 'package:breakdown_api/src/model/ai_provider_budget_view.dart';
+import 'package:breakdown_api/src/model/ai_provider_health_view.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/appearance_outfit_view.dart';
 import 'package:breakdown_api/src/model/applied_episode.dart';
@@ -221,6 +225,7 @@ import 'package:breakdown_api/src/model/wrap_shooting_day_request.dart';
 part 'serializers.g.dart';
 
 @SerializersFor([
+  AccountProbeStatus,
   AddNoteRequest,
   AddOutfitPieceRequest,
   AddPieceDetailRequest,
@@ -242,6 +247,9 @@ part 'serializers.g.dart';
   AiPreviewPayloadOneOf,
   AiPreviewPayloadOneOf1,
   AiPreviewPayloadOneOf2,
+  AiProviderBreakerView,
+  AiProviderBudgetView,
+  AiProviderHealthView,
   AiProviderInfo,
   AppearanceOutfitView,
   AppliedEpisode,
@@ -428,6 +436,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(ApplyMapping)]),
         () => ListBuilder<ApplyMapping>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AiProviderBreakerView)]),
+        () => ListBuilder<AiProviderBreakerView>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(SerializedNote)]),

@@ -4,8 +4,9 @@
 
 # Tasks — 942
 
-`[W1–W3]` shipped in this PR; `[W4/W5]` are the follow-up PR under this same
-change. No task gates on wall-clock timing (AGENTS.md §4).
+`[W1–W3]` shipped in the first PR; `[W4/W5]` shipped in the follow-up PR under
+this same change (route + Dart client + design docs + Flutter surface). No task
+gates on wall-clock timing (AGENTS.md §4).
 
 ## 1. [W1–W3] Backend — shipped
 
@@ -49,36 +50,36 @@ change. No task gates on wall-clock timing (AGENTS.md §4).
 
 ## 2. [W4] Backend — provider health + budget read (follow-up PR)
 
-- [ ] 2.1 `GET /v1/ai-import/providers/{provider}/health?model=` returning
+- [x] 2.1 `GET /v1/ai-import/providers/{provider}/health?model=` returning
       `(provider, model)` breaker snapshots (`credential_configured`,
       `probe_status`, `budget`).
-- [ ] 2.2 Credential resolution strictly for `current_user.sub` (never a donor
+- [x] 2.2 Credential resolution strictly for `current_user.sub` (never a donor
       job); `credential_configured: false` + `budget: null` for an unbound user,
       never `404`/`500`.
-- [ ] 2.3 `// AUTHZ-GATE:` `authorize_credential_role` inside the handler.
-- [ ] 2.4 TTL cache keyed `(user_id, provider, vault_key_id)`, hard timeout,
+- [x] 2.3 `// AUTHZ-GATE:` `authorize_credential_role` inside the handler.
+- [x] 2.4 TTL cache keyed `(user_id, provider, vault_key_id)`, hard timeout,
       degradation to `unknown` — `GET /v1/ai-import/configs` stays pure Postgres.
-- [ ] 2.5 `UPDATE_OPENAPI=1` + `scripts/regen-client.sh` with the committed diff
+- [x] 2.5 `UPDATE_OPENAPI=1` + `scripts/regen-client.sh` with the committed diff
       and a `CLIENT_VERSION` MINOR bump (this is where client drift is expected
       and must be committed).
-- [ ] 2.6 Integration tests: User A vs User B isolation, unconfigured user, no
+- [x] 2.6 Integration tests: User A vs User B isolation, unconfigured user, no
       secret/raw-`detail` on the wire.
 
 ## 3. [W5] Flutter — provider health + budget (follow-up PR, design docs first)
 
-- [ ] 3.1 `docs/design/screens/{settings,ai-import-jobs,ai-config}.md` +
+- [x] 3.1 `docs/design/screens/{settings,ai-import-jobs,ai-config}.md` +
       `docs/design/glossary.md` Salt wireframes, verified with
       `scripts/check-design-diagrams.sh` **before** widget work
       (`frontend-flutter/AGENTS.md` §11).
-- [ ] 3.2 `@riverpod aiProviderHealth` that consults `myCapabilitiesProvider`
+- [x] 3.2 `@riverpod aiProviderHealth` that consults `myCapabilitiesProvider`
       first (`#816`: a resolved denial short-circuits locally, no HTTP).
-- [ ] 3.3 Keep `aiConfigReachabilityProvider` scoped to backend reachability
+- [x] 3.3 Keep `aiConfigReachabilityProvider` scoped to backend reachability
       (`#809`) — a quota-exhausted provider must never render as
       "Backend noch nicht erreichbar".
-- [ ] 3.4 `AiConfigScreen` states: usable + budget / usable + budget unknown /
+- [x] 3.4 `AiConfigScreen` states: usable + budget / usable + budget unknown /
       held-degraded / quota exhausted / unconfigured / checking / unreachable.
-- [ ] 3.5 `de`/`en` ARB parity + goldens in the German template locale; render
+- [x] 3.5 `de`/`en` ARB parity + goldens in the German template locale; render
       the new quota code as "budget/quota exhausted — top up", never the backend
       `detail`.
-- [ ] 3.6 `dart format --set-exit-if-changed`, `flutter analyze`,
+- [x] 3.6 `dart format --set-exit-if-changed`, `flutter analyze`,
       `tool/breakdown_lints_runner`.

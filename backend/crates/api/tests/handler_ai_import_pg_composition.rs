@@ -155,6 +155,8 @@ impl Ports for PgQueuePorts {
     type AiDocumentStore = <FakePorts as Ports>::AiDocumentStore;
     type AiDocumentSource = <FakePorts as Ports>::AiDocumentSource;
     type ProjectorHealthRepo = <FakePorts as Ports>::ProjectorHealthRepo;
+    type AiProviderHealth = <FakePorts as Ports>::AiProviderHealth;
+    type AiProviderAccountProbe = <FakePorts as Ports>::AiProviderAccountProbe;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         self.inner.scene_commands()
@@ -278,6 +280,12 @@ impl Ports for PgQueuePorts {
     }
     fn projector_health_repo(&self) -> &Self::ProjectorHealthRepo {
         self.inner.projector_health_repo()
+    }
+    fn ai_provider_health(&self) -> &Self::AiProviderHealth {
+        self.inner.ai_provider_health()
+    }
+    fn ai_provider_account_probe(&self) -> &Self::AiProviderAccountProbe {
+        self.inner.ai_provider_account_probe()
     }
 }
 
