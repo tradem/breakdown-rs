@@ -292,13 +292,44 @@ async fn make_probe_due(pool: &PgPool) {
 // 2. mark_held is not mark_failed (D-A4)
 // ---------------------------------------------------------------------------
 
+/// The persisted `(error_summary, error_code)` of the job's attempt rows, oldest
+/// first (issue #942 W2).
+async fn attempt_narratives(
+    pool: &PgPool,
+    id: AiImportJobId,
+) -> Vec<(Option<String>, Option<String>)> {
+    sqlx::query_as(
+        r#"
+        SELECT error_summary, error_code
+        FROM ai_import.ai_import_job_attempt
+        WHERE job_id = $1
+        ORDER BY attempt_no
+        "#,
+    )
+    .bind(id.as_uuid())
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// Issue #942 W2: a hold charges no retry but **does** leave evidence.
+///
+/// Before this, the most common real provider state — repeated failures ending
+/// in a hold — had zero diagnosable evidence: `last_error` carried a bare code
+/// and the attempt history stayed empty, so an operator could not tell a client
+/// timeout from an HTTP status from a bounded provider body. The row is appended
+/// once per hold SERIES: a re-hold inside the same series must not multiply it.
 #[tokio::test]
-async fn mark_held_charges_no_retry_and_writes_no_attempt_row() -> Result<()> {
+async fn mark_held_charges_no_retry_and_records_one_attempt_row_per_hold_series() -> Result<()> {
     let (pool, _container) = crate::fixtures::spawn_postgres().await?;
     let queue = PgAiImportQueue::new(pool.clone());
     let id = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
     queue.claim_next("w1").await?.expect("claimable");
 
+    let evidence = breakdown_core::ai::HoldEvidence {
+        summary: "LLM provider transport unavailable: operation timed out after 120s".to_owned(),
+        code: Some("ai-import.llm-provider-unavailable".to_owned()),
+    };
     let until = Timestamp::now() + SignedDuration::from_secs(60);
     queue
         .mark_held(
@@ -306,6 +337,7 @@ async fn mark_held_charges_no_retry_and_writes_no_attempt_row() -> Result<()> {
             "w1",
             hold_for(until, ProviderBreakerState::Open),
             HOLD_WINDOW,
+            Some(&evidence),
         )
         .await?;
 
@@ -324,10 +356,48 @@ async fn mark_held_charges_no_retry_and_writes_no_attempt_row() -> Result<()> {
         next_attempt_at.is_some(),
         "next_attempt_at is the probe time"
     );
+
+    let narratives = attempt_narratives(&pool, id).await;
+    assert_eq!(
+        narratives.len(),
+        1,
+        "the first hold of a series records exactly one attempt row"
+    );
+    let (summary, code) = narratives.into_iter().next().expect("one row");
+    let summary = summary.expect("the hold narrative must be persisted, not only a code");
+    assert!(
+        summary.contains("timed out after 120s"),
+        "the operator must be able to tell a timeout from an HTTP status: {summary}"
+    );
+    assert_eq!(
+        code.as_deref(),
+        Some("ai-import.llm-provider-unavailable"),
+        "the row's code is the registered problem code of the failure that fired"
+    );
+
+    // A re-hold inside the same series must not append a second row, and must
+    // still charge no retry.
+    let later = Timestamp::now() + SignedDuration::from_secs(120);
+    queue.release_claim(id, "w1").await?;
+    queue.claim_next("w2").await?.expect("claimable again");
+    queue
+        .mark_held(
+            id,
+            "w2",
+            hold_for(later, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            Some(&evidence),
+        )
+        .await?;
     assert_eq!(
         attempt_count(&pool, id).await,
+        1,
+        "a re-hold of the same series must reuse the row, not multiply it"
+    );
+    assert_eq!(
+        read_hold_state(&pool, id).await.retries,
         0,
-        "a hold must never append an attempt row — the history must not fill with identical rows"
+        "the retry budget stays untouched by every hold"
     );
     Ok(())
 }
@@ -346,6 +416,7 @@ async fn mark_held_is_owner_fenced() -> Result<()> {
             "someone-else",
             hold_for(until, ProviderBreakerState::Open),
             HOLD_WINDOW,
+            None,
         )
         .await;
     assert!(

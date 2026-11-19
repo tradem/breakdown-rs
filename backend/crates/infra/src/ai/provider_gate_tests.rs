@@ -26,6 +26,7 @@ use breakdown_core::error::DomainError;
 
 use super::{ProviderGate, retry_bounded};
 use crate::ai::provider_health::{breaker_open_error, is_breaker_open};
+use crate::ai::workers::CallFailure;
 
 /// A queue whose only job is to report a breaker verdict — the six required
 /// trait methods are unreachable stubs, because these tests never claim.
@@ -131,6 +132,7 @@ impl AiImportQueue for BreakerQueue {
         _worker_id: &str,
         _hold: ProviderHold,
         _hold_window_secs: u64,
+        _evidence: Option<&breakdown_core::ai::HoldEvidence>,
     ) -> Result<(), DomainError> {
         unreachable!("the gate tests never write")
     }
@@ -227,7 +229,7 @@ async fn an_open_breaker_costs_zero_calls() {
     };
     let calls = AtomicUsize::new(0);
 
-    let result: Result<(), anyhow::Error> = retry_bounded(
+    let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -242,10 +244,8 @@ async fn an_open_breaker_costs_zero_calls() {
         0,
         "an open breaker must cost ZERO paid calls, including the first attempt"
     );
-    let error = result.expect_err("the gate must refuse");
-    let domain = error
-        .downcast::<DomainError>()
-        .expect("the sentinel is a DomainError");
+    let failure = result.expect_err("the gate must refuse");
+    let domain = failure.error;
     assert!(
         is_breaker_open(&domain),
         "the refusal must be the breaker sentinel, not a retryable failure"
@@ -293,7 +293,7 @@ async fn a_closed_breaker_does_not_interfere_with_the_retry_loop() {
 
     // A transient failure that succeeds on the third attempt: the ordinary path
     // must still be able to use its whole budget.
-    let result: Result<(), anyhow::Error> = retry_bounded(
+    let result: Result<(), CallFailure> = retry_bounded(
         || async {
             let attempt = calls.fetch_add(1, Ordering::SeqCst) + 1;
             if attempt < 3 {
@@ -314,6 +314,105 @@ async fn a_closed_breaker_does_not_interfere_with_the_retry_loop() {
     assert_eq!(calls.load(Ordering::SeqCst), 3, "1 + max_retries attempts");
 }
 
+/// Issue #942 W2: a breaker refusal must hand the hold site the failure that
+/// fired it — a bare sentinel left the operator with `ai-import.llm-provider-
+/// unavailable` and no way to tell a client timeout from an HTTP status from a
+/// bounded provider body.
+#[tokio::test(start_paused = true)]
+async fn a_breaker_refusal_carries_the_failure_that_fired_it() {
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::EURouter,
+        model: "mistral-large-3",
+        threshold: 1,
+        enabled: true,
+    };
+    let calls = AtomicUsize::new(0);
+
+    let failure: CallFailure = retry_bounded(
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            // The "third failure opens it" case, folded into one call: the fake
+            // queue does not count, so the transition is driven directly —
+            // exactly the shape the real `record_failure` produces when the
+            // threshold is reached.
+            queue.set(ProviderBreakerState::Open);
+            Err::<(), anyhow::Error>(anyhow::Error::new(DomainError::llm_provider_unavailable(
+                "LLM provider transport unavailable: operation timed out after 120s",
+            )))
+        },
+        2,
+        &gate,
+    )
+    .await
+    .expect_err("the open breaker refuses");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "one call, then the sentinel"
+    );
+    assert!(
+        is_breaker_open(&failure.error),
+        "the caller still sees the sentinel it branches on"
+    );
+    let evidence = failure
+        .evidence
+        .expect("a hold must never be parked without its reason (issue #942 W2)");
+    assert!(
+        evidence.summary.contains("timed out after 120s"),
+        "the persisted narrative must name the CLIENT timeout: {}",
+        evidence.summary
+    );
+    assert_eq!(
+        evidence.code.as_deref(),
+        Some("ai-import.llm-provider-unavailable"),
+        "the attempt row's code is the registered provider code"
+    );
+}
+
+/// The complement: a failure the loop does NOT convert into a hold (the real
+/// error is returned to `mark_failed`) carries no hold evidence, so the failure
+/// path stays exactly as it was.
+#[tokio::test(start_paused = true)]
+async fn an_exhausted_retry_budget_returns_no_hold_evidence() {
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenAI,
+        model: "m",
+        // High enough that the counter never opens within the budget.
+        threshold: 10,
+        enabled: true,
+    };
+
+    let failure: CallFailure =
+        retry_bounded(|| async { Err::<(), anyhow::Error>(transient()) }, 0, &gate)
+            .await
+            .expect_err("the budget is spent");
+
+    assert!(!is_breaker_open(&failure.error));
+    assert!(
+        failure.evidence.is_none(),
+        "no hold follows this failure, so nothing may be persisted as a hold reason"
+    );
+}
+
+/// Issue #942 W2: the summary is BOUNDED before it leaves the worker. The
+/// classifier already caps the provider detail, so this guards the other layer:
+/// no call site may persist an unbounded body.
+#[test]
+fn the_hold_evidence_is_bounded() {
+    let huge = anyhow::Error::new(DomainError::validation("x".repeat(50_000)));
+    let evidence = super::hold_evidence(&huge);
+    assert_eq!(
+        evidence.summary.chars().count(),
+        super::MAX_HOLD_SUMMARY_CHARS
+    );
+    assert_eq!(evidence.code.as_deref(), Some("domain.validation"));
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_breaker_that_opens_during_the_backoff_stops_before_the_next_call() {
     // The property the pre-sleep re-check exists for: another worker can open the
@@ -328,7 +427,7 @@ async fn a_breaker_that_opens_during_the_backoff_stops_before_the_next_call() {
     };
     let calls = AtomicUsize::new(0);
 
-    let result: Result<(), anyhow::Error> = retry_bounded(
+    let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
             // The "other worker" opens the breaker after this failure.
@@ -345,8 +444,8 @@ async fn a_breaker_that_opens_during_the_backoff_stops_before_the_next_call() {
         1,
         "the loop must re-check after the backoff and stop, not call into a dead endpoint"
     );
-    let error = result.expect_err("refused");
-    let domain = error.downcast::<DomainError>().expect("sentinel");
+    let failure = result.expect_err("refused");
+    let domain = failure.error;
     assert!(is_breaker_open(&domain));
     // Keep the sentinel helper honest: the refusal is not a retryable shape,
     // which is the bug the breaker removes.
@@ -397,7 +496,7 @@ async fn the_last_failure_of_a_chunk_is_recorded_too() {
     };
     let calls = AtomicUsize::new(0);
 
-    let _: Result<(), anyhow::Error> = retry_bounded(
+    let _: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
             Err(provider_failure())
@@ -428,7 +527,7 @@ async fn a_generic_service_outage_never_moves_the_counter() {
         enabled: true,
     };
 
-    let _: Result<(), anyhow::Error> = retry_bounded(
+    let _: Result<(), CallFailure> = retry_bounded(
         || async {
             Err::<(), anyhow::Error>(anyhow::Error::new(DomainError::service_unavailable(
                 "mapping DB",
@@ -460,7 +559,7 @@ async fn a_successful_call_is_recorded_as_success() {
         enabled: true,
     };
 
-    let _: Result<(), anyhow::Error> = retry_bounded(|| async { Ok(()) }, 2, &gate).await;
+    let _: Result<(), CallFailure> = retry_bounded(|| async { Ok(()) }, 2, &gate).await;
     assert_eq!(queue.recorded(), vec![("success", false)]);
     assert_eq!(
         queue.failures.load(Ordering::SeqCst),
@@ -508,7 +607,7 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
     };
     let calls = AtomicUsize::new(0);
 
-    let result: Result<(), anyhow::Error> = retry_bounded(
+    let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
             Err(provider_failure())
@@ -523,10 +622,7 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
         1,
         "no second call after the open"
     );
-    let domain = result
-        .expect_err("refused")
-        .downcast::<DomainError>()
-        .expect("sentinel");
+    let domain = result.expect_err("refused").error;
     assert!(is_breaker_open(&domain));
 }
 
@@ -554,7 +650,7 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
 
     // max_retries = 1 ⇒ two attempts: the second is both the last permitted one
     // and the one that opens the breaker.
-    let result: Result<(), anyhow::Error> = retry_bounded(
+    let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
             Err(provider_failure())
@@ -574,10 +670,7 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
         2,
         "both failures reached the counter — N of N+1 was the bug"
     );
-    let domain = result
-        .expect_err("refused")
-        .downcast::<DomainError>()
-        .expect("sentinel");
+    let domain = result.expect_err("refused").error;
     assert!(
         is_breaker_open(&domain),
         "the last-permitted failure must return the sentinel, not the raw error"
@@ -619,7 +712,7 @@ where
     };
     let calls = std::sync::atomic::AtomicUsize::new(0);
     let started = tokio::time::Instant::now();
-    let _: Result<(), anyhow::Error> = retry_bounded(
+    let _: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Err(make_error())
@@ -722,7 +815,7 @@ async fn a_quota_exhausted_provider_failure_is_terminal_and_does_not_move_the_br
     };
     let calls = AtomicUsize::new(0);
 
-    let error: anyhow::Error = retry_bounded(
+    let error: CallFailure = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
             Err::<(), anyhow::Error>(anyhow::Error::new(
@@ -751,9 +844,7 @@ async fn a_quota_exhausted_provider_failure_is_terminal_and_does_not_move_the_br
     );
     // The caller receives the TERMINAL error, not `breaker_open_error()` — that
     // is what lets the worker dead-letter it with the provider narrative.
-    let domain = error
-        .downcast::<DomainError>()
-        .expect("the domain error must survive the retry loop");
+    let domain = error.error;
     assert!(!domain.is_retryable());
     assert!(matches!(
         domain,

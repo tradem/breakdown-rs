@@ -206,13 +206,27 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
   entitlement 4xx is `dependency.auth-failed`-class permanent (#637) and must
   never open a breaker: that would convert one user's misconfiguration into an
   outage for everyone on the endpoint.
-- **A held job is `failed` with `retries` unchanged and no attempt row.** The
-  wire carries an additive `provider_hold` (`provider`, `model`, `reason_code`,
-  `state`, `until`, `hold_deadline`, `chunks_done`); `last_error` keeps #822's
-  narrative so an older client still renders. `provider_hold` is cleared by every
-  other lifecycle write, with exactly one exception: the hold-expiry write keeps
-  it with `state = expired`, because that marker is the only durable signal
-  separating an expiry from a spent retry budget.
+- **A held job is `failed` with `retries` unchanged and one attempt row per hold
+  *series* (issue #942 W2).** The wire carries an additive `provider_hold`
+  (`provider`, `model`, `reason_code`, `state`, `until`, `hold_deadline`,
+  `chunks_done`); `last_error` keeps #822's narrative so an older client still
+  renders. `provider_hold` is cleared by every other lifecycle write, with
+  exactly one exception: the hold-expiry write keeps it with `state = expired`,
+  because that marker is the only durable signal separating an expiry from a
+  spent retry budget.
+  Do not "restore" the pre-#942 rule of appending **no** attempt row: it made the
+  most common real provider state (repeated failures → hold) the one state with
+  zero diagnosable evidence — `last_error` held a bare problem code and the
+  attempt history stayed empty, so a client-timeout hold, an HTTP-status hold and
+  a bounded-body hold were indistinguishable from Postgres alone. The row is
+  written by the **first** hold of a series (`provider_hold_series_started_at`
+  was NULL before it), carries the bounded failure narrative in `error_summary`
+  and the fired registered code in `error_code`, and is `retryable = TRUE`
+  (a hold resumes; a dead letter does not). A re-hold inside the same series
+  appends nothing, and `retries` stays untouched on every path. The sweeper's
+  `hold_runnable_jobs` path (a job enqueued while the breaker was already open)
+  writes no row — it has no first-hand failure — so a held job may legitimately
+  have none.
 - **Recovery is a probe, never elapsed time.** "Elapsed ⇒ closed" would resume
   paying into a still-broken endpoint. The probe is the model-catalog read the
   AI-config screen already uses (no tokens), authenticated with **one actively
@@ -228,6 +242,17 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
 - **Mid-run abort happens at the chunk boundary.** The in-flight request is not
   aborted (an aborted HTTP request is not refunded), so the overspend bound is
   exactly one chunk per worker.
+- **Quota exhaustion has its own code (issue #942 W3).** An upstream
+  `402 Payment Required` (EURouter's budget/spend cap) and a `429` whose body
+  matches the provider's quota markers both produce
+  `DomainError::LlmProviderQuotaExhausted` → `ai-import.provider-quota-exhausted`
+  (402), superseding #822 D-X1 / #927's reuse of
+  `ai-import.llm-provider-unavailable`. The split is presentation-only: the
+  variant stays `is_retryable() == false`, so it dead-letters immediately, and
+  `retry_bounded` still refuses to count it toward the breaker — an empty account
+  must never open the deployment-wide `(provider, model)` breaker for other
+  users (#927's invariant, pinned by
+  `provider_gate_tests::a_quota_exhausted_provider_failure_is_terminal_*`).
 - **Operability:** the durable row plus the `#871 provider breaker` log marker;
   see `docs/operations/runbooks.md` §16. `GET /v1/health` gains **no** provider
   check (unauthenticated, 2 s timeout, no credential).

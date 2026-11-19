@@ -261,6 +261,9 @@ async fn hold_if_breaker_open(
         worker_id,
         &gate,
         chunks_done,
+        // No paid call was started: the breaker was already non-closed when the
+        // attempt began, so the reason lives on the breaker row (issue #942 W2).
+        None,
     )
     .await?;
     warn!(

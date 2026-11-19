@@ -16,16 +16,16 @@ use breakdown_core::ai::{
     AiModelPricingRepository, AppliedEpisode, ApplyGateError, ApplyMapping, ApplyMappingDecision,
     ApplyProgress, ApplyRunId, ApplyStage, CategoryVocabularyEntry, CharacterApplyPlan,
     ChunkSetState, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry, DocumentKind,
-    DraftScene, EpisodeGroupPlan, ExtractionFingerprint, LlmCallUsage, LlmChatRequest, LlmClient,
-    LlmProvider, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
-    PlannedShootingDay, ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold,
-    ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, ScriptContext, ShootingDayPlan,
-    ShootingSchedule, SourceFormat, StoredChunk, Telemetry, TelemetryApplyState, UnappliedOutfit,
-    UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
-    UsageAccumulator, category_conflict_uncertainties, character_mapping_ref, draft_row_ref,
-    ensure_merge_applyable, extract_block_number, extract_scenes, mapping_kind,
-    merge_schedule_to_scenes, parse_script_day, plan_scene_apply, sanitize_meta_summary,
-    scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
+    DraftScene, EpisodeGroupPlan, ExtractionFingerprint, HoldEvidence, LlmCallUsage,
+    LlmChatRequest, LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL,
+    PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot,
+    ProviderBreakerState, ProviderHold, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan,
+    ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry,
+    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind, UsageAccumulator, category_conflict_uncertainties,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_block_number,
+    extract_scenes, mapping_kind, merge_schedule_to_scenes, parse_script_day, plan_scene_apply,
+    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -748,6 +748,8 @@ where
                     // prefix chunks make no call, so they never consult the
                     // breaker.
                     if !gate.admits().await {
+                        // No paid call was started, so there is no provider
+                        // failure to narrate (issue #942 W2 synthesizes one).
                         hold_job(
                             self.queue.as_ref(),
                             &self.bounds,
@@ -755,6 +757,7 @@ where
                             worker_id,
                             &gate,
                             index,
+                            None,
                         )
                         .await?;
                         return Ok(String::new());
@@ -1059,14 +1062,17 @@ where
                         });
                     }
                 }
-                Err(error) => {
+                Err(failure) => {
                     // Issue #871: the gate can refuse mid-attempt — from the top
                     // of `retry_bounded`, from the pre-sleep re-check, or from the
                     // client-internal guard. That is a HOLD, never a failure:
                     // `mark_failed` would charge a retry (and, because the sentinel
                     // is not `ServiceUnavailable`, dead-letter the job outright) for
                     // a call the breaker prevented.
-                    if is_breaker_open(&error) {
+                    if is_breaker_open(&failure.error) {
+                        // Issue #942 W2: the hold persists the failure that fired
+                        // — a client timeout, an HTTP status with its hint, or the
+                        // bounded provider body — instead of a bare code.
                         hold_job(
                             self.queue.as_ref(),
                             &self.bounds,
@@ -1074,12 +1080,13 @@ where
                             worker_id,
                             &gate,
                             index,
+                            failure.evidence.as_ref(),
                         )
                         .await?;
                         return Ok(String::new());
                     }
-                    self.fail(job.id, worker_id, &error).await?;
-                    return Err(error);
+                    self.fail(job.id, worker_id, &failure.error).await?;
+                    return Err(failure.error);
                 }
             }
             // Stored prefix chunks were already reflected in the initial frame
@@ -1592,6 +1599,7 @@ where
                     worker_id,
                     &gate,
                     0,
+                    None,
                 )
                 .await?;
                 return Ok(String::new());
@@ -1624,7 +1632,7 @@ where
                 // `?` would leave the job `running` until its lease lapsed (900 s
                 // by default), because the outer handler treats `Conflict` as
                 // non-permanent and writes nothing.
-                Err(error) if is_breaker_open(&error) => {
+                Err(failure) if is_breaker_open(&failure.error) => {
                     hold_job(
                         self.queue.as_ref(),
                         &self.bounds,
@@ -1632,11 +1640,12 @@ where
                         worker_id,
                         &gate,
                         0,
+                        failure.evidence.as_ref(),
                     )
                     .await?;
                     return Ok(String::new());
                 }
-                other => other?,
+                other => other.map_err(|failure| failure.error)?,
             };
             extraction_usage.record(call_usage);
             parsed
@@ -4699,6 +4708,10 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
 /// `chunks_done` is the number of chunks this attempt already knows to be
 /// stored (a resumed prefix, or the index of the chunk the breaker refused):
 /// the `ProviderHold` carries it so the held job keeps its progress.
+///
+/// `evidence` is the bounded failure that parked the job (issue #942 W2). It is
+/// persisted on the attempt history — one row per hold *series* — because a hold
+/// that carried only a problem code left the operator with nothing to grep.
 pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
     queue: &Q,
     bounds: &AiImportBounds,
@@ -4706,6 +4719,7 @@ pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
     worker_id: &str,
     gate: &ProviderGate<'_, Q>,
     chunks_done: u32,
+    evidence: Option<&HoldEvidence>,
 ) -> Result<(), DomainError> {
     let breaker = gate
         .breaker()
@@ -4727,8 +4741,11 @@ pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
             bounds.max_provider_hold_secs,
         )
     };
+    // Issue #942 W2: the hold travels WITH its reason. `None` means "no paid
+    // call was started" (the breaker was already open) — `mark_held` then
+    // writes its own synthesized reason rather than an empty row.
     queue
-        .mark_held(id, worker_id, hold, bounds.max_provider_hold_secs)
+        .mark_held(id, worker_id, hold, bounds.max_provider_hold_secs, evidence)
         .await
 }
 
@@ -4878,6 +4895,61 @@ const ATTEMPT_BACKOFF: crate::retry::Backoff = crate::retry::Backoff::EqualJitte
     max: Duration::from_secs(breakdown_core::ai::MAX_ATTEMPT_BACKOFF_SECS),
 };
 
+/// A paid call's failure **plus** the evidence a hold must persist
+/// (issue #942 W2).
+///
+/// Why a second field instead of a richer `DomainError`: the breaker refusal is
+/// a synthetic `DomainError::Conflict` sentinel that deliberately discards the
+/// real failure (nothing may charge a retry for a call that never ran), and
+/// `retry_chat`/`retry_schedule` downcast the anyhow chain back to a
+/// `DomainError`. Before #942 the evidence therefore vanished exactly where it
+/// was needed: `mark_held` persisted only the problem *code*, so a held job
+/// could not distinguish a client timeout from an HTTP status from a bounded
+/// provider body. Carrying it beside the error keeps the sentinel's semantics
+/// intact (the classification the retry loop acts on is unchanged) while the
+/// hold site can still hand the operator the narrative.
+#[derive(Debug)]
+struct CallFailure {
+    /// What the retry loop acted on — the sentinel, or the real failure.
+    error: DomainError,
+    /// The bounded narrative of the failure that fired, when there was one.
+    /// `None` when no paid call was started at all (the breaker was already
+    /// open), where `mark_held` synthesizes its own reason.
+    evidence: Option<HoldEvidence>,
+}
+
+impl From<DomainError> for CallFailure {
+    fn from(error: DomainError) -> Self {
+        Self {
+            error,
+            evidence: None,
+        }
+    }
+}
+
+/// The bounded evidence of one failed provider call (issue #942 W2).
+///
+/// The summary is `DomainError::to_string()`, whose provider detail the
+/// classifier already caps at 400 characters; the extra clamp here is the
+/// belt-and-braces bound so no call site can persist an unbounded body.
+fn hold_evidence(error: &AnyhowError) -> HoldEvidence {
+    let code = error
+        .downcast_ref::<DomainError>()
+        .map(|domain| domain.code().code.to_string());
+    let mut summary = error.to_string();
+    if summary.chars().count() > MAX_HOLD_SUMMARY_CHARS {
+        summary = summary.chars().take(MAX_HOLD_SUMMARY_CHARS).collect();
+    }
+    HoldEvidence { summary, code }
+}
+
+/// Bound on the persisted hold narrative (issue #942 W2).
+///
+/// `mark_failed` uses the same order of magnitude (`LEFT(…, 1000)` in the
+/// column, a 400-character provider detail in the classifier); this constant
+/// keeps a pathological error chain from bloating the attempt row.
+const MAX_HOLD_SUMMARY_CHARS: usize = 1000;
+
 /// Retry a transient LLM provider failure at most `max_retries` times with
 /// backoff, then return the last error. The shared saga retry helper loops
 /// forever on transient errors; a provider outage must not retry without bound
@@ -4893,15 +4965,22 @@ async fn retry_bounded<F, Fut, T>(
     mut op: F,
     max_retries: usize,
     gate: &ProviderGate<'_, impl AiImportQueue + ?Sized>,
-) -> Result<T, AnyhowError>
+) -> Result<T, CallFailure>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, AnyhowError>>,
 {
     let mut attempt: usize = 0;
+    // Issue #942 W2: the last REAL failure, captured before any breaker refusal
+    // replaces it with the sentinel. Diagnostic only — it never changes which
+    // retry the loop grants.
+    let mut evidence: Option<HoldEvidence> = None;
     loop {
         if !gate.admits().await {
-            return Err(AnyhowError::new(breaker_open_error()));
+            return Err(CallFailure {
+                error: breaker_open_error(),
+                evidence: evidence.take(),
+            });
         }
         match op().await {
             Ok(value) => {
@@ -4928,6 +5007,10 @@ where
                 // such verdicts open the breaker, and the hold that follows
                 // would park a job that has nothing left to wait for instead of
                 // dead-lettering it with the provider narrative.
+                // Issue #942 W2: remember WHY this call failed *before* any
+                // sentinel can replace it. This is the only place the real
+                // failure is visible — the hold that may follow is built from it.
+                evidence = Some(hold_evidence(&error));
                 if is_provider_failure(&error)
                     && is_transient(&error)
                     && gate.record_failure(retry_hint_of(&error)).await
@@ -4935,17 +5018,30 @@ where
                     // It opened on this very failure: stop now instead of sleeping
                     // and calling into an endpoint the fleet has just stopped
                     // calling.
-                    return Err(AnyhowError::new(breaker_open_error()));
+                    return Err(CallFailure {
+                        error: breaker_open_error(),
+                        evidence: evidence.take(),
+                    });
                 }
                 if !is_transient(&error) || attempt >= max_retries {
-                    return Err(error);
+                    // A real failure, not a hold: the caller fails the job with
+                    // the provider narrative through `mark_failed`.
+                    return Err(CallFailure {
+                        error: error
+                            .downcast::<DomainError>()
+                            .unwrap_or_else(|other| DomainError::validation(other.to_string())),
+                        evidence: None,
+                    });
                 }
                 attempt += 1;
                 // Re-check before the sleep: the verdict we read a moment ago can
                 // already be stale, and sleeping on a dead endpoint holds the
                 // permit for nothing.
                 if !gate.admits().await {
-                    return Err(AnyhowError::new(breaker_open_error()));
+                    return Err(CallFailure {
+                        error: breaker_open_error(),
+                        evidence: evidence.take(),
+                    });
                 }
                 // `attempt` is the 1-based retry counter, as it was for the
                 // pre-#925 formula: the first retry waits ~1 s, not ~500 ms.
@@ -4978,12 +5074,14 @@ async fn retry_chat<C, Q>(
     request: LlmChatRequest,
     max_retries: usize,
     gate: &ProviderGate<'_, Q>,
-) -> Result<(ScriptContext, LlmCallUsage), DomainError>
+) -> Result<(ScriptContext, LlmCallUsage), CallFailure>
 where
     C: LlmClient + ?Sized,
     Q: AiImportQueue + ?Sized,
 {
-    let outcome = retry_bounded(
+    // Issue #942 W2: the failure and its evidence travel together, so the chunk
+    // loop can hold the job WITH the reason the provider refused.
+    retry_bounded(
         || async {
             client
                 .chat_constrained(request.clone())
@@ -4993,14 +5091,8 @@ where
         max_retries,
         gate,
     )
-    .await;
-    match outcome {
-        Ok(value) => Ok((value.output, value.usage)),
-        Err(error) => match error.downcast::<DomainError>() {
-            Ok(domain_error) => Err(domain_error),
-            Err(other) => Err(DomainError::validation(other.to_string())),
-        },
-    }
+    .await
+    .map(|value| (value.output, value.usage))
 }
 
 async fn retry_schedule<C, Q>(
@@ -5008,12 +5100,12 @@ async fn retry_schedule<C, Q>(
     request: LlmChatRequest,
     max_retries: usize,
     gate: &ProviderGate<'_, Q>,
-) -> Result<(ShootingSchedule, LlmCallUsage), DomainError>
+) -> Result<(ShootingSchedule, LlmCallUsage), CallFailure>
 where
     C: LlmClient + ?Sized,
     Q: AiImportQueue + ?Sized,
 {
-    let outcome = retry_bounded(
+    retry_bounded(
         || async {
             client
                 .extract_schedule(request.clone())
@@ -5023,14 +5115,8 @@ where
         max_retries,
         gate,
     )
-    .await;
-    match outcome {
-        Ok(value) => Ok((value.output, value.usage)),
-        Err(error) => match error.downcast::<DomainError>() {
-            Ok(domain_error) => Err(domain_error),
-            Err(other) => Err(DomainError::validation(other.to_string())),
-        },
-    }
+    .await
+    .map(|value| (value.output, value.usage))
 }
 
 /// Heartbeat cadence of one apply run's progress payload (issue #800 #3).

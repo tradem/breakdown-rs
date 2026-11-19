@@ -573,7 +573,7 @@ pub trait AiImportQueue: Send + Sync {
     /// | | `mark_failed` | `mark_held` |
     /// |---|---|---|
     /// | `retries` | +1 | **unchanged** |
-    /// | attempt row | appended | **none** |
+    /// | attempt row | appended | **one per hold series** (issue #942 W2) |
     /// | `status` | `failed` → maybe `dead_letter` | `failed` |
     /// | `next_attempt_at` | job backoff (1 min · 2^n) | the breaker's `retry_at` |
     /// | `last_error` | error summary | provider summary (old clients keep the #822 narrative) |
@@ -583,6 +583,17 @@ pub trait AiImportQueue: Send + Sync {
     /// The budget must not be consumed by an attempt that never reached the
     /// provider, and the attempt history must not fill with identical rows —
     /// that is the whole point of the separate write.
+    ///
+    /// **One row per hold *series* (issue #942 W2).** A hold that appends nothing
+    /// left the most common real provider state — repeated failures ending in a
+    /// hold — with zero diagnosable evidence: `last_error` held a bare problem
+    /// `code`, and `ai_import_job_attempt` stayed empty, so an operator could not
+    /// tell a client timeout from an HTTP status from a provider body. The
+    /// implementation therefore appends **the first** hold of a series (the one
+    /// that starts `provider_hold_series_started_at`) with the bounded failure
+    /// narrative in `error_summary` and its registered code in `error_code`, and
+    /// appends nothing for the re-holds of the same series. `retries` stays
+    /// untouched either way — a hold still charges no retry.
     ///
     /// Owner-fenced like every other worker transition. The implementation also
     /// owns the hold **series clock** (`COALESCE(provider_hold_series_started_at,
@@ -608,6 +619,7 @@ pub trait AiImportQueue: Send + Sync {
         worker_id: &str,
         _hold: ProviderHold,
         _hold_window_secs: u64,
+        _evidence: Option<&HoldEvidence>,
     ) -> Result<(), DomainError> {
         self.release_claim(id, worker_id).await
     }
@@ -1518,6 +1530,22 @@ pub enum ProbeOutcome {
     Reachable,
     /// Transport error, timeout, 429 or 5xx: the outage this breaker exists for.
     Unreachable,
+}
+
+/// The bounded evidence of the failure that put a job on a hold (issue #942 W2).
+///
+/// Owned and pre-bounded on purpose: the worker holds it across an `await`
+/// (so no borrow of the error chain survives), and the persistence layer must
+/// never receive an unbounded provider body. `code` is the registered problem
+/// code of the failure that fired (`ADR-031 D2`), which is what an operator and
+/// the attempt-history UI branch on — the summary is the human narrative.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HoldEvidence {
+    /// The bounded narrative (`DomainError::to_string()`, capped by the
+    /// classifier's 400-character detail budget).
+    pub summary: String,
+    /// The registered problem code of that failure, when it had one.
+    pub code: Option<String>,
 }
 
 /// Durable provider-health state, one row per `(provider, model)` pair

@@ -384,6 +384,7 @@ async fn an_expired_hold_drops_the_stored_chunks() -> Result<()> {
                 chunks_done: 2,
             },
             HOLD_WINDOW,
+            None,
         )
         .await?;
     assert_eq!(

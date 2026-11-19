@@ -11,9 +11,9 @@ use breakdown_core::ai::{
     AiImportAttempt, AiImportEnqueueRequest, AiImportEnqueueResult, AiImportJob, AiImportJobId,
     AiImportProgress, AiImportQueue, AiImportTarget, AppliedEpisode, ApplyProgress, ApplyRunId,
     ApplyRunState, BreakerCounters, BreakerDecision, CostBreakdown, DecisionTelemetry,
-    DocumentKind, JobStatus, JobTelemetrySummary, LlmProvider, ProviderBreakerSnapshot,
-    ProviderBreakerState, ProviderHold, ProviderOutcome, SourceFormat, TargetAttachOutcome,
-    Telemetry, mapping_kind,
+    DocumentKind, HoldEvidence, JobStatus, JobTelemetrySummary, LlmProvider,
+    ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold, ProviderOutcome, SourceFormat,
+    TargetAttachOutcome, Telemetry, mapping_kind,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_IMPORT_APPLY_IN_FLIGHT;
@@ -1290,8 +1290,14 @@ impl AiImportQueue for PgAiImportQueue {
     ///
     /// * `retries` is untouched — the budget must not be consumed by an attempt
     ///   that never reached the provider;
-    /// * no `ai_import_job_attempt` row is appended — the history must not fill
-    ///   with identical rows;
+    /// * **at most one** `ai_import_job_attempt` row is appended per hold
+    ///   *series* (issue #942 W2): the first hold of a series records the bounded
+    ///   failure narrative in `error_summary` and its registered code in
+    ///   `error_code`, and every re-hold of the same series appends nothing. That
+    ///   is the difference between "the history does not fill with identical
+    ///   rows" and "the history is empty": before #942 a held job carried only a
+    ///   problem code, so the single most common real provider state had zero
+    ///   diagnosable evidence in the database;
     /// * `next_attempt_at` is the breaker's probe time, not the per-job backoff,
     ///   so the whole fleet re-probes at one instant (D-C3).
     ///
@@ -1310,9 +1316,32 @@ impl AiImportQueue for PgAiImportQueue {
         worker_id: &str,
         hold: ProviderHold,
         hold_window_secs: u64,
+        evidence: Option<&HoldEvidence>,
     ) -> Result<(), DomainError> {
+        // Issue #942 W2: the narrative the operator needs. A hold whose caller
+        // had no first-hand failure (the breaker was already open when the
+        // attempt looked) still records WHY it is parked — a held row with an
+        // empty summary is what made this invisible in the first place.
+        let fallback = HoldEvidence {
+            summary: format!(
+                "no paid call was started: the provider breaker for {} / {} is {} until {}",
+                hold.provider.as_str(),
+                hold.model,
+                hold.state.as_str(),
+                hold.until
+            ),
+            code: Some(hold.reason_code.clone()),
+        };
+        let evidence = evidence.unwrap_or(&fallback);
         let result = sqlx::query(
             r#"
+            WITH before AS (
+                SELECT provider_hold_series_started_at
+                FROM ai_import.ai_import_job
+                WHERE id = $1 AND status = 'running' AND worker_id = $2
+                FOR UPDATE
+            ),
+            held AS (
             UPDATE ai_import.ai_import_job
             SET status = 'failed',
                 next_attempt_at = $4,
@@ -1338,7 +1367,28 @@ impl AiImportQueue for PgAiImportQueue {
                 permit_id = NULL,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
-            RETURNING pg_notify('ai_import_job_events', id::text)
+            RETURNING id
+            ),
+            -- Issue #942 W2: ONE attempt row per hold SERIES. `before` holds the
+            -- series clock as it was BEFORE this write, so the row is appended
+            -- exactly when this write starts the series — a re-hold of the same
+            -- series appends nothing, which is what keeps the history free of
+            -- identical rows while retries stays untouched.
+            --
+            -- `attempt_no` is `retries + 1`, the same numbering
+            -- `mark_payload_unavailable` uses for a transition that leaves
+            -- `retries` alone: it is the attempt that discovered the outage.
+            -- `retryable` is TRUE — a hold is resumable, unlike a dead letter.
+            recorded AS (
+                INSERT INTO ai_import.ai_import_job_attempt
+                    (id, job_id, attempt_no, status, error_summary, error_code, retryable)
+                SELECT $7, held.id, job.retries + 1, 'failed', $8, $9, TRUE
+                FROM held
+                JOIN before ON TRUE
+                JOIN ai_import.ai_import_job AS job ON job.id = held.id
+                WHERE before.provider_hold_series_started_at IS NULL
+            )
+            SELECT pg_notify('ai_import_job_events', id::text) FROM held
             "#,
         )
         .bind(id.as_uuid())
@@ -1349,6 +1399,13 @@ impl AiImportQueue for PgAiImportQueue {
             DomainError::validation(format!("provider hold is not serializable: {error}"))
         })?)
         .bind(i64::try_from(hold_window_secs).unwrap_or(i64::MAX))
+        .bind(Uuid::now_v7())
+        // The narrative is bounded at the source (`classify_http_status_rich`
+        // caps the provider detail at 400 chars); `LEFT` is the belt-and-braces
+        // bound for `mark_failed`'s reason, mirrored here so no call site can
+        // persist an unbounded body.
+        .bind(&evidence.summary)
+        .bind(evidence.code.as_deref())
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
