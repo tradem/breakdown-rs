@@ -17,6 +17,13 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.70.1] - Unreleased
+### Changed (issue #942 W3)
+
+- Localized `de`/`en` copy and a golden problem document for the new
+  `ai-import.provider-quota-exhausted` (402) code. No route or schema change, so
+  `openapi.yaml` gains only the `x-code-registry` entry.
+
 ## [0.70.0] - Unreleased
 
 ### Changed — BREAKING: `jiff` time types in the handler/DTO layer (issue #929, ADR-040)

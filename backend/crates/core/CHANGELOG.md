@@ -16,6 +16,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.74.0] - Unreleased
+### Changed (issue #942 W1/W2/W3)
+
+- **BREAKING** `ProbeOutcome` variants are `Usable`/`NotUsable` (were
+  `Reachable`/`Unreachable`): a preflight verdict is about *account usability*,
+  not about "something answered".
+- **BREAKING** `ProviderBreakerSnapshot` and `OpenBreaker` carry `trial_job`
+  (`provider_health.trial_job_id`); `BreakerDecision` carries `trial_due`.
+- `on_probe_success` now returns `half_open` + `trial_due` instead of closing the
+  breaker: only a real paid call (`on_success`) closes it.
+- A retryable failure in `half_open` is a flap (`flap_count + 1`) and re-opens
+  the breaker immediately.
+- New `ProbeCapability` + `probe_capability` (curated per-provider preflight).
+- New `HoldEvidence`; `AiImportQueue::mark_held` takes it and persists one
+  attempt row per hold series; new `ProviderHealth::begin_provider_trial`.
+- `DomainError::LlmProviderQuotaExhausted` renders
+  `ai-import.provider-quota-exhausted` (402) instead of the outage code.
+
 ## [0.73.0] - Unreleased
 
 ### Changed — BREAKING: the time type is `jiff::Timestamp`, not `chrono::DateTime<Utc>` (issue #929, ADR-040)
