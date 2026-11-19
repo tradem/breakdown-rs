@@ -21,16 +21,16 @@ use crate::error_registry::{
     AI_CONFIG_DECISION_MODEL_UNKNOWN, AI_CONFIG_DECISION_PROVIDER_UNSUPPORTED,
     AI_CONFIG_DECISION_VAULT_KEY_EMPTY, AI_CONFIG_EMPTY_MODEL, AI_CONFIG_EMPTY_PROMPT,
     AI_CONFIG_EMPTY_PROVIDER, AI_CONFIG_EMPTY_VAULT_KEY, AI_CONFIG_NOT_FOUND,
-    AI_CONFIG_PROVIDER_MISMATCH, AI_IMPORT_LLM_PROVIDER_UNAVAILABLE, BLOCK_NOT_FOUND,
-    CHARACTER_NOT_FOUND, CHARACTER_VALIDATION, CONCURRENCY_VERSION_MISMATCH,
-    COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_SEASON_MISMATCH, COSTUME_CATEGORY_VALIDATION,
-    DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN, DOMAIN_NOT_FOUND,
-    DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND, HTTP_INTERNAL_ERROR,
-    MEMBERSHIP_ALREADY_INVITED, MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED, MEMBERSHIP_MISSING_ACTOR,
-    MEMBERSHIP_NO_PENDING_INVITATION, MEMBERSHIP_NOT_ACTIVE_MEMBER, MEMBERSHIP_NOT_FOUND,
-    OUTFIT_NOT_FOUND, OUTFIT_VALIDATION, PHOTO_ALREADY_DELETED, PHOTO_NOT_FOUND, PHOTO_VALIDATION,
-    PIECE_DETAIL_NOT_FOUND, PIECE_NOT_FOUND, PIECE_VALIDATION, ProblemCode,
-    SCENE_ALREADY_SCHEDULED, SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED,
+    AI_CONFIG_PROVIDER_MISMATCH, AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
+    AI_IMPORT_PROVIDER_QUOTA_EXHAUSTED, BLOCK_NOT_FOUND, CHARACTER_NOT_FOUND, CHARACTER_VALIDATION,
+    CONCURRENCY_VERSION_MISMATCH, COSTUME_CATEGORY_ARCHIVED, COSTUME_CATEGORY_SEASON_MISMATCH,
+    COSTUME_CATEGORY_VALIDATION, DEPENDENCY_AUTH_FAILED, DOMAIN_CONFLICT, DOMAIN_FORBIDDEN,
+    DOMAIN_NOT_FOUND, DOMAIN_SERVICE_UNAVAILABLE, DOMAIN_VALIDATION, EPISODE_NOT_FOUND,
+    HTTP_INTERNAL_ERROR, MEMBERSHIP_ALREADY_INVITED, MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
+    MEMBERSHIP_MISSING_ACTOR, MEMBERSHIP_NO_PENDING_INVITATION, MEMBERSHIP_NOT_ACTIVE_MEMBER,
+    MEMBERSHIP_NOT_FOUND, OUTFIT_NOT_FOUND, OUTFIT_VALIDATION, PHOTO_ALREADY_DELETED,
+    PHOTO_NOT_FOUND, PHOTO_VALIDATION, PIECE_DETAIL_NOT_FOUND, PIECE_NOT_FOUND, PIECE_VALIDATION,
+    ProblemCode, SCENE_ALREADY_SCHEDULED, SCENE_BEAT_NOT_FOUND, SCENE_CHARACTER_ALREADY_ASSIGNED,
     SCENE_CHARACTER_NOT_FOUND, SCENE_CHARACTER_NOT_IN_SCENE, SCENE_NOT_FOUND, SCENE_NOT_SCHEDULED,
     SCENE_SHOOT_ALREADY_LINKED, SCENE_SHOOT_ALREADY_STARTED, SCENE_SHOOT_NOT_FOUND,
     SCENE_SHOOT_NOTE_NOT_FOUND, SCENE_SHOOT_PAIR_ALREADY_EXISTS, SCENE_SHOOT_PLANNED_ORDER_FROZEN,
@@ -131,13 +131,14 @@ pub enum DomainError {
     /// `ServiceUnavailable`, and the worker therefore dead-letters the job on
     /// the first attempt instead of consuming its retry budget.
     ///
-    /// It renders the **existing** registered
-    /// `ai-import.llm-provider-unavailable` code on purpose (#822 D-X1 decided
-    /// against a new code for provider narratives): a client keeps aggregating
-    /// that code, and the attempt row's `retryable: false` plus the narrative
-    /// (which names the provider's own code, e.g. `insufficient_quota`) is what
-    /// separates "terminal" from "degraded". No `retry_after`: there is nothing
-    /// left to schedule.
+    /// It renders the **dedicated** registered
+    /// `ai-import.provider-quota-exhausted` code (issue #942 W3, superseding
+    /// #822 D-X1 / #927's reuse of `ai-import.llm-provider-unavailable`): the
+    /// client branches on `code` alone (ADR-031 D2), so sharing the outage code
+    /// made an empty wallet render as "provider unreachable" and left no quota
+    /// copy in any ARB catalog. The split is presentation-only — retryability
+    /// stays `false` and the breaker invariant of #927 is untouched. No
+    /// `retry_after`: there is nothing left to schedule.
     #[error("LLM provider quota exhausted: {reason}")]
     LlmProviderQuotaExhausted { reason: String },
 
@@ -816,10 +817,10 @@ impl DomainError {
     /// provider narrative instead of burning its retry budget on paid calls that
     /// are answered `429` for a fact the first response already stated.
     ///
-    /// The registered code is the same `ai-import.llm-provider-unavailable`
-    /// (#822 D-X1: the client aggregates that code, and a new one would need its
-    /// own ADR-031 story), so the wire surface is unchanged — only the attempt
-    /// row's `retryable` flag and the narrative differ.
+    /// The registered code is `ai-import.provider-quota-exhausted` (issue #942
+    /// W3): an outage and an exhausted account are different user actions, so
+    /// they get different codes even though both are the provider's fault
+    /// (#822 D-X1's "one provider code" rule is superseded for THIS case).
     #[must_use]
     pub fn llm_provider_quota_exhausted(reason: impl Into<String>) -> Self {
         DomainError::LlmProviderQuotaExhausted {
@@ -879,11 +880,13 @@ impl DomainError {
             | DomainError::Conflict { code, .. }
             | DomainError::ServiceUnavailable { code, .. }
             | DomainError::DependencyAuthFailed { code, .. } => code,
-            // Issue #927: same registered entry as `ServiceUnavailable`'s
-            // provider failure, fixed by construction (the variant carries no
-            // `code` field, so it cannot name a different one — like
-            // `Internal`).
-            DomainError::LlmProviderQuotaExhausted { .. } => &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
+            // Issue #942 W3: its OWN registered entry, fixed by construction
+            // (the variant carries no `code` field, so it cannot name a
+            // different one — like `Internal`). Supersedes #927's reuse of the
+            // provider-unavailable code; the terminal retryability is what
+            // keeps the two apart on the write side, the code is what keeps
+            // them apart for the client (ADR-031 D2).
+            DomainError::LlmProviderQuotaExhausted { .. } => &AI_IMPORT_PROVIDER_QUOTA_EXHAUSTED,
             DomainError::Internal { .. } => &HTTP_INTERNAL_ERROR,
             DomainError::VersionConflict { .. } => &CONCURRENCY_VERSION_MISMATCH,
             DomainError::AlreadyScheduled { .. } => &SCENE_ALREADY_SCHEDULED,
@@ -939,17 +942,23 @@ mod retry_classification_tests {
         );
     }
 
-    /// Issue #927: the quota variant is the *same* registered provider code as
-    /// [`DomainError::llm_provider_unavailable`] (#822 D-X1) and is
-    /// **non-retryable** — that difference is the whole point, so a mutant that
-    /// widens `is_retryable` or swaps the code dies here.
+    /// Issue #927 made the quota variant terminal; issue #942 W3 gave it its
+    /// **own** registered code (superseding #822 D-X1). Both assertions matter:
+    /// the code must stay distinct from the outage code (otherwise the client
+    /// renders "unreachable" for an empty wallet again) and the variant must
+    /// stay non-retryable (otherwise it consumes the budget).
     #[test]
-    fn a_quota_exhausted_provider_is_the_provider_code_but_terminal() {
+    fn a_quota_exhausted_provider_has_its_own_code_and_stays_terminal() {
         let quota = DomainError::llm_provider_quota_exhausted(
             "LLM provider returned HTTP 429 — insufficient_quota",
         );
-        assert_eq!(quota.code().code, "ai-import.llm-provider-unavailable");
-        assert_eq!(quota.code().status, 503);
+        assert_eq!(quota.code().code, "ai-import.provider-quota-exhausted");
+        assert_eq!(quota.code().status, 402);
+        assert_ne!(
+            quota.code().code,
+            DomainError::llm_provider_unavailable("blip").code().code,
+            "an exhausted account and an outage must not share a code (issue #942 W3)"
+        );
         assert!(
             !quota.is_retryable(),
             "a quota exhaustion must dead-letter, not consume the retry budget"

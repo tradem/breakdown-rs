@@ -1310,8 +1310,9 @@ async fn a_quota_exhausted_429_is_terminal_and_costs_one_request() {
         !error.is_retryable(),
         "a quota exhaustion must dead-letter instead of spending the retry budget"
     );
-    // #822 D-X1: same registered code, so the client keeps its attribution.
-    assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
+    // Issue #942 W3: its own code, so the client can render "top up" instead of
+    // "provider unreachable" (ADR-031 D2).
+    assert_eq!(error.code().code, "ai-import.provider-quota-exhausted");
     let narrative = error.to_string();
     assert!(
         narrative.contains("insufficient_quota"),

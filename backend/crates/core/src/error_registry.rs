@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 113;
+const PROBLEM_CODE_COUNT: usize = 114;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1047,6 +1047,27 @@ problem_codes! {
         code: "ai-import.llm-provider-unavailable",
         status: 503,
         title: "AI provider unavailable",
+        extensions: &[],
+    },
+
+    /// 402 — the **account** behind the configured provider credential has no
+    /// quota/credit left (an upstream `402 Payment Required` or a `429` whose
+    /// body names an exhausted quota, issue #942 W3).
+    ///
+    /// Deliberately distinct from [`Self::AI_IMPORT_LLM_PROVIDER_UNAVAILABLE`],
+    /// superseding the #822 D-X1 / #927 decision to reuse that code: an outage
+    /// and an empty wallet are both terminal-or-not for the *backend* (the
+    /// former is retryable, the latter is not), but the **client** branches on
+    /// `code` alone (ADR-031 D2). Sharing one code forced the app to render
+    /// "provider unreachable" for a user who only had to top up — the exact
+    /// copy error issue #942 F4/F5 records. The backend semantics are unchanged
+    /// by the split: quota exhaustion stays `is_retryable() == false`, so it
+    /// dead-letters immediately and never moves the deployment-wide
+    /// `(provider, model)` breaker (#927's invariant, `provider_gate_tests`).
+    AI_IMPORT_PROVIDER_QUOTA_EXHAUSTED {
+        code: "ai-import.provider-quota-exhausted",
+        status: 402,
+        title: "AI provider quota exhausted",
         extensions: &[],
     },
 
