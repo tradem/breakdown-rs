@@ -1548,6 +1548,19 @@ pub struct OpenBreaker {
     /// `None` means the window has not granted one yet — which is exactly the
     /// condition under which the sweeper grants the next single trial.
     pub trial_job: Option<Uuid>,
+    /// When the **outstanding probe lease** started, if one is held
+    /// (issue #942 W1 follow-up).
+    ///
+    /// `None` is the only state in which a trial may be granted directly: a
+    /// `half_open` row without a holder and without a lease is one whose last
+    /// trial was consumed and whose window has elapsed. A `Some` value is
+    /// either a probe **in flight** (the sweeper must leave the transition to
+    /// it) or a **stale** lease left by a hung prober (the sweeper must recover
+    /// it through `try_begin_probe`, whose takeover branch is exactly what the
+    /// stale stamp dates). Without this field the sweeper cannot tell those two
+    /// apart and would stamp a holder that the in-flight probe's own fenced
+    /// result then clears — two paid trials inside one window.
+    pub probe_started_at: Option<jiff::Timestamp>,
 }
 
 /// The fence of one probe attempt (issue #871, D-A6).

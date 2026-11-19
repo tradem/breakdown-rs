@@ -222,11 +222,23 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
   written by the **first** hold of a series (`provider_hold_series_started_at`
   was NULL before it), carries the bounded failure narrative in `error_summary`
   and the fired registered code in `error_code`, and is `retryable = TRUE`
-  (a hold resumes; a dead letter does not). A re-hold inside the same series
+  (a hold resumes; a dead letter does not). "First of the series" is read under the
+  row's `FOR UPDATE` lock in its **own** statement: a same-statement `before` CTE
+  cannot see a pre-update value (the transaction's own `held` UPDATE is already
+  visible to it), so it silently answered "not first" and wrote no row at all.
+  A re-hold inside the same series
   appends nothing, and `retries` stays untouched on every path. The sweeper's
   `hold_runnable_jobs` path (a job enqueued while the breaker was already open)
   writes no row — it has no first-hand failure — so a held job may legitimately
-  have none.
+  have none. `error_summary` is bounded twice (the classifier's 400-char detail
+  and `LEFT(…, 1000)` in the insert), because `mark_held` is a public port method
+  and the SQL must be safe on its own.
+- **`attempt_no` is not unique per job; both history readers break the tie
+  chronologically.** A hold numbers its row `retries + 1` without charging a retry,
+  so the next `mark_failed` reuses that number. Ordering by `attempt_no` alone let
+  the history `LIMIT` drop the newer evidence and mis-order the tied pair, so
+  `list_attempts` and the jobs-list `newest_attempts` window order by
+  `attempt_no DESC, created_at DESC, id DESC`.
 - **Recovery is a two-stage probe, never elapsed time, and a probe never closes
   (issue #942 W1).** "Elapsed ⇒ closed" would resume paying into a still-broken
   endpoint. The preflight is **capability-accurate** (`probe_capability`,
@@ -258,11 +270,32 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
     `(1 + AI_IMPORT_MAX_ATTEMPT_RETRIES) ×`. A retryable trial failure re-opens
     the breaker **immediately with `flap_count + 1`** (a paid call failing right
     after a passing preflight is a new incident, not the same outage), which is
-    what makes the window escalate instead of oscillating.
+    what makes the window escalate instead of oscillating. Trial ownership is
+    decided **per paid call**, not per attempt: a chunk loop re-reads it before
+    each chunk, so the chunks after the one that closed the breaker get the
+    ordinary retry budget back instead of running un-retried on a stale flag.
   - A trial consumed by a **terminal** failure (revoked key, exhausted quota)
-    leaves `half_open` with no holder; the sweeper grants the next single trial
-    when the window elapses (`begin_provider_trial`). The probe never retires or
+    releases the holder **in the same statement that ends the job** (`mark_failed`
+    / `mark_payload_unavailable`, fenced on the failing job's id) and leaves
+    `half_open` with no holder; the sweeper then grants the next single trial when
+    the window elapses (`begin_provider_trial`). Releasing the token touches no
+    counter and no `retry_at`, so the pair still costs at most one paid call per
+    window. Without that release the pair stayed `half_open` holding a token that
+    named a dead job — and since a grant requires `trial_job_id IS NULL`, no other
+    held job of the pair could ever run a trial again. The probe never retires or
     terminalizes a job.
+  - **A grant needs "no holder" AND "no outstanding probe lease".** `half_open`
+    with no holder has two meanings and only one is grantable: a finished probe
+    (lease released — grant now) and a probe in flight (lease held — leave the
+    transition to it, or its own fenced result clears the token it would stamp and
+    grants a second trial in the same window). A **stale** lease is not grantable
+    either: the recovery for a hung prober is the takeover branch of
+    `try_begin_probe` (`open_breakers.probe_started_at` + `probe_lease_is_live` is
+    what lets `run_probes` tell those three apart).
+  - **A held-row refresh never delays the trial holder.** `refresh_held_jobs`
+    excludes the job named by `trial_job_id`: the grant and the refresh happen in
+    the same sweep tick, and re-pointing the holder at `now + min_open(…)` meant
+    the trial it had just been granted could not be claimed until the next window.
 - **The probe is a task, not a claimed job.** Only `closed` admits a claim, so no
   worker runs for the pair when the probe is due. It runs as lease CAS → request
   **outside any transaction** → fenced result, so a hung probe cannot hold the

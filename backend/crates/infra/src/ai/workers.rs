@@ -703,7 +703,7 @@ where
         // Issue #871: the breaker consult for THIS attempt, bound to the pair the
         // attempt actually resolved (`resolve_config`), not to the enqueue-time
         // snapshot.
-        let gate = ProviderGate {
+        let mut gate = ProviderGate {
             queue: self.queue.as_ref(),
             provider: self.provider,
             model: &self.model,
@@ -721,6 +721,26 @@ where
             .await,
         };
         for (chunk_index, chunk) in chunks.into_iter().enumerate() {
+            // Issue #942 W1 follow-up: trial ownership is a fact about the NEXT
+            // paid call, not about the whole attempt. A successful first chunk
+            // closes the breaker through `record_success` — which clears the
+            // token — so without this re-read every later chunk of the same
+            // attempt would keep running un-retried and a transient failure there
+            // would skip `max_attempt_retries` entirely. Re-read only while a
+            // trial is still in play, so a non-trial attempt pays nothing; the
+            // budget stays fixed WITHIN one `retry_bounded` invocation, which is
+            // what keeps the trial a single request.
+            if gate.trial {
+                let trial = trial_pending(
+                    self.queue.as_ref(),
+                    self.provider,
+                    &self.model,
+                    job.id,
+                    self.bounds.breaker_enabled,
+                )
+                .await;
+                gate = ProviderGate { trial, ..gate };
+            }
             // Hoisted because the grounding check below must verify a quote
             // against *exactly* the bytes the model was given. Grounding against
             // a differently assembled string would drop real quotes and pass

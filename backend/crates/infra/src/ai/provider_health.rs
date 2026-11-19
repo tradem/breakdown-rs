@@ -35,7 +35,7 @@ use breakdown_core::ai::provider_health::{
 use breakdown_core::ai::views::AiImportJobId;
 use breakdown_core::ai::views::ProviderBreakerState;
 use breakdown_core::error::DomainError;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use sqlx::{PgPool, Row};
 use std::time::Duration;
 use uuid::Uuid;
@@ -490,6 +490,17 @@ impl ProviderHealth for PgProviderHealth {
     /// storm. The `state = 'half_open' AND trial_job_id IS NULL` guard makes it
     /// idempotent against a second sweeper: the loser stamps nothing.
     ///
+    /// The `probe_lease_id IS NULL` guard is the second half of that fence
+    /// (issue #942 W1 follow-up). A `half_open` pair with no holder has two
+    /// meanings, and only one of them may be granted here: a **finished probe**
+    /// (lease released) is grantable, a **probe in flight** is not. Stamping a
+    /// holder while a probe lease is outstanding put two paid trials in one
+    /// window — the in-flight probe's own fenced `finish_probe` clears
+    /// `trial_job_id` on success and grants a *second* trial behind it. A
+    /// **stale** lease is not grantable either: the recovery for a hung prober
+    /// is the takeover branch of `try_begin_probe`, which re-dates the lease so
+    /// the hung prober's result is fenced out.
+    ///
     /// The candidate is the pair's longest-waiting held job — the same ordering
     /// the probe uses for its credential donor, so a fresh upload does not
     /// starve an older job.
@@ -513,9 +524,16 @@ impl ProviderHealth for PgProviderHealth {
                   AND COALESCE(ai_import.ai_import_job.provider_hold ->> 'state', '') <> 'expired'
                   AND provider_health.state = 'half_open'
                   AND provider_health.trial_job_id IS NULL
+                  -- Issue #942 W1 follow-up: no outstanding probe lease. A live
+                  -- lease belongs to an in-flight probe, and a stale one to a
+                  -- hung prober that `try_begin_probe` must recover instead.
+                  AND provider_health.probe_lease_id IS NULL
                 ORDER BY ai_import.ai_import_job.created_at
                 LIMIT 1
-                FOR UPDATE OF ai_import.ai_import_job SKIP LOCKED
+                -- Postgres accepts only UNQUALIFIED relation names here, so this is
+                -- `ai_import_job`, not `ai_import.ai_import_job` (the qualified form
+                -- is a runtime error the SQL cannot report at compile time).
+                FOR UPDATE OF ai_import_job SKIP LOCKED
             ),
             stamped AS (
                 UPDATE ai_import.provider_health
@@ -525,6 +543,7 @@ impl ProviderHealth for PgProviderHealth {
                 WHERE provider = $1 AND model = $2
                   AND state = 'half_open'
                   AND trial_job_id IS NULL
+                  AND probe_lease_id IS NULL
                   AND EXISTS (SELECT 1 FROM candidate)
                 RETURNING trial_job_id
             ),
@@ -554,7 +573,7 @@ impl ProviderHealth for PgProviderHealth {
     async fn open_breakers(&self, limit: i64) -> Result<Vec<OpenBreaker>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT provider, model, state, retry_at, trial_job_id
+            SELECT provider, model, state, retry_at, trial_job_id, probe_started_at
             FROM ai_import.provider_health
             WHERE state <> 'closed'
             ORDER BY retry_at NULLS FIRST, provider, model
@@ -583,6 +602,7 @@ impl ProviderHealth for PgProviderHealth {
                 trial_job: row
                     .try_get::<Option<Uuid>, _>("trial_job_id")
                     .map_err(map_sqlx_error)?,
+                probe_started_at: row.get_ts_opt("probe_started_at").map_err(map_sqlx_error)?,
             });
         }
         Ok(breakers)
@@ -624,6 +644,35 @@ pub const TRIAL_WINDOW_SECS: i64 = 300;
 #[must_use]
 pub const fn probe_lease_window() -> Duration {
     Duration::from_secs(PROBE_LEASE_SECS.unsigned_abs())
+}
+
+/// Whether an outstanding probe lease is still **live** at `now` (issue #942 W1
+/// follow-up).
+///
+/// The sweeper needs this to tell the two meanings of "`half_open` with no trial
+/// holder" apart, and they demand opposite actions:
+///
+/// * a **live** lease means a probe is in flight. Granting a trial then is the
+///   double-trial bug: the in-flight probe's own fenced `finish_probe` clears
+///   `trial_job_id` on success and grants a *second* trial in the same window;
+/// * a **stale** lease means the prober hung. The recovery is the takeover
+///   branch of [`ProviderHealth::try_begin_probe`], which is fenced on exactly
+///   this timestamp, never a grant.
+///
+/// Only "no lease at all" is grantable, which is why the grant SQL additionally
+/// requires `probe_lease_id IS NULL`.
+#[must_use]
+pub fn probe_lease_is_live(started_at: Option<Timestamp>, now: Timestamp) -> bool {
+    let Some(started_at) = started_at else {
+        return false;
+    };
+    // The window is a small positive constant, so this conversion cannot fail;
+    // the `unwrap_or` keeps the "no panics" rule absolute. A degenerate window
+    // only widens the direction that is safe here (treat the lease as stale and
+    // recover it through the takeover instead of granting).
+    let window = SignedDuration::try_from(probe_lease_window())
+        .unwrap_or(SignedDuration::from_secs(PROBE_LEASE_SECS));
+    started_at > now - window
 }
 
 /// Parse the durable `state` column.

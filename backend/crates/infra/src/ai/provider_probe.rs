@@ -57,6 +57,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use super::CuratedProviderUrls;
+use super::provider_health::probe_lease_is_live;
 use super::provider_watch::PROVIDER_UNAVAILABLE_CODE;
 use super::queue::PgAiImportQueue as PgQueue;
 use crate::queries::ai_config::AiConfigRepositoryImpl;
@@ -439,28 +440,57 @@ pub async fn run_probes(
         // did NOT close the breaker (the paid call failed terminally, e.g. a
         // revoked key) has no holder. The elapsed window is the only gate left,
         // so the next single trial is granted directly — no metadata probe is
-        // repeated, because `try_begin_probe` CASes from `open` only and the
-        // trial call is the measurement that matters.
+        // repeated, because the trial call is the measurement that matters.
+        //
+        // Issue #942 W1 follow-up: "no holder" alone does not make the pair
+        // grantable. A `half_open` row enters that shape twice — before a probe
+        // (lease held) and after a passing preflight (lease released) — and only
+        // the second may be stamped here:
+        //
+        // * a **live** lease means a probe is in flight. Granting now would be
+        //   undone by the probe's own fenced result, which clears the holder and
+        //   grants a second trial in the same window;
+        // * a **stale** lease means the prober hung. The recovery is the
+        //   takeover branch of `try_begin_probe`, so this pair falls THROUGH to
+        //   the probe path below instead of being granted or skipped.
         if breaker.state == breakdown_core::ai::views::ProviderBreakerState::HalfOpen
             && breaker.trial_job.is_none()
         {
-            match health
-                .begin_provider_trial(breaker.provider, &breaker.model)
-                .await?
-            {
-                Some(job) => tracing::warn!(
+            if probe_lease_is_live(breaker.probe_started_at, Timestamp::now()) {
+                tracing::debug!(
                     provider = breaker.provider.as_str(),
                     model = breaker.model,
-                    trial_job = %job.as_uuid(),
-                    "#942 provider breaker: window elapsed — next single trial granted"
-                ),
-                None => tracing::debug!(
-                    provider = breaker.provider.as_str(),
-                    model = breaker.model,
-                    "#942 provider breaker: no holder and nobody waiting"
-                ),
+                    "#942 provider breaker: probe in flight — no trial granted"
+                );
+                continue;
             }
-            continue;
+            if breaker.probe_started_at.is_none() {
+                match health
+                    .begin_provider_trial(breaker.provider, &breaker.model)
+                    .await?
+                {
+                    Some(job) => tracing::warn!(
+                        provider = breaker.provider.as_str(),
+                        model = breaker.model,
+                        trial_job = %job.as_uuid(),
+                        "#942 provider breaker: window elapsed — next single trial granted"
+                    ),
+                    None => tracing::debug!(
+                        provider = breaker.provider.as_str(),
+                        model = breaker.model,
+                        "#942 provider breaker: no holder and nobody waiting"
+                    ),
+                }
+                continue;
+            }
+            // A STALE lease: fall through so `try_begin_probe` can take it over.
+            // Skipping here would leave that pair `half_open` forever — nothing
+            // else is admitted in that state.
+            tracing::warn!(
+                provider = breaker.provider.as_str(),
+                model = breaker.model,
+                "#942 provider breaker: stale probe lease — re-probing to recover"
+            );
         }
         let donors = donor_jobs(pool, breaker.provider, &breaker.model).await?;
         if donors.is_empty() {
