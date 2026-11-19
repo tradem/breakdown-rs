@@ -86,6 +86,29 @@ class AiConfigRepository extends BaseRepository {
         dtoInvalidCode: 'ai_config.dto_invalid',
       );
 
+  /// `GET /v1/ai-import/providers/{provider}/health` — the caller's **own**
+  /// account usability, remaining budget and the `(provider, model)` breaker
+  /// rows (issue #942 W4).
+  ///
+  /// Deliberately separate from the backend-reachability probe
+  /// (`aiConfigReachabilityProvider`, issue #809): that one answers "did the
+  /// API answer", this one answers "can my provider pay right now". Conflating
+  /// them is what made a stalled provider read as "Backend noch nicht
+  /// erreichbar".
+  ///
+  /// The response is account-scoped, so it is never cached client-side: the
+  /// screen re-reads it (and the server's own TTL is one minute).
+  Future<Result<AiProviderHealthView>> fetchProviderHealth({
+    required String providerKey,
+    String? model,
+  }) => run(
+    () => api.getHandlersApi().getAiProviderHealth(
+      provider: providerKey,
+      model: model,
+    ),
+    dtoInvalidCode: 'ai_config.dto_invalid',
+  );
+
   /// `GET /v1/ai-import/defaults` — the deployment's single-source prompt
   /// defaults (`{ script, schedule }`) read server-side from
   /// `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback (issue #471).

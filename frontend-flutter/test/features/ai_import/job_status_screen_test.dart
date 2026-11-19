@@ -1978,13 +1978,22 @@ void main() {
 
     expect(find.byKey(const Key('ai-job-provider-hold')), findsOneWidget);
     // The dependency is NAMED, with the wire spelling the AI-config screen uses.
-    expect(find.text('opencode-go is unreachable'), findsOneWidget);
+    // Issue #942 F3/F5: the copy says what was OBSERVED (no timely answer) and
+    // not a cause nobody measured — the live failure was a client-side request
+    // timeout, while "unreachable" was the old, wrong assertion.
+    expect(find.text('opencode-go did not answer in time'), findsOneWidget);
+    expect(find.text('opencode-go is unreachable'), findsNothing);
     // The two clock boundaries are rendered, and the wait is stated as free.
     final body = tester
         .widget<Text>(find.byKey(const Key('ai-job-provider-hold-body')))
         .data!;
     expect(RegExp(r'\d{1,2}:\d{2}').allMatches(body).length, 2);
-    expect(find.textContaining('No attempt is being spent'), findsOneWidget);
+    // Issue #942 W5: "no retry consumed" is stated, and the unknowable half —
+    // whether the abandoned call was still billed — is stated as unknowable
+    // instead of being silently equated with "free".
+    expect(body, contains('No retry is consumed'));
+    expect(body, contains('cannot be told from here'));
+    expect(body, contains('not observable from here'));
     // A hold is NOT a degradation: the count-of-failures banner must not appear,
     // because no attempt was charged.
     expect(find.byKey(const Key('ai-job-provider-degraded')), findsNothing);
@@ -2019,7 +2028,7 @@ void main() {
     await pumpScreen(tester);
 
     expect(find.byKey(const Key('ai-job-provider-hold')), findsOneWidget);
-    expect(find.textContaining('did not come back by'), findsOneWidget);
+    expect(find.textContaining('did not answer until'), findsOneWidget);
     // The spent-budget narrative belongs to a genuine exhaustion — the expiry
     // never spent the budget, so this copy must not appear.
     expect(find.textContaining('retry budget is used up'), findsNothing);

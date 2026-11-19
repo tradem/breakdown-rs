@@ -6939,25 +6939,25 @@ abstract class AppLocalizations {
   /// No description provided for @aiJobProviderHoldTitle.
   ///
   /// In de, this message translates to:
-  /// **'{provider} ist nicht erreichbar'**
+  /// **'{provider} hat nicht rechtzeitig geantwortet'**
   String aiJobProviderHoldTitle(String provider);
 
   /// No description provided for @aiJobProviderHoldBody.
   ///
   /// In de, this message translates to:
-  /// **'Der Auftrag wartet bis {until}; spätestens bis {deadline}. Kein Versuch wird verbraucht – der Import läuft nach der Pause weiter, sobald der Anbieter zurück ist.'**
+  /// **'Der Auftrag wartet bis {until}; spätestens bis {deadline}. Ob der Anbieter unerreichbar war oder das Modell zu lange gebraucht hat, lässt sich von hier aus nicht unterscheiden – die Versuchshistorie nennt die genaue Ursache. Kein Wiederholungsversuch wird verbraucht; ob der Anbieter den abgebrochenen Aufruf dennoch berechnet, ist von hier aus nicht erkennbar. Der Import läuft nach der Pause weiter, sobald der Anbieter antwortet.'**
   String aiJobProviderHoldBody(String until, String deadline);
 
   /// No description provided for @aiJobProviderHoldExpiredBody.
   ///
   /// In de, this message translates to:
-  /// **'Der Anbieter ist bis {deadline} nicht zurückgekommen. Der Auftrag wurde deshalb beendet, ohne einen Versuch zu verbrauchen – laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.'**
+  /// **'Der Anbieter hat bis {deadline} nicht geantwortet. Der Auftrag wurde deshalb beendet, ohne einen Wiederholungsversuch zu verbrauchen – ob der Anbieter die abgebrochenen Aufrufe dennoch berechnet hat, ist von hier aus nicht erkennbar. Laden Sie das Dokument erneut hoch, sobald der Anbieter antwortet.'**
   String aiJobProviderHoldExpiredBody(String deadline);
 
   /// No description provided for @aiJobsRowProviderHold.
   ///
   /// In de, this message translates to:
-  /// **'{provider} nicht erreichbar · wartet bis {until}'**
+  /// **'{provider} antwortet nicht · wartet bis {until}'**
   String aiJobsRowProviderHold(String provider, String until);
 
   /// No description provided for @aiJobProviderHoldExpiredTitle.
@@ -6977,6 +6977,108 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Fortsetzung ab Abschnitt {n}'**
   String aiJobStageResumedUnknown(String n);
+
+  /// No description provided for @aiConfigProviderHealthTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Anbieter-Status · {role} ({provider})'**
+  String aiConfigProviderHealthTitle(String role, String provider);
+
+  /// No description provided for @aiConfigProviderHealthRoleExtraction.
+  ///
+  /// In de, this message translates to:
+  /// **'Extraktion'**
+  String get aiConfigProviderHealthRoleExtraction;
+
+  /// No description provided for @aiConfigProviderHealthRoleDecision.
+  ///
+  /// In de, this message translates to:
+  /// **'Entscheidung'**
+  String get aiConfigProviderHealthRoleDecision;
+
+  /// No description provided for @aiConfigProviderHealthChecking.
+  ///
+  /// In de, this message translates to:
+  /// **'Anbieter wird geprüft …'**
+  String get aiConfigProviderHealthChecking;
+
+  /// No description provided for @aiConfigProviderHealthUsable.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anbieter nimmt Aufträge an.'**
+  String get aiConfigProviderHealthUsable;
+
+  /// No description provided for @aiConfigProviderHealthNotUsable.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anbieter lehnt den Schlüssel ab oder das Guthaben ist erschöpft – bitte Schlüssel bzw. Guthaben prüfen.'**
+  String get aiConfigProviderHealthNotUsable;
+
+  /// No description provided for @aiConfigProviderHealthUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Status unbekannt – für diesen Anbieter gibt es keine Prüfung ohne Bezahlaufruf, oder die Prüfung ist nicht durchgekommen.'**
+  String get aiConfigProviderHealthUnknown;
+
+  /// No description provided for @aiConfigProviderHealthUnconfigured.
+  ///
+  /// In de, this message translates to:
+  /// **'Für diesen Anbieter ist noch kein Schlüssel hinterlegt.'**
+  String get aiConfigProviderHealthUnconfigured;
+
+  /// No description provided for @aiConfigProviderHealthForbidden.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine Berechtigung für die Anbieter-Prüfung.'**
+  String get aiConfigProviderHealthForbidden;
+
+  /// No description provided for @aiConfigProviderHealthFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Anbieter-Status konnte nicht gelesen werden.'**
+  String get aiConfigProviderHealthFailed;
+
+  /// No description provided for @aiConfigProviderHealthBudgetUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Verbleibendes Budget: unbekannt'**
+  String get aiConfigProviderHealthBudgetUnknown;
+
+  /// No description provided for @aiConfigProviderHealthBudgetUnlimited.
+  ///
+  /// In de, this message translates to:
+  /// **'Verbleibendes Budget: kein Limit hinterlegt'**
+  String get aiConfigProviderHealthBudgetUnlimited;
+
+  /// No description provided for @aiConfigProviderHealthBudgetRemaining.
+  ///
+  /// In de, this message translates to:
+  /// **'Verbleibendes Budget: {amount}'**
+  String aiConfigProviderHealthBudgetRemaining(String amount);
+
+  /// No description provided for @aiConfigProviderHealthHeldTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Pausierte Modelle'**
+  String get aiConfigProviderHealthHeldTitle;
+
+  /// No description provided for @aiConfigProviderHealthHeldPair.
+  ///
+  /// In de, this message translates to:
+  /// **'{model}: pausiert bis {until}'**
+  String aiConfigProviderHealthHeldPair(String model, String until);
+
+  /// No description provided for @aiConfigProviderHealthTrial.
+  ///
+  /// In de, this message translates to:
+  /// **'{model}: Testversuch läuft'**
+  String aiConfigProviderHealthTrial(Object model);
+
+  /// No description provided for @aiConfigProviderHealthHeldPairNoEta.
+  ///
+  /// In de, this message translates to:
+  /// **'{model}: pausiert'**
+  String aiConfigProviderHealthHeldPairNoEta(String model);
 }
 
 class _AppLocalizationsDelegate

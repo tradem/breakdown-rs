@@ -18,6 +18,7 @@ import '../../../design/components/xml_prompt_editor.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
+import '../../../l10n/locale_formatters.dart';
 import '../clippy/clippy_trigger.dart';
 import '../cost_format.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
@@ -392,7 +393,22 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                   )
               else if (state.isFirstRun)
                 _FirstRunForm(state: state)
-              else
+              else ...[
+                // Provider health + budget (issue #942 W5). Rendered ABOVE the
+                // form and only when a config exists: "is my account usable right
+                // now" is the question a user has before editing anything, and
+                // the first-run state has nothing configured to measure.
+                _ProviderHealthCard(
+                  providerKey: _providerWireKey(state, state.config!.provider),
+                  role: _ProviderHealthRole.extraction,
+                ),
+                if (state.selectedDecisionProviderKey != null &&
+                    state.selectedDecisionProviderKey !=
+                        _providerWireKey(state, state.config!.provider))
+                  _ProviderHealthCard(
+                    providerKey: state.selectedDecisionProviderKey,
+                    role: _ProviderHealthRole.decision,
+                  ),
                 _ConfiguredForm(
                   state: state,
                   replacementKeyController: _replacementKeyController,
@@ -402,6 +418,7 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                   busy: _busy,
                   onRevoke: _revoke,
                 ),
+              ],
             ],
           ),
         ),
@@ -1568,6 +1585,212 @@ class _Banner extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// --- Provider health + budget (issue #942 W5) -------------------------------
+
+/// Which configured provider a [_ProviderHealthCard] describes.
+enum _ProviderHealthRole { extraction, decision }
+
+/// The canonical wire key of [provider] (`/ai-import/providers` `key` field).
+///
+/// `LlmProvider.name` is the DART constant name, which differs from the wire key
+/// for the hyphenated providers (`opencodeGo` vs `opencode-go`), so the resolved
+/// catalog is the authority and the enum name is only the pre-catalog fallback —
+/// the health route takes the key, not the enum.
+String? _providerWireKey(AiConfigScreenState state, LlmProvider provider) {
+  final rows = state.providers.value;
+  if (rows != null) {
+    for (final row in rows) {
+      if (row.provider == provider) return row.key;
+    }
+  }
+  return state.selectedProviderKey ?? provider.name;
+}
+
+/// Provider health + remaining budget (issue #942 W5).
+///
+/// Deliberately NOT a variant of the backend-reachability card: an unreachable or
+/// unpaid **provider** must never render as "Backend noch nicht erreichbar"
+/// (issue #809/#942 F5). The two facts live on two providers and two cards.
+///
+/// The rendered states are kept distinct on purpose (spec
+/// `flutter-ai-import-provider-health`): checking / usable (+ budget, budget
+/// unknown, no limit) / not usable (rejected key or exhausted quota) / unknown
+/// (no probe available or a failed read) / unconfigured / forbidden. `unknown`
+/// is never rendered as a denial (#816): it states what the client knows and
+/// offers a retry.
+class _ProviderHealthCard extends ConsumerWidget {
+  const _ProviderHealthCard({required this.providerKey, required this.role});
+
+  /// The provider's wire key, or `null` before the catalog resolved.
+  final String? providerKey;
+  final _ProviderHealthRole role;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key = providerKey;
+    if (key == null) return const SizedBox.shrink();
+    final l10n = l10nOf(context);
+    final health = ref.watch(aiProviderHealthProvider(key));
+    final roleLabel = switch (role) {
+      _ProviderHealthRole.extraction =>
+        l10n.aiConfigProviderHealthRoleExtraction,
+      _ProviderHealthRole.decision => l10n.aiConfigProviderHealthRoleDecision,
+    };
+
+    var showRetry = false;
+    var denied = false;
+    final Widget body;
+    switch (health) {
+      case AsyncData(:final value):
+        body = value.match((error) {
+          if (error.code == kAiConfigCapabilityDeniedCode) {
+            denied = true;
+            return Text(
+              l10n.aiConfigProviderHealthForbidden,
+              key: const Key('ai-config-provider-health-forbidden'),
+            );
+          }
+          showRetry = true;
+          return Text(
+            l10n.aiConfigProviderHealthFailed,
+            key: const Key('ai-config-provider-health-failed'),
+          );
+        }, (view) => _ProviderHealthDetail(view: view));
+      case AsyncError():
+        showRetry = true;
+        body = Text(
+          l10n.aiConfigProviderHealthFailed,
+          key: const Key('ai-config-provider-health-failed'),
+        );
+      default:
+        body = Text(
+          l10n.aiConfigProviderHealthChecking,
+          key: const Key('ai-config-provider-health-checking'),
+        );
+    }
+
+    return Card(
+      key: const Key('ai-config-provider-health'),
+      color: denied ? Theme.of(context).colorScheme.errorContainer : null,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.space12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.monitor_heart_outlined, size: 18),
+                const SizedBox(width: AppSpacing.space4),
+                Expanded(
+                  child: Text(
+                    l10n.aiConfigProviderHealthTitle(roleLabel, key),
+                    key: const Key('ai-config-provider-health-title'),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.space8),
+            body,
+            if (showRetry) ...[
+              const SizedBox(height: AppSpacing.space8),
+              OutlinedButton(
+                key: const Key('ai-config-provider-health-retry'),
+                onPressed: () => ref.invalidate(aiProviderHealthProvider(key)),
+                child: Text(l10n.commonRetry),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The resolved provider-health answer, rendered as three separate facts:
+/// account usability, remaining budget and the paused `(provider, model)` pairs.
+class _ProviderHealthDetail extends StatelessWidget {
+  const _ProviderHealthDetail({required this.view});
+
+  final AiProviderHealthView view;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final status = !view.credentialConfigured
+        // An unconfigured provider is not an error: the user simply never saved
+        // a key for it. Saying "unknown" here would blame the provider for the
+        // client's own missing binding.
+        ? l10n.aiConfigProviderHealthUnconfigured
+        : switch (view.probeStatus) {
+            AccountProbeStatus.usable => l10n.aiConfigProviderHealthUsable,
+            AccountProbeStatus.notUsable =>
+              l10n.aiConfigProviderHealthNotUsable,
+            _ => l10n.aiConfigProviderHealthUnknown,
+          };
+
+    // Three-valued on purpose: absent `budget` = the provider reports none,
+    // `remaining: null` = no limit configured, a number = a real figure. Never a
+    // fabricated 0 (issue #942 W4/D6).
+    final budget = view.budget;
+    final budgetText = budget == null
+        ? l10n.aiConfigProviderHealthBudgetUnknown
+        : switch (budget.remaining) {
+            final double remaining =>
+              l10n.aiConfigProviderHealthBudgetRemaining(
+                formatDecimal(context, remaining),
+              ),
+            _ => l10n.aiConfigProviderHealthBudgetUnlimited,
+          };
+
+    final held = view.breakers
+        .where((breaker) => breaker.state != ProviderBreakerState.closed)
+        .toList(growable: false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(status, key: const Key('ai-config-provider-health-status')),
+        const SizedBox(height: AppSpacing.space4),
+        Text(budgetText, key: const Key('ai-config-provider-health-budget')),
+        if (held.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.space8),
+          Text(
+            l10n.aiConfigProviderHealthHeldTitle,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          for (final breaker in held)
+            Text(
+              _heldPairLabel(context, l10n, breaker),
+              key: Key('ai-config-provider-health-held-${breaker.model}'),
+            ),
+        ],
+      ],
+    );
+  }
+
+  /// One paused pair: a granted trial reads differently from a scheduled probe,
+  /// and an open pair without a probe time says so instead of inventing one.
+  String _heldPairLabel(
+    BuildContext context,
+    AppLocalizations l10n,
+    AiProviderBreakerView breaker,
+  ) {
+    if (breaker.state == ProviderBreakerState.halfOpen &&
+        breaker.trialGranted) {
+      return l10n.aiConfigProviderHealthTrial(breaker.model);
+    }
+    final until = breaker.retryAt;
+    if (until == null) {
+      return l10n.aiConfigProviderHealthHeldPairNoEta(breaker.model);
+    }
+    return l10n.aiConfigProviderHealthHeldPair(
+      breaker.model,
+      formatClock(context, until),
     );
   }
 }

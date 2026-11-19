@@ -96,6 +96,186 @@ final class AiConfigDiscoveryProvider
 
 String _$aiConfigDiscoveryHash() => r'6ed45a4b0b5e702e02b194d33998cbcb9c545854';
 
+/// The caller's provider health + budget (issue #942 W4):
+/// `GET /v1/ai-import/providers/{provider}/health`.
+///
+/// **Deliberately a second provider, not an extension of
+/// [aiConfigReachabilityProvider].** That one answers "did the BACKEND answer"
+/// (`GET /v1/health`) and drives the Settings entry; this one answers "is MY
+/// provider account usable right now" and never influences the backend claim.
+/// Merging them would resurrect the exact defect #942 F5 recorded: a stalled or
+/// unpaid provider rendered as "Backend noch nicht erreichbar".
+///
+/// AUTHZ-GATE (issue #816, mirror of [aiConfigDiscovery]): a RESOLVED denial of
+/// the global credential predicate short-circuits here — the single place this
+/// read is dispatched — so no request leaves the device for a caller the server
+/// would refuse. Only a resolved `false` denies; a pending or failed capability
+/// read is UNKNOWN and the request proceeds (an unknown answer is never a
+/// denial).
+///
+/// `family` so the screen can read the extraction provider and a distinct
+/// decision provider independently; each entry is auto-disposed with its card.
+
+@ProviderFor(aiProviderHealth)
+final aiProviderHealthProvider = AiProviderHealthFamily._();
+
+/// The caller's provider health + budget (issue #942 W4):
+/// `GET /v1/ai-import/providers/{provider}/health`.
+///
+/// **Deliberately a second provider, not an extension of
+/// [aiConfigReachabilityProvider].** That one answers "did the BACKEND answer"
+/// (`GET /v1/health`) and drives the Settings entry; this one answers "is MY
+/// provider account usable right now" and never influences the backend claim.
+/// Merging them would resurrect the exact defect #942 F5 recorded: a stalled or
+/// unpaid provider rendered as "Backend noch nicht erreichbar".
+///
+/// AUTHZ-GATE (issue #816, mirror of [aiConfigDiscovery]): a RESOLVED denial of
+/// the global credential predicate short-circuits here — the single place this
+/// read is dispatched — so no request leaves the device for a caller the server
+/// would refuse. Only a resolved `false` denies; a pending or failed capability
+/// read is UNKNOWN and the request proceeds (an unknown answer is never a
+/// denial).
+///
+/// `family` so the screen can read the extraction provider and a distinct
+/// decision provider independently; each entry is auto-disposed with its card.
+
+final class AiProviderHealthProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<Result<AiProviderHealthView>>,
+          Result<AiProviderHealthView>,
+          FutureOr<Result<AiProviderHealthView>>
+        >
+    with
+        $FutureModifier<Result<AiProviderHealthView>>,
+        $FutureProvider<Result<AiProviderHealthView>> {
+  /// The caller's provider health + budget (issue #942 W4):
+  /// `GET /v1/ai-import/providers/{provider}/health`.
+  ///
+  /// **Deliberately a second provider, not an extension of
+  /// [aiConfigReachabilityProvider].** That one answers "did the BACKEND answer"
+  /// (`GET /v1/health`) and drives the Settings entry; this one answers "is MY
+  /// provider account usable right now" and never influences the backend claim.
+  /// Merging them would resurrect the exact defect #942 F5 recorded: a stalled or
+  /// unpaid provider rendered as "Backend noch nicht erreichbar".
+  ///
+  /// AUTHZ-GATE (issue #816, mirror of [aiConfigDiscovery]): a RESOLVED denial of
+  /// the global credential predicate short-circuits here — the single place this
+  /// read is dispatched — so no request leaves the device for a caller the server
+  /// would refuse. Only a resolved `false` denies; a pending or failed capability
+  /// read is UNKNOWN and the request proceeds (an unknown answer is never a
+  /// denial).
+  ///
+  /// `family` so the screen can read the extraction provider and a distinct
+  /// decision provider independently; each entry is auto-disposed with its card.
+  AiProviderHealthProvider._({
+    required AiProviderHealthFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'aiProviderHealthProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$aiProviderHealthHash();
+
+  @override
+  String toString() {
+    return r'aiProviderHealthProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<Result<AiProviderHealthView>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<Result<AiProviderHealthView>> create(Ref ref) {
+    final argument = this.argument as String;
+    return aiProviderHealth(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AiProviderHealthProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$aiProviderHealthHash() => r'6c6bd3c917af3c510b50953a5353ffb18c247027';
+
+/// The caller's provider health + budget (issue #942 W4):
+/// `GET /v1/ai-import/providers/{provider}/health`.
+///
+/// **Deliberately a second provider, not an extension of
+/// [aiConfigReachabilityProvider].** That one answers "did the BACKEND answer"
+/// (`GET /v1/health`) and drives the Settings entry; this one answers "is MY
+/// provider account usable right now" and never influences the backend claim.
+/// Merging them would resurrect the exact defect #942 F5 recorded: a stalled or
+/// unpaid provider rendered as "Backend noch nicht erreichbar".
+///
+/// AUTHZ-GATE (issue #816, mirror of [aiConfigDiscovery]): a RESOLVED denial of
+/// the global credential predicate short-circuits here — the single place this
+/// read is dispatched — so no request leaves the device for a caller the server
+/// would refuse. Only a resolved `false` denies; a pending or failed capability
+/// read is UNKNOWN and the request proceeds (an unknown answer is never a
+/// denial).
+///
+/// `family` so the screen can read the extraction provider and a distinct
+/// decision provider independently; each entry is auto-disposed with its card.
+
+final class AiProviderHealthFamily extends $Family
+    with
+        $FunctionalFamilyOverride<
+          FutureOr<Result<AiProviderHealthView>>,
+          String
+        > {
+  AiProviderHealthFamily._()
+    : super(
+        retry: null,
+        name: r'aiProviderHealthProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The caller's provider health + budget (issue #942 W4):
+  /// `GET /v1/ai-import/providers/{provider}/health`.
+  ///
+  /// **Deliberately a second provider, not an extension of
+  /// [aiConfigReachabilityProvider].** That one answers "did the BACKEND answer"
+  /// (`GET /v1/health`) and drives the Settings entry; this one answers "is MY
+  /// provider account usable right now" and never influences the backend claim.
+  /// Merging them would resurrect the exact defect #942 F5 recorded: a stalled or
+  /// unpaid provider rendered as "Backend noch nicht erreichbar".
+  ///
+  /// AUTHZ-GATE (issue #816, mirror of [aiConfigDiscovery]): a RESOLVED denial of
+  /// the global credential predicate short-circuits here — the single place this
+  /// read is dispatched — so no request leaves the device for a caller the server
+  /// would refuse. Only a resolved `false` denies; a pending or failed capability
+  /// read is UNKNOWN and the request proceeds (an unknown answer is never a
+  /// denial).
+  ///
+  /// `family` so the screen can read the extraction provider and a distinct
+  /// decision provider independently; each entry is auto-disposed with its card.
+
+  AiProviderHealthProvider call(String providerKey) =>
+      AiProviderHealthProvider._(argument: providerKey, from: this);
+
+  @override
+  String toString() => r'aiProviderHealthProvider';
+}
+
 /// The remembered hand-off state for the authenticated subject (task 1.3).
 
 @ProviderFor(aiImportHandoff)
