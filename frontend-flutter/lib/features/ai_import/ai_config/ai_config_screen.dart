@@ -237,6 +237,19 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
         ? ClippyFlowState.noConfig
         : ClippyFlowState.idle;
 
+    // The health cards take CANONICAL wire keys only (the route answers a
+    // non-canonical key with `422`). Both selections need normalizing for the
+    // same reason and are derived once, so the "same provider" comparison below
+    // compares like with like: a stored config seeds the DRAFT with the Dart
+    // enum name (`opencodeGo`), the dropdown and the catalog use the wire
+    // spelling (`opencode-go`).
+    final extractionWireKey = state.config == null
+        ? null
+        : _providerWireKey(state, state.config!.provider);
+    final decisionWireKey = state.selectedDecisionProviderKey == null
+        ? null
+        : _selectionWireKey(state, state.selectedDecisionProviderKey!);
+
     return PopScope(
       // Leaving with unsaved drafts is the failure mode this screen must not
       // hide: the form holds DRAFTS, so back-navigation without a save is a
@@ -400,14 +413,13 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                 // now" is the question a user has before editing anything, and
                 // the first-run state has nothing configured to measure.
                 _ProviderHealthCard(
-                  providerKey: _providerWireKey(state, state.config!.provider),
+                  providerKey: extractionWireKey,
                   role: _ProviderHealthRole.extraction,
                 ),
-                if (state.selectedDecisionProviderKey != null &&
-                    state.selectedDecisionProviderKey !=
-                        _providerWireKey(state, state.config!.provider))
+                if (decisionWireKey != null &&
+                    decisionWireKey != extractionWireKey)
                   _ProviderHealthCard(
-                    providerKey: state.selectedDecisionProviderKey,
+                    providerKey: decisionWireKey,
                     role: _ProviderHealthRole.decision,
                   ),
                 _ConfiguredForm(
@@ -1616,6 +1628,30 @@ String _providerWireKey(AiConfigScreenState state, LlmProvider provider) {
   return aiProviderWireKey(provider);
 }
 
+/// The canonical wire key of a SELECTION value.
+///
+/// A selection is one of two vocabularies: a catalog key (a dropdown pick, and
+/// `AiProviderInfo.key` is already the wire spelling) or the stored config's Dart
+/// enum name, which is what the controller seeds the draft with
+/// (`config?.decisionProvider?.name`). `opencodeGo` is not a wire key, so a card
+/// fed the raw selection would ask the route about a provider that does not exist
+/// and render it as unreadable — even with the same provider's card right above
+/// it holding the correct key.
+///
+/// An unknown string is passed through unchanged: inventing a mapping for a
+/// provider the client does not know would be worse than letting the server
+/// answer its own `422`.
+String _selectionWireKey(AiConfigScreenState state, String selection) {
+  final rows = state.providers.value;
+  if (rows != null && rows.any((row) => row.key == selection)) {
+    return selection;
+  }
+  for (final provider in LlmProvider.values) {
+    if (provider.name == selection) return aiProviderWireKey(provider);
+  }
+  return selection;
+}
+
 /// Provider health + remaining budget (issue #942 W5).
 ///
 /// Deliberately NOT a variant of the backend-reachability card: an unreachable or
@@ -1625,9 +1661,13 @@ String _providerWireKey(AiConfigScreenState state, LlmProvider provider) {
 /// The rendered states are kept distinct on purpose (spec
 /// `flutter-ai-import-provider-health`): checking / usable (+ budget, budget
 /// unknown, no limit) / not usable (rejected key or exhausted quota) / unknown
-/// (no probe available or a failed read) / unconfigured / forbidden. `unknown`
-/// is never rendered as a denial (#816): it states what the client knows and
-/// offers a retry.
+/// (no probe available) / unconfigured (no key held) / forbidden. `unknown` is
+/// never rendered as a denial (#816): it states what the client knows.
+///
+/// Retry is for a FAILED READ only (`docs/design/screens/ai-config.md`): a
+/// denial cannot be flipped by retrying, and a read that ANSWERED `unknown` has
+/// nothing new to fetch — the state is the server's answer, not a transport
+/// problem of this screen.
 class _ProviderHealthCard extends ConsumerWidget {
   const _ProviderHealthCard({required this.providerKey, required this.role});
 
@@ -1731,17 +1771,25 @@ class _ProviderHealthDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = l10nOf(context);
-    final status = !view.credentialConfigured
-        // An unconfigured provider is not an error: the user simply never saved
-        // a key for it. Saying "unknown" here would blame the provider for the
-        // client's own missing binding.
-        ? l10n.aiConfigProviderHealthUnconfigured
-        : switch (view.probeStatus) {
-            AccountProbeStatus.usable => l10n.aiConfigProviderHealthUsable,
-            AccountProbeStatus.notUsable =>
-              l10n.aiConfigProviderHealthNotUsable,
-            _ => l10n.aiConfigProviderHealthUnknown,
-          };
+    // A MEASURED verdict outranks the credential inference (review of #942 W5).
+    // A local provider (`ProbeCapability::LocalTags`, Ollama) is probed over its
+    // own endpoint and needs no Vault binding at all, so
+    // `credential_configured: false` there means "no key held", not "we could
+    // not tell" — letting the credential branch win would render "kein Schlüssel
+    // hinterlegt" over a successful probe and hide a healthy account. The
+    // server only reports `usable`/`not_usable` when it actually measured
+    // something, so those two states are always the better fact.
+    final status = switch (view.probeStatus) {
+      AccountProbeStatus.usable => l10n.aiConfigProviderHealthUsable,
+      AccountProbeStatus.notUsable => l10n.aiConfigProviderHealthNotUsable,
+      // Nothing was measured: distinguish "the answer did not arrive" from
+      // "there is no key to measure" — the second is actionable (store a key)
+      // and is not the provider's fault.
+      _ =>
+        view.credentialConfigured
+            ? l10n.aiConfigProviderHealthUnknown
+            : l10n.aiConfigProviderHealthUnconfigured,
+    };
 
     // Three-valued on purpose: absent `budget` = the provider reports none,
     // `remaining: null` = no limit configured, a number = a real figure. Never a

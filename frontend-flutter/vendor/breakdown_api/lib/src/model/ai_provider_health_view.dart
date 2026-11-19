@@ -20,7 +20,7 @@ part 'ai_provider_health_view.g.dart';
 /// Properties:
 /// * [breakers] - The `(provider, model)` breaker rows, ordered by model for a stable rendering.
 /// * [budget] - The remaining budget, or `null` when the provider reports none / there is no credential to read it with.
-/// * [credentialConfigured] - Whether the caller has an active Vault binding for this provider.  `false` is a complete answer: `probe_status` is then `unknown` and `budget` is `null` — the route never fabricates a verdict it did not measure, and never answers `404` for a user who simply has not saved a key yet.
+/// * [credentialConfigured] - Whether the caller has an active Vault binding for this provider.  `false` is a complete answer: the route never fabricates a verdict it did not measure, and never answers `404` for a user who simply has not saved a key yet.  It is **not** a promise that `probe_status` is `unknown`. A provider whose probe needs no credential (`ProbeCapability::LocalTags` — Ollama reads its own endpoint) is measured anyway, so `credential_configured: false` can sit next to a real `usable`/`not_usable`. The two fields answer different questions — \"is a key stored\" vs \"is the account usable\" — and a client must never let the first hide a measured answer to the second.
 /// * [probeStatus] - The account-usability verdict of the zero-token read.
 /// * [provider] - The provider this answer is about, echoed as the canonical wire key.
 @BuiltValue()
@@ -34,7 +34,7 @@ abstract class AiProviderHealthView
   @BuiltValueField(wireName: r'budget')
   AiProviderBudgetView? get budget;
 
-  /// Whether the caller has an active Vault binding for this provider.  `false` is a complete answer: `probe_status` is then `unknown` and `budget` is `null` — the route never fabricates a verdict it did not measure, and never answers `404` for a user who simply has not saved a key yet.
+  /// Whether the caller has an active Vault binding for this provider.  `false` is a complete answer: the route never fabricates a verdict it did not measure, and never answers `404` for a user who simply has not saved a key yet.  It is **not** a promise that `probe_status` is `unknown`. A provider whose probe needs no credential (`ProbeCapability::LocalTags` — Ollama reads its own endpoint) is measured anyway, so `credential_configured: false` can sit next to a real `usable`/`not_usable`. The two fields answer different questions — \"is a key stored\" vs \"is the account usable\" — and a client must never let the first hide a measured answer to the second.
   @BuiltValueField(wireName: r'credential_configured')
   bool get credentialConfigured;
 

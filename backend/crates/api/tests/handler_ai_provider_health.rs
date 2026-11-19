@@ -12,9 +12,11 @@
 //!    from another user's binding (which would leak that account's verdict and
 //!    balance).
 //! 2. **"Not configured" is an answer, not an error.** A caller without a
-//!    binding gets `200` with `credential_configured: false`, `probe_status:
-//!    unknown` and `budget: null` — never a `404`/`500` (and never a fabricated
-//!    `0`).
+//!    readable binding gets `200` — never a `404`/`500` (and never a fabricated
+//!    `0`). For a provider whose probe needs a key (`KeyEndpoint`) that means
+//!    `credential_configured: false`, `probe_status: unknown`, `budget: null`; a
+//!    `LocalTags` provider (Ollama) is probed without any binding, so the same
+//!    `false` can sit next to a measured `usable`.
 //! 3. **The wire carries no tenant material.** `trial_job` (a job id that may
 //!    belong to somebody else) is a boolean, and no `vault_key_id`, bearer token
 //!    or upstream body appears in the document.
@@ -639,4 +641,41 @@ async fn an_unfinished_config_scan_is_a_503_not_a_partial_credential_state() {
         .expect_err("an unfinished scan must not answer a credential state");
     assert_eq!(error.into_problem().status, 503);
     assert!(ports.ai_provider_account_probe.recorded().await.is_empty());
+}
+
+#[tokio::test]
+async fn a_local_provider_is_measured_without_any_stored_key() {
+    // A `LocalTags` provider (Ollama) reads its own endpoint and needs no Vault
+    // binding, so a caller with no config at all still gets a MEASURED verdict
+    // next to `credential_configured: false`. The two fields answer different
+    // questions; the contract must not claim that the first forces `unknown`.
+    let ports = FakePorts::default();
+    seed_credential_member(&ports, USER_A).await;
+    *ports.ai_provider_account_probe.snapshot.lock().await = AccountProbeSnapshot {
+        status: AccountProbeStatus::Usable,
+        budget: None,
+    };
+    let state = state(ports.clone()).await;
+
+    let (status, body) = body_json(
+        call(&state, USER_A, "ollama", None)
+            .await
+            .expect("a local provider needs no stored credential"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["credential_configured"], false,
+        "no key is stored — and none is required"
+    );
+    assert_eq!(
+        body["probe_status"], "usable",
+        "the local probe measured the endpoint, so its verdict is the answer"
+    );
+    assert_eq!(body["budget"], serde_json::Value::Null);
+    let recorded = ports.ai_provider_account_probe.recorded().await;
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].provider, LlmProvider::Ollama);
+    assert_eq!(recorded[0].key, None);
 }

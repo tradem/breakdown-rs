@@ -87,11 +87,20 @@ N/A — the screen is not part of the planning hierarchy and is pushed without a
 | Usable + no limit | … + "kein Limit hinterlegt" | `budget.remaining: null` |
 | Usable + budget unknown | … + "unbekannt" | `budget: null` (the provider reports no budget read) |
 | Quota exhausted / key rejected | "Der Anbieter lehnt den Schlüssel ab oder das Guthaben ist erschöpft …" + a measured `0` if the provider reported one | `probe_status: not_usable` |
-| Unknown | "Status unbekannt – …" (no probe available, timeout, transport failure) | `probe_status: unknown` |
-| Unconfigured | "Für diesen Anbieter ist noch kein Schlüssel hinterlegt." | `credential_configured: false` |
+| Unknown | "Status unbekannt – …" (no probe available, timeout, transport failure) with a stored key | `probe_status: unknown` **and** `credential_configured: true` |
+| Unconfigured | "Für diesen Anbieter ist noch kein Schlüssel hinterlegt." | `credential_configured: false` **and** no measured verdict |
 | Forbidden | "Keine Berechtigung für die Anbieter-Prüfung." on the error container, no retry | a resolved capability denial (#816) |
 | Read failed | "Der Anbieter-Status konnte nicht gelesen werden." + Retry | transport failure / 5xx of the health route |
 | Paused pair | "mistral-large-3: pausiert bis 10:30" | a non-`closed` row in `breakers` |
+
+**A measured verdict outranks the credential state.** A local provider
+(`ProbeCapability::LocalTags`, Ollama) is probed over its own endpoint and needs
+no Vault binding, so the server answers a real `usable` together with
+`credential_configured: false`. The card must then render the measurement
+("Der Anbieter nimmt Aufträge an.") and never "kein Schlüssel hinterlegt", which
+would hide a healthy account behind a credential fact that does not answer "can
+my import run". The credential branch therefore only decides the two states that
+have NO measurement (`unknown` vs `unconfigured`).
 
 **A provider problem is never a backend problem.** An unreachable, unpaid or
 paused provider must never render as "Backend noch nicht erreichbar": that claim

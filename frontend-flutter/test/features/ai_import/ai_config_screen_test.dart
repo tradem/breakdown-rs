@@ -2978,6 +2978,87 @@ void main() {
       );
     });
 
+    testWidgets('a local provider stays usable without a stored key', (
+      tester,
+    ) async {
+      // `ProbeCapability::LocalTags` (Ollama) needs no Vault binding at all, so
+      // the server answers a MEASURED `usable` with `credential_configured:
+      // false`. Letting the credential branch win would render "kein Schlüssel
+      // hinterlegt" over a healthy account (review of #942 W5).
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(
+          credentialConfigured: false,
+          status: AccountProbeStatus.usable,
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-status')),
+            )
+            .data,
+        l10nEn().aiConfigProviderHealthUsable,
+      );
+      expect(
+        find.text(l10nEn().aiConfigProviderHealthUnconfigured),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a measured unknown verdict offers no retry', (tester) async {
+      // Retry is for a FAILED READ (docs/design/screens/ai-config.md): a read
+      // that ANSWERED `unknown` is the server's verdict, not a transport problem
+      // of this screen, so there is nothing new to fetch.
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(status: AccountProbeStatus.unknown),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-status')),
+            )
+            .data,
+        l10nEn().aiConfigProviderHealthUnknown,
+      );
+      expect(
+        find.byKey(const Key('ai-config-provider-health-retry')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the decision card asks with the canonical wire key', (
+      tester,
+    ) async {
+      // The stored config seeds the draft with the DART enum name
+      // (`opencodeGo`); the health route takes the wire spelling
+      // (`opencode-go`) and answers anything else with a `422` — which would
+      // render a healthy provider as unreadable.
+      await setupContainer(
+        discoveryValue: Right([
+          _config(decisionProvider: LlmProvider.opencodeGo),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(repo.healthCalls, contains('opencode-go'));
+      expect(
+        repo.healthCalls,
+        isNot(contains('opencodeGo')),
+        reason: 'the Dart enum name is not a wire key: ${repo.healthCalls}',
+      );
+      // One card per provider, not two for the same one under two spellings.
+      expect(
+        find.byKey(const Key('ai-config-provider-health')),
+        findsNWidgets(2),
+      );
+    });
+
     testWidgets('a distinct decision provider gets its own card', (
       tester,
     ) async {

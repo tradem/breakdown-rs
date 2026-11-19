@@ -31,6 +31,20 @@ provider (extraction, plus the Decision provider when it differs).
   "Backend noch nicht erreichbar" — that claim belongs to
   `aiConfigReachabilityProvider` (`GET /v1/health`) alone (issue #809).
 
+#### Scenario: a local provider that needs no key
+- **GIVEN** `probe_status: usable` with `credential_configured: false` (a
+  `LocalTags` provider such as Ollama, which is probed without any Vault binding)
+- **THEN** the card states the provider is usable
+- **AND** it does NOT render "kein Schlüssel hinterlegt": a MEASURED verdict
+  outranks the credential state, which only distinguishes `unknown` from
+  `unconfigured`.
+
+#### Scenario: an unknown verdict is not a failed read
+- **GIVEN** a successful health read answering `probe_status: unknown`
+- **THEN** the card states the status is unknown and offers NO retry — the state
+  is the server's answer, not a transport problem of this screen (the design doc
+  limits Retry to a failed read).
+
 ### Requirement: A resolved capability denial suppresses the dispatch
 
 The provider-health read SHALL consult the global credential capability first.

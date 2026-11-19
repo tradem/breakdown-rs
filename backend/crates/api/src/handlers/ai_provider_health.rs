@@ -153,10 +153,16 @@ pub struct AiProviderHealthView {
     pub provider: LlmProvider,
     /// Whether the caller has an active Vault binding for this provider.
     ///
-    /// `false` is a complete answer: `probe_status` is then `unknown` and
-    /// `budget` is `null` — the route never fabricates a verdict it did not
-    /// measure, and never answers `404` for a user who simply has not saved a
-    /// key yet.
+    /// `false` is a complete answer: the route never fabricates a verdict it did
+    /// not measure, and never answers `404` for a user who simply has not saved
+    /// a key yet.
+    ///
+    /// It is **not** a promise that `probe_status` is `unknown`. A provider whose
+    /// probe needs no credential (`ProbeCapability::LocalTags` — Ollama reads its
+    /// own endpoint) is measured anyway, so `credential_configured: false` can sit
+    /// next to a real `usable`/`not_usable`. The two fields answer different
+    /// questions — "is a key stored" vs "is the account usable" — and a client
+    /// must never let the first hide a measured answer to the second.
     pub credential_configured: bool,
     /// The account-usability verdict of the zero-token read.
     pub probe_status: AccountProbeStatus,
