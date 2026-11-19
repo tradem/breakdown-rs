@@ -413,6 +413,89 @@ impl infra::ai::provider_probe::ProviderProbe for UsableProbe {
     }
 }
 
+/// A **delayed** sweep may not take a probe lease over a trial that is already
+/// running, and an expired trial window must stay recoverable.
+///
+/// The sequence (no sleeps, no scheduler dependence): a sweeper reads the pair
+/// while it is still due, another sweeper grants the single trial in between, and
+/// the delayed sweeper then calls `try_begin_probe` with that stale snapshot. Its
+/// probe would clear the live `trial_job_id` in `finish_probe(Usable)` and grant a
+/// second trial behind a paid call that is still running, so the acquisition — not
+/// the sweeper's caller — has to refuse it.
+#[tokio::test]
+async fn a_delayed_sweep_cannot_probe_over_a_live_trial() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let health = PgProviderHealth::new(pool.clone());
+    let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let second = seed_job(&queue, "u2", "d2", Some((PROVIDER, MODEL))).await;
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue.claim_next("w1").await?.expect("first claimable");
+    queue
+        .mark_held(
+            first,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    queue.claim_next("w2").await?.expect("second claimable");
+    queue
+        .mark_held(
+            second,
+            "w2",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    make_half_open_without_holder(&pool).await;
+
+    // The delayed sweeper's snapshot: the pair is due and has no holder.
+    let snapshot = health
+        .open_breakers(64)
+        .await?
+        .into_iter()
+        .find(|breaker| breaker.provider == PROVIDER && breaker.model == MODEL)
+        .expect("the degraded pair is listed for the sweep");
+    assert!(snapshot.trial_job.is_none());
+
+    // The other sweeper grants the trial while the delayed one is still deciding.
+    let trial = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("one waiting job earns the trial");
+
+    assert!(
+        health
+            .try_begin_probe(PROVIDER, MODEL, "delayed-sweeper")
+            .await?
+            .is_none(),
+        "a probe must not be acquired while a paid trial is inside its window"
+    );
+    assert_eq!(
+        health.state(PROVIDER, MODEL).await?.trial_job,
+        Some(trial.as_uuid()),
+        "the live token must survive the refused acquisition"
+    );
+
+    // Once the trial's window has elapsed the SAME acquisition is the recovery:
+    // the probe may run, and its passing result grants the next single trial.
+    make_probe_due(&pool).await;
+    let lease = health
+        .try_begin_probe(PROVIDER, MODEL, "delayed-sweeper")
+        .await?
+        .expect("an expired trial window must stay recoverable");
+    let decision = health.finish_probe(&lease, ProbeOutcome::Usable).await?;
+    assert!(decision.trial_due, "the recovered window grants a trial");
+    assert_eq!(
+        health.state(PROVIDER, MODEL).await?.state,
+        ProviderBreakerState::HalfOpen
+    );
+    Ok(())
+}
+
 /// The sweep must leave a pair alone while its probe lease is LIVE, and recover a
 /// STALE lease through the takeover instead of granting a trial.
 ///

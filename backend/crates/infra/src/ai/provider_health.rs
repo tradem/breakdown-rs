@@ -295,11 +295,20 @@ impl ProviderHealth for PgProviderHealth {
         //
         // * from `open`, the probe must be due and no live lease may hold the
         //   row — the ordinary window;
-        // * from `half_open`, the current lease must be **stale**. Without this
-        //   branch a probe that hangs after its CAS would leave the pair in
-        //   `half_open` for good: no claim is admitted in that state (D-A2) and
-        //   nothing else can leave it, so one dead HTTP request would stop every
-        //   job of that pair permanently.
+        // * from `half_open`, the current lease must be **stale** (or absent)
+        //   AND no trial may be **live**. Without the first test a probe that
+        //   hangs after its CAS would leave the pair in `half_open` for good: no
+        //   claim is admitted in that state (D-A2) and nothing else can leave it,
+        //   so one dead HTTP request would stop every job of that pair
+        //   permanently. Without the second, a **delayed sweeper** — one that read
+        //   the pair while it was still `open` and calls this after another
+        //   sweeper granted the trial — acquires a lease over a paid call that is
+        //   still running; `finish_probe(Usable)` then clears that live
+        //   `trial_job_id` and grants a second trial inside the same window.
+        //
+        // `retry_at` carries the trial deadline: a grant arms it to
+        // `now() + TRIAL_WINDOW_SECS`, so "no holder, or its window elapsed" is
+        // exactly the fence that still lets an EXPIRED trial be recovered here.
         let lease_id = Uuid::now_v7();
         let result = sqlx::query(
             r#"
@@ -326,6 +335,8 @@ impl ProviderHealth for PgProviderHealth {
                           probe_started_at IS NULL
                           OR probe_started_at <= now() - make_interval(secs => $5)
                       )
+                      -- Issue #942 W1 follow-up: never probe over a LIVE trial.
+                      AND (trial_job_id IS NULL OR retry_at IS NULL OR retry_at <= now())
                   )
               )
             "#,
