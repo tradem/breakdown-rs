@@ -227,14 +227,42 @@ A **durable** breaker per `(provider, model)` pair sits in front of both:
   `hold_runnable_jobs` path (a job enqueued while the breaker was already open)
   writes no row — it has no first-hand failure — so a held job may legitimately
   have none.
-- **Recovery is a probe, never elapsed time.** "Elapsed ⇒ closed" would resume
-  paying into a still-broken endpoint. The probe is the model-catalog read the
-  AI-config screen already uses (no tokens), authenticated with **one actively
-  held job's own vaulted key** — never a synthetic credential — and Ollama is
-  probed **unauthenticated** (`GET {base}/api/tags`), because the hosted catalog
-  client requires a non-empty key and always sends a bearer token, which would
-  leak one to a plain-HTTP curated origin (CWE-319). The probe judges
-  reachability only: it never retires or terminalizes a job.
+- **Recovery is a two-stage probe, never elapsed time, and a probe never closes
+  (issue #942 W1).** "Elapsed ⇒ closed" would resume paying into a still-broken
+  endpoint. The preflight is **capability-accurate** (`probe_capability`,
+  `core::ai::ports`), because the former `GET {base}/models` read was blindness
+  in two directions: EURouter serves it *publicly* (`200` in 0.2 s for a bogus
+  bearer token, so a dead key looked healthy), and a healthy account does not
+  prove a healthy `(provider, model)` chat path (`GET /key` `200` while
+  `POST /chat/completions` stalled at 120 s — `flap_count` reached 3 in 30 min).
+  - `KeyEndpoint` (`eurouter`, `openrouter`): authenticated `GET {base}/key`,
+    zero tokens. `200` with positive/absent `limit_remaining` ⇒ **usable**;
+    `200` with `limit_remaining <= 0`, `401`/`402`/`403`, any other status,
+    transport error or timeout ⇒ **not usable** (the breaker stays `open`).
+  - `LocalTags` (`ollama`): unauthenticated `GET {base}/api/tags`, unchanged —
+    the hosted deadline-bearing client would leak a token onto a plain-HTTP
+    curated origin (CWE-319).
+  - `NoPreflight` (the other five): **no** synthetic metadata probe. The elapsed
+    window itself grants the single trial; a `200` from any public endpoint must
+    never be treated as proof of usability.
+  - A usable preflight moves `open → half_open` and grants **one** trial token
+    (`provider_health.trial_job_id`), never `closed`. `closed` happens only when
+    a real **paid call** answers (`record_success`), which also releases the
+    pair's held jobs.
+  - While `half_open`, the claim predicate admits exactly the token holder
+    (`ph.trial_job_id = job.id`); every other job of the pair stays held. That
+    fence is SQL-only for a reason: the in-process gates never see a job id, so
+    they admit `half_open` and rely on the claim predicate to name the one job.
+  - A trial run uses **0** in-attempt retries (`ProviderGate::attempt_retries`),
+    so a broken model costs `1 × request_timeout` per window instead of
+    `(1 + AI_IMPORT_MAX_ATTEMPT_RETRIES) ×`. A retryable trial failure re-opens
+    the breaker **immediately with `flap_count + 1`** (a paid call failing right
+    after a passing preflight is a new incident, not the same outage), which is
+    what makes the window escalate instead of oscillating.
+  - A trial consumed by a **terminal** failure (revoked key, exhausted quota)
+    leaves `half_open` with no holder; the sweeper grants the next single trial
+    when the window elapses (`begin_provider_trial`). The probe never retires or
+    terminalizes a job.
 - **The probe is a task, not a claimed job.** Only `closed` admits a claim, so no
   worker runs for the pair when the probe is due. It runs as lease CAS → request
   **outside any transaction** → fenced result, so a hung probe cannot hold the

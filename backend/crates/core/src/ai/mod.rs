@@ -59,9 +59,9 @@ pub use ports::{
     AiImportEnqueueResult, AiImportMapping, AiImportMappingRepository, AiImportQueue,
     AiModelPricingRepository, CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider,
     ExtractionFingerprint, HoldEvidence, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
-    LlmModelCatalog, ModelInfo, ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeLease,
-    ProbeOutcome, ProviderBreakerSnapshot, ProviderHealth, StoredChunk, TargetAttachOutcome,
-    UsageAccumulator, mapping_kind, resume_cursor,
+    LlmModelCatalog, ModelInfo, ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeCapability,
+    ProbeLease, ProbeOutcome, ProviderBreakerSnapshot, ProviderHealth, StoredChunk,
+    TargetAttachOutcome, UsageAccumulator, mapping_kind, probe_capability, resume_cursor,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,

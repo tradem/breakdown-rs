@@ -7861,6 +7861,7 @@ async fn a_breaker_hold_keeps_the_stored_chunk_progress() {
             consecutive_failures: 3,
             flap_count: 0,
             retry_at: Some(Timestamp::now() + SignedDuration::from_mins(5)),
+            trial_job: None,
         });
     }
     let previews = Arc::new(MemoryAiPreviewStore::default());

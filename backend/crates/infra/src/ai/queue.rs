@@ -513,6 +513,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -594,6 +605,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -679,6 +701,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -758,6 +791,17 @@ impl AiImportQueue for PgAiImportQueue {
                       WHERE ph.provider = ai_import.ai_import_job.breaker_provider
                         AND ph.model    = ai_import.ai_import_job.breaker_model
                         AND ph.state <> 'closed'
+                        -- Issue #942 W1: a `half_open` pair admits exactly ONE
+                        -- job — the holder of the trial token. Every other job
+                        -- of the pair stays held, so a passing preflight costs
+                        -- one paid call instead of the whole fleet's.
+                        --
+                        -- The `IS NOT NULL` guard is load-bearing: with a NULL
+                        -- token `trial_job_id = id` yields NULL, `NOT NULL` is
+                        -- NULL, and the row would be admitted.
+                        AND NOT (ph.state = 'half_open'
+                                 AND ph.trial_job_id IS NOT NULL
+                                 AND ph.trial_job_id = ai_import.ai_import_job.id)
                   ))
                 ORDER BY created_at, id
                 FOR UPDATE SKIP LOCKED
@@ -1790,7 +1834,7 @@ impl AiImportQueue for PgAiImportQueue {
     ) -> Result<ProviderBreakerSnapshot, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT state, consecutive_failures, flap_count, retry_at
+            SELECT state, consecutive_failures, flap_count, retry_at, trial_job_id
             FROM ai_import.provider_health
             WHERE provider = $1 AND model = $2
             "#,
@@ -1822,6 +1866,9 @@ impl AiImportQueue for PgAiImportQueue {
             )
             .unwrap_or(0),
             retry_at: row.get_ts_opt("retry_at").map_err(map_sqlx_error)?,
+            trial_job: row
+                .try_get::<Option<Uuid>, _>("trial_job_id")
+                .map_err(map_sqlx_error)?,
         })
     }
 

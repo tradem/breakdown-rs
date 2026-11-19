@@ -32,6 +32,7 @@ use breakdown_core::ai::provider_health::{
     BreakerCounters, BreakerDecision, on_probe_failure, on_probe_success, on_retryable_failure,
     on_success,
 };
+use breakdown_core::ai::views::AiImportJobId;
 use breakdown_core::ai::views::ProviderBreakerState;
 use breakdown_core::error::DomainError;
 use jiff::Timestamp;
@@ -39,7 +40,7 @@ use sqlx::{PgPool, Row};
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::db_time::{PgRowTimeExt, sql_ts_opt};
+use crate::db_time::{PgRowTimeExt, sql_ts, sql_ts_opt};
 
 /// How long one probe lease is valid.
 ///
@@ -101,7 +102,7 @@ impl PgProviderHealth {
     ) -> Result<(ProviderBreakerSnapshot, Option<Timestamp>), DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT state, consecutive_failures, flap_count, retry_at, closed_at
+            SELECT state, consecutive_failures, flap_count, retry_at, closed_at, trial_job_id
             FROM ai_import.provider_health
             WHERE provider = $1 AND model = $2
             "#,
@@ -127,6 +128,9 @@ impl PgProviderHealth {
                         .map_err(map_sqlx_error)?,
                 ),
                 retry_at: row.get_ts_opt("retry_at").map_err(map_sqlx_error)?,
+                trial_job: row
+                    .try_get::<Option<Uuid>, _>("trial_job_id")
+                    .map_err(map_sqlx_error)?,
             },
             row.get_ts_opt("closed_at").map_err(map_sqlx_error)?,
         ))
@@ -154,6 +158,10 @@ impl PgProviderHealth {
                 opened_at = CASE WHEN $7 THEN now() ELSE opened_at END,
                 closed_at = CASE WHEN $8 THEN now() ELSE closed_at END,
                 last_failure_at = CASE WHEN $9 THEN now() ELSE last_failure_at END,
+                -- Issue #942 W1: the trial token lives only in `half_open`.
+                -- Opening or closing must clear it, or a later window would
+                -- silently inherit a stale holder and admit the wrong job.
+                trial_job_id = CASE WHEN $3 = 'half_open' THEN trial_job_id ELSE NULL END,
                 -- A close ends the probe: no owner, no lease, no started stamp.
                 probe_owner = CASE WHEN $8 THEN NULL ELSE probe_owner END,
                 probe_lease_id = CASE WHEN $8 THEN NULL ELSE probe_lease_id END,
@@ -355,17 +363,24 @@ impl ProviderHealth for PgProviderHealth {
         outcome: ProbeOutcome,
     ) -> Result<BreakerDecision, DomainError> {
         match outcome {
-            ProbeOutcome::Reachable => {
+            ProbeOutcome::Usable => {
+                // Issue #942 W1: a passing preflight releases the LEASE and
+                // leaves the breaker `half_open` with no trial holder — the
+                // caller then grants exactly one trial. It deliberately does not
+                // close: `GET /key` answers 200 in 0.2 s while the model's chat
+                // path stalls at 120 s, so closing here is the flap loop of
+                // issue #942 F2.
+                //
                 // Fenced on the LEASE, not on the owner: the same task can
                 // reacquire the lease, so an owner check would accept a stale
                 // result.
                 let result = sqlx::query(
                     r#"
                     UPDATE ai_import.provider_health
-                    SET state = 'closed',
+                    SET state = 'half_open',
                         consecutive_failures = 0,
-                        retry_at = NULL,
-                        closed_at = now(),
+                        retry_at = $4,
+                        trial_job_id = NULL,
                         probe_owner = NULL,
                         probe_lease_id = NULL,
                         probe_started_at = NULL,
@@ -378,6 +393,7 @@ impl ProviderHealth for PgProviderHealth {
                 .bind(lease.provider.as_str())
                 .bind(&lease.model)
                 .bind(lease.lease_id)
+                .bind(sql_ts(Timestamp::now()))
                 .execute(&self.pool)
                 .await
                 .map_err(map_sqlx_error)?;
@@ -394,17 +410,26 @@ impl ProviderHealth for PgProviderHealth {
                         "provider breaker write lost every compare-and-set attempt",
                     ));
                 }
-                let decision = on_probe_success(BreakerCounters {
-                    state: ProviderBreakerState::HalfOpen,
-                    consecutive_failures: 0,
-                    flap_count: 0,
-                    closed_at: None,
-                    retry_at: None,
-                });
-                Self::log_transition(lease.provider, &lease.model, &decision, "probe-reachable");
+                let decision = on_probe_success(
+                    BreakerCounters {
+                        state: ProviderBreakerState::HalfOpen,
+                        consecutive_failures: 0,
+                        // Read, not assumed: the trial window and the escalation
+                        // inherit the pair's flap history.
+                        flap_count: self
+                            .read(lease.provider, &lease.model)
+                            .await
+                            .map(|(snapshot, _)| snapshot.flap_count)
+                            .unwrap_or(0),
+                        closed_at: None,
+                        retry_at: None,
+                    },
+                    Timestamp::now(),
+                );
+                Self::log_transition(lease.provider, &lease.model, &decision, "probe-usable");
                 Ok(decision)
             }
-            ProbeOutcome::Unreachable => {
+            ProbeOutcome::NotUsable => {
                 // The decision's `retry_at` needs the current flap count, so read
                 // it first — the write below is still fenced on the lease, which
                 // is what makes the read harmless.
@@ -422,6 +447,7 @@ impl ProviderHealth for PgProviderHealth {
                     UPDATE ai_import.provider_health
                     SET state = 'open',
                         retry_at = $4,
+                        trial_job_id = NULL,
                         probe_owner = NULL,
                         probe_lease_id = NULL,
                         probe_started_at = NULL,
@@ -449,16 +475,86 @@ impl ProviderHealth for PgProviderHealth {
                         "provider breaker write lost every compare-and-set attempt",
                     ));
                 }
-                Self::log_transition(lease.provider, &lease.model, &decision, "probe-unreachable");
+                Self::log_transition(lease.provider, &lease.model, &decision, "probe-not-usable");
                 Ok(decision)
             }
         }
     }
 
+    /// Grant the single half-open trial (issue #942 W1).
+    ///
+    /// One statement, because the three effects must not be observable apart:
+    /// the breaker token is minted, the chosen job becomes claimable again
+    /// (`next_attempt_at = now()`), and the pair's window is re-armed so a
+    /// permanently broken model costs one paid call per window instead of a
+    /// storm. The `state = 'half_open' AND trial_job_id IS NULL` guard makes it
+    /// idempotent against a second sweeper: the loser stamps nothing.
+    ///
+    /// The candidate is the pair's longest-waiting held job — the same ordering
+    /// the probe uses for its credential donor, so a fresh upload does not
+    /// starve an older job.
+    async fn begin_provider_trial(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+    ) -> Result<Option<AiImportJobId>, DomainError> {
+        let rows = sqlx::query(
+            r#"
+            WITH candidate AS (
+                SELECT id, flap_count
+                FROM ai_import.ai_import_job
+                JOIN ai_import.provider_health
+                  ON provider_health.provider = ai_import.ai_import_job.breaker_provider
+                 AND provider_health.model = ai_import.ai_import_job.breaker_model
+                WHERE ai_import.ai_import_job.breaker_provider = $1
+                  AND ai_import.ai_import_job.breaker_model = $2
+                  AND ai_import.ai_import_job.status = 'failed'
+                  AND ai_import.ai_import_job.provider_hold IS NOT NULL
+                  AND COALESCE(ai_import.ai_import_job.provider_hold ->> 'state', '') <> 'expired'
+                  AND provider_health.state = 'half_open'
+                  AND provider_health.trial_job_id IS NULL
+                ORDER BY ai_import.ai_import_job.created_at
+                LIMIT 1
+                FOR UPDATE OF ai_import.ai_import_job SKIP LOCKED
+            ),
+            stamped AS (
+                UPDATE ai_import.provider_health
+                SET trial_job_id = (SELECT id FROM candidate),
+                    retry_at = now() + make_interval(secs => $3),
+                    updated_at = now()
+                WHERE provider = $1 AND model = $2
+                  AND state = 'half_open'
+                  AND trial_job_id IS NULL
+                  AND EXISTS (SELECT 1 FROM candidate)
+                RETURNING trial_job_id
+            ),
+            released AS (
+                UPDATE ai_import.ai_import_job
+                SET next_attempt_at = now(),
+                    updated_at = now()
+                WHERE id IN (SELECT trial_job_id FROM stamped)
+                RETURNING id
+            )
+            SELECT id, pg_notify('ai_import_job_events', id::text) FROM released
+            "#,
+        )
+        .bind(provider.as_str())
+        .bind(model)
+        .bind(TRIAL_WINDOW_SECS)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let id = AiImportJobId::from_uuid(row.try_get::<Uuid, _>("id").map_err(map_sqlx_error)?);
+        Ok(Some(id))
+    }
+
     async fn open_breakers(&self, limit: i64) -> Result<Vec<OpenBreaker>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT provider, model, state, retry_at
+            SELECT provider, model, state, retry_at, trial_job_id
             FROM ai_import.provider_health
             WHERE state <> 'closed'
             ORDER BY retry_at NULLS FIRST, provider, model
@@ -484,6 +580,9 @@ impl ProviderHealth for PgProviderHealth {
                 model: row.try_get("model").map_err(map_sqlx_error)?,
                 state: parse_state(row.try_get("state").map_err(map_sqlx_error)?),
                 retry_at: row.get_ts_opt("retry_at").map_err(map_sqlx_error)?,
+                trial_job: row
+                    .try_get::<Option<Uuid>, _>("trial_job_id")
+                    .map_err(map_sqlx_error)?,
             });
         }
         Ok(breakers)
@@ -512,6 +611,14 @@ pub fn breaker_open_error() -> DomainError {
 pub fn is_breaker_open(error: &DomainError) -> bool {
     matches!(error, DomainError::Conflict { reason, .. } if reason == BREAKER_OPEN_REASON)
 }
+
+/// How long one granted trial may take before the next one is considered
+/// (issue #942 W1).
+///
+/// One request (`AI_IMPORT_REQUEST_TIMEOUT_SECS`, 120 s default) plus a small
+/// margin, so a hung trial cannot wedge `half_open` for longer than a single
+/// request: the lease window is the same order of magnitude for the same reason.
+pub const TRIAL_WINDOW_SECS: i64 = 300;
 
 /// The probe lease window, exposed for the sweeper's own budgeting.
 #[must_use]

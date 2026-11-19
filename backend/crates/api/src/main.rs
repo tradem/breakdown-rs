@@ -907,7 +907,6 @@ async fn main() -> Result<()> {
         )?;
         let provider_probe: std::sync::Arc<dyn infra::ai::provider_probe::ProviderProbe> =
             std::sync::Arc::new(infra::ai::provider_probe::CatalogProviderProbe::new(
-                infra::ai::catalog::OpenAiCompatibleModelCatalog::new()?,
                 worker_ai_config_repo.clone(),
                 worker_credential_vault.clone(),
                 probe_http,

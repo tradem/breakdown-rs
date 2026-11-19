@@ -186,6 +186,7 @@ impl AiImportQueue for BreakerQueue {
         };
         let state = *self.state.lock().unwrap();
         Ok(BreakerDecision {
+            trial_due: false,
             state,
             consecutive_failures,
             flap_count: 0,
@@ -205,6 +206,7 @@ impl AiImportQueue for BreakerQueue {
             return Err(DomainError::service_unavailable("database pool timed out"));
         }
         Ok(ProviderBreakerSnapshot {
+            trial_job: None,
             state: *self.state.lock().unwrap(),
             consecutive_failures: 3,
             flap_count: 0,
@@ -226,6 +228,7 @@ async fn an_open_breaker_costs_zero_calls() {
         model: "m",
         threshold: 3,
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 
@@ -252,10 +255,12 @@ async fn an_open_breaker_costs_zero_calls() {
     );
 }
 
+/// Issue #942 W1: `half_open` **does** admit the paid call — that is the whole
+/// point of the trial — but only one job ever holds the token (the claim
+/// predicate is the fence; this gate cannot see a job id and must not pretend
+/// it can).
 #[tokio::test(start_paused = true)]
-async fn a_half_open_breaker_also_costs_zero_calls() {
-    // `half_open` admits no claim either (D-A2), and the gate derives from the
-    // same predicate — one semantics, two call sites.
+async fn a_half_open_breaker_admits_the_trial_call() {
     let queue = BreakerQueue::new(ProviderBreakerState::HalfOpen);
     let gate = ProviderGate {
         queue: queue.as_ref(),
@@ -263,6 +268,7 @@ async fn a_half_open_breaker_also_costs_zero_calls() {
         model: "m",
         threshold: 3,
         enabled: true,
+        trial: true,
     };
     let calls = AtomicUsize::new(0);
 
@@ -276,7 +282,79 @@ async fn a_half_open_breaker_also_costs_zero_calls() {
     )
     .await;
 
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the trial job's one call must actually run"
+    );
+}
+
+/// Issue #942 W1 (AC1b): the trial runs **one** request. `5` configured
+/// in-attempt retries must not turn a broken model into `6 × 120 s`; the trial
+/// exists to answer one yes/no question per probe window.
+#[tokio::test(start_paused = true)]
+async fn a_trial_run_ignores_the_configured_in_attempt_retries() {
+    let queue = BreakerQueue::new(ProviderBreakerState::HalfOpen);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        // Low enough that the retryable failure below would open the breaker and
+        // mask the property under test if the sentinel were what stopped it.
+        threshold: 10,
+        enabled: true,
+        trial: true,
+    };
+    let calls = AtomicUsize::new(0);
+
+    let failure = retry_bounded(
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err::<(), anyhow::Error>(transient())
+        },
+        5,
+        &gate,
+    )
+    .await
+    .expect_err("the trial call failed");
+
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a trial is one request, not 1 + AI_IMPORT_MAX_ATTEMPT_RETRIES"
+    );
+    assert!(
+        !is_breaker_open(&failure.error),
+        "a single trial failure is a real failure (the caller fails the job), not a sentinel"
+    );
+}
+
+/// The complement: an ordinary attempt keeps its configured budget, so the
+/// single-shot rule cannot leak into healthy operation.
+#[tokio::test(start_paused = true)]
+async fn a_non_trial_attempt_keeps_its_configured_retries() {
+    let queue = BreakerQueue::new(ProviderBreakerState::Closed);
+    let gate = ProviderGate {
+        queue: queue.as_ref(),
+        provider: LlmProvider::OpenCodeGo,
+        model: "m",
+        threshold: 10,
+        enabled: true,
+        trial: false,
+    };
+    let calls = AtomicUsize::new(0);
+
+    let _ = retry_bounded(
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err::<(), anyhow::Error>(transient())
+        },
+        2,
+        &gate,
+    )
+    .await;
+
+    assert_eq!(calls.load(Ordering::SeqCst), 3, "1 + max_retries attempts");
 }
 
 #[tokio::test(start_paused = true)]
@@ -288,6 +366,7 @@ async fn a_closed_breaker_does_not_interfere_with_the_retry_loop() {
         model: "m",
         threshold: 3,
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 
@@ -327,6 +406,7 @@ async fn a_breaker_refusal_carries_the_failure_that_fired_it() {
         model: "mistral-large-3",
         threshold: 1,
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 
@@ -385,6 +465,7 @@ async fn an_exhausted_retry_budget_returns_no_hold_evidence() {
         // High enough that the counter never opens within the budget.
         threshold: 10,
         enabled: true,
+        trial: false,
     };
 
     let failure: CallFailure =
@@ -424,6 +505,7 @@ async fn a_breaker_that_opens_during_the_backoff_stops_before_the_next_call() {
         model: "m",
         threshold: 3,
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 
@@ -463,6 +545,7 @@ async fn a_failing_breaker_read_admits() {
         model: "m",
         threshold: 3,
         enabled: true,
+        trial: false,
     };
     assert!(
         gate.admits().await,
@@ -493,6 +576,7 @@ async fn the_last_failure_of_a_chunk_is_recorded_too() {
         model: "m",
         threshold: 99, // never opens, so every failure must still be recorded
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 
@@ -525,6 +609,7 @@ async fn a_generic_service_outage_never_moves_the_counter() {
         model: "m",
         threshold: 1,
         enabled: true,
+        trial: false,
     };
 
     let _: Result<(), CallFailure> = retry_bounded(
@@ -557,6 +642,7 @@ async fn a_successful_call_is_recorded_as_success() {
         model: "m",
         threshold: 3,
         enabled: true,
+        trial: false,
     };
 
     let _: Result<(), CallFailure> = retry_bounded(|| async { Ok(()) }, 2, &gate).await;
@@ -578,6 +664,7 @@ async fn the_kill_switch_records_nothing() {
         model: "m",
         threshold: 1,
         enabled: false,
+        trial: false,
     };
 
     // Admits despite the open state, and records nothing at all.
@@ -604,6 +691,7 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
         model: "m",
         threshold: 1,
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 
@@ -645,6 +733,7 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
         model: "m",
         threshold: 2,
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 
@@ -709,6 +798,7 @@ where
         model: "m",
         threshold: 3,
         enabled: true,
+        trial: false,
     };
     let calls = std::sync::atomic::AtomicUsize::new(0);
     let started = tokio::time::Instant::now();
@@ -812,6 +902,7 @@ async fn a_quota_exhausted_provider_failure_is_terminal_and_does_not_move_the_br
         // `record_failure` cannot hide behind a high threshold.
         threshold: 1,
         enabled: true,
+        trial: false,
     };
     let calls = AtomicUsize::new(0);
 

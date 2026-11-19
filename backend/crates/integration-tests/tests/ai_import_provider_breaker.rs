@@ -258,7 +258,7 @@ async fn a_half_open_breaker_still_filters_the_claim() -> Result<()> {
         "a half_open breaker must still filter: only the probe may end a non-closed state"
     );
     health
-        .finish_probe(&lease, ProbeOutcome::Unreachable)
+        .finish_probe(&lease, ProbeOutcome::NotUsable)
         .await
         .ok();
     Ok(())
@@ -286,6 +286,89 @@ async fn make_probe_due(pool: &PgPool) {
         .execute(pool)
         .await
         .unwrap();
+}
+
+/// Issue #942 W1 (AC1): a passing preflight must not close the breaker, and a
+/// `half_open` pair admits **exactly one** job — the trial token holder.
+///
+/// This is the anti-flap fence: before #942 a metadata `200` closed the breaker
+/// and released the whole fleet into another `3 × 120 s` of doomed paid calls
+/// (`flap_count` reached 3 in 30 minutes).
+#[tokio::test]
+async fn only_the_trial_token_holder_is_claimable_while_half_open() -> Result<()> {
+    use breakdown_core::ai::ProviderHealth as _;
+
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    // Two waiting jobs on the same pair, both held.
+    let first = seed_job(&queue, "u1", "d1", Some((PROVIDER, MODEL))).await;
+    let second = seed_job(&queue, "u2", "d2", Some((PROVIDER, MODEL))).await;
+    queue.claim_next("w1").await?.expect("first claimable");
+    let until = Timestamp::now() + SignedDuration::from_secs(60);
+    queue
+        .mark_held(
+            first,
+            "w1",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+    queue.claim_next("w2").await?.expect("second claimable");
+    queue
+        .mark_held(
+            second,
+            "w2",
+            hold_for(until, ProviderBreakerState::Open),
+            HOLD_WINDOW,
+            None,
+        )
+        .await?;
+
+    // The breaker reaches `half_open` with no trial holder: nothing is claimable.
+    let health = infra::ai::provider_health::PgProviderHealth::new(pool.clone());
+    sqlx::query(
+        "UPDATE ai_import.provider_health SET state = 'half_open', trial_job_id = NULL,
+                retry_at = now() WHERE provider = $1 AND model = $2",
+    )
+    .bind(PROVIDER.as_str())
+    .bind(MODEL)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        queue.claim_next("w3").await?.is_none(),
+        "half_open without a trial holder must admit no claim"
+    );
+
+    // Granting the trial makes EXACTLY that job claimable.
+    let trial = health
+        .begin_provider_trial(PROVIDER, MODEL)
+        .await?
+        .expect("one waiting job earns the trial");
+    assert!(trial == first || trial == second);
+    let claimed = queue
+        .claim_next("w4")
+        .await?
+        .expect("the trial job is claimable");
+    assert_eq!(claimed.id, trial, "only the token holder may run the trial");
+    assert!(
+        queue.claim_next("w5").await?.is_none(),
+        "the other held job stays held — one trial call, not a fleet storm"
+    );
+
+    // A real paid call closing the breaker releases the rest.
+    queue
+        .record_provider_outcome(
+            PROVIDER,
+            MODEL,
+            breakdown_core::ai::ProviderOutcome::Success,
+            3,
+        )
+        .await?;
+    let released = queue.release_held_jobs(PROVIDER, MODEL).await?;
+    assert_eq!(released.len(), 1, "the remaining held job is released");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -721,7 +804,7 @@ async fn the_probe_lease_admits_one_prober_and_fences_the_result() -> Result<()>
     // The superseded prober's result writes nothing.
     assert!(
         health
-            .finish_probe(&lease, ProbeOutcome::Reachable)
+            .finish_probe(&lease, ProbeOutcome::Usable)
             .await
             .is_err(),
         "a superseded lease's result must be discarded"
@@ -729,14 +812,30 @@ async fn the_probe_lease_admits_one_prober_and_fences_the_result() -> Result<()>
     let snapshot = health.state(PROVIDER, MODEL).await?;
     assert_eq!(snapshot.state, ProviderBreakerState::HalfOpen);
 
-    // The current lease closes it.
-    let closed = health
-        .finish_probe(&takeover, ProbeOutcome::Reachable)
-        .await?;
-    assert!(closed.closed);
+    // The current lease records the preflight — which, since issue #942 W1,
+    // grants the single trial instead of closing the breaker.
+    let decision = health.finish_probe(&takeover, ProbeOutcome::Usable).await?;
+    assert!(decision.trial_due, "a passing preflight grants one trial");
+    assert!(
+        !decision.closed,
+        "a metadata 200 must never close the (provider, model) breaker"
+    );
+    let snapshot = health.state(PROVIDER, MODEL).await?;
+    assert_eq!(snapshot.state, ProviderBreakerState::HalfOpen);
+    assert_eq!(snapshot.consecutive_failures, 0);
+    assert!(
+        snapshot.retry_at.is_some(),
+        "the trial window must be armed, or a hung trial wedges half_open"
+    );
+    assert!(
+        snapshot.trial_job.is_none(),
+        "the preflight itself names no holder; the sweeper grants it"
+    );
+
+    // Only a real paid call closes it.
+    health.record_success(PROVIDER, MODEL).await?;
     let snapshot = health.state(PROVIDER, MODEL).await?;
     assert_eq!(snapshot.state, ProviderBreakerState::Closed);
-    assert_eq!(snapshot.consecutive_failures, 0);
     assert!(snapshot.retry_at.is_none());
     Ok(())
 }

@@ -242,6 +242,13 @@ async fn hold_if_breaker_open(
         model: &config.model,
         threshold: deps.bounds.breaker_failure_threshold,
         enabled: deps.bounds.breaker_enabled,
+        // Issue #942 W1: the claimed job may be the half-open trial holder.
+        trial: deps
+            .queue
+            .provider_breaker(config.provider, &config.model)
+            .await
+            .map(|snapshot| snapshot.is_trial_for(job.id))
+            .unwrap_or(false),
     };
     // Issue #871 (D-B5): a script job may already own a stored chunk prefix, and
     // holding it must not lose that progress — the `ProviderHold` reports it so

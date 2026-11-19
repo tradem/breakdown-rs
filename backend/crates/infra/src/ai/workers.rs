@@ -709,6 +709,16 @@ where
             model: &self.model,
             threshold: self.bounds.breaker_failure_threshold,
             enabled: self.bounds.breaker_enabled,
+            // Issue #942 W1: this attempt carries the half-open trial token, so
+            // its first chunk's call is a single, un-retried trial.
+            trial: trial_pending(
+                self.queue.as_ref(),
+                self.provider,
+                &self.model,
+                job.id,
+                self.bounds.breaker_enabled,
+            )
+            .await,
         };
         for (chunk_index, chunk) in chunks.into_iter().enumerate() {
             // Hoisted because the grounding check below must verify a quote
@@ -1587,6 +1597,14 @@ where
             model: &self.model,
             threshold: self.bounds.breaker_failure_threshold,
             enabled: self.bounds.breaker_enabled,
+            trial: trial_pending(
+                self.queue.as_ref(),
+                self.provider,
+                &self.model,
+                job.id,
+                self.bounds.breaker_enabled,
+            )
+            .await,
         };
         let mut schedule = if native_csv {
             super::csv_schedule::parse_schedule_csv(bytes)?
@@ -4749,6 +4767,28 @@ pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
         .await
 }
 
+/// Whether `job_id` holds the `half_open` trial token (issue #942 W1).
+///
+/// A failed read answers `false` — the pre-#942 behaviour: without a readable
+/// verdict the attempt runs its configured budget rather than being demoted to a
+/// single call on a guess.
+async fn trial_pending<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    provider: LlmProvider,
+    model: &str,
+    job_id: AiImportJobId,
+    breaker_enabled: bool,
+) -> bool {
+    if !breaker_enabled {
+        return false;
+    }
+    queue
+        .provider_breaker(provider, model)
+        .await
+        .map(|snapshot| snapshot.is_trial_for(job_id))
+        .unwrap_or(false)
+}
+
 /// Whether an error is the **provider's** failure rather than a generic
 /// transient one (issue #871, D-A1).
 ///
@@ -4779,9 +4819,24 @@ pub(super) struct ProviderGate<'a, Q: AiImportQueue + ?Sized> {
     /// records nothing: the switch has to disable the breaker, not merely its
     /// log line.
     pub(super) enabled: bool,
+    /// Whether **this** job holds the `half_open` trial token (issue #942 W1).
+    ///
+    /// While true the retry loop runs exactly **one** request: the trial exists
+    /// to answer "does the model's chat path work again?" and three 120 s
+    /// timeouts answer it no better than one — they just cost 6 minutes of a
+    /// held permit (and possibly three billed generations) per probe window.
+    pub(super) trial: bool,
 }
 
 impl<Q: AiImportQueue + ?Sized> ProviderGate<'_, Q> {
+    /// The in-attempt retry budget for this attempt (issue #942 W1).
+    ///
+    /// A trial gets **zero** retries: one request, so a broken model costs
+    /// `1 × request_timeout` per window instead of `(1 + max_retries) ×`.
+    const fn attempt_retries(&self, configured: usize) -> usize {
+        if self.trial { 0 } else { configured }
+    }
+
     /// Whether a paid call may be started. A failed read **admits**: this
     /// consult only ever saves money, so a database hiccup must not stop the
     /// pipeline.
@@ -4970,6 +5025,9 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, AnyhowError>>,
 {
+    // Issue #942 W1: a trial run is a single request. Read once, before the
+    // first call, so the decision cannot change mid-loop.
+    let max_retries = gate.attempt_retries(max_retries);
     let mut attempt: usize = 0;
     // Issue #942 W2: the last REAL failure, captured before any breaker refusal
     // replaces it with the sentinel. Diagnostic only — it never changes which

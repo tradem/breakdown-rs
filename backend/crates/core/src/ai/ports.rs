@@ -815,10 +815,12 @@ pub trait AiImportQueue: Send + Sync {
         provider: LlmProvider,
         model: &str,
     ) -> Result<bool, DomainError> {
+        // Issue #942 W1: `admits_paid_call`, not `admits_claim` — a `half_open`
+        // breaker must let the single claimed trial job start its one call.
         Ok(self
             .provider_breaker(provider, model)
             .await
-            .map(|snapshot| snapshot.admits_claim())
+            .map(|snapshot| snapshot.admits_paid_call())
             .unwrap_or(true))
     }
 
@@ -1473,6 +1475,13 @@ pub struct ProviderBreakerSnapshot {
     pub flap_count: u32,
     /// The next probe time; `None` while `closed`.
     pub retry_at: Option<jiff::Timestamp>,
+    /// The **one** job allowed to run the half-open trial (issue #942 W1).
+    ///
+    /// `half_open` is entered twice: before a probe (lease held, no trial job)
+    /// and after a passing preflight (lease released, one trial job). The claim
+    /// predicate is the only authority on *which* job may run, because only SQL
+    /// can compare the token against the candidate row.
+    pub trial_job: Option<Uuid>,
 }
 
 impl ProviderBreakerSnapshot {
@@ -1484,14 +1493,46 @@ impl ProviderBreakerSnapshot {
             consecutive_failures: 0,
             flap_count: 0,
             retry_at: None,
+            trial_job: None,
         }
     }
 
     /// Whether a job of this pair may be claimed. Only `closed` admits a claim:
     /// `retry_at` is the probe schedule, never a claim gate (D-A2).
+    ///
+    /// Since issue #942 W1 this is **not** the same question as "may a paid call
+    /// start": a `half_open` breaker admits exactly one job — the trial holder —
+    /// and that fence lives in the claim SQL, which can compare the token with
+    /// the candidate row. See [`Self::admits_paid_call`].
     #[must_use]
     pub const fn admits_claim(&self) -> bool {
         matches!(self.state, ProviderBreakerState::Closed)
+    }
+
+    /// Whether a **paid call** may start right now (issue #942 W1).
+    ///
+    /// `closed` admits every job; `half_open` admits the single trial attempt.
+    /// This is the question the in-process gates ask (`admits_billable_request`,
+    /// `ProviderGate::admits`), because they never carry a job id: they run
+    /// inside a job that the claim predicate has already fenced, so admitting
+    /// `half_open` here cannot admit a second caller — no other job of the pair
+    /// is claimable while the breaker is not closed.
+    #[must_use]
+    pub const fn admits_paid_call(&self) -> bool {
+        matches!(
+            self.state,
+            ProviderBreakerState::Closed | ProviderBreakerState::HalfOpen
+        )
+    }
+
+    /// Whether **this** job holds the half-open trial token (issue #942 W1).
+    ///
+    /// While `true` the caller must run **one** request: no in-attempt retries
+    /// (`AI_IMPORT_MAX_ATTEMPT_RETRIES` is not applied), so a broken model costs
+    /// `1 × request_timeout` per window instead of `3 ×`.
+    #[must_use]
+    pub fn is_trial_for(&self, job_id: AiImportJobId) -> bool {
+        self.state == ProviderBreakerState::HalfOpen && self.trial_job == Some(job_id.as_uuid())
     }
 }
 
@@ -1503,6 +1544,10 @@ pub struct OpenBreaker {
     pub model: String,
     pub state: ProviderBreakerState,
     pub retry_at: Option<jiff::Timestamp>,
+    /// The job currently holding the half-open trial token (issue #942 W1).
+    /// `None` means the window has not granted one yet — which is exactly the
+    /// condition under which the sweeper grants the next single trial.
+    pub trial_job: Option<Uuid>,
 }
 
 /// The fence of one probe attempt (issue #871, D-A6).
@@ -1519,17 +1564,68 @@ pub struct ProbeLease {
     pub lease_id: Uuid,
 }
 
-/// What a probe observed about the **endpoint** (issue #871, D-A3).
+/// What the preflight observed (issue #871 D-A3, capability-accurate since
+/// issue #942 W1).
 ///
-/// Reachability only: a probe result is a verdict about the endpoint, never
-/// about a document, so it never retires or terminalizes a job.
+/// Still a verdict about the *endpoint and account*, never about a document: a
+/// probe result never retires or terminalizes a job. But it is no longer
+/// "did something answer": issue #942 F2 recorded that `GET {base}/models`
+/// answers `200` for a **bogus** bearer token, so "the endpoint answered" is a
+/// verdict that cannot protect the fleet. A `Usable` verdict means *this
+/// credential may plausibly pay right now* — and even then it only opens the
+/// single-trial door, never the breaker itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeOutcome {
-    /// The endpoint answered (2xx, or a 401/403 credential rejection — the
-    /// endpoint demonstrably answered, which is what the probe measures).
-    Reachable,
-    /// Transport error, timeout, 429 or 5xx: the outage this breaker exists for.
-    Unreachable,
+    /// The preflight passed: the credential is accepted and (where the provider
+    /// reports one) a positive budget remains. Grants **one** un-retried trial
+    /// call, never a close (issue #942 W1 a/b).
+    Usable,
+    /// A rejection (`401`/`402`/`403`), an exhausted balance, a transport error
+    /// or a timeout: the breaker stays `open` and the probe schedule advances.
+    NotUsable,
+}
+
+/// How a provider's usability can be preflighted without paying for a call
+/// (issue #942 W1).
+///
+/// Static, curated data next to [`CuratedLlmProvider`] — never configuration and
+/// never a user-supplied URL (ADR-024 SSRF policy). The table is exhaustive over
+/// [`LlmProvider`] via a `match` that has no catch-all arm, so adding a variant
+/// fails the build until its capability is decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeCapability {
+    /// An authenticated zero-token `GET {base}/key`: verifies the credential
+    /// (`401`/`403`/`402`) **and** reports the account's remaining budget.
+    KeyEndpoint,
+    /// The unauthenticated local `GET /api/tags` (Ollama: self-hosted, no
+    /// account, no bearer token — sending one to a plain-HTTP origin would leak
+    /// it, CWE-319).
+    LocalTags,
+    /// No **verified** zero-token endpoint: the breaker relies on the scheduled
+    /// `open → half_open` single-trial transition alone. A public `/models` read
+    /// is deliberately not an option here — it answers `200` for an invalid key,
+    /// which is the blindness this issue fixes.
+    NoPreflight,
+}
+
+/// The curated capability of each provider (issue #942 W1).
+///
+/// `eurouter`/`openrouter` expose `/key`; `ollama` exposes `/api/tags`. The
+/// remaining hosted providers have no zero-token endpoint this workspace has
+/// verified against a live response, and the #521 rule ("verify before
+/// attributing") forbids curating a guess: they use the time-gated trial, which
+/// costs **one** call per window instead of `1 + AI_IMPORT_MAX_ATTEMPT_RETRIES`.
+#[must_use]
+pub const fn probe_capability(provider: LlmProvider) -> ProbeCapability {
+    match provider {
+        LlmProvider::EURouter | LlmProvider::OpenRouter => ProbeCapability::KeyEndpoint,
+        LlmProvider::Ollama => ProbeCapability::LocalTags,
+        LlmProvider::OpenAI
+        | LlmProvider::Gemini
+        | LlmProvider::Neuralwatt
+        | LlmProvider::OpenCode
+        | LlmProvider::OpenCodeGo => ProbeCapability::NoPreflight,
+    }
 }
 
 /// The bounded evidence of the failure that put a job on a hold (issue #942 W2).
@@ -1610,6 +1706,11 @@ pub trait ProviderHealth: Send + Sync {
     /// stale (another task owns the state now) — the result is then discarded,
     /// which is the same `ensure_claim_owned` discipline every other
     /// owner-fenced write uses.
+    ///
+    /// Since issue #942 W1 the *success* branch does **not** close the breaker:
+    /// a passing preflight only moves `open → half_open` and reports
+    /// [`BreakerDecision::trial_due`]. Closing is reserved for
+    /// [`Self::record_success`], i.e. a genuine paid call answered the model.
     async fn finish_probe(
         &self,
         lease: &ProbeLease,
@@ -1619,6 +1720,24 @@ pub trait ProviderHealth: Send + Sync {
     /// Every breaker that is not `closed`, for the probe task and the sweeper
     /// (bounded by the caller).
     async fn open_breakers(&self, limit: i64) -> Result<Vec<OpenBreaker>, DomainError>;
+
+    /// Grant the single half-open trial to one waiting job (issue #942 W1).
+    ///
+    /// Picks the pair's longest-waiting held job, stamps it as the breakers
+    /// `trial_job_id` and makes it claimable again. Returns the chosen job, or
+    /// `None` when the pair is not `half_open`, already has a trial holder, or
+    /// has nobody waiting.
+    ///
+    /// The default implementation returns `None`: a backend without the durable
+    /// breaker has nothing to trial against, and inventing a job id would let a
+    /// worker believe it holds a token that no claim predicate enforces.
+    async fn begin_provider_trial(
+        &self,
+        _provider: LlmProvider,
+        _model: &str,
+    ) -> Result<Option<AiImportJobId>, DomainError> {
+        Ok(None)
+    }
 }
 
 /// One chunk result as the store keeps it (issue #871, D-B1/D-B3).
