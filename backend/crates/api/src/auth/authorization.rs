@@ -247,27 +247,34 @@ impl AuthorizationState {
 
     /// Read the enforcement flag from `AUTHZ_ENFORCE` (default: enforce).
     pub fn enforce_from_env() -> bool {
+        Self::enforce_flag_from_env(true)
+    }
+
+    /// Parse `AUTHZ_ENFORCE` (`"false"` / `"0"` disable), falling back to
+    /// `default` when it is unset.
+    fn enforce_flag_from_env(default: bool) -> bool {
         std::env::var("AUTHZ_ENFORCE")
             .map(|v| v != "false" && v != "0")
-            .unwrap_or(true)
+            .unwrap_or(default)
     }
 
     /// Build the authorization state from the environment.
     ///
-    /// In dev mode (`DEV_AUTH_SUB` set, i.e. the auth layer is not really
-    /// verifying tokens) enforcement defaults to *off* (log-only) so local
-    /// development works without seeded membership; set `AUTHZ_ENFORCE=true`
-    /// to force enforcement even in dev. Production (no `DEV_AUTH_SUB`)
-    /// enforces by default.
+    /// Enforcement falls back to [`crate::auth::authorization_enforce_default`]
+    /// (issue #935): log-only is the default only for a *clean* dev-auth boot
+    /// (`DEV_AUTH_SUB` set, `OIDC_ISS` absent, no other OIDC variable set), so
+    /// local development works without seeded membership; `AUTHZ_ENFORCE=true`
+    /// forces enforcement there, and `AUTHZ_ENFORCE=false` / `0` is the explicit
+    /// log-only opt-out in every mode.
+    ///
+    /// Every other configuration enforces by default. With OIDC configured, a
+    /// leftover `DEV_AUTH_SUB` is ignored here exactly as the auth layer ignores
+    /// it, so tokens are verified *and* policy denials return `403`. A *partial*
+    /// OIDC configuration (e.g. `OIDC_AUDIENCE` without `OIDC_ISS`) keeps dev
+    /// authentication active but still enforces — a half-configured OIDC
+    /// migration must never silently narrow authorization.
     pub fn from_env_or_dev(policy: Arc<dyn AuthorizationPolicy>) -> Self {
-        let dev = std::env::var("DEV_AUTH_SUB").is_ok();
-        let enforce = if dev {
-            std::env::var("AUTHZ_ENFORCE")
-                .map(|v| v != "false" && v != "0")
-                .unwrap_or(false)
-        } else {
-            Self::enforce_from_env()
-        };
+        let enforce = Self::enforce_flag_from_env(crate::auth::authorization_enforce_default());
         AuthorizationState::new(policy, enforce)
     }
 }

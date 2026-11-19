@@ -34,9 +34,18 @@ Full control pointers live in
   `exp` against cached JWKS keys (3600 s TTL, refreshed on miss or verification
   failure). Dev authentication (`DEV_AUTH_SUB`) activates only when OIDC
   variables (`OIDC_ISS`) are unset (#adr-ref(num: "018", slug: "oidc-jwt-validation-and-dev-auth-toggle", title: "OIDC Validation")).
-- *Authorization enforcement toggle*: `AuthorizationState` evaluates its own
-  condition (`AUTHZ_ENFORCE`, defaulting off when `DEV_AUTH_SUB` is set).
-  Deployments with `OIDC_ISS` must never leave `DEV_AUTH_SUB` set (issue `#935`).
+- *Authorization enforcement toggle*: `AuthorizationState` reads the same
+  configuration as the authentication layer through
+  `auth::authorization_enforce_default` — `AUTHZ_ENFORCE` defaults *off* only
+  for a **clean** dev-auth boot (`DEV_AUTH_SUB` set, `OIDC_ISS` unset, **no**
+  other `OIDC_*` variable set) and is enforced otherwise, so log-only mode is
+  only reachable through an explicit `AUTHZ_ENFORCE=false` or `AUTHZ_ENFORCE=0`.
+  Two mixed cases are reported as a `mixed auth configuration` startup warning
+  (issue `#935`): with `OIDC_ISS` set the dev override is ignored (tokens
+  verified, enforced); without `OIDC_ISS` a partial OIDC config leaves dev
+  authentication active (unverified dummy identity) but still enforces policy
+  denials by default — the misconfiguration no longer also downgrades
+  authorization, though it remains a dev-auth deployment, not a verified one.
 - *TB2 (`authorize_middleware`)*: forwards `/v1/health`, `/health`, and paths
   starting with `/swagger-ui` or `/api-docs` directly. For all other paths,
   `requirement_for()` classifies access and defaults unlisted paths to

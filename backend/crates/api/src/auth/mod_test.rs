@@ -113,3 +113,78 @@ fn from_env_or_dev_dev_mode_picks_up_email() {
         assert!(st.is_dev());
     });
 }
+
+/// Issue #935: the auth mode and the authorization default share this one
+/// predicate, so a leftover `DEV_AUTH_SUB` can never look like dev mode while
+/// OIDC is configured.
+#[test]
+fn dev_auth_active_requires_oidc_iss_absence() {
+    with_clean_env(|| {
+        assert!(!dev_auth_active(), "nothing configured is not dev mode");
+        assert_eq!(dev_auth_subject(), None);
+        assert!(
+            authorization_enforce_default(),
+            "an unconfigured environment defaults to enforcement"
+        );
+
+        set_env("DEV_AUTH_SUB", "dev-user");
+        assert!(
+            dev_auth_active(),
+            "DEV_AUTH_SUB without OIDC_ISS is dev mode"
+        );
+        assert_eq!(dev_auth_subject().as_deref(), Some("dev-user"));
+        assert!(
+            !authorization_enforce_default(),
+            "a clean dev boot is the only log-only default"
+        );
+
+        // A partial OIDC configuration without OIDC_ISS keeps dev auth active
+        // but must not disable enforcement (issue #935 review finding).
+        set_env("OIDC_AUDIENCE", "aud");
+        assert!(dev_auth_active(), "only OIDC_ISS leaves dev mode");
+        assert!(
+            authorization_enforce_default(),
+            "any configured OIDC variable keeps the enforced default"
+        );
+        remove_env("OIDC_AUDIENCE");
+
+        set_env("OIDC_ISS", "https://iss");
+        assert!(
+            !dev_auth_active(),
+            "OIDC_ISS present wins over a leftover DEV_AUTH_SUB"
+        );
+        assert_eq!(dev_auth_subject(), None);
+        assert!(authorization_enforce_default());
+    });
+}
+
+/// The startup guard rail detects a mixed OIDC + dev-auth configuration and
+/// names both families, so the warning can tell the operator what to delete.
+#[test]
+fn mixed_dev_and_oidc_config_is_reported_with_both_families() {
+    with_clean_env(|| {
+        assert_eq!(
+            mixed_dev_and_oidc_config(),
+            None,
+            "empty env is unambiguous"
+        );
+
+        set_env("DEV_AUTH_SUB", "dev-user");
+        assert_eq!(
+            mixed_dev_and_oidc_config(),
+            None,
+            "dev-only config is unambiguous"
+        );
+
+        set_env("OIDC_ISS", "https://iss");
+        set_env("DEV_AUTH_EMAIL", "dev@example.com");
+        assert_eq!(
+            mixed_dev_and_oidc_config(),
+            Some((vec!["OIDC_ISS"], vec!["DEV_AUTH_SUB", "DEV_AUTH_EMAIL"])),
+            "both families must be reported in declaration order"
+        );
+
+        // The warning itself must not panic on a mixed config.
+        warn_on_mixed_dev_and_oidc_config();
+    });
+}

@@ -47,9 +47,15 @@ impl AuthorizationPolicy for AllowAll {
 // them from two parallel tests would race. Cover both accessors here.
 #[test]
 fn authz_env_variants() {
+    // Clear every auth variable up front — including the ones this test does
+    // not set — so an inherited value (`DEV_AUTH_EMAIL` from a local dev shell,
+    // say) can never change what the assertions below observe.
     unsafe {
         std::env::remove_var("OIDC_ISS");
+        std::env::remove_var("OIDC_AUDIENCE");
+        std::env::remove_var("OIDC_JWKS_URL");
         std::env::remove_var("DEV_AUTH_SUB");
+        std::env::remove_var("DEV_AUTH_EMAIL");
         std::env::remove_var("AUTHZ_ENFORCE");
     }
 
@@ -106,7 +112,61 @@ fn authz_env_variants() {
     }
     let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
     assert!(st.enforce());
+
+    // Issue #935: a leftover DEV_AUTH_SUB next to real OIDC must NOT default
+    // AUTHZ_ENFORCE to false — only a genuine dev-auth boot (no OIDC_ISS and no
+    // other OIDC variable) may be log-only.
     unsafe {
+        std::env::set_var("DEV_AUTH_SUB", "leftover-dev-user");
+    }
+    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+    assert!(
+        st.enforce(),
+        "OIDC configured + leftover DEV_AUTH_SUB must enforce by default"
+    );
+    // The startup guard rail recognises the same mix and names both families.
+    assert_eq!(
+        api::auth::mixed_dev_and_oidc_config(),
+        Some((
+            vec!["OIDC_ISS", "OIDC_AUDIENCE", "OIDC_JWKS_URL"],
+            vec!["DEV_AUTH_SUB"]
+        )),
+        "mixed OIDC + dev-auth config must be reported at startup"
+    );
+
+    // Partial OIDC config (issuer absent): dev authentication stays active, but
+    // the half-configured OIDC migration must not also disable enforcement.
+    unsafe {
+        std::env::remove_var("OIDC_ISS");
+    }
+    assert!(
+        api::auth::dev_auth_active(),
+        "only OIDC_ISS ends dev auth, not OIDC_AUDIENCE"
+    );
+    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+    assert!(
+        st.enforce(),
+        "partial OIDC config + DEV_AUTH_SUB must enforce by default"
+    );
+    assert_eq!(
+        api::auth::mixed_dev_and_oidc_config(),
+        Some((vec!["OIDC_AUDIENCE", "OIDC_JWKS_URL"], vec!["DEV_AUTH_SUB"])),
+        "a partial OIDC mix must be reported at startup too"
+    );
+
+    // An explicit opt-out still reaches log-only mode.
+    unsafe {
+        std::env::set_var("AUTHZ_ENFORCE", "false");
+    }
+    let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+    assert!(
+        !st.enforce(),
+        "explicit AUTHZ_ENFORCE=false must still disable enforcement"
+    );
+    unsafe {
+        std::env::remove_var("AUTHZ_ENFORCE");
+        std::env::remove_var("DEV_AUTH_SUB");
+        std::env::remove_var("DEV_AUTH_EMAIL");
         std::env::remove_var("OIDC_ISS");
         std::env::remove_var("OIDC_AUDIENCE");
         std::env::remove_var("OIDC_JWKS_URL");

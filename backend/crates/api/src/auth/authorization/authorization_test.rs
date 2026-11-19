@@ -79,6 +79,81 @@ fn authz_env_variants() {
     });
 }
 
+/// Issue #935: a leftover `DEV_AUTH_SUB` must not defuse the authorization
+/// default while real OIDC is configured. Only a genuine dev-auth boot (no
+/// `OIDC_ISS`) may default to log-only.
+#[test]
+fn from_env_or_dev_enforces_when_oidc_configured_despite_dev_sub() {
+    with_clean_env(|| {
+        set_env("DEV_AUTH_SUB", "leftover-dev-user");
+        set_env("OIDC_ISS", "https://iss");
+        set_env("OIDC_AUDIENCE", "aud");
+        set_env("OIDC_JWKS_URL", "https://iss/.well-known/jwks");
+
+        // The mixed pair that used to default to log-only mode.
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(
+            st.enforce(),
+            "OIDC configured + leftover DEV_AUTH_SUB must enforce by default"
+        );
+
+        // An explicit opt-out still reaches log-only mode.
+        set_env("AUTHZ_ENFORCE", "false");
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(
+            !st.enforce(),
+            "explicit AUTHZ_ENFORCE=false must still disable enforcement"
+        );
+    });
+}
+
+/// Log-only stays reserved for a **clean** dev-auth boot: `DEV_AUTH_SUB` set,
+/// `OIDC_ISS` absent, no other OIDC variable set.
+///
+/// A *partial* OIDC configuration (e.g. `OIDC_AUDIENCE` without `OIDC_ISS`)
+/// keeps dev authentication active — the auth layer only leaves dev mode on
+/// `OIDC_ISS` — but must not also disable enforcement (review finding on
+/// issue #935: any configured OIDC variable keeps the enforced default).
+#[test]
+fn from_env_or_dev_stays_log_only_only_for_a_clean_dev_boot() {
+    with_clean_env(|| {
+        set_env("DEV_AUTH_SUB", "dev-user");
+        assert!(crate::auth::dev_auth_active());
+        assert!(!crate::auth::authorization_enforce_default());
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(!st.enforce(), "clean dev mode keeps log-only default");
+
+        // A stray OIDC_AUDIENCE without OIDC_ISS leaves dev *authentication*
+        // active (the auth predicate only looks at OIDC_ISS) ...
+        set_env("OIDC_AUDIENCE", "aud");
+        assert!(crate::auth::dev_auth_active());
+        // ... but the half-configured OIDC migration must not narrow
+        // authorization: enforcement is the default again.
+        assert!(crate::auth::authorization_enforce_default());
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(
+            st.enforce(),
+            "partial OIDC config + DEV_AUTH_SUB must enforce by default"
+        );
+
+        // The same partial configuration without any dev variable never
+        // reached dev mode; it enforces too (and fails auth startup later).
+        remove_env("DEV_AUTH_SUB");
+        assert!(!crate::auth::dev_auth_active());
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(st.enforce(), "partial OIDC alone enforces by default");
+
+        // An explicit opt-out still wins over the partial-config default.
+        set_env("DEV_AUTH_SUB", "dev-user");
+        set_env("AUTHZ_ENFORCE", "0");
+        let st = AuthorizationState::from_env_or_dev(Arc::new(AllowAll));
+        assert!(
+            !st.enforce(),
+            "explicit AUTHZ_ENFORCE=0 must still disable enforcement"
+        );
+    });
+}
+
 /// Policy that always panics — used to verify the fail-closed guarantee.
 struct PanickingPolicy;
 #[async_trait]

@@ -130,6 +130,127 @@ impl OidcConfig {
     }
 }
 
+/// OIDC configuration variables (`OidcConfig::from_env` requires all three),
+/// in the order a startup message lists them.
+pub const OIDC_ENV_VARS: &[&str] = &["OIDC_ISS", "OIDC_AUDIENCE", "OIDC_JWKS_URL"];
+
+/// Dev-auth override variables: `DEV_AUTH_SUB` supplies the dev subject,
+/// `DEV_AUTH_EMAIL` is optional.
+pub const DEV_AUTH_ENV_VARS: &[&str] = &["DEV_AUTH_SUB", "DEV_AUTH_EMAIL"];
+
+/// The subset of `vars` that is currently set, in declaration order.
+fn configured(vars: &'static [&'static str]) -> Vec<&'static str> {
+    vars.iter()
+        .copied()
+        .filter(|var| std::env::var(var).is_ok())
+        .collect()
+}
+
+/// The OIDC variables that are currently set (usually none or all three).
+pub fn configured_oidc_vars() -> Vec<&'static str> {
+    configured(OIDC_ENV_VARS)
+}
+
+/// The dev-auth variables that are currently set.
+pub fn configured_dev_auth_vars() -> Vec<&'static str> {
+    configured(DEV_AUTH_ENV_VARS)
+}
+
+/// The dev-auth subject when the dev override applies, else `None`.
+///
+/// The override applies **only** when OIDC is not configured (`OIDC_ISS`
+/// absent) and `DEV_AUTH_SUB` is set (ADR-018, issue #270).
+pub fn dev_auth_subject() -> Option<String> {
+    if std::env::var("OIDC_ISS").is_ok() {
+        return None;
+    }
+    std::env::var("DEV_AUTH_SUB").ok()
+}
+
+/// Whether the auth layer boots in dev-override mode (tokens are not verified;
+/// see [`dev_auth_subject`]).
+///
+/// Consulted by [`AuthState::from_env_or_dev`]. The *authorization* default is
+/// [`authorization_enforce_default`] — a separate question with its own rule
+/// (a partial OIDC configuration must not disable enforcement, issue #935), but
+/// defined here beside the auth predicate so neither layer can invent its own
+/// environment reading.
+pub fn dev_auth_active() -> bool {
+    dev_auth_subject().is_some()
+}
+
+/// Whether authorization enforces by default for the current environment
+/// (issue #935) — the default `AUTHZ_ENFORCE` falls back to, consulted by
+/// [`authorization::AuthorizationState::from_env_or_dev`].
+///
+/// Enforcement only defaults *off* (log-only) for a **clean** dev-auth
+/// configuration: `DEV_AUTH_SUB` set, `OIDC_ISS` absent, and **no other OIDC
+/// variable** set. Any configured OIDC variable — including a partial
+/// configuration that is missing `OIDC_ISS` — keeps enforcement the default, so
+/// a leftover can never narrow authorization while the deployment is being
+/// moved to OIDC. `AUTHZ_ENFORCE=false` stays the explicit opt-out in every
+/// mode.
+pub fn authorization_enforce_default() -> bool {
+    !(dev_auth_active() && configured_oidc_vars().is_empty())
+}
+
+/// The configured variables when OIDC and the dev-auth override are both
+/// present — the mix the docs forbid, because one of the two families ends up
+/// silently inert. `None` means the configuration is unambiguous.
+///
+/// Returns `(oidc_vars, dev_vars)`, each in [`OIDC_ENV_VARS`] /
+/// [`DEV_AUTH_ENV_VARS`] order.
+pub fn mixed_dev_and_oidc_config() -> Option<(Vec<&'static str>, Vec<&'static str>)> {
+    let oidc = configured_oidc_vars();
+    let dev = configured_dev_auth_vars();
+    if oidc.is_empty() || dev.is_empty() {
+        return None;
+    }
+    Some((oidc, dev))
+}
+
+/// Startup guard rail (issue #935): warn loudly when OIDC and the dev-auth
+/// override are configured at once, describing the mode that actually won.
+///
+/// - `OIDC_ISS` set → OIDC wins: tokens are verified, `DEV_AUTH_*` is ignored,
+///   and authorization enforces by default.
+/// - `OIDC_ISS` absent (partial OIDC config) → dev auth stays active (tokens
+///   are **not** verified) and the configured OIDC variables are inert, while
+///   the authorization default still enforces
+///   ([`authorization_enforce_default`]) — the misconfiguration no longer also
+///   downgrades authorization, but policy is evaluated against the unverified
+///   dev identity.
+pub fn warn_on_mixed_dev_and_oidc_config() {
+    let Some((oidc, dev)) = mixed_dev_and_oidc_config() else {
+        return;
+    };
+    let oidc = oidc.join(", ");
+    let dev = dev.join(", ");
+    match std::env::var("OIDC_ISS") {
+        // OIDC wins: tokens verified, the dev override is inert.
+        Ok(_) => tracing::warn!(
+            oidc = %oidc,
+            ignored = %dev,
+            "mixed auth configuration: OIDC is configured, so the dev-auth override is ignored \
+             and AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false or 0 explicitly for \
+             log-only mode); unset DEV_AUTH_SUB/DEV_AUTH_EMAIL (issue #935)"
+        ),
+        // Partial OIDC config: dev auth stays selected, but the misconfiguration
+        // must not also disable enforcement.
+        Err(_) if dev_auth_active() => tracing::warn!(
+            oidc = %oidc,
+            dev = %dev,
+            "mixed auth configuration without OIDC_ISS: dev authentication remains active \
+             (tokens are NOT verified) and the configured OIDC variables are inert, while \
+             AUTHZ_ENFORCE defaults to enforced (set AUTHZ_ENFORCE=false or 0 for log-only \
+             mode) — configure OIDC_ISS or unset the OIDC_* variables (issue #935)"
+        ),
+        // Only DEV_AUTH_EMAIL without DEV_AUTH_SUB: `AuthState::from_env_or_dev`
+        // fails the boot, so there is nothing to warn about here.
+        Err(_) => {}
+    }
+}
+
 /// Shared authentication state for the [`AuthLayer`].
 ///
 /// Held behind `Arc` so it can be supplied to the middleware via
@@ -176,32 +297,29 @@ impl AuthState {
     /// Build the production auth state from the environment, or fall back to
     /// dev mode when `OIDC_ISS` is absent and `DEV_AUTH_SUB` is set.
     ///
-    /// Dev mode is gated explicitly on `OIDC_ISS` *absence* (per AGENTS.md):
-    /// the production path always sets `OIDC_ISS`, so it can never reach dev
-    /// mode. A partial/misconfigured OIDC config — e.g. `OIDC_ISS` set but
-    /// `OIDC_JWKS_URL` typo'd, with a stray `DEV_AUTH_SUB` present — therefore
-    /// fails loudly here (`OidcConfig::from_env` requires all three vars) and
-    /// does NOT silently boot into unverified-token dev auth.
+    /// Dev mode is gated on [`dev_auth_subject`] — `OIDC_ISS` *absence* plus a
+    /// `DEV_AUTH_SUB` (per AGENTS.md): the production path always sets
+    /// `OIDC_ISS`, so it can never reach dev mode. A partial/misconfigured OIDC
+    /// config — e.g. `OIDC_ISS` set but `OIDC_JWKS_URL` typo'd, with a stray
+    /// `DEV_AUTH_SUB` present — therefore fails loudly here
+    /// (`OidcConfig::from_env` requires all three vars) and does NOT silently
+    /// boot into unverified-token dev auth.
     pub fn from_env_or_dev() -> Result<Self, String> {
         // Dev mode only when OIDC_ISS is absent. When OIDC_ISS is present we
         // take the production path unconditionally and never fall back to dev.
-        let oidc_iss_present = std::env::var("OIDC_ISS").is_ok();
-        if !oidc_iss_present {
-            return match std::env::var("DEV_AUTH_SUB") {
-                Ok(sub) => {
-                    let email = std::env::var("DEV_AUTH_EMAIL").unwrap_or_default();
-                    let user = if email.is_empty() {
-                        CurrentUser::dummy(sub)
-                    } else {
-                        CurrentUser::dummy_with_email(sub, email)
-                    };
-                    Ok(AuthState::dev(user))
-                }
-                Err(_) => Err(
-                    "OIDC_ISS not set and DEV_AUTH_SUB not set — auth cannot be configured"
-                        .to_string(),
-                ),
+        if let Some(sub) = dev_auth_subject() {
+            let email = std::env::var("DEV_AUTH_EMAIL").unwrap_or_default();
+            let user = if email.is_empty() {
+                CurrentUser::dummy(sub)
+            } else {
+                CurrentUser::dummy_with_email(sub, email)
             };
+            return Ok(AuthState::dev(user));
+        }
+        if std::env::var("OIDC_ISS").is_err() {
+            return Err(
+                "OIDC_ISS not set and DEV_AUTH_SUB not set — auth cannot be configured".to_string(),
+            );
         }
 
         // OIDC_ISS present → production path. The `?` makes a missing
