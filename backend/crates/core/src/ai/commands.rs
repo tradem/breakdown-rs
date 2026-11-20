@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, UserId};
 
 use super::ports::LlmProvider;
+use super::reasoning::ReasoningEffort;
 use super::views::{CostDisplayPreference, DocumentKind};
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -36,6 +37,15 @@ pub struct CreateAiConfig {
     pub decision_model: Option<String>,
     #[serde(default)]
     pub decision_vault_key_id: Option<String>,
+    /// Optional `reasoning_effort` for the assistant model (2026-11-20
+    /// output-budget investigation). `None` keeps the provider's own default —
+    /// the behaviour of every configuration written before this field existed.
+    /// Only a pair that DECLARES the parameter may set it (see
+    /// [`super::reasoning::supported_reasoning_efforts`]); the aggregate refuses
+    /// the rest with `422` while the mistake is still cheap, instead of paying a
+    /// `400` on every import call.
+    #[serde(default)]
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -60,6 +70,11 @@ pub struct UpdateAiConfig {
     pub decision_model: Option<Option<String>>,
     #[serde(default)]
     pub decision_vault_key_id: Option<Option<String>>,
+    /// `reasoning_effort`, tri-state like `cost_display_preference`: the outer
+    /// `None` (an omitted field) keeps the stored value, `Some(None)` clears it
+    /// back to the provider default, `Some(Some(..))` replaces it.
+    #[serde(default)]
+    pub reasoning_effort: Option<Option<ReasoningEffort>>,
     pub version: AggregateVersion,
 }
 

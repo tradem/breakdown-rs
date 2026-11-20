@@ -241,6 +241,9 @@ pub struct ScriptImportWorker<Q, C> {
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
+    /// Configured `reasoning_effort` (2026-11-20 investigation). `None` defers
+    /// to the curated profile, then to the provider's own default.
+    pub reasoning_effort: Option<breakdown_core::ai::ReasoningEffort>,
     pub bounds: AiImportBounds,
     /// Pricing read model for the completion cost snapshot (issue #675).
     /// `None` in test fakes — the snapshot then degrades to
@@ -754,12 +757,14 @@ where
                 source_text: source_text.clone(),
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
-                // 2026-11-20 output-budget investigation: the curated profile
-                // pins an effort for the pairs whose saving is measured (or
-                // decided); everything else sends no field and keeps the
-                // provider's own default.
-                reasoning_effort: default_reasoning_effort(self.provider, &self.model)
-                    .map(str::to_owned),
+                // 2026-11-20 output-budget investigation: an explicitly
+                // configured effort wins, otherwise the curated profile pins one
+                // for the pairs whose saving is proven, otherwise no field is
+                // sent and the provider's own default applies.
+                reasoning_effort: self
+                    .reasoning_effort
+                    .or_else(|| default_reasoning_effort(self.provider, &self.model))
+                    .map(|effort| effort.as_str().to_owned()),
             };
             if super::heartbeat::claim_lost(heartbeat.as_ref()) {
                 // Stop before the next paid call: another worker owns the job.
@@ -1467,6 +1472,8 @@ pub struct ScheduleImportWorker<Q, C> {
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
+    /// See [`ScriptImportWorker::reasoning_effort`].
+    pub reasoning_effort: Option<breakdown_core::ai::ReasoningEffort>,
     pub bounds: AiImportBounds,
     /// See [`ScriptImportWorker::pricing`] (issue #675).
     pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
@@ -1664,9 +1671,11 @@ where
                 source_text,
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
-                // Same curated profile as the script path above.
-                reasoning_effort: default_reasoning_effort(self.provider, &self.model)
-                    .map(str::to_owned),
+                // Same resolution as the script path above.
+                reasoning_effort: self
+                    .reasoning_effort
+                    .or_else(|| default_reasoning_effort(self.provider, &self.model))
+                    .map(|effort| effort.as_str().to_owned()),
             };
             let (parsed, call_usage) = match retry_schedule(
                 self.client.as_ref(),

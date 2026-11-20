@@ -12,7 +12,7 @@
 //! when a provider is added or changed. Both the API provider listing and the
 //! provider-key parsing resolve from this registry.
 
-use breakdown_core::ai::{LlmProvider, ModelInfo};
+use breakdown_core::ai::{LlmProvider, ModelInfo, ReasoningEffort};
 
 /// Curated metadata for one LLM provider.
 #[derive(Debug, Clone, Copy)]
@@ -298,11 +298,11 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
 /// - the ACCEPTED VALUES differ per model (`opencode/glm-5.3` accepts
 ///   `low|high|max`, no `medium`), which is why the configurable path validates
 ///   against a per-model set instead of one global list.
-pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<&'static str> {
+pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<ReasoningEffort> {
     match (provider, model) {
         // Measured 2026-11-20 (nightly run 44700866404): −85 % output tokens,
         // −82 % wall clock. The only pair whose saving is proven.
-        (LlmProvider::Neuralwatt, "glm-5.3-flash") => Some("low"),
+        (LlmProvider::Neuralwatt, "glm-5.3-flash") => Some(ReasoningEffort::Low),
         _ => None,
     }
 }
@@ -336,7 +336,7 @@ mod tests {
     fn pinned_reasoning_efforts_name_curated_models_only() {
         assert_eq!(
             default_reasoning_effort(LlmProvider::Neuralwatt, "glm-5.3-flash"),
-            Some("low")
+            Some(ReasoningEffort::Low)
         );
         assert!(
             curated_model_ids(LlmProvider::Neuralwatt).contains(&"glm-5.3-flash"),

@@ -94,6 +94,7 @@ fn ai_config(sub: &str, vault_key_id: &str) -> AiConfigView {
         decision_provider: None,
         decision_model: None,
         decision_vault_key_id: None,
+        reasoning_effort: None,
         version: AggregateVersion::INITIAL,
         revoked: false,
     }

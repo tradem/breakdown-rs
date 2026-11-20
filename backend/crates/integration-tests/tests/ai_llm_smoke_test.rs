@@ -115,13 +115,11 @@ struct LiveLlm {
 /// Resolve the provider/model/key, or `Ok(None)` when no key is configured (the
 /// documented skip).
 fn live_llm() -> Result<Option<LiveLlm>> {
-    let Some(api_key) = env::var("AI_LLM_API_KEY")
-        .ok()
-        .filter(|value| !value.is_empty())
-    else {
+    let Some(api_key) = env_non_empty("AI_LLM_API_KEY") else {
         return Ok(None);
     };
-    let provider_key = env::var("AI_LLM_PROVIDER").unwrap_or_else(|_| DEFAULT_PROVIDER.to_owned());
+    let provider_key =
+        env_non_empty("AI_LLM_PROVIDER").unwrap_or_else(|| DEFAULT_PROVIDER.to_owned());
     let model = env::var("AI_LLM_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_owned());
     let provider = provider_from_key(&provider_key)
         .with_context(|| format!("invalid AI_LLM_PROVIDER {provider_key}"))?;
@@ -145,10 +143,7 @@ struct LiveGDrive {
 /// silently treating a typo'd secret as "not configured" is how a nightly check
 /// stops checking anything.
 fn live_gdrive() -> Result<Option<LiveGDrive>> {
-    let Some(client_id) = env::var("GDRIVE_CLIENT_ID")
-        .ok()
-        .filter(|value| !value.is_empty())
-    else {
+    let Some(client_id) = env_non_empty("GDRIVE_CLIENT_ID") else {
         return Ok(None);
     };
     Ok(Some(LiveGDrive {
@@ -645,12 +640,24 @@ fn env_list(name: &str, default: &[&str]) -> Vec<String> {
     }
 }
 
+/// Treat an EMPTY value as unset.
+///
+/// GitHub Actions passes an undefined *optional* variable as an empty string, so
+/// `env::var(name).unwrap_or(default)` silently keeps `""` instead of the
+/// default. That is exactly how the nightly of 2026-11-20 ended with an empty
+/// document name (`Error:  not present in GDRIVE_ROOT`) and a 4.6 s red probe.
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.filter(|raw| !raw.trim().is_empty())
+}
+
+/// [`non_empty`] over the process environment.
+fn env_non_empty(name: &str) -> Option<String> {
+    non_empty(env::var(name).ok())
+}
+
 /// Output budget of one probe call (see [`DEFAULT_EFFORT_MAX_TOKENS`]).
 fn effort_probe_max_tokens() -> u32 {
-    let Some(raw) = env::var("AI_LLM_PROBE_MAX_TOKENS")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-    else {
+    let Some(raw) = env_non_empty("AI_LLM_PROBE_MAX_TOKENS") else {
         return DEFAULT_EFFORT_MAX_TOKENS;
     };
     match raw.trim().parse::<u32>() {
@@ -668,14 +675,11 @@ fn effort_probe_max_tokens() -> u32 {
 
 /// Resolve the probe credential and model list, or `Ok(None)` when unset.
 fn effort_probe_llm() -> Result<Option<(LiveLlm, Vec<String>)>> {
-    let Some(api_key) = env::var("AI_LLM_PROBE_API_KEY")
-        .ok()
-        .filter(|value| !value.is_empty())
-    else {
+    let Some(api_key) = env_non_empty("AI_LLM_PROBE_API_KEY") else {
         return Ok(None);
     };
-    let provider_key =
-        env::var("AI_LLM_PROBE_PROVIDER").unwrap_or_else(|_| DEFAULT_EFFORT_PROVIDER.to_owned());
+    let provider_key = env_non_empty("AI_LLM_PROBE_PROVIDER")
+        .unwrap_or_else(|| DEFAULT_EFFORT_PROVIDER.to_owned());
     let provider = provider_from_key(&provider_key)
         .with_context(|| format!("invalid AI_LLM_PROBE_PROVIDER {provider_key}"))?;
     let models = env_list("AI_LLM_PROBE_MODELS", &DEFAULT_EFFORT_MODELS);
@@ -714,9 +718,9 @@ async fn reasoning_effort_trades_output_tokens_for_wall_clock() -> Result<()> {
     };
 
     let variants = env_list("AI_LLM_PROBE_EFFORTS", &DEFAULT_EFFORT_VARIANTS);
-    let document_name = env::var("AI_LLM_PROBE_DOCUMENT").unwrap_or_else(|_| "292.pdf".to_owned());
-    let chunk_index = env::var("AI_LLM_PROBE_CHUNK")
-        .ok()
+    let document_name =
+        env_non_empty("AI_LLM_PROBE_DOCUMENT").unwrap_or_else(|| "292.pdf".to_owned());
+    let chunk_index = env_non_empty("AI_LLM_PROBE_CHUNK")
         .and_then(|raw| raw.trim().parse::<usize>().ok())
         .unwrap_or(0);
     let max_tokens = effort_probe_max_tokens();
@@ -1053,11 +1057,8 @@ fn parse_nano_per_mtok(raw: &str) -> Option<u64> {
 /// Optional USD-per-million-token prices so the pass reports money instead of
 /// raw tokens. Absent prices are not an error: the tokens are still reported.
 fn probe_price(name: &str) -> Option<u64> {
-    let raw = env::var(name).ok()?;
+    let raw = env_non_empty(name)?;
     let raw = raw.trim();
-    if raw.is_empty() {
-        return None;
-    }
     match parse_nano_per_mtok(raw) {
         Some(value) => Some(value),
         None => {
@@ -1128,9 +1129,7 @@ async fn reasoning_effort_document_quality_and_cost() -> Result<()> {
     };
 
     let document_name = env::var("AI_LLM_PROBE_DOCUMENT").unwrap_or_else(|_| "292.pdf".to_owned());
-    let model = env::var("AI_LLM_PROBE_DOC_MODEL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    let model = env_non_empty("AI_LLM_PROBE_DOC_MODEL")
         .or_else(|| models.first().cloned())
         .ok_or_else(|| anyhow!("AI_LLM_PROBE_MODELS is empty — nothing to probe"))?;
     let variants = env_list("AI_LLM_PROBE_DOC_VARIANTS", &["low"]);
@@ -1151,7 +1150,7 @@ async fn reasoning_effort_document_quality_and_cost() -> Result<()> {
     let chunks = load_fixture_chunks(&source, &extractor, &documents, &document_name).await?;
     let indexes = document_chunks(
         chunks.len(),
-        env::var("AI_LLM_PROBE_DOC_CHUNKS").ok().as_deref(),
+        env_non_empty("AI_LLM_PROBE_DOC_CHUNKS").as_deref(),
     );
     tracing::info!(
         provider = %live.provider.as_str(),
@@ -1319,6 +1318,25 @@ async fn reasoning_effort_document_quality_and_cost() -> Result<()> {
 // here where every CI run sees them. A rounded-up or float-based cost figure
 // would quietly misreport money in the very log line the decision is based on.
 // ===========================================================================
+
+/// The 2026-11-20 nightly failed in 4.6 s because an undefined optional workflow
+/// variable arrives as an EMPTY string, not as "unset".
+#[test]
+fn an_empty_or_blank_setting_is_treated_as_unset() {
+    assert_eq!(non_empty(None), None);
+    assert_eq!(non_empty(Some(String::new())), None);
+    assert_eq!(non_empty(Some("   ".to_owned())), None);
+    assert_eq!(non_empty(Some("\t\n".to_owned())), None);
+    // A real value is passed through untouched (no trimming of a file name).
+    assert_eq!(
+        non_empty(Some("292.pdf".to_owned())).as_deref(),
+        Some("292.pdf")
+    );
+    assert_eq!(
+        non_empty(Some("neuralwatt".to_owned())).as_deref(),
+        Some("neuralwatt")
+    );
+}
 
 #[test]
 fn nano_per_mtok_parses_plain_decimal_prices() {

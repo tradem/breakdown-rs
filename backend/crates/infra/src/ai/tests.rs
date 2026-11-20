@@ -966,6 +966,7 @@ fn script_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds {
             max_chunks_per_script: max_chunks,
             ..AiImportBounds::default()
@@ -1074,6 +1075,7 @@ fn schedule_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
@@ -1266,6 +1268,7 @@ fn script_worker_with_client<C: LlmClient + 'static>(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds {
             max_chunks_per_script: 4,
             ..AiImportBounds::default()
@@ -1476,6 +1479,7 @@ async fn script_worker_surfaces_document_global_category_conflicts() {
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds {
             max_chunks_per_script: 4,
             ..AiImportBounds::default()
@@ -1519,6 +1523,7 @@ async fn script_worker_backfills_scene_number_from_chunk_heading() {
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds {
             max_chunks_per_script: 4,
             ..AiImportBounds::default()
@@ -1566,6 +1571,7 @@ async fn script_worker_preserves_model_title_when_scan_has_none() {
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds {
             max_chunks_per_script: 4,
             ..AiImportBounds::default()
@@ -5198,6 +5204,7 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
         provider: LlmProvider::Ollama,
         model: "fixture".to_owned(),
         prompt: "fixture".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
@@ -6169,6 +6176,7 @@ fn scoring_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: Some(super::DecisionResolution::Available(decision)),
@@ -6374,6 +6382,7 @@ fn worker_decision_config(
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
         vault_key_id: format!("settings-{}", uuid::Uuid::now_v7()),
+        reasoning_effort: None,
         decision,
     }
 }
@@ -6680,6 +6689,7 @@ async fn a_failed_schedule_scoring_request_without_labelled_rows_records_scoring
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
@@ -7252,6 +7262,7 @@ fn cost_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds::default(),
         pricing: Some(pricing),
         decision,
@@ -7501,6 +7512,7 @@ fn per_request_cost_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds::default(),
         pricing: Some(pricing),
         decision: None,
@@ -7753,6 +7765,7 @@ fn resume_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        reasoning_effort: None,
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,

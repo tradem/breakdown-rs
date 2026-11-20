@@ -127,6 +127,7 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 decision_provider: None,
                 decision_model: None,
                 decision_vault_key_id: None,
+                reasoning_effort: None,
             },
         )
         .await
@@ -151,6 +152,7 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 decision_provider: Some(Some(LlmProvider::EURouter)),
                 decision_model: Some(Some(DECISION_MODEL.to_owned())),
                 decision_vault_key_id: Some(Some("extraction-key".to_owned())),
+                reasoning_effort: None,
                 version: created.1,
             },
         )

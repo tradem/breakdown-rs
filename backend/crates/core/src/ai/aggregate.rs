@@ -22,6 +22,7 @@ use super::commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
 use super::error::AiConfigError;
 use super::events::AiConfigEvent;
 use super::ports::LlmProvider;
+use super::reasoning::{ReasoningEffort, supports_reasoning_effort};
 use super::views::{CostDisplayPreference, DocumentKind};
 use super::{decision, decision::is_decision_capable};
 
@@ -40,6 +41,9 @@ pub struct AiConfig {
     pub decision_provider: Option<LlmProvider>,
     pub decision_model: Option<String>,
     pub decision_vault_key_id: Option<String>,
+    /// Requested `reasoning_effort` for the assistant model (2026-11-20
+    /// investigation). `None` = the provider's own default.
+    pub reasoning_effort: Option<ReasoningEffort>,
     pub revoked: bool,
     pub version: AggregateVersion,
 }
@@ -58,6 +62,7 @@ impl Default for AiConfig {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
+            reasoning_effort: None,
             revoked: false,
             version: AggregateVersion::default(),
         }
@@ -89,6 +94,7 @@ impl Apply for AiConfig {
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                reasoning_effort,
                 version,
             } => {
                 self.id = id;
@@ -102,6 +108,7 @@ impl Apply for AiConfig {
                 self.decision_provider = decision_provider;
                 self.decision_model = decision_model;
                 self.decision_vault_key_id = decision_vault_key_id;
+                self.reasoning_effort = reasoning_effort;
                 self.revoked = false;
                 self.version = version;
             }
@@ -115,6 +122,7 @@ impl Apply for AiConfig {
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                reasoning_effort,
                 version,
                 ..
             } => {
@@ -133,6 +141,7 @@ impl Apply for AiConfig {
                 self.decision_provider = decision_provider;
                 self.decision_model = decision_model;
                 self.decision_vault_key_id = decision_vault_key_id;
+                self.reasoning_effort = reasoning_effort;
                 self.revoked = false;
                 self.version = version;
             }
@@ -164,6 +173,11 @@ impl Command<CreateAiConfig> for AiConfig {
             // Creation always introduces the model → the catalog check runs.
             false,
         )?;
+        validate_reasoning_effort(
+            cmd.provider,
+            cmd.assistant_model.as_str(),
+            cmd.reasoning_effort,
+        )?;
         Ok(vec![AiConfigEvent::Created {
             id: cmd.id,
             user_id: cmd.user_id,
@@ -176,6 +190,7 @@ impl Command<CreateAiConfig> for AiConfig {
             decision_provider: cmd.decision_provider,
             decision_model: cmd.decision_model,
             decision_vault_key_id: cmd.decision_vault_key_id,
+            reasoning_effort: cmd.reasoning_effort,
             version: AggregateVersion::INITIAL,
         }])
     }
@@ -235,6 +250,22 @@ impl Command<UpdateAiConfig> for AiConfig {
             decision_vault_key_id.as_deref(),
             model_unchanged,
         )?;
+        // Tri-state resolution, same shape as the decision slot above: an
+        // omitted field keeps the stored effort, `Some(None)` clears it back to
+        // the provider default.
+        let reasoning_effort = cmd.reasoning_effort.unwrap_or(self.reasoning_effort);
+        // Catalogue-rotation safety, mirroring `model_unchanged`: only a CHANGED
+        // pair-or-effort is re-validated, so a catalogue update can never brick
+        // an unrelated prompt-only edit of an existing configuration.
+        let effort_unchanged = reasoning_effort == self.reasoning_effort
+            && cmd.assistant_model == self.assistant_model;
+        if !effort_unchanged {
+            validate_reasoning_effort(
+                cmd.provider,
+                cmd.assistant_model.as_str(),
+                reasoning_effort,
+            )?;
+        }
         Ok(vec![AiConfigEvent::Updated {
             id: self.id,
             provider: cmd.provider,
@@ -246,6 +277,7 @@ impl Command<UpdateAiConfig> for AiConfig {
             decision_provider,
             decision_model,
             decision_vault_key_id,
+            reasoning_effort,
             version: self.version.next(),
         }])
     }
@@ -298,6 +330,26 @@ fn validate_fields(
 /// Validate the optional Decision Model slot as a whole (issue #722): either
 /// every field is unset, or a decision-capable provider, a non-empty curated
 /// model ID and a non-empty vault key reference are all present.
+/// The requested effort must be one the configured pair actually accepts.
+///
+/// `None` is always valid: it means "send no field", i.e. the provider's own
+/// default. A `Some(_)` is refused while the error is cheap — at save time —
+/// rather than paying a `400` on every import call of that configuration.
+fn validate_reasoning_effort(
+    provider: LlmProvider,
+    assistant_model: &str,
+    effort: Option<ReasoningEffort>,
+) -> Result<(), AiConfigError> {
+    let Some(effort) = effort else {
+        return Ok(());
+    };
+    if supports_reasoning_effort(provider, assistant_model, effort) {
+        Ok(())
+    } else {
+        Err(AiConfigError::ReasoningEffortUnsupported)
+    }
+}
+
 fn validate_decision_config(
     provider: Option<LlmProvider>,
     model: Option<&str>,

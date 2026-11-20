@@ -264,6 +264,15 @@ components:
           type: object
         provider:
           $ref: '#/components/schemas/LlmProvider'
+        reasoning_effort:
+          oneOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+            description: |-
+              The configured `reasoning_effort` for the assistant model, or `None` for
+              the provider's own default (2026-11-20 investigation). Additive with
+              `serde(default)`: a view serialized before the field existed
+              deserializes as `None`.
+          - type: 'null'
         revoked:
           type: boolean
         stored_prompt_kinds:
@@ -2116,6 +2125,15 @@ components:
           type: object
         provider:
           $ref: '#/components/schemas/LlmProvider'
+        reasoning_effort:
+          oneOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+            description: |-
+              Requested `reasoning_effort` for the assistant model (2026-11-20
+              investigation). `null`/omitted keeps the provider's own default. Only a
+              pair that DECLARES the parameter may set it — the aggregate answers `422`
+              otherwise, while the mistake is still cheap.
+          - type: 'null'
         vault_key_id:
           type: string
       required:
@@ -4335,6 +4353,21 @@ components:
       - hold_deadline
       - chunks_done
       type: object
+    ReasoningEffort:
+      description: |-
+        Provider-side `reasoning_effort` a caller may request.
+
+        Deliberately a closed set with wire-stable names: a free-form string would let
+        a typo reach a provider that answers `400` on every call of that
+        configuration. The provider-specific extras (`max`, `xhigh`, `none`) are not
+        modelled — every use case here is *reducing* effort, and the common
+        denominator of the three catalogues is `low`/`medium`/`high`/`minimal`.
+      enum:
+      - minimal
+      - low
+      - medium
+      - high
+      type: string
     RenameEpisodeRequest:
       properties:
         name:
@@ -5525,6 +5558,14 @@ components:
           type: object
         provider:
           $ref: '#/components/schemas/LlmProvider'
+        reasoning_effort:
+          oneOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+            description: |-
+              Tri-state like the decision slot (2026-11-20 investigation): omitted
+              keeps the stored effort, an explicit `null` clears it back to the
+              provider default, a value replaces it.
+          - type: 'null'
         vault_key_id:
           type: string
         version:
@@ -11828,6 +11869,11 @@ x-code-registry:
   status: 422
   title: Decision model not curated for provider
   type: https://docs.breakdown.example/problems/ai-config.decision-model-unknown
+- code: ai-config.reasoning-effort-unsupported
+  extensions: []
+  status: 422
+  title: Reasoning effort not supported by this model
+  type: https://docs.breakdown.example/problems/ai-config.reasoning-effort-unsupported
 - code: ai-config.decision-vault-key-empty
   extensions: []
   status: 422

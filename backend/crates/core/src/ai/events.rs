@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, UserId};
 
 use super::ports::LlmProvider;
+use super::reasoning::ReasoningEffort;
 use super::views::{CostDisplayPreference, DocumentKind};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,6 +42,11 @@ pub enum AiConfigEvent {
         /// The vault key reference of the decision provider credential.
         #[serde(default)]
         decision_vault_key_id: Option<String>,
+        /// Requested `reasoning_effort` (2026-11-20 investigation).
+        /// `#[serde(default)]` keeps older events replayable: they deserialize
+        /// to `None`, i.e. the provider's own default (the pre-field behaviour).
+        #[serde(default)]
+        reasoning_effort: Option<ReasoningEffort>,
         version: AggregateVersion,
     },
     Updated {
@@ -66,6 +72,10 @@ pub enum AiConfigEvent {
         /// See [`AiConfigEvent::Created::decision_vault_key_id`].
         #[serde(default)]
         decision_vault_key_id: Option<String>,
+        /// The RESOLVED effort after the tri-state update, so replay and the
+        /// projector simply assign it (same shape as the decision slot).
+        #[serde(default)]
+        reasoning_effort: Option<ReasoningEffort>,
         version: AggregateVersion,
     },
     Revoked {
