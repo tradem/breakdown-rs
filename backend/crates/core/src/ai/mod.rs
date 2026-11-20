@@ -25,6 +25,7 @@ pub mod events;
 pub mod ports;
 pub mod preview;
 pub mod provider_health;
+pub mod reasoning;
 pub mod source_name;
 pub mod views;
 
@@ -82,6 +83,7 @@ pub use preview::{
     scene_beat_lanes, shooting_day_group_refs, stable_draft_ref, verify_draft_outfits,
 };
 pub use provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
+pub use reasoning::{ReasoningEffort, supported_reasoning_efforts, supports_reasoning_effort};
 pub use source_name::{MAX_SOURCE_FILE_NAME_CHARS, sanitize_source_file_name};
 pub use views::{
     AiConfigView, AiImportAttempt, AiImportJob, AiImportJobId, AiImportProgress, AiImportStage,

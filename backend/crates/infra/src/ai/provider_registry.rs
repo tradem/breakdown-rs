@@ -311,6 +311,24 @@ pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<&'
 mod tests {
     use super::*;
 
+    /// The forcing function behind "check every provider so nothing is
+    /// forgotten": Neuralwatt publishes `capabilities.reasoning_effort` for
+    /// EVERY model, so a newly curated Neuralwatt model must appear in core's
+    /// effort table too. Adding one to `curated_model_ids` without declaring its
+    /// efforts fails here instead of silently degrading that model to the
+    /// provider default.
+    #[test]
+    fn every_curated_neuralwatt_model_declares_its_reasoning_efforts() {
+        for model in curated_model_ids(LlmProvider::Neuralwatt) {
+            assert!(
+                breakdown_core::ai::supported_reasoning_efforts(LlmProvider::Neuralwatt, model)
+                    .is_some(),
+                "{model} is curated on Neuralwatt but missing from \
+                 core::ai::supported_reasoning_efforts"
+            );
+        }
+    }
+
     /// Only a CURATED pair may carry a pinned effort: a typo'd or rotated-out
     /// model id would silently pin nothing, and a model nobody curates is not a
     /// model the API can produce.
