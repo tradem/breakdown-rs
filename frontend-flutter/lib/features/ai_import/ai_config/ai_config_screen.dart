@@ -18,9 +18,11 @@ import '../../../design/components/xml_prompt_editor.dart';
 import '../../../design/spacing.dart';
 import '../../../l10n/app_localizations_provider.dart';
 import '../../../l10n/generated/app_localizations.dart';
+import '../../../l10n/locale_formatters.dart';
 import '../clippy/clippy_trigger.dart';
 import '../cost_format.dart';
 import '../clippy/karl_kleiderbuegel_overlay.dart';
+import '../import_jobs/import_state.dart' show aiProviderWireKey;
 import 'ai_config_controller.dart';
 import 'ai_config_state.dart';
 import '../../../design/components/breakdown_app_bar.dart';
@@ -235,6 +237,19 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
         ? ClippyFlowState.noConfig
         : ClippyFlowState.idle;
 
+    // The health cards take CANONICAL wire keys only (the route answers a
+    // non-canonical key with `422`). Both selections need normalizing for the
+    // same reason and are derived once, so the "same provider" comparison below
+    // compares like with like: a stored config seeds the DRAFT with the Dart
+    // enum name (`opencodeGo`), the dropdown and the catalog use the wire
+    // spelling (`opencode-go`).
+    final extractionWireKey = state.config == null
+        ? null
+        : _providerWireKey(state, state.config!.provider);
+    final decisionWireKey = state.selectedDecisionProviderKey == null
+        ? null
+        : _selectionWireKey(state, state.selectedDecisionProviderKey!);
+
     return PopScope(
       // Leaving with unsaved drafts is the failure mode this screen must not
       // hide: the form holds DRAFTS, so back-navigation without a save is a
@@ -392,7 +407,21 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                   )
               else if (state.isFirstRun)
                 _FirstRunForm(state: state)
-              else
+              else ...[
+                // Provider health + budget (issue #942 W5). Rendered ABOVE the
+                // form and only when a config exists: "is my account usable right
+                // now" is the question a user has before editing anything, and
+                // the first-run state has nothing configured to measure.
+                _ProviderHealthCard(
+                  providerKey: extractionWireKey,
+                  role: _ProviderHealthRole.extraction,
+                ),
+                if (decisionWireKey != null &&
+                    decisionWireKey != extractionWireKey)
+                  _ProviderHealthCard(
+                    providerKey: decisionWireKey,
+                    role: _ProviderHealthRole.decision,
+                  ),
                 _ConfiguredForm(
                   state: state,
                   replacementKeyController: _replacementKeyController,
@@ -402,6 +431,7 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                   busy: _busy,
                   onRevoke: _revoke,
                 ),
+              ],
             ],
           ),
         ),
@@ -1568,6 +1598,257 @@ class _Banner extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// --- Provider health + budget (issue #942 W5) -------------------------------
+
+/// Which configured provider a [_ProviderHealthCard] describes.
+enum _ProviderHealthRole { extraction, decision }
+
+/// The canonical wire key of [provider] (`/ai-import/providers` `key` field).
+///
+/// The resolved catalog is the authority (it is what the backend serves), and
+/// [`aiProviderWireKey`] is the client's single enum→wire mapping for the
+/// pre-catalog window — the health route takes the KEY, never the Dart constant
+/// name (`opencodeGo` vs `opencode-go`, which the route answers with a `422`).
+///
+/// Deliberately NOT `state.selectedProviderKey`: that holds the DRAFT selection,
+/// which may belong to a different provider than [provider] and may not be
+/// resolvable to a wire key at all. A wrong key is worse than a slow one — it
+/// renders "status unreadable" for a provider that is fine.
+String _providerWireKey(AiConfigScreenState state, LlmProvider provider) {
+  final rows = state.providers.value;
+  if (rows != null) {
+    for (final row in rows) {
+      if (row.provider == provider) return row.key;
+    }
+  }
+  return aiProviderWireKey(provider);
+}
+
+/// The canonical wire key of a SELECTION value.
+///
+/// A selection is one of two vocabularies: a catalog key (a dropdown pick, and
+/// `AiProviderInfo.key` is already the wire spelling) or the stored config's Dart
+/// enum name, which is what the controller seeds the draft with
+/// (`config?.decisionProvider?.name`). `opencodeGo` is not a wire key, so a card
+/// fed the raw selection would ask the route about a provider that does not exist
+/// and render it as unreadable — even with the same provider's card right above
+/// it holding the correct key.
+///
+/// An unknown string is passed through unchanged: inventing a mapping for a
+/// provider the client does not know would be worse than letting the server
+/// answer its own `422`.
+String _selectionWireKey(AiConfigScreenState state, String selection) {
+  final rows = state.providers.value;
+  if (rows != null && rows.any((row) => row.key == selection)) {
+    return selection;
+  }
+  for (final provider in LlmProvider.values) {
+    if (provider.name == selection) return aiProviderWireKey(provider);
+  }
+  return selection;
+}
+
+/// Provider health + remaining budget (issue #942 W5).
+///
+/// Deliberately NOT a variant of the backend-reachability card: an unreachable or
+/// unpaid **provider** must never render as "Backend noch nicht erreichbar"
+/// (issue #809/#942 F5). The two facts live on two providers and two cards.
+///
+/// The rendered states are kept distinct on purpose (spec
+/// `flutter-ai-import-provider-health`): checking / usable (+ budget, budget
+/// unknown, no limit) / not usable (rejected key or exhausted quota) / unknown
+/// (no probe available) / unconfigured (no key held) / forbidden. `unknown` is
+/// never rendered as a denial (#816): it states what the client knows.
+///
+/// Retry is for a FAILED READ only (`docs/design/screens/ai-config.md`): a
+/// denial cannot be flipped by retrying, and a read that ANSWERED `unknown` has
+/// nothing new to fetch — the state is the server's answer, not a transport
+/// problem of this screen.
+class _ProviderHealthCard extends ConsumerWidget {
+  const _ProviderHealthCard({required this.providerKey, required this.role});
+
+  /// The provider's wire key ([_providerWireKey] — catalog-resolved when it is
+  /// available, the canonical enum→wire mapping otherwise; never the Dart enum
+  /// name, which the route answers with a `422`). `null` only for a caller that
+  /// has no key to ask about (the extraction key is never null, the decision key
+  /// is until the draft or the config names one).
+  final String? providerKey;
+  final _ProviderHealthRole role;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key = providerKey;
+    if (key == null) return const SizedBox.shrink();
+    final l10n = l10nOf(context);
+    final health = ref.watch(aiProviderHealthProvider(key));
+    final roleLabel = switch (role) {
+      _ProviderHealthRole.extraction =>
+        l10n.aiConfigProviderHealthRoleExtraction,
+      _ProviderHealthRole.decision => l10n.aiConfigProviderHealthRoleDecision,
+    };
+
+    var showRetry = false;
+    var denied = false;
+    final Widget body;
+    switch (health) {
+      case AsyncData(:final value):
+        body = value.match((error) {
+          if (error.code == kAiConfigCapabilityDeniedCode) {
+            denied = true;
+            return Text(
+              l10n.aiConfigProviderHealthForbidden,
+              key: const Key('ai-config-provider-health-forbidden'),
+            );
+          }
+          showRetry = true;
+          return Text(
+            l10n.aiConfigProviderHealthFailed,
+            key: const Key('ai-config-provider-health-failed'),
+          );
+        }, (view) => _ProviderHealthDetail(view: view));
+      case AsyncError():
+        showRetry = true;
+        body = Text(
+          l10n.aiConfigProviderHealthFailed,
+          key: const Key('ai-config-provider-health-failed'),
+        );
+      default:
+        body = Text(
+          l10n.aiConfigProviderHealthChecking,
+          key: const Key('ai-config-provider-health-checking'),
+        );
+    }
+
+    return Card(
+      key: const Key('ai-config-provider-health'),
+      color: denied ? Theme.of(context).colorScheme.errorContainer : null,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.space12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.monitor_heart_outlined, size: 18),
+                const SizedBox(width: AppSpacing.space4),
+                Expanded(
+                  child: Text(
+                    l10n.aiConfigProviderHealthTitle(roleLabel, key),
+                    key: const Key('ai-config-provider-health-title'),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.space8),
+            body,
+            if (showRetry) ...[
+              const SizedBox(height: AppSpacing.space8),
+              OutlinedButton(
+                key: const Key('ai-config-provider-health-retry'),
+                onPressed: () => ref.invalidate(aiProviderHealthProvider(key)),
+                child: Text(l10n.commonRetry),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The resolved provider-health answer, rendered as three separate facts:
+/// account usability, remaining budget and the paused `(provider, model)` pairs.
+class _ProviderHealthDetail extends StatelessWidget {
+  const _ProviderHealthDetail({required this.view});
+
+  final AiProviderHealthView view;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    // A MEASURED verdict outranks the credential inference (review of #942 W5).
+    // A local provider (`ProbeCapability::LocalTags`, Ollama) is probed over its
+    // own endpoint and needs no Vault binding at all, so
+    // `credential_configured: false` there means "no key held", not "we could
+    // not tell" — letting the credential branch win would render "kein Schlüssel
+    // hinterlegt" over a successful probe and hide a healthy account. The
+    // server only reports `usable`/`not_usable` when it actually measured
+    // something, so those two states are always the better fact.
+    final status = switch (view.probeStatus) {
+      AccountProbeStatus.usable => l10n.aiConfigProviderHealthUsable,
+      AccountProbeStatus.notUsable => l10n.aiConfigProviderHealthNotUsable,
+      // Nothing was measured: distinguish "the answer did not arrive" from
+      // "there is no key to measure" — the second is actionable (store a key)
+      // and is not the provider's fault.
+      _ =>
+        view.credentialConfigured
+            ? l10n.aiConfigProviderHealthUnknown
+            : l10n.aiConfigProviderHealthUnconfigured,
+    };
+
+    // Three-valued on purpose: absent `budget` = the provider reports none,
+    // `remaining: null` = no limit configured, a number = a real figure. Never a
+    // fabricated 0 (issue #942 W4/D6).
+    final budget = view.budget;
+    final budgetText = budget == null
+        ? l10n.aiConfigProviderHealthBudgetUnknown
+        : switch (budget.remaining) {
+            final double remaining =>
+              l10n.aiConfigProviderHealthBudgetRemaining(
+                formatDecimal(context, remaining),
+              ),
+            _ => l10n.aiConfigProviderHealthBudgetUnlimited,
+          };
+
+    final held = view.breakers
+        .where((breaker) => breaker.state != ProviderBreakerState.closed)
+        .toList(growable: false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(status, key: const Key('ai-config-provider-health-status')),
+        const SizedBox(height: AppSpacing.space4),
+        Text(budgetText, key: const Key('ai-config-provider-health-budget')),
+        if (held.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.space8),
+          Text(
+            l10n.aiConfigProviderHealthHeldTitle,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          for (final breaker in held)
+            Text(
+              _heldPairLabel(context, l10n, breaker),
+              key: Key('ai-config-provider-health-held-${breaker.model}'),
+            ),
+        ],
+      ],
+    );
+  }
+
+  /// One paused pair: a granted trial reads differently from a scheduled probe,
+  /// and an open pair without a probe time says so instead of inventing one.
+  String _heldPairLabel(
+    BuildContext context,
+    AppLocalizations l10n,
+    AiProviderBreakerView breaker,
+  ) {
+    if (breaker.state == ProviderBreakerState.halfOpen &&
+        breaker.trialGranted) {
+      return l10n.aiConfigProviderHealthTrial(breaker.model);
+    }
+    final until = breaker.retryAt;
+    if (until == null) {
+      return l10n.aiConfigProviderHealthHeldPairNoEta(breaker.model);
+    }
+    return l10n.aiConfigProviderHealthHeldPair(
+      breaker.model,
+      formatClock(context, until),
     );
   }
 }

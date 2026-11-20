@@ -90,7 +90,7 @@ fn api_routes_are_behind_auth_middleware() {
     //  patterns, not method-verb pairs.)
     assert_eq!(
         api.len(),
-        113,
+        114,
         "number of API route path patterns has changed — \
          see doc comment above for update instructions"
     );
@@ -409,6 +409,14 @@ fn api_routes_have_deliberate_authorization_requirement() {
         // gate is handler-internal (`// AUTHZ-GATE:`, like decision-models).
         (
             "/ai-import/providers/{provider}/image-models",
+            Requirement::Authenticated,
+        ),
+        // Provider health + budget read (issue #942 W4) — same AuthN level as
+        // the sibling catalog reads; the credential-role gate is
+        // handler-internal (`// AUTHZ-GATE:`), and the caller's own Vault
+        // binding is resolved inside the handler.
+        (
+            "/ai-import/providers/{provider}/health",
             Requirement::Authenticated,
         ),
         // Prompt-default prefill for the AI-config dialog (issue #471) —

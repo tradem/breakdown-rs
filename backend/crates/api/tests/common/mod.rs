@@ -3533,6 +3533,11 @@ pub struct FakePorts {
     /// + document source.
     pub ai_payload_store: MemoryAiPreviewStore,
     pub projector_health_repo: FakeProjectorHealthRepo,
+    /// Breaker read model behind `GET /ai-import/providers/{provider}/health`
+    /// (issue #942 W4).
+    pub ai_provider_health: FakeProviderHealth,
+    /// Account probe behind the same route (issue #942 W4).
+    pub ai_provider_account_probe: FakeAccountProbe,
 }
 
 impl Default for FakePorts {
@@ -3576,7 +3581,162 @@ impl Default for FakePorts {
             ai_model_pricing: Default::default(),
             ai_payload_store: Default::default(),
             projector_health_repo: Default::default(),
+            ai_provider_health: Default::default(),
+            ai_provider_account_probe: Default::default(),
         }
+    }
+}
+
+/// Fake breaker read model (issue #942 W4).
+///
+/// The read path only ever *reads*: `state` for a pair and `open_breakers` for
+/// the non-closed rows. Every transition method therefore answers an error — a
+/// fake that silently accepted one would hide a handler that tried to move a
+/// breaker from an HTTP request.
+#[derive(Clone, Default)]
+pub struct FakeProviderHealth {
+    /// Seeded per-pair snapshots, keyed `(provider wire key, model)`.
+    pub snapshots:
+        Arc<Mutex<HashMap<(String, String), breakdown_core::ai::ProviderBreakerSnapshot>>>,
+    /// The rows `open_breakers` answers, in selection order.
+    pub open: Arc<Mutex<Vec<breakdown_core::ai::OpenBreaker>>>,
+    /// Make the read fail (the 503 branch).
+    pub error: Arc<Mutex<Option<String>>>,
+}
+
+// Each test binary that includes this shared module compiles it separately, so
+// a helper only some binaries call (here: the #942 W4 health-read seeds) is dead
+// code in the rest — same reason `FakeSettingsRepo` is annotated.
+#[allow(dead_code)]
+impl FakeProviderHealth {
+    /// Seed one pair's breaker row.
+    pub async fn seed(
+        &self,
+        provider: breakdown_core::ai::LlmProvider,
+        model: &str,
+        snapshot: breakdown_core::ai::ProviderBreakerSnapshot,
+    ) {
+        self.snapshots
+            .lock()
+            .await
+            .insert((provider.as_str().to_owned(), model.to_owned()), snapshot);
+    }
+}
+
+#[async_trait]
+impl breakdown_core::ai::ProviderHealth for FakeProviderHealth {
+    async fn state(
+        &self,
+        provider: breakdown_core::ai::LlmProvider,
+        model: &str,
+    ) -> Result<breakdown_core::ai::ProviderBreakerSnapshot, DomainError> {
+        if let Some(err) = self.error.lock().await.clone() {
+            return Err(DomainError::internal(err));
+        }
+        Ok(self
+            .snapshots
+            .lock()
+            .await
+            .get(&(provider.as_str().to_owned(), model.to_owned()))
+            .cloned()
+            .unwrap_or_else(breakdown_core::ai::ProviderBreakerSnapshot::closed))
+    }
+
+    async fn record_failure(
+        &self,
+        _provider: breakdown_core::ai::LlmProvider,
+        _model: &str,
+        _threshold: u32,
+        _retry_after: Option<std::time::Duration>,
+    ) -> Result<breakdown_core::ai::BreakerDecision, DomainError> {
+        Err(DomainError::internal(
+            "fake provider health: the health read must never transition a breaker",
+        ))
+    }
+
+    async fn record_success(
+        &self,
+        _provider: breakdown_core::ai::LlmProvider,
+        _model: &str,
+    ) -> Result<breakdown_core::ai::BreakerDecision, DomainError> {
+        Err(DomainError::internal(
+            "fake provider health: the health read must never transition a breaker",
+        ))
+    }
+
+    async fn try_begin_probe(
+        &self,
+        _provider: breakdown_core::ai::LlmProvider,
+        _model: &str,
+        _owner: &str,
+    ) -> Result<Option<breakdown_core::ai::ProbeLease>, DomainError> {
+        Err(DomainError::internal(
+            "fake provider health: the health read must never take a probe lease",
+        ))
+    }
+
+    async fn finish_probe(
+        &self,
+        _lease: &breakdown_core::ai::ProbeLease,
+        _outcome: breakdown_core::ai::ProbeOutcome,
+    ) -> Result<breakdown_core::ai::BreakerDecision, DomainError> {
+        Err(DomainError::internal(
+            "fake provider health: the health read must never write a probe result",
+        ))
+    }
+
+    async fn open_breakers(
+        &self,
+        _limit: i64,
+    ) -> Result<Vec<breakdown_core::ai::OpenBreaker>, DomainError> {
+        if let Some(err) = self.error.lock().await.clone() {
+            return Err(DomainError::internal(err));
+        }
+        Ok(self.open.lock().await.clone())
+    }
+}
+
+/// One account probe the route performed (issue #942 W4).
+///
+/// Recorded instead of merely answered: the security property this route must
+/// hold is *which* credential it read, and only the request can show that.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordedAccountProbe {
+    pub user_id: String,
+    pub provider: breakdown_core::ai::LlmProvider,
+    pub vault_key_id: String,
+    pub key: Option<String>,
+}
+
+/// Fake account probe (issue #942 W4): records every request, answers a seeded
+/// snapshot (default: `unknown`).
+#[derive(Clone, Default)]
+pub struct FakeAccountProbe {
+    pub snapshot: Arc<Mutex<breakdown_core::ai::AccountProbeSnapshot>>,
+    pub requests: Arc<Mutex<Vec<RecordedAccountProbe>>>,
+}
+
+#[allow(dead_code)] // see the note on `FakeProviderHealth`'s impl above
+impl FakeAccountProbe {
+    /// The requests this fake served, in call order.
+    pub async fn recorded(&self) -> Vec<RecordedAccountProbe> {
+        self.requests.lock().await.clone()
+    }
+}
+
+#[async_trait]
+impl breakdown_core::ai::ProviderAccountProbe for FakeAccountProbe {
+    async fn probe_account(
+        &self,
+        request: breakdown_core::ai::AccountProbeRequest<'_>,
+    ) -> breakdown_core::ai::AccountProbeSnapshot {
+        self.requests.lock().await.push(RecordedAccountProbe {
+            user_id: request.user_id.as_str().to_owned(),
+            provider: request.provider,
+            vault_key_id: request.vault_key_id.to_owned(),
+            key: request.key.map(str::to_owned),
+        });
+        *self.snapshot.lock().await
     }
 }
 
@@ -3621,6 +3781,8 @@ impl Ports for FakePorts {
     type AiDocumentStore = MemoryAiPreviewStore;
     type AiDocumentSource = MemoryAiPreviewStore;
     type ProjectorHealthRepo = FakeProjectorHealthRepo;
+    type AiProviderHealth = FakeProviderHealth;
+    type AiProviderAccountProbe = FakeAccountProbe;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -3744,5 +3906,11 @@ impl Ports for FakePorts {
     }
     fn projector_health_repo(&self) -> &Self::ProjectorHealthRepo {
         &self.projector_health_repo
+    }
+    fn ai_provider_health(&self) -> &Self::AiProviderHealth {
+        &self.ai_provider_health
+    }
+    fn ai_provider_account_probe(&self) -> &Self::AiProviderAccountProbe {
+        &self.ai_provider_account_probe
     }
 }

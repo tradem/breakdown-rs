@@ -1641,6 +1641,119 @@ pub const fn probe_capability(provider: LlmProvider) -> ProbeCapability {
     }
 }
 
+/// What a **zero-token account probe** observed about one credential
+/// (issue #942 W4).
+///
+/// Deliberately three members and no free text: the status is what the client
+/// renders and what the operator reads, so it must never carry an upstream
+/// body (ADR-031 forbids raw provider `detail` on the wire). `Unknown` is a
+/// first-class answer, not a failure: the provider may expose no verified
+/// endpoint, or the read may time out — and an unknown account state must
+/// never be rendered as "unusable" (`#816`: an unknown answer is not a
+/// denial) nor admitted as "usable" by a paid-call gate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountProbeStatus {
+    /// The credential was accepted (and, where the provider reports one, a
+    /// positive budget remains).
+    Usable,
+    /// A rejection (`401`/`402`/`403`) or an exhausted balance: the account
+    /// cannot pay right now.
+    NotUsable,
+    /// No verdict: the provider exposes no verified zero-token endpoint, the
+    /// request timed out, or the transport failed. The default, because nothing
+    /// has been measured yet.
+    #[default]
+    Unknown,
+}
+
+impl AccountProbeStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Usable => "usable",
+            Self::NotUsable => "not_usable",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// The account's remaining budget, as the provider itself reports it
+/// (issue #942 W4).
+///
+/// Two levels of "no number" are deliberately distinct, because the client
+/// must not fabricate a `0`:
+///
+/// * the whole snapshot is `None` — the provider exposes no budget read at all
+///   (or there is no credential to read it with), so the surface says
+///   "unbekannt";
+/// * `remaining` is `None` — the provider answered and reports **no limit**
+///   configured, which is the opposite of an exhausted account.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AccountBudget {
+    pub remaining: Option<f64>,
+}
+
+/// One account probe's observation: the verdict plus, where supported, the
+/// remaining budget.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AccountProbeSnapshot {
+    pub status: AccountProbeStatus,
+    pub budget: Option<AccountBudget>,
+}
+
+impl AccountProbeSnapshot {
+    /// No measurement — the value a provider without a verified endpoint, or
+    /// one whose probe was never attempted, answers with.
+    #[must_use]
+    pub const fn unknown() -> Self {
+        Self {
+            status: AccountProbeStatus::Unknown,
+            budget: None,
+        }
+    }
+
+    /// Whether the paid-call gate may resume. `Unknown` is **not** usable: the
+    /// breaker must never spend money on an unknown (issue #942 W1).
+    #[must_use]
+    pub const fn admits_paid_call(self) -> bool {
+        matches!(self.status, AccountProbeStatus::Usable)
+    }
+}
+
+/// One account probe request: **the caller's own** credential (issue #942 W4).
+///
+/// The identity fields exist for the caching seam, not for the provider call:
+/// a budget number is account-scoped, so a cache keyed by `provider` alone
+/// would serve one user's balance to another. `key` is `None` for a provider
+/// whose preflight carries no credential at all (the local Ollama read).
+#[derive(Debug, Clone, Copy)]
+pub struct AccountProbeRequest<'a> {
+    pub user_id: &'a UserId,
+    pub provider: LlmProvider,
+    /// The opaque Vault reference the secret was read with — part of the cache
+    /// identity, and never secret material itself.
+    pub vault_key_id: &'a str,
+    pub key: Option<&'a str>,
+}
+
+/// The account-usability seam of the recovery probe (issue #942 W4).
+///
+/// Split from [`ProviderProbe`] (infra) on purpose: the breaker's probe answers
+/// "may this pair resume paying" for a **donor job's** credential, while this
+/// port answers "is **this caller's** account usable, and how much budget is
+/// left" for the HTTP read. Sharing one trait would put a user-readable read
+/// and a fleet-wide gate on one signature, and the security rule that separates
+/// them (a donor credential must never populate a user-visible response) would
+/// live in a comment instead of in the type system.
+#[async_trait]
+pub trait ProviderAccountProbe: Send + Sync {
+    /// Probe `request`'s credential. Never fails: every failure mode is an
+    /// [`AccountProbeStatus`], because a health read must not turn a provider
+    /// outage into an error page.
+    async fn probe_account(&self, request: AccountProbeRequest<'_>) -> AccountProbeSnapshot;
+}
+
 /// The bounded evidence of the failure that put a job on a hold (issue #942 W2).
 ///
 /// Owned and pre-bounded on purpose: the worker holds it across an `await`

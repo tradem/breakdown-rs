@@ -4257,27 +4257,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String aiJobProviderHoldTitle(String provider) {
-    return '$provider is unreachable';
+    return '$provider: repeated failed attempts';
   }
 
   @override
   String aiJobProviderHoldBody(String until, String deadline) {
-    return 'The job waits until $until, at the latest until $deadline. No attempt is being spent – the import continues after the pause as soon as the provider is back.';
+    return 'The job waits until $until; at the latest until $deadline. Why the attempts failed – a timeout, an error response from the provider, or a slow answer – cannot be told from here; the attempt history may contain details. No retry is consumed; whether the provider still bills the aborted call is not observable from here. The import continues after the pause as soon as the provider answers.';
   }
 
   @override
   String aiJobProviderHoldExpiredBody(String deadline) {
-    return 'The provider did not come back by $deadline. The job was therefore ended without spending an attempt – upload the document again once the provider answers.';
+    return 'The provider did not recover until $deadline. The job was therefore ended without consuming a retry – whether the provider still billed the aborted calls is not observable from here. Upload the document again once the provider answers.';
   }
 
   @override
   String aiJobsRowProviderHold(String provider, String until) {
-    return '$provider unreachable · waits until $until';
+    return '$provider: repeated failures · waits until $until';
   }
 
   @override
   String aiJobProviderHoldExpiredTitle(String provider) {
-    return '$provider did not come back';
+    return '$provider did not recover';
   }
 
   @override
@@ -4288,5 +4288,72 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String aiJobStageResumedUnknown(String n) {
     return 'Continuing from section $n';
+  }
+
+  @override
+  String aiConfigProviderHealthTitle(String role, String provider) {
+    return 'Provider status · $role ($provider)';
+  }
+
+  @override
+  String get aiConfigProviderHealthRoleExtraction => 'Extraction';
+
+  @override
+  String get aiConfigProviderHealthRoleDecision => 'Decision';
+
+  @override
+  String get aiConfigProviderHealthChecking => 'Checking the provider …';
+
+  @override
+  String get aiConfigProviderHealthUsable => 'The provider is accepting jobs.';
+
+  @override
+  String get aiConfigProviderHealthNotUsable =>
+      'The provider rejects the key or the budget is exhausted – please check the key and the balance.';
+
+  @override
+  String get aiConfigProviderHealthUnknown =>
+      'Status unknown – this provider offers no probe without a paid call, or the probe did not come through.';
+
+  @override
+  String get aiConfigProviderHealthUnconfigured =>
+      'No key is stored for this provider yet.';
+
+  @override
+  String get aiConfigProviderHealthForbidden =>
+      'No permission for the provider probe.';
+
+  @override
+  String get aiConfigProviderHealthFailed =>
+      'The provider status could not be read.';
+
+  @override
+  String get aiConfigProviderHealthBudgetUnknown => 'Remaining budget: unknown';
+
+  @override
+  String get aiConfigProviderHealthBudgetUnlimited =>
+      'Remaining budget: no limit configured';
+
+  @override
+  String aiConfigProviderHealthBudgetRemaining(String amount) {
+    return 'Remaining budget: $amount';
+  }
+
+  @override
+  String get aiConfigProviderHealthHeldTitle => 'Paused models';
+
+  @override
+  String aiConfigProviderHealthHeldPair(String model, String until) {
+    return '$model: paused until $until';
+  }
+
+  @override
+  String aiConfigProviderHealthTrial(Object model) {
+    return '$model: trial granted';
+  }
+
+  @override
+  String aiConfigProviderHealthHeldPairNoEta(String model) {
+    return '$model: paused';
   }
 }

@@ -23,6 +23,7 @@ import 'package:breakdown_api/src/model/ai_import_defaults.dart';
 import 'package:breakdown_api/src/model/ai_import_job_response.dart';
 import 'package:breakdown_api/src/model/ai_import_preview_response.dart';
 import 'package:breakdown_api/src/model/ai_import_target_request.dart';
+import 'package:breakdown_api/src/model/ai_provider_health_view.dart';
 import 'package:breakdown_api/src/model/ai_provider_info.dart';
 import 'package:breakdown_api/src/model/apply_ai_import_request.dart';
 import 'package:breakdown_api/src/model/apply_run_accepted.dart';
@@ -3326,6 +3327,94 @@ class HandlersApi {
     }
 
     return Response<AiImportPreviewResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// &#x60;GET /ai-import/providers/{provider}/health&#x60;
+  /// Answers \&quot;is my AI account usable right now, how much budget is left, and which &#x60;(provider, model)&#x60; pairs are held\&quot; without spending a paid call.
+  ///
+  /// Parameters:
+  /// * [provider] - Curated provider key (e.g. eurouter, neuralwatt)
+  /// * [model] - Restrict the breaker snapshot to one model of the provider
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [AiProviderHealthView] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<AiProviderHealthView>> getAiProviderHealth({
+    required String provider,
+    String? model,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/v1/ai-import/providers/{provider}/health'.replaceAll(
+        '{' r'provider' '}',
+        encodeQueryParameter(_serializers, provider, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (model != null)
+        r'model':
+            encodeQueryParameter(_serializers, model, const FullType(String)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    AiProviderHealthView? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(AiProviderHealthView),
+            ) as AiProviderHealthView;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<AiProviderHealthView>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

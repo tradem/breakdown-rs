@@ -842,6 +842,15 @@ async fn main() -> Result<()> {
             preview_store: ai_preview_store,
             document_store: ai_document_store,
             document_source: ai_document_source,
+            // Provider health + budget read (issue #942 W4): the breaker read
+            // model and the caller-credential account probe, both wired here so
+            // the route works with the same adapters the breaker uses — a second
+            // construction would be a second `/key` verdict. Cheap handles: a
+            // `PgPool` clone and one shared TTL cache, no `Arc<dyn …>` needed.
+            provider_health: infra::ai::provider_health::PgProviderHealth::new(pool.clone()),
+            provider_account_probe: infra::ai::provider_probe::CachedAccountProbe::new(
+                std::sync::Arc::new(infra::ai::provider_probe::KeyEndpointAccountProbe::new()),
+            ),
         },
         infra::projectors::ProjectorHealthRepository::new(pool.clone()),
     );

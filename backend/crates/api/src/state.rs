@@ -22,7 +22,7 @@ use std::sync::Arc;
 use crate::auth::authorization::MembershipAuthorizationPolicy;
 use breakdown_core::ai::{
     AiConfigCommands, AiConfigRepository, AiImportMappingRepository, AiImportQueue,
-    AiModelPricingRepository,
+    AiModelPricingRepository, ProviderAccountProbe, ProviderHealth,
 };
 use breakdown_core::audit::AuditRepository;
 use breakdown_core::block::{BlockCommands, BlockRepository};
@@ -44,6 +44,8 @@ use breakdown_core::scene_shoot::{
 use breakdown_core::season::{SeasonCommands, SeasonRepository};
 use breakdown_core::settings::{CredentialVault, SettingsCommands, SettingsRepository};
 use breakdown_core::shooting_day::{ShootingDayCommands, ShootingDayRepository};
+use infra::ai::provider_health::PgProviderHealth;
+use infra::ai::provider_probe::CachedAccountProbe;
 use infra::ai::{
     AiDocumentSource, AiDocumentStore, AiPreviewStore, PgAiImportMappingRepository,
     PgAiImportQueue, PgAiModelPricingRepository,
@@ -130,6 +132,18 @@ pub trait Ports: Clone + Send + Sync + 'static {
     // --- Ops seam (issue #409) -------------------------------------------
     // The projector-health read adapter behind `GET /v1/ops/projector-health`.
     type ProjectorHealthRepo: ProjectorHealthRepositoryPort;
+    /// The durable `(provider, model)` breaker verdict behind the provider-health
+    /// read (issue #942 W4).
+    ///
+    /// Read-only on this path: the handler reports the breaker, it never
+    /// transitions one — every transition belongs to the worker/probe path,
+    /// where the compare-and-set carries the job identity the claim fence needs.
+    type AiProviderHealth: ProviderHealth;
+    /// The account-usability probe behind the same read (issue #942 W4), always
+    /// with **the caller's own** credential — never a donor job's (that one is
+    /// confined to the background probe, whose verdict is fleet-wide and
+    /// user-invisible).
+    type AiProviderAccountProbe: ProviderAccountProbe;
 
     fn scene_commands(&self) -> &Self::SceneCommands;
     fn scene_repo(&self) -> &Self::SceneRepo;
@@ -172,6 +186,8 @@ pub trait Ports: Clone + Send + Sync + 'static {
     fn ai_document_store(&self) -> &Self::AiDocumentStore;
     fn ai_document_source(&self) -> &Self::AiDocumentSource;
     fn projector_health_repo(&self) -> &Self::ProjectorHealthRepo;
+    fn ai_provider_health(&self) -> &Self::AiProviderHealth;
+    fn ai_provider_account_probe(&self) -> &Self::AiProviderAccountProbe;
 }
 
 /// Shared state handed to every Axum handler.
@@ -285,6 +301,14 @@ pub struct AiPorts {
     pub preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
     pub document_store: Arc<dyn AiDocumentStore + Send + Sync>,
     pub document_source: Arc<dyn AiDocumentSource + Send + Sync>,
+    /// The breaker read model behind `GET /v1/ai-import/providers/{provider}/health`
+    /// (issue #942 W4). A cheap `PgPool` handle, deliberately not wrapped in an
+    /// `Arc` — the adapter is already an internal-`Arc` clone.
+    pub provider_health: PgProviderHealth,
+    /// The account probe behind the same route: the shared `/key` read plus the
+    /// `(user, provider, vault_key_id)`-keyed TTL cache. Cheap to clone, so the
+    /// composition root and the tests both hold it by value.
+    pub provider_account_probe: CachedAccountProbe,
 }
 
 /// Production port bundle assembled in `main.rs`.
@@ -330,6 +354,8 @@ pub struct ProductionPorts {
     ai_preview_store: Arc<dyn AiPreviewStore + Send + Sync>,
     ai_document_store: Arc<dyn AiDocumentStore + Send + Sync>,
     ai_document_source: Arc<dyn AiDocumentSource + Send + Sync>,
+    ai_provider_health: PgProviderHealth,
+    ai_provider_account_probe: CachedAccountProbe,
 }
 
 impl ProductionPorts {
@@ -381,6 +407,8 @@ impl ProductionPorts {
             preview_store: ai_preview_store,
             document_store: ai_document_store,
             document_source: ai_document_source,
+            provider_health: ai_provider_health,
+            provider_account_probe: ai_provider_account_probe,
         } = ai;
         Self {
             scene_commands,
@@ -422,6 +450,8 @@ impl ProductionPorts {
             ai_preview_store,
             ai_document_store,
             ai_document_source,
+            ai_provider_health,
+            ai_provider_account_probe,
             projector_health_repo,
         }
     }
@@ -470,6 +500,8 @@ impl Ports for ProductionPorts {
     type AiDocumentStore = dyn AiDocumentStore + Send + Sync;
     type AiDocumentSource = dyn AiDocumentSource + Send + Sync;
     type ProjectorHealthRepo = PgProjectorHealthRepository;
+    type AiProviderHealth = PgProviderHealth;
+    type AiProviderAccountProbe = CachedAccountProbe;
 
     fn scene_commands(&self) -> &Self::SceneCommands {
         &self.scene_commands
@@ -593,5 +625,11 @@ impl Ports for ProductionPorts {
     }
     fn projector_health_repo(&self) -> &Self::ProjectorHealthRepo {
         &self.projector_health_repo
+    }
+    fn ai_provider_health(&self) -> &Self::AiProviderHealth {
+        &self.ai_provider_health
+    }
+    fn ai_provider_account_probe(&self) -> &Self::AiProviderAccountProbe {
+        &self.ai_provider_account_probe
     }
 }

@@ -88,3 +88,67 @@ A quota-exhausted provider SHALL render `ai-import.provider-quota-exhausted`
 #### Scenario: a quota-bearing 429
 - **GIVEN** a `429` whose body matches the provider's quota marker
 - **THEN** the same terminal code is rendered (not the outage code).
+
+## ADDED Requirements (W4 — provider health + budget read)
+
+### Requirement: Provider health is a per-caller, per-pair read
+
+`GET /v1/ai-import/providers/{provider}/health?model=` SHALL answer the caller's
+own account usability, the remaining budget and the `(provider, model)` breaker
+rows, and SHALL resolve the credential strictly from the caller's own
+configuration.
+
+#### Scenario: the caller's own credential is probed
+- **GIVEN** a caller with an active `AiConfig` whose `vault_key_id` names a
+  settings binding the caller owns
+- **WHEN** the health route is read
+- **THEN** `credential_configured` is `true`, `probe_status` reflects the
+  zero-token preflight, and the upstream call carried THAT credential.
+
+#### Scenario: a binding owned by somebody else
+- **GIVEN** a caller whose config references another user's settings binding
+- **WHEN** the health route is read
+- **THEN** the answer is `200` with `credential_configured: false`,
+  `probe_status: unknown` and `budget: null`
+- **AND** no upstream probe ran at all.
+
+#### Scenario: an unconfigured caller
+- **GIVEN** a caller with no AI configuration for the provider
+- **THEN** the answer is `200` with `credential_configured: false` — never
+  `404`/`500` — and `budget` is `null`, never a fabricated `0`.
+
+#### Scenario: the breaker list is `(provider, model)`-shaped
+- **GIVEN** a pair with `state = half_open` and a granted trial
+- **WHEN** the route answers
+- **THEN** the row carries `trial_granted: true` and **no** job id
+- **AND** every non-`closed` row of the provider is included even when the
+  caller has no configuration for that pair.
+
+#### Scenario: the response never carries tenant material
+- **THEN** no `vault_key_id`, bearer token, raw upstream body or `trial_job_id`
+  appears in the document
+- **AND** the response is served with `Cache-Control: no-store`.
+
+### Requirement: An unmeasured account state is `unknown`, never a denial
+
+The health read SHALL distinguish a rejected credential from an unmeasured one.
+
+#### Scenario: a provider without a zero-token endpoint
+- **GIVEN** a provider whose curated capability is `NoPreflight`
+- **THEN** `probe_status` is `unknown` and `budget` is `null`
+- **AND** the route still answers `200`.
+
+#### Scenario: a transport failure or timeout inside the probe
+- **THEN** `probe_status` is `unknown` (never `not_usable`), while the breaker
+  gate still maps the same observation to `NotUsable` so no money is spent on an
+  unknown.
+
+### Requirement: The budget cache is identity-scoped
+
+The account probe SHALL cache its answer for at most 60 seconds keyed by
+`(user_id, provider, vault_key_id)`.
+
+#### Scenario: two callers of the same provider
+- **GIVEN** two callers with different bindings on the same provider
+- **THEN** neither receives the other's cached budget figure, and rotating a key
+  is a cache miss rather than a stale number.

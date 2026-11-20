@@ -26,6 +26,7 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
+import 'package:frontend_flutter/auth/capabilities.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/ai_config_repository.dart';
@@ -35,6 +36,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controller.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_screen.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_state.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../../support/fake_secure_storage.dart';
 
@@ -154,6 +156,28 @@ AiConfigView _config({
         );
 }
 
+/// The locale this harness renders in (no explicit `locale:` on the
+/// `MaterialApp`, so the test binding's `en_US` default applies — the same
+/// reason the neighbouring assertions use English copy).
+AppLocalizations l10nEn() => lookupAppLocalizations(const Locale('en'));
+
+/// A provider-health answer from `GET /ai-import/providers/{provider}/health`
+/// (issue #942 W4). Defaults model a usable, configured account whose provider
+/// reports no budget at all.
+AiProviderHealthView _healthView({
+  bool credentialConfigured = true,
+  AccountProbeStatus status = AccountProbeStatus.usable,
+  AiProviderBudgetView? budget,
+  List<AiProviderBreakerView> breakers = const <AiProviderBreakerView>[],
+}) => AiProviderHealthView(
+  (b) => b
+    ..provider = LlmProvider.openai
+    ..credentialConfigured = credentialConfigured
+    ..probeStatus = status
+    ..budget = budget?.toBuilder()
+    ..breakers.replace(breakers),
+);
+
 /// Repository fake: every config/credential route is scriptable with call
 /// counters (denial short-circuit + no-automatic-re-dispatch proofs).
 class FakeAiConfigRepository extends AiConfigRepository {
@@ -174,6 +198,34 @@ class FakeAiConfigRepository extends AiConfigRepository {
   /// The last [CreateAiConfigRequest] passed to [createConfig] (issue #675:
   /// verify the `cost_display_preference` the create carried).
   CreateAiConfigRequest? lastCreateRequest;
+
+  /// `GET /v1/ai-import/providers/{provider}/health` (issue #942 W4). `null`
+  /// answers a usable account with no budget read — the honest "the provider
+  /// reports no figure" default, so the pre-#942 tests are unaffected.
+  Result<AiProviderHealthView>? healthResult;
+
+  /// The provider keys the health route was called with, in call order. Empty
+  /// is the assertion that matters for the #816 short-circuit: a resolved
+  /// capability denial must reach the device's own repository NEVER.
+  final List<String> healthCalls = <String>[];
+
+  @override
+  Future<Result<AiProviderHealthView>> fetchProviderHealth({
+    required String providerKey,
+    String? model,
+  }) async {
+    healthCalls.add(providerKey);
+    return healthResult ??
+        Right(
+          AiProviderHealthView(
+            (b) => b
+              ..provider = LlmProvider.openai
+              ..credentialConfigured = true
+              ..probeStatus = AccountProbeStatus.usable
+              ..breakers = ListBuilder<AiProviderBreakerView>(),
+          ),
+        );
+  }
 
   int submitCalls = 0;
   int createCalls = 0;
@@ -330,6 +382,16 @@ void main() {
     Result<List<ModelInfo>>? decisionModelsValue,
     Result<List<ModelInfo>>? imageModelsValue,
     Result<AiImportDefaults>? defaultsValue,
+
+    /// The `GET /v1/me/capabilities` seam (issue #816). Defaults to a granted
+    /// credential role so the pre-#942 cases keep their behaviour.
+    MyCapabilitiesFetch? capabilitiesFetch,
+
+    /// Replaces the provider-health PROVIDER itself (issue #942 W4). Only for
+    /// rendering states the repository seam cannot produce — the #816 gate is
+    /// covered by [aiProviderHealthProvider]'s own test, which must exercise the
+    /// real provider.
+    Result<AiProviderHealthView>? healthOverride,
   }) async {
     repo = FakeAiConfigRepository(BreakdownApi());
     discovery = ValueNotifier(discoveryValue ?? const Right(<AiConfigView>[]));
@@ -394,6 +456,21 @@ void main() {
               key == 'openai' ? imageModels.value : const Right(<ModelInfo>[]),
         ),
         aiImportDefaultsProvider.overrideWith((ref) async => defaults.value),
+        // Provider health + budget (issue #942 W4) is deliberately NOT
+        // overridden: the REAL `aiProviderHealthProvider` must run so the #816
+        // capability short-circuit is exercised (an override would replace the
+        // gate under test). Its only effect is one `fetchProviderHealth` call on
+        // the repository fake, which answers locally — no socket, no wall clock.
+        if (healthOverride != null)
+          aiProviderHealthProvider.overrideWith(
+            (ref, key) async => healthOverride,
+          ),
+        myCapabilitiesFetchProvider.overrideWithValue(
+          capabilitiesFetch ??
+              () async => const Right(
+                MyCapabilities(canManageAiConfig: true, canReadOps: false),
+              ),
+        ),
         // Immediate scheduler: reconciliation ticks are no-ops — no
         // wall-clock gating (AGENTS.md §6).
         reconciliationSchedulerProvider.overrideWith(
@@ -2617,6 +2694,386 @@ void main() {
 
       expect(find.byKey(const Key('ai-config-unsaved-dialog')), findsNothing);
       expect(find.byKey(const Key('open-ai-config')), findsOneWidget);
+    });
+  });
+
+  group('provider health + budget (issue #942 W4/W5)', () {
+    testWidgets('a usable account renders its remaining budget', (
+      tester,
+    ) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(budget: AiProviderBudgetView((b) => b..remaining = 12.5)),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-config-provider-health')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-config-provider-health-status')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-status')),
+            )
+            .data,
+        l10nEn().aiConfigProviderHealthUsable,
+      );
+      // The provider key the route was asked about is the WIRE key from the
+      // catalog, not the Dart enum name.
+      expect(repo.healthCalls, contains('openai'));
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-budget')),
+            )
+            .data,
+        contains('12'),
+      );
+    });
+
+    testWidgets('a provider that reports no limit is not a fabricated zero', (
+      tester,
+    ) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(budget: AiProviderBudgetView((b) => b..remaining = null)),
+      );
+      await pumpScreen(tester);
+
+      final budget = tester.widget<Text>(
+        find.byKey(const Key('ai-config-provider-health-budget')),
+      );
+      expect(budget.data, l10nEn().aiConfigProviderHealthBudgetUnlimited);
+      expect(budget.data, isNot(contains('0')));
+    });
+
+    testWidgets('a provider without a budget read renders "unknown"', (
+      tester,
+    ) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(_healthView());
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-budget')),
+            )
+            .data,
+        l10nEn().aiConfigProviderHealthBudgetUnknown,
+      );
+    });
+
+    testWidgets(
+      'an exhausted quota gets its own narrative, never "unreachable"',
+      (tester) async {
+        await setupContainer(discoveryValue: Right([_config()]));
+        repo.healthResult = Right(
+          _healthView(
+            status: AccountProbeStatus.notUsable,
+            budget: AiProviderBudgetView((b) => b..remaining = 0),
+          ),
+        );
+        await pumpScreen(tester);
+
+        final status = tester.widget<Text>(
+          find.byKey(const Key('ai-config-provider-health-status')),
+        );
+        expect(status.data, l10nEn().aiConfigProviderHealthNotUsable);
+        // The #809 rule: a provider problem must never be rendered as a BACKEND
+        // reachability problem.
+        expect(
+          find.text(l10nEn().aiConfigBackendUnreachableTitle),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('an unconfigured provider is stated, not blamed', (
+      tester,
+    ) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(
+          credentialConfigured: false,
+          status: AccountProbeStatus.unknown,
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-status')),
+            )
+            .data,
+        l10nEn().aiConfigProviderHealthUnconfigured,
+      );
+    });
+
+    testWidgets('a paused pair names its next probe', (tester) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(
+          breakers: [
+            AiProviderBreakerView(
+              (b) => b
+                ..provider = LlmProvider.openai
+                ..model = 'gpt-5.6-luna'
+                ..state = ProviderBreakerState.open
+                ..consecutiveFailures = 3
+                ..flapCount = 1
+                ..retryAt = DateTime.utc(2026, 11, 19, 10, 30)
+                ..trialGranted = false,
+            ),
+          ],
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-config-provider-health-held-gpt-5.6-luna')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(l10nEn().aiConfigProviderHealthHeldTitle),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a granted trial says so instead of claiming a running call', (
+      tester,
+    ) async {
+      // `trial_granted` is the GRANT: the server stamps the job id and returns
+      // the job to the queue, so no provider call needs to be running yet. Copy
+      // that says "in flight" asserts an execution nobody observed.
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(
+          breakers: [
+            AiProviderBreakerView(
+              (b) => b
+                ..provider = LlmProvider.openai
+                ..model = 'gpt-5.6-luna'
+                ..state = ProviderBreakerState.halfOpen
+                ..consecutiveFailures = 3
+                ..flapCount = 1
+                ..trialGranted = true,
+            ),
+          ],
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.text(l10nEn().aiConfigProviderHealthTrial('gpt-5.6-luna')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('in flight'), findsNothing);
+    });
+
+    testWidgets('a resolved capability denial renders no permission and no '
+        'retry', (tester) async {
+      // The RENDERING of the denial. The gate itself (that nothing is
+      // dispatched) is asserted on the real provider below, because a widget
+      // override would replace the very code under test.
+      await setupContainer(
+        discoveryValue: Right([_config()]),
+        healthOverride: const Left(
+          ProblemError(code: kAiConfigCapabilityDeniedCode, status: 403),
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-config-provider-health-forbidden')),
+        findsOneWidget,
+      );
+      // A denial is not a transient failure: retrying cannot flip a role.
+      expect(
+        find.byKey(const Key('ai-config-provider-health-retry')),
+        findsNothing,
+      );
+    });
+
+    test('aiProviderHealth short-circuits on a resolved capability denial', () async {
+      await setupContainer(
+        capabilitiesFetch: () async => const Right(
+          MyCapabilities(canManageAiConfig: false, canReadOps: false),
+        ),
+      );
+      // Resolve the capability answer FIRST — the state the screen is in, since
+      // the Settings entry that owns the route watches it before the push.
+      await container.read(myCapabilitiesProvider.future);
+
+      final result = await container.read(
+        aiProviderHealthProvider('openai').future,
+      );
+
+      expect(result.isLeft(), isTrue);
+      expect(
+        result.getLeft().toNullable()?.code,
+        kAiConfigCapabilityDeniedCode,
+      );
+      // #816: the gated read is NOT dispatched — the assertion is about the
+      // request, not the rendering.
+      expect(repo.healthCalls, isEmpty);
+    });
+
+    test(
+      'aiProviderHealth dispatches when the capability answer is unknown',
+      () async {
+        await setupContainer(
+          capabilitiesFetch: () async =>
+              Left(ProblemError(code: 'transport.connectionError')),
+        );
+        // An errored capability read is UNKNOWN, never a denial.
+        await expectLater(
+          container.read(myCapabilitiesProvider.future),
+          throwsA(anything),
+        );
+
+        final result = await container.read(
+          aiProviderHealthProvider('openai').future,
+        );
+
+        expect(result.isRight(), isTrue);
+        expect(repo.healthCalls, isNotEmpty);
+      },
+    );
+
+    testWidgets('an unknown capability state still dispatches (unknown is '
+        'never a denial)', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([_config()]),
+        capabilitiesFetch: () async =>
+            Left(ProblemError(code: 'transport.connectionError')),
+      );
+      await pumpScreen(tester);
+
+      expect(repo.healthCalls, isNotEmpty);
+      expect(
+        find.byKey(const Key('ai-config-provider-health-forbidden')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a failed health read offers a retry', (tester) async {
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = const Left(ProblemError(code: 'transport.down'));
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-config-provider-health-failed')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-config-provider-health-retry')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a local provider stays usable without a stored key', (
+      tester,
+    ) async {
+      // `ProbeCapability::LocalTags` (Ollama) needs no Vault binding at all, so
+      // the server answers a MEASURED `usable` with `credential_configured:
+      // false`. Letting the credential branch win would render "kein Schlüssel
+      // hinterlegt" over a healthy account (review of #942 W5).
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(
+          credentialConfigured: false,
+          status: AccountProbeStatus.usable,
+        ),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-status')),
+            )
+            .data,
+        l10nEn().aiConfigProviderHealthUsable,
+      );
+      expect(
+        find.text(l10nEn().aiConfigProviderHealthUnconfigured),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a measured unknown verdict offers no retry', (tester) async {
+      // Retry is for a FAILED READ (docs/design/screens/ai-config.md): a read
+      // that ANSWERED `unknown` is the server's verdict, not a transport problem
+      // of this screen, so there is nothing new to fetch.
+      await setupContainer(discoveryValue: Right([_config()]));
+      repo.healthResult = Right(
+        _healthView(status: AccountProbeStatus.unknown),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('ai-config-provider-health-status')),
+            )
+            .data,
+        l10nEn().aiConfigProviderHealthUnknown,
+      );
+      expect(
+        find.byKey(const Key('ai-config-provider-health-retry')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the decision card asks with the canonical wire key', (
+      tester,
+    ) async {
+      // The stored config seeds the draft with the DART enum name
+      // (`opencodeGo`); the health route takes the wire spelling
+      // (`opencode-go`) and answers anything else with a `422` — which would
+      // render a healthy provider as unreadable.
+      await setupContainer(
+        discoveryValue: Right([
+          _config(decisionProvider: LlmProvider.opencodeGo),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(repo.healthCalls, contains('opencode-go'));
+      expect(
+        repo.healthCalls,
+        isNot(contains('opencodeGo')),
+        reason: 'the Dart enum name is not a wire key: ${repo.healthCalls}',
+      );
+      // One card per provider, not two for the same one under two spellings.
+      expect(
+        find.byKey(const Key('ai-config-provider-health')),
+        findsNWidgets(2),
+      );
+    });
+
+    testWidgets('a distinct decision provider gets its own card', (
+      tester,
+    ) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(decisionProvider: LlmProvider.neuralwatt),
+        ]),
+      );
+      await pumpScreen(tester);
+
+      expect(
+        find.byKey(const Key('ai-config-provider-health')),
+        findsNWidgets(2),
+      );
+      expect(repo.healthCalls, containsAll(<String>['openai', 'neuralwatt']));
     });
   });
 

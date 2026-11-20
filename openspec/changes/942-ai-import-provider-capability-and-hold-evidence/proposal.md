@@ -64,6 +64,14 @@ second contract change and a second subsystem to one diff.
 | D5 | A failed trial escalates (`flap_count + 1`) | Re-arming the base 60 s window forever oscillates. A paid call failing right after a passing preflight is a *new* incident by definition. |
 | D6 | W2 reuses `ai_import_job_attempt` (one row per hold series) | A new nullable `last_provider_detail` column would need a DTO field → an OpenAPI change → a Flutter client regeneration, for data the attempt pipeline (#822/#637) already reads and renders. |
 | D7 | `402` is terminal and account-scoped | Keeping `#927`'s `domain.validation` mapping hides a top-up behind "your request was wrong"; opening the deployment-wide breaker would punish every other user of the endpoint. |
+| D8 (W4) | The health read resolves **the caller's own** Vault binding; the donor-job credential stays confined to the background probe | A donor key is another user's. Publishing a verdict derived from it would leak that account's key validity and balance — and make the route an existence oracle for foreign bindings. |
+| D9 (W4) | The response is `(provider, model)`-shaped (`breakers[]`), not one provider verdict | `ai_import.provider_health` is keyed by the pair; a single verdict would have to pick one model and hide the rest — exactly the blindness F2 recorded. |
+| D10 (W4) | `trial_job_id` becomes `trial_granted: bool` on the wire | The token names a job that may belong to another user. The client only needs to know a trial is in flight. |
+| D11 (W4) | Budget is three-valued: absent / `remaining: null` / a number | Collapsing "no limit configured" and "no budget endpoint" into one null forces the client to invent a `0` or a `—`. A measured `0` is still reported as `0`. |
+| D12 (W4) | The cache key is `(user_id, provider, vault_key_id)`, TTL 60 s | Keyed by provider alone the first caller's balance would be served to everyone on that provider — the tenant leak the credential rule exists to prevent. The Vault reference makes a rotation a miss. |
+| D13 (W5) | A second Riverpod provider (`aiProviderHealth`) instead of extending `aiConfigReachabilityProvider` | The reachability probe answers "did the BACKEND answer". Merging the two is what rendered a stalled provider as "Backend noch nicht erreichbar" (F5). |
+| D14 (W5) | The card renders on the AI-configuration screen, not in Settings | The question ("can my import run at all") belongs where the configuration is; the Settings tile keeps its single reachability/capability claim. |
+| D15 (W5) | Hold copy names the *observed* fact (no timely answer) and the open cost question | F3 measured three 120 s client timeouts; "ist nicht erreichbar" was a cause nobody measured, and "kein Versuch verbraucht" is not "keine Kosten". |
 
 ## Contract impact
 
@@ -74,7 +82,21 @@ second contract change and a second subsystem to one diff.
   is byte-identical and **no client regeneration is required**.
 - W1/W2 add no wire field at all: the trial token is internal and the attempt row
   reused existing columns.
-- `frontend-flutter/lib/l10n/*.arb`: untouched in this PR (W4/W5 own the copy).
+- `frontend-flutter/lib/l10n/*.arb`: untouched in the W1–W3 PR. The follow-up PR
+  (W4/W5) adds the provider-health keys plus the honest hold copy in `de` + `en`.
+
+### Follow-up PR (W4/W5) contract impact
+
+- `backend/openapi.yaml`: **one new path**
+  (`GET /v1/ai-import/providers/{provider}/health`) plus three schemas
+  (`AiProviderHealthView`, `AiProviderBreakerView`, `AiProviderBudgetView`) and
+  the re-exported `AccountProbeStatus` enum. `scripts/regen-client.sh` output is
+  committed (`CLIENT_VERSION` 1.8.0 → 1.9.0; new models + one `HandlersApi`
+  operation).
+- No new problem code: the route reuses `ai-config.forbidden`,
+  `ai-import.disabled` and `ai-config.validation`.
+- `frontend-flutter/lib/l10n/*.arb`: 16 new keys per catalog (de/en) plus the
+  reworded hold copy.
 
 ## Non-goals (unchanged from the issue)
 

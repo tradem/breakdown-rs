@@ -1375,6 +1375,42 @@ point is always 0 and `provider_hold.chunks_done` is `0`. Once the store ships,
 `SELECT count(*) FROM ai_import.ai_import_job_chunk WHERE job_id = $1` is the
 number of chunks already paid for.
 
+### 4. What the USER sees (issue #942 W4), and how to reproduce it
+
+`GET /v1/ai-import/providers/{provider}/health?model=` answers the same facts for
+one caller, with **that caller's own** Vault binding (the background probe uses a
+donor job's key — never this one):
+
+- `credential_configured` — does the caller have an active binding for the
+  provider (a missing/foreign/unreadable binding answers `false`, never an error);
+- `probe_status` — `usable` / `not_usable` / `unknown` from the zero-token
+  `/key` preflight (60 s cached per user + provider + Vault binding);
+- `budget` — three-valued: `null` (the provider reports no budget read),
+  `{"remaining": null}` (no limit configured), or a real figure;
+- `breakers` — the `(provider, model)` rows above, with `trial_granted` instead
+  of the raw `trial_job_id` (which may name another user's job).
+
+Reproduce a user's view for a given subject (the handler's own reads):
+
+```sql
+-- The caller's bindings (one row per configured provider/model)
+SELECT c.id, c.provider, c.assistant_model, c.image_model, c.vault_key_id,
+       c.decision_provider, c.decision_model, c.decision_vault_key_id
+  FROM ai_import.projection_ai_config c
+ WHERE c.user_id = '<sub>' AND c.revoked = false;
+
+-- …and the pair rows that answer `breakers`
+SELECT provider, model, state, consecutive_failures, flap_count, retry_at,
+       trial_job_id IS NOT NULL AS trial_granted
+  FROM ai_import.provider_health
+ WHERE provider = '<provider>'
+ ORDER BY model;
+```
+
+A held job whose `last_error` names `ai-import.provider-quota-exhausted` means the
+account cannot pay (issue #942 W3) — that is **not** an outage, so no probe will
+"recover" it and the fix is a top-up, not patience.
+
 ### Log markers
 
 Every transition logs `tracing::warn!` with the literal marker

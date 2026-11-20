@@ -9181,6 +9181,16 @@ fn parse_ai_provider(value: &str) -> Result<LlmProvider, DomainError> {
 #[path = "ai_import_tests.rs"]
 mod ai_import_tests;
 
+/// Provider health + budget read (issue #942 W4). Its own module because the
+/// read is a self-contained concern: it touches the caller's own Vault binding,
+/// the account probe and the breaker read, and none of those belong in the
+/// 390 KB handler file.
+pub mod ai_provider_health;
+pub use ai_provider_health::{
+    AiProviderBreakerView, AiProviderBudgetView, AiProviderHealthQuery, AiProviderHealthView,
+    get_ai_provider_health,
+};
+
 /// Build the full Axum router using the concrete `ProductionPorts` bundle.
 /// Query parameters of `GET /ops/projector-health` (issue #409).
 #[derive(Debug, Deserialize)]
@@ -9833,6 +9843,10 @@ pub fn routes() -> Router<AppState<ProductionPorts>> {
         .route(
             "/ai-import/providers/{provider}/image-models",
             routing::get(list_ai_image_models::<ProductionPorts>),
+        )
+        .route(
+            "/ai-import/providers/{provider}/health",
+            routing::get(get_ai_provider_health::<ProductionPorts>),
         )
         .route(
             "/ai-import/defaults",

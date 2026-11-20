@@ -55,12 +55,13 @@ pub use error::AiConfigError;
 pub use events::AiConfigEvent;
 pub use ports::LlmProvider;
 pub use ports::{
-    AiConfigCommands, AiConfigRepository, AiImportChunkStore, AiImportEnqueueRequest,
-    AiImportEnqueueResult, AiImportMapping, AiImportMappingRepository, AiImportQueue,
-    AiModelPricingRepository, CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider,
-    ExtractionFingerprint, HoldEvidence, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
-    LlmModelCatalog, ModelInfo, ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeCapability,
-    ProbeLease, ProbeOutcome, ProviderBreakerSnapshot, ProviderHealth, StoredChunk,
+    AccountBudget, AccountProbeRequest, AccountProbeSnapshot, AccountProbeStatus, AiConfigCommands,
+    AiConfigRepository, AiImportChunkStore, AiImportEnqueueRequest, AiImportEnqueueResult,
+    AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
+    CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider, ExtractionFingerprint, HoldEvidence,
+    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmModelCatalog, ModelInfo,
+    ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeCapability, ProbeLease, ProbeOutcome,
+    ProviderAccountProbe, ProviderBreakerSnapshot, ProviderHealth, StoredChunk,
     TargetAttachOutcome, UsageAccumulator, mapping_kind, probe_capability, resume_cursor,
 };
 pub use preview::{

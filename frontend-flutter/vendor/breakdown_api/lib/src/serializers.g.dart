@@ -8,6 +8,7 @@ part of 'serializers.dart';
 
 Serializers _$serializers = (Serializers().toBuilder()
       ..add($GDriveCredentialRequest.serializer)
+      ..add(AccountProbeStatus.serializer)
       ..add(AddNoteRequest.serializer)
       ..add(AddOutfitPieceRequest.serializer)
       ..add(AddPieceDetailRequest.serializer)
@@ -32,6 +33,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AiPreviewPayloadOneOf2.serializer)
       ..add(AiPreviewPayloadOneOf2KindEnum.serializer)
       ..add(AiPreviewPayloadOneOfKindEnum.serializer)
+      ..add(AiProviderBreakerView.serializer)
+      ..add(AiProviderBudgetView.serializer)
+      ..add(AiProviderHealthView.serializer)
       ..add(AiProviderInfo.serializer)
       ..add(AppearanceOutfitView.serializer)
       ..add(AppliedEpisode.serializer)
@@ -217,6 +221,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(AggregateSollIstDiffRow)]),
           () => ListBuilder<AggregateSollIstDiffRow>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(AiProviderBreakerView)]),
+          () => ListBuilder<AiProviderBreakerView>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(AppearanceOutfitView)]),
