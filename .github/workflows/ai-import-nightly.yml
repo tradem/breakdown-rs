@@ -135,6 +135,38 @@ jobs:
           fi
           cargo test -p integration-tests --test ai_llm_smoke_test -- --nocapture
 
+      # 2026-11-20 output-budget investigation: does pinning the provider-side
+      # `reasoning_effort` remove the pathology the run of that date proved — a
+      # reasoning model that spends its whole output ceiling before emitting one
+      # content token (`finish_reason=length`, `content=null`, 8_192 billable
+      # output tokens, 70-85 s upstream per 4 KB scene)?
+      #
+      # Deliberately a SEPARATE provider/model/key (`AI_LLM_PROBE_*`): the step
+      # above must keep guarding what ships (eurouter/mistral-large-3), and the
+      # 2026-11-20 outage silenced two checks at once because both shared one
+      # provider. This one is a measurement — the numbers are in the log lines
+      # `reasoning-effort row` and `reasoning-effort comparison`.
+      - name: Reasoning-effort probe (nightly, measurement)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        env:
+          AI_LLM_PROBE_API_KEY: ${{ secrets.AI_LLM_PROBE_API_KEY }}
+          AI_LLM_PROBE_PROVIDER: ${{ vars.AI_LLM_PROBE_PROVIDER }}
+          AI_LLM_PROBE_MODELS: ${{ vars.AI_LLM_PROBE_MODELS }}
+          AI_LLM_PROBE_EFFORTS: ${{ vars.AI_LLM_PROBE_EFFORTS }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
+        run: |
+          if [ -z "$AI_LLM_PROBE_API_KEY" ]; then
+            echo "AI_LLM_PROBE_API_KEY not configured — reasoning-effort probe will skip (asserts nothing)."
+          else
+            echo "probe provider=${AI_LLM_PROBE_PROVIDER:-neuralwatt}"
+            echo "probe models=${AI_LLM_PROBE_MODELS:-glm-5.3-flash,deepseek-v4.1-flash} efforts=${AI_LLM_PROBE_EFFORTS:-default,low}"
+          fi
+          cargo test -p integration-tests --test ai_llm_smoke_test reasoning_effort -- --nocapture
+
       # Issue #808: one question of each kind against the curated System One
       # endpoint — `200` and a parsed answer per kind, or the provider's own
       # `details[].path` in the failure. It never prints the credential and

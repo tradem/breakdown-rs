@@ -287,6 +287,7 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
             // budget rather than the retry path.
             max_tokens: AiImportBounds::default().max_tokens_per_req,
             response_schema: None,
+            reasoning_effort: None,
         })
         .await
         .context("live LLM call failed")?;
@@ -394,26 +395,33 @@ async fn llm_reads_every_gdrive_script_fixture() -> Result<()> {
     Ok(())
 }
 
-/// Load, extract, chunk and call one fixture document.
-async fn extract_one_script(smoke: &LiveExtraction<'_>, name: &str) -> Result<()> {
-    let document = smoke
-        .documents
+/// Load one fixture document and return its production chunks.
+///
+/// Shared by the extraction smoke (chunk 0 + largest) and the reasoning-effort
+/// probe, so both measure the SAME text: `pdftotext -layout` and the
+/// deterministic splitter are the production path, and a probe that chunked
+/// differently would answer a different question.
+async fn load_fixture_chunks(
+    source: &GDriveDocumentSource,
+    extractor: &PdfTextExtractor,
+    documents: &[GDriveDocument],
+    name: &str,
+) -> Result<Vec<SceneChunk>> {
+    let document = documents
         .iter()
         .find(|document| document.name == name)
         .ok_or_else(|| {
-            let available: Vec<&str> = smoke
-                .documents
+            let available: Vec<&str> = documents
                 .iter()
                 .map(|document| document.name.as_str())
                 .collect();
-            anyhow!("not present in GDRIVE_ROOT; available documents: {available:?}")
+            anyhow!("{name} not present in GDRIVE_ROOT; available documents: {available:?}")
         })?;
-    let bytes = smoke
-        .source
+    let bytes = source
         .load(&document.handle)
         .await
         .with_context(|| format!("could not load {} from GDrive", document.name))?;
-    let text = smoke.extractor.extract(&bytes).await.with_context(|| {
+    let text = extractor.extract(&bytes).await.with_context(|| {
         format!(
             "pdftotext could not read {} ({} bytes)",
             document.name,
@@ -435,16 +443,22 @@ async fn extract_one_script(smoke: &LiveExtraction<'_>, name: &str) -> Result<()
             text.chars().count()
         ));
     }
+    Ok(chunks)
+}
+
+/// Load, extract, chunk and call one fixture document.
+async fn extract_one_script(smoke: &LiveExtraction<'_>, name: &str) -> Result<()> {
+    let chunks = load_fixture_chunks(smoke.source, smoke.extractor, smoke.documents, name).await?;
     let mut failures: Vec<String> = Vec::new();
     for index in chunks_to_probe(&chunks) {
-        if let Err(error) = probe_chunk(smoke, &document.name, &chunks, index).await {
+        if let Err(error) = probe_chunk(smoke, name, &chunks, index).await {
             tracing::error!(
-                document = %document.name,
+                document = %name,
                 chunk = index,
                 error = %format!("{error:#}"),
                 "live chunk extraction FAILED"
             );
-            failures.push(format!("{} chunk {index}: {error:#}", document.name));
+            failures.push(format!("{name} chunk {index}: {error:#}"));
         }
     }
     if failures.is_empty() {
@@ -498,6 +512,7 @@ async fn probe_chunk(
             source_text,
             max_tokens: smoke.bounds.max_tokens_per_req,
             response_schema: None,
+            reasoning_effort: None,
         })
         .await
         .with_context(|| {
@@ -548,4 +563,331 @@ async fn gdrive_source(
         GDriveDocumentSource::from_vault(&client, settings_id, &binding, max_document_bytes)
             .await?;
     Ok(source)
+}
+
+// ===========================================================================
+// Reasoning-effort probe (2026-11-20 output-budget investigation)
+//
+// This test is a MEASUREMENT, not a pass/fail check: read the logged rows. Its
+// question is whether pinning the provider-side `reasoning_effort` removes the
+// pathology the 2026-11-20 nightly proved — a reasoning model that spends its
+// whole output ceiling before emitting one content token (`finish_reason:
+// length`, `content: null`, 8_192 billable output tokens, 70-85 s of upstream
+// generation for a 4 KB scene).
+//
+// It runs against its OWN provider/model/key (`AI_LLM_PROBE_*`), not the
+// production triple: the production guard above must keep guarding what ships,
+// and one provider outage already silenced two checks on 2026-11-20.
+// ===========================================================================
+
+/// Provider the probe talks to when `AI_LLM_PROBE_PROVIDER` is unset.
+///
+/// Neuralwatt, because it publishes the facts the experiment needs and eurouter
+/// does not: `capabilities.reasoning_effort`, `reasoning.mandatory`,
+/// `reasoning.default_effort`, `reasoning.supported_efforts` and
+/// `limits.max_output_tokens` (checked live against `GET /v1/models`).
+const DEFAULT_EFFORT_PROVIDER: &str = "neuralwatt";
+
+/// Models probed when `AI_LLM_PROBE_MODELS` is unset.
+///
+/// Chosen for CONTRAST, not for speed: `glm-5.3-flash` declares
+/// `reasoning.mandatory = true` with `default_effort = "max"` (the widest
+/// possible gap between the provider default and `low`), `deepseek-v4.1-flash`
+/// declares `reasoning.mandatory = false` with `default_effort = "high"` and
+/// publishes its output ceiling. A model that honours the knob should show it
+/// here; one that ignores it cannot hide, because the two models differ in what
+/// they claim.
+const DEFAULT_EFFORT_MODELS: [&str; 2] = ["glm-5.3-flash", "deepseek-v4.1-flash"];
+
+/// Variants compared when `AI_LLM_PROBE_EFFORTS` is unset.
+///
+/// `default` sends NO `reasoning_effort` field at all — it measures the
+/// provider's own default, i.e. exactly what production does today. Every other
+/// entry is sent verbatim.
+const DEFAULT_EFFORT_VARIANTS: [&str; 2] = ["default", "low"];
+
+/// Output budget of one probe call.
+///
+/// Deliberately far above the production `AI_IMPORT_MAX_TOKENS_PER_REQ` (8_192):
+/// a capped probe would report the same `tokens_out` for every variant and the
+/// comparison would measure the ceiling instead of the model. It also keeps the
+/// client's bounded truncation retry out of the measurement, which would
+/// otherwise double the billed tokens of a capped variant.
+const DEFAULT_EFFORT_MAX_TOKENS: u32 = 32_768;
+
+/// The measured result of one paid probe call.
+#[derive(Debug)]
+struct EffortOutcome {
+    model: String,
+    variant: String,
+    wall_ms: u64,
+    tokens_in: u64,
+    tokens_out: u64,
+    scenes: usize,
+    /// `tokens_out` reached the budget: the variant was cut off, so its numbers
+    /// are a lower bound, not its requirement.
+    capped: bool,
+}
+
+/// Read a comma-separated environment list, falling back to `default`.
+fn env_list(name: &str, default: &[&str]) -> Vec<String> {
+    let from_env = env::var(name).ok().map(|raw| {
+        raw.split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<String>>()
+    });
+    match from_env {
+        Some(values) if !values.is_empty() => values,
+        _ => default.iter().map(|value| (*value).to_owned()).collect(),
+    }
+}
+
+/// Output budget of one probe call (see [`DEFAULT_EFFORT_MAX_TOKENS`]).
+fn effort_probe_max_tokens() -> u32 {
+    let Some(raw) = env::var("AI_LLM_PROBE_MAX_TOKENS")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return DEFAULT_EFFORT_MAX_TOKENS;
+    };
+    match raw.trim().parse::<u32>() {
+        Ok(value) if value > 0 => value,
+        _ => {
+            tracing::warn!(
+                value = %raw,
+                default = DEFAULT_EFFORT_MAX_TOKENS,
+                "AI_LLM_PROBE_MAX_TOKENS is not a positive integer — using the default"
+            );
+            DEFAULT_EFFORT_MAX_TOKENS
+        }
+    }
+}
+
+/// Resolve the probe credential and model list, or `Ok(None)` when unset.
+fn effort_probe_llm() -> Result<Option<(LiveLlm, Vec<String>)>> {
+    let Some(api_key) = env::var("AI_LLM_PROBE_API_KEY")
+        .ok()
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let provider_key =
+        env::var("AI_LLM_PROBE_PROVIDER").unwrap_or_else(|_| DEFAULT_EFFORT_PROVIDER.to_owned());
+    let provider = provider_from_key(&provider_key)
+        .with_context(|| format!("invalid AI_LLM_PROBE_PROVIDER {provider_key}"))?;
+    let models = env_list("AI_LLM_PROBE_MODELS", &DEFAULT_EFFORT_MODELS);
+    let first_model = models.first().cloned().unwrap_or_default();
+    Ok(Some((
+        LiveLlm {
+            api_key,
+            provider,
+            model: first_model,
+        },
+        models,
+    )))
+}
+
+/// Does pinning `reasoning_effort` cut the output tokens (and with them the wall
+/// clock) for a production document chunk?
+///
+/// One fixture document, one chunk, one paid call per (model, variant) — 2×2
+/// calls by default, a few cents. The table is the deliverable; the assertions
+/// only refuse to let a broken wire (`400` on the unsupported parameter, or an
+/// empty answer) pass as a measurement.
+#[tokio::test]
+async fn reasoning_effort_trades_output_tokens_for_wall_clock() -> Result<()> {
+    init_logging();
+    let Some((live, models)) = effort_probe_llm()? else {
+        tracing::warn!(
+            "AI_LLM_PROBE_API_KEY not configured — the reasoning-effort probe SKIPPED (asserted nothing)"
+        );
+        return Ok(());
+    };
+    let Some(gdrive) = live_gdrive()? else {
+        tracing::warn!(
+            "GDRIVE_CLIENT_ID not configured — the reasoning-effort probe SKIPPED (asserted nothing)"
+        );
+        return Ok(());
+    };
+
+    let variants = env_list("AI_LLM_PROBE_EFFORTS", &DEFAULT_EFFORT_VARIANTS);
+    let document_name = env::var("AI_LLM_PROBE_DOCUMENT").unwrap_or_else(|_| "292.pdf".to_owned());
+    let chunk_index = env::var("AI_LLM_PROBE_CHUNK")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    let max_tokens = effort_probe_max_tokens();
+
+    let prompt = default_prompt(DocumentKind::Script).context("production script prompt")?;
+    let bounds = AiImportBounds::default();
+    let extractor = PdfTextExtractor::new(
+        usize::try_from(bounds.max_document_bytes).unwrap_or(usize::MAX),
+        PDF_EXTRACT_TIMEOUT,
+    );
+    let source = gdrive_source(&gdrive, bounds.max_document_bytes).await?;
+    let documents = source
+        .list_documents()
+        .await
+        .context("listing the GDrive fixture folder")?;
+    let chunks = load_fixture_chunks(&source, &extractor, &documents, &document_name).await?;
+    let chunk = chunks.get(chunk_index).ok_or_else(|| {
+        anyhow!(
+            "{document_name} has {} chunks, chunk {chunk_index} does not exist",
+            chunks.len()
+        )
+    })?;
+    let source_text = source_text_of(chunk);
+    tracing::info!(
+        provider = %live.provider.as_str(),
+        document = %document_name,
+        chunk = chunk_index,
+        chunk_bytes = source_text.len(),
+        heading = %chunk.heading,
+        models = ?models,
+        variants = ?variants,
+        max_tokens,
+        "reasoning-effort probe plan (one paid call per row)"
+    );
+
+    let client =
+        OpenAiCompatibleChatClient::new(live.provider, live.api_key.clone(), REQUEST_TIMEOUT)
+            .await?;
+    let mut outcomes: Vec<EffortOutcome> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
+    for model in &models {
+        for variant in &variants {
+            // `default` is the sentinel for "send no field at all".
+            let effort = if variant.eq_ignore_ascii_case("default") {
+                None
+            } else {
+                Some(variant.clone())
+            };
+            let label = effort.clone().unwrap_or_else(|| "default".to_owned());
+            let started = std::time::Instant::now();
+            let result = client
+                .chat_constrained(LlmChatRequest {
+                    provider: live.provider,
+                    model: model.clone(),
+                    prompt: prompt.clone(),
+                    source_text: source_text.clone(),
+                    max_tokens,
+                    response_schema: None,
+                    reasoning_effort: effort,
+                })
+                .await;
+            let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            match result {
+                Ok(outcome) => {
+                    let tokens_out = outcome.usage.tokens_out;
+                    let scenes = outcome.output.scenes.len();
+                    let capped = tokens_out >= u64::from(max_tokens);
+                    tracing::info!(
+                        model = %model,
+                        variant = %label,
+                        wall_ms,
+                        tokens_in = outcome.usage.tokens_in,
+                        tokens_out,
+                        scenes,
+                        capped,
+                        "reasoning-effort row"
+                    );
+                    if let Err(error) = scenes_carry_content(
+                        &format!("{model} / {label}"),
+                        &outcome.output,
+                        Coverage::AtLeastOneScene,
+                    ) {
+                        failures.push(format!("{model} / {label}: {error:#}"));
+                    }
+                    outcomes.push(EffortOutcome {
+                        model: model.clone(),
+                        variant: label,
+                        wall_ms,
+                        tokens_in: outcome.usage.tokens_in,
+                        tokens_out,
+                        scenes,
+                        capped,
+                    });
+                }
+                Err(error) => {
+                    tracing::error!(
+                        model = %model,
+                        variant = %label,
+                        wall_ms,
+                        error = %error,
+                        "reasoning-effort row FAILED"
+                    );
+                    failures.push(format!("{model} / {label}: {error}"));
+                }
+            }
+        }
+    }
+
+    // The comparison line, per model: the provider default against the variant
+    // that produced the fewest output tokens. The full row list rides along so a
+    // doubled `tokens_in` (a client-side truncation retry) and a `capped` variant
+    // are visible instead of silently skewing the ratio.
+    for model in &models {
+        let rows: Vec<&EffortOutcome> = outcomes
+            .iter()
+            .filter(|outcome| &outcome.model == model)
+            .collect();
+        let table = rows
+            .iter()
+            .map(|row| {
+                format!(
+                    "{}: in={} out={}{} scenes={} wall={}ms",
+                    row.variant,
+                    row.tokens_in,
+                    row.tokens_out,
+                    if row.capped { "(capped)" } else { "" },
+                    row.scenes,
+                    row.wall_ms
+                )
+            })
+            .collect::<Vec<String>>()
+            .join(" | ");
+        let Some(baseline) = rows.iter().find(|row| row.variant == "default") else {
+            tracing::info!(model = %model, %table, "reasoning-effort rows");
+            continue;
+        };
+        let Some(cheapest) = rows.iter().min_by_key(|row| row.tokens_out) else {
+            continue;
+        };
+        // `checked_div` yields `None` for a zero baseline instead of a panic, so
+        // the ratio is simply omitted when the provider reports no usage.
+        let output_ratio_pct = cheapest
+            .tokens_out
+            .saturating_mul(100)
+            .checked_div(baseline.tokens_out);
+        let wall_ratio_pct = cheapest
+            .wall_ms
+            .saturating_mul(100)
+            .checked_div(baseline.wall_ms);
+        tracing::info!(
+            model = %model,
+            %table,
+            baseline_variant = %baseline.variant,
+            baseline_tokens_out = baseline.tokens_out,
+            baseline_wall_ms = baseline.wall_ms,
+            cheapest_variant = %cheapest.variant,
+            cheapest_tokens_out = cheapest.tokens_out,
+            cheapest_wall_ms = cheapest.wall_ms,
+            output_ratio_pct,
+            wall_ratio_pct,
+            "reasoning-effort comparison (cheapest vs provider default)"
+        );
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "{} of {} probe calls failed:\n- {}",
+            failures.len(),
+            models.len() * variants.len(),
+            failures.join("\n- ")
+        ))
+    }
 }

@@ -61,8 +61,7 @@ commits (ADR-020 D5).
 
 ### Changed (test harness)
 
-- The nightly `ai_llm_smoke_test` now reads the **production prompt** instead of
-  a hard-coded three-liner, and gained
+- The nightly `ai_llm_smoke_test` now reads the **production prompt** instead of  a hard-coded three-liner, and gained
   `llm_reads_every_gdrive_script_fixture`: the five real fixture scripts
   (`292.pdf`, `293.pdf`, `294.pdf`, `Drehbuch_1.pdf`, `Drehbuch_2.pdf`) through
   the production path — GDrive → `pdftotext -layout` → `extract_scenes` — with
@@ -70,6 +69,23 @@ commits (ADR-020 D5).
   document's largest chunk). Reason: the previous smoke sent a toy three-scene
   snippet with its own prompt, so every green nightly since said nothing about
   whether the product can read our documents.
+
+### Changed (2026-11-20 output-budget investigation)
+
+- The hosted chat client sends `reasoning_effort` **only when the caller asks for
+  one** (`LlmChatRequest::reasoning_effort`, `core` 0.75.0). Production still
+  passes `None`, so the request body is unchanged; the field exists so a provider
+  that declares the capability can be driven deliberately instead of on its
+  default. Reason: the nightly of 2026-11-20 showed every fourth paid call hitting
+  `finish_reason=length` with `content: null` and 8 192 output tokens in 70–85 s
+  for a 4 KB scene chunk — the model's reasoning, not its answer.
+- New nightly probe `reasoning_effort_trades_output_tokens_for_wall_clock`
+  (own `AI_LLM_PROBE_*` credential and provider, so one provider outage cannot
+  silence the production guard too): one fixture chunk, one paid call per
+  (model, effort variant), logging `tokens_in`/`tokens_out`/wall-clock per row and
+  a per-model comparison against the provider default. It is a measurement, not a
+  gate — its assertions only refuse to let a broken wire (`400` on the parameter,
+  or an empty answer) pass as a result.
 
 ## [0.85.0] - Unreleased
 ### Changed (issue #942 W1/W2/W3)

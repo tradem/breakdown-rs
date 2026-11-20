@@ -176,6 +176,22 @@ pub struct LlmChatRequest {
     /// Serialized schema passed by infra to a constrained provider. Core does
     /// not generate or validate this provider-specific schema.
     pub response_schema: Option<serde_json::Value>,
+    /// Provider-side reasoning effort (`reasoning_effort`), e.g. `"low"`.
+    ///
+    /// `None` sends no field at all, so the provider's own default applies — the
+    /// behaviour of every call before this field existed. The capability is
+    /// provider-declared and must not be assumed: Neuralwatt publishes
+    /// `capabilities.reasoning_effort` plus `reasoning.default_effort`, and
+    /// OpenRouter-style gateways list it in `supported_parameters`. Only send it
+    /// to a model that advertises it; an unsupported parameter is answered with
+    /// `400`.
+    ///
+    /// Introduced for the 2026-11-20 output-budget investigation: a reasoning
+    /// model that spends its whole output ceiling before emitting its first
+    /// content token answers `content: null` with `finish_reason: "length"`,
+    /// which the client used to treat as a permanent failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 #[async_trait]

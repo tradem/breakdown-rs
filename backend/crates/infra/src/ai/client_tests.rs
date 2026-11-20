@@ -11,10 +11,11 @@ use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 use reqwest::StatusCode;
 
 use super::{
-    ChatCompletionResponse, MAX_COMPLETION_DETAIL_CHARS, MAX_TRUNCATION_RETRIES,
-    OpenAiCompatibleChatClient, RateLimitVerdict, ResponseMeta, ResponseStep, classify_http_status,
-    classify_http_status_rich, classify_http_status_with_detail, classify_provider_body,
-    classify_transport_error, next_truncation_budget, step_for_response,
+    ChatCompletionRequest, ChatCompletionResponse, ChatMessage, MAX_COMPLETION_DETAIL_CHARS,
+    MAX_TRUNCATION_RETRIES, OpenAiCompatibleChatClient, RateLimitVerdict, ResponseMeta,
+    ResponseStep, classify_http_status, classify_http_status_rich,
+    classify_http_status_with_detail, classify_provider_body, classify_transport_error,
+    next_truncation_budget, step_for_response,
 };
 
 // ===========================================================================
@@ -1281,4 +1282,31 @@ fn response_meta_reads_the_provider_request_handle_from_headers() {
     assert_eq!(meta.request_id.as_deref(), Some("req-header"));
     assert_eq!(meta.server.as_deref(), Some("envoy"));
     assert_eq!(meta.upstream_service_time, None);
+}
+
+/// `reasoning_effort` is an OPTIONAL wire field: an unset value must leave the
+/// request body byte-identical to the pre-field one, because a provider that does
+/// not advertise `reasoning_effort` answers `400` for the unknown parameter.
+#[test]
+fn an_unset_reasoning_effort_never_reaches_the_request_body() {
+    let body = |effort: Option<String>| ChatCompletionRequest {
+        model: "mistral-large-3".to_owned(),
+        messages: vec![ChatMessage {
+            role: "user".to_owned(),
+            content: "hi".to_owned(),
+        }],
+        max_tokens: 8,
+        reasoning_effort: effort,
+        response_format: None,
+    };
+    let unset = serde_json::to_value(body(None)).expect("serialize");
+    assert!(
+        unset.get("reasoning_effort").is_none(),
+        "an unset effort must not appear in the body: {unset}"
+    );
+    let set = serde_json::to_value(body(Some("low".to_owned()))).expect("serialize");
+    assert_eq!(
+        set.get("reasoning_effort").and_then(|v| v.as_str()),
+        Some("low")
+    );
 }
