@@ -54,6 +54,9 @@ problem-ai-config-decision-model-unknown =
 problem-ai-config-decision-vault-key-empty =
     The decision model credential reference must not be empty.
 
+problem-ai-config-reasoning-effort-unsupported =
+    The selected model does not support this reasoning effort. Choose another level or keep the provider default.
+
 problem-ai-import-disabled =
     AI import is not enabled on this instance.
 

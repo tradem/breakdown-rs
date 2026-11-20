@@ -39,7 +39,7 @@ pub const PROBLEM_DOCS_BASE: &str = "https://docs.breakdown.example";
 /// Kept in sync with the `problem_codes!` invocation below by a compile-time
 /// assertion — adding or removing a code without deliberately updating this
 /// count fails the build (issue #232).
-const PROBLEM_CODE_COUNT: usize = 114;
+const PROBLEM_CODE_COUNT: usize = 115;
 
 /// One registered problem code (ADR-031 D2/D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -934,6 +934,18 @@ problem_codes! {
         code: "ai-config.decision-model-unknown",
         status: 422,
         title: "Decision model not curated for provider",
+        extensions: &[],
+    },
+
+    /// 422 — the requested `reasoning_effort` is not accepted by the configured
+    /// provider/model (2026-11-20 output-budget investigation). Either the pair
+    /// declares no such parameter, or it declares a different value set; the
+    /// save is refused while the error is still cheap instead of paying a `400`
+    /// on every import call.
+    AI_CONFIG_REASONING_EFFORT_UNSUPPORTED {
+        code: "ai-config.reasoning-effort-unsupported",
+        status: 422,
+        title: "Reasoning effort not supported by this model",
         extensions: &[],
     },
 
