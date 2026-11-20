@@ -30,6 +30,47 @@ commits (ADR-020 D5).
   breaker's gate and the health display cannot disagree; the breaker maps
   `Unknown ⇒ NotUsable`, the display keeps `unknown`.
 
+### Fixed (2026-11-20 empty-completion incident)
+
+- **An LLM answer with no content is a provider failure, not a validation
+  failure.** A `200` whose `choices[0].message.content` was `null` (or blank)
+  became `DomainError::validation("LLM response contained no content")`:
+  `is_retryable() == false`, so `retry_bounded` granted **zero** in-attempt
+  retries and `mark_failed` dead-lettered the job after ONE paid request — while
+  the truncation retry beside it (`next_truncation_budget`) would have retried
+  the same class of answer with a doubled output budget. Production hit this on
+  a real import (`292.pdf`, chunk 0 = 4 154 bytes, ~71 s response): the job
+  dead-lettered instantly and nothing said why. The decision now lives in
+  `step_for_response` (pure, unit-tested): content ⇒ decode, no content ⇒ grow
+  the budget and re-request (bounded by `MAX_TRUNCATION_RETRIES`), and once the
+  bound is spent ⇒ `DomainError::llm_provider_unavailable`, i.e. retryable and
+  counted by the `(provider, model)` breaker, so a persistently empty endpoint
+  is HELD with the real narrative instead of dead-lettering the job.
+- **The empty completion is diagnosable.** The failure text now names
+  `finish_reason`, `tokens_in`/`tokens_out`, `reasoning_content_chars` (a
+  reasoning model that spends its whole output ceiling emits no content token),
+  `refusal`, `completion_id`, the model the provider actually SERVED, plus the
+  identifying response headers `request_id` / `upstream_ms` / `server` captured
+  before the body read. That last one is the difference between "the provider
+  says nothing" and "we cannot even name the call": the incident's request was
+  not identifiable in the provider's own dashboard. The text is bounded
+  (`MAX_COMPLETION_DETAIL_CHARS`) because it is persisted in
+  `ai_import_job.last_error` and rendered by the client.
+- A whitespace-only `content` takes the same path (it used to reach the JSON
+  parser and fail as "LLM JSON did not match …" after bounded retries).
+
+### Changed (test harness)
+
+- The nightly `ai_llm_smoke_test` now reads the **production prompt** instead of
+  a hard-coded three-liner, and gained
+  `llm_reads_every_gdrive_script_fixture`: the five real fixture scripts
+  (`292.pdf`, `293.pdf`, `294.pdf`, `Drehbuch_1.pdf`, `Drehbuch_2.pdf`) through
+  the production path — GDrive → `pdftotext -layout` → `extract_scenes` — with
+  two paid calls per document (chunk 0, which a fresh import sends first, and the
+  document's largest chunk). Reason: the previous smoke sent a toy three-scene
+  snippet with its own prompt, so every green nightly since said nothing about
+  whether the product can read our documents.
+
 ## [0.85.0] - Unreleased
 ### Changed (issue #942 W1/W2/W3)
 

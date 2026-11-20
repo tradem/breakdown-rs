@@ -11,9 +11,10 @@ use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
 use reqwest::StatusCode;
 
 use super::{
-    MAX_TRUNCATION_RETRIES, OpenAiCompatibleChatClient, RateLimitVerdict, classify_http_status,
+    ChatCompletionResponse, MAX_COMPLETION_DETAIL_CHARS, MAX_TRUNCATION_RETRIES,
+    OpenAiCompatibleChatClient, RateLimitVerdict, ResponseMeta, ResponseStep, classify_http_status,
     classify_http_status_rich, classify_http_status_with_detail, classify_provider_body,
-    classify_transport_error, next_truncation_budget,
+    classify_transport_error, next_truncation_budget, step_for_response,
 };
 
 // ===========================================================================
@@ -1066,4 +1067,218 @@ fn the_error_body_budget_never_exceeds_the_request_timeout() {
         super::error_body_budget(Duration::from_millis(250)),
         Duration::from_millis(250)
     );
+}
+
+// ===========================================================================
+// Empty completion (2026-11-20 incident)
+//
+// A `200` whose `message.content` is null/blank used to become
+// `DomainError::validation("LLM response contained no content")`: not
+// retryable, zero in-attempt retries, immediate dead letter, no diagnosis and
+// no breaker signal. These tests pin the corrected decision — the branch had NO
+// coverage before, which is why the whole failure class reached the user's
+// manual test instead of CI.
+// ===========================================================================
+
+/// Decode a provider envelope fixture the way the transport does.
+fn envelope(value: serde_json::Value) -> ChatCompletionResponse {
+    serde_json::from_value(value).expect("envelope fixture must deserialize")
+}
+
+/// Response metadata as a gateway sends it (eurouter answers with
+/// `x-request-id`, `x-envoy-upstream-service-time` and `server`).
+fn meta(request_id: &str) -> ResponseMeta {
+    ResponseMeta {
+        request_id: Some(request_id.to_owned()),
+        upstream_service_time: Some("71004".to_owned()),
+        server: Some("envoy".to_owned()),
+    }
+}
+
+/// The 2026-11-20 response: `content: null` at the token ceiling.
+fn empty_completion_envelope() -> ChatCompletionResponse {
+    envelope(serde_json::json!({
+        "id": "chatcmpl-abc123",
+        "model": "mistral-large-3-2026-11",
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "reasoning_content": "x"
+            },
+            "finish_reason": "length"
+        }],
+        "usage": {"prompt_tokens": 2187, "completion_tokens": 8192}
+    }))
+}
+
+#[test]
+fn a_null_content_is_retried_with_a_grown_budget_before_it_fails() {
+    let body = empty_completion_envelope();
+    let step = step_for_response(&body, &meta("req-1"), 8_192, 1);
+    let ResponseStep::RetryWithBudget {
+        budget,
+        retries_left,
+        reason,
+    } = step
+    else {
+        panic!("a truncated empty completion must be re-requested, got {step:?}");
+    };
+    assert_eq!(budget, 16_384, "the budget doubles like a truncated answer");
+    assert_eq!(retries_left, 0, "the retry budget must be spent");
+    assert!(
+        reason.contains("finish_reason=length"),
+        "the diagnosis must name the provider's stop reason: {reason}"
+    );
+}
+
+/// The regression the user hit: after the bounded retries are spent, an empty
+/// completion is a PROVIDER failure (retryable, breaker-counting), never a
+/// validation failure of our own input.
+#[test]
+fn an_exhausted_empty_completion_is_a_provider_failure() {
+    let body = empty_completion_envelope();
+    let step = step_for_response(&body, &meta("req-2"), 32_768, 0);
+    let ResponseStep::Fail { error } = step else {
+        panic!("the retry budget is spent, the step must fail: {step:?}");
+    };
+    assert_eq!(
+        error.code().code,
+        "ai-import.llm-provider-unavailable",
+        "an empty answer is the endpoint failing, not a validation error"
+    );
+    assert!(
+        error.is_retryable(),
+        "a provider that answers 200 with nothing must be retried and may open the breaker"
+    );
+    assert!(
+        error.to_string().contains("request_id=req-2"),
+        "the failure text must carry the provider's request handle: {error}"
+    );
+}
+
+#[test]
+fn a_blank_content_string_takes_the_empty_completion_path() {
+    let body = envelope(serde_json::json!({
+        "choices": [{"message": {"content": "   \n"}, "finish_reason": "stop"}]
+    }));
+    let step = step_for_response(&body, &meta("req-3"), 8_192, 2);
+    assert!(
+        matches!(step, ResponseStep::RetryWithBudget { .. }),
+        "whitespace-only content is 'no content', not a JSON parse error: {step:?}"
+    );
+}
+
+#[test]
+fn a_response_without_choices_is_retried_then_fails_as_a_provider_failure() {
+    let body = envelope(serde_json::json!({"choices": []}));
+    let step = step_for_response(&body, &meta("req-4"), 8_192, 0);
+    let ResponseStep::Fail { error } = step else {
+        panic!("no choices with no retries left must fail: {step:?}");
+    };
+    assert_eq!(error.code().code, "ai-import.llm-provider-unavailable");
+    assert!(error.to_string().contains("no choices"));
+}
+
+/// The diagnosis is the whole point of the fix: every field the incident could
+/// not answer must be in the recorded error.
+#[test]
+fn the_empty_completion_diagnosis_names_every_investigated_field() {
+    let body = empty_completion_envelope();
+    let step = step_for_response(&body, &meta("req-5"), 32_768, 0);
+    let ResponseStep::Fail { error } = step else {
+        panic!("expected a failure: {step:?}");
+    };
+    let text = error.to_string();
+    for expected in [
+        "blank content",
+        "completion_id=chatcmpl-abc123",
+        "response_model=mistral-large-3-2026-11",
+        "finish_reason=length",
+        "reasoning_content_chars=1",
+        "tokens_in=2187",
+        "tokens_out=8192",
+        "request_id=req-5",
+        "upstream_ms=71004",
+        "server=envoy",
+    ] {
+        assert!(text.contains(expected), "missing {expected} in: {text}");
+    }
+}
+
+#[test]
+fn a_refusal_is_named_in_the_diagnosis() {
+    let body = envelope(serde_json::json!({
+        "choices": [{"message": {"content": null, "refusal": "cannot help with that"}, "finish_reason": "stop"}]
+    }));
+    let step = step_for_response(&body, &meta("req-6"), 8_192, 0);
+    let ResponseStep::Fail { error } = step else {
+        panic!("a refusal carries no content, so it fails: {step:?}");
+    };
+    assert!(error.to_string().contains("refusal=cannot help with that"));
+}
+
+#[test]
+fn the_diagnosis_is_bounded_but_never_silently_blank() {
+    // The shared capper counts CHARACTERS and says when it cut.
+    let unbounded = super::truncate_detail(&"r".repeat(4_000));
+    assert_eq!(unbounded.chars().count(), MAX_COMPLETION_DETAIL_CHARS + 1);
+    assert!(unbounded.ends_with('…'));
+    assert_eq!(
+        super::truncate_detail("short"),
+        "short",
+        "no ellipsis when it fits"
+    );
+
+    // End to end: a hostile 4 000-character refusal cannot bloat the recorded
+    // error, which is persisted in `last_error` and rendered by the client.
+    let body = envelope(serde_json::json!({
+        "choices": [{"message": {"content": null, "refusal": "r".repeat(4_000)}, "finish_reason": "stop"}]
+    }));
+    let step = step_for_response(&body, &meta("req-7"), 8_192, 0);
+    let ResponseStep::Fail { error } = step else {
+        panic!("expected a failure: {step:?}");
+    };
+    let text = error.to_string();
+    assert!(
+        text.chars().count() <= MAX_COMPLETION_DETAIL_CHARS + 128,
+        "the recorded error must stay bounded (got {} chars)",
+        text.chars().count()
+    );
+    assert!(text.ends_with('…'), "a truncated diagnosis says so: {text}");
+}
+
+#[test]
+fn a_response_with_content_is_decoded_unchanged() {
+    let body = envelope(serde_json::json!({
+        "choices": [{
+            "message": {"content": "{\"title\": null, \"scenes\": [], \"uncertainties\": []}"},
+            "finish_reason": "stop"
+        }]
+    }));
+    let step = step_for_response(&body, &meta("req-8"), 8_192, 2);
+    let ResponseStep::Decode {
+        content,
+        finish_reason,
+    } = step
+    else {
+        panic!("real content must be decoded, not retried: {step:?}");
+    };
+    assert!(content.contains("\"scenes\""));
+    assert_eq!(finish_reason, Some("stop"));
+}
+
+/// The 2026-11-20 incident had no `tracing` output on this path at all, so a
+/// failed call could not be found in the provider's dashboard. `ResponseMeta`
+/// reads the headers case-insensitively (gateways differ in casing) and prefers
+/// `x-request-id`.
+#[test]
+fn response_meta_reads_the_provider_request_handle_from_headers() {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("X-Request-Id", "req-header".parse().unwrap());
+    headers.insert("server", "envoy".parse().unwrap());
+    let meta = ResponseMeta::capture(&headers);
+    assert_eq!(meta.request_id.as_deref(), Some("req-header"));
+    assert_eq!(meta.server.as_deref(), Some("envoy"));
+    assert_eq!(meta.upstream_service_time, None);
 }

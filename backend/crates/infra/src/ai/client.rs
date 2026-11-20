@@ -278,6 +278,12 @@ impl OpenAiCompatibleChatClient {
                     status, &body.text, hint.wait, verdict,
                 ));
             }
+            // Empty-completion fix (2026-11-20 incident): the identifying
+            // response headers must be read BEFORE `.json()` consumes the
+            // response. An empty completion is only diagnosable with the
+            // provider's own request id — without it the failed call cannot
+            // even be located in the provider's dashboard.
+            let meta = ResponseMeta::capture(response.headers());
             let envelope = response
                 .json::<ChatCompletionResponse>()
                 .await
@@ -285,31 +291,60 @@ impl OpenAiCompatibleChatClient {
                     DomainError::validation(format!("invalid LLM response: {error}"))
                 })?;
             total_usage.accumulate(envelope.usage());
-            let choice = envelope
-                .choices
-                .first()
-                .ok_or_else(|| DomainError::validation("LLM response contained no choices"))?;
-            let content = choice
-                .message
-                .content
-                .as_deref()
-                .ok_or_else(|| DomainError::validation("LLM response contained no content"))?;
+            let (content, finish_reason) = match step_for_response(
+                &envelope,
+                &meta,
+                budget,
+                truncation_retries,
+            ) {
+                ResponseStep::Decode {
+                    content,
+                    finish_reason,
+                } => (content, finish_reason),
+                ResponseStep::RetryWithBudget {
+                    budget: grown,
+                    retries_left,
+                    reason,
+                } => {
+                    // The provider billed this call and answered with nothing
+                    // usable. Grow the budget exactly as a truncated answer is
+                    // retried: an empty body is the extreme case of a body that
+                    // did not fit — a model that spends its whole output
+                    // ceiling on reasoning emits no content token at all.
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        %reason,
+                        grown_budget = grown,
+                        retries_left,
+                        "LLM provider returned no usable content — re-requesting with a grown budget"
+                    );
+                    budget = grown;
+                    truncation_retries = retries_left;
+                    continue;
+                }
+                ResponseStep::Fail { error } => {
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        %error,
+                        "LLM provider returned no usable content — failing the attempt"
+                    );
+                    return Err(error);
+                }
+            };
             match serde_json::from_str(content) {
                 Ok(context) => {
                     return Ok(LlmCallOutcome::new(context, total_usage));
                 }
                 Err(error) => {
-                    match next_truncation_budget(
-                        choice.finish_reason.as_deref(),
-                        budget,
-                        truncation_retries,
-                    ) {
+                    match next_truncation_budget(finish_reason, budget, truncation_retries) {
                         Some(grown) => {
                             budget = grown;
                             truncation_retries -= 1;
                         }
                         None => {
-                            let truncated = choice.finish_reason.as_deref() == Some("length");
+                            let truncated = finish_reason == Some("length");
                             let suffix = if truncated {
                                 " (response truncated at the output-token budget \
                                  after bounded retries)"
@@ -523,6 +558,14 @@ struct ChatMessage {
 #[derive(Debug, Deserialize)]
 struct ChatCompletionResponse {
     choices: Vec<ChatChoice>,
+    /// Provider-assigned completion id (`id`) and the model that actually
+    /// SERVED the request (`model`). Both are diagnostic only: a router may
+    /// answer with a different model than the one asked for, and an empty
+    /// completion makes that difference worth knowing.
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
     /// Token usage reported by the provider (issue #675). Absent on some
     /// providers/streams — tolerated, usage stays at the accumulated zeros.
     #[serde(default)]
@@ -689,6 +732,18 @@ struct ChatChoice {
 #[derive(Debug, Deserialize)]
 struct ChatMessageResponse {
     content: Option<String>,
+    /// Present when the model refused instead of answering. Reported in the
+    /// empty-completion diagnosis: `content: null` plus a `refusal` is a
+    /// policy decision, `content: null` without one is a broken answer.
+    #[serde(default)]
+    refusal: Option<String>,
+    /// Reasoning models (and OpenAI-compatible gateways that relay them) put
+    /// their thinking here. Its LENGTH in the diagnosis tells the two causes
+    /// of an empty completion apart: a large `reasoning_content` with
+    /// `finish_reason: "length"` means the output ceiling was spent before the
+    /// first content token.
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 /// Infra-local schema mirror. Core remains independent of schemars while the
@@ -1236,6 +1291,186 @@ fn next_truncation_budget(
     } else {
         None
     }
+}
+
+/// Upper bound of the empty-completion diagnosis embedded in the error.
+///
+/// The text lands in `ai_import_job.last_error` and is rendered by the client,
+/// so it must stay greppable and readable — never a full response body dump.
+const MAX_COMPLETION_DETAIL_CHARS: usize = 400;
+
+/// Identifying metadata of one provider response, read from the headers before
+/// the body is consumed.
+///
+/// Exists for one failure class: a `200` whose `choices[0].message.content` is
+/// empty. `request_id` is the provider's own handle for the call — the
+/// 2026-11-20 incident produced a dead-lettered job whose request was not
+/// visible in the provider's dashboard at all, and nothing on our side could
+/// name it. `upstream_service_time` says whether the upstream generated
+/// anything before answering.
+#[derive(Debug, Default, Clone)]
+struct ResponseMeta {
+    request_id: Option<String>,
+    upstream_service_time: Option<String>,
+    server: Option<String>,
+}
+
+impl ResponseMeta {
+    /// Header names carrying the provider's request handle, in priority order:
+    /// OpenAI-compatible gateways differ (`x-request-id`, `request-id`,
+    /// `openai-request-id`) and a proxy may add `server`/upstream timing.
+    const REQUEST_ID_HEADERS: [&'static str; 4] = [
+        "x-request-id",
+        "request-id",
+        "x-eurouter-request-id",
+        "openai-request-id",
+    ];
+
+    fn capture(headers: &reqwest::header::HeaderMap) -> Self {
+        let value = |names: &[&str]| {
+            names
+                .iter()
+                .find_map(|name| headers.get(*name))
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        Self {
+            request_id: value(&Self::REQUEST_ID_HEADERS),
+            upstream_service_time: value(&["x-envoy-upstream-service-time"]),
+            server: value(&["server"]),
+        }
+    }
+}
+
+/// What to do with one decoded `200` response.
+#[derive(Debug)]
+enum ResponseStep<'a> {
+    /// The provider delivered a content payload — decode it.
+    Decode {
+        content: &'a str,
+        finish_reason: Option<&'a str>,
+    },
+    /// Nothing usable arrived, and the bounded budget growth may try again.
+    RetryWithBudget {
+        budget: u32,
+        retries_left: u32,
+        reason: String,
+    },
+    /// Nothing usable arrived and the bounded retries are spent. This is a
+    /// **provider failure**, not a validation failure of our own input: a `200`
+    /// without an answer is the endpoint failing to deliver, so it stays
+    /// retryable and may move the `(provider, model)` breaker. Classifying it as
+    /// `validation` (the pre-fix behaviour) granted zero in-attempt retries and
+    /// dead-lettered the job after a single empty answer (2026-11-20 incident).
+    Fail { error: DomainError },
+}
+
+/// Reduce one decoded provider response to the next step.
+///
+/// Pure and provider-agnostic so the whole decision is unit-testable without
+/// HTTP — the previous shape put it inline in the request loop, which is why no
+/// test ever exercised the empty-completion branch.
+fn step_for_response<'a>(
+    envelope: &'a ChatCompletionResponse,
+    meta: &ResponseMeta,
+    budget: u32,
+    truncation_retries_left: u32,
+) -> ResponseStep<'a> {
+    let choice = envelope.choices.first();
+    let finish_reason = choice.and_then(|choice| choice.finish_reason.as_deref());
+    // A blank string is the same failure as a missing field: the provider
+    // answered with nothing. Both must reach the truncation retry instead of the
+    // JSON parser (which turned the empty string into an unhelpful
+    // "LLM JSON did not match" after bounded retries).
+    if let Some(content) = choice
+        .and_then(|choice| choice.message.content.as_deref())
+        .filter(|content| !content.trim().is_empty())
+    {
+        return ResponseStep::Decode {
+            content,
+            finish_reason,
+        };
+    }
+    let reason = describe_empty_completion(envelope, choice, meta);
+    match next_truncation_budget(finish_reason, budget, truncation_retries_left) {
+        Some(grown) => ResponseStep::RetryWithBudget {
+            budget: grown,
+            // `next_truncation_budget` only grows while a retry is left, so the
+            // subtraction cannot underflow; `saturating_sub` keeps it panic-free
+            // regardless (house rule: no panics in production code).
+            retries_left: truncation_retries_left.saturating_sub(1),
+            reason,
+        },
+        None => ResponseStep::Fail {
+            error: DomainError::llm_provider_unavailable(format!(
+                "LLM provider returned no usable content: {reason}"
+            )),
+        },
+    }
+}
+
+/// Bounded, greppable description of a response that carried no usable
+/// content.
+///
+/// Every field answers a question the 2026-11-20 incident could not answer from
+/// the recorded error (`validation failed: LLM response contained no content`):
+/// did the provider answer at all (`request_id`, `server`, `upstream_ms`), did it
+/// truncate (`finish_reason`), did it spend the ceiling on reasoning
+/// (`reasoning_content_chars`, `tokens_out`), did it refuse (`refusal`), and did
+/// it route to a different model (`response_model`).
+fn describe_empty_completion(
+    envelope: &ChatCompletionResponse,
+    choice: Option<&ChatChoice>,
+    meta: &ResponseMeta,
+) -> String {
+    let usage = envelope.usage();
+    let mut parts: Vec<String> = vec![match choice {
+        Some(_) => "blank content".to_owned(),
+        None => "no choices".to_owned(),
+    }];
+    push_detail(&mut parts, "completion_id", envelope.id.as_deref());
+    push_detail(&mut parts, "response_model", envelope.model.as_deref());
+    if let Some(choice) = choice {
+        push_detail(&mut parts, "finish_reason", choice.finish_reason.as_deref());
+        push_detail(&mut parts, "refusal", choice.message.refusal.as_deref());
+        if let Some(reasoning) = &choice.message.reasoning_content {
+            parts.push(format!(
+                "reasoning_content_chars={}",
+                reasoning.chars().count()
+            ));
+        }
+        if let Some(content) = &choice.message.content {
+            parts.push(format!("content_chars={}", content.chars().count()));
+        }
+    }
+    parts.push(format!("tokens_in={}", usage.tokens_in));
+    parts.push(format!("tokens_out={}", usage.tokens_out));
+    push_detail(&mut parts, "request_id", meta.request_id.as_deref());
+    push_detail(
+        &mut parts,
+        "upstream_ms",
+        meta.upstream_service_time.as_deref(),
+    );
+    push_detail(&mut parts, "server", meta.server.as_deref());
+    truncate_detail(&parts.join(", "))
+}
+
+/// Append `label=value` when the provider actually sent the value.
+fn push_detail(parts: &mut Vec<String>, label: &str, value: Option<&str>) {
+    if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
+        parts.push(format!("{label}={value}"));
+    }
+}
+
+/// Cap the diagnosis at [`MAX_COMPLETION_DETAIL_CHARS`], counting CHARACTERS
+/// (provider text is untrusted and multi-byte).
+fn truncate_detail(text: &str) -> String {
+    if text.chars().count() <= MAX_COMPLETION_DETAIL_CHARS {
+        return text.to_owned();
+    }
+    let mut truncated: String = text.chars().take(MAX_COMPLETION_DETAIL_CHARS).collect();
+    truncated.push('…');
+    truncated
 }
 
 #[cfg(test)]

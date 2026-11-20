@@ -99,16 +99,39 @@ jobs:
           echo "GDRIVE lengths: client_id=${#GDRIVE_CLIENT_ID} secret=${#GDRIVE_CLIENT_SECRET} refresh=${#GDRIVE_REFRESH_TOKEN} root=${#GDRIVE_ROOT}"
           cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
 
+      # Two levels, both live (see the test module docs): a small canary with the
+      # PRODUCTION prompt, and the real fixture scripts (292/293/294/Drehbuch_1/
+      # Drehbuch_2.pdf) through the production path — GDrive → `pdftotext -layout`
+      # → the deterministic splitter → one paid call on each document's LARGEST
+      # chunk at the production output budget.
+      #
+      # Why both: until 2026-11-20 this step sent a hard-coded three-line prompt
+      # and a toy three-scene snippet, so it stayed green while a real import
+      # dead-lettered with "LLM response contained no content". A green line here
+      # must mean "the product can read our documents", not "the provider answers
+      # a trivial request".
       - name: Live LLM ingestion smoke (nightly)
+        timeout-minutes: 25
         env:
           AI_LLM_API_KEY: ${{ secrets.AI_LLM_API_KEY }}
           AI_LLM_PROVIDER: ${{ vars.AI_LLM_PROVIDER }}
           AI_LLM_MODEL: ${{ vars.AI_LLM_MODEL }}
+          # The real-document half reads the fixture folder through the same
+          # Vault-backed GDrive source the product uses.
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
         run: |
           if [ -z "$AI_LLM_API_KEY" ]; then
-            echo "AI_LLM_API_KEY not configured — live LLM smoke will skip."
+            echo "AI_LLM_API_KEY not configured — live LLM smoke will skip (asserts nothing)."
           else
             echo "AI_LLM_PROVIDER=${AI_LLM_PROVIDER:-eurouter} AI_LLM_MODEL=${AI_LLM_MODEL:-mistral-large-3}"
+            if [ -z "$GDRIVE_CLIENT_ID" ]; then
+              echo "GDRIVE_CLIENT_ID not configured — the real-document half will skip (asserts nothing)."
+            else
+              echo "GDRIVE_ROOT=${GDRIVE_ROOT} · required fixtures: 292.pdf 293.pdf 294.pdf Drehbuch_1.pdf Drehbuch_2.pdf"
+            fi
           fi
           cargo test -p integration-tests --test ai_llm_smoke_test -- --nocapture
 
