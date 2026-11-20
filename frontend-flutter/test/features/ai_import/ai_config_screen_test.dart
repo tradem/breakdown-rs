@@ -81,12 +81,18 @@ ModelInfo _model(
   String id, {
   bool recommended = false,
   ModelPricing? pricing,
+
+  /// The `reasoning_effort` levels this model DECLARES (2026-11-20
+  /// investigation). Empty models the pre-field backend AND a provider whose
+  /// catalogue carries no such capability — both mean "no choosable level".
+  List<ReasoningEffort> efforts = const [],
 }) => ModelInfo(
   (b) => b
     ..id = id
     ..provider = LlmProvider.openai
     ..recommended = recommended
-    ..pricing = pricing?.toBuilder(),
+    ..pricing = pricing?.toBuilder()
+    ..supportedReasoningEfforts.replace(efforts),
 );
 
 /// A pricing snapshot fixture (issue #675): 1.45 in / 4 out per 1M tokens
@@ -124,6 +130,9 @@ AiConfigView _config({
   LlmProvider? decisionProvider,
   String? decisionModel,
   String? decisionVaultKeyId,
+
+  /// The stored `reasoning_effort`; `auto` models the pre-field backend.
+  ReasoningEffortChoice reasoningEffort = ReasoningEffortChoice.auto,
 }) {
   final base = AiConfigView(
     (b) => b
@@ -138,6 +147,7 @@ AiConfigView _config({
         BuiltList(const [DocumentKind.script, DocumentKind.schedule]),
       )
       ..revoked = false
+      ..reasoningEffort = reasoningEffort
       ..version = version,
   );
   return storedPromptKinds == null
@@ -1700,6 +1710,185 @@ void main() {
         repo.lastUpdateRequest!.costDisplayPreference,
         CostDisplayPreference.energy,
       );
+    });
+
+    // --- Reasoning effort (2026-11-20 output-budget investigation) ---
+
+    testWidgets('the picker offers exactly the levels the selected model '
+        'declares, plus auto — never a level it would refuse with a 422', (
+      tester,
+    ) async {
+      await setupContainer(
+        modelsValue: Right([
+          // GLM-style catalogue: `low|high`, NO `medium`. This is the set the
+          // backend would accept, so `medium` must not be offered.
+          _model(
+            'gpt-5.6-luna',
+            efforts: [ReasoningEffort.low, ReasoningEffort.high],
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+        findsOneWidget,
+      );
+      // `auto` is always there, the declared levels follow.
+      expect(find.byKey(const Key('ai-reasoning-effort-auto')), findsOneWidget);
+      expect(find.byKey(const Key('ai-reasoning-effort-low')), findsOneWidget);
+      expect(find.byKey(const Key('ai-reasoning-effort-high')), findsOneWidget);
+      // Not declared by this model → not offered.
+      expect(find.byKey(const Key('ai-reasoning-effort-medium')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-minimal')),
+        findsNothing,
+      );
+
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(picker.selected, {ReasoningEffortChoice.auto});
+    });
+
+    testWidgets('a model that declares no parameter renders the honest '
+        'sentence instead of an empty picker', (tester) async {
+      // The default fixture carries no capability: the pre-field backend AND
+      // a provider catalogue without the parameter look like this.
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+
+      expect(find.byKey(const Key('ai-reasoning-effort-picker')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-unavailable')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the chosen level reaches the create request', (tester) async {
+      await setupContainer(
+        modelsValue: Right([
+          _model('gpt-5.6-luna', efforts: [ReasoningEffort.low]),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-reasoning-effort-low')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-low')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'sk-test-123',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+
+      expect(repo.createCalls, 1);
+      expect(
+        repo.lastCreateRequest!.reasoningEffort,
+        ReasoningEffortChoice.low,
+      );
+    });
+
+    testWidgets('the configured form echoes the stored level', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(reasoningEffort: ReasoningEffortChoice.high),
+        ]),
+        modelsValue: Right([
+          _model(
+            'gpt-5.6-luna',
+            efforts: [ReasoningEffort.low, ReasoningEffort.high],
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(picker.selected, {ReasoningEffortChoice.high});
+    });
+
+    testWidgets('RESETTING a stored level to auto reaches the PATCH — the '
+        'direction a nullable field could never express', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(reasoningEffort: ReasoningEffortChoice.high),
+        ]),
+        modelsValue: Right([
+          _model(
+            'gpt-5.6-luna',
+            efforts: [ReasoningEffort.low, ReasoningEffort.high],
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-auto')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      // `auto` is a VALUE on the wire — not an omitted field, not a null. This
+      // is the assertion that pins Option A: with `Option<ReasoningEffort>` the
+      // generated client would have dropped the field and the level would have
+      // survived the user's reset.
+      expect(
+        repo.lastUpdateRequest!.reasoningEffort,
+        ReasoningEffortChoice.auto,
+      );
+    });
+
+    testWidgets('switching to a model that does not declare the drafted level '
+        'drops the draft to auto instead of dispatching a 422', (tester) async {
+      await setupContainer(
+        modelsValue: Right([
+          _model('gpt-5.6-luna', efforts: [ReasoningEffort.medium]),
+          // The second model declares nothing (a provider catalogue without the
+          // parameter) — a draft of `medium` must not survive the switch.
+          _model('gpt-5.6-terra'),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-reasoning-effort-medium')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-medium')));
+      await tester.pumpAndSettle();
+
+      // Switch to the model that declares nothing: the picker gives way to the
+      // honest sentence.
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-terra').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-reasoning-effort-picker')), findsNothing);
+
+      // Switch BACK: the draft no longer holds the level it did before, which
+      // is the actual claim — a hidden picker alone would prove nothing.
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(picker.selected, {ReasoningEffortChoice.auto});
     });
 
     // --- Decision Model section (issue #723) ---

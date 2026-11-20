@@ -2075,6 +2075,72 @@ abstract class AppLocalizations {
   /// **'Energie'**
   String get aiConfigCostDisplayEnergy;
 
+  /// No description provided for @aiConfigReasoningEffortLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Rechenaufwand'**
+  String get aiConfigReasoningEffortLabel;
+
+  /// No description provided for @aiConfigReasoningEffortHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Wie viel das Modell nachdenken darf. Weniger Aufwand ist deutlich schneller und billiger; die Stufen sind auf das gewählte Modell begrenzt.'**
+  String get aiConfigReasoningEffortHint;
+
+  /// No description provided for @aiConfigReasoningEffortUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Modell bietet keine Einstellung für den Rechenaufwand.'**
+  String get aiConfigReasoningEffortUnavailable;
+
+  /// No description provided for @aiConfigReasoningEffortUnavailableHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Es wird kein Wert gesendet; das Modell entscheidet selbst.'**
+  String get aiConfigReasoningEffortUnavailableHint;
+
+  /// No description provided for @aiConfigReasoningEffortStored.
+  ///
+  /// In de, this message translates to:
+  /// **'Gespeichert: {level}. Dieses Modell bietet die Einstellung nicht mehr — der Wert bleibt erhalten, bis du ihn änderst.'**
+  String aiConfigReasoningEffortStored(String level);
+
+  /// No description provided for @aiConfigReasoningEffortAuto.
+  ///
+  /// In de, this message translates to:
+  /// **'Automatisch'**
+  String get aiConfigReasoningEffortAuto;
+
+  /// No description provided for @aiConfigReasoningEffortMinimal.
+  ///
+  /// In de, this message translates to:
+  /// **'Minimal'**
+  String get aiConfigReasoningEffortMinimal;
+
+  /// No description provided for @aiConfigReasoningEffortLow.
+  ///
+  /// In de, this message translates to:
+  /// **'Niedrig'**
+  String get aiConfigReasoningEffortLow;
+
+  /// No description provided for @aiConfigReasoningEffortMedium.
+  ///
+  /// In de, this message translates to:
+  /// **'Mittel'**
+  String get aiConfigReasoningEffortMedium;
+
+  /// No description provided for @aiConfigReasoningEffortHigh.
+  ///
+  /// In de, this message translates to:
+  /// **'Hoch'**
+  String get aiConfigReasoningEffortHigh;
+
+  /// No description provided for @aiConfigReasoningEffortUnsupported.
+  ///
+  /// In de, this message translates to:
+  /// **'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Automatisch“ wählen.'**
+  String get aiConfigReasoningEffortUnsupported;
+
   /// No description provided for @aiJobCostCompact.
   ///
   /// In de, this message translates to:

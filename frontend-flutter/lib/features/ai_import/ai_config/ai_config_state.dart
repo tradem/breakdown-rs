@@ -38,6 +38,7 @@ class AiConfigScreenState {
     this.selectedDecisionModelId,
     this.useSameDecisionKey = true,
     this.costDisplayPreference = CostDisplayPreference.token,
+    this.reasoningEffort = ReasoningEffortChoice.auto,
     this.decisionModels = const AsyncValue<List<ModelInfo>>.loading(),
     this.imageModels = const AsyncValue<List<ModelInfo>>.loading(),
     this.scriptPrompt = '',
@@ -82,6 +83,14 @@ class AiConfigScreenState {
   /// pick, else the configured value, else the `token` default. Rendered
   /// by the cost-display selector and used as the PATCH payload value.
   final CostDisplayPreference costDisplayPreference;
+
+  /// The drafted `reasoning_effort` (2026-11-20 output-budget investigation).
+  /// A VALUE, not a nullable tri-state: the generated client omits `null`
+  /// fields, so a nullable setting could be set but never reset from the app.
+  /// `auto` = "let the system decide" (curated profile, else provider default)
+  /// and is always choosable — even on a pair that declares no parameter at all,
+  /// which is exactly what every pre-field configuration did.
+  final ReasoningEffortChoice reasoningEffort;
 
   /// The selected DECISION provider's model set (`GET /v1/ai-import/
   /// providers/{key}/models`, issue #723). Same honest degradation as
@@ -162,6 +171,10 @@ class AiConfigScreenState {
         (stored.costDisplayPreference ?? CostDisplayPreference.token)) {
       return true;
     }
+    if (reasoningEffort !=
+        (stored.reasoningEffort ?? ReasoningEffortChoice.auto)) {
+      return true;
+    }
     if (scriptPrompt != _seededPrompt(DocumentKind.script)) return true;
     if (schedulePrompt != _seededPrompt(DocumentKind.schedule)) return true;
     if (selectedDecisionProviderKey != stored.decisionProvider?.name) {
@@ -197,6 +210,7 @@ class AiConfigScreenState {
     bool clearSelectedDecisionModel = false,
     bool? useSameDecisionKey,
     CostDisplayPreference? costDisplayPreference,
+    ReasoningEffortChoice? reasoningEffort,
     AsyncValue<List<ModelInfo>>? decisionModels,
     AsyncValue<List<ModelInfo>>? imageModels,
     String? scriptPrompt,
@@ -226,6 +240,7 @@ class AiConfigScreenState {
         : (selectedDecisionModelId ?? this.selectedDecisionModelId),
     useSameDecisionKey: useSameDecisionKey ?? this.useSameDecisionKey,
     costDisplayPreference: costDisplayPreference ?? this.costDisplayPreference,
+    reasoningEffort: reasoningEffort ?? this.reasoningEffort,
     decisionModels: decisionModels ?? this.decisionModels,
     imageModels: imageModels ?? this.imageModels,
     scriptPrompt: scriptPrompt ?? this.scriptPrompt,
@@ -320,6 +335,13 @@ String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
       // different provider, so the copy asks for the matching provider or a
       // new key instead of pretending the provider is down.
       'ai-config.provider-mismatch' => l10n.aiConfigErrorProviderMismatch,
+      // 422 `ai-config.reasoning-effort-unsupported` (2026-11-20
+      // investigation): the pair does not DECLARE the parameter, or not this
+      // level. The picker only offers declared levels, so this arm is the
+      // honest answer to catalogue drift or a second client — not a path the
+      // UI walks on purpose.
+      'ai-config.reasoning-effort-unsupported' =>
+        l10n.aiConfigReasoningEffortUnsupported,
       'ai_config.orphaned_credential' => l10n.aiConfigErrorOrphaned,
       // 409-armed client-side guard (issue #723): the decision model is
       // configured but no decision API key is available (none remembered,

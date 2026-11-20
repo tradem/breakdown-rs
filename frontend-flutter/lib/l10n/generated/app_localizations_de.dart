@@ -1281,6 +1281,45 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiConfigCostDisplayEnergy => 'Energie';
 
   @override
+  String get aiConfigReasoningEffortLabel => 'Rechenaufwand';
+
+  @override
+  String get aiConfigReasoningEffortHint =>
+      'Wie viel das Modell nachdenken darf. Weniger Aufwand ist deutlich schneller und billiger; die Stufen sind auf das gewählte Modell begrenzt.';
+
+  @override
+  String get aiConfigReasoningEffortUnavailable =>
+      'Dieses Modell bietet keine Einstellung für den Rechenaufwand.';
+
+  @override
+  String get aiConfigReasoningEffortUnavailableHint =>
+      'Es wird kein Wert gesendet; das Modell entscheidet selbst.';
+
+  @override
+  String aiConfigReasoningEffortStored(String level) {
+    return 'Gespeichert: $level. Dieses Modell bietet die Einstellung nicht mehr — der Wert bleibt erhalten, bis du ihn änderst.';
+  }
+
+  @override
+  String get aiConfigReasoningEffortAuto => 'Automatisch';
+
+  @override
+  String get aiConfigReasoningEffortMinimal => 'Minimal';
+
+  @override
+  String get aiConfigReasoningEffortLow => 'Niedrig';
+
+  @override
+  String get aiConfigReasoningEffortMedium => 'Mittel';
+
+  @override
+  String get aiConfigReasoningEffortHigh => 'Hoch';
+
+  @override
+  String get aiConfigReasoningEffortUnsupported =>
+      'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Automatisch“ wählen.';
+
+  @override
   String aiJobCostCompact(Object value) {
     return 'Kosten: $value';
   }
