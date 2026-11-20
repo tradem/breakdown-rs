@@ -68,6 +68,7 @@ use super::mapping_metrics::scope_mapping_writes;
 use super::pdf::PdfTextExtractor;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
+use super::provider_registry::default_reasoning_effort;
 use super::runtime::run_with_renewal;
 use super::schedule_apply::{
     AppliedDay, DayDraft, ScheduleApplyWorker, derive_id, recover_version,
@@ -753,10 +754,12 @@ where
                 source_text: source_text.clone(),
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
-                // Production deliberately pins no reasoning effort yet: the value
-                // is a cost/latency decision that belongs to the per-(provider,
-                // model) profile, not to this plumbing (2026-11-20 investigation).
-                reasoning_effort: None,
+                // 2026-11-20 output-budget investigation: the curated profile
+                // pins an effort for the pairs whose saving is measured (or
+                // decided); everything else sends no field and keeps the
+                // provider's own default.
+                reasoning_effort: default_reasoning_effort(self.provider, &self.model)
+                    .map(str::to_owned),
             };
             if super::heartbeat::claim_lost(heartbeat.as_ref()) {
                 // Stop before the next paid call: another worker owns the job.
@@ -1661,9 +1664,9 @@ where
                 source_text,
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
-                // See the script path above: no reasoning effort pinned in
-                // production yet.
-                reasoning_effort: None,
+                // Same curated profile as the script path above.
+                reasoning_effort: default_reasoning_effort(self.provider, &self.model)
+                    .map(str::to_owned),
             };
             let (parsed, call_usage) = match retry_schedule(
                 self.client.as_ref(),

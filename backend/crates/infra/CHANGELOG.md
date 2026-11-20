@@ -86,6 +86,15 @@ commits (ADR-020 D5).
   a per-model comparison against the provider default. It is a measurement, not a
   gate — its assertions only refuse to let a broken wire (`400` on the parameter,
   or an empty answer) pass as a result.
+- New `infra::ai::provider_registry::default_reasoning_effort(provider, model)`:
+  the curated `reasoning_effort` default per `(provider, model)`, `None` = send no
+  field (the provider's own default). Only pairs with a MEASURED saving are
+  pinned — `neuralwatt/glm-5.3-flash` (−85 % output tokens, −82 % wall clock) and
+  `eurouter/mistral-large-3` on the operator's decision (advertised in
+  `supported_parameters`, effect still unmeasured) — so a new curated model
+  inherits the safe "provider default" automatically and pinning an effort stays
+  a deliberate, evidence-backed edit. The worker passes the result into
+  `LlmChatRequest::reasoning_effort` on both extraction paths.
 - New nightly probe `reasoning_effort_document_quality_and_cost`: one extraction
   pass over a WHOLE fixture script (292.pdf = 40 chunks = the production shape),
   aggregating what decides whether a model/effort pair may ship —

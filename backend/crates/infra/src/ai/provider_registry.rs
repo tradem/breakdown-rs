@@ -271,9 +271,74 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
         .collect()
 }
 
+/// Curated reasoning-effort default for one `(provider, model)` pair, or `None`
+/// to send no `reasoning_effort` field at all (the provider's own default).
+///
+/// **Only pairs with a MEASURED saving belong here.** The 2026-11-20 nightly
+/// measured `glm-5.3-flash` dropping from 7 370 to 1 089 output tokens (25.3 s →
+/// 4.4 s, −85 %/−82 %) when pinned to `low`; `deepseek-v4.1-flash` moved only
+/// −15 %, because its provider default is already `high`. Anything unmeasured
+/// stays `None`, i.e. exactly the behaviour every call had before this table
+/// existed.
+///
+/// A **new** curated model therefore inherits "provider default" automatically —
+/// the safe answer — and pinning an effort is a deliberate, evidence-backed edit
+/// to this match (the test below refuses ids that are not curated).
+///
+/// ⚠ `eurouter/mistral-large-3` is pinned on the operator's decision: eurouter
+/// advertises `reasoning_effort` in `supported_parameters`, but its effect on
+/// that model is UNMEASURED (eurouter was unavailable while the probe ran). If
+/// the parameter is ignored the request is simply unchanged; if it is honoured,
+/// the preview gets faster. Re-measure once the provider is stable.
+pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<&'static str> {
+    match (provider, model) {
+        // Measured 2026-11-20 (nightly run 44700866404): −85 % output tokens.
+        (LlmProvider::Neuralwatt, "glm-5.3-flash") => Some("low"),
+        // Operator decision, effect unmeasured — see the note above.
+        (LlmProvider::EURouter, "mistral-large-3") => Some("low"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only a CURATED pair may carry a pinned effort: a typo'd or rotated-out
+    /// model id would silently pin nothing, and a model nobody curates is not a
+    /// model the API can produce.
+    #[test]
+    fn pinned_reasoning_efforts_name_curated_models_only() {
+        for (provider, model) in [
+            (LlmProvider::Neuralwatt, "glm-5.3-flash"),
+            (LlmProvider::EURouter, "mistral-large-3"),
+        ] {
+            assert_eq!(default_reasoning_effort(provider, model), Some("low"));
+            assert!(
+                curated_model_ids(provider).contains(&model),
+                "{provider:?}/{model} is pinned but not curated"
+            );
+        }
+        // A misspelling must not silently pin an effort somewhere else.
+        assert_eq!(
+            default_reasoning_effort(LlmProvider::Neuralwatt, "glm-5.3-flashx"),
+            None
+        );
+        assert_eq!(
+            default_reasoning_effort(LlmProvider::OpenAI, "glm-5.3-flash"),
+            None
+        );
+        // The default is "send nothing": every curated model without a measured
+        // saving keeps the provider's own effort.
+        assert_eq!(
+            default_reasoning_effort(LlmProvider::Neuralwatt, "kimi-k3"),
+            None
+        );
+        assert_eq!(
+            default_reasoning_effort(LlmProvider::EURouter, "mistral-small-4"),
+            None
+        );
+    }
 
     #[test]
     fn curated_decision_models_match_the_core_catalog() {
