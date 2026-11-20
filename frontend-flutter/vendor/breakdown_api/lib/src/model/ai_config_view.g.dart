@@ -28,6 +28,8 @@ class _$AiConfigView extends AiConfigView {
   @override
   final LlmProvider provider;
   @override
+  final ReasoningEffort? reasoningEffort;
+  @override
   final bool revoked;
   @override
   final BuiltList<DocumentKind>? storedPromptKinds;
@@ -52,6 +54,7 @@ class _$AiConfigView extends AiConfigView {
       required this.promptKinds,
       required this.prompts,
       required this.provider,
+      this.reasoningEffort,
       required this.revoked,
       this.storedPromptKinds,
       required this.userId,
@@ -79,6 +82,7 @@ class _$AiConfigView extends AiConfigView {
         promptKinds == other.promptKinds &&
         prompts == other.prompts &&
         provider == other.provider &&
+        reasoningEffort == other.reasoningEffort &&
         revoked == other.revoked &&
         storedPromptKinds == other.storedPromptKinds &&
         userId == other.userId &&
@@ -99,6 +103,7 @@ class _$AiConfigView extends AiConfigView {
     _$hash = $jc(_$hash, promptKinds.hashCode);
     _$hash = $jc(_$hash, prompts.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
+    _$hash = $jc(_$hash, reasoningEffort.hashCode);
     _$hash = $jc(_$hash, revoked.hashCode);
     _$hash = $jc(_$hash, storedPromptKinds.hashCode);
     _$hash = $jc(_$hash, userId.hashCode);
@@ -121,6 +126,7 @@ class _$AiConfigView extends AiConfigView {
           ..add('promptKinds', promptKinds)
           ..add('prompts', prompts)
           ..add('provider', provider)
+          ..add('reasoningEffort', reasoningEffort)
           ..add('revoked', revoked)
           ..add('storedPromptKinds', storedPromptKinds)
           ..add('userId', userId)
@@ -183,6 +189,11 @@ class AiConfigViewBuilder
   LlmProvider? get provider => _$this._provider;
   set provider(LlmProvider? provider) => _$this._provider = provider;
 
+  ReasoningEffort? _reasoningEffort;
+  ReasoningEffort? get reasoningEffort => _$this._reasoningEffort;
+  set reasoningEffort(ReasoningEffort? reasoningEffort) =>
+      _$this._reasoningEffort = reasoningEffort;
+
   bool? _revoked;
   bool? get revoked => _$this._revoked;
   set revoked(bool? revoked) => _$this._revoked = revoked;
@@ -222,6 +233,7 @@ class AiConfigViewBuilder
       _promptKinds = $v.promptKinds.toBuilder();
       _prompts = $v.prompts.toBuilder();
       _provider = $v.provider;
+      _reasoningEffort = $v.reasoningEffort;
       _revoked = $v.revoked;
       _storedPromptKinds = $v.storedPromptKinds?.toBuilder();
       _userId = $v.userId;
@@ -263,6 +275,7 @@ class AiConfigViewBuilder
             prompts: prompts.build(),
             provider: BuiltValueNullFieldError.checkNotNull(
                 provider, r'AiConfigView', 'provider'),
+            reasoningEffort: reasoningEffort,
             revoked: BuiltValueNullFieldError.checkNotNull(
                 revoked, r'AiConfigView', 'revoked'),
             storedPromptKinds: _storedPromptKinds?.build(),

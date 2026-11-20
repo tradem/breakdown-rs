@@ -3613,6 +3613,20 @@ components:
             their "first model" fallback for pre-flag deployments (CodeRabbit
             review, PR #489).
           type: boolean
+        supported_reasoning_efforts:
+          description: |-
+            Every `reasoning_effort` this model DECLARES, empty when it declares none
+            (2026-11-20 output-budget investigation).
+
+            Carried on the model list so a client can offer exactly the levels the
+            selected pair accepts instead of discovering a `400` at import time —
+            which is why the picker has to react to the model selection, not to one
+            global list. Additive with `serde(default)`: a backend that predates the
+            field (or a live provider catalogue we cannot read) yields an empty list,
+            i.e. "no choosable level", never a guessed one.
+          items:
+            $ref: '#/components/schemas/ReasoningEffort'
+          type: array
       required:
       - id
       - provider

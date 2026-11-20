@@ -8,6 +8,7 @@
 import 'package:breakdown_api/src/model/document_kind.dart';
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/reasoning_effort.dart';
 import 'package:breakdown_api/src/model/cost_display_preference.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -27,6 +28,7 @@ part 'ai_config_view.g.dart';
 /// * [promptKinds]
 /// * [prompts] - Stored prompt texts by document kind (`script`/`schedule`). Mirrors the create/update request `prompts` payload so an edit can round-trip the persisted texts. Prompts are user-authored extraction seeds, not secrets — the vault reference is the only opaque material.
 /// * [provider]
+/// * [reasoningEffort] - The configured `reasoning_effort` for the assistant model, or `None` for the provider's own default (2026-11-20 investigation). Additive with `serde(default)`: a view serialized before the field existed deserializes as `None`.
 /// * [revoked]
 /// * [storedPromptKinds] - Kinds whose extraction is driven by a **stored** prompt (design D6).  A stored prompt is a snapshot taken when the configuration was written: it wins over the deployment default and therefore does **not** follow updates to `config/default_ai_prompts.toml`. That was observed live — a configuration kept the previous three-line prompt and silently ignored a hardened default, invalidating a whole test round. The surface must say so, and offer a reset (write the current text from `GET /v1/ai-import/defaults`). A kind absent here has no stored prompt and follows the deployment default on every run.  Additive with `serde(default)` so an older client reading a newer view still deserialises.
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
@@ -70,6 +72,11 @@ abstract class AiConfigView
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
   // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  /// The configured `reasoning_effort` for the assistant model, or `None` for the provider's own default (2026-11-20 investigation). Additive with `serde(default)`: a view serialized before the field existed deserializes as `None`.
+  @BuiltValueField(wireName: r'reasoning_effort')
+  ReasoningEffort? get reasoningEffort;
+  // enum reasoningEffortEnum {  minimal,  low,  medium,  high,  };
 
   @BuiltValueField(wireName: r'revoked')
   bool get revoked;
@@ -173,6 +180,13 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
       object.provider,
       specifiedType: const FullType(LlmProvider),
     );
+    if (object.reasoningEffort != null) {
+      yield r'reasoning_effort';
+      yield serializers.serialize(
+        object.reasoningEffort,
+        specifiedType: const FullType.nullable(ReasoningEffort),
+      );
+    }
     yield r'revoked';
     yield serializers.serialize(
       object.revoked,
@@ -300,6 +314,14 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
             specifiedType: const FullType(LlmProvider),
           ) as LlmProvider;
           result.provider = valueDes;
+          break;
+        case r'reasoning_effort':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(ReasoningEffort),
+          ) as ReasoningEffort?;
+          if (valueDes == null) continue;
+          result.reasoningEffort = valueDes;
           break;
         case r'revoked':
           final valueDes = serializers.deserialize(

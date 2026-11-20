@@ -161,6 +161,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ProjectorHealthSnapshot.serializer)
       ..add(ProviderBreakerState.serializer)
       ..add(ProviderHold.serializer)
+      ..add(ReasoningEffort.serializer)
       ..add(RenameEpisodeRequest.serializer)
       ..add(RenameOutfitRequest.serializer)
       ..add(RenamePieceRequest.serializer)
@@ -345,6 +346,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(ReasoningEffort)]),
+          () => ListBuilder<ReasoningEffort>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ShootingScheduleRow)]),

@@ -233,6 +233,9 @@ pub fn curated_decision_models(provider: LlmProvider) -> Vec<ModelInfo> {
             provider,
             recommended: false,
             pricing: None,
+            // A decision/image slot is not an extraction target: no effort is
+            // offered for it.
+            supported_reasoning_efforts: Vec::new(),
         })
         .collect()
 }
@@ -252,6 +255,9 @@ pub fn curated_image_models(provider: LlmProvider) -> Vec<ModelInfo> {
             provider,
             recommended: false,
             pricing: None,
+            // A decision/image slot is not an extraction target: no effort is
+            // offered for it.
+            supported_reasoning_efforts: Vec::new(),
         })
         .collect()
 }
@@ -267,6 +273,11 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
             provider,
             recommended: Some(*id) == recommended,
             pricing: None,
+            supported_reasoning_efforts: breakdown_core::ai::supported_reasoning_efforts(
+                provider, id,
+            )
+            .map(<[breakdown_core::ai::ReasoningEffort]>::to_vec)
+            .unwrap_or_default(),
         })
         .collect()
 }
@@ -310,6 +321,40 @@ pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The model list is what a client's effort picker reacts to, so it must
+    /// carry the per-model capability — otherwise the picker would offer a level
+    /// that the provider answers with `400`.
+    #[test]
+    fn the_curated_model_list_publishes_the_effort_capability() {
+        let flash = curated_models(LlmProvider::Neuralwatt)
+            .into_iter()
+            .find(|model| model.id == "glm-5.3-flash")
+            .expect("glm-5.3-flash is curated on Neuralwatt");
+        assert_eq!(
+            flash.supported_reasoning_efforts,
+            breakdown_core::ai::ReasoningEffort::ALL.to_vec()
+        );
+
+        // `mistral-large-3` declares no effort → the picker offers nothing, and
+        // the user cannot configure a value the provider would reject.
+        let large3 = curated_models(LlmProvider::EURouter)
+            .into_iter()
+            .find(|model| model.id == "mistral-large-3")
+            .expect("mistral-large-3 is still curated");
+        assert!(
+            large3.supported_reasoning_efforts.is_empty(),
+            "mistral-large-3 must offer no effort: {:?}",
+            large3.supported_reasoning_efforts
+        );
+
+        // A provider whose catalogue publishes nothing offers nothing at all.
+        assert!(
+            curated_models(LlmProvider::OpenAI)
+                .iter()
+                .all(|model| model.supported_reasoning_efforts.is_empty())
+        );
+    }
 
     /// The forcing function behind "check every provider so nothing is
     /// forgotten": Neuralwatt publishes `capabilities.reasoning_effort` for

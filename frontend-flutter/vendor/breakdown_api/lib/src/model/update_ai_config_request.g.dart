@@ -24,6 +24,8 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
   @override
   final LlmProvider provider;
   @override
+  final ReasoningEffort? reasoningEffort;
+  @override
   final String vaultKeyId;
   @override
   final int version;
@@ -41,6 +43,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
       this.imageModel,
       required this.prompts,
       required this.provider,
+      this.reasoningEffort,
       required this.vaultKeyId,
       required this.version})
       : super._();
@@ -65,6 +68,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
         imageModel == other.imageModel &&
         prompts == other.prompts &&
         provider == other.provider &&
+        reasoningEffort == other.reasoningEffort &&
         vaultKeyId == other.vaultKeyId &&
         version == other.version;
   }
@@ -80,6 +84,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
     _$hash = $jc(_$hash, imageModel.hashCode);
     _$hash = $jc(_$hash, prompts.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
+    _$hash = $jc(_$hash, reasoningEffort.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
     _$hash = $jf(_$hash);
@@ -97,6 +102,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
           ..add('imageModel', imageModel)
           ..add('prompts', prompts)
           ..add('provider', provider)
+          ..add('reasoningEffort', reasoningEffort)
           ..add('vaultKeyId', vaultKeyId)
           ..add('version', version))
         .toString();
@@ -146,6 +152,11 @@ class UpdateAiConfigRequestBuilder
   LlmProvider? get provider => _$this._provider;
   set provider(LlmProvider? provider) => _$this._provider = provider;
 
+  ReasoningEffort? _reasoningEffort;
+  ReasoningEffort? get reasoningEffort => _$this._reasoningEffort;
+  set reasoningEffort(ReasoningEffort? reasoningEffort) =>
+      _$this._reasoningEffort = reasoningEffort;
+
   String? _vaultKeyId;
   String? get vaultKeyId => _$this._vaultKeyId;
   set vaultKeyId(String? vaultKeyId) => _$this._vaultKeyId = vaultKeyId;
@@ -169,6 +180,7 @@ class UpdateAiConfigRequestBuilder
       _imageModel = $v.imageModel;
       _prompts = $v.prompts.toBuilder();
       _provider = $v.provider;
+      _reasoningEffort = $v.reasoningEffort;
       _vaultKeyId = $v.vaultKeyId;
       _version = $v.version;
       _$v = null;
@@ -204,6 +216,7 @@ class UpdateAiConfigRequestBuilder
             prompts: prompts.build(),
             provider: BuiltValueNullFieldError.checkNotNull(
                 provider, r'UpdateAiConfigRequest', 'provider'),
+            reasoningEffort: reasoningEffort,
             vaultKeyId: BuiltValueNullFieldError.checkNotNull(
                 vaultKeyId, r'UpdateAiConfigRequest', 'vaultKeyId'),
             version: BuiltValueNullFieldError.checkNotNull(
