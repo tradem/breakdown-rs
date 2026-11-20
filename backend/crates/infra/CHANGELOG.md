@@ -86,6 +86,14 @@ commits (ADR-020 D5).
   a per-model comparison against the provider default. It is a measurement, not a
   gate — its assertions only refuse to let a broken wire (`400` on the parameter,
   or an empty answer) pass as a result.
+- New nightly probe `reasoning_effort_document_quality_and_cost`: one extraction
+  pass over a WHOLE fixture script (292.pdf = 40 chunks = the production shape),
+  aggregating what decides whether a model/effort pair may ship —
+  `draft_ref` identity (returned ref equals the heading it was given),
+  character grounding (name occurs in the chunk), outfit quotes verified with the
+  production `verify_draft_outfits`, scenes without characters, plus tokens, wall
+  clock and an optional `cost_micro_usd` from `AI_LLM_PROBE_PRICE_*`. Quality is
+  measured deterministically, never by an LLM judging an LLM.
 
 ## [0.85.0] - Unreleased
 ### Changed (issue #942 W1/W2/W3)

@@ -42,7 +42,7 @@ jobs:
   ai-import-nightly:
     name: AI document ingestion (GDrive + LLM)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     defaults:
       run:
         working-directory: backend
@@ -148,12 +148,23 @@ jobs:
       # `reasoning-effort row` and `reasoning-effort comparison`.
       - name: Reasoning-effort probe (nightly, measurement)
         if: ${{ !cancelled() }}
-        timeout-minutes: 20
+        # The document pass alone is 40 sequential paid calls (~4 min at
+        # `low`, ~17 min at the provider default), so the step needs room for
+        # the A/B *and* the full document on one provider.
+        timeout-minutes: 30
         env:
           AI_LLM_PROBE_API_KEY: ${{ secrets.AI_LLM_PROBE_API_KEY }}
           AI_LLM_PROBE_PROVIDER: ${{ vars.AI_LLM_PROBE_PROVIDER }}
           AI_LLM_PROBE_MODELS: ${{ vars.AI_LLM_PROBE_MODELS }}
           AI_LLM_PROBE_EFFORTS: ${{ vars.AI_LLM_PROBE_EFFORTS }}
+          AI_LLM_PROBE_DOC_MODEL: ${{ vars.AI_LLM_PROBE_DOC_MODEL }}
+          AI_LLM_PROBE_DOC_VARIANTS: ${{ vars.AI_LLM_PROBE_DOC_VARIANTS }}
+          AI_LLM_PROBE_DOC_CHUNKS: ${{ vars.AI_LLM_PROBE_DOC_CHUNKS }}
+          AI_LLM_PROBE_DOCUMENT: ${{ vars.AI_LLM_PROBE_DOCUMENT }}
+          # Optional: the published price so the pass reports money, not just
+          # tokens (`glm-5.3-flash`: 0.15 in / 0.50 out per million tokens).
+          AI_LLM_PROBE_PRICE_IN_PER_MTOK: ${{ vars.AI_LLM_PROBE_PRICE_IN_PER_MTOK }}
+          AI_LLM_PROBE_PRICE_OUT_PER_MTOK: ${{ vars.AI_LLM_PROBE_PRICE_OUT_PER_MTOK }}
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
           GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
           GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
@@ -164,8 +175,12 @@ jobs:
           else
             echo "probe provider=${AI_LLM_PROBE_PROVIDER:-neuralwatt}"
             echo "probe models=${AI_LLM_PROBE_MODELS:-glm-5.3-flash,deepseek-v4.1-flash} efforts=${AI_LLM_PROBE_EFFORTS:-default,low}"
+            echo "probe document=${AI_LLM_PROBE_DOCUMENT:-292.pdf} model=${AI_LLM_PROBE_DOC_MODEL:-<first>} variants=${AI_LLM_PROBE_DOC_VARIANTS:-low} chunks=${AI_LLM_PROBE_DOC_CHUNKS:-all}"
           fi
-          cargo test -p integration-tests --test ai_llm_smoke_test reasoning_effort -- --nocapture
+          # `--test-threads=1`: two probes against one provider in parallel would
+          # distort exactly what they measure (wall clock and rate-limit
+          # behaviour).
+          cargo test -p integration-tests --test ai_llm_smoke_test reasoning_effort -- --nocapture --test-threads=1
 
       # Issue #808: one question of each kind against the curated System One
       # endpoint — `200` and a parsed answer per kind, or the provider's own
