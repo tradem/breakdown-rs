@@ -89,12 +89,14 @@ commits (ADR-020 D5).
 - New `infra::ai::provider_registry::default_reasoning_effort(provider, model)`:
   the curated `reasoning_effort` default per `(provider, model)`, `None` = send no
   field (the provider's own default). Only pairs with a MEASURED saving are
-  pinned — `neuralwatt/glm-5.3-flash` (−85 % output tokens, −82 % wall clock) and
-  `eurouter/mistral-large-3` on the operator's decision (advertised in
-  `supported_parameters`, effect still unmeasured) — so a new curated model
-  inherits the safe "provider default" automatically and pinning an effort stays
-  a deliberate, evidence-backed edit. The worker passes the result into
-  `LlmChatRequest::reasoning_effort` on both extraction paths.
+  pinned — `neuralwatt/glm-5.3-flash` (−85 % output tokens, −82 % wall clock) —
+  so a new curated model inherits the safe "provider default" automatically and
+  pinning an effort stays a deliberate, evidence-backed edit. `eurouter/mistral-
+  large-3` is deliberately NOT pinned: its `supported_parameters` contains no
+  `reasoning_effort` (only `mistral-large-4` and `mistral-small-4` do), and the
+  70–85 s per chunk it costs cannot be reduced through this parameter. The worker
+  passes the result into `LlmChatRequest::reasoning_effort` on both extraction
+  paths.
 - New nightly probe `reasoning_effort_document_quality_and_cost`: one extraction
   pass over a WHOLE fixture script (292.pdf = 40 chunks = the production shape),
   aggregating what decides whether a model/effort pair may ship —

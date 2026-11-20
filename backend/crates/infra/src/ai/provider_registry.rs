@@ -285,17 +285,24 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
 /// the safe answer — and pinning an effort is a deliberate, evidence-backed edit
 /// to this match (the test below refuses ids that are not curated).
 ///
-/// ⚠ `eurouter/mistral-large-3` is pinned on the operator's decision: eurouter
-/// advertises `reasoning_effort` in `supported_parameters`, but its effect on
-/// that model is UNMEASURED (eurouter was unavailable while the probe ran). If
-/// the parameter is ignored the request is simply unchanged; if it is honoured,
-/// the preview gets faster. Re-measure once the provider is stable.
+/// **Which pairs may carry a value at all is verified against the provider's own
+/// catalogue**, never assumed: Neuralwatt publishes
+/// `capabilities.reasoning_effort` for all 13 curated models, eurouter and
+/// OpenRouter list the parameter in `supported_parameters` per model, and
+/// OpenCode publishes `capabilities.reasoning.effort[]`. A future edit must
+/// respect two consequences:
+/// - `eurouter/mistral-large-3` is **not** among them: its
+///   `supported_parameters` carries no `reasoning_effort` (that is
+///   `mistral-large-4` — an earlier draft of this comment mixed the two up), so
+///   pinning an effort there would send a parameter the model does not declare.
+/// - the ACCEPTED VALUES differ per model (`opencode/glm-5.3` accepts
+///   `low|high|max`, no `medium`), which is why the configurable path validates
+///   against a per-model set instead of one global list.
 pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<&'static str> {
     match (provider, model) {
-        // Measured 2026-11-20 (nightly run 44700866404): −85 % output tokens.
+        // Measured 2026-11-20 (nightly run 44700866404): −85 % output tokens,
+        // −82 % wall clock. The only pair whose saving is proven.
         (LlmProvider::Neuralwatt, "glm-5.3-flash") => Some("low"),
-        // Operator decision, effect unmeasured — see the note above.
-        (LlmProvider::EURouter, "mistral-large-3") => Some("low"),
         _ => None,
     }
 }
@@ -309,16 +316,21 @@ mod tests {
     /// model the API can produce.
     #[test]
     fn pinned_reasoning_efforts_name_curated_models_only() {
-        for (provider, model) in [
-            (LlmProvider::Neuralwatt, "glm-5.3-flash"),
-            (LlmProvider::EURouter, "mistral-large-3"),
-        ] {
-            assert_eq!(default_reasoning_effort(provider, model), Some("low"));
-            assert!(
-                curated_model_ids(provider).contains(&model),
-                "{provider:?}/{model} is pinned but not curated"
-            );
-        }
+        assert_eq!(
+            default_reasoning_effort(LlmProvider::Neuralwatt, "glm-5.3-flash"),
+            Some("low")
+        );
+        assert!(
+            curated_model_ids(LlmProvider::Neuralwatt).contains(&"glm-5.3-flash"),
+            "the pinned model must be curated"
+        );
+        // `eurouter/mistral-large-3` does NOT advertise `reasoning_effort` in its
+        // `supported_parameters` (that is `mistral-large-4`), so pinning it would
+        // send a parameter the model does not declare.
+        assert_eq!(
+            default_reasoning_effort(LlmProvider::EURouter, "mistral-large-3"),
+            None
+        );
         // A misspelling must not silently pin an effort somewhere else.
         assert_eq!(
             default_reasoning_effort(LlmProvider::Neuralwatt, "glm-5.3-flashx"),
