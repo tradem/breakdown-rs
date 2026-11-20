@@ -1278,6 +1278,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'No value is sent; the model decides on its own.';
 
   @override
+  String get aiConfigReasoningEffortUnknown =>
+      'The available levels for this model are unknown — the model list has not loaded. The stored value is kept.';
+
+  @override
   String aiConfigReasoningEffortStored(String level) {
     return 'Stored: $level. This model no longer offers the setting — the value is kept until you change it.';
   }

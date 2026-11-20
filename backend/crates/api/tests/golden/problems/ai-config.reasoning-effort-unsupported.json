@@ -1,0 +1,7 @@
+{
+  "code": "ai-config.reasoning-effort-unsupported",
+  "detail": "Das gewählte Modell unterstützt diese Denk-Intensität nicht. Bitte eine andere Stufe wählen oder die Voreinstellung des Anbieters verwenden.",
+  "status": 422,
+  "title": "Reasoning effort not supported by this model",
+  "type": "https://docs.breakdown.example/problems/ai-config.reasoning-effort-unsupported"
+}

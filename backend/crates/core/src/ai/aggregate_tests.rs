@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
@@ -957,4 +958,42 @@ fn an_unchanged_stored_level_is_not_revalidated() {
             reasoning_effort: ReasoningEffortChoice::Low,
             version: AggregateVersion::INITIAL.next(),
         }]);
+}
+
+/// A PROVIDER change re-validates even when the model id and the stored level
+/// stay the same: the accepted value set comes from the provider's catalogue,
+/// not from the model id. Leaving the provider out of the "unchanged" triple
+/// let a PATCH through that resolved to a level the new provider does not
+/// declare — the worker would then pay a `400` on every import call.
+#[test]
+fn a_provider_change_revalidates_an_unchanged_level() {
+    // Stored on Neuralwatt, which declares `minimal` for `glm-5.3`.
+    let stored = AiConfigEvent::Created {
+        id: Uuid::nil(),
+        user_id: user_id(),
+        provider: LlmProvider::Neuralwatt,
+        assistant_model: "glm-5.3".into(),
+        image_model: None,
+        prompts: HashMap::from([(DocumentKind::Script, "Summarize".into())]),
+        vault_key_id: "key-123".into(),
+        cost_display_preference: CostDisplayPreference::Token,
+        decision_provider: None,
+        decision_model: None,
+        decision_vault_key_id: None,
+        reasoning_effort: ReasoningEffortChoice::Minimal,
+        version: AggregateVersion::INITIAL,
+    };
+    // Same model id, same level (omitted), but a different provider — a
+    // legitimate credential hand-off with a fresh vault key. OpenCode declares
+    // only `low|high` for `glm-5.3`, so `minimal` must be refused here.
+    let update = UpdateAiConfig {
+        provider: LlmProvider::OpenCode,
+        assistant_model: "glm-5.3".into(),
+        vault_key_id: "opencode-key-789".into(),
+        reasoning_effort: None,
+        ..make_update_cmd(Uuid::nil(), AggregateVersion::INITIAL)
+    };
+    AiConfig::given(vec![stored])
+        .when(update)
+        .then_error(AiConfigError::ReasoningEffortUnsupported);
 }

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 
@@ -93,3 +94,7 @@ impl kameo_es::EventType for AiConfigEvent {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod events_tests;

@@ -69,6 +69,27 @@ use super::pdf::PdfTextExtractor;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use super::provider_registry::default_reasoning_effort;
+
+/// The `reasoning_effort` ONE request carries (2026-11-20 output-budget
+/// investigation).
+///
+/// Precedence: an explicitly configured level wins, otherwise the curated
+/// profile pins one for the pairs whose saving is measured, otherwise `None`
+/// sends no field at all and the provider's own default applies.
+///
+/// ONE function for both import paths: the script and the schedule request
+/// builder used to carry an identical inline copy of this chain, so a later rule
+/// change — or the loss of the field in one of them — could drift silently. The
+/// wire string is applied at the request site, not here (this stays a value).
+pub(super) fn resolved_reasoning_effort(
+    provider: LlmProvider,
+    model: &str,
+    choice: breakdown_core::ai::ReasoningEffortChoice,
+) -> Option<breakdown_core::ai::ReasoningEffort> {
+    choice
+        .effort()
+        .or_else(|| default_reasoning_effort(provider, model))
+}
 use super::runtime::run_with_renewal;
 use super::schedule_apply::{
     AppliedDay, DayDraft, ScheduleApplyWorker, derive_id, recover_version,
@@ -757,15 +778,14 @@ where
                 source_text: source_text.clone(),
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
-                // 2026-11-20 output-budget investigation: an explicitly
-                // configured effort wins, otherwise the curated profile pins one
-                // for the pairs whose saving is proven, otherwise no field is
-                // sent and the provider's own default applies.
-                reasoning_effort: self
-                    .reasoning_effort
-                    .effort()
-                    .or_else(|| default_reasoning_effort(self.provider, &self.model))
-                    .map(|effort| effort.as_str().to_owned()),
+                // Explicit level, else the curated profile, else no field (see
+                // `resolved_reasoning_effort` — shared with the schedule path).
+                reasoning_effort: resolved_reasoning_effort(
+                    self.provider,
+                    &self.model,
+                    self.reasoning_effort,
+                )
+                .map(|effort| effort.as_str().to_owned()),
             };
             if super::heartbeat::claim_lost(heartbeat.as_ref()) {
                 // Stop before the next paid call: another worker owns the job.
@@ -1673,11 +1693,12 @@ where
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
                 // Same resolution as the script path above.
-                reasoning_effort: self
-                    .reasoning_effort
-                    .effort()
-                    .or_else(|| default_reasoning_effort(self.provider, &self.model))
-                    .map(|effort| effort.as_str().to_owned()),
+                reasoning_effort: resolved_reasoning_effort(
+                    self.provider,
+                    &self.model,
+                    self.reasoning_effort,
+                )
+                .map(|effort| effort.as_str().to_owned()),
             };
             let (parsed, call_usage) = match retry_schedule(
                 self.client.as_ref(),

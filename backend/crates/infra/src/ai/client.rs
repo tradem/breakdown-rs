@@ -37,6 +37,14 @@ mod client_tests;
 pub struct OpenAiCompatibleChatClient {
     http: reqwest::Client,
     provider: LlmProvider,
+    /// The resolved `/chat/completions` URL. OWNED (rather than derived per
+    /// call) purely as a test seam: the production value still comes from
+    /// [`CuratedProviderUrls::base_url`], but a [`Self::with_http`] client can
+    /// be pointed at a local mock server to drive the REAL request loop —
+    /// budget growth, usage summation and the number of billable requests —
+    /// instead of only the pure decision function. The curated provider
+    /// allowlist is untouched by this.
+    endpoint: String,
     api_key: SecretValue,
     timeout: Duration,
     /// The provider breaker (issue #871, D-C2/2.9b). `None` in tests and in
@@ -130,6 +138,7 @@ impl OpenAiCompatibleChatClient {
         Ok(Self {
             http,
             provider,
+            endpoint: Self::curated_endpoint(provider)?,
             api_key: SecretValue::new(api_key),
             timeout,
             health: None,
@@ -168,17 +177,24 @@ impl OpenAiCompatibleChatClient {
         Ok(Self {
             http,
             provider,
+            endpoint: Self::curated_endpoint(provider)?,
             api_key: SecretValue::new(api_key),
             timeout,
             health: None,
         })
     }
 
-    fn endpoint(&self) -> String {
-        format!(
+    /// The provider's own `/chat/completions` URL. Resolved once per client and
+    /// stored, so the request loop cannot drift from the client's provider.
+    fn curated_endpoint(provider: LlmProvider) -> Result<String, DomainError> {
+        Ok(format!(
             "{}/chat/completions",
-            CuratedProviderUrls::base_url(self.provider)
-        )
+            CuratedProviderUrls::base_url(provider)
+        ))
+    }
+
+    fn endpoint(&self) -> &str {
+        &self.endpoint
     }
 
     async fn request(
@@ -1371,6 +1387,10 @@ enum ResponseStep<'a> {
     /// retryable and may move the `(provider, model)` breaker. Classifying it as
     /// `validation` (the pre-fix behaviour) granted zero in-attempt retries and
     /// dead-lettered the job after a single empty answer (2026-11-20 incident).
+    ///
+    /// The **refusal** arm also reports through here, but with a
+    /// `validation` error: a content-level rejection is terminal and
+    /// breaker-neutral (see [`is_content_refusal`]).
     Fail { error: DomainError },
 }
 
@@ -1401,6 +1421,20 @@ fn step_for_response<'a>(
         };
     }
     let reason = describe_empty_completion(envelope, choice, meta);
+    // A content-level REFUSAL is terminal (review finding): the provider
+    // declines on content grounds, and a larger output budget cannot turn that
+    // into an answer — re-requesting pays the same rejection again. It is not an
+    // outage either, so it must not reach the retryable
+    // `ai-import.llm-provider-unavailable` arm below: with two inner retries one
+    // refusal cost three identical paid requests per attempt, and repeating it
+    // could open the `(provider, model)` breaker for a healthy pair. A
+    // `validation` error is non-retryable and breaker-neutral, and the bounded
+    // diagnosis still carries `refusal=...` / `finish_reason=content_filter`.
+    if is_content_refusal(choice, finish_reason) {
+        return ResponseStep::Fail {
+            error: DomainError::validation(format!("LLM provider refused the request: {reason}")),
+        };
+    }
     match next_truncation_budget(finish_reason, budget, truncation_retries_left) {
         Some(grown) => ResponseStep::RetryWithBudget {
             budget: grown,
@@ -1416,6 +1450,18 @@ fn step_for_response<'a>(
             )),
         },
     }
+}
+
+/// Whether a `200` carried a content-level REFUSAL rather than a provider
+/// failure: a non-empty `message.refusal`, or the safety `content_filter`
+/// finish reason. Both mean the request was declined on its content, so the
+/// same request run again answers the same way however large the output budget
+/// is.
+fn is_content_refusal(choice: Option<&ChatChoice>, finish_reason: Option<&str>) -> bool {
+    let refused = choice
+        .and_then(|choice| choice.message.refusal.as_deref())
+        .is_some_and(|refusal| !refusal.trim().is_empty());
+    refused || finish_reason == Some("content_filter")
 }
 
 /// Bounded, greppable description of a response that carried no usable

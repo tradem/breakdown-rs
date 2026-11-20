@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
@@ -254,9 +255,18 @@ impl Command<UpdateAiConfig> for AiConfig {
         // is an explicit reset and arrives as a value, never as a missing field.
         let reasoning_effort = cmd.reasoning_effort.unwrap_or(self.reasoning_effort);
         // Catalogue-rotation safety, mirroring `model_unchanged`: only a CHANGED
-        // pair-or-effort is re-validated, so a catalogue update can never brick
-        // an unrelated prompt-only edit of an existing configuration.
-        let effort_unchanged = reasoning_effort == self.reasoning_effort
+        // triple is re-validated, so a catalogue update can never brick an
+        // unrelated prompt-only edit of an existing configuration.
+        //
+        // The PROVIDER belongs in the comparison (review finding): a provider
+        // change with a fresh vault key is a legitimate update, and the same
+        // model id is answered by a different catalogue per provider — e.g.
+        // Neuralwatt accepts `minimal` for `glm-5.3` while OpenCode declares
+        // only `low|high`. Leaving the provider out skipped validation exactly
+        // when the accepted value set changes, so the worker would then send an
+        // undeclared level and pay a `400` on every import call.
+        let effort_unchanged = current_provider == cmd.provider
+            && reasoning_effort == self.reasoning_effort
             && cmd.assistant_model == self.assistant_model;
         if !effort_unchanged {
             validate_reasoning_effort(
@@ -326,21 +336,20 @@ fn validate_fields(
     Ok(())
 }
 
-/// Validate the optional Decision Model slot as a whole (issue #722): either
-/// every field is unset, or a decision-capable provider, a non-empty curated
-/// model ID and a non-empty vault key reference are all present.
-/// The requested effort must be one the configured pair actually accepts.
+/// Validate the requested `reasoning_effort` against the configured pair.
 ///
-/// `None` is always valid: it means "send no field", i.e. the provider's own
-/// default. A `Some(_)` is refused while the error is cheap — at save time —
-/// rather than paying a `400` on every import call of that configuration.
+/// [`ReasoningEffortChoice::Auto`] is always valid — it defers to the curated
+/// profile of the pair and otherwise to the provider's own default, which is
+/// what every configuration written before this field existed did. An explicit
+/// level is refused while the error is cheap — at save time — rather than
+/// paying a `400` on every import call of that configuration.
 fn validate_reasoning_effort(
     provider: LlmProvider,
     assistant_model: &str,
     choice: ReasoningEffortChoice,
 ) -> Result<(), AiConfigError> {
-    // `Auto` is always valid: it asks the system to decide, which is what every
-    // configuration written before this field did.
+    // `Auto` carries no level, so there is nothing to check against the
+    // catalogue: the resolution happens at request-build time instead.
     let Some(effort) = choice.effort() else {
         return Ok(());
     };
@@ -351,6 +360,9 @@ fn validate_reasoning_effort(
     }
 }
 
+/// Validate the optional Decision Model slot as a whole (issue #722): either
+/// every field is unset, or a decision-capable provider, a non-empty curated
+/// model ID and a non-empty vault key reference are all present.
 fn validate_decision_config(
     provider: Option<LlmProvider>,
     model: Option<&str>,

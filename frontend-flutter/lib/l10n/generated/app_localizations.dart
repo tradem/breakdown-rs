@@ -2099,6 +2099,12 @@ abstract class AppLocalizations {
   /// **'Es wird kein Wert gesendet; das Modell entscheidet selbst.'**
   String get aiConfigReasoningEffortUnavailableHint;
 
+  /// No description provided for @aiConfigReasoningEffortUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Die verfügbaren Stufen für dieses Modell sind unbekannt — die Modellliste ist nicht geladen. Der gespeicherte Wert bleibt erhalten.'**
+  String get aiConfigReasoningEffortUnknown;
+
   /// No description provided for @aiConfigReasoningEffortStored.
   ///
   /// In de, this message translates to:

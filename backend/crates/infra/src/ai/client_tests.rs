@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: mimo-v2.5 (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Unit tests for LLM client: reject_ollama, hosted_origin_host, endpoint,
 //! classify_http_status, classify_transport_error.
 
 use std::time::Duration;
 
-use breakdown_core::ai::{CuratedLlmProvider, LlmProvider};
+use breakdown_core::ai::{CuratedLlmProvider, LlmChatRequest, LlmClient, LlmProvider};
 use reqwest::StatusCode;
 
 use super::{
@@ -1219,6 +1220,67 @@ fn a_refusal_is_named_in_the_diagnosis() {
     assert!(error.to_string().contains("refusal=cannot help with that"));
 }
 
+/// A content-level refusal is TERMINAL (review finding): a larger output budget
+/// cannot turn "cannot help with that" into an answer, so re-requesting pays the
+/// same rejection again — and reporting it as
+/// `ai-import.llm-provider-unavailable` (retryable, breaker-counting) let one
+/// refusal accumulate in-attempt retries AND breaker failures for a healthy
+/// pair.
+#[test]
+fn a_refusal_is_terminal_and_burns_no_retry_budget() {
+    let body = envelope(serde_json::json!({
+        "choices": [{"message": {"content": null, "refusal": "cannot help with that"}, "finish_reason": "stop"}]
+    }));
+    // Two inner retries were available; a refusal must not spend one.
+    let step = step_for_response(&body, &meta("req-7r"), 8_192, 2);
+    let ResponseStep::Fail { error } = step else {
+        panic!("a refusal is never retried, got {step:?}");
+    };
+    assert!(
+        !error.is_retryable(),
+        "a refusal is not an outage and must not reach the breaker: {error:?}"
+    );
+    assert!(
+        error.to_string().contains("refusal=cannot help with that"),
+        "the diagnosis keeps the provider's own wording: {error}"
+    );
+}
+
+/// The safety finish reason is the same decision as an explicit `refusal` — a
+/// `content_filter` answer repeats identically at any budget.
+#[test]
+fn a_content_filter_is_terminal_without_a_refusal_field() {
+    let body = envelope(serde_json::json!({
+        "choices": [{"message": {"content": null}, "finish_reason": "content_filter"}]
+    }));
+    let step = step_for_response(&body, &meta("req-7c"), 8_192, 2);
+    let ResponseStep::Fail { error } = step else {
+        panic!("a content filter is never retried, got {step:?}");
+    };
+    assert!(!error.is_retryable(), "not a provider outage: {error:?}");
+    assert!(
+        error.to_string().contains("finish_reason=content_filter"),
+        "the diagnosis names the filter: {error}"
+    );
+}
+
+/// A refusal that still carries CONTENT is decoded, not discarded: the provider
+/// answered, and the answer is the caller's to judge.
+#[test]
+fn a_refusal_with_content_is_still_decoded() {
+    let body = envelope(serde_json::json!({
+        "choices": [{
+            "message": {"content": "{\"scenes\": []}", "refusal": "partial"},
+            "finish_reason": "content_filter"
+        }]
+    }));
+    let step = step_for_response(&body, &meta("req-7d"), 8_192, 2);
+    assert!(
+        matches!(step, ResponseStep::Decode { .. }),
+        "content wins over the refusal marker: {step:?}"
+    );
+}
+
 #[test]
 fn the_diagnosis_is_bounded_but_never_silently_blank() {
     // The shared capper counts CHARACTERS and says when it cut.
@@ -1308,5 +1370,181 @@ fn an_unset_reasoning_effort_never_reaches_the_request_body() {
     assert_eq!(
         set.get("reasoning_effort").and_then(|v| v.as_str()),
         Some("low")
+    );
+}
+
+// ===========================================================================
+// The real request loop (review finding 9)
+//
+// `step_for_response` is pure and well covered, but the code AROUND it decides
+// whether a second request goes out, which budget it carries, what the summed
+// usage is and how many billable requests one attempt costs. These tests drive
+// the production loop against a mock server through the `endpoint` test seam,
+// so a wiring error cannot stay green.
+// ===========================================================================
+
+/// One request as the worker builds it. `.model`/`.provider` match the client
+/// under test, which `chat_constrained` enforces.
+fn chat_request(max_tokens: u32) -> LlmChatRequest {
+    LlmChatRequest {
+        provider: LlmProvider::Neuralwatt,
+        model: "glm-5.3-flash".to_owned(),
+        prompt: "Extract the scenes.".to_owned(),
+        source_text: "1. INT. KÜCHE - TAG".to_owned(),
+        max_tokens,
+        response_schema: None,
+        reasoning_effort: None,
+    }
+}
+
+/// A client whose transport AND endpoint point at `server` (test seam: the
+/// production endpoint comes from the curated provider registry).
+fn mock_client(server: &wiremock::MockServer) -> OpenAiCompatibleChatClient {
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".into(),
+        Duration::from_secs(5),
+    )
+    .expect("with_http builds a client for a hosted provider");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+    client
+}
+
+/// The valid answer the second request receives.
+fn decode_ok_body() -> serde_json::Value {
+    serde_json::json!({
+        "id": "chatcmpl-ok",
+        "model": "glm-5.3-flash",
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "{\"title\": null, \"scenes\": [], \"uncertainties\": []}"
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 50, "completion_tokens": 20}
+    })
+}
+
+/// The 2026-11-20 shape: `content: null` with the output ceiling spent.
+fn empty_completion_body() -> serde_json::Value {
+    serde_json::json!({
+        "id": "chatcmpl-empty",
+        "model": "glm-5.3-flash",
+        "choices": [{
+            "message": {"role": "assistant", "content": null, "reasoning_content": "thinking"},
+            "finish_reason": "length"
+        }],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 8192}
+    })
+}
+
+/// `HTTP 200 / content: null` → a SECOND request with a doubled budget → a
+/// valid answer, with both paid responses in the summed usage.
+#[tokio::test]
+async fn an_empty_completion_is_re_requested_with_a_doubled_budget() {
+    let server = wiremock::MockServer::start().await;
+    // Matched on the budget, so the two mocks cannot be confused: the first
+    // answer only satisfies the first request.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 8_192}),
+        ))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(empty_completion_body()))
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 16_384}),
+        ))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(decode_ok_body()))
+        .mount(&server)
+        .await;
+
+    let client = mock_client(&server);
+    let outcome = client
+        .chat_constrained(chat_request(8_192))
+        .await
+        .expect("the grown budget answers with valid JSON");
+
+    assert!(
+        outcome.output.scenes.is_empty() && outcome.output.uncertainties.is_empty(),
+        "the second response is the one that is decoded"
+    );
+    // BOTH paid responses are billed to the job (issue #675).
+    let expected = breakdown_core::ai::LlmCallUsage {
+        tokens_in: 150,
+        tokens_out: 8_212,
+        ..Default::default()
+    };
+    assert_eq!(
+        outcome.usage, expected,
+        "the discarded empty answer's tokens were paid too"
+    );
+
+    let requests = server
+        .received_requests()
+        .await
+        .expect("wiremock records the requests");
+    assert_eq!(requests.len(), 2, "exactly one re-request, no more");
+    let budgets: Vec<u64> = requests
+        .iter()
+        .map(|request| {
+            let body: serde_json::Value =
+                serde_json::from_slice(&request.body).expect("the body is JSON");
+            body["max_tokens"].as_u64().expect("max_tokens is a number")
+        })
+        .collect();
+    assert_eq!(
+        budgets,
+        vec![8_192, 16_384],
+        "the retry doubles the output budget once"
+    );
+}
+
+/// A content-level refusal is one request and a terminal error — no grown
+/// budget, no second billable call, no breaker-counting provider error.
+#[tokio::test]
+async fn a_refusal_costs_exactly_one_request() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-refused",
+                "model": "glm-5.3-flash",
+                "choices": [{
+                    "message": {"role": "assistant", "content": null, "refusal": "cannot help with that"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 12}
+            })),
+        )
+        .mount(&server)
+        .await;
+
+    let client = mock_client(&server);
+    let error = client
+        .chat_constrained(chat_request(8_192))
+        .await
+        .expect_err("a refusal never yields a valid answer");
+    assert!(
+        !error.is_retryable(),
+        "a refusal is not a provider outage: {error:?}"
+    );
+    assert!(
+        error.to_string().contains("refusal=cannot help with that"),
+        "the diagnosis reaches the job: {error}"
+    );
+    let requests = server
+        .received_requests()
+        .await
+        .expect("wiremock records the requests");
+    assert_eq!(
+        requests.len(),
+        1,
+        "a refusal must be paid ONCE, not once per inner retry"
     );
 }

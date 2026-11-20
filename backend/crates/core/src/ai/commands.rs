@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 
@@ -38,9 +39,11 @@ pub struct CreateAiConfig {
     #[serde(default)]
     pub decision_vault_key_id: Option<String>,
     /// Optional `reasoning_effort` for the assistant model (2026-11-20
-    /// output-budget investigation). `None` keeps the provider's own default —
-    /// the behaviour of every configuration written before this field existed.
-    /// Only a pair that DECLARES the parameter may set it (see
+    /// output-budget investigation). [`ReasoningEffortChoice::Auto`] — the
+    /// default, and the behaviour of every configuration written before this
+    /// field existed — resolves to the curated profile of the `(provider, model)`
+    /// pair if one applies, else to the provider's own default. Only a pair that
+    /// DECLARES the parameter may set an explicit level (see
     /// [`super::reasoning::supported_reasoning_efforts`]); the aggregate refuses
     /// the rest with `422` while the mistake is still cheap, instead of paying a
     /// `400` on every import call.
@@ -71,7 +74,8 @@ pub struct UpdateAiConfig {
     #[serde(default)]
     pub decision_vault_key_id: Option<Option<String>>,
     /// `reasoning_effort`: an omitted field keeps the stored value (an older
-    /// client), `Auto` clears it back to the system default, a level replaces it.
+    /// client), `Auto` resets it to the system default (the curated profile of
+    /// the pair, else the provider's own default), a level replaces it.
     ///
     /// Deliberately NOT `Option<Option<..>>` (2026-11-20 investigation): the
     /// generated Dart client omits `null` fields, so an explicit `null` could

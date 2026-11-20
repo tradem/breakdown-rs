@@ -1011,6 +1011,18 @@ class _CostDisplayPreferenceSelector extends ConsumerWidget {
 /// rendering bug, and pretending every model has the parameter would produce a
 /// 422 at save time.
 ///
+/// Two distinctions keep the section honest (catalogue-rotation review):
+/// * **known vs. unknown** — a model list that is still LOADING or whose fetch
+///   FAILED says nothing about the model. Only a loaded catalogue row may claim
+///   "this model offers no reasoning effort"; an unknown catalogue renders as
+///   unknown and leaves the stored value alone.
+/// * **stored vs. declared** — the selector shows the EFFECTIVE choice (the
+///   draft, else the stored value). A stored level the pair no longer declares
+///   is appended as a disabled, SELECTED segment instead of vanishing, so the
+///   picker never renders "nothing selected" and the value the next PATCH sends
+///   stays visible. It survives an unrelated edit — the aggregate's
+///   `effort_unchanged` rule keeps it — and only an explicit choice changes it.
+///
 /// Why a value and not a nullable field: the generated client omits `null`
 /// fields, so a nullable setting could be set but never reset from the app.
 /// `auto` is therefore a real segment (see `ReasoningEffortChoice`).
@@ -1022,23 +1034,42 @@ class _ReasoningEffortSelector extends ConsumerWidget {
     final state = ref.watch(aiConfigControllerProvider);
     final controller = ref.read(aiConfigControllerProvider.notifier);
     final l10n = l10nOf(context);
-    final declared = controller.declaredReasoningEfforts(
+    final capability = controller.reasoningEffortCapability(
       state.selectedAssistantModelId,
     );
-    // `auto` is always choosable; the declared levels follow in enum order.
+    final declared = capability.declared;
+    final current = state.reasoningEffort;
+    // A level the catalogue does not declare — a rotation that dropped it, or a
+    // catalogue the screen could not read yet.
+    final undeclared =
+        current != ReasoningEffortChoice.auto && !declared.contains(current);
+    // `auto` is always choosable; the declared levels follow in enum order, and
+    // an undeclared-but-effective level is appended as a disabled segment.
     final choices = <ReasoningEffortChoice>[
       ReasoningEffortChoice.auto,
       for (final choice in ReasoningEffortChoice.values)
         if (choice != ReasoningEffortChoice.auto && declared.contains(choice))
           choice,
+      if (undeclared) current,
     ];
-    final stored = state.config?.reasoningEffort;
+    // A picker with `auto` alone would say nothing the sentence does not.
+    final showPicker = declared.isNotEmpty || undeclared;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(l10n.aiConfigReasoningEffortLabel),
         const SizedBox(height: 8),
-        if (declared.isEmpty) ...[
+        if (!capability.known) ...[
+          Text(
+            // The model list is loading or failed: no statement about the model
+            // is possible, so none is made (a `503` must not read as a product
+            // decision).
+            l10n.aiConfigReasoningEffortUnknown,
+            key: const Key('ai-reasoning-effort-unknown'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (showPicker) const SizedBox(height: 8),
+        ] else if (declared.isEmpty && !undeclared) ...[
           Text(
             // The pair declares nothing: state the fact, keep `auto` on the wire.
             l10n.aiConfigReasoningEffortUnavailable,
@@ -1049,36 +1080,40 @@ class _ReasoningEffortSelector extends ConsumerWidget {
             l10n.aiConfigReasoningEffortUnavailableHint,
             style: Theme.of(context).textTheme.bodySmall,
           ),
-        ] else
+        ],
+        if (showPicker)
           SegmentedButton<ReasoningEffortChoice>(
             key: const Key('ai-reasoning-effort-picker'),
             segments: [
               for (final choice in choices)
                 ButtonSegment(
                   value: choice,
+                  // `auto` and every declared level are choosable; the stored
+                  // level the catalogue does not (or not yet) declare is shown
+                  // as selected-but-disabled rather than silently corrected.
+                  enabled:
+                      choice == ReasoningEffortChoice.auto ||
+                      declared.contains(choice),
                   label: Text(
                     _reasoningEffortLabel(l10n, choice),
                     key: Key('ai-reasoning-effort-${choice.name}'),
                   ),
                 ),
             ],
-            selected: {state.reasoningEffort},
+            selected: {current},
             onSelectionChanged: (selection) {
               controller.selectReasoningEffort(selection.first);
             },
           ),
-        if (declared.isEmpty &&
-            stored != null &&
-            stored != ReasoningEffortChoice.auto)
+        if (undeclared && capability.known)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
               // A stored level on a pair that no longer declares it (catalogue
-              // rotation). It survives an unrelated edit — the aggregate's
-              // `effort_unchanged` rule keeps it — so say so instead of
+              // rotation). It survives an unrelated edit, so say so instead of
               // silently resetting it.
               l10n.aiConfigReasoningEffortStored(
-                _reasoningEffortLabel(l10n, stored),
+                _reasoningEffortLabel(l10n, current),
               ),
               key: const Key('ai-reasoning-effort-stored'),
               style: Theme.of(context).textTheme.bodySmall,

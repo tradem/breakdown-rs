@@ -370,6 +370,7 @@
   "aiConfigReasoningEffortHint": "How much the model may think. Less effort is markedly faster and cheaper; the levels are limited to what the selected model supports.",
   "aiConfigReasoningEffortUnavailable": "This model offers no reasoning-effort setting.",
   "aiConfigReasoningEffortUnavailableHint": "No value is sent; the model decides on its own.",
+  "aiConfigReasoningEffortUnknown": "The available levels for this model are unknown — the model list has not loaded. The stored value is kept.",
   "aiConfigReasoningEffortStored": "Stored: {level}. This model no longer offers the setting — the value is kept until you change it.",
   "@aiConfigReasoningEffortStored": {
     "placeholders": {

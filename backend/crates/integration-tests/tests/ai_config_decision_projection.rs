@@ -38,7 +38,8 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use breakdown_core::ai::commands::{CreateAiConfig, UpdateAiConfig};
-use breakdown_core::ai::ports::{AiConfigCommands, LlmProvider};
+use breakdown_core::ai::ports::{AiConfigCommands, AiConfigRepository, LlmProvider};
+use breakdown_core::ai::reasoning::ReasoningEffortChoice;
 use breakdown_core::ai::views::{CostDisplayPreference, DocumentKind};
 use breakdown_core::shared::{AggregateVersion, UserId};
 use infra::event_store::AiConfigCommandsImpl;
@@ -52,7 +53,10 @@ const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(150);
 const TEST_SUB: &str = "ai-config-decision-test-user";
 const DECISION_MODEL: &str = "clef-flash";
-const EXTRACTION_MODEL: &str = "mistral-large-3";
+/// EURouter publishes `supported_parameters` including `reasoning_effort` for
+/// `mistral-small-4` (`low|medium|high`), so it is the pair this test can store
+/// an explicit level on. `mistral-large-3` declares no such parameter.
+const EXTRACTION_MODEL: &str = "mistral-small-4";
 
 fn test_user() -> UserId {
     UserId::from_sub(TEST_SUB)
@@ -94,6 +98,36 @@ async fn await_projected_decision_triple(pool: &PgPool, id: Uuid) -> Result<Opti
     }
 }
 
+/// Poll the projected `reasoning_effort` column until it carries a level.
+///
+/// Polling the VALUE — not row existence — is the point: the create inserts the
+/// row with `reasoning_effort` NULL, so the same row is already there before the
+/// projector has written the level, and a row-existence wait would pass while the
+/// column stayed empty.
+async fn await_projected_reasoning_effort(pool: &PgPool, id: Uuid) -> Result<Option<String>> {
+    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        let level: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT reasoning_effort FROM ai_import.projection_ai_config WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("reasoning_effort read failed: {e}"))?;
+
+        if let Some(level) = level.flatten() {
+            return Ok(Some(level));
+        }
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!(
+                "reasoning_effort not projected into ai_import.projection_ai_config in time \
+                 (the user-chosen level must reach the read model)"
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
 #[tokio::test]
 async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
     let (pool, _pg_guard) = fixtures::spawn_postgres().await?;
@@ -127,7 +161,9 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 decision_provider: None,
                 decision_model: None,
                 decision_vault_key_id: None,
-                reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+                // An EXPLICIT level, not `Auto`: the user-chosen value is what
+                // has to survive command -> event -> projection -> worker.
+                reasoning_effort: ReasoningEffortChoice::Low,
             },
         )
         .await
@@ -190,6 +226,22 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
     assert_eq!(decision.provider, LlmProvider::EURouter);
     assert_eq!(decision.model, DECISION_MODEL);
     assert_eq!(decision.vault_key_id, "extraction-key");
+
+    // 5) The EXPLICIT level survives the whole chain — command -> event ->
+    //    projection column -> read view -> worker config. Every link is asserted,
+    //    because a single dropped field keeps the rest of this test green while
+    //    the user's choice silently becomes `auto`.
+    assert_eq!(
+        await_projected_reasoning_effort(&pool, config_id).await?,
+        Some("low".to_owned()),
+        "the projected column must hold the declared level, not NULL"
+    );
+    let read_view = AiConfigRepositoryImpl::new(pool.clone())
+        .find_by_id(config_id)
+        .await
+        .expect("the read model must serve the config");
+    assert_eq!(read_view.reasoning_effort, ReasoningEffortChoice::Low);
+    assert_eq!(worker_config.reasoning_effort, ReasoningEffortChoice::Low);
 
     Ok(())
 }

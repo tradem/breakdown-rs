@@ -982,6 +982,10 @@ fn script_worker(
 #[derive(Clone, Default)]
 struct RecordingScheduleClient {
     seen: Arc<std::sync::Mutex<Vec<String>>>,
+    /// Every request as it was handed to the client, so a test can assert the
+    /// fields the WORKER built — notably `reasoning_effort`, whose resolution
+    /// lives in the request builder and is invisible to a `seen`-texts check.
+    requests: Arc<std::sync::Mutex<Vec<LlmChatRequest>>>,
 }
 
 #[async_trait]
@@ -1001,7 +1005,8 @@ impl LlmClient for RecordingScheduleClient {
     ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
         // Issue #295: guaranteed > 0 ms latency window (see FakeLlmClient).
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        self.seen.lock().unwrap().push(request.source_text);
+        self.seen.lock().unwrap().push(request.source_text.clone());
+        self.requests.lock().unwrap().push(request);
         Ok(LlmCallOutcome::new(
             ShootingSchedule {
                 block_id: None,
@@ -7699,11 +7704,17 @@ fn stored_chunk(index: u32, tokens_in: u64) -> breakdown_core::ai::StoredChunk {
 #[derive(Clone, Default)]
 struct CountingScriptClient {
     seen: Arc<Mutex<Vec<String>>>,
+    /// The full requests, mirroring [`RecordingScheduleClient::requests`].
+    requests: Arc<Mutex<Vec<LlmChatRequest>>>,
 }
 
 impl CountingScriptClient {
     fn calls(&self) -> Vec<String> {
         self.seen.lock().unwrap().clone()
+    }
+
+    fn requests(&self) -> Vec<LlmChatRequest> {
+        self.requests.lock().unwrap().clone()
     }
 }
 
@@ -7714,6 +7725,7 @@ impl LlmClient for CountingScriptClient {
         request: LlmChatRequest,
     ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
         self.seen.lock().unwrap().push(request.source_text.clone());
+        self.requests.lock().unwrap().push(request);
         Ok(LlmCallOutcome::new(
             ScriptContext {
                 scenes: vec![DraftScene {
@@ -8715,4 +8727,137 @@ async fn rows_dispatch_concurrently_up_to_the_bound_and_keep_plan_order() {
         summarised, planned,
         "the summary is aggregated in PLAN order, not completion order"
     );
+}
+
+// ===========================================================================
+// reasoning_effort resolution (2026-11-20 output-budget investigation,
+// review finding 8)
+//
+// A job's paid request carries `reasoning_effort` from ONE chain: explicit
+// configuration, else the curated profile, else no field. The chain used to be
+// written twice (script + schedule builder), and only the wire serialization was
+// tested — so removing the field from one builder, or changing the precedence,
+// stayed green.
+// ===========================================================================
+
+/// The precedence matrix, tested once instead of per worker.
+#[test]
+fn the_effort_resolution_prefers_explicit_then_the_curated_profile() {
+    use breakdown_core::ai::{ReasoningEffort, ReasoningEffortChoice};
+
+    // An explicit level wins over the curated profile: `glm-5.3-flash` has one
+    // (`low`), and the user's choice must still reach the provider.
+    assert_eq!(
+        super::workers::resolved_reasoning_effort(
+            LlmProvider::Neuralwatt,
+            "glm-5.3-flash",
+            ReasoningEffortChoice::High,
+        ),
+        Some(ReasoningEffort::High),
+        "explicit configuration beats the curated default"
+    );
+    // `Auto` on the profiled pair: the measured 85 % saving applies.
+    assert_eq!(
+        super::workers::resolved_reasoning_effort(
+            LlmProvider::Neuralwatt,
+            "glm-5.3-flash",
+            ReasoningEffortChoice::Auto,
+        ),
+        Some(ReasoningEffort::Low),
+        "the curated profile pins `low` for glm-5.3-flash"
+    );
+    // `Auto` on an unprofiled pair sends NO field at all — not an invented one.
+    assert_eq!(
+        super::workers::resolved_reasoning_effort(
+            LlmProvider::Neuralwatt,
+            "kimi-k3",
+            ReasoningEffortChoice::Auto,
+        ),
+        None,
+        "an unprofiled model gets the provider's own default"
+    );
+}
+
+/// The SCRIPT request builder actually carries the resolved value (the matrix
+/// above proves the rule; this proves the wiring).
+#[tokio::test]
+async fn the_script_worker_sends_the_resolved_reasoning_effort() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let store = Arc::new(InMemoryChunkStore::with_prefix(0));
+    let mut worker = resume_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::clone(&store),
+    );
+    // `deepseek-v4-flash` has no curated profile, so only the explicit level can
+    // produce a wire value — which is exactly the wiring under test.
+    worker.reasoning_effort = breakdown_core::ai::ReasoningEffortChoice::High;
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(&job, "w-effort", FOUR_SCENE_SCRIPT)
+        .await
+        .unwrap();
+
+    let requests = worker.client.requests();
+    assert!(
+        !requests.is_empty(),
+        "the worker must have called the model"
+    );
+    for request in &requests {
+        assert_eq!(
+            request.reasoning_effort.as_deref(),
+            Some("high"),
+            "every paid script request carries the configured level"
+        );
+    }
+}
+
+/// The SCHEDULE request builder carries it too — the second copy that used to
+/// exist is what this pins.
+#[tokio::test]
+async fn the_schedule_worker_sends_the_resolved_reasoning_effort() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingScheduleClient::default());
+    let mut worker = schedule_worker(Arc::clone(&queue), Arc::clone(&previews), client.clone());
+    worker.reasoning_effort = breakdown_core::ai::ReasoningEffortChoice::High;
+    let job = schedule_job(SourceFormat::PlainText);
+    worker
+        .process(&job, "w-effort", b"T1\n1\n".as_slice())
+        .await
+        .unwrap();
+
+    let requests = client.requests.lock().unwrap().clone();
+    assert!(
+        !requests.is_empty(),
+        "the worker must have called the model"
+    );
+    for request in &requests {
+        assert_eq!(
+            request.reasoning_effort.as_deref(),
+            Some("high"),
+            "every paid schedule request carries the configured level"
+        );
+    }
+}
+
+/// `Auto` on an unprofiled pair sends NOTHING — a request body without the field
+/// is what keeps providers that do not declare it from answering `400`.
+#[tokio::test]
+async fn an_unprofiled_model_sends_no_reasoning_effort_field() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingScheduleClient::default());
+    let worker = schedule_worker(Arc::clone(&queue), Arc::clone(&previews), client.clone());
+    // `schedule_worker` defaults to `Auto` and `deepseek-v4-flash`.
+    let job = schedule_job(SourceFormat::PlainText);
+    worker
+        .process(&job, "w-effort", b"T1\n1\n".as_slice())
+        .await
+        .unwrap();
+
+    let requests = client.requests.lock().unwrap().clone();
+    assert!(!requests.is_empty());
+    assert_eq!(requests[0].reasoning_effort, None);
 }

@@ -626,6 +626,23 @@ class AiConfigController extends _$AiConfigController {
     return const {};
   }
 
+  /// What the screen KNOWS about the `reasoning_effort` capability of the
+  /// selected assistant model, as `(known, declared)`.
+  ///
+  /// The two facts are deliberately separate: an EMPTY level set means "the
+  /// pair declares no level" only when the catalogue actually loaded. While the
+  /// model list is loading, or after its fetch failed, nothing is known about
+  /// the model — rendering that as "this model supports no reasoning effort"
+  /// turns a transient `503` into a product statement (review finding).
+  ({bool known, Set<ReasoningEffortChoice> declared}) reasoningEffortCapability(
+    String? modelId,
+  ) {
+    if (!state.models.hasValue) {
+      return (known: false, declared: const <ReasoningEffortChoice>{});
+    }
+    return (known: true, declared: declaredReasoningEfforts(modelId));
+  }
+
   void selectImageModel(String? id) {
     _draftsNotifier.mutate((d) {
       d.selectedImageModelId = id;

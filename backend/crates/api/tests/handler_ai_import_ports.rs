@@ -2904,6 +2904,167 @@ async fn ai_config_persists_and_returns_the_decision_triple() {
     }
 }
 
+/// Review finding 7: the level the USER picked must survive the API edge. The
+/// aggregate tests assert events and the widget tests assert the Dart request —
+/// neither pins the command the handler actually dispatches, so a dropped request
+/// field would leave every one of them green while the user's choice silently
+/// became `auto`.
+#[tokio::test]
+async fn ai_config_carries_an_explicit_reasoning_effort_into_the_command() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    let repo = ports.ai_config_repo.clone();
+    // `mistral-small-4` is a EURouter model that DECLARES `reasoning_effort`
+    // (`low|medium|high`), so an explicit level is valid for this pair.
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::EURouter.as_str(), TEST_SUB)
+        .await;
+    let state = state(ports);
+
+    let (status, Json(created)) = create_ai_config::<FakePorts>(
+        State(state.clone()),
+        user(),
+        Json(CreateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Low,
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-small-4".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+        }),
+    )
+    .await
+    .expect("a declared level is accepted");
+    assert_eq!(status, StatusCode::CREATED);
+    {
+        let created_commands = commands.created.lock().await;
+        let command = created_commands
+            .last()
+            .expect("create must dispatch a command");
+        assert_eq!(
+            command.reasoning_effort,
+            breakdown_core::ai::ReasoningEffortChoice::Low,
+            "the request field must reach the command, not be dropped"
+        );
+    }
+
+    // The read model the projector would have written, so the PATCH can resolve
+    // the owner and the stored version.
+    repo.views.lock().await.insert(
+        created.id,
+        AiConfigView {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Low,
+            id: created.id,
+            user_id: UserId::from_sub(TEST_SUB),
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-small-4".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            prompt_kinds: Vec::new(),
+            stored_prompt_kinds: Vec::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+            version: created.version,
+            revoked: false,
+        },
+    );
+
+    let (status, Json(_)) = update_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Path(created.id),
+        Json(UpdateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            // An explicit replacement level (the tri-state outer `Some`).
+            reasoning_effort: Some(breakdown_core::ai::ReasoningEffortChoice::Medium),
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-small-4".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            version: created.version,
+            cost_display_preference: Some(CostDisplayPreference::Token),
+        }),
+    )
+    .await
+    .expect("the owner may replace the level");
+    assert_eq!(status, StatusCode::OK);
+    let updated = commands.updated.lock().await;
+    assert_eq!(
+        updated
+            .last()
+            .expect("update must dispatch a command")
+            .reasoning_effort,
+        Some(breakdown_core::ai::ReasoningEffortChoice::Medium),
+        "the PATCH value must reach the command"
+    );
+}
+
+/// The other half (finding 7): an undeclared level is refused as the REGISTERED
+/// problem — RFC 9457, `422`, `ai-config.reasoning-effort-unsupported` — and no
+/// command is dispatched, so no event is ever appended.
+#[tokio::test]
+async fn an_undeclared_reasoning_effort_is_the_registered_422() {
+    let ports = FakePorts::default();
+    ports
+        .membership_repo
+        .seed_credential_designer(BlockId::new(), UserId::from_sub(TEST_SUB))
+        .await;
+    let commands = ports.ai_config_commands.clone();
+    // The credential is valid; the PAIR is what cannot honour the level:
+    // `mistral-large-3` publishes no `reasoning_effort` for EURouter.
+    ports
+        .settings_repo
+        .bind_vault_key("vault-key", LlmProvider::EURouter.as_str(), TEST_SUB)
+        .await;
+    let state = state(ports);
+
+    let problem = create_ai_config::<FakePorts>(
+        State(state),
+        user(),
+        Json(CreateAiConfigRequest {
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Low,
+            provider: LlmProvider::EURouter,
+            assistant_model: "mistral-large-3".to_owned(),
+            image_model: None,
+            prompts: HashMap::new(),
+            vault_key_id: "vault-key".to_owned(),
+            cost_display_preference: CostDisplayPreference::Token,
+        }),
+    )
+    .await
+    .expect_err("an undeclared level must not be persisted")
+    .into_problem();
+
+    assert_eq!(problem.status, StatusCode::UNPROCESSABLE_ENTITY.as_u16());
+    assert_eq!(problem.code, "ai-config.reasoning-effort-unsupported");
+    assert!(
+        !problem.detail.is_empty(),
+        "the detail is localized (ADR-031 D5)"
+    );
+    assert!(
+        commands.created.lock().await.is_empty(),
+        "a rejected save must not append an event"
+    );
+}
+
 #[tokio::test]
 async fn ai_config_update_rejects_vault_key_from_another_provider() {
     let ports = FakePorts::default();

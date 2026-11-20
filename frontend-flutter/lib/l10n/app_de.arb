@@ -408,6 +408,7 @@
   "aiConfigReasoningEffortHint": "Wie viel das Modell nachdenken darf. Weniger Aufwand ist deutlich schneller und billiger; die Stufen sind auf das gewählte Modell begrenzt.",
   "aiConfigReasoningEffortUnavailable": "Dieses Modell bietet keine Einstellung für den Rechenaufwand.",
   "aiConfigReasoningEffortUnavailableHint": "Es wird kein Wert gesendet; das Modell entscheidet selbst.",
+  "aiConfigReasoningEffortUnknown": "Die verfügbaren Stufen für dieses Modell sind unbekannt — die Modellliste ist nicht geladen. Der gespeicherte Wert bleibt erhalten.",
   "aiConfigReasoningEffortStored": "Gespeichert: {level}. Dieses Modell bietet die Einstellung nicht mehr — der Wert bleibt erhalten, bis du ihn änderst.",
   "@aiConfigReasoningEffortStored": {
     "placeholders": {
