@@ -8,7 +8,9 @@
 //! cross-check that catches a *forgotten* model lives in `infra`, where both
 //! lists are visible.
 
-use super::{ReasoningEffort, supported_reasoning_efforts, supports_reasoning_effort};
+use super::{
+    ReasoningEffort, ReasoningEffortChoice, supported_reasoning_efforts, supports_reasoning_effort,
+};
 use crate::ai::ports::LlmProvider;
 
 #[test]
@@ -171,6 +173,35 @@ fn a_supported_pair_never_yields_an_empty_set() {
                     "{provider:?}/{model} advertises an empty effort set"
                 );
             }
+        }
+    }
+}
+
+/// `Auto` is a value on the wire, never a `null`: the generated Dart client omits
+/// null fields, so a nullable setting could be set but never cleared.
+#[test]
+fn auto_is_a_wire_value_and_resolves_to_no_explicit_level() {
+    assert_eq!(
+        ReasoningEffortChoice::default(),
+        ReasoningEffortChoice::Auto
+    );
+    assert_eq!(ReasoningEffortChoice::Auto.effort(), None);
+    assert_eq!(
+        ReasoningEffortChoice::Low.effort(),
+        Some(ReasoningEffort::Low)
+    );
+    assert_eq!(
+        serde_json::to_string(&ReasoningEffortChoice::Auto).expect("serialize"),
+        "\"auto\""
+    );
+    assert_eq!(
+        serde_json::from_str::<ReasoningEffortChoice>("\"low\"").expect("deserialize"),
+        ReasoningEffortChoice::Low
+    );
+    // Every real level round-trips through its effort and back.
+    for choice in ReasoningEffortChoice::ALL {
+        if let Some(effort) = choice.effort() {
+            assert_eq!(ReasoningEffortChoice::from(effort), choice);
         }
     }
 }

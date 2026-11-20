@@ -166,6 +166,7 @@ import 'package:breakdown_api/src/model/projector_health_snapshot.dart';
 import 'package:breakdown_api/src/model/provider_breaker_state.dart';
 import 'package:breakdown_api/src/model/provider_hold.dart';
 import 'package:breakdown_api/src/model/reasoning_effort.dart';
+import 'package:breakdown_api/src/model/reasoning_effort_choice.dart';
 import 'package:breakdown_api/src/model/rename_episode_request.dart';
 import 'package:breakdown_api/src/model/rename_outfit_request.dart';
 import 'package:breakdown_api/src/model/rename_piece_request.dart';
@@ -377,6 +378,7 @@ part 'serializers.g.dart';
   ProviderBreakerState,
   ProviderHold,
   ReasoningEffort,
+  ReasoningEffortChoice,
   RenameEpisodeRequest,
   RenameOutfitRequest,
   RenamePieceRequest,

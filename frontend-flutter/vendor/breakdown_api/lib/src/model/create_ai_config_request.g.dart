@@ -24,7 +24,7 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
   @override
   final LlmProvider provider;
   @override
-  final ReasoningEffort? reasoningEffort;
+  final ReasoningEffortChoice? reasoningEffort;
   @override
   final String vaultKeyId;
 
@@ -146,9 +146,9 @@ class CreateAiConfigRequestBuilder
   LlmProvider? get provider => _$this._provider;
   set provider(LlmProvider? provider) => _$this._provider = provider;
 
-  ReasoningEffort? _reasoningEffort;
-  ReasoningEffort? get reasoningEffort => _$this._reasoningEffort;
-  set reasoningEffort(ReasoningEffort? reasoningEffort) =>
+  ReasoningEffortChoice? _reasoningEffort;
+  ReasoningEffortChoice? get reasoningEffort => _$this._reasoningEffort;
+  set reasoningEffort(ReasoningEffortChoice? reasoningEffort) =>
       _$this._reasoningEffort = reasoningEffort;
 
   String? _vaultKeyId;

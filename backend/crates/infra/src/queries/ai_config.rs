@@ -7,7 +7,7 @@
 
 use breakdown_core::ai::{
     AiConfigRepository, AiConfigView, CostDisplayPreference, DocumentKind, LlmProvider,
-    ReasoningEffort,
+    ReasoningEffort, ReasoningEffortChoice,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_CONFIG_NOT_FOUND;
@@ -27,9 +27,9 @@ pub struct AiWorkerConfig {
     pub model: String,
     pub prompt: String,
     pub vault_key_id: String,
-    /// Configured `reasoning_effort` (2026-11-20 investigation). `None` = the
-    /// provider's own default unless the curated profile pins one.
-    pub reasoning_effort: Option<ReasoningEffort>,
+    /// Configured `reasoning_effort` (2026-11-20 investigation). `Auto` = no
+    /// explicit level: the curated profile (if any), else the provider default.
+    pub reasoning_effort: ReasoningEffortChoice,
     /// Optional Decision Model slot (issue #722). `None` = no scoring pass.
     pub decision: Option<AiWorkerDecisionConfig>,
 }
@@ -333,11 +333,16 @@ fn parse_cost_display_preference(value: String) -> CostDisplayPreference {
 /// legacy or hand-edited row must not 500 a config fetch, and falling back to
 /// "provider default" is the behaviour every configuration had before the
 /// column existed.
-fn parse_optional_reasoning_effort(value: Option<String>) -> Option<ReasoningEffort> {
-    let raw = value?;
+fn parse_optional_reasoning_effort(value: Option<String>) -> ReasoningEffortChoice {
+    let Some(raw) = value else {
+        return ReasoningEffortChoice::Auto;
+    };
+    let normalized = raw.trim().to_ascii_lowercase();
     ReasoningEffort::ALL
         .into_iter()
-        .find(|effort| effort.as_str() == raw.trim().to_ascii_lowercase())
+        .find(|effort| effort.as_str() == normalized)
+        .map(ReasoningEffortChoice::from)
+        .unwrap_or(ReasoningEffortChoice::Auto)
 }
 
 /// Deserialize the `prompts` JSONB column and return the prompt for `kind`.

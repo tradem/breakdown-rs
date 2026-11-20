@@ -265,14 +265,11 @@ components:
         provider:
           $ref: '#/components/schemas/LlmProvider'
         reasoning_effort:
-          oneOf:
-          - $ref: '#/components/schemas/ReasoningEffort'
-            description: |-
-              The configured `reasoning_effort` for the assistant model, or `None` for
-              the provider's own default (2026-11-20 investigation). Additive with
-              `serde(default)`: a view serialized before the field existed
-              deserializes as `None`.
-          - type: 'null'
+          $ref: '#/components/schemas/ReasoningEffortChoice'
+          description: |-
+            The configured `reasoning_effort` for the assistant model (2026-11-20
+            investigation). `Auto` = no explicit level. Additive with `serde(default)`:
+            a view serialized before the field existed deserializes as `Auto`.
         revoked:
           type: boolean
         stored_prompt_kinds:
@@ -2126,14 +2123,12 @@ components:
         provider:
           $ref: '#/components/schemas/LlmProvider'
         reasoning_effort:
-          oneOf:
-          - $ref: '#/components/schemas/ReasoningEffort'
-            description: |-
-              Requested `reasoning_effort` for the assistant model (2026-11-20
-              investigation). `null`/omitted keeps the provider's own default. Only a
-              pair that DECLARES the parameter may set it — the aggregate answers `422`
-              otherwise, while the mistake is still cheap.
-          - type: 'null'
+          $ref: '#/components/schemas/ReasoningEffortChoice'
+          description: |-
+            Requested `reasoning_effort` for the assistant model (2026-11-20
+            investigation). `auto` = no explicit level. Only a pair that DECLARES the
+            parameter may name a level — the aggregate answers `422` otherwise, while
+            the mistake is still cheap.
         vault_key_id:
           type: string
       required:
@@ -4382,6 +4377,26 @@ components:
       - medium
       - high
       type: string
+    ReasoningEffortChoice:
+      description: |-
+        What a configuration stores: an explicit level, or "let the system decide".
+
+        Deliberately a VALUE rather than `Option<ReasoningEffort>` (2026-11-20
+        investigation). The generated Dart client omits `null` fields, so a
+        nullable field can be set but never cleared from the app — the level would be
+        a one-way door. `Auto` travels as the string `"auto"` and therefore says
+        "no explicit level" unambiguously in both directions.
+
+        `Auto` means: the curated profile for this `(provider, model)` if one
+        applies, otherwise the provider's own default. It is spelled "Auto" rather
+        than "provider default" for exactly that reason.
+      enum:
+      - auto
+      - minimal
+      - low
+      - medium
+      - high
+      type: string
     RenameEpisodeRequest:
       properties:
         name:
@@ -5574,11 +5589,12 @@ components:
           $ref: '#/components/schemas/LlmProvider'
         reasoning_effort:
           oneOf:
-          - $ref: '#/components/schemas/ReasoningEffort'
+          - $ref: '#/components/schemas/ReasoningEffortChoice'
             description: |-
-              Tri-state like the decision slot (2026-11-20 investigation): omitted
-              keeps the stored effort, an explicit `null` clears it back to the
-              provider default, a value replaces it.
+              Omitted keeps the stored choice (an older client), `auto` resets it to the
+              system default, a level replaces it. Deliberately not `Option<Option<..>>`:
+              the generated Dart client omits `null` fields, so a reset would be
+              unreachable from the app (2026-11-20 investigation).
           - type: 'null'
         vault_key_id:
           type: string

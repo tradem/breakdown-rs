@@ -4,7 +4,6 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 
-use breakdown_core::ai::ReasoningEffort;
 use breakdown_core::ai::aggregate::AiConfig;
 use breakdown_core::ai::events::AiConfigEvent;
 use breakdown_core::shared::EventMetadata;
@@ -90,8 +89,12 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(decision_provider.map(|p| p.as_str().to_owned()))
                 .bind(decision_model)
                 .bind(decision_vault_key_id)
-                // NULL = "send no field" (provider default), not "missing".
-                .bind(reasoning_effort.map(ReasoningEffort::as_str))
+                // NULL = `Auto` = "send no field", not "missing".
+                .bind(
+                    reasoning_effort
+                        .effort()
+                        .map(breakdown_core::ai::ReasoningEffort::as_str),
+                )
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"
@@ -152,9 +155,13 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(decision_provider.map(|p| p.as_str().to_owned()))
                 .bind(decision_model)
                 .bind(decision_vault_key_id)
-                // The aggregate emits the RESOLVED effort, so the projection
-                // assigns it directly — NULL clears it back to the default.
-                .bind(reasoning_effort.map(ReasoningEffort::as_str))
+                // The aggregate emits the RESOLVED choice, so the projection
+                // assigns it directly — `Auto` nulls the column.
+                .bind(
+                    reasoning_effort
+                        .effort()
+                        .map(breakdown_core::ai::ReasoningEffort::as_str),
+                )
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"

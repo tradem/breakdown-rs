@@ -22,7 +22,7 @@ use super::commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
 use super::error::AiConfigError;
 use super::events::AiConfigEvent;
 use super::ports::LlmProvider;
-use super::reasoning::{ReasoningEffort, supports_reasoning_effort};
+use super::reasoning::{ReasoningEffortChoice, supports_reasoning_effort};
 use super::views::{CostDisplayPreference, DocumentKind};
 use super::{decision, decision::is_decision_capable};
 
@@ -42,8 +42,8 @@ pub struct AiConfig {
     pub decision_model: Option<String>,
     pub decision_vault_key_id: Option<String>,
     /// Requested `reasoning_effort` for the assistant model (2026-11-20
-    /// investigation). `None` = the provider's own default.
-    pub reasoning_effort: Option<ReasoningEffort>,
+    /// investigation). `Auto` = no explicit level.
+    pub reasoning_effort: ReasoningEffortChoice,
     pub revoked: bool,
     pub version: AggregateVersion,
 }
@@ -62,7 +62,7 @@ impl Default for AiConfig {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             revoked: false,
             version: AggregateVersion::default(),
         }
@@ -250,9 +250,8 @@ impl Command<UpdateAiConfig> for AiConfig {
             decision_vault_key_id.as_deref(),
             model_unchanged,
         )?;
-        // Tri-state resolution, same shape as the decision slot above: an
-        // omitted field keeps the stored effort, `Some(None)` clears it back to
-        // the provider default.
+        // An omitted field keeps the stored choice (an older client); `Auto`
+        // is an explicit reset and arrives as a value, never as a missing field.
         let reasoning_effort = cmd.reasoning_effort.unwrap_or(self.reasoning_effort);
         // Catalogue-rotation safety, mirroring `model_unchanged`: only a CHANGED
         // pair-or-effort is re-validated, so a catalogue update can never brick
@@ -338,9 +337,11 @@ fn validate_fields(
 fn validate_reasoning_effort(
     provider: LlmProvider,
     assistant_model: &str,
-    effort: Option<ReasoningEffort>,
+    choice: ReasoningEffortChoice,
 ) -> Result<(), AiConfigError> {
-    let Some(effort) = effort else {
+    // `Auto` is always valid: it asks the system to decide, which is what every
+    // configuration written before this field did.
+    let Some(effort) = choice.effort() else {
         return Ok(());
     };
     if supports_reasoning_effort(provider, assistant_model, effort) {

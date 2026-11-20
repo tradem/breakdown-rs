@@ -62,6 +62,62 @@ impl ReasoningEffort {
     pub const ALL: [Self; 4] = [Self::Minimal, Self::Low, Self::Medium, Self::High];
 }
 
+/// What a configuration stores: an explicit level, or "let the system decide".
+///
+/// Deliberately a VALUE rather than `Option<ReasoningEffort>` (2026-11-20
+/// investigation). The generated Dart client omits `null` fields, so a
+/// nullable field can be set but never cleared from the app — the level would be
+/// a one-way door. `Auto` travels as the string `"auto"` and therefore says
+/// "no explicit level" unambiguously in both directions.
+///
+/// `Auto` means: the curated profile for this `(provider, model)` if one
+/// applies, otherwise the provider's own default. It is spelled "Auto" rather
+/// than "provider default" for exactly that reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffortChoice {
+    /// No explicit level — the curated profile, else the provider's own default.
+    #[default]
+    Auto,
+    Minimal,
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffortChoice {
+    /// The explicit level, or `None` for [`Self::Auto`].
+    pub const fn effort(self) -> Option<ReasoningEffort> {
+        match self {
+            Self::Auto => None,
+            Self::Minimal => Some(ReasoningEffort::Minimal),
+            Self::Low => Some(ReasoningEffort::Low),
+            Self::Medium => Some(ReasoningEffort::Medium),
+            Self::High => Some(ReasoningEffort::High),
+        }
+    }
+
+    /// Every choice, `Auto` first — the order the picker renders.
+    pub const ALL: [Self; 5] = [
+        Self::Auto,
+        Self::Minimal,
+        Self::Low,
+        Self::Medium,
+        Self::High,
+    ];
+}
+
+impl From<ReasoningEffort> for ReasoningEffortChoice {
+    fn from(effort: ReasoningEffort) -> Self {
+        match effort {
+            ReasoningEffort::Minimal => Self::Minimal,
+            ReasoningEffort::Low => Self::Low,
+            ReasoningEffort::Medium => Self::Medium,
+            ReasoningEffort::High => Self::High,
+        }
+    }
+}
+
 /// Every effort declared by `(provider, model)`, or `None` when the pair does
 /// not accept a `reasoning_effort` at all.
 ///

@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, UserId};
 
 use super::ports::LlmProvider;
-use super::reasoning::ReasoningEffort;
+use super::reasoning::ReasoningEffortChoice;
 use super::views::{CostDisplayPreference, DocumentKind};
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -45,7 +45,7 @@ pub struct CreateAiConfig {
     /// the rest with `422` while the mistake is still cheap, instead of paying a
     /// `400` on every import call.
     #[serde(default)]
-    pub reasoning_effort: Option<ReasoningEffort>,
+    pub reasoning_effort: ReasoningEffortChoice,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -70,11 +70,14 @@ pub struct UpdateAiConfig {
     pub decision_model: Option<Option<String>>,
     #[serde(default)]
     pub decision_vault_key_id: Option<Option<String>>,
-    /// `reasoning_effort`, tri-state like `cost_display_preference`: the outer
-    /// `None` (an omitted field) keeps the stored value, `Some(None)` clears it
-    /// back to the provider default, `Some(Some(..))` replaces it.
+    /// `reasoning_effort`: an omitted field keeps the stored value (an older
+    /// client), `Auto` clears it back to the system default, a level replaces it.
+    ///
+    /// Deliberately NOT `Option<Option<..>>` (2026-11-20 investigation): the
+    /// generated Dart client omits `null` fields, so an explicit `null` could
+    /// never reach the server — "reset" would be unreachable from the app.
     #[serde(default)]
-    pub reasoning_effort: Option<Option<ReasoningEffort>>,
+    pub reasoning_effort: Option<ReasoningEffortChoice>,
     pub version: AggregateVersion,
 }
 

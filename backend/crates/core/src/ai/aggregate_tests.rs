@@ -17,7 +17,7 @@ use crate::shared::{AggregateVersion, UserId};
 
 use super::{
     AiConfig, AiConfigError, AiConfigEvent, CostDisplayPreference, CreateAiConfig, DocumentKind,
-    LlmProvider, ReasoningEffort, RevokeAiConfig, UpdateAiConfig,
+    LlmProvider, ReasoningEffortChoice, RevokeAiConfig, UpdateAiConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ fn make_create_cmd() -> CreateAiConfig {
         decision_provider: None,
         decision_model: None,
         decision_vault_key_id: None,
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         cost_display_preference: CostDisplayPreference::Token,
     }
 }
@@ -146,7 +146,7 @@ fn update_config_emits_single_updated_event() {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -203,7 +203,7 @@ fn update_config_accepts_provider_replacement_with_new_vault_key() {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -373,7 +373,7 @@ fn update_with_omitted_preference_keeps_the_current_value() {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: None,
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -401,7 +401,7 @@ fn applying_updated_without_preference_keeps_energy() {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: None,
             version: AggregateVersion::INITIAL.next(),
         },
@@ -468,7 +468,7 @@ fn make_decision_cmd() -> CreateAiConfig {
         decision_provider: Some(LlmProvider::Neuralwatt),
         decision_model: Some("clef-flash".into()),
         decision_vault_key_id: Some("settings-abc:decision-key".into()),
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     }
 }
@@ -499,7 +499,7 @@ fn create_config_rejects_partial_decision_config() {
         decision_provider: Some(LlmProvider::Neuralwatt),
         decision_model: None,
         decision_vault_key_id: None,
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     };
     AiConfig::given(vec![])
@@ -510,7 +510,7 @@ fn create_config_rejects_partial_decision_config() {
         decision_provider: None,
         decision_model: Some("clef-flash".into()),
         decision_vault_key_id: None,
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     };
     AiConfig::given(vec![])
@@ -521,7 +521,7 @@ fn create_config_rejects_partial_decision_config() {
         decision_provider: None,
         decision_model: None,
         decision_vault_key_id: Some("k".into()),
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     };
     AiConfig::given(vec![])
@@ -549,7 +549,7 @@ fn create_config_rejects_uncurated_decision_model() {
         .then_error(AiConfigError::EmptyDecisionModel);
     let cmd = CreateAiConfig {
         decision_vault_key_id: Some("  ".into()),
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_decision_cmd()
     };
     AiConfig::given(vec![])
@@ -581,7 +581,7 @@ fn update_config_resolves_tri_state_decision_slot() {
             decision_provider: Some(LlmProvider::Neuralwatt),
             decision_model: Some("clef-flash".into()),
             decision_vault_key_id: Some("settings-abc:decision-key".into()),
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             version: AggregateVersion::INITIAL.next(),
         }]);
     // `Some(None)` on all three fields clears the resolved slot.
@@ -605,7 +605,7 @@ fn update_config_resolves_tri_state_decision_slot() {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -700,7 +700,7 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
         decision_provider: Some(LlmProvider::Neuralwatt),
         decision_model: Some("clef".into()),
         decision_vault_key_id: Some("settings-abc:decision-key".into()),
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     };
     let id = cmd.id;
@@ -716,7 +716,7 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
         decision_provider: Some(LlmProvider::EURouter),
         decision_model: Some("clef".into()),
         decision_vault_key_id: Some("settings-abc:decision-key".into()),
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     };
     AiConfig::given(vec![])
@@ -741,21 +741,24 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
             decision_provider: Some(LlmProvider::Neuralwatt),
             decision_model: Some("clef".into()),
             decision_vault_key_id: Some("settings-abc:decision-key".into()),
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
 // ---------------------------------------------------------------------------
 // reasoning_effort (2026-11-20 output-budget investigation)
 //
-// The save-time 422: only a pair that DECLARES the parameter may pin an effort,
+// The save-time 422: only a pair that DECLARES the parameter may name a level,
 // and the model-specific value set is respected (`opencode/glm-5.3` accepts
 // `low|high`, not `medium`). Refusing here is what keeps a misconfiguration from
 // becoming a `400` on every single import call.
+//
+// `Auto` is a VALUE on the wire, not a `null`: the generated Dart client omits
+// null fields, so a nullable setting could be set but never reset from the app.
 // ---------------------------------------------------------------------------
 
 /// A Neuralwatt config, whose curated models declare all four efforts.
-fn neuralwatt_create_cmd(effort: Option<ReasoningEffort>) -> CreateAiConfig {
+fn neuralwatt_create_cmd(effort: ReasoningEffortChoice) -> CreateAiConfig {
     CreateAiConfig {
         provider: LlmProvider::Neuralwatt,
         assistant_model: "glm-5.3-flash".into(),
@@ -764,9 +767,9 @@ fn neuralwatt_create_cmd(effort: Option<ReasoningEffort>) -> CreateAiConfig {
     }
 }
 
-/// `make_update_cmd` leaves the effort unset; this fills in the resolved value
-/// so the tri-state tests can state the expected event exactly.
-fn expected_updated(id: Uuid, effort: Option<ReasoningEffort>) -> AiConfigEvent {
+/// `make_update_cmd` leaves the effort unset; this fills in the resolved value so
+/// the update tests can state the expected event exactly.
+fn expected_updated(id: Uuid, effort: ReasoningEffortChoice) -> AiConfigEvent {
     AiConfigEvent::Updated {
         id,
         provider: LlmProvider::OpenAI,
@@ -784,26 +787,26 @@ fn expected_updated(id: Uuid, effort: Option<ReasoningEffort>) -> AiConfigEvent 
 }
 
 #[test]
-fn a_declared_effort_is_accepted_and_carried_on_the_event() {
-    let cmd = neuralwatt_create_cmd(Some(ReasoningEffort::Low));
+fn a_declared_level_is_accepted_and_carried_on_the_event() {
+    let cmd = neuralwatt_create_cmd(ReasoningEffortChoice::Low);
     let expected = created_event(&cmd);
     match &expected {
         AiConfigEvent::Created {
             reasoning_effort, ..
-        } => assert_eq!(*reasoning_effort, Some(ReasoningEffort::Low)),
+        } => assert_eq!(*reasoning_effort, ReasoningEffortChoice::Low),
         other => panic!("helper must build a Created event, got {other:?}"),
     }
     AiConfig::given(vec![]).when(cmd).then(vec![expected]);
 }
 
-/// `eurouter/mistral-large-3` declares no `reasoning_effort`, so the save is
+/// `eurouter/mistral-large-3` declares no `reasoning_effort`, so naming a level is
 /// refused instead of silently sending an undeclared parameter.
 #[test]
 fn an_undeclared_parameter_is_refused_at_save_time() {
     let cmd = CreateAiConfig {
         provider: LlmProvider::EURouter,
         assistant_model: "mistral-large-3".into(),
-        reasoning_effort: Some(ReasoningEffort::Low),
+        reasoning_effort: ReasoningEffortChoice::Low,
         ..make_create_cmd()
     };
     AiConfig::given(vec![])
@@ -817,7 +820,7 @@ fn a_level_outside_the_model_set_is_refused() {
     let cmd = CreateAiConfig {
         provider: LlmProvider::OpenCode,
         assistant_model: "glm-5.3".into(),
-        reasoning_effort: Some(ReasoningEffort::Medium),
+        reasoning_effort: ReasoningEffortChoice::Medium,
         ..make_create_cmd()
     };
     AiConfig::given(vec![])
@@ -830,7 +833,7 @@ fn a_level_inside_the_model_set_is_accepted() {
     let cmd = CreateAiConfig {
         provider: LlmProvider::OpenCode,
         assistant_model: "glm-5.3".into(),
-        reasoning_effort: Some(ReasoningEffort::Low),
+        reasoning_effort: ReasoningEffortChoice::Low,
         ..make_create_cmd()
     };
     let expected = created_event(&cmd);
@@ -838,23 +841,22 @@ fn a_level_inside_the_model_set_is_accepted() {
 }
 
 #[test]
-fn an_unset_effort_is_always_valid() {
-    // `None` = send no field = the provider's own default, which is what every
-    // configuration written before this field did — including on a model that
-    // declares no such parameter at all.
+fn auto_is_always_valid() {
+    // `Auto` asks the system to decide — valid on every pair, including one that
+    // declares no parameter at all (what every pre-field configuration did).
     let cmd = CreateAiConfig {
         provider: LlmProvider::EURouter,
         assistant_model: "mistral-large-3".into(),
-        reasoning_effort: None,
+        reasoning_effort: ReasoningEffortChoice::Auto,
         ..make_create_cmd()
     };
     let expected = created_event(&cmd);
     AiConfig::given(vec![]).when(cmd).then(vec![expected]);
 }
 
-/// Tri-state on update: an omitted field KEEPS the stored effort.
+/// An omitted field (an older client) KEEPS the stored choice.
 #[test]
-fn update_keeps_the_stored_effort_when_the_field_is_omitted() {
+fn update_keeps_the_stored_choice_when_the_field_is_omitted() {
     // The Updated event carries the AGGREGATE id, i.e. the one from Created.
     let create = make_create_cmd();
     let id = create.id;
@@ -862,13 +864,14 @@ fn update_keeps_the_stored_effort_when_the_field_is_omitted() {
     let update = make_update_cmd(id, AggregateVersion::INITIAL);
     AiConfig::given(vec![created])
         .when(update)
-        .then(vec![expected_updated(id, None)]);
+        .then(vec![expected_updated(id, ReasoningEffortChoice::Auto)]);
 }
 
-/// Tri-state on update: `Some(None)` CLEARS it back to the provider default, and
-/// the cleared value must reach the event so the projector can null the column.
+/// `Auto` RESETS a stored level, and the reset must reach the event so the
+/// projector can null the column — the direction a `null` field could never
+/// express from the app.
 #[test]
-fn update_clears_the_effort_on_an_explicit_null() {
+fn update_resets_the_level_with_an_explicit_auto() {
     let stored = AiConfigEvent::Created {
         id: Uuid::nil(),
         user_id: user_id(),
@@ -881,13 +884,13 @@ fn update_clears_the_effort_on_an_explicit_null() {
         decision_provider: None,
         decision_model: None,
         decision_vault_key_id: None,
-        reasoning_effort: Some(ReasoningEffort::High),
+        reasoning_effort: ReasoningEffortChoice::High,
         version: AggregateVersion::INITIAL,
     };
     let update = UpdateAiConfig {
         provider: LlmProvider::Neuralwatt,
         assistant_model: "glm-5.3-flash".into(),
-        reasoning_effort: Some(None),
+        reasoning_effort: Some(ReasoningEffortChoice::Auto),
         ..make_update_cmd(Uuid::nil(), AggregateVersion::INITIAL)
     };
     AiConfig::given(vec![stored])
@@ -903,19 +906,19 @@ fn update_clears_the_effort_on_an_explicit_null() {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
 
-/// Catalogue-rotation safety: an UNCHANGED pair+effort is not re-validated, so a
+/// Catalogue-rotation safety: an UNCHANGED pair+level is not re-validated, so a
 /// later catalogue update cannot brick a prompt-only edit of an existing
 /// configuration. Mirrors the `model_unchanged` rule of the decision slot.
 #[test]
-fn an_unchanged_stored_effort_is_not_revalidated() {
+fn an_unchanged_stored_level_is_not_revalidated() {
     // A stored configuration whose pair no longer declares the parameter — the
-    // shape a catalogue rotation leaves behind. Only possible to set up by
-    // REPLAYING the event (the create path would refuse it today).
+    // shape a catalogue rotation leaves behind. Only reachable by REPLAYING the
+    // event (the create path would refuse it today).
     let stored = AiConfigEvent::Created {
         id: Uuid::nil(),
         user_id: user_id(),
@@ -928,7 +931,7 @@ fn an_unchanged_stored_effort_is_not_revalidated() {
         decision_provider: None,
         decision_model: None,
         decision_vault_key_id: None,
-        reasoning_effort: Some(ReasoningEffort::Low),
+        reasoning_effort: ReasoningEffortChoice::Low,
         version: AggregateVersion::INITIAL,
     };
     let update = UpdateAiConfig {
@@ -951,7 +954,7 @@ fn an_unchanged_stored_effort_is_not_revalidated() {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
-            reasoning_effort: Some(ReasoningEffort::Low),
+            reasoning_effort: ReasoningEffortChoice::Low,
             version: AggregateVersion::INITIAL.next(),
         }]);
 }

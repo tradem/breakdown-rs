@@ -241,9 +241,9 @@ pub struct ScriptImportWorker<Q, C> {
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
-    /// Configured `reasoning_effort` (2026-11-20 investigation). `None` defers
+    /// Configured `reasoning_effort` (2026-11-20 investigation). `Auto` defers
     /// to the curated profile, then to the provider's own default.
-    pub reasoning_effort: Option<breakdown_core::ai::ReasoningEffort>,
+    pub reasoning_effort: breakdown_core::ai::ReasoningEffortChoice,
     pub bounds: AiImportBounds,
     /// Pricing read model for the completion cost snapshot (issue #675).
     /// `None` in test fakes — the snapshot then degrades to
@@ -763,6 +763,7 @@ where
                 // sent and the provider's own default applies.
                 reasoning_effort: self
                     .reasoning_effort
+                    .effort()
                     .or_else(|| default_reasoning_effort(self.provider, &self.model))
                     .map(|effort| effort.as_str().to_owned()),
             };
@@ -1473,7 +1474,7 @@ pub struct ScheduleImportWorker<Q, C> {
     pub model: String,
     pub prompt: String,
     /// See [`ScriptImportWorker::reasoning_effort`].
-    pub reasoning_effort: Option<breakdown_core::ai::ReasoningEffort>,
+    pub reasoning_effort: breakdown_core::ai::ReasoningEffortChoice,
     pub bounds: AiImportBounds,
     /// See [`ScriptImportWorker::pricing`] (issue #675).
     pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
@@ -1674,6 +1675,7 @@ where
                 // Same resolution as the script path above.
                 reasoning_effort: self
                     .reasoning_effort
+                    .effort()
                     .or_else(|| default_reasoning_effort(self.provider, &self.model))
                     .map(|effort| effort.as_str().to_owned()),
             };

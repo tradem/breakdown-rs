@@ -127,7 +127,7 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 decision_provider: None,
                 decision_model: None,
                 decision_vault_key_id: None,
-                reasoning_effort: None,
+                reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
             },
         )
         .await

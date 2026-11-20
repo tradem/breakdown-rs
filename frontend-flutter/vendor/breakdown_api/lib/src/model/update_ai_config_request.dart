@@ -7,8 +7,8 @@
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:built_collection/built_collection.dart';
-import 'package:breakdown_api/src/model/reasoning_effort.dart';
 import 'package:breakdown_api/src/model/cost_display_preference.dart';
+import 'package:breakdown_api/src/model/reasoning_effort_choice.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -25,7 +25,7 @@ part 'update_ai_config_request.g.dart';
 /// * [imageModel]
 /// * [prompts]
 /// * [provider]
-/// * [reasoningEffort] - Tri-state like the decision slot (2026-11-20 investigation): omitted keeps the stored effort, an explicit `null` clears it back to the provider default, a value replaces it.
+/// * [reasoningEffort] - Omitted keeps the stored choice (an older client), `auto` resets it to the system default, a level replaces it. Deliberately not `Option<Option<..>>`: the generated Dart client omits `null` fields, so a reset would be unreachable from the app (2026-11-20 investigation).
 /// * [vaultKeyId]
 /// * [version] - Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
 @BuiltValue()
@@ -60,10 +60,10 @@ abstract class UpdateAiConfigRequest
   LlmProvider get provider;
   // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
-  /// Tri-state like the decision slot (2026-11-20 investigation): omitted keeps the stored effort, an explicit `null` clears it back to the provider default, a value replaces it.
+  /// Omitted keeps the stored choice (an older client), `auto` resets it to the system default, a level replaces it. Deliberately not `Option<Option<..>>`: the generated Dart client omits `null` fields, so a reset would be unreachable from the app (2026-11-20 investigation).
   @BuiltValueField(wireName: r'reasoning_effort')
-  ReasoningEffort? get reasoningEffort;
-  // enum reasoningEffortEnum {  minimal,  low,  medium,  high,  };
+  ReasoningEffortChoice? get reasoningEffort;
+  // enum reasoningEffortEnum {  auto,  minimal,  low,  medium,  high,  };
 
   @BuiltValueField(wireName: r'vault_key_id')
   String get vaultKeyId;
@@ -162,7 +162,7 @@ class _$UpdateAiConfigRequestSerializer
       yield r'reasoning_effort';
       yield serializers.serialize(
         object.reasoningEffort,
-        specifiedType: const FullType.nullable(ReasoningEffort),
+        specifiedType: const FullType.nullable(ReasoningEffortChoice),
       );
     }
     yield r'vault_key_id';
@@ -265,8 +265,8 @@ class _$UpdateAiConfigRequestSerializer
         case r'reasoning_effort':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType.nullable(ReasoningEffort),
-          ) as ReasoningEffort?;
+            specifiedType: const FullType.nullable(ReasoningEffortChoice),
+          ) as ReasoningEffortChoice?;
           if (valueDes == null) continue;
           result.reasoningEffort = valueDes;
           break;
