@@ -11,7 +11,14 @@
 # Behavior:
 #   * tags with `-alpha.N` / `-beta.N` suffix → GitHub PRE-release;
 #     stable tags → full release (one workflow, one boolean).
-#   * release notes list the APK per ABI with an installation hint.
+#   * the release body comes from a REVIEWED source, never from generated
+#     notes (same rule as `backend/scripts/release-notes.sh`, ADR-020 D9 /
+#     issue #953): `RELEASE-NOTES/v<VERSION_NAME>.md` when the release owner
+#     checked one in (used verbatim, minus its SPDX/co-author comment
+#     header — the `v0.3.0` structure: title, highlights, artifact list,
+#     version line), otherwise the mechanical body below (artifact list per
+#     ABI + installation hint), which every alpha/beta build needs and nobody
+#     reviews.
 #   * idempotent on re-run: if the release exists, artifacts are re-uploaded
 #     with `--clobber` (no duplicate artifacts); otherwise the release is
 #     created with all artifacts attached.
@@ -57,24 +64,40 @@ esac
 
 notes="$(mktemp)"
 trap 'rm -f "$notes"' EXIT
-{
-  echo "## Breakdown $VERSION_NAME"
-  echo
-  echo "Install the APK for YOUR device architecture (most modern"
-  echo "devices: **arm64-v8a**):"
-  echo
-  echo "- \`breakdown-$VERSION_NAME-arm64-v8a.apk\` — arm64-v8a (modern phones/tablets)"
-  echo "- \`breakdown-$VERSION_NAME-armeabi-v7a.apk\` — armeabi-v7a (older devices)"
-  echo "- \`breakdown-$VERSION_NAME-x86_64.apk\` — x86_64 (emulators, x86 devices)"
-  echo "- \`breakdown-$VERSION_NAME.aab\` — Play-Store bundle (for the future Play channel)"
-  echo
-  echo "Sideloading: enable \"Install unknown apps\" for your file"
-  echo "manager/browser, then install the downloaded APK directly —"
-  echo "no store account required. A later install with the same"
-  echo "project key updates in place (no uninstall needed)."
-  echo
-  echo "Version: \`$VERSION_FULL\` (pubspec.yaml is the single version source; tags are \`v<build-name>\`)."
-} > "$notes"
+
+# --- the release body: curated file first, mechanical list otherwise ------
+# Verbatim on purpose: the owner writes the body, and a script that decorates
+# it would make the reviewed file differ from what readers see.
+curated="RELEASE-NOTES/v${VERSION_NAME}.md"
+if [ -f "$curated" ]; then
+  # The leading SPDX/co-author HTML comments are repo metadata, not body
+  # content — markdown hides them, but the release editor shows the raw text.
+  awk 'BEGIN { header = 1 }
+    header && /^<!--.*-->$/ { next }
+    header && /^[[:space:]]*$/ { next }
+    { header = 0; print }' "$curated" > "$notes"
+  echo "::notice::Release body: $curated (curated, used verbatim)."
+else
+  echo "::notice::Release body: mechanical artifact list — check in $curated to make the reviewed prose what readers see."
+  {
+    echo "## Breakdown $VERSION_NAME"
+    echo
+    echo "Install the APK for YOUR device architecture (most modern"
+    echo "devices: **arm64-v8a**):"
+    echo
+    echo "- \`breakdown-$VERSION_NAME-arm64-v8a.apk\` — arm64-v8a (modern phones/tablets)"
+    echo "- \`breakdown-$VERSION_NAME-armeabi-v7a.apk\` — armeabi-v7a (older devices)"
+    echo "- \`breakdown-$VERSION_NAME-x86_64.apk\` — x86_64 (emulators, x86 devices)"
+    echo "- \`breakdown-$VERSION_NAME.aab\` — Play-Store bundle (for the future Play channel)"
+    echo
+    echo "Sideloading: enable \"Install unknown apps\" for your file"
+    echo "manager/browser, then install the downloaded APK directly —"
+    echo "no store account required. A later install with the same"
+    echo "project key updates in place (no uninstall needed)."
+    echo
+    echo "Version: \`$VERSION_FULL\` (pubspec.yaml is the single version source; tags are \`v<build-name>\`)."
+  } > "$notes"
+fi
 
 # Exact artifact contract (stage-artifacts.sh output): the four files are
 # bound to VERSION_NAME so a stale dist/ from another version can never be

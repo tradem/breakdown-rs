@@ -44,10 +44,36 @@
 ```bash
 # 1. Bump the version in frontend-flutter/pubspec.yaml (X.Y.Z+build),
 #    commit to main, let PR CI run green.
-# 2. Tag the release commit and push:
-git tag v0.4.0-alpha.1
-git push origin v0.4.0-alpha.1
+# 2. Cut the CHANGELOG: turn `## [Unreleased]` into
+#    `## [<build-name>] – Released <YYYY-MM-DD>` and leave a fresh, empty
+#    `## [Unreleased]` at the top (content untouched: the cut, not an edit).
+# 3. A STABLE release checks in its curated body: RELEASE-NOTES/v<build-name>.md.
+# 4. Tag the release commit and push:
+git tag v0.4.0
+git push origin v0.4.0
 ```
+
+### The release body comes from a reviewed source
+
+`scripts/release/publish-release.sh` resolves the GitHub Release body from
+exactly one place per release — it never publishes generated notes (the
+defect `#953` fixed for the backend; the reviewed prose sat unread while
+`--generate-notes` shipped a commit list):
+
+1. **`RELEASE-NOTES/v<build-name>.md`**, used **verbatim** minus its
+   SPDX/co-author comment header. The owner writes the body — title, intro,
+   `### Highlights`, the per-ABI artifact list, the version line (the
+   `v0.3.0` structure, `frontend-flutter/RELEASE-NOTES/v0.4.0.md` as the
+   reference). Nothing is prepended or appended, so the reviewed file is
+   what readers see.
+2. otherwise the **mechanical body** the script emits itself — the four
+   ABI-named artifacts and the sideloading hint. That is what every
+   alpha/beta build needs and nobody curates.
+
+A stable release is expected to check in (1). The resolution is guarded by
+`scripts/release/tests/publish-release-notes-test.sh` (run from the
+`flutter-ci.yml` `version-drift` job): curated body wins verbatim, fallback
+unchanged, pre-release flag still derived from the tag name.
 
 The release workflow then runs, in order (logic encapsulated in locally
 runnable scripts under `frontend-flutter/scripts/release/` — these are the

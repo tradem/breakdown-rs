@@ -503,6 +503,16 @@ jobs:
           fi
           echo "::notice::Version OK: pubspec '$version'."
 
+      # The release body is a REVIEWED source, never generated notes (ADR-020
+      # D9 / issue #953): `publish-release.sh` prefers
+      # `RELEASE-NOTES/v<VERSION_NAME>.md` verbatim (minus its SPDX comment
+      # header) and falls back to the mechanical artifact list. Guarded here
+      # rather than in a new job so the check name branch protection requires
+      # does not change. Daemon-free — bash + coreutils with a fake `gh` on
+      # PATH: no Flutter toolchain, no network, no token.
+      - name: Guard the release-body resolution (curated notes, not generated)
+        run: bash frontend-flutter/scripts/release/tests/publish-release-notes-test.sh
+
   # Coverage gate — the enforced SUBSTITUTE for the mutation-testing gate that
   # does not exist for Dart/Flutter (foundation `flutter-test-pyramid` spec
   # decision D5). Runs the full flutter test suite WITH branch coverage, then
