@@ -1952,7 +1952,9 @@ void main() {
       );
       expect(
         picker.segments
-            .firstWhere((segment) => segment.value == ReasoningEffortChoice.minimal)
+            .firstWhere(
+              (segment) => segment.value == ReasoningEffortChoice.minimal,
+            )
             .enabled,
         isFalse,
         reason: 'it is not choosable — it is shown, not offered',
@@ -1964,7 +1966,9 @@ void main() {
         ReasoningEffortChoice.high,
       ]) {
         expect(
-          picker.segments.firstWhere((segment) => segment.value == choice).enabled,
+          picker.segments
+              .firstWhere((segment) => segment.value == choice)
+              .enabled,
           isTrue,
           reason: '$choice must stay selectable',
         );
@@ -2021,11 +2025,9 @@ void main() {
       final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
         find.byKey(const Key('ai-reasoning-effort-picker')),
       );
-      expect(
-        picker.selected,
-        {ReasoningEffortChoice.high},
-        reason: 'the stored level is kept, not reset to auto',
-      );
+      expect(picker.selected, {
+        ReasoningEffortChoice.high,
+      }, reason: 'the stored level is kept, not reset to auto');
 
       // A prompt-only edit over the unknown catalogue still carries `high`.
       await _enterPrompt(tester, 'ai-edit-script-prompt', 'Edited blind');
