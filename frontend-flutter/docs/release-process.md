@@ -101,6 +101,39 @@ them):
 
 The `dev` flavor is dev-runtime-only and is never published.
 
+## The Flutter toolchain pin — and how it ends
+
+The release and CI workflows pin `flutter-version: 3.47.6` (Dart 3.13.x)
+**instead of floating on `channel: stable`**, and both must carry the same
+pin (`flutter-ci.yml`, `flutter-release.yml`). Reason: Flutter 3.50.x ships
+Dart 3.14.0, whose AOT compiler aborts on a known source shape — a deferred
+`final` assigned in a pattern `switch` case and captured by a closure
+([dart-lang/sdk#64917](https://github.com/dart-lang/sdk/issues/64917), P0):
+
+```
+runtime/vm/compiler/backend/linearscan.cc: 3013: error: unreachable code
+Dart snapshot generator failed with exit code -6
+```
+
+That killed the v0.4.0 release build on all three ABIs **after** every
+JIT/debug gate was green, because the crash only happens in a release AOT
+build. 3.47.6 is the SDK that built the green v0.3.0 release.
+
+The pin has a mechanical exit condition, not a calendar:
+
+- Weekly, `.github/workflows/flutter-aot-canary.yml` installs the **latest
+  stable** Flutter and AOT-compiles the probe in
+  `tool/aot-regressions/deferred_final_switch_closure.dart`. When it compiles
+  again, the canary opens one (deduplicated) issue saying the pin can be
+  lifted; the bump itself stays a reviewed PR that touches both workflows.
+- By hand, before bumping: `bash
+  scripts/release/check-flutter-aot-regression.sh` — exit `0` = fixed
+  (pin liftable), `3` = still crashing (pin stays), `1` = cannot judge
+  (SDK older than 3.14.0, or a different compile failure — read the log).
+
+Do not "reduce" the probe file and do not remove the closure capture: every
+element of that shape is load-bearing for the repro.
+
 ## Installing (testers)
 
 Download the APK for your device architecture (virtually all modern
