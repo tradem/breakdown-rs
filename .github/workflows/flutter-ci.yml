@@ -36,6 +36,20 @@
 #    practices are coverage / golden tests / explicit Err-branch assertions /
 #    semantic-finder widget tests (see the `coverage` job comment).
 #
+# Toolchain pin:
+#  - `flutter-version` is PINNED to 3.47.6 (Dart 3.13.x), identical to
+#    `flutter-release.yml`, instead of floating on `channel: stable`.
+#    Flutter 3.50.x ships Dart 3.14.0, whose AOT compiler aborts on a known
+#    pattern (a deferred `final` assigned in a pattern `switch` case and
+#    captured by a closure) — dart-lang/sdk#64917, fixed upstream but not
+#    shipped in 3.50.1. v0.4.0's release build died in `gen_snapshot`
+#    (`linearscan.cc: 3013: error: unreachable code`, exit -6) on all three
+#    ABIs while every JIT/debug gate stayed green. The pin is lifted in BOTH
+#    workflows at once, driven by `flutter-aot-canary.yml` (weekly: does the
+#    regression probe in `frontend-flutter/tool/aot-regressions/` still
+#    crash?) and runnable by hand via
+#    `frontend-flutter/scripts/release/check-flutter-aot-regression.sh`.
+#
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
 #    mirroring the backend's CI-hardening rules (AGENTS.md §4 / ADR-notes).
@@ -105,7 +119,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
           cache: true
 
       # The two nested Dart tool packages (`packages/breakdown_lints` — the
@@ -331,7 +345,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
           cache: true
 
       - name: Generate and validate localization catalog
@@ -400,7 +414,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
           cache: true
 
       - name: Install OpenAPI generator
@@ -513,6 +527,17 @@ jobs:
       - name: Guard the release-body resolution (curated notes, not generated)
         run: bash frontend-flutter/scripts/release/tests/publish-release-notes-test.sh
 
+      # The `flutter-version` pin above (3.47.6 instead of floating on
+      # `channel: stable`) exists because Dart 3.14.0 AOT-crashes on
+      # dart-lang/sdk#64917 — the shape the v0.4.0 release build died on while
+      # every JIT gate stayed green. That pin is only honest if its exit
+      # condition is mechanical, so the probe script's verdict contract
+      # (0 fixed / 3 broken / 1 unjudgeable, plus the `state` output the
+      # `flutter-aot-canary.yml` weekly workflow branches on) is guarded here:
+      # daemon-free — bash + a fake `dart` on PATH, no toolchain, no network.
+      - name: Guard the AOT-regression pin probe (dart-lang/sdk#64917)
+        run: bash frontend-flutter/scripts/release/tests/check-flutter-aot-regression-test.sh
+
   # Coverage gate — the enforced SUBSTITUTE for the mutation-testing gate that
   # does not exist for Dart/Flutter (foundation `flutter-test-pyramid` spec
   # decision D5). Runs the full flutter test suite WITH branch coverage, then
@@ -559,7 +584,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
           cache: true
 
       - name: Install coverde
@@ -643,7 +668,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
           cache: true
 
       - name: Resolve packages

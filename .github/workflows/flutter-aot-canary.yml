@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
+
+# Flutter AOT Canary — "may the `flutter-version` pin be lifted yet?"
+#
+# Context: Flutter 3.50.x ships Dart 3.14.0, whose AOT compiler aborts on a
+# known source shape — a deferred `final` assigned in a pattern `switch` case
+# and captured by a closure (dart-lang/sdk#64917, P0, fixed upstream but NOT in
+# 3.50.1) — with
+#
+#     runtime/vm/compiler/backend/linearscan.cc: 3013: error: unreachable code
+#
+# Because that only fails in a RELEASE AOT build, the v0.4.0 pipeline died in
+# `gen_snapshot` on all three ABIs while every JIT/debug gate was green. The
+# fix for the moment is a pin: `flutter-version: 3.47.6` (Dart 3.13.x) in
+# `flutter-ci.yml` and `flutter-release.yml`.
+#
+# A pin without an exit condition is debt with no owner, and upstream issue
+# state is no substitute for a probe here: BOTH the primary dart-lang/sdk#64917
+# and its duplicate #64922 were closed while no stable SDK carrying the fix had
+# shipped, so "the issue is closed" proves nothing. This workflow is the
+# mechanical answer.
+#
+# Weekly (and on demand) it installs the LATEST STABLE Flutter — deliberately
+# unpinned, that is the whole point — and runs
+# `frontend-flutter/scripts/release/check-flutter-aot-regression.sh`, which
+# AOT-compiles the probe in `frontend-flutter/tool/aot-regressions/` with the
+# SDK's own `gen_snapshot` (seconds, no Gradle, no Android SDK, no keystore).
+#
+# Outcomes:
+#   state=fixed   → the probe compiles: open ONE deduplicated issue telling the
+#                   team the pin can be lifted (the actual bump is a human PR,
+#                   because it changes both workflows plus the release path).
+#   state=broken  → still crashes: stay silent (a weekly red run for a known,
+#                   already-mitigated upstream bug is noise), print a notice.
+#   anything else → fail loud: `prereq` (stable older than 3.14.0) and
+#                   `unknown` (some OTHER compile failure) must never be read
+#                   as either "fixed" or "still broken".
+#
+# Hardening: SHA-pinned actions, no `${{ }}` interpolation inside `run:` (all
+# values flow through `env:`), read-only contents plus `issues: write` for the
+# deduplicated issue.
+
+name: Flutter AOT Canary
+
+on:
+  schedule:
+    # Mondays 06:30 UTC — before the week's first merges, after Flutter's usual
+    # mid-week stable releases have had a weekend to settle.
+    - cron: "30 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: flutter-aot-canary
+  cancel-in-progress: false
+
+env:
+  CANARY_ISSUE_SEARCH: "lift the Flutter pin in:title"
+  CANARY_ISSUE_TITLE: "chore: lift the Flutter 3.47.6 pin — Dart AOT regression (dart-lang/sdk#64917) is fixed"
+
+jobs:
+  probe:
+    name: AOT-compile the dart-lang/sdk#64917 probe on latest stable Flutter
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the LATEST STABLE Flutter (unpinned on purpose)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      # `continue-on-error` because the script encodes the verdict in its exit
+      # code (0 fixed / 3 broken / 1 unjudgeable) and publishes `state` +
+      # `dart_version` through $GITHUB_OUTPUT in every case — the branching
+      # below reads those outputs, not the step's success.
+      - name: AOT-compile the regression probe with the active SDK
+        id: probe
+        continue-on-error: true
+        run: bash frontend-flutter/scripts/release/check-flutter-aot-regression.sh
+
+      - name: Report — the regression is gone, the pin can be lifted
+        if: steps.probe.outputs.state == 'fixed'
+        env:
+          DART_VERSION: ${{ steps.probe.outputs.dart_version }}
+          ISSUE_TEMPLATE: frontend-flutter/scripts/release/aot-pin-lift-issue.md
+        run: |
+          set -euo pipefail
+
+          open_count="$(gh issue list --state open --search "$CANARY_ISSUE_SEARCH" --json number --jq 'length')"
+          if [ "$open_count" != "0" ]; then
+            echo "::notice::Pin-lift issue already open (${open_count}) — not creating another."
+            exit 0
+          fi
+
+          # One status line, then the reviewed template verbatim (its SPDX HTML
+          # comment header is invisible in the rendered issue).
+          body_file="${RUNNER_TEMP:-/tmp}/aot-pin-lift-issue.md"
+          {
+            # Double-quoted on purpose: the backticks are markdown code spans in
+            # the issue body, and escaping them keeps shellcheck (SC2016, via
+            # actionlint) from reading them as command substitution.
+            printf "The weekly **Flutter AOT Canary** AOT-compiled the regression probe on the latest stable Flutter (Dart \`%s\`) successfully.\n\n" "${DART_VERSION:-unknown}"
+            cat "$ISSUE_TEMPLATE"
+          } > "$body_file"
+
+          gh issue create --title "$CANARY_ISSUE_TITLE" --body-file "$body_file"
+          echo "::notice::Opened the pin-lift issue — remember to bump BOTH workflows."
+
+      - name: Report — still crashing, the pin stays
+        if: steps.probe.outputs.state == 'broken'
+        env:
+          DART_VERSION: ${{ steps.probe.outputs.dart_version }}
+        run: |
+          echo "::notice::Latest stable Flutter (Dart ${DART_VERSION:-unknown}) still aborts on the probe — the flutter-version pin at 3.47.6 stays. Upstream: https://github.com/dart-lang/sdk/issues/64917"
+
+      - name: Fail when the probe could not judge the regression
+        if: steps.probe.outputs.state != 'fixed' && steps.probe.outputs.state != 'broken'
+        env:
+          PROBE_STATE: ${{ steps.probe.outputs.state }}
+          DART_VERSION: ${{ steps.probe.outputs.dart_version }}
+        run: |
+          echo "::error::The AOT canary could not judge dart-lang/sdk#64917 (state='${PROBE_STATE:-<none>}', Dart '${DART_VERSION:-unknown}') — see the probe log above. Neither a pin lift nor 'still broken' may be inferred from this run."
+          exit 1

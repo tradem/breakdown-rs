@@ -34,6 +34,18 @@
 #   frontend-flutter/scripts/release/verify-signatures.sh
 #   frontend-flutter/scripts/release/publish-release.sh      (--dry-run capable)
 #
+# Toolchain pin (do not float): `flutter-version` is pinned to 3.47.6 — the
+# SDK that built the green v0.3.0 release — because Flutter 3.50.x ships Dart
+# 3.14.0, whose AOT compiler aborts (`linearscan.cc: 3013: error: unreachable
+# code`, exit -6) on a known pattern: a deferred `final` assigned in a pattern
+# `switch` case and captured by a closure (dart-lang/sdk#64917; fixed upstream,
+# not shipped in 3.50.1). The failure only shows up in a release AOT build, so
+# no JIT gate caught it and the v0.4.0 pipeline died in `gen_snapshot` for all
+# three ABIs. `flutter-ci.yml` carries the SAME pin (gates and build must see
+# one SDK). Lift both together when `flutter-aot-canary.yml` — or a local run
+# of `frontend-flutter/scripts/release/check-flutter-aot-regression.sh` —
+# reports the regression probe compiles.
+#
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
 #    mirroring the backend's CI-hardening rules; Dependabot bumps SHAs.
@@ -142,7 +154,7 @@ jobs:
       - name: Set up Flutter SDK (same pin as CI)
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
           cache: true
 
       - name: Guard prod OIDC build configuration
