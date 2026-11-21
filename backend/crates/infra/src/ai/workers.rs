@@ -753,6 +753,10 @@ where
                 source_text: source_text.clone(),
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
+                // Production deliberately pins no reasoning effort yet: the value
+                // is a cost/latency decision that belongs to the per-(provider,
+                // model) profile, not to this plumbing (2026-11-20 investigation).
+                reasoning_effort: None,
             };
             if super::heartbeat::claim_lost(heartbeat.as_ref()) {
                 // Stop before the next paid call: another worker owns the job.
@@ -1657,6 +1661,9 @@ where
                 source_text,
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
+                // See the script path above: no reasoning effort pinned in
+                // production yet.
+                reasoning_effort: None,
             };
             let (parsed, call_usage) = match retry_schedule(
                 self.client.as_ref(),

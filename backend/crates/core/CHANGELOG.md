@@ -27,6 +27,20 @@ commits (ADR-020 D5).
   `admits_paid_call()` — `Unknown` is a first-class answer for the display and
   never admits a paid call.
 
+### Added (2026-11-20 output-budget investigation)
+
+- `LlmChatRequest::reasoning_effort: Option<String>` — the provider-side
+  `reasoning_effort`, additive and **optional by design**: `None` sends no field
+  at all, so every existing caller keeps a byte-identical request body. The
+  capability is provider-declared (`reasoning_effort` in an OpenRouter-style
+  `supported_parameters`, or Neuralwatt's `capabilities.reasoning_effort`), so
+  callers must not set it blind — an unsupported parameter answers `400`.
+  Introduced because a reasoning model that spends its whole output ceiling
+  before its first content token returns `content: null` with
+  `finish_reason: "length"`; the nightly of 2026-11-20 measured 8 192 output
+  tokens in 70–85 s for a 4 KB scene chunk, i.e. the model's reasoning, not the
+  answer.
+
 ## [0.74.0] - Unreleased
 ### Changed (issue #942 W1/W2/W3)
 

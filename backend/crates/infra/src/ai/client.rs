@@ -240,6 +240,9 @@ impl OpenAiCompatibleChatClient {
                     },
                 ],
                 max_tokens: budget,
+                // 2026-11-20 output-budget investigation: `None` keeps the
+                // request body byte-identical to the pre-field one.
+                reasoning_effort: req.reasoning_effort.clone(),
                 response_format: Some(json!({
                     "type": "json_schema",
                     "json_schema": {
@@ -545,6 +548,12 @@ struct ChatCompletionRequest {
     model: String,
     messages: Vec<ChatMessage>,
     max_tokens: u32,
+    /// Sent ONLY when the caller asked for one. An unset effort must produce a
+    /// body byte-identical to the pre-field one: a provider that does not
+    /// advertise the capability would answer `400` for the unknown parameter,
+    /// which is exactly why this stays optional end to end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<serde_json::Value>,
 }

@@ -19,6 +19,7 @@ fn make_request(provider: LlmProvider) -> LlmChatRequest {
         source_text: "INT. ROOM - DAY\nHello.".into(),
         max_tokens: 1000,
         response_schema: None,
+        reasoning_effort: None,
     }
 }
 
