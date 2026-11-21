@@ -42,6 +42,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                reasoning_effort,
                 version,
             } => {
                 let prompts = serde_json::to_value(prompts).map_err(|error| {
@@ -53,8 +54,9 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         (id, user_id, provider, assistant_model, image_model,
                          prompts, vault_key_id, cost_display_preference,
                          decision_provider, decision_model, decision_vault_key_id,
+                         reasoning_effort,
                          revoked, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, $12, $13, $14)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13, $14, $15)
                     ON CONFLICT (id) DO UPDATE SET
                         user_id = EXCLUDED.user_id,
                         provider = EXCLUDED.provider,
@@ -66,6 +68,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         decision_provider = EXCLUDED.decision_provider,
                         decision_model = EXCLUDED.decision_model,
                         decision_vault_key_id = EXCLUDED.decision_vault_key_id,
+                        reasoning_effort = EXCLUDED.reasoning_effort,
                         revoked = EXCLUDED.revoked,
                         version = EXCLUDED.version,
                         projector_version = EXCLUDED.projector_version,
@@ -86,6 +89,12 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(decision_provider.map(|p| p.as_str().to_owned()))
                 .bind(decision_model)
                 .bind(decision_vault_key_id)
+                // NULL = `Auto` = "send no field", not "missing".
+                .bind(
+                    reasoning_effort
+                        .effort()
+                        .map(breakdown_core::ai::ReasoningEffort::as_str),
+                )
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"
@@ -107,6 +116,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                reasoning_effort,
                 version,
             } => {
                 let prompts = serde_json::to_value(prompts).map_err(|error| {
@@ -120,9 +130,10 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         cost_display_preference = COALESCE($7, cost_display_preference),
                         decision_provider = $8, decision_model = $9,
                         decision_vault_key_id = $10,
+                        reasoning_effort = $11,
                         revoked = FALSE,
-                        version = $11, updated_at = $12
-                    WHERE id = $1 AND version < $11
+                        version = $12, updated_at = $13
+                    WHERE id = $1 AND version < $12
                     "#,
                 )
                 .bind(id)
@@ -144,6 +155,13 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 .bind(decision_provider.map(|p| p.as_str().to_owned()))
                 .bind(decision_model)
                 .bind(decision_vault_key_id)
+                // The aggregate emits the RESOLVED choice, so the projection
+                // assigns it directly — `Auto` nulls the column.
+                .bind(
+                    reasoning_effort
+                        .effort()
+                        .map(breakdown_core::ai::ReasoningEffort::as_str),
+                )
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"

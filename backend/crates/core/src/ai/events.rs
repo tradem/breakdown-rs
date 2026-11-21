@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::collections::HashMap;
 
@@ -11,6 +12,7 @@ use uuid::Uuid;
 use crate::shared::{AggregateVersion, UserId};
 
 use super::ports::LlmProvider;
+use super::reasoning::ReasoningEffortChoice;
 use super::views::{CostDisplayPreference, DocumentKind};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,6 +43,11 @@ pub enum AiConfigEvent {
         /// The vault key reference of the decision provider credential.
         #[serde(default)]
         decision_vault_key_id: Option<String>,
+        /// Requested `reasoning_effort` (2026-11-20 investigation).
+        /// `#[serde(default)]` keeps older events replayable: they deserialize
+        /// to `Auto`, i.e. the behaviour those configurations ran with.
+        #[serde(default)]
+        reasoning_effort: ReasoningEffortChoice,
         version: AggregateVersion,
     },
     Updated {
@@ -66,6 +73,10 @@ pub enum AiConfigEvent {
         /// See [`AiConfigEvent::Created::decision_vault_key_id`].
         #[serde(default)]
         decision_vault_key_id: Option<String>,
+        /// The RESOLVED choice after the update, so replay and the projector
+        /// simply assign it.
+        #[serde(default)]
+        reasoning_effort: ReasoningEffortChoice,
         version: AggregateVersion,
     },
     Revoked {
@@ -83,3 +94,7 @@ impl kameo_es::EventType for AiConfigEvent {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod events_tests;

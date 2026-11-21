@@ -14,6 +14,8 @@
 // version-bump re-dispatch), revoke-with-confirm, and goldens
 // {light,dark}×{android,macos}.
 
+import 'dart:async';
+
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:flutter/foundation.dart';
@@ -81,12 +83,18 @@ ModelInfo _model(
   String id, {
   bool recommended = false,
   ModelPricing? pricing,
+
+  /// The `reasoning_effort` levels this model DECLARES (2026-11-20
+  /// investigation). Empty models the pre-field backend AND a provider whose
+  /// catalogue carries no such capability — both mean "no choosable level".
+  List<ReasoningEffort> efforts = const [],
 }) => ModelInfo(
   (b) => b
     ..id = id
     ..provider = LlmProvider.openai
     ..recommended = recommended
-    ..pricing = pricing?.toBuilder(),
+    ..pricing = pricing?.toBuilder()
+    ..supportedReasoningEfforts.replace(efforts),
 );
 
 /// A pricing snapshot fixture (issue #675): 1.45 in / 4 out per 1M tokens
@@ -124,6 +132,9 @@ AiConfigView _config({
   LlmProvider? decisionProvider,
   String? decisionModel,
   String? decisionVaultKeyId,
+
+  /// The stored `reasoning_effort`; `auto` models the pre-field backend.
+  ReasoningEffortChoice reasoningEffort = ReasoningEffortChoice.auto,
 }) {
   final base = AiConfigView(
     (b) => b
@@ -138,6 +149,7 @@ AiConfigView _config({
         BuiltList(const [DocumentKind.script, DocumentKind.schedule]),
       )
       ..revoked = false
+      ..reasoningEffort = reasoningEffort
       ..version = version,
   );
   return storedPromptKinds == null
@@ -392,6 +404,12 @@ void main() {
     /// covered by [aiProviderHealthProvider]'s own test, which must exercise the
     /// real provider.
     Result<AiProviderHealthView>? healthOverride,
+
+    /// When true the extraction model catalogue NEVER resolves — the LOADING
+    /// state in which the screen knows nothing about the selected model (review
+    /// finding 5: a pending catalogue must not read as "this model declares no
+    /// reasoning effort").
+    bool modelsPending = false,
   }) async {
     repo = FakeAiConfigRepository(BreakdownApi());
     discovery = ValueNotifier(discoveryValue ?? const Right(<AiConfigView>[]));
@@ -438,7 +456,13 @@ void main() {
         aiConfigRepositoryProvider.overrideWithValue(repo),
         aiConfigDiscoveryProvider.overrideWith((ref) async => discovery.value),
         aiProvidersProvider.overrideWith((ref) async => providers.value),
-        aiProviderModelsProvider.overrideWith((ref, key) async => models.value),
+        aiProviderModelsProvider.overrideWith(
+          (ref, key) async => modelsPending
+              // Never completes: the LOADING branch (a `Future` that stays
+              // pending, no timer, so `pumpAndSettle` is unaffected).
+              ? Completer<Result<List<ModelInfo>>>().future
+              : models.value,
+        ),
         // Key-aware (CodeRabbit #733): a controller that passed the EXTRACTION
         // provider key to the decision route would surface the extraction
         // catalog here — the clef assertions in the decision-picker tests
@@ -489,6 +513,11 @@ void main() {
     double height = 2400,
     double width = 800,
     double textScale = 1.0,
+
+    /// `false` for a screen with a FOREVER-running animation (a pending provider
+    /// keeps a spinner alive, so `pumpAndSettle` would never return): pumps a
+    /// fixed number of frames instead.
+    bool settle = true,
   }) async {
     tester.view.physicalSize = Size(width, height);
     tester.view.devicePixelRatio = 1.0;
@@ -522,7 +551,16 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      if (settle) {
+        await tester.pumpAndSettle();
+      } else {
+        // A pending catalogue animates its spinner forever, so settling would
+        // time out. Three frames are enough for the synchronous providers and
+        // the first layout.
+        for (var frame = 0; frame < 3; frame++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
     } finally {
       debugDefaultTargetPlatformOverride = previousOverride;
     }
@@ -1699,6 +1737,327 @@ void main() {
       expect(
         repo.lastUpdateRequest!.costDisplayPreference,
         CostDisplayPreference.energy,
+      );
+    });
+
+    // --- Reasoning effort (2026-11-20 output-budget investigation) ---
+
+    testWidgets('the picker offers exactly the levels the selected model '
+        'declares, plus auto — never a level it would refuse with a 422', (
+      tester,
+    ) async {
+      await setupContainer(
+        modelsValue: Right([
+          // GLM-style catalogue: `low|high`, NO `medium`. This is the set the
+          // backend would accept, so `medium` must not be offered.
+          _model(
+            'gpt-5.6-luna',
+            efforts: [ReasoningEffort.low, ReasoningEffort.high],
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+        findsOneWidget,
+      );
+      // `auto` is always there, the declared levels follow.
+      expect(find.byKey(const Key('ai-reasoning-effort-auto')), findsOneWidget);
+      expect(find.byKey(const Key('ai-reasoning-effort-low')), findsOneWidget);
+      expect(find.byKey(const Key('ai-reasoning-effort-high')), findsOneWidget);
+      // Not declared by this model → not offered.
+      expect(find.byKey(const Key('ai-reasoning-effort-medium')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-minimal')),
+        findsNothing,
+      );
+
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(picker.selected, {ReasoningEffortChoice.auto});
+    });
+
+    testWidgets('a model that declares no parameter renders the honest '
+        'sentence instead of an empty picker', (tester) async {
+      // The default fixture carries no capability: the pre-field backend AND
+      // a provider catalogue without the parameter look like this.
+      await setupContainer();
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+
+      expect(find.byKey(const Key('ai-reasoning-effort-picker')), findsNothing);
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-unavailable')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the chosen level reaches the create request', (tester) async {
+      await setupContainer(
+        modelsValue: Right([
+          _model('gpt-5.6-luna', efforts: [ReasoningEffort.low]),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-reasoning-effort-low')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-low')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('ai-api-key-field')),
+        'sk-test-123',
+      );
+      await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-create')));
+      await tester.pumpAndSettle();
+
+      expect(repo.createCalls, 1);
+      expect(
+        repo.lastCreateRequest!.reasoningEffort,
+        ReasoningEffortChoice.low,
+      );
+    });
+
+    testWidgets('the configured form echoes the stored level', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(reasoningEffort: ReasoningEffortChoice.high),
+        ]),
+        modelsValue: Right([
+          _model(
+            'gpt-5.6-luna',
+            efforts: [ReasoningEffort.low, ReasoningEffort.high],
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(picker.selected, {ReasoningEffortChoice.high});
+    });
+
+    testWidgets('RESETTING a stored level to auto reaches the PATCH — the '
+        'direction a nullable field could never express', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(reasoningEffort: ReasoningEffortChoice.high),
+        ]),
+        modelsValue: Right([
+          _model(
+            'gpt-5.6-luna',
+            efforts: [ReasoningEffort.low, ReasoningEffort.high],
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-auto')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+
+      // `auto` is a VALUE on the wire — not an omitted field, not a null. This
+      // is the assertion that pins Option A: with `Option<ReasoningEffort>` the
+      // generated client would have dropped the field and the level would have
+      // survived the user's reset.
+      expect(
+        repo.lastUpdateRequest!.reasoningEffort,
+        ReasoningEffortChoice.auto,
+      );
+    });
+
+    testWidgets('switching to a model that does not declare the drafted level '
+        'drops the draft to auto instead of dispatching a 422', (tester) async {
+      await setupContainer(
+        modelsValue: Right([
+          _model('gpt-5.6-luna', efforts: [ReasoningEffort.medium]),
+          // The second model declares nothing (a provider catalogue without the
+          // parameter) — a draft of `medium` must not survive the switch.
+          _model('gpt-5.6-terra'),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+      await pickProviderAndModel(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-reasoning-effort-medium')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-medium')));
+      await tester.pumpAndSettle();
+
+      // Switch to the model that declares nothing: the picker gives way to the
+      // honest sentence.
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-terra').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-reasoning-effort-picker')), findsNothing);
+
+      // Switch BACK: the draft no longer holds the level it did before, which
+      // is the actual claim — a hidden picker alone would prove nothing.
+      await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('gpt-5.6-luna').last);
+      await tester.pumpAndSettle();
+
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(picker.selected, {ReasoningEffortChoice.auto});
+    });
+
+    // --- Reasoning-effort selector: catalogue rotation and unknown catalogues
+    // (review findings 4 and 5) ---
+
+    testWidgets('a stored level the model no longer declares stays visible, '
+        'selected AND unchanged (catalogue rotation)', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          // Stored while the same model id declared `minimal` (Neuralwatt); the
+          // catalogue now declares `low|high` (the OpenCode shape).
+          _config(reasoningEffort: ReasoningEffortChoice.minimal),
+        ]),
+        modelsValue: Right([
+          _model(
+            'gpt-5.6-luna',
+            efforts: [ReasoningEffort.low, ReasoningEffort.high],
+          ),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      // The effective choice is the stored level — a picker that renders NO
+      // selected segment while the PATCH still carries `minimal` is the bug.
+      expect(picker.selected, {ReasoningEffortChoice.minimal});
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-minimal')),
+        findsOneWidget,
+        reason: 'the undeclared stored level must stay visible',
+      );
+      expect(
+        picker.segments
+            .firstWhere(
+              (segment) => segment.value == ReasoningEffortChoice.minimal,
+            )
+            .enabled,
+        isFalse,
+        reason: 'it is not choosable — it is shown, not offered',
+      );
+      // `auto` and the levels the model DOES declare stay choosable.
+      for (final choice in [
+        ReasoningEffortChoice.auto,
+        ReasoningEffortChoice.low,
+        ReasoningEffortChoice.high,
+      ]) {
+        expect(
+          picker.segments
+              .firstWhere((segment) => segment.value == choice)
+              .enabled,
+          isTrue,
+          reason: '$choice must stay selectable',
+        );
+      }
+      // The rotation is stated instead of silently corrected.
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-stored')),
+        findsOneWidget,
+      );
+
+      // An untouched save transmits the STORED level: the user changed nothing,
+      // so the value the aggregate keeps must not silently become `auto`.
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+      expect(repo.updateCalls, 1);
+      expect(
+        repo.lastUpdateRequest!.reasoningEffort,
+        ReasoningEffortChoice.minimal,
+      );
+
+      // Only an EXPLICIT pick moves it — here the existing reset path.
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-auto')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ai-reasoning-effort-stored')), findsNothing);
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+      expect(
+        repo.lastUpdateRequest!.reasoningEffort,
+        ReasoningEffortChoice.auto,
+      );
+    });
+
+    testWidgets('a failed model catalogue is UNKNOWN, not "this model offers '
+        'nothing" — and does not reset the stored level', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(reasoningEffort: ReasoningEffortChoice.high),
+        ]),
+        modelsValue: const Left(
+          ProblemError(code: 'ai-import.models-unavailable', status: 503),
+        ),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      // A 503 of the catalogue must never become a statement about the model.
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-unavailable')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-unknown')),
+        findsOneWidget,
+      );
+      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(picker.selected, {
+        ReasoningEffortChoice.high,
+      }, reason: 'the stored level is kept, not reset to auto');
+
+      // A prompt-only edit over the unknown catalogue still carries `high`.
+      await _enterPrompt(tester, 'ai-edit-script-prompt', 'Edited blind');
+      await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+      await tester.pumpAndSettle();
+      expect(repo.updateCalls, 1);
+      expect(
+        repo.lastUpdateRequest!.reasoningEffort,
+        ReasoningEffortChoice.high,
+      );
+    });
+
+    testWidgets('a LOADING model catalogue is unknown too — the same false '
+        'sentence must not render', (tester) async {
+      await setupContainer(
+        discoveryValue: Right([
+          _config(reasoningEffort: ReasoningEffortChoice.high),
+        ]),
+        modelsPending: true,
+      );
+      await pumpScreen(tester, height: 2400, settle: false);
+
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-unavailable')),
+        findsNothing,
+        reason: 'a pending catalogue knows nothing about the model',
+      );
+      expect(
+        find.byKey(const Key('ai-reasoning-effort-unknown')),
+        findsOneWidget,
       );
     });
 

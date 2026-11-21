@@ -17,6 +17,8 @@ class _$ModelInfo extends ModelInfo {
   final LlmProvider provider;
   @override
   final bool? recommended;
+  @override
+  final BuiltList<ReasoningEffort>? supportedReasoningEfforts;
 
   factory _$ModelInfo([void Function(ModelInfoBuilder)? updates]) =>
       (ModelInfoBuilder()..update(updates))._build();
@@ -26,7 +28,8 @@ class _$ModelInfo extends ModelInfo {
       required this.id,
       this.pricing,
       required this.provider,
-      this.recommended})
+      this.recommended,
+      this.supportedReasoningEfforts})
       : super._();
   @override
   ModelInfo rebuild(void Function(ModelInfoBuilder) updates) =>
@@ -43,7 +46,8 @@ class _$ModelInfo extends ModelInfo {
         id == other.id &&
         pricing == other.pricing &&
         provider == other.provider &&
-        recommended == other.recommended;
+        recommended == other.recommended &&
+        supportedReasoningEfforts == other.supportedReasoningEfforts;
   }
 
   @override
@@ -54,6 +58,7 @@ class _$ModelInfo extends ModelInfo {
     _$hash = $jc(_$hash, pricing.hashCode);
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, recommended.hashCode);
+    _$hash = $jc(_$hash, supportedReasoningEfforts.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -65,7 +70,8 @@ class _$ModelInfo extends ModelInfo {
           ..add('id', id)
           ..add('pricing', pricing)
           ..add('provider', provider)
-          ..add('recommended', recommended))
+          ..add('recommended', recommended)
+          ..add('supportedReasoningEfforts', supportedReasoningEfforts))
         .toString();
   }
 }
@@ -93,6 +99,13 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
   bool? get recommended => _$this._recommended;
   set recommended(bool? recommended) => _$this._recommended = recommended;
 
+  ListBuilder<ReasoningEffort>? _supportedReasoningEfforts;
+  ListBuilder<ReasoningEffort> get supportedReasoningEfforts =>
+      _$this._supportedReasoningEfforts ??= ListBuilder<ReasoningEffort>();
+  set supportedReasoningEfforts(
+          ListBuilder<ReasoningEffort>? supportedReasoningEfforts) =>
+      _$this._supportedReasoningEfforts = supportedReasoningEfforts;
+
   ModelInfoBuilder() {
     ModelInfo._defaults(this);
   }
@@ -105,6 +118,7 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
       _pricing = $v.pricing?.toBuilder();
       _provider = $v.provider;
       _recommended = $v.recommended;
+      _supportedReasoningEfforts = $v.supportedReasoningEfforts?.toBuilder();
       _$v = null;
     }
     return this;
@@ -134,12 +148,16 @@ class ModelInfoBuilder implements Builder<ModelInfo, ModelInfoBuilder> {
             provider: BuiltValueNullFieldError.checkNotNull(
                 provider, r'ModelInfo', 'provider'),
             recommended: recommended,
+            supportedReasoningEfforts: _supportedReasoningEfforts?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'pricing';
         _pricing?.build();
+
+        _$failedField = 'supportedReasoningEfforts';
+        _supportedReasoningEfforts?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ModelInfo', _$failedField, e.toString());

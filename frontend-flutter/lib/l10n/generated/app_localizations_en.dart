@@ -1263,6 +1263,49 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiConfigCostDisplayEnergy => 'Energy';
 
   @override
+  String get aiConfigReasoningEffortLabel => 'Reasoning effort';
+
+  @override
+  String get aiConfigReasoningEffortHint =>
+      'How much the model may think. Less effort is markedly faster and cheaper; the levels are limited to what the selected model supports.';
+
+  @override
+  String get aiConfigReasoningEffortUnavailable =>
+      'This model offers no reasoning-effort setting.';
+
+  @override
+  String get aiConfigReasoningEffortUnavailableHint =>
+      'No value is sent; the model decides on its own.';
+
+  @override
+  String get aiConfigReasoningEffortUnknown =>
+      'The available levels for this model are unknown — the model list has not loaded. The stored value is kept.';
+
+  @override
+  String aiConfigReasoningEffortStored(String level) {
+    return 'Stored: $level. This model no longer offers the setting — the value is kept until you change it.';
+  }
+
+  @override
+  String get aiConfigReasoningEffortAuto => 'Automatic';
+
+  @override
+  String get aiConfigReasoningEffortMinimal => 'Minimal';
+
+  @override
+  String get aiConfigReasoningEffortLow => 'Low';
+
+  @override
+  String get aiConfigReasoningEffortMedium => 'Medium';
+
+  @override
+  String get aiConfigReasoningEffortHigh => 'High';
+
+  @override
+  String get aiConfigReasoningEffortUnsupported =>
+      'The selected model does not support this level. Choose another level or “Automatic”.';
+
+  @override
   String aiJobCostCompact(Object value) {
     return 'Cost: $value';
   }

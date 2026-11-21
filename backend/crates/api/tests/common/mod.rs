@@ -111,10 +111,10 @@ use std::collections::HashSet;
 
 use api::state::Ports;
 use breakdown_core::ai::{
-    AiConfigCommands, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
+    AiConfigCommands, AiConfigError, AiConfigRepository, AiConfigView, AiImportEnqueueRequest,
     AiImportEnqueueResult, AiImportJob, AiImportJobId, AiImportMapping, AiImportMappingRepository,
-    AiImportProgress, AiImportQueue, CreateAiConfig, DocumentKind, JobStatus, RevokeAiConfig,
-    Telemetry, UpdateAiConfig,
+    AiImportProgress, AiImportQueue, CreateAiConfig, DocumentKind, JobStatus, LlmProvider,
+    ReasoningEffortChoice, RevokeAiConfig, Telemetry, UpdateAiConfig, supports_reasoning_effort,
 };
 use infra::ai::MemoryAiPreviewStore;
 
@@ -2371,6 +2371,26 @@ pub struct FakeAiConfigCommands {
     pub version_conflict: Arc<Mutex<bool>>,
 }
 
+/// The aggregate's save-time `reasoning_effort` rule, mirrored for the fake
+/// command port (review finding 7).
+///
+/// The port fake cannot run the event-sourced aggregate, and a handler test that
+/// never sees a rejection cannot prove the registered 422 reaches the client. So
+/// the fake applies the SAME rule with the SAME core capability table and the
+/// SAME `AiConfigError -> DomainError` conversion the production adapter uses —
+/// no duplicated allowlist, no hardcoded "reject" switch.
+fn rejected_reasoning_effort(
+    provider: LlmProvider,
+    assistant_model: &str,
+    choice: ReasoningEffortChoice,
+) -> Option<DomainError> {
+    let effort = choice.effort()?;
+    if supports_reasoning_effort(provider, assistant_model, effort) {
+        return None;
+    }
+    Some(AiConfigError::ReasoningEffortUnsupported.into())
+}
+
 #[async_trait]
 impl AiConfigCommands for FakeAiConfigCommands {
     async fn create(
@@ -2378,6 +2398,13 @@ impl AiConfigCommands for FakeAiConfigCommands {
         _actor: UserId,
         command: CreateAiConfig,
     ) -> Result<(Uuid, AggregateVersion), DomainError> {
+        if let Some(error) = rejected_reasoning_effort(
+            command.provider,
+            &command.assistant_model,
+            command.reasoning_effort,
+        ) {
+            return Err(error);
+        }
         let id = command.id;
         self.created.lock().await.push(command);
         Ok((id, AggregateVersion::INITIAL))
@@ -2393,6 +2420,17 @@ impl AiConfigCommands for FakeAiConfigCommands {
                 expected: command.version,
                 current: AggregateVersion(command.version.0 + 1),
             });
+        }
+        // Only an EXPLICIT level is checked: the fake cannot see the stored
+        // state, so it cannot reproduce the aggregate's "unchanged triple skips
+        // re-validation" rule (catalogue-rotation safety). An omitted field
+        // therefore passes here, exactly as the aggregate lets an unrelated
+        // prompt-only edit through.
+        if let Some(choice) = command.reasoning_effort
+            && let Some(error) =
+                rejected_reasoning_effort(command.provider, &command.assistant_model, choice)
+        {
+            return Err(error);
         }
         let version = AggregateVersion(command.version.0 + 1);
         self.updated.lock().await.push(command);

@@ -171,6 +171,15 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
             .into_iter()
             .filter(|model| self.is_allowed(&model.id))
             .map(|model| ModelInfo {
+                // The live catalogue is used only as a model LIST here; the
+                // capability comes from the curated table, so a model whose
+                // provider does not publish a declared effort set simply offers
+                // none (never a guessed one).
+                supported_reasoning_efforts: breakdown_core::ai::supported_reasoning_efforts(
+                    provider, &model.id,
+                )
+                .map(<[breakdown_core::ai::ReasoningEffort]>::to_vec)
+                .unwrap_or_default(),
                 id: model.id,
                 display_name: None,
                 provider,

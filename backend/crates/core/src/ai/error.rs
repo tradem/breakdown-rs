@@ -33,6 +33,13 @@ pub enum AiConfigError {
     DecisionModelUnknown,
     #[error("decision vault key reference must not be empty")]
     EmptyDecisionVaultKey,
+    /// The configured assistant pair does not accept the requested
+    /// `reasoning_effort` (2026-11-20 output-budget investigation): either the
+    /// provider/model declares no such parameter at all, or it declares a
+    /// different value set. Rejected while the error is still cheap — at save
+    /// time, not on every import call.
+    #[error("model does not accept the requested reasoning effort")]
+    ReasoningEffortUnsupported,
     #[error("AI configuration not found")]
     NotFound,
     #[error("AI configuration is already revoked")]

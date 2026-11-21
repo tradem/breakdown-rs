@@ -159,6 +159,7 @@ class AiConfigDraftData {
     this.useSameDecisionKey = true,
     this.useSameDecisionKeyTouched = false,
     this.costDisplayPreference,
+    this.reasoningEffort,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.scriptPromptTouched = false,
@@ -218,8 +219,31 @@ class AiConfigDraftData {
   /// `null` = untouched — the configured view's value (or the `token`
   /// default) applies.
   CostDisplayPreference? costDisplayPreference;
+
+  /// The drafted `reasoning_effort` (2026-11-20 investigation). `null` =
+  /// untouched — the configured choice (or `auto`) applies. A drafted value
+  /// OUTSIDE the selected model's declared set is normalised to `auto` when
+  /// the model changes, so an invalid pair is never dispatched.
+  ReasoningEffortChoice? reasoningEffort;
   AiConfigUnresolved? unresolved;
 }
+
+/// Maps a wire LEVEL to the choice the picker offers. `ReasoningEffort` is the
+/// provider-side level; `ReasoningEffortChoice` is what a configuration stores
+/// (the same four levels plus `auto`). Written out rather than derived from
+/// `ReasoningEffortChoice.values`, so adding a level to one type cannot silently
+/// add a choosable option the provider never declared.
+ReasoningEffortChoice reasoningEffortChoiceFor(
+  ReasoningEffort level,
+) => switch (level) {
+  ReasoningEffort.minimal => ReasoningEffortChoice.minimal,
+  ReasoningEffort.low => ReasoningEffortChoice.low,
+  ReasoningEffort.medium => ReasoningEffortChoice.medium,
+  ReasoningEffort.high => ReasoningEffortChoice.high,
+  // `EnumClass` is not a Dart enum, so the analyzer cannot prove
+  // exhaustiveness; `high` is the ceiling by construction (see the type doc).
+  _ => ReasoningEffortChoice.high,
+};
 
 /// Ephemeral draft store: mutations go through [mutate] so watchers (the
 /// controller's build) rebuild on every draft change.
@@ -243,6 +267,7 @@ class AiConfigDrafts extends _$AiConfigDrafts {
       useSameDecisionKey: state.useSameDecisionKey,
       useSameDecisionKeyTouched: state.useSameDecisionKeyTouched,
       costDisplayPreference: state.costDisplayPreference,
+      reasoningEffort: state.reasoningEffort,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
       scriptPromptTouched: state.scriptPromptTouched,
@@ -519,6 +544,12 @@ class AiConfigController extends _$AiConfigController {
       imageModels: imageModels,
       // Preferred primary cost display (issue #675): an explicit draft pick
       // wins, then the configured value, then the `token` default.
+      // Reasoning effort (2026-11-20 investigation): an explicit draft pick
+      // wins, then the configured choice, then `auto`.
+      reasoningEffort:
+          drafts.reasoningEffort ??
+          config?.reasoningEffort ??
+          ReasoningEffortChoice.auto,
       costDisplayPreference:
           drafts.costDisplayPreference ??
           config?.costDisplayPreference ??
@@ -553,6 +584,63 @@ class AiConfigController extends _$AiConfigController {
       d.assistantModelTouched = true;
     });
     state = state.copyWith(clearCommandError: true);
+    _normaliseReasoningEffort(id);
+  }
+
+  /// After a model change, a drafted level the NEW pair does not declare is
+  /// dropped back to `auto`. Without this, switching from `glm-5.3-flash (all
+  /// four levels) to a model without the parameter would dispatch a level the
+  /// aggregate refuses with a 422 — the payload is built once, so the
+  /// correction has to happen at the selection.
+  ///
+  /// An UNTOUCHED draft is left alone: the stored value belongs to the stored
+  /// model and must survive a prompt-only edit (the aggregate's
+  /// `effort_unchanged` rule depends on that value not moving).
+  void _normaliseReasoningEffort(String modelId) {
+    final drafted = _draftsNotifier.state.reasoningEffort;
+    if (drafted == null || drafted == ReasoningEffortChoice.auto) return;
+    if (!declaredReasoningEfforts(modelId).contains(drafted)) {
+      _draftsNotifier.mutate(
+        (d) => d.reasoningEffort = ReasoningEffortChoice.auto,
+      );
+    }
+  }
+
+  /// The levels the assistant model [modelId] DECLARES, taken from the model
+  /// list the backend already sent (`ModelInfo.supportedReasoningEfforts`);
+  /// empty when the pair declares none, or when the list has not loaded.
+  ///
+  /// Not mirrored client-side: the capability is the backend's, so a catalogue
+  /// update reaches the picker without a client release (issue #736 doctrine).
+  Set<ReasoningEffortChoice> declaredReasoningEfforts(String? modelId) {
+    if (modelId == null) return const {};
+    final models = state.models.value ?? const <ModelInfo>[];
+    for (final model in models) {
+      if (model.id != modelId) continue;
+      return {
+        for (final level
+            in model.supportedReasoningEfforts ?? const <ReasoningEffort>[])
+          reasoningEffortChoiceFor(level),
+      };
+    }
+    return const {};
+  }
+
+  /// What the screen KNOWS about the `reasoning_effort` capability of the
+  /// selected assistant model, as `(known, declared)`.
+  ///
+  /// The two facts are deliberately separate: an EMPTY level set means "the
+  /// pair declares no level" only when the catalogue actually loaded. While the
+  /// model list is loading, or after its fetch failed, nothing is known about
+  /// the model — rendering that as "this model supports no reasoning effort"
+  /// turns a transient `503` into a product statement (review finding).
+  ({bool known, Set<ReasoningEffortChoice> declared}) reasoningEffortCapability(
+    String? modelId,
+  ) {
+    if (!state.models.hasValue) {
+      return (known: false, declared: const <ReasoningEffortChoice>{});
+    }
+    return (known: true, declared: declaredReasoningEfforts(modelId));
   }
 
   void selectImageModel(String? id) {
@@ -600,6 +688,14 @@ class AiConfigController extends _$AiConfigController {
   /// Selects the preferred primary cost display metric (issue #675).
   void selectCostDisplayPreference(CostDisplayPreference preference) {
     _draftsNotifier.mutate((d) => d.costDisplayPreference = preference);
+    state = state.copyWith(clearCommandError: true);
+  }
+
+  /// Selects the `reasoning_effort` (2026-11-20 investigation). `auto` is a
+  /// real choice, not an absence: it resets a stored level to "let the system
+  /// decide" and reaches the wire as the string `auto`.
+  void selectReasoningEffort(ReasoningEffortChoice choice) {
+    _draftsNotifier.mutate((d) => d.reasoningEffort = choice);
     state = state.copyWith(clearCommandError: true);
   }
 
@@ -795,6 +891,10 @@ class AiConfigController extends _$AiConfigController {
           ..vaultKeyId = credential.vaultKeyId
           ..imageModel = s.selectedImageModelId
           ..costDisplayPreference = s.costDisplayPreference
+          // Always sent, and always a value: `auto` is how the app expresses
+          // "no explicit level", which a nullable field could never do (the
+          // generated client omits nulls).
+          ..reasoningEffort = s.reasoningEffort
           ..decisionProvider = decisionProvider
           ..decisionModel = decisionModelId
           ..decisionVaultKeyId = decisionVaultKeyId
@@ -1175,6 +1275,7 @@ class AiConfigController extends _$AiConfigController {
     required String? assistantModelId,
     required String? imageModelId,
     required CostDisplayPreference costDisplayPreference,
+    required ReasoningEffortChoice reasoningEffort,
     required String scriptPrompt,
     required String schedulePrompt,
     String? replacementSecret,
@@ -1330,6 +1431,7 @@ class AiConfigController extends _$AiConfigController {
           ..version = config.version
           ..imageModel = imageModelId
           ..costDisplayPreference = costDisplayPreference
+          ..reasoningEffort = reasoningEffort
           ..decisionProvider = decisionProvider
           ..decisionModel = decisionProviderKey == null ? null : decisionModelId
           ..decisionVaultKeyId = decisionVaultKeyId

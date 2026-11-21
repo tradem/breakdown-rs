@@ -366,6 +366,25 @@
   "aiConfigCostDisplayLabel": "Preferred cost display",
   "aiConfigCostDisplayToken": "Tokens",
   "aiConfigCostDisplayEnergy": "Energy",
+  "aiConfigReasoningEffortLabel": "Reasoning effort",
+  "aiConfigReasoningEffortHint": "How much the model may think. Less effort is markedly faster and cheaper; the levels are limited to what the selected model supports.",
+  "aiConfigReasoningEffortUnavailable": "This model offers no reasoning-effort setting.",
+  "aiConfigReasoningEffortUnavailableHint": "No value is sent; the model decides on its own.",
+  "aiConfigReasoningEffortUnknown": "The available levels for this model are unknown — the model list has not loaded. The stored value is kept.",
+  "aiConfigReasoningEffortStored": "Stored: {level}. This model no longer offers the setting — the value is kept until you change it.",
+  "@aiConfigReasoningEffortStored": {
+    "placeholders": {
+      "level": {
+        "type": "String"
+      }
+    }
+  },
+  "aiConfigReasoningEffortAuto": "Automatic",
+  "aiConfigReasoningEffortMinimal": "Minimal",
+  "aiConfigReasoningEffortLow": "Low",
+  "aiConfigReasoningEffortMedium": "Medium",
+  "aiConfigReasoningEffortHigh": "High",
+  "aiConfigReasoningEffortUnsupported": "The selected model does not support this level. Choose another level or “Automatic”.",
   "aiJobCostCompact": "Cost: {value}",
   "aiJobCostNotApplicable": "No AI model was billed — native CSV import without an LLM.",
   "aiJobCostTitle": "Cost of this import",

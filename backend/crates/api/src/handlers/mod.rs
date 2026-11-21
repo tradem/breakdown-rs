@@ -33,9 +33,9 @@ use breakdown_core::ai::{
     AiImportTargetRequest, AiModelPricingRepository as _, AiPreviewPayload, ApplyGateError,
     ApplyMapping, CostDisplayPreference, CreateAiConfig, DocumentKind, EpisodeGroupPlan,
     EpisodeTarget, LlmProvider, MergedPreview, ModelInfo, OutfitContinuitySelection,
-    RevokeAiConfig, ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, Telemetry,
-    TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement, UpdateAiConfig,
-    ensure_script_applyable, episode_group_refs, shooting_day_group_refs,
+    ReasoningEffortChoice, RevokeAiConfig, ScriptContext, ShootingDayPlan, ShootingSchedule,
+    SourceFormat, Telemetry, TelemetryApplyState, Uncertainty, UncertaintyAcknowledgement,
+    UpdateAiConfig, ensure_script_applyable, episode_group_refs, shooting_day_group_refs,
 };
 use breakdown_core::audit::{AuditEntry, AuditRepository};
 use breakdown_core::block::commands::{CreateBlock, UpdateBlockTimeSpan};
@@ -8278,6 +8278,12 @@ pub struct CreateAiConfigRequest {
     pub decision_model: Option<String>,
     #[serde(default)]
     pub decision_vault_key_id: Option<String>,
+    /// Requested `reasoning_effort` for the assistant model (2026-11-20
+    /// investigation). `auto` = no explicit level. Only a pair that DECLARES the
+    /// parameter may name a level — the aggregate answers `422` otherwise, while
+    /// the mistake is still cheap.
+    #[serde(default)]
+    pub reasoning_effort: ReasoningEffortChoice,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -8302,6 +8308,12 @@ pub struct UpdateAiConfigRequest {
     pub decision_model: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     pub decision_vault_key_id: Option<Option<String>>,
+    /// Omitted keeps the stored choice (an older client), `auto` resets it to the
+    /// system default, a level replaces it. Deliberately not `Option<Option<..>>`:
+    /// the generated Dart client omits `null` fields, so a reset would be
+    /// unreachable from the app (2026-11-20 investigation).
+    #[serde(default)]
+    pub reasoning_effort: Option<ReasoningEffortChoice>,
     pub version: AggregateVersion,
 }
 
@@ -8556,6 +8568,7 @@ pub async fn create_ai_config<P: Ports>(
                 decision_provider: request.decision_provider,
                 decision_model: request.decision_model,
                 decision_vault_key_id: request.decision_vault_key_id,
+                reasoning_effort: request.reasoning_effort,
             },
         )
         .await?;
@@ -8745,6 +8758,7 @@ pub async fn update_ai_config<P: Ports>(
                 decision_provider: request.decision_provider,
                 decision_model: request.decision_model,
                 decision_vault_key_id: request.decision_vault_key_id,
+                reasoning_effort: request.reasoning_effort,
                 version: request.version,
             },
         )

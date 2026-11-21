@@ -69,6 +69,27 @@ use super::pdf::PdfTextExtractor;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use super::provider_registry::default_reasoning_effort;
+
+/// The `reasoning_effort` ONE request carries (2026-11-20 output-budget
+/// investigation).
+///
+/// Precedence: an explicitly configured level wins, otherwise the curated
+/// profile pins one for the pairs whose saving is measured, otherwise `None`
+/// sends no field at all and the provider's own default applies.
+///
+/// ONE function for both import paths: the script and the schedule request
+/// builder used to carry an identical inline copy of this chain, so a later rule
+/// change — or the loss of the field in one of them — could drift silently. The
+/// wire string is applied at the request site, not here (this stays a value).
+pub(super) fn resolved_reasoning_effort(
+    provider: LlmProvider,
+    model: &str,
+    choice: breakdown_core::ai::ReasoningEffortChoice,
+) -> Option<breakdown_core::ai::ReasoningEffort> {
+    choice
+        .effort()
+        .or_else(|| default_reasoning_effort(provider, model))
+}
 use super::runtime::run_with_renewal;
 use super::schedule_apply::{
     AppliedDay, DayDraft, ScheduleApplyWorker, derive_id, recover_version,
@@ -241,6 +262,9 @@ pub struct ScriptImportWorker<Q, C> {
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
+    /// Configured `reasoning_effort` (2026-11-20 investigation). `Auto` defers
+    /// to the curated profile, then to the provider's own default.
+    pub reasoning_effort: breakdown_core::ai::ReasoningEffortChoice,
     pub bounds: AiImportBounds,
     /// Pricing read model for the completion cost snapshot (issue #675).
     /// `None` in test fakes — the snapshot then degrades to
@@ -754,12 +778,14 @@ where
                 source_text: source_text.clone(),
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
-                // 2026-11-20 output-budget investigation: the curated profile
-                // pins an effort for the pairs whose saving is measured (or
-                // decided); everything else sends no field and keeps the
-                // provider's own default.
-                reasoning_effort: default_reasoning_effort(self.provider, &self.model)
-                    .map(str::to_owned),
+                // Explicit level, else the curated profile, else no field (see
+                // `resolved_reasoning_effort` — shared with the schedule path).
+                reasoning_effort: resolved_reasoning_effort(
+                    self.provider,
+                    &self.model,
+                    self.reasoning_effort,
+                )
+                .map(|effort| effort.as_str().to_owned()),
             };
             if super::heartbeat::claim_lost(heartbeat.as_ref()) {
                 // Stop before the next paid call: another worker owns the job.
@@ -1467,6 +1493,8 @@ pub struct ScheduleImportWorker<Q, C> {
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
+    /// See [`ScriptImportWorker::reasoning_effort`].
+    pub reasoning_effort: breakdown_core::ai::ReasoningEffortChoice,
     pub bounds: AiImportBounds,
     /// See [`ScriptImportWorker::pricing`] (issue #675).
     pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
@@ -1664,9 +1692,13 @@ where
                 source_text,
                 max_tokens: self.bounds.max_tokens_per_req,
                 response_schema: None,
-                // Same curated profile as the script path above.
-                reasoning_effort: default_reasoning_effort(self.provider, &self.model)
-                    .map(str::to_owned),
+                // Same resolution as the script path above.
+                reasoning_effort: resolved_reasoning_effort(
+                    self.provider,
+                    &self.model,
+                    self.reasoning_effort,
+                )
+                .map(|effort| effort.as_str().to_owned()),
             };
             let (parsed, call_usage) = match retry_schedule(
                 self.client.as_ref(),

@@ -8,6 +8,7 @@
 import 'package:breakdown_api/src/model/llm_provider.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/cost_display_preference.dart';
+import 'package:breakdown_api/src/model/reasoning_effort_choice.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -24,6 +25,7 @@ part 'create_ai_config_request.g.dart';
 /// * [imageModel]
 /// * [prompts]
 /// * [provider]
+/// * [reasoningEffort] - Requested `reasoning_effort` for the assistant model (2026-11-20 investigation). `auto` = no explicit level. Only a pair that DECLARES the parameter may name a level — the aggregate answers `422` otherwise, while the mistake is still cheap.
 /// * [vaultKeyId]
 @BuiltValue()
 abstract class CreateAiConfigRequest
@@ -56,6 +58,11 @@ abstract class CreateAiConfigRequest
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
   // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+
+  /// Requested `reasoning_effort` for the assistant model (2026-11-20 investigation). `auto` = no explicit level. Only a pair that DECLARES the parameter may name a level — the aggregate answers `422` otherwise, while the mistake is still cheap.
+  @BuiltValueField(wireName: r'reasoning_effort')
+  ReasoningEffortChoice? get reasoningEffort;
+  // enum reasoningEffortEnum {  auto,  minimal,  low,  medium,  high,  };
 
   @BuiltValueField(wireName: r'vault_key_id')
   String get vaultKeyId;
@@ -140,6 +147,13 @@ class _$CreateAiConfigRequestSerializer
       object.provider,
       specifiedType: const FullType(LlmProvider),
     );
+    if (object.reasoningEffort != null) {
+      yield r'reasoning_effort';
+      yield serializers.serialize(
+        object.reasoningEffort,
+        specifiedType: const FullType(ReasoningEffortChoice),
+      );
+    }
     yield r'vault_key_id';
     yield serializers.serialize(
       object.vaultKeyId,
@@ -231,6 +245,14 @@ class _$CreateAiConfigRequestSerializer
             specifiedType: const FullType(LlmProvider),
           ) as LlmProvider;
           result.provider = valueDes;
+          break;
+        case r'reasoning_effort':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(ReasoningEffortChoice),
+          ) as ReasoningEffortChoice?;
+          if (valueDes == null) continue;
+          result.reasoningEffort = valueDes;
           break;
         case r'vault_key_id':
           final valueDes = serializers.deserialize(

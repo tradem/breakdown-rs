@@ -54,6 +54,9 @@ problem-ai-config-decision-model-unknown =
 problem-ai-config-decision-vault-key-empty =
     Die Berechtigungsreferenz des Entscheidungsmodells darf nicht leer sein.
 
+problem-ai-config-reasoning-effort-unsupported =
+    Das gewählte Modell unterstützt diese Denk-Intensität nicht. Bitte eine andere Stufe wählen oder die Voreinstellung des Anbieters verwenden.
+
 problem-ai-import-disabled =
     Der KI-Import ist auf dieser Instanz nicht aktiviert.
 

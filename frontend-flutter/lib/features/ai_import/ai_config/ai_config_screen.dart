@@ -114,6 +114,7 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
         assistantModelId: state.selectedAssistantModelId,
         imageModelId: state.selectedImageModelId,
         costDisplayPreference: state.costDisplayPreference,
+        reasoningEffort: state.reasoningEffort,
         scriptPrompt: state.scriptPrompt,
         schedulePrompt: state.schedulePrompt,
         replacementSecret: _showsReplacementKey(state, handoff)
@@ -599,6 +600,8 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
         const SizedBox(height: 16),
         const _CostDisplayPreferenceSelector(),
         const SizedBox(height: 16),
+        const _ReasoningEffortSelector(),
+        const SizedBox(height: 16),
         TextField(
           key: const Key('ai-api-key-field'),
           controller: _keyController,
@@ -994,6 +997,145 @@ class _CostDisplayPreferenceSelector extends ConsumerWidget {
     );
   }
 }
+
+/// The optional `reasoning_effort` selector (2026-11-20 investigation).
+///
+/// Only the levels the SELECTED model declares are offered — plus `auto`, which
+/// is always available because "let the system decide" is valid on every pair,
+/// including one that declares no parameter at all. The set comes from
+/// `ModelInfo.supportedReasoningEfforts`, i.e. from the backend, never from a
+/// client-side table (issue #736 doctrine: the server owns the catalogue).
+///
+/// A pair that declares no level renders the section as a single sentence
+/// instead of an empty picker: an empty `SegmentedButton` would read as a
+/// rendering bug, and pretending every model has the parameter would produce a
+/// 422 at save time.
+///
+/// Two distinctions keep the section honest (catalogue-rotation review):
+/// * **known vs. unknown** — a model list that is still LOADING or whose fetch
+///   FAILED says nothing about the model. Only a loaded catalogue row may claim
+///   "this model offers no reasoning effort"; an unknown catalogue renders as
+///   unknown and leaves the stored value alone.
+/// * **stored vs. declared** — the selector shows the EFFECTIVE choice (the
+///   draft, else the stored value). A stored level the pair no longer declares
+///   is appended as a disabled, SELECTED segment instead of vanishing, so the
+///   picker never renders "nothing selected" and the value the next PATCH sends
+///   stays visible. It survives an unrelated edit — the aggregate's
+///   `effort_unchanged` rule keeps it — and only an explicit choice changes it.
+///
+/// Why a value and not a nullable field: the generated client omits `null`
+/// fields, so a nullable setting could be set but never reset from the app.
+/// `auto` is therefore a real segment (see `ReasoningEffortChoice`).
+class _ReasoningEffortSelector extends ConsumerWidget {
+  const _ReasoningEffortSelector();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(aiConfigControllerProvider);
+    final controller = ref.read(aiConfigControllerProvider.notifier);
+    final l10n = l10nOf(context);
+    final capability = controller.reasoningEffortCapability(
+      state.selectedAssistantModelId,
+    );
+    final declared = capability.declared;
+    final current = state.reasoningEffort;
+    // A level the catalogue does not declare — a rotation that dropped it, or a
+    // catalogue the screen could not read yet.
+    final undeclared =
+        current != ReasoningEffortChoice.auto && !declared.contains(current);
+    // `auto` is always choosable; the declared levels follow in enum order, and
+    // an undeclared-but-effective level is appended as a disabled segment.
+    final choices = <ReasoningEffortChoice>[
+      ReasoningEffortChoice.auto,
+      for (final choice in ReasoningEffortChoice.values)
+        if (choice != ReasoningEffortChoice.auto && declared.contains(choice))
+          choice,
+      if (undeclared) current,
+    ];
+    // A picker with `auto` alone would say nothing the sentence does not.
+    final showPicker = declared.isNotEmpty || undeclared;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(l10n.aiConfigReasoningEffortLabel),
+        const SizedBox(height: 8),
+        if (!capability.known) ...[
+          Text(
+            // The model list is loading or failed: no statement about the model
+            // is possible, so none is made (a `503` must not read as a product
+            // decision).
+            l10n.aiConfigReasoningEffortUnknown,
+            key: const Key('ai-reasoning-effort-unknown'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          if (showPicker) const SizedBox(height: 8),
+        ] else if (declared.isEmpty && !undeclared) ...[
+          Text(
+            // The pair declares nothing: state the fact, keep `auto` on the wire.
+            l10n.aiConfigReasoningEffortUnavailable,
+            key: const Key('ai-reasoning-effort-unavailable'),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            l10n.aiConfigReasoningEffortUnavailableHint,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        if (showPicker)
+          SegmentedButton<ReasoningEffortChoice>(
+            key: const Key('ai-reasoning-effort-picker'),
+            segments: [
+              for (final choice in choices)
+                ButtonSegment(
+                  value: choice,
+                  // `auto` and every declared level are choosable; the stored
+                  // level the catalogue does not (or not yet) declare is shown
+                  // as selected-but-disabled rather than silently corrected.
+                  enabled:
+                      choice == ReasoningEffortChoice.auto ||
+                      declared.contains(choice),
+                  label: Text(
+                    _reasoningEffortLabel(l10n, choice),
+                    key: Key('ai-reasoning-effort-${choice.name}'),
+                  ),
+                ),
+            ],
+            selected: {current},
+            onSelectionChanged: (selection) {
+              controller.selectReasoningEffort(selection.first);
+            },
+          ),
+        if (undeclared && capability.known)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              // A stored level on a pair that no longer declares it (catalogue
+              // rotation). It survives an unrelated edit, so say so instead of
+              // silently resetting it.
+              l10n.aiConfigReasoningEffortStored(
+                _reasoningEffortLabel(l10n, current),
+              ),
+              key: const Key('ai-reasoning-effort-stored'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+String _reasoningEffortLabel(
+  AppLocalizations l10n,
+  ReasoningEffortChoice choice,
+) => switch (choice) {
+  ReasoningEffortChoice.auto => l10n.aiConfigReasoningEffortAuto,
+  ReasoningEffortChoice.minimal => l10n.aiConfigReasoningEffortMinimal,
+  ReasoningEffortChoice.low => l10n.aiConfigReasoningEffortLow,
+  ReasoningEffortChoice.medium => l10n.aiConfigReasoningEffortMedium,
+  ReasoningEffortChoice.high => l10n.aiConfigReasoningEffortHigh,
+  // `EnumClass` is not a Dart enum: exhaustiveness is by construction above.
+  _ => l10n.aiConfigReasoningEffortAuto,
+};
 
 /// The optional Decision / Scoring Model section (issue #723): provider
 /// picker (the route's decision-capable providers + the explicit "disabled"
@@ -1393,6 +1535,8 @@ class _ConfiguredForm extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.space8),
         const _CostDisplayPreferenceSelector(),
+        const SizedBox(height: AppSpacing.space8),
+        const _ReasoningEffortSelector(),
         const SizedBox(height: AppSpacing.space8),
         const _PromptFields(
           scriptKey: 'ai-edit-script-prompt',

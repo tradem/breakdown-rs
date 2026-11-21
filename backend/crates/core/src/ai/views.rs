@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use super::ports::LlmProvider;
 use super::preview::DraftEpisode;
+use super::reasoning::ReasoningEffortChoice;
 use crate::shared::{AggregateVersion, BlockId, SeasonId, UserId};
 /// The two document kinds supported by the import pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
@@ -513,6 +514,11 @@ pub struct AiConfigView {
     pub decision_model: Option<String>,
     #[serde(default)]
     pub decision_vault_key_id: Option<String>,
+    /// The configured `reasoning_effort` for the assistant model (2026-11-20
+    /// investigation). `Auto` = no explicit level. Additive with `serde(default)`:
+    /// a view serialized before the field existed deserializes as `Auto`.
+    #[serde(default)]
+    pub reasoning_effort: ReasoningEffortChoice,
     pub version: AggregateVersion,
     pub revoked: bool,
 }

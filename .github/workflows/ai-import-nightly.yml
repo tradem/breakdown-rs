@@ -130,7 +130,7 @@ jobs:
             if [ -z "$GDRIVE_CLIENT_ID" ]; then
               echo "GDRIVE_CLIENT_ID not configured — the real-document half will skip (asserts nothing)."
             else
-              echo "GDRIVE_ROOT=${GDRIVE_ROOT} · required fixtures: 292.pdf 293.pdf 294.pdf Drehbuch_1.pdf Drehbuch_2.pdf"
+              echo "Required fixtures: 292.pdf 293.pdf 294.pdf Drehbuch_1.pdf Drehbuch_2.pdf"
             fi
           fi
           cargo test -p integration-tests --test ai_llm_smoke_test -- --nocapture

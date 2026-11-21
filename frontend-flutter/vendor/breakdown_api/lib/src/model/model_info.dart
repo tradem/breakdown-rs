@@ -6,6 +6,8 @@
 
 // ignore_for_file: unused_element
 import 'package:breakdown_api/src/model/llm_provider.dart';
+import 'package:built_collection/built_collection.dart';
+import 'package:breakdown_api/src/model/reasoning_effort.dart';
 import 'package:breakdown_api/src/model/model_pricing.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -20,6 +22,7 @@ part 'model_info.g.dart';
 /// * [pricing] - Pricing snapshot from the `ai_import.ai_model_pricing` read model (issue #675). `None` for models without known pricing (e.g. local Ollama models) — never a fabricated zero-price object. Additive with `serde(default)` on the wire.
 /// * [provider]
 /// * [recommended] - Whether the curated catalog designates this model as the provider's recommended default for a new AI-config creation (issue #471). Only set by the curated models endpoint (`curated_models`); models fetched live from a provider never carry the flag (`false`).  `#[serde(default)]`: the flag is additive on the wire — a backend that predates the field deserializes it as `false`, so clients keep their \"first model\" fallback for pre-flag deployments (CodeRabbit review, PR #489).
+/// * [supportedReasoningEfforts] - Every `reasoning_effort` this model DECLARES, empty when it declares none (2026-11-20 output-budget investigation).  Carried on the model list so a client can offer exactly the levels the selected pair accepts instead of discovering a `400` at import time — which is why the picker has to react to the model selection, not to one global list. Additive with `serde(default)`: a backend that predates the field (or a live provider catalogue we cannot read) yields an empty list, i.e. \"no choosable level\", never a guessed one.
 @BuiltValue()
 abstract class ModelInfo implements Built<ModelInfo, ModelInfoBuilder> {
   @BuiltValueField(wireName: r'display_name')
@@ -39,6 +42,10 @@ abstract class ModelInfo implements Built<ModelInfo, ModelInfoBuilder> {
   /// Whether the curated catalog designates this model as the provider's recommended default for a new AI-config creation (issue #471). Only set by the curated models endpoint (`curated_models`); models fetched live from a provider never carry the flag (`false`).  `#[serde(default)]`: the flag is additive on the wire — a backend that predates the field deserializes it as `false`, so clients keep their \"first model\" fallback for pre-flag deployments (CodeRabbit review, PR #489).
   @BuiltValueField(wireName: r'recommended')
   bool? get recommended;
+
+  /// Every `reasoning_effort` this model DECLARES, empty when it declares none (2026-11-20 output-budget investigation).  Carried on the model list so a client can offer exactly the levels the selected pair accepts instead of discovering a `400` at import time — which is why the picker has to react to the model selection, not to one global list. Additive with `serde(default)`: a backend that predates the field (or a live provider catalogue we cannot read) yields an empty list, i.e. \"no choosable level\", never a guessed one.
+  @BuiltValueField(wireName: r'supported_reasoning_efforts')
+  BuiltList<ReasoningEffort>? get supportedReasoningEfforts;
 
   ModelInfo._();
 
@@ -92,6 +99,13 @@ class _$ModelInfoSerializer implements PrimitiveSerializer<ModelInfo> {
       yield serializers.serialize(
         object.recommended,
         specifiedType: const FullType(bool),
+      );
+    }
+    if (object.supportedReasoningEfforts != null) {
+      yield r'supported_reasoning_efforts';
+      yield serializers.serialize(
+        object.supportedReasoningEfforts,
+        specifiedType: const FullType(BuiltList, [FullType(ReasoningEffort)]),
       );
     }
   }
@@ -156,6 +170,15 @@ class _$ModelInfoSerializer implements PrimitiveSerializer<ModelInfo> {
           ) as bool?;
           if (valueDes == null) continue;
           result.recommended = valueDes;
+          break;
+        case r'supported_reasoning_efforts':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(BuiltList, [FullType(ReasoningEffort)]),
+          ) as BuiltList<ReasoningEffort>?;
+          if (valueDes == null) continue;
+          result.supportedReasoningEfforts.replace(valueDes);
           break;
         default:
           unhandled.add(key);

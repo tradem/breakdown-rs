@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
@@ -22,6 +23,7 @@ use super::commands::{CreateAiConfig, RevokeAiConfig, UpdateAiConfig};
 use super::error::AiConfigError;
 use super::events::AiConfigEvent;
 use super::ports::LlmProvider;
+use super::reasoning::{ReasoningEffortChoice, supports_reasoning_effort};
 use super::views::{CostDisplayPreference, DocumentKind};
 use super::{decision, decision::is_decision_capable};
 
@@ -40,6 +42,9 @@ pub struct AiConfig {
     pub decision_provider: Option<LlmProvider>,
     pub decision_model: Option<String>,
     pub decision_vault_key_id: Option<String>,
+    /// Requested `reasoning_effort` for the assistant model (2026-11-20
+    /// investigation). `Auto` = no explicit level.
+    pub reasoning_effort: ReasoningEffortChoice,
     pub revoked: bool,
     pub version: AggregateVersion,
 }
@@ -58,6 +63,7 @@ impl Default for AiConfig {
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
             revoked: false,
             version: AggregateVersion::default(),
         }
@@ -89,6 +95,7 @@ impl Apply for AiConfig {
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                reasoning_effort,
                 version,
             } => {
                 self.id = id;
@@ -102,6 +109,7 @@ impl Apply for AiConfig {
                 self.decision_provider = decision_provider;
                 self.decision_model = decision_model;
                 self.decision_vault_key_id = decision_vault_key_id;
+                self.reasoning_effort = reasoning_effort;
                 self.revoked = false;
                 self.version = version;
             }
@@ -115,6 +123,7 @@ impl Apply for AiConfig {
                 decision_provider,
                 decision_model,
                 decision_vault_key_id,
+                reasoning_effort,
                 version,
                 ..
             } => {
@@ -133,6 +142,7 @@ impl Apply for AiConfig {
                 self.decision_provider = decision_provider;
                 self.decision_model = decision_model;
                 self.decision_vault_key_id = decision_vault_key_id;
+                self.reasoning_effort = reasoning_effort;
                 self.revoked = false;
                 self.version = version;
             }
@@ -164,6 +174,11 @@ impl Command<CreateAiConfig> for AiConfig {
             // Creation always introduces the model → the catalog check runs.
             false,
         )?;
+        validate_reasoning_effort(
+            cmd.provider,
+            cmd.assistant_model.as_str(),
+            cmd.reasoning_effort,
+        )?;
         Ok(vec![AiConfigEvent::Created {
             id: cmd.id,
             user_id: cmd.user_id,
@@ -176,6 +191,7 @@ impl Command<CreateAiConfig> for AiConfig {
             decision_provider: cmd.decision_provider,
             decision_model: cmd.decision_model,
             decision_vault_key_id: cmd.decision_vault_key_id,
+            reasoning_effort: cmd.reasoning_effort,
             version: AggregateVersion::INITIAL,
         }])
     }
@@ -235,6 +251,30 @@ impl Command<UpdateAiConfig> for AiConfig {
             decision_vault_key_id.as_deref(),
             model_unchanged,
         )?;
+        // An omitted field keeps the stored choice (an older client); `Auto`
+        // is an explicit reset and arrives as a value, never as a missing field.
+        let reasoning_effort = cmd.reasoning_effort.unwrap_or(self.reasoning_effort);
+        // Catalogue-rotation safety, mirroring `model_unchanged`: only a CHANGED
+        // triple is re-validated, so a catalogue update can never brick an
+        // unrelated prompt-only edit of an existing configuration.
+        //
+        // The PROVIDER belongs in the comparison (review finding): a provider
+        // change with a fresh vault key is a legitimate update, and the same
+        // model id is answered by a different catalogue per provider — e.g.
+        // Neuralwatt accepts `minimal` for `glm-5.3` while OpenCode declares
+        // only `low|high`. Leaving the provider out skipped validation exactly
+        // when the accepted value set changes, so the worker would then send an
+        // undeclared level and pay a `400` on every import call.
+        let effort_unchanged = current_provider == cmd.provider
+            && reasoning_effort == self.reasoning_effort
+            && cmd.assistant_model == self.assistant_model;
+        if !effort_unchanged {
+            validate_reasoning_effort(
+                cmd.provider,
+                cmd.assistant_model.as_str(),
+                reasoning_effort,
+            )?;
+        }
         Ok(vec![AiConfigEvent::Updated {
             id: self.id,
             provider: cmd.provider,
@@ -246,6 +286,7 @@ impl Command<UpdateAiConfig> for AiConfig {
             decision_provider,
             decision_model,
             decision_vault_key_id,
+            reasoning_effort,
             version: self.version.next(),
         }])
     }
@@ -293,6 +334,30 @@ fn validate_fields(
         return Err(AiConfigError::EmptyPrompt);
     }
     Ok(())
+}
+
+/// Validate the requested `reasoning_effort` against the configured pair.
+///
+/// [`ReasoningEffortChoice::Auto`] is always valid — it defers to the curated
+/// profile of the pair and otherwise to the provider's own default, which is
+/// what every configuration written before this field existed did. An explicit
+/// level is refused while the error is cheap — at save time — rather than
+/// paying a `400` on every import call of that configuration.
+fn validate_reasoning_effort(
+    provider: LlmProvider,
+    assistant_model: &str,
+    choice: ReasoningEffortChoice,
+) -> Result<(), AiConfigError> {
+    // `Auto` carries no level, so there is nothing to check against the
+    // catalogue: the resolution happens at request-build time instead.
+    let Some(effort) = choice.effort() else {
+        return Ok(());
+    };
+    if supports_reasoning_effort(provider, assistant_model, effort) {
+        Ok(())
+    } else {
+        Err(AiConfigError::ReasoningEffortUnsupported)
+    }
 }
 
 /// Validate the optional Decision Model slot as a whole (issue #722): either

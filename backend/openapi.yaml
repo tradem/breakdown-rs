@@ -264,6 +264,12 @@ components:
           type: object
         provider:
           $ref: '#/components/schemas/LlmProvider'
+        reasoning_effort:
+          $ref: '#/components/schemas/ReasoningEffortChoice'
+          description: |-
+            The configured `reasoning_effort` for the assistant model (2026-11-20
+            investigation). `Auto` = no explicit level. Additive with `serde(default)`:
+            a view serialized before the field existed deserializes as `Auto`.
         revoked:
           type: boolean
         stored_prompt_kinds:
@@ -2116,6 +2122,13 @@ components:
           type: object
         provider:
           $ref: '#/components/schemas/LlmProvider'
+        reasoning_effort:
+          $ref: '#/components/schemas/ReasoningEffortChoice'
+          description: |-
+            Requested `reasoning_effort` for the assistant model (2026-11-20
+            investigation). `auto` = no explicit level. Only a pair that DECLARES the
+            parameter may name a level — the aggregate answers `422` otherwise, while
+            the mistake is still cheap.
         vault_key_id:
           type: string
       required:
@@ -3595,6 +3608,20 @@ components:
             their "first model" fallback for pre-flag deployments (CodeRabbit
             review, PR #489).
           type: boolean
+        supported_reasoning_efforts:
+          description: |-
+            Every `reasoning_effort` this model DECLARES, empty when it declares none
+            (2026-11-20 output-budget investigation).
+
+            Carried on the model list so a client can offer exactly the levels the
+            selected pair accepts instead of discovering a `400` at import time —
+            which is why the picker has to react to the model selection, not to one
+            global list. Additive with `serde(default)`: a backend that predates the
+            field (or a live provider catalogue we cannot read) yields an empty list,
+            i.e. "no choosable level", never a guessed one.
+          items:
+            $ref: '#/components/schemas/ReasoningEffort'
+          type: array
       required:
       - id
       - provider
@@ -4335,6 +4362,41 @@ components:
       - hold_deadline
       - chunks_done
       type: object
+    ReasoningEffort:
+      description: |-
+        Provider-side `reasoning_effort` a caller may request.
+
+        Deliberately a closed set with wire-stable names: a free-form string would let
+        a typo reach a provider that answers `400` on every call of that
+        configuration. The provider-specific extras (`max`, `xhigh`, `none`) are not
+        modelled — every use case here is *reducing* effort, and the common
+        denominator of the three catalogues is `low`/`medium`/`high`/`minimal`.
+      enum:
+      - minimal
+      - low
+      - medium
+      - high
+      type: string
+    ReasoningEffortChoice:
+      description: |-
+        What a configuration stores: an explicit level, or "let the system decide".
+
+        Deliberately a VALUE rather than `Option<ReasoningEffort>` (2026-11-20
+        investigation). The generated Dart client omits `null` fields, so a
+        nullable field can be set but never cleared from the app — the level would be
+        a one-way door. `Auto` travels as the string `"auto"` and therefore says
+        "no explicit level" unambiguously in both directions.
+
+        `Auto` means: the curated profile for this `(provider, model)` if one
+        applies, otherwise the provider's own default. It is spelled "Auto" rather
+        than "provider default" for exactly that reason.
+      enum:
+      - auto
+      - minimal
+      - low
+      - medium
+      - high
+      type: string
     RenameEpisodeRequest:
       properties:
         name:
@@ -5525,6 +5587,15 @@ components:
           type: object
         provider:
           $ref: '#/components/schemas/LlmProvider'
+        reasoning_effort:
+          oneOf:
+          - $ref: '#/components/schemas/ReasoningEffortChoice'
+            description: |-
+              Omitted keeps the stored choice (an older client), `auto` resets it to the
+              system default, a level replaces it. Deliberately not `Option<Option<..>>`:
+              the generated Dart client omits `null` fields, so a reset would be
+              unreachable from the app (2026-11-20 investigation).
+          - type: 'null'
         vault_key_id:
           type: string
         version:
@@ -11828,6 +11899,11 @@ x-code-registry:
   status: 422
   title: Decision model not curated for provider
   type: https://docs.breakdown.example/problems/ai-config.decision-model-unknown
+- code: ai-config.reasoning-effort-unsupported
+  extensions: []
+  status: 422
+  title: Reasoning effort not supported by this model
+  type: https://docs.breakdown.example/problems/ai-config.reasoning-effort-unsupported
 - code: ai-config.decision-vault-key-empty
   extensions: []
   status: 422

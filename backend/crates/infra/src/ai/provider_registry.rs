@@ -12,7 +12,7 @@
 //! when a provider is added or changed. Both the API provider listing and the
 //! provider-key parsing resolve from this registry.
 
-use breakdown_core::ai::{LlmProvider, ModelInfo};
+use breakdown_core::ai::{LlmProvider, ModelInfo, ReasoningEffort};
 
 /// Curated metadata for one LLM provider.
 #[derive(Debug, Clone, Copy)]
@@ -233,6 +233,9 @@ pub fn curated_decision_models(provider: LlmProvider) -> Vec<ModelInfo> {
             provider,
             recommended: false,
             pricing: None,
+            // A decision/image slot is not an extraction target: no effort is
+            // offered for it.
+            supported_reasoning_efforts: Vec::new(),
         })
         .collect()
 }
@@ -252,6 +255,9 @@ pub fn curated_image_models(provider: LlmProvider) -> Vec<ModelInfo> {
             provider,
             recommended: false,
             pricing: None,
+            // A decision/image slot is not an extraction target: no effort is
+            // offered for it.
+            supported_reasoning_efforts: Vec::new(),
         })
         .collect()
 }
@@ -267,6 +273,11 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
             provider,
             recommended: Some(*id) == recommended,
             pricing: None,
+            supported_reasoning_efforts: breakdown_core::ai::supported_reasoning_efforts(
+                provider, id,
+            )
+            .map(<[breakdown_core::ai::ReasoningEffort]>::to_vec)
+            .unwrap_or_default(),
         })
         .collect()
 }
@@ -298,11 +309,11 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
 /// - the ACCEPTED VALUES differ per model (`opencode/glm-5.3` accepts
 ///   `low|high|max`, no `medium`), which is why the configurable path validates
 ///   against a per-model set instead of one global list.
-pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<&'static str> {
+pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<ReasoningEffort> {
     match (provider, model) {
         // Measured 2026-11-20 (nightly run 44700866404): −85 % output tokens,
         // −82 % wall clock. The only pair whose saving is proven.
-        (LlmProvider::Neuralwatt, "glm-5.3-flash") => Some("low"),
+        (LlmProvider::Neuralwatt, "glm-5.3-flash") => Some(ReasoningEffort::Low),
         _ => None,
     }
 }
@@ -311,6 +322,58 @@ pub fn default_reasoning_effort(provider: LlmProvider, model: &str) -> Option<&'
 mod tests {
     use super::*;
 
+    /// The model list is what a client's effort picker reacts to, so it must
+    /// carry the per-model capability — otherwise the picker would offer a level
+    /// that the provider answers with `400`.
+    #[test]
+    fn the_curated_model_list_publishes_the_effort_capability() {
+        let flash = curated_models(LlmProvider::Neuralwatt)
+            .into_iter()
+            .find(|model| model.id == "glm-5.3-flash")
+            .expect("glm-5.3-flash is curated on Neuralwatt");
+        assert_eq!(
+            flash.supported_reasoning_efforts,
+            breakdown_core::ai::ReasoningEffort::ALL.to_vec()
+        );
+
+        // `mistral-large-3` declares no effort → the picker offers nothing, and
+        // the user cannot configure a value the provider would reject.
+        let large3 = curated_models(LlmProvider::EURouter)
+            .into_iter()
+            .find(|model| model.id == "mistral-large-3")
+            .expect("mistral-large-3 is still curated");
+        assert!(
+            large3.supported_reasoning_efforts.is_empty(),
+            "mistral-large-3 must offer no effort: {:?}",
+            large3.supported_reasoning_efforts
+        );
+
+        // A provider whose catalogue publishes nothing offers nothing at all.
+        assert!(
+            curated_models(LlmProvider::OpenAI)
+                .iter()
+                .all(|model| model.supported_reasoning_efforts.is_empty())
+        );
+    }
+
+    /// The forcing function behind "check every provider so nothing is
+    /// forgotten": Neuralwatt publishes `capabilities.reasoning_effort` for
+    /// EVERY model, so a newly curated Neuralwatt model must appear in core's
+    /// effort table too. Adding one to `curated_model_ids` without declaring its
+    /// efforts fails here instead of silently degrading that model to the
+    /// provider default.
+    #[test]
+    fn every_curated_neuralwatt_model_declares_its_reasoning_efforts() {
+        for model in curated_model_ids(LlmProvider::Neuralwatt) {
+            assert!(
+                breakdown_core::ai::supported_reasoning_efforts(LlmProvider::Neuralwatt, model)
+                    .is_some(),
+                "{model} is curated on Neuralwatt but missing from \
+                 core::ai::supported_reasoning_efforts"
+            );
+        }
+    }
+
     /// Only a CURATED pair may carry a pinned effort: a typo'd or rotated-out
     /// model id would silently pin nothing, and a model nobody curates is not a
     /// model the API can produce.
@@ -318,7 +381,7 @@ mod tests {
     fn pinned_reasoning_efforts_name_curated_models_only() {
         assert_eq!(
             default_reasoning_effort(LlmProvider::Neuralwatt, "glm-5.3-flash"),
-            Some("low")
+            Some(ReasoningEffort::Low)
         );
         assert!(
             curated_model_ids(LlmProvider::Neuralwatt).contains(&"glm-5.3-flash"),

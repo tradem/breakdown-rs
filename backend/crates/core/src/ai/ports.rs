@@ -20,6 +20,7 @@ mod ports_tests;
 
 use crate::error::DomainError;
 
+use super::reasoning::ReasoningEffort;
 use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::apply_run::{ApplyRunRequest, ClaimedApplyRun};
@@ -164,6 +165,17 @@ pub struct ModelInfo {
     /// `serde(default)` on the wire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pricing: Option<ModelPricing>,
+    /// Every `reasoning_effort` this model DECLARES, empty when it declares none
+    /// (2026-11-20 output-budget investigation).
+    ///
+    /// Carried on the model list so a client can offer exactly the levels the
+    /// selected pair accepts instead of discovering a `400` at import time —
+    /// which is why the picker has to react to the model selection, not to one
+    /// global list. Additive with `serde(default)`: a backend that predates the
+    /// field (or a live provider catalogue we cannot read) yields an empty list,
+    /// i.e. "no choosable level", never a guessed one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported_reasoning_efforts: Vec<ReasoningEffort>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

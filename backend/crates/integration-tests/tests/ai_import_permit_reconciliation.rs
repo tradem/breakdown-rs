@@ -192,6 +192,7 @@ fn schedule_worker(
         provider: LlmProvider::Neuralwatt,
         model: "unused".to_owned(),
         prompt: "unused".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,

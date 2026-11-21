@@ -7,6 +7,7 @@
 
 use breakdown_core::ai::{
     AiConfigRepository, AiConfigView, CostDisplayPreference, DocumentKind, LlmProvider,
+    ReasoningEffort, ReasoningEffortChoice,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::error_registry::AI_CONFIG_NOT_FOUND;
@@ -26,6 +27,9 @@ pub struct AiWorkerConfig {
     pub model: String,
     pub prompt: String,
     pub vault_key_id: String,
+    /// Configured `reasoning_effort` (2026-11-20 investigation). `Auto` = no
+    /// explicit level: the curated profile (if any), else the provider default.
+    pub reasoning_effort: ReasoningEffortChoice,
     /// Optional Decision Model slot (issue #722). `None` = no scoring pass.
     pub decision: Option<AiWorkerDecisionConfig>,
 }
@@ -67,6 +71,7 @@ impl AiConfigRepositoryImpl {
         let row = sqlx::query(
             r#"
             SELECT id, provider, assistant_model, prompts, vault_key_id,
+                   reasoning_effort,
                    decision_provider, decision_model, decision_vault_key_id
             FROM ai_import.projection_ai_config
             WHERE user_id = $1 AND revoked = FALSE
@@ -131,6 +136,10 @@ impl AiConfigRepositoryImpl {
             model: row.try_get("assistant_model").map_err(map_sqlx_error)?,
             prompt,
             vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
+            reasoning_effort: parse_optional_reasoning_effort(
+                row.try_get::<Option<String>, _>("reasoning_effort")
+                    .map_err(map_sqlx_error)?,
+            ),
             decision,
         }))
     }
@@ -144,6 +153,7 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             SELECT id, user_id, provider, assistant_model, image_model,
                    prompts, vault_key_id, cost_display_preference,
                    decision_provider, decision_model, decision_vault_key_id,
+                   reasoning_effort,
                    revoked, version
             FROM ai_import.projection_ai_config
             WHERE id = $1
@@ -181,6 +191,7 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             SELECT id, user_id, provider, assistant_model, image_model,
                    prompts, vault_key_id, cost_display_preference,
                    decision_provider, decision_model, decision_vault_key_id,
+                   reasoning_effort,
                    revoked, version
             FROM ai_import.projection_ai_config
             WHERE user_id = $1
@@ -249,6 +260,10 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
         decision_vault_key_id: row
             .try_get::<Option<String>, _>("decision_vault_key_id")
             .map_err(map_sqlx_error)?,
+        reasoning_effort: parse_optional_reasoning_effort(
+            row.try_get::<Option<String>, _>("reasoning_effort")
+                .map_err(map_sqlx_error)?,
+        ),
         version: {
             let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
             if raw < 0 {
@@ -308,6 +323,26 @@ fn parse_cost_display_preference(value: String) -> CostDisplayPreference {
         "energy" => CostDisplayPreference::Energy,
         _ => CostDisplayPreference::Token,
     }
+}
+
+/// Parse the `reasoning_effort` projection column (2026-11-20 investigation).
+///
+/// `NULL` is the meaningful default — "send no field", the provider's own
+/// effort — and maps to `None`. An unknown string is treated the same way
+/// instead of failing the read: the value is validated at save time, so a
+/// legacy or hand-edited row must not 500 a config fetch, and falling back to
+/// "provider default" is the behaviour every configuration had before the
+/// column existed.
+fn parse_optional_reasoning_effort(value: Option<String>) -> ReasoningEffortChoice {
+    let Some(raw) = value else {
+        return ReasoningEffortChoice::Auto;
+    };
+    let normalized = raw.trim().to_ascii_lowercase();
+    ReasoningEffort::ALL
+        .into_iter()
+        .find(|effort| effort.as_str() == normalized)
+        .map(ReasoningEffortChoice::from)
+        .unwrap_or(ReasoningEffortChoice::Auto)
 }
 
 /// Deserialize the `prompts` JSONB column and return the prompt for `kind`.
