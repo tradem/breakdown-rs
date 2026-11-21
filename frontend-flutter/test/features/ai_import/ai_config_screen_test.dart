@@ -3065,14 +3065,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // No RenderFlex overflow was reported while laying the bar out.
-      // TEMP-DEBUG
-      debugPrint('STAGE 0 exception: ${tester.takeException()}');
-      for (final e in find.byType(DropdownButtonFormField<Object>).evaluate()) {
-        debugPrint('DROPDOWN: ${e.widget}');
-      }
-      debugPrint(
-        'DROPDOWNS(any): ${find.byType(DropdownButtonFormField<dynamic>).evaluate().length}',
-      );
+      // `takeException` CLEARS the pending exception, so it is read exactly
+      // once — an earlier debug read made this assertion vacuous (CodeRabbit
+      // review, PR #951).
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('ai-config-unsaved-label')), findsOneWidget);
 

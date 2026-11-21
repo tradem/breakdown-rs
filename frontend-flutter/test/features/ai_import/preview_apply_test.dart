@@ -1289,6 +1289,11 @@ void main() {
       /// Answers the job's block anchor — the precondition of every episode
       /// creation (`ensureGroupEpisodeResolved` refuses without a block).
       bool withJobBlockAnchor = false,
+
+      /// `true` makes the POST-APPLY navigation read fail (CodeRabbit review,
+      /// PR #951): the apply succeeded, so the outcome must survive a throwing
+      /// navigation path instead of being reported as a dispatch failure.
+      bool postImportReadFails = false,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
@@ -1372,6 +1377,15 @@ void main() {
             }
             return alreadyImported;
           }),
+          if (postImportReadFails)
+            // `resolvePostImportTarget`'s FIRST read once the apply answered —
+            // a throw here is the navigation failure, never the apply's.
+            aiJobAppliedEpisodesProvider('job-1').overrideWith((ref) {
+              final Future<List<AppliedEpisode>> failed = Future.error(
+                StateError('applied-episode summary unreadable'),
+              );
+              return failed;
+            }),
           // The preview + apply screens render the configured naming line
           // (issue #608) — a deterministic override keeps the tests off
           // the real discovery path and the goldens stable.
@@ -1563,6 +1577,36 @@ void main() {
           of: find.byKey(const Key('ai-apply-submit')),
           matching: find.byType(CircularProgressIndicator),
         ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a successful apply keeps its outcome when the POST-APPLY '
+        'navigation throws (CodeRabbit review, PR #951)', (tester) async {
+      await setupContainer(
+        applyQueue: [Right(_outcome())],
+        // The navigation path's own read fails: the apply itself succeeded.
+        postImportReadFails: true,
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+
+      // The IMPORT completed, so its outcome stays on screen…
+      expect(
+        find.byKey(const Key('ai-apply-outcome')),
+        findsOneWidget,
+        reason: 'a navigation failure must not delete a completed apply',
+      );
+      // …and the navigation failure is NOT dressed up as a dispatch failure
+      // (`reportDispatchFailure` clears the outcome and claims the import's
+      // fate is unknown).
+      expect(find.byKey(const Key('ai-apply-error')), findsNothing);
+      expect(
+        find.textContaining('ai_import.apply_dispatch_failed'),
         findsNothing,
       );
     });
@@ -4261,6 +4305,92 @@ void main() {
       expect(state.context?.episodeId, 'ep-294');
       expect(state.context?.blockId, 'job-block');
       expect(state.hasCompleteGroupTargets, isTrue);
+    });
+
+    test('adoptCreatedEpisode does NOT overwrite a target the reviewer '
+        'changed while that group was being resolved (CodeRabbit review, '
+        'PR #951: the per-group "Ziel ändern" button stays enabled during '
+        'the bulk resolution)', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+      // The target the resolution STARTED from — the seeded create default,
+      // which `targetFor` re-DERIVES on every read (hence value equality).
+      final resolving = controller().state.targetFor('ep:294');
+      expect(resolving, isA<CreateEpisodeGroupTarget>());
+
+      // The reviewer re-points the group mid-flight.
+      controller().setGroupTarget(
+        'ep:294',
+        const ExistingEpisodeGroupTarget(episodeId: 'picked-ep', label: '294'),
+      );
+
+      final adopted = controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+        onlyIfCurrentTarget: resolving,
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(adopted, isFalse, reason: 'the write is skipped, not applied');
+      expect(
+        (state.targetFor('ep:294') as ExistingEpisodeGroupTarget).episodeId,
+        'picked-ep',
+        reason: 'the reviewer\'s pick wins over the resolution it superseded',
+      );
+      expect(
+        state.context?.episodeId,
+        'other-ep',
+        reason: 'a skipped adoption must not move the apply context either',
+      );
+    });
+
+    test('adoptCreatedEpisode writes when the group still carries the target '
+        'the resolution started from (CodeRabbit review, PR #951)', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+
+      final adopted = controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+        // The seeded default, re-derived by value — an unchanged group.
+        onlyIfCurrentTarget: controller().state.targetFor('ep:294'),
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(adopted, isTrue);
+      expect(
+        (state.targetFor('ep:294') as ExistingEpisodeGroupTarget).episodeId,
+        'ep-294',
+      );
+      expect(state.context?.episodeId, 'ep-294');
     });
 
     test('adoptCreatedEpisode clears a stale resolution error (CodeRabbit '

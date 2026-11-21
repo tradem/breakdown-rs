@@ -298,6 +298,20 @@ class CreateEpisodeGroupTarget extends EpisodeGroupTarget {
 
   /// The heading's title, kept verbatim; nullable on the wire.
   final String? name;
+
+  /// VALUE equality, not identity: [AiApplyState.targetFor] DERIVES a fresh
+  /// instance for every group still on its seeded create default, so "is this
+  /// the very target the resolution started from?" — the guard that keeps an
+  /// in-flight resolution from overwriting a pick the reviewer changed
+  /// (`adoptCreatedEpisode`) — can only be answered by value.
+  @override
+  bool operator ==(Object other) =>
+      other is CreateEpisodeGroupTarget &&
+      other.number == number &&
+      other.name == name;
+
+  @override
+  int get hashCode => Object.hash(number, name);
 }
 
 /// Apply the group to the EXISTING episode the reviewer picked (id from the
@@ -309,6 +323,16 @@ class ExistingEpisodeGroupTarget extends EpisodeGroupTarget {
 
   /// Human-readable label captured at pick time (never re-derived).
   final String? label;
+
+  /// Value equality on the identity that matters ([episodeId]); [label] is
+  /// display-only. See [CreateEpisodeGroupTarget.==] for WHY targets compare
+  /// by value.
+  @override
+  bool operator ==(Object other) =>
+      other is ExistingEpisodeGroupTarget && other.episodeId == episodeId;
+
+  @override
+  int get hashCode => episodeId.hashCode;
 }
 
 /// Mirrors `breakdown_core::ai::DraftEpisode::group_key` BYTE-FOR-BYTE:
@@ -1248,13 +1272,27 @@ class AiApplyController extends _$AiApplyController {
   /// the apply's cross-block IDOR guard passes even when the remembered
   /// context episode belonged to another block (or was missing entirely —
   /// the job's block had zero episodes, making apply unreachable before).
-  void adoptCreatedEpisode(
+  ///
+  /// [onlyIfCurrentTarget] makes the write CONDITIONAL: when the group no
+  /// longer carries that very target the adoption is skipped and `false` is
+  /// returned (CodeRabbit review). A resolution AWAITS the block reads and the
+  /// create POST while the per-group "Ziel ändern" button stays enabled — only
+  /// the one-tap trigger is disabled — so a pick the reviewer made in the
+  /// meantime must not be replaced by the resolution it superseded.
+  ///
+  /// Returns whether the adoption was written.
+  bool adoptCreatedEpisode(
     String groupRef, {
     required String episodeId,
     required int number,
     required String projectId,
     String? label,
+    EpisodeGroupTarget? onlyIfCurrentTarget,
   }) {
+    if (onlyIfCurrentTarget != null &&
+        state.targetFor(groupRef) != onlyIfCurrentTarget) {
+      return false;
+    }
     final nextTargets = {
       ...state.groupTargets,
       groupRef: ExistingEpisodeGroupTarget(
@@ -1302,6 +1340,7 @@ class AiApplyController extends _$AiApplyController {
       commandError: keepError ? error : null,
       groupTargets: nextTargets,
     );
+    return true;
   }
 
   /// Records the reviewer's target for one episode group (existing episode
@@ -1881,6 +1920,45 @@ String groupTargetSummaryLine(
   );
 }
 
+/// How one [ensureGroupEpisodeResolved] attempt ended.
+enum GroupResolution {
+  /// The group now points at an existing episode (adopted, or created right
+  /// here and adopted).
+  resolved,
+
+  /// Nothing was adopted — offline, missing block anchor, incomplete target or
+  /// a number that lives in another block. The caller explains it.
+  failed,
+
+  /// The reviewer re-pointed this group while the resolution was in flight, so
+  /// the result was DROPPED instead of written over their pick. Neither a
+  /// failure nor a resolution: the reviewer's own attempt settles the group.
+  superseded,
+}
+
+/// Adopts [episodeId] for [groupRef] UNLESS the reviewer re-pointed that group
+/// while the resolution was in flight — then their pick wins and nothing is
+/// written (see [AiApplyController.adoptCreatedEpisode]).
+GroupResolution _adoptResolvedEpisode(
+  AiApplyController controller,
+  String groupRef,
+  CreateEpisodeGroupTarget target, {
+  required String episodeId,
+  required int number,
+  required String projectId,
+  String? label,
+}) =>
+    controller.adoptCreatedEpisode(
+      groupRef,
+      episodeId: episodeId,
+      number: number,
+      projectId: projectId,
+      label: label,
+      onlyIfCurrentTarget: target,
+    )
+    ? GroupResolution.resolved
+    : GroupResolution.superseded;
+
 /// Ensures the episode behind [target] EXISTS and the group adopts it — the
 /// in-preview creation (user report 2026-10-19, the 294.pdf empty-picker
 /// flow): an existing project episode with the target's number is adopted,
@@ -1890,21 +1968,22 @@ String groupTargetSummaryLine(
 /// `episode_id` — before this, a block with zero episodes made apply
 /// unreachable (empty picker + create-at-apply requiring a context episode).
 ///
-/// Returns `true` when the group now resolves. Any failure (offline, 409
-/// the recovery can settle, missing block info) returns `false` and leaves
-/// the reviewer's state untouched — the backend 409 recovery stays the
-/// backstop. Called from the preview seeding AND from the "Ziel ändern"
-/// sheet's create branch.
-Future<bool> ensureGroupEpisodeResolved(
+/// Answers [GroupResolution]: `failed` on any failure (offline, a 409 the
+/// recovery can settle, missing block info), which leaves the reviewer's state
+/// untouched — the backend 409 recovery stays the backstop — and `superseded`
+/// when the reviewer re-pointed the group while its resolution was in flight.
+/// Called from the preview seeding, the "Ziel ändern" sheet's create branch and
+/// the one-tap [resolveAllCreateGroups].
+Future<GroupResolution> ensureGroupEpisodeResolved(
   WidgetRef ref,
   String jobId,
   String groupRef,
   CreateEpisodeGroupTarget target,
 ) async {
   final number = target.number;
-  if (number == null) return false;
+  if (number == null) return GroupResolution.failed;
   final blockInfo = await ref.read(aiJobBlockInfoProvider(jobId).future);
-  if (blockInfo == null) return false;
+  if (blockInfo == null) return GroupResolution.failed;
   var projectId = blockInfo.projectId;
   if (projectId.isEmpty) {
     // No remembered project: the block carries it. Repository seam (Result —
@@ -1915,7 +1994,7 @@ Future<bool> ensureGroupEpisodeResolved(
         .blockById(blockInfo.blockId);
     projectId = block.fold((_) => '', (b) => b.projectId);
   }
-  if (projectId.isEmpty) return false;
+  if (projectId.isEmpty) return GroupResolution.failed;
   final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
 
   // An episode with the number may already exist (created by an earlier
@@ -1937,14 +2016,15 @@ Future<bool> ensureGroupEpisodeResolved(
       .toList();
   if (inJobBlock.isNotEmpty) {
     final episode = inJobBlock.first;
-    controller.adoptCreatedEpisode(
+    return _adoptResolvedEpisode(
+      controller,
       groupRef,
+      target,
       episodeId: episode.id,
       number: number,
       projectId: projectId,
       label: target.name == null ? '$number' : '$number \u00b7 ${target.name}',
     );
-    return true;
   }
   final elsewhere = rows.where((episode) => episode.number == number).toList();
   if (elsewhere.isNotEmpty) {
@@ -1965,7 +2045,7 @@ Future<bool> ensureGroupEpisodeResolved(
         },
       ),
     );
-    return false;
+    return GroupResolution.failed;
   }
 
   final created = await ref
@@ -1979,15 +2059,19 @@ Future<bool> ensureGroupEpisodeResolved(
             ..name = target.name,
         ),
       );
-  return created.match((_) => false, (idVersion) {
-    controller.adoptCreatedEpisode(
+  return created.match((_) => GroupResolution.failed, (idVersion) {
+    // The episode EXISTS now (the POST landed) even when the write is skipped:
+    // the reviewer re-pointed the group mid-flight, so the group keeps THEIR
+    // target and the created episode simply stays unassigned.
+    return _adoptResolvedEpisode(
+      controller,
       groupRef,
+      target,
       episodeId: idVersion.id,
       number: number,
       projectId: projectId,
       label: target.name == null ? '$number' : '$number \u00b7 ${target.name}',
     );
-    return true;
   });
 }
 
@@ -2007,20 +2091,32 @@ Future<bool> ensureGroupEpisodeResolved(
 /// refusal is never papered over by silently creating the remaining episodes.
 /// Returns how many groups ended up resolved.
 Future<int> resolveAllCreateGroups(WidgetRef ref, String jobId) async {
-  final state = ref.read(aiApplyControllerProvider(jobId));
+  final groupRefs = ref
+      .read(aiApplyControllerProvider(jobId))
+      .creatableGroupRefs;
   var resolved = 0;
-  for (final groupRef in state.creatableGroupRefs) {
+  for (final groupRef in groupRefs) {
+    // Read the CURRENT state per iteration instead of a snapshot taken before
+    // the loop (CodeRabbit review): every resolution AWAITS the block reads and
+    // the create POST, and the per-group "Ziel ändern" button stays enabled the
+    // whole time — only the one-tap trigger is disabled. A group the reviewer
+    // re-pointed meanwhile is no longer a create target and must not be
+    // resolved; a pick changed for the group being resolved is caught by the
+    // adoption's own guard (`superseded`).
+    final state = ref.read(aiApplyControllerProvider(jobId));
     final target = state.targetFor(groupRef);
     if (target is! CreateEpisodeGroupTarget) continue;
-    final errorBefore = ref.read(aiApplyControllerProvider(jobId)).commandError;
-    bool ok;
+    final errorBefore = state.commandError;
+    GroupResolution outcome;
     try {
-      ok = await ensureGroupEpisodeResolved(ref, jobId, groupRef, target);
+      outcome = await ensureGroupEpisodeResolved(ref, jobId, groupRef, target);
     } on Object {
-      ok = false;
+      outcome = GroupResolution.failed;
     }
-    if (ok) {
-      resolved++;
+    if (outcome != GroupResolution.failed) {
+      // `superseded`: the reviewer's own pick settles the group — nothing to
+      // report, and definitely not a failure.
+      if (outcome == GroupResolution.resolved) resolved++;
       continue;
     }
     final surfaced = ref.read(aiApplyControllerProvider(jobId)).commandError;

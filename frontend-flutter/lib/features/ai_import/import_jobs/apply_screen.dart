@@ -217,12 +217,15 @@ Future<void> showGroupTargetSheet(
       // command error instead so the reviewer sees WHY apply stays disabled.
       bool resolved = false;
       try {
-        resolved = await ensureGroupEpisodeResolved(
+        final outcome = await ensureGroupEpisodeResolved(
           ref,
           jobId,
           groupRef,
           result,
         );
+        // `superseded`: the reviewer re-pointed this group while the create
+        // was in flight — their pick wins and nothing failed.
+        resolved = outcome != GroupResolution.failed;
       } on Object {
         resolved = false;
       }
@@ -474,7 +477,24 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
       // must not route a disposed section into the imported material (the
       // navigation reads `ref`, which throws after dispose).
       if (!mounted) return;
-      await _openImportedEpisode(response);
+      // Reaching the material is a SEPARATE path from the dispatch (CodeRabbit
+      // review): `_openImportedEpisode` reads the Drift caches, and a cache read
+      // can throw. Letting that reach the outer handler would call
+      // `reportDispatchFailure`, which CLEARS the successful outcome and turns a
+      // completed import into "the dispatch failed, outcome unknown". The apply
+      // is what succeeded here, so the outcome stays and only the navigation is
+      // reported as unresolved (the same honest state a target the caches cannot
+      // resolve already produces).
+      try {
+        await _openImportedEpisode(response);
+      } on Object catch (error, stackTrace) {
+        debugPrint(
+          '[ai-import] opening the imported episode failed for job '
+          '${widget.jobId}: $error\n'
+          '$stackTrace',
+        );
+        if (mounted) setState(() => _navigationUnresolved = true);
+      }
     } on Object catch (error, stackTrace) {
       // The one failure mode this tap must never have (beta.59 report: two
       // script previews, every box checked, the button ENABLED and the tap
