@@ -2369,6 +2369,12 @@ abstract class AppLocalizations {
   /// **'Das Anwenden ist fehlgeschlagen ({code}).'**
   String aiApplyErrorGeneric(Object code);
 
+  /// No description provided for @aiApplyErrorDispatchFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Anwenden konnte nicht gestartet werden ({code}). Ob etwas übernommen wurde, ist unbekannt – prüfe zuerst die betroffene Episode, bevor du es erneut versuchst.'**
+  String aiApplyErrorDispatchFailed(Object code);
+
   /// No description provided for @aiApplyErrorApplyBlocked.
   ///
   /// In de, this message translates to:

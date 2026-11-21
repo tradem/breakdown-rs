@@ -460,6 +460,7 @@
   "aiApplyErrorContextMissing": "Wähle zuerst die Zielepisode aus.",
   "aiApplyErrorNetwork": "Netzwerkproblem – das Anwenden wurde möglicherweise nicht abgeschlossen. Prüfe zuerst die betroffene Episode, bevor du es erneut versuchst.",
   "aiApplyErrorGeneric": "Das Anwenden ist fehlgeschlagen ({code}).",
+  "aiApplyErrorDispatchFailed": "Das Anwenden konnte nicht gestartet werden ({code}). Ob etwas übernommen wurde, ist unbekannt – prüfe zuerst die betroffene Episode, bevor du es erneut versuchst.",
   "aiApplyErrorApplyBlocked": "Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.",
   "aiApplyErrorApplyInFlight": "Für diese Vorschau läuft bereits eine Übernahme. Verfolge deren Fortschritt – ein zweiter Start ist erst danach möglich.",
   "aiApplyInFlightLive": "Für diese Vorschau übernimmt gerade ein Lauf (letzte Meldung {age}).",

@@ -23,6 +23,44 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **An apply that cannot run now says why instead of doing nothing**
+  (`0.4.0-beta.60+152 → 0.4.0-beta.61+153`). Reported from the preview screen of
+  two script imports (`292.pdf`, `293.pdf`): the preview rendered its rows, the
+  apply card listed its questions, every checkbox including "Ich habe den
+  KI-extrahierten Inhalt geprüft" was set — so the submit button **was**
+  enabled — and tapping it did nothing at all: no spinner, no message, no
+  navigation, on both documents.
+  - **The gate could throw, and a throw was invisible.** `apply()` awaits the
+    AUTHZ mirror (`aiApplyStreamGateProvider`) before its first network call.
+    That provider promised "pending, never a denial" but only spelled it for a
+    `Left` Result: its two unguarded reads (`aiJobBlockInfoProvider`'s cached
+    row and the Drift `readById`) escaped as an ERROR. The button's async
+    `onPressed` swallows it, and because `setState(_applying = true)` and the
+    `finally` reset land in the same turn, **not even the button spinner reaches
+    the screen** — an enabled control that provably does nothing.
+  - **Both gate providers are total now.** An unreadable scope is `null`
+    (= `membership.pending`, the documented D3 answer), the dispatch-path read
+    and the reconciliation's `gate:` callback treat an unreadable gate as
+    unknown (the request proceeds, the server stays authoritative), and the
+    dispatch itself can no longer throw out of the controller.
+  - **A residual fault is surfaced, never discarded.** `_dispatchApply` wraps
+    the whole dispatch (confirmation dialog included) and turns an unexpected
+    exception into the code-keyed narrative
+    `ai_import.apply_dispatch_failed` — "Das Anwenden konnte nicht gestartet
+    werden (…). Ob etwas übernommen wurde, ist unbekannt – prüfe zuerst die
+    betroffene Episode …" — plus a `[ai-import] apply dispatch failed` log line
+    with the stack trace, in both locales.
+  - **Three tests pin the class of bug**, each failing on the previous code: a
+    throwing dispatch renders the narrative and re-enables the button, an
+    erroring season-scope read is pending instead of an exception, and an
+    unreadable block-info read resolves the scope to `null`. That last one runs
+    the provider's real body, which the previous suite always overrode.
+  - **Honest limit:** the on-device trigger could not be identified from the
+    report alone (a failing scope read is the mechanism that matches every
+    observed symptom). The fix removes the silent class and, for anything that
+    still throws, the next build names the cause in the card instead of staying
+    quiet.
+
 - **A rejected save says what to change instead of only that it failed**
   (`0.4.0-beta.59+151 → 0.4.0-beta.60+152`). Reported from a Neuralwatt
   configuration: switching the provider to one that does not curate the stored

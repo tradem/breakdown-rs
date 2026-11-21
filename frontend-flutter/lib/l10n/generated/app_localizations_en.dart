@@ -1460,6 +1460,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String aiApplyErrorDispatchFailed(Object code) {
+    return 'The apply could not be started ($code). Whether anything was imported is unknown — check the affected episode before retrying.';
+  }
+
+  @override
   String get aiApplyErrorApplyBlocked =>
       'The preview still carries unresolved review questions — confirm them below to apply.';
 

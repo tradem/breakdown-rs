@@ -1478,6 +1478,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String aiApplyErrorDispatchFailed(Object code) {
+    return 'Das Anwenden konnte nicht gestartet werden ($code). Ob etwas übernommen wurde, ist unbekannt – prüfe zuerst die betroffene Episode, bevor du es erneut versuchst.';
+  }
+
+  @override
   String get aiApplyErrorApplyBlocked =>
       'Der Vorschau sind noch ungelöste Prüffragen zugeordnet – bestätige sie unten, um anzuwenden.';
 

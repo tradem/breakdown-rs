@@ -448,13 +448,13 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     required bool confirmBeforeApply,
   }) async {
     if (_applying) return;
-    if (confirmBeforeApply &&
-        !await _confirmReapply(knownApplied: knownApplied)) {
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _applying = true);
     try {
+      if (confirmBeforeApply &&
+          !await _confirmReapply(knownApplied: knownApplied)) {
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _applying = true);
       final applied = await ref
           .read(aiApplyControllerProvider(widget.jobId).notifier)
           .apply();
@@ -471,6 +471,27 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
       // navigation reads `ref`, which throws after dispose).
       if (!mounted) return;
       await _openImportedEpisode(response);
+    } on Object catch (error, stackTrace) {
+      // The one failure mode this tap must never have (beta.59 report: two
+      // script previews, every box checked, the button ENABLED and the tap
+      // did nothing at all). An exception thrown here is swallowed by the
+      // async `onPressed` callback, and because `setState(_applying = true)`
+      // and the `finally` reset land in the same turn, not even a spinner
+      // reaches the screen. So it becomes a surfaced, code-keyed narrative
+      // (`ai_import.apply_dispatch_failed`) plus a log line for the report.
+      debugPrint(
+        '[ai-import] apply dispatch failed for job ${widget.jobId}: $error\n'
+        '$stackTrace',
+      );
+      if (!mounted) return;
+      ref
+          .read(aiApplyControllerProvider(widget.jobId).notifier)
+          .reportDispatchFailure(
+            ProblemError(
+              code: 'ai_import.apply_dispatch_failed',
+              detail: '$error',
+            ),
+          );
     } finally {
       if (mounted) setState(() => _applying = false);
     }

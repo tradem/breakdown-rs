@@ -145,18 +145,41 @@ Stream<AiApplyRunState> aiApplyRun(Ref ref, String jobId) async* {
 /// means the scope could not be resolved (no block on the job, or the block is
 /// neither cached nor readable) — the gate then stays PENDING, which disables
 /// the watch instead of denying it.
+///
+/// **Totality is part of that contract.** The function used to spell the
+/// pending answer only for a `Left` Result, while the two reads above it
+/// (`aiJobBlockInfoProvider`'s cached-row read and the Drift `readById`) can
+/// throw: an unreadable cache then escaped this provider as an ERROR, and every
+/// consumer of the gate reads a `.future` — `apply()` awaits it before the
+/// first network call. A throw there is swallowed by the button's async
+/// callback in a single turn (both `setState`s land before the next frame), so
+/// the reviewer saw an ENABLED submit button that provably did nothing: no
+/// spinner, no error, no navigation. An unreadable scope is `null` (pending),
+/// exactly as documented — never an exception.
 @riverpod
 Future<String?> aiApplyJobSeasonId(Ref ref, String jobId) async {
-  final info = await ref.watch(aiJobBlockInfoProvider(jobId).future);
-  final blockId = info?.blockId;
-  if (blockId == null || blockId.isEmpty) return null;
-  final cached = await BlockCacheDao(ref.watch(cacheDatabaseProvider))
-      .readById(blockId);
-  if (cached != null) return cached.seasonId;
-  // Cold cache / offline: the single-block read is the only remaining source
-  // for the season. A failed read answers `null` — pending, never a denial.
-  final fetched = await ref.watch(episodeRepositoryProvider).blockById(blockId);
-  return fetched.fold((_) => null, (block) => block.seasonId);
+  try {
+    final info = await ref.watch(aiJobBlockInfoProvider(jobId).future);
+    final blockId = info?.blockId;
+    if (blockId == null || blockId.isEmpty) return null;
+    final cached = await BlockCacheDao(ref.watch(cacheDatabaseProvider))
+        .readById(blockId);
+    if (cached != null) return cached.seasonId;
+    // Cold cache / offline: the single-block read is the only remaining source
+    // for the season. A failed read answers `null` — pending, never a denial.
+    final fetched = await ref
+        .watch(episodeRepositoryProvider)
+        .blockById(blockId);
+    final resolved = fetched.fold<String?>(
+      (_) => null,
+      (block) => block.seasonId,
+    );
+    return resolved;
+  } on Object {
+    // An unreadable scope (a failing job-row read, a locked/corrupt Drift read,
+    // a transport throw outside a Result): still pending, never a denial.
+    return null;
+  }
 }
 
 /// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
@@ -167,9 +190,19 @@ Future<String?> aiApplyJobSeasonId(Ref ref, String jobId) async {
 /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
 /// uses. A failed or still-pending membership read stays `membership.pending`
 /// (disabled with the waiting line, never the 403 narrative — D3).
+///
+/// **The gate never throws**, for the same reason [aiApplyJobSeasonId] never
+/// does: it is awaited on the dispatch path (`apply()`, the reconciliation's
+/// `gate:` callback and the progress stream), and an escaping error there is
+/// invisible to the reviewer (see that provider's doc comment).
 @riverpod
 Future<ProblemError?> aiApplyStreamGate(Ref ref, String jobId) async {
-  final seasonId = await ref.watch(aiApplyJobSeasonIdProvider(jobId).future);
+  final String? seasonId;
+  try {
+    seasonId = await ref.watch(aiApplyJobSeasonIdProvider(jobId).future);
+  } on Object {
+    return const ProblemError(code: 'membership.pending');
+  }
   if (seasonId == null) {
     return const ProblemError(code: 'membership.pending');
   }
@@ -1320,6 +1353,22 @@ class AiApplyController extends _$AiApplyController {
     state = state.copyWith(commandError: null);
   }
 
+  /// Surfaces a dispatch failure the flow could not express as a [Result] — an
+  /// exception escaping [apply] (the gate chain, the reconciliation, a
+  /// transported throw the repository did not wrap) or a screen-level fault
+  /// before the first request.
+  ///
+  /// The section renders it code-keyed like every other apply failure. Without
+  /// this slot the exception is swallowed by the button's async callback: both
+  /// `setState`s of `_applying` land in the same turn, so no frame shows the
+  /// spinner, and the reviewer is left with an ENABLED button that provably does
+  /// nothing — no spinner, no narrative, no navigation (the beta.59 report).
+  /// Surfaced, never discarded (AGENTS.md §4).
+  void reportDispatchFailure(ProblemError error) {
+    if (!ref.mounted) return;
+    state = state.copyWith(outcome: null, commandError: error);
+  }
+
   /// Re-anchors a stored blocked-run notice because the owning run published
   /// again (issue #805 review).
   ///
@@ -1438,7 +1487,16 @@ class AiApplyController extends _$AiApplyController {
     // a `ref.read` in the continuation would throw `UnmountedRefException` and
     // fail the apply before it dispatches (review of #899).
     final scheduler = ref.read(reconciliationSchedulerProvider);
-    final denial = await ref.read(aiApplyStreamGateProvider(jobId).future);
+    ProblemError? denial;
+    try {
+      denial = await ref.read(aiApplyStreamGateProvider(jobId).future);
+    } on Object {
+      // An UNREADABLE gate is unknown, not a denial (D3 / AGENTS.md §1): the
+      // dispatch proceeds and the server stays authoritative. Rethrowing here
+      // was one way an enabled submit button did nothing at all — the exception
+      // leaves this method before the UI ever renders `_applying`.
+      denial = null;
+    }
     // Only a **resolved** denial blocks the dispatch. `membership.pending` is
     // "not resolved yet" (cold cache, offline, a season scope that did not
     // load), and refusing on it would hide the server's own answer behind a
@@ -1470,7 +1528,14 @@ class AiApplyController extends _$AiApplyController {
         if (!ref.mounted) {
           return const ProblemError(code: 'ai_import.apply_unmounted');
         }
-        return ref.read(aiApplyStreamGateProvider(jobId).future);
+        try {
+          return await ref.read(aiApplyStreamGateProvider(jobId).future);
+        } on Object {
+          // Same rule as the dispatch-path read above: an unreadable gate is
+          // `membership.pending`, which the reconciliation lets through — it
+          // must never throw out of this callback.
+          return const ProblemError(code: 'membership.pending');
+        }
       },
       // A retry is a NEW server-side run: the first run's end frame has
       // already closed the card's subscription, so re-arm it instead of
@@ -1639,6 +1704,13 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'ai-import.apply-unknown-continuity-candidate' =>
         l10n.aiApplyErrorUnknownContinuityCandidate,
       _ when error.code.startsWith('transport.') => l10n.aiApplyErrorNetwork,
+      // A client-side dispatch failure that never produced a wire code (see
+      // [AiApplyController.reportDispatchFailure]): the tap was swallowed by an
+      // exception before/while the apply ran, so the copy must state that the
+      // outcome is unknown rather than render a bare code.
+      'ai_import.apply_dispatch_failed' => l10n.aiApplyErrorDispatchFailed(
+        error.code,
+      ),
       _ => l10n.aiApplyErrorGeneric(error.code),
     };
 

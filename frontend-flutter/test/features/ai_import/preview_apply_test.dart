@@ -359,6 +359,12 @@ class FakeAiImportRepository extends AiImportRepository {
   final List<ApplyAiImportRequest> applyRequests = [];
   Result<AiImportJob>? jobResult;
 
+  /// The beta.59 report: an exception on the dispatch path used to be swallowed
+  /// by the button's async callback (both `setState`s land before the next
+  /// frame), leaving an ENABLED button that provably did nothing. Throwing here
+  /// is how that regression is pinned.
+  bool throwOnApply = false;
+
   ApplyAiImportRequest? lastRequest;
 
   /// Every `(jobId, blockId)` the preview's target card attached — the actions
@@ -380,6 +386,9 @@ class FakeAiImportRepository extends AiImportRepository {
     String jobId,
     ApplyAiImportRequest request,
   ) async {
+    if (throwOnApply) {
+      throw StateError('dispatch exploded before the request left');
+    }
     applyRequests.add(request);
     lastRequest = request;
     if (applyQueue.isNotEmpty && applyQueue.first.isLeft()) {
@@ -1402,6 +1411,46 @@ void main() {
           matching: find.text('Apply import'),
         ),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('a dispatch that THROWS is surfaced, never swallowed '
+        '(beta.59 report: an enabled button that did nothing)', (tester) async {
+      await setupContainer();
+      repo.throwOnApply = true;
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      // The tap produced a code-keyed narrative in the card — the one outcome
+      // the report proved impossible: no spinner, no text, no navigation.
+      expect(
+        find.byKey(const Key('ai-apply-error')),
+        findsOneWidget,
+        reason: 'an exception must never leave the button inert',
+      );
+      expect(
+        find.textContaining('ai_import.apply_dispatch_failed'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('could not be started'), findsOneWidget);
+      // … and the section is not stuck: the button is pressable again, its
+      // spinner gone, so a retry is one tap away.
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
+      expect(button.onPressed, isNotNull);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-apply-submit')),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsNothing,
       );
     });
 

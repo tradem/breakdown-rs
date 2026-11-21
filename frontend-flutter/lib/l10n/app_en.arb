@@ -422,6 +422,7 @@
   "aiApplyErrorContextMissing": "Pick the target episode before applying.",
   "aiApplyErrorNetwork": "Network problem — the apply may not have gone through. Check the affected episode before retrying.",
   "aiApplyErrorGeneric": "The apply failed ({code}).",
+  "aiApplyErrorDispatchFailed": "The apply could not be started ({code}). Whether anything was imported is unknown — check the affected episode before retrying.",
   "aiApplyErrorApplyBlocked": "The preview still carries unresolved review questions — confirm them below to apply.",
   "aiApplyErrorApplyInFlight": "An apply is already running for this preview. Follow its progress — a second one becomes possible once it ends.",
   "aiApplyInFlightLive": "An apply is running for this preview (last update {age}).",
