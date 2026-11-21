@@ -2631,6 +2631,30 @@ abstract class AppLocalizations {
   /// **'{group} → {target}'**
   String aiApplyGroupTargetSummary(Object group, Object target);
 
+  /// No description provided for @aiApplyGroupsMissingTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Episoden gibt es im Zielblock noch nicht: {numbers}. Erst nach dem Anlegen lässt sich der Import anwenden.'**
+  String aiApplyGroupsMissingTitle(Object numbers);
+
+  /// No description provided for @aiApplyGroupsMissingAction.
+  ///
+  /// In de, this message translates to:
+  /// **'Episoden jetzt anlegen ({count})'**
+  String aiApplyGroupsMissingAction(Object count);
+
+  /// No description provided for @aiApplyGroupsIncompleteTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Episoden-Nummer kann keine Episode angelegt werden: {groups}. Trage sie über „Ziel ändern“ ein.'**
+  String aiApplyGroupsIncompleteTitle(Object groups);
+
+  /// No description provided for @aiApplyGroupsDuplicateNumbers.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Gruppen würden dieselbe Episoden-Nummer anlegen – vergib über „Ziel ändern“ unterschiedliche Nummern.'**
+  String get aiApplyGroupsDuplicateNumbers;
+
   /// No description provided for @aiApplyGroupCreateNumberLabel.
   ///
   /// In de, this message translates to:

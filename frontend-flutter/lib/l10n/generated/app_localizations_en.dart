@@ -1647,6 +1647,25 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String aiApplyGroupsMissingTitle(Object numbers) {
+    return 'These episodes do not exist in the target block yet: $numbers. The import can be applied once they are created.';
+  }
+
+  @override
+  String aiApplyGroupsMissingAction(Object count) {
+    return 'Create episodes now ($count)';
+  }
+
+  @override
+  String aiApplyGroupsIncompleteTitle(Object groups) {
+    return 'No episode can be created without its number: $groups. Add it via “Change target”.';
+  }
+
+  @override
+  String get aiApplyGroupsDuplicateNumbers =>
+      'Two groups would create the same episode number — pick different numbers via “Change target”.';
+
+  @override
   String get aiApplyGroupCreateNumberLabel => 'Episode number';
 
   @override

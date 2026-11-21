@@ -803,8 +803,37 @@ class AiApplyState {
   /// UX rule (user report 2026-10-19): the apply button activates only when
   /// the episode side is settled — an unresolved create target keeps it
   /// disabled, so a half-created import can never be dispatched by accident.
+  ///
+  /// **The rule is only half the contract**: a disabled button that names no
+  /// reason is indistinguishable from a broken one (beta.59 report: `292.pdf`
+  /// and `293.pdf` seeded `create` targets for episodes their target block did
+  /// not have yet, every checkbox was ticked and nothing ever enabled). The card
+  /// renders [creatableGroupRefs] / [incompleteGroupRefs] as a NAMED blocker
+  /// with a one-tap resolution, so this getter never silently decides alone.
   bool get hasResolvedGroupTargets =>
       groupRefs.every((ref) => targetFor(ref) is ExistingEpisodeGroupTarget);
+
+  /// Create-new targets that already carry their wire-required number — the
+  /// ones one tap can create (the card's bulk action). Group order, stable.
+  List<String> get creatableGroupRefs => [
+    for (final ref in groupRefs)
+      if (targetFor(ref) case CreateEpisodeGroupTarget(number: _?)) ref,
+  ];
+
+  /// The episode numbers [creatableGroupRefs] would create, in the same order
+  /// (the card's reason line names them instead of counting groups).
+  List<int> get creatableGroupNumbers => [
+    for (final ref in creatableGroupRefs)
+      if (targetFor(ref) case CreateEpisodeGroupTarget(:final number?)) number,
+  ];
+
+  /// Create-new targets WITHOUT a number: nothing can be created for them until
+  /// the reviewer supplies one through "Ziel ändern", so the card says so
+  /// instead of offering an action that could not work.
+  List<String> get incompleteGroupRefs => [
+    for (final ref in groupRefs)
+      if (targetFor(ref) case CreateEpisodeGroupTarget(number: null)) ref,
+  ];
 
   /// The wire acknowledgements: ONE entry per acknowledged `(scene_index,
   /// field)` pair, in the preview's own order (stable, testable).
@@ -1960,6 +1989,53 @@ Future<bool> ensureGroupEpisodeResolved(
     );
     return true;
   });
+}
+
+/// The card's one-tap resolution of EVERY creatable group target — the action
+/// behind the named blocker (beta.59 report).
+///
+/// The reviewer's mental model is "tick the boxes and apply"; with episode
+/// markers whose episodes the target block does not have yet, every seeded
+/// target is create-new, `hasResolvedGroupTargets` stays false and the button
+/// never activates — while the card named no reason. Rather than weaken the
+/// apply contract (which keeps the 409 `episode.number-already-exists` dance
+/// out of the happy path), the reviewer gets the same resolution the
+/// "Ziel ändern" sheet runs, iterated over every stay-unresolved group.
+///
+/// Never throws: a failed creation surfaces as the card's `commandError` (the
+/// per-group helper and this loop set it) and STOPS the run, so a cross-block
+/// refusal is never papered over by silently creating the remaining episodes.
+/// Returns how many groups ended up resolved.
+Future<int> resolveAllCreateGroups(WidgetRef ref, String jobId) async {
+  final state = ref.read(aiApplyControllerProvider(jobId));
+  var resolved = 0;
+  for (final groupRef in state.creatableGroupRefs) {
+    final target = state.targetFor(groupRef);
+    if (target is! CreateEpisodeGroupTarget) continue;
+    final errorBefore = ref.read(aiApplyControllerProvider(jobId)).commandError;
+    bool ok;
+    try {
+      ok = await ensureGroupEpisodeResolved(ref, jobId, groupRef, target);
+    } on Object {
+      ok = false;
+    }
+    if (ok) {
+      resolved++;
+      continue;
+    }
+    final surfaced = ref.read(aiApplyControllerProvider(jobId)).commandError;
+    if (surfaced == null || identical(surfaced, errorBefore)) {
+      // No specific reason recorded (an empty project id, a failed read): the
+      // card still explains WHY the button stays disabled.
+      ref
+          .read(aiApplyControllerProvider(jobId).notifier)
+          .setCommandError(
+            const ProblemError(code: 'ai_import.episode_create_failed'),
+          );
+    }
+    return resolved;
+  }
+  return resolved;
 }
 
 /// Resolves the display location of a conflicting episode's home (issue

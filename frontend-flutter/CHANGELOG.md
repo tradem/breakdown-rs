@@ -27,9 +27,9 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
   (`0.4.0-beta.60+152 → 0.4.0-beta.61+153`). Reported from the preview screen of
   two script imports (`292.pdf`, `293.pdf`): the preview rendered its rows, the
   apply card listed its questions, every checkbox including "Ich habe den
-  KI-extrahierten Inhalt geprüft" was set — so the submit button **was**
-  enabled — and tapping it did nothing at all: no spinner, no message, no
-  navigation, on both documents.
+  KI-extrahierten Inhalt geprüft" was set — the submit button never activated,
+  and where it looked active a tap did nothing at all: no spinner, no message,
+  no navigation, on both documents.
   - **The gate could throw, and a throw was invisible.** `apply()` awaits the
     AUTHZ mirror (`aiApplyStreamGateProvider`) before its first network call.
     That provider promised "pending, never a denial" but only spelled it for a
@@ -55,11 +55,37 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     erroring season-scope read is pending instead of an exception, and an
     unreadable block-info read resolves the scope to `null`. That last one runs
     the provider's real body, which the previous suite always overrode.
-  - **Honest limit:** the on-device trigger could not be identified from the
-    report alone (a failing scope read is the mechanism that matches every
-    observed symptom). The fix removes the silent class and, for anything that
-    still throws, the next build names the cause in the card instead of staying
-    quiet.
+  - **The episode side of the gate is NAMED, and one tap away** (second report
+    from the same screen: "alle Häkchen aktiviert, der Button wird nicht
+    freigegeben"). `canApply` also requires every episode group to resolve to an
+    EXISTING episode; a script whose `Ep.:` markers are episodes the target
+    block does not have yet seeds create-new targets, so the button stays
+    disabled no matter how many boxes are ticked — and the card said nothing
+    beyond a "Neu anlegen: Episode 292" subtitle that reads like a plan, not a
+    block. The card now states the missing numbers ("Diese Episoden gibt es im
+    Zielblock noch nicht: 292, 293"), names the number-less groups that need the
+    `Ziel ändern` editor, names a duplicate-number contradiction, and offers
+    "Episoden jetzt anlegen (N)" — the iterated per-group creation the sheet
+    already ran, so apply unlocks in one tap. A duplicate numbering withholds
+    that action on purpose: creating one of the two would silently collapse both
+    groups onto one episode instead of asking.
+  - **The class is pinned by tests that state the rule AND its explanation**: a
+    preview whose episodes the block lacks renders the named blocker with its
+    numbers, then creates every missing episode in one tap and dispatches them
+    as `kind: existing`; a title-only group renders the missing-number reason
+    (and no bulk action); two groups on one number render the contradiction and
+    no bulk action; the long-standing "unresolved create targets keep apply
+    disabled" test now also asserts that the reason is ON SCREEN. The tier-1
+    state getters (`creatableGroupRefs`/`creatableGroupNumbers`/
+    `incompleteGroupRefs`) are covered directly.
+  - **Honest limit:** the on-device trigger could not be reproduced from the
+    report, and this screen provisions those episodes automatically on load
+    (`_TypedPreviewBody`'s seeding) — so the reviewer hit the case where that
+    provisioning failed or never completed. Both halves now end in a named state
+    instead of a silent one: the load-time failure surfaces
+    `ai_import.episode_create_failed` *and* the card offers the retry, and
+    anything that still throws names its code via
+    `ai_import.apply_dispatch_failed`.
 
 - **A rejected save says what to change instead of only that it failed**
   (`0.4.0-beta.59+151 → 0.4.0-beta.60+152`). Reported from a Neuralwatt
