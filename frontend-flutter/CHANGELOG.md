@@ -23,6 +23,25 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **Version bump:** `0.4.0+155 → 0.5.0-alpha.1+156` (opens the 0.5.0 alpha
+  line; the Play `versionCode` `+N` stays strictly monotonic).
+
+- **The Android build compiles Kotlin through AGP's built-in Kotlin support.**
+  `android/gradle.properties` now sets `android.builtInKotlin=true`, and
+  `android/app/build.gradle.kts` no longer applies
+  `org.jetbrains.kotlin.android` (the KGP-era `kotlinOptions {}` block was
+  already migrated to the KGP-free `kotlin { compilerOptions { … } }` form).
+  - **Why the KGP pin in `android/settings.gradle.kts` stays:** AGP 9.5.1
+    bundles KGP 2.2.10 and Flutter 3.47 hard-fails below 2.2.20, so the
+    `… version "2.4.21" apply false` line is kept **only** to lift the build
+    classpath — nothing applies the plugin, so no duplicate `kotlin` extension
+    is created. `android.newDsl=false` stays untouched (separate migration).
+  - **Verified locally** with `flutter build apk --flavor dev` in both build
+    types (debug and release) on Flutter 3.47.2; the one remaining Flutter
+    warning (`app_settings` applies KGP) is that plugin's static-text false
+    positive — it applies KGP only when built-in Kotlin is off. See
+    `docs/development-troubleshooting.md` for the symptom/fix pair.
+
 ## [0.4.0] – Released 2026-11-21
 
 Stable release of the 0.4.0 alpha/beta line (`0.4.0-alpha.1+52` →
