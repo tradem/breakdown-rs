@@ -23,6 +23,16 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+## [0.4.0] – Released 2026-11-21
+
+Stable release of the 0.4.0 alpha/beta line (`0.4.0-alpha.1+52` →
+`0.4.0-beta.62+154`). The entries below cover everything since `0.3.0`
+(2026-10-04) and are unchanged: this is the cut, not an edit.
+
+- **Version bump:** `0.4.0-beta.62+154 → 0.4.0+155` (stable graduation of
+  the alpha/beta line; the Play `versionCode` `+N` stays strictly
+  monotonic).
+
 - **An apply that cannot run now says why instead of doing nothing**
   (`0.4.0-beta.60+152 → 0.4.0-beta.62+154`). Reported from the preview screen of
   two script imports (`292.pdf`, `293.pdf`): the preview rendered its rows, the
