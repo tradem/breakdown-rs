@@ -44,7 +44,9 @@ import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
+import 'package:frontend_flutter/data/cache/cache_generation.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/data/episode_repository.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
@@ -350,6 +352,45 @@ class _FakePreviewBlockRepository extends BlockRepository {
   }
 }
 
+/// Episode-repository fake for the card's one-tap episode provisioning
+/// (beta.59 report): the reviewer's preview names episodes the target block
+/// does not have yet, so "Episoden jetzt anlegen" creates them through this
+/// seam. `listBySeries` answers no rows (nothing exists), `create` records the
+/// numbers it was asked for.
+class _FakeEpisodes extends EpisodeRepository {
+  _FakeEpisodes(super.api, super.cache);
+
+  final List<int> createdNumbers = [];
+
+  /// A number that already exists in the job's block (the adopt branch).
+  EpisodeView? existingInBlock;
+
+  /// The load-time auto-creation's realistic failure (offline, a rejected
+  /// create): the group stays on its create target and the card has to explain
+  /// what is missing (beta.59 report).
+  bool failCreate = false;
+
+  @override
+  Future<Result<List<EpisodeView>>> listBySeries(
+    String projectId, {
+    Clock clock = Clock.system,
+    CacheWriteFence? fence,
+  }) async => Right(<EpisodeView>[?existingInBlock]);
+
+  @override
+  Future<Result<IdVersionResponse>> create(CreateEpisodeRequest request) async {
+    if (failCreate) return const Left(ProblemError(code: 'transport.timeout'));
+    createdNumbers.add(request.number);
+    return Right(
+      IdVersionResponse(
+        (b) => b
+          ..id = 'ep-${request.number}'
+          ..version = 1,
+      ),
+    );
+  }
+}
+
 /// Repository fake with scripted, QUEUED apply outcomes (the
 /// reconciliation round-trip driver).
 class FakeAiImportRepository extends AiImportRepository {
@@ -358,6 +399,12 @@ class FakeAiImportRepository extends AiImportRepository {
   final List<Result<ApplyImportSummary>> applyQueue = [];
   final List<ApplyAiImportRequest> applyRequests = [];
   Result<AiImportJob>? jobResult;
+
+  /// The beta.59 report: an exception on the dispatch path used to be swallowed
+  /// by the button's async callback (both `setState`s land before the next
+  /// frame), leaving an ENABLED button that provably did nothing. Throwing here
+  /// is how that regression is pinned.
+  bool throwOnApply = false;
 
   ApplyAiImportRequest? lastRequest;
 
@@ -380,6 +427,9 @@ class FakeAiImportRepository extends AiImportRepository {
     String jobId,
     ApplyAiImportRequest request,
   ) async {
+    if (throwOnApply) {
+      throw StateError('dispatch exploded before the request left');
+    }
     applyRequests.add(request);
     lastRequest = request;
     if (applyQueue.isNotEmpty && applyQueue.first.isLeft()) {
@@ -777,6 +827,59 @@ void main() {
       expect(picked.targetFor('ep:3'), isA<ExistingEpisodeGroupTarget>());
     });
 
+    test('the episode-side blocker splits into creatable and incomplete groups '
+        '(beta.59 report: the card must NAME what keeps apply disabled)', () {
+      final state = AiApplyState(
+        rows: [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(292, 'Auftakt'),
+          ),
+          PreviewRow(
+            draftRef: 'd2',
+            label: 'B',
+            episode: _episodeMeta(null, 'Sommer'),
+          ),
+          PreviewRow(
+            draftRef: 'd3',
+            label: 'C',
+            episode: _episodeMeta(3, 'Titel'),
+          ),
+          const PreviewRow(draftRef: 'd4', label: 'D'),
+        ],
+        groupTargets: const {
+          'ep:3': ExistingEpisodeGroupTarget(episodeId: 'ep-9'),
+        },
+      );
+
+      // Every group is create-new except the picked one → apply stays locked.
+      expect(state.hasResolvedGroupTargets, isFalse);
+      // …and the card can name both halves of the reason:
+      expect(state.creatableGroupRefs, [
+        'ep:292',
+      ], reason: 'a number is all one tap needs');
+      expect(state.creatableGroupNumbers, [292]);
+      expect(
+        state.incompleteGroupRefs,
+        ['ep-t:Sommer'],
+        reason: 'without a number nothing can be created — the editor owns it',
+      );
+
+      // Once every group resolves, both lists are empty (the notice disappears).
+      final resolved = AiApplyState(
+        rows: state.rows,
+        groupTargets: const {
+          'ep:292': ExistingEpisodeGroupTarget(episodeId: 'ep-292'),
+          'ep-t:Sommer': ExistingEpisodeGroupTarget(episodeId: 'ep-7'),
+          'ep:3': ExistingEpisodeGroupTarget(episodeId: 'ep-9'),
+        },
+      );
+      expect(resolved.hasResolvedGroupTargets, isTrue);
+      expect(resolved.creatableGroupRefs, isEmpty);
+      expect(resolved.incompleteGroupRefs, isEmpty);
+    });
+
     test('a group-target deviation is an edit: accept_as_is stays honest', () {
       final rows = [
         PreviewRow(
@@ -1080,6 +1183,7 @@ void main() {
     late CacheDatabase db;
     late FakeAiImportRepository repo;
     late _FakePreviewBlockRepository blockRepo;
+    late _FakeEpisodes episodesRepo;
     late AiImportJobsCacheDao dao;
     late ValueNotifier<Result<AiImportPreviewResponse>> preview;
     late ValueNotifier<Result<List<SceneView>>> scenes;
@@ -1176,10 +1280,25 @@ void main() {
       /// these tests (no membership), so a notice survives as long as the test
       /// needs it.
       Stream<AiApplyRunState>? applyRunStates,
+
+      /// Overrides the episode repository so the card's one-tap episode
+      /// provisioning (beta.59 report) runs against the in-test fake instead of
+      /// the generated client. Its `create` calls ARE the assertion.
+      bool withEpisodeRepository = false,
+
+      /// Answers the job's block anchor — the precondition of every episode
+      /// creation (`ensureGroupEpisodeResolved` refuses without a block).
+      bool withJobBlockAnchor = false,
+
+      /// `true` makes the POST-APPLY navigation read fail (CodeRabbit review,
+      /// PR #951): the apply succeeded, so the outcome must survive a throwing
+      /// navigation path instead of being reported as a dispatch failure.
+      bool postImportReadFails = false,
     }) async {
       db = CacheDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       dao = AiImportJobsCacheDao(db);
+      episodesRepo = _FakeEpisodes(BreakdownApi(), EpisodeCacheDao(db));
       repo = FakeAiImportRepository(BreakdownApi(), dao);
       blockRepo = _FakePreviewBlockRepository(BreakdownApi(), BlockCacheDao(db))
         // The silent adoption (issue #829 follow-up) CREATES a block when the
@@ -1238,6 +1357,14 @@ void main() {
             return scenes.value;
           }),
           if (withCacheDatabase) cacheDatabaseProvider.overrideWithValue(db),
+          if (withEpisodeRepository)
+            episodeRepositoryProvider.overrideWithValue(episodesRepo),
+          if (withJobBlockAnchor)
+            // The job's OWN block scope: the episode creation reads it from the
+            // job row (ids never guessed), so the card's bulk action needs it.
+            aiJobBlockInfoProvider('job-1').overrideWith(
+              (Ref ref) async => (blockId: 'block-1', projectId: 'series-1'),
+            ),
           // Issue #800: the server-owned "already imported" fact, read from
           // the cached row in production — overridden here so the apply
           // section's copy/gate is testable without a seeded Drift row.
@@ -1250,6 +1377,15 @@ void main() {
             }
             return alreadyImported;
           }),
+          if (postImportReadFails)
+            // `resolvePostImportTarget`'s FIRST read once the apply answered —
+            // a throw here is the navigation failure, never the apply's.
+            aiJobAppliedEpisodesProvider('job-1').overrideWith((ref) {
+              final Future<List<AppliedEpisode>> failed = Future.error(
+                StateError('applied-episode summary unreadable'),
+              );
+              return failed;
+            }),
           // The preview + apply screens render the configured naming line
           // (issue #608) — a deterministic override keeps the tests off
           // the real discovery path and the goldens stable.
@@ -1402,6 +1538,76 @@ void main() {
           matching: find.text('Apply import'),
         ),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('a dispatch that THROWS is surfaced, never swallowed '
+        '(beta.59 report: an enabled button that did nothing)', (tester) async {
+      await setupContainer();
+      repo.throwOnApply = true;
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+
+      // The tap produced a code-keyed narrative in the card — the one outcome
+      // the report proved impossible: no spinner, no text, no navigation.
+      expect(
+        find.byKey(const Key('ai-apply-error')),
+        findsOneWidget,
+        reason: 'an exception must never leave the button inert',
+      );
+      expect(
+        find.textContaining('ai_import.apply_dispatch_failed'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('could not be started'), findsOneWidget);
+      // … and the section is not stuck: the button is pressable again, its
+      // spinner gone, so a retry is one tap away.
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('ai-apply-submit')),
+      );
+      expect(button.onPressed, isNotNull);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ai-apply-submit')),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a successful apply keeps its outcome when the POST-APPLY '
+        'navigation throws (CodeRabbit review, PR #951)', (tester) async {
+      await setupContainer(
+        applyQueue: [Right(_outcome())],
+        // The navigation path's own read fails: the apply itself succeeded.
+        postImportReadFails: true,
+      );
+      await pumpPreview(tester);
+
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+
+      // The IMPORT completed, so its outcome stays on screen…
+      expect(
+        find.byKey(const Key('ai-apply-outcome')),
+        findsOneWidget,
+        reason: 'a navigation failure must not delete a completed apply',
+      );
+      // …and the navigation failure is NOT dressed up as a dispatch failure
+      // (`reportDispatchFailure` clears the outcome and claims the import's
+      // fate is unknown).
+      expect(find.byKey(const Key('ai-apply-error')), findsNothing);
+      expect(
+        find.textContaining('ai_import.apply_dispatch_failed'),
+        findsNothing,
       );
     });
 
@@ -3232,6 +3438,77 @@ void main() {
       );
     });
 
+    testWidgets('a preview whose episodes the target block does not have yet '
+        'NAMES that blocker and provisions them in one tap — ticking the '
+        'checkboxes alone must never leave the button inert (beta.59 report)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft('d1', episode: _episodeMeta(292, 'Auftakt')),
+              _draft('d2', episode: _episodeMeta(293, null)),
+            ]),
+          ),
+        ),
+        applyQueue: [Right(_outcome())],
+        withCacheDatabase: true,
+        withEpisodeRepository: true,
+        withJobBlockAnchor: true,
+      );
+      // The episodes the script names do not exist in the target block, and the
+      // load-time creation that normally provisions them is refused — the state
+      // the reviewer reported.
+      episodesRepo.failCreate = true;
+      await pumpPreview(tester);
+      FilledButton submit() =>
+          tester.widget<FilledButton>(find.byKey(const Key('ai-apply-submit')));
+
+      // Ticking the review box leaves the button disabled (the groups are
+      // unresolved) — that part is the intended rule.
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+      expect(submit().onPressed, isNull);
+
+      // …but now the card SAYS why, names the numbers and offers the one tap.
+      expect(
+        find.byKey(const Key('ai-apply-groups-unresolved')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('292, 293'), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-groups-resolve')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-groups-incomplete')), findsNothing);
+
+      // One tap creates BOTH missing episodes in the job's block.
+      episodesRepo.failCreate = false;
+      await tester.tap(find.byKey(const Key('ai-apply-groups-resolve')));
+      await tester.pumpAndSettle();
+      expect(episodesRepo.createdNumbers, [292, 293]);
+
+      // The notice is gone, the button is released and the dispatch carries
+      // the created episodes as EXISTING targets.
+      expect(find.byKey(const Key('ai-apply-groups-unresolved')), findsNothing);
+      expect(submit().onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('ai-apply-submit')));
+      await tester.pumpAndSettle();
+
+      final groups = repo.lastRequest!.episodeGroups!;
+      expect(groups, hasLength(2));
+      expect(
+        [
+          for (final group in groups)
+            group.target.oneOf.value is EpisodeTargetOneOf
+                ? (group.target.oneOf.value as EpisodeTargetOneOf).kind
+                : null,
+        ],
+        [
+          EpisodeTargetOneOfKindEnum.existing,
+          EpisodeTargetOneOfKindEnum.existing,
+        ],
+      );
+    });
+
     testWidgets('script rows render GROUPED by draft episode with per-group '
         'targets; unmarked rows fall back to the picked target (issue #581)', (
       tester,
@@ -3312,6 +3589,25 @@ void main() {
         isNull,
         reason: 'unresolved create targets keep apply disabled',
       );
+      // …and the rule is only half the contract (beta.59 report): a disabled
+      // button must NAME its blocker instead of pretending nothing is wrong.
+      // The card states the missing episode numbers and offers the one tap that
+      // creates them, so "all boxes ticked, nothing happens" cannot recur.
+      expect(
+        find.byKey(const Key('ai-apply-groups-unresolved')),
+        findsOneWidget,
+        reason: 'the episode-side blocker must be on screen',
+      );
+      expect(
+        find.textContaining('3, 5'),
+        findsOneWidget,
+        reason: 'the notice names the episode numbers, not just a count',
+      );
+      expect(
+        find.byKey(const Key('ai-apply-groups-resolve')),
+        findsOneWidget,
+        reason: 'one tap provisions every missing episode',
+      );
       // Resolving BOTH groups (as the in-preview creation would) unlocks it.
       final controller = container.read(
         aiApplyControllerProvider('job-1').notifier,
@@ -3335,6 +3631,58 @@ void main() {
       );
       expect(submit.onPressed, isNotNull);
       await tester.pump();
+    });
+
+    testWidgets('two groups on the same episode number NAME that contradiction '
+        'and withhold the bulk action (a disabled button must never be silent)', (
+      tester,
+    ) async {
+      await setupContainer(
+        previewValue: Right(
+          _previewResponse(
+            _scriptPayloadWith([
+              _draft('d1', episode: _episodeMeta(3, 'Titel')),
+              _draft('d2', episode: _episodeMeta(null, 'Sommer')),
+            ]),
+          ),
+        ),
+        withCacheDatabase: true,
+        withEpisodeRepository: true,
+        withJobBlockAnchor: true,
+      );
+      // The title-only group gets a number that the FIRST group already claims
+      // — the client-side mirror of the backend's duplicate-number 422. Set
+      // AFTER the preview seeded its rows (seeding resets group targets), and
+      // with the load-time creation refused so BOTH groups stay on create.
+      episodesRepo.failCreate = true;
+      await pumpPreview(tester);
+      container
+          .read(aiApplyControllerProvider('job-1').notifier)
+          .setGroupTarget(
+            'ep-t:Sommer',
+            const CreateEpisodeGroupTarget(number: 3, name: 'Sommer'),
+          );
+      await tester.tap(find.byKey(const Key('ai-apply-review-checkbox')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('ai-apply-submit')))
+            .onPressed,
+        isNull,
+        reason: 'a contradictory numbering must not dispatch',
+      );
+      expect(
+        find.byKey(const Key('ai-apply-groups-duplicate')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ai-apply-groups-resolve')),
+        findsNothing,
+        reason:
+            'creating one of the two would silently collapse both groups onto '
+            'one episode — the reviewer has to fix the numbers',
+      );
     });
 
     testWidgets('a title-only group gates the dispatch until the reviewer '
@@ -3405,6 +3753,16 @@ void main() {
         isNull,
         reason: 'an unresolved create target keeps apply disabled',
       );
+      // Sharpened (beta.59 report): a permanently disabled button is only
+      // acceptable when the card NAMES what is missing. Here the number is
+      // entered, so the group IS creatable — one tap would create it — and the
+      // incomplete notice must NOT claim a missing number that was just set.
+      expect(
+        find.byKey(const Key('ai-apply-groups-unresolved')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('ai-apply-groups-resolve')), findsOneWidget);
+      expect(find.byKey(const Key('ai-apply-groups-incomplete')), findsNothing);
 
       // Resolution settles (as the in-preview creation does in production):
       // adopt the episode → apply unlocks and the dispatch carries the
@@ -3947,6 +4305,92 @@ void main() {
       expect(state.context?.episodeId, 'ep-294');
       expect(state.context?.blockId, 'job-block');
       expect(state.hasCompleteGroupTargets, isTrue);
+    });
+
+    test('adoptCreatedEpisode does NOT overwrite a target the reviewer '
+        'changed while that group was being resolved (CodeRabbit review, '
+        'PR #951: the per-group "Ziel ändern" button stays enabled during '
+        'the bulk resolution)', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+      // The target the resolution STARTED from — the seeded create default,
+      // which `targetFor` re-DERIVES on every read (hence value equality).
+      final resolving = controller().state.targetFor('ep:294');
+      expect(resolving, isA<CreateEpisodeGroupTarget>());
+
+      // The reviewer re-points the group mid-flight.
+      controller().setGroupTarget(
+        'ep:294',
+        const ExistingEpisodeGroupTarget(episodeId: 'picked-ep', label: '294'),
+      );
+
+      final adopted = controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+        onlyIfCurrentTarget: resolving,
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(adopted, isFalse, reason: 'the write is skipped, not applied');
+      expect(
+        (state.targetFor('ep:294') as ExistingEpisodeGroupTarget).episodeId,
+        'picked-ep',
+        reason: 'the reviewer\'s pick wins over the resolution it superseded',
+      );
+      expect(
+        state.context?.episodeId,
+        'other-ep',
+        reason: 'a skipped adoption must not move the apply context either',
+      );
+    });
+
+    test('adoptCreatedEpisode writes when the group still carries the target '
+        'the resolution started from (CodeRabbit review, PR #951)', () {
+      controller().seedRows(
+        [
+          PreviewRow(
+            draftRef: 'd1',
+            label: 'A',
+            episode: _episodeMeta(294, 'Freundschaft'),
+          ),
+        ],
+        const AiJobContext(
+          episodeId: 'other-ep',
+          projectId: 'series-1',
+          blockId: 'job-block',
+        ),
+      );
+
+      final adopted = controller().adoptCreatedEpisode(
+        'ep:294',
+        episodeId: 'ep-294',
+        number: 294,
+        projectId: 'series-1',
+        // The seeded default, re-derived by value — an unchanged group.
+        onlyIfCurrentTarget: controller().state.targetFor('ep:294'),
+      );
+
+      final state = container.read(aiApplyControllerProvider('job-1'));
+      expect(adopted, isTrue);
+      expect(
+        (state.targetFor('ep:294') as ExistingEpisodeGroupTarget).episodeId,
+        'ep-294',
+      );
+      expect(state.context?.episodeId, 'ep-294');
     });
 
     test('adoptCreatedEpisode clears a stale resolution error (CodeRabbit '

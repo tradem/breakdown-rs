@@ -33,6 +33,7 @@ import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
 import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
+import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 
 const _jobId = 'job-apply-gate';
 const _seasonId = 'season-1';
@@ -199,5 +200,44 @@ void main() {
     final pending = await gateOf(container(seasonId: null));
     expect(pending?.code, 'membership.pending');
     expect(pending?.status, isNull);
+  });
+
+  test('an ERRORING season-scope read is pending, never an exception', () async {
+    // The scope read used to spell its "pending" contract only for a `Left`
+    // Result; a throw escaped the provider and therefore the dispatch (beta.59:
+    // an enabled apply button that did nothing at all). `apply()` awaits this
+    // gate before the first network call, so it must answer, not throw.
+    final c = ProviderContainer(
+      overrides: [
+        aiImportRepositoryProvider.overrideWithValue(repo),
+        aiApplyJobSeasonIdProvider(
+          _jobId,
+        ).overrideWith((ref) async => throw StateError('cache read exploded')),
+      ],
+    );
+    addTearDown(c.dispose);
+    final pending = await gateOf(c);
+    expect(pending?.code, 'membership.pending');
+    expect(pending?.status, isNull);
+    expect(repo.watchCalls, 0, reason: 'pending disables the watch');
+  });
+
+  test('an unreadable block-info read resolves the season scope to null '
+      '(pending), never an exception', () async {
+    final c = ProviderContainer(
+      overrides: [
+        aiImportRepositoryProvider.overrideWithValue(repo),
+        // A synchronous throw inside the create: riverpod records it as the
+        // provider's error, so the scope read really does throw in production
+        // shape (and `Never` keeps the record return type assignable).
+        aiJobBlockInfoProvider(_jobId).overrideWith((Ref ref) {
+          throw StateError('row unreadable');
+        }),
+      ],
+    );
+    addTearDown(c.dispose);
+    final sub = c.listen(aiApplyJobSeasonIdProvider(_jobId), (_, _) {});
+    addTearDown(sub.close);
+    expect(await c.read(aiApplyJobSeasonIdProvider(_jobId).future), isNull);
   });
 }

@@ -311,56 +311,101 @@ const String kAiConfigCapabilityDeniedCode = 'ai_config.capability_denied';
 /// stable problem `code` (never the server `detail`). Unknown codes fall
 /// back to a code-carrying generic.
 ///
+/// **Every `ai-config.*` code the backend registry can emit has an arm here.**
+/// The 2026-11-21 report made the cost of a missing arm concrete: a provider
+/// switch whose Decision Model the new provider does not curate came back as a
+/// precise `422 ai-config.decision-model-unknown` ("Das Entscheidungsmodell ist
+/// für diesen Anbieter nicht freigegeben.") and the screen rendered the generic
+/// "Die Konfigurationsänderung ist fehlgeschlagen (ai-config.…)" — the user
+/// retried six times, one orphaned Vault credential each. The fallback arm stays
+/// for codes the server adds later, but a code that HAS copy must never reach it
+/// (`ai_config_screen_test.dart` pins the whole registry list).
+///
 /// The 403 arms match the scoped wire codes the backend emits for the
 /// credential-role gates (issue #470): `ai-config.forbidden` (AI-config
 /// management/discovery) and `settings.forbidden` (settings credentials) —
 /// NOT the generic `domain.forbidden`. A real credential-role denial must
 /// land on the "administrator role required" narrative, never the fallback.
-String aiConfigErrorCopy(AppLocalizations l10n, ProblemError error) =>
-    switch (error.code) {
-      'ai-config.forbidden' ||
-      'settings.forbidden' ||
-      // Client-detected pre-tap denial (issue #816): same narrative, because
-      // it is the same fact — the caller lacks the credential role.
-      kAiConfigCapabilityDeniedCode => l10n.aiConfigErrorAdmin,
-      // 409 `ai-config.version-mismatch` — the scoped optimistic-lock code
-      // the backend emits on a stale config edit/revoke (issue #481),
-      // preserving the typed expected/current extensions. Same narrative as
-      // the client-wide version-conflict copy.
-      'ai-config.version-mismatch' => l10n.aiConfigErrorChanged,
-      // 409 `ai-config.provider-mismatch` — the API edge refuses to persist a
-      // vault key that is not an active credential of the requested provider
-      // (issue #528). Distinct from `provider.unavailable` (the model catalog
-      // of a provider could not be read): here the STORED key belongs to a
-      // different provider, so the copy asks for the matching provider or a
-      // new key instead of pretending the provider is down.
-      'ai-config.provider-mismatch' => l10n.aiConfigErrorProviderMismatch,
-      // 422 `ai-config.reasoning-effort-unsupported` (2026-11-20
-      // investigation): the pair does not DECLARE the parameter, or not this
-      // level. The picker only offers declared levels, so this arm is the
-      // honest answer to catalogue drift or a second client — not a path the
-      // UI walks on purpose.
-      'ai-config.reasoning-effort-unsupported' =>
-        l10n.aiConfigReasoningEffortUnsupported,
-      'ai_config.orphaned_credential' => l10n.aiConfigErrorOrphaned,
-      // 409-armed client-side guard (issue #723): the decision model is
-      // configured but no decision API key is available (none remembered,
-      // none entered) — the client refuses BEFORE dispatching a config
-      // create/PATCH the backend would reject with an unusable binding.
-      'ai_config.decision_key_missing' => l10n.aiConfigDecisionKeyMissing,
-      // Client-detected (issue #769): the save was acknowledged but the
-      // read-back of `GET /v1/ai-import/config/{id}` did not contain the
-      // submitted Decision Model triple. No server problem carries this code —
-      // it exists because a 2xx alone must not be reported as "configured".
-      'ai_config.decision_not_persisted' => l10n.aiConfigDecisionNotPersisted,
-      'provider.unavailable' => l10n.aiConfigErrorProvider,
-      // Wire code of the backend's `ai-import.disabled` problem (issue
-      // #422). The disabled state is a server configuration, NOT a
-      // transient failure — the UI renders it without a retry affordance.
-      'ai-import.disabled' => l10n.aiConfigErrorDisabled,
-      _ when error.code.startsWith('transport.') => l10n.aiConfigErrorNetwork,
-      _ => l10n.aiConfigErrorGeneric(error.code),
-    };
+String aiConfigErrorCopy(
+  AppLocalizations l10n,
+  ProblemError error,
+) => switch (error.code) {
+  'ai-config.forbidden' ||
+  'settings.forbidden' ||
+  // Client-detected pre-tap denial (issue #816): same narrative, because
+  // it is the same fact — the caller lacks the credential role.
+  kAiConfigCapabilityDeniedCode => l10n.aiConfigErrorAdmin,
+  // 409 `ai-config.version-mismatch` — the scoped optimistic-lock code
+  // the backend emits on a stale config edit/revoke (issue #481),
+  // preserving the typed expected/current extensions. Same narrative as
+  // the client-wide version-conflict copy.
+  'ai-config.version-mismatch' => l10n.aiConfigErrorChanged,
+  // 409 `ai-config.provider-mismatch` — the API edge refuses to persist a
+  // vault key that is not an active credential of the requested provider
+  // (issue #528). Distinct from `provider.unavailable` (the model catalog
+  // of a provider could not be read): here the STORED key belongs to a
+  // different provider, so the copy asks for the matching provider or a
+  // new key instead of pretending the provider is down.
+  'ai-config.provider-mismatch' => l10n.aiConfigErrorProviderMismatch,
+  // 422 `ai-config.reasoning-effort-unsupported` (2026-11-20
+  // investigation): the pair does not DECLARE the parameter, or not this
+  // level. The picker only offers declared levels, so this arm is the
+  // honest answer to catalogue drift or a second client — not a path the
+  // UI walks on purpose.
+  'ai-config.reasoning-effort-unsupported' =>
+    l10n.aiConfigReasoningEffortUnsupported,
+  // 422 `ai-config.decision-model-unknown` — the model exists but is not
+  // curated for THAT provider. The reachable-by-accident case: the provider
+  // picker reset the model, a stale catalogue or a second client put one
+  // back, or the decision provider changed while its model did not. The
+  // copy names the fix (pick another decision model), which is the whole
+  // difference to the generic fallback.
+  'ai-config.decision-model-unknown' => l10n.aiConfigErrorDecisionModelUnknown,
+  // 422 `ai-config.decision-provider-unsupported` — the provider cannot
+  // score at all (not in the backend's decision-capable set).
+  'ai-config.decision-provider-unsupported' =>
+    l10n.aiConfigErrorDecisionProviderUnsupported,
+  // 422 `ai-config.decision-incomplete` / `-model-empty` /
+  // `-vault-key-empty` — a partially set Decision triple. The aggregate
+  // validates the triple as a whole, so the fix is one sentence, not three.
+  'ai-config.decision-incomplete' ||
+  'ai-config.decision-model-empty' ||
+  'ai-config.decision-vault-key-empty' => l10n.aiConfigErrorDecisionIncomplete,
+  // 422 `ai-config.empty-provider` / `-model` / `-prompt` / `-vault-key` —
+  // the aggregate's field validation. The form prevents all four, so this
+  // arm is for a second client or a replay, not a path the UI walks.
+  'ai-config.empty-provider' ||
+  'ai-config.empty-model' ||
+  'ai-config.empty-prompt' ||
+  'ai-config.empty-vault-key' => l10n.aiConfigErrorIncomplete,
+  // 404 `ai-config.not-found` — the row is gone (revoked elsewhere, or a
+  // dev data reset). Nothing to retry but the read.
+  'ai-config.not-found' => l10n.aiConfigErrorNotFound,
+  // 409 `ai-config.already-revoked` — a second revoke of the same config.
+  'ai-config.already-revoked' => l10n.aiConfigErrorAlreadyRevoked,
+  // 403 `ai-config.vault-key-forbidden` (issue #552) — an opaque key that
+  // resolves to a binding the caller does not own. Distinct from
+  // `provider-mismatch`: the provider CAN be right, the account is not.
+  'ai-config.vault-key-forbidden' => l10n.aiConfigErrorVaultKeyForbidden,
+  'ai_config.orphaned_credential' => l10n.aiConfigErrorOrphaned,
+  // 409-armed client-side guard (issue #723): the decision model is
+  // configured but no decision API key is available (none remembered,
+  // none entered) — the client refuses BEFORE dispatching a config
+  // create/PATCH the backend would reject with an unusable binding.
+  'ai_config.decision_key_missing' => l10n.aiConfigDecisionKeyMissing,
+  // Client-detected (issue #769): the save was acknowledged but the
+  // read-back of `GET /v1/ai-import/config/{id}` did not contain the
+  // submitted Decision Model triple. No server problem carries this code —
+  // it exists because a 2xx alone must not be reported as "configured".
+  'ai_config.decision_not_persisted' => l10n.aiConfigDecisionNotPersisted,
+  'provider.unavailable' => l10n.aiConfigErrorProvider,
+  // Wire code of the backend's `ai-import.disabled` problem (issue
+  // #422). The disabled state is a server configuration, NOT a
+  // transient failure — the UI renders it without a retry affordance.
+  'ai-import.disabled' => l10n.aiConfigErrorDisabled,
+  _ when error.code.startsWith('transport.') => l10n.aiConfigErrorNetwork,
+  _ => l10n.aiConfigErrorGeneric(error.code),
+};
 
 /// True when the backend refused the call because the AI import feature is
 /// disabled on this instance (wire code `ai-import.disabled`, status 404,

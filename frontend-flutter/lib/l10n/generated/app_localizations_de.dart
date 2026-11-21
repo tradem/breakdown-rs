@@ -531,6 +531,34 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get aiConfigErrorIncomplete =>
+      'Bitte Anbieter, Modell und beide Prompts ausfüllen.';
+
+  @override
+  String get aiConfigErrorNotFound =>
+      'Diese Konfiguration existiert nicht mehr. Aktualisiere den Bildschirm.';
+
+  @override
+  String get aiConfigErrorAlreadyRevoked =>
+      'Diese Konfiguration ist bereits widerrufen. Leg eine neue an.';
+
+  @override
+  String get aiConfigErrorVaultKeyForbidden =>
+      'Dieser API-Schlüssel gehört zu einem anderen Konto. Verwende einen eigenen Schlüssel für diesen Anbieter.';
+
+  @override
+  String get aiConfigErrorDecisionIncomplete =>
+      'Das Decision-Modell ist unvollständig. Anbieter, Modell und Schlüssel gehören zusammen – oder wähle „keine“.';
+
+  @override
+  String get aiConfigErrorDecisionModelUnknown =>
+      'Dieses Modell ist für den gewählten Anbieter nicht freigegeben. Bitte ein anderes Decision-Modell wählen.';
+
+  @override
+  String get aiConfigErrorDecisionProviderUnsupported =>
+      'Dieser Anbieter kann kein Decision-Modell bewerten. Wähle einen anderen Anbieter oder deaktiviere das Decision-Modell.';
+
+  @override
   String get aiConfigProvidersUnavailable =>
       'Anbieter konnten nicht geladen werden.';
 
@@ -1305,7 +1333,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get aiConfigReasoningEffortAuto => 'Automatisch';
+  String get aiConfigReasoningEffortAuto => 'Auto';
 
   @override
   String get aiConfigReasoningEffortMinimal => 'Minimal';
@@ -1321,7 +1349,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get aiConfigReasoningEffortUnsupported =>
-      'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Automatisch“ wählen.';
+      'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Auto“ wählen.';
 
   @override
   String aiJobCostCompact(Object value) {
@@ -1447,6 +1475,11 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String aiApplyErrorGeneric(Object code) {
     return 'Das Anwenden ist fehlgeschlagen ($code).';
+  }
+
+  @override
+  String aiApplyErrorDispatchFailed(Object code) {
+    return 'Das Anwenden konnte nicht gestartet werden ($code). Ob etwas übernommen wurde, ist unbekannt – prüfe zuerst die betroffene Episode, bevor du es erneut versuchst.';
   }
 
   @override
@@ -1633,6 +1666,25 @@ class AppLocalizationsDe extends AppLocalizations {
   String aiApplyGroupTargetSummary(Object group, Object target) {
     return '$group → $target';
   }
+
+  @override
+  String aiApplyGroupsMissingTitle(Object numbers) {
+    return 'Diese Episoden gibt es im Zielblock noch nicht: $numbers. Erst nach dem Anlegen lässt sich der Import anwenden.';
+  }
+
+  @override
+  String aiApplyGroupsMissingAction(Object count) {
+    return 'Episoden jetzt anlegen ($count)';
+  }
+
+  @override
+  String aiApplyGroupsIncompleteTitle(Object groups) {
+    return 'Ohne Episoden-Nummer kann keine Episode angelegt werden: $groups. Trage sie über „Ziel ändern“ ein.';
+  }
+
+  @override
+  String get aiApplyGroupsDuplicateNumbers =>
+      'Zwei Gruppen würden dieselbe Episoden-Nummer anlegen – vergib über „Ziel ändern“ unterschiedliche Nummern.';
 
   @override
   String get aiApplyGroupCreateNumberLabel => 'Episoden-Nummer';
@@ -3989,7 +4041,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get aiConfigDecisionProviderLabel => 'Decision-Modell-Anbieter';
 
   @override
-  String get aiConfigDecisionDisabled => '— keine (Bewertung deaktiviert) —';
+  String get aiConfigDecisionDisabled => '— keine —';
 
   @override
   String get aiConfigDecisionModelLabel => 'Decision-Modell';

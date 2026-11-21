@@ -23,6 +23,106 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **An apply that cannot run now says why instead of doing nothing**
+  (`0.4.0-beta.60+152 → 0.4.0-beta.62+154`). Reported from the preview screen of
+  two script imports (`292.pdf`, `293.pdf`): the preview rendered its rows, the
+  apply card listed its questions, every checkbox including "Ich habe den
+  KI-extrahierten Inhalt geprüft" was set — the submit button never activated,
+  and where it looked active a tap did nothing at all: no spinner, no message,
+  no navigation, on both documents.
+  - **The gate could throw, and a throw was invisible.** `apply()` awaits the
+    AUTHZ mirror (`aiApplyStreamGateProvider`) before its first network call.
+    That provider promised "pending, never a denial" but only spelled it for a
+    `Left` Result: its two unguarded reads (`aiJobBlockInfoProvider`'s cached
+    row and the Drift `readById`) escaped as an ERROR. The button's async
+    `onPressed` swallows it, and because `setState(_applying = true)` and the
+    `finally` reset land in the same turn, **not even the button spinner reaches
+    the screen** — an enabled control that provably does nothing.
+  - **Both gate providers are total now.** An unreadable scope is `null`
+    (= `membership.pending`, the documented D3 answer), the dispatch-path read
+    and the reconciliation's `gate:` callback treat an unreadable gate as
+    unknown (the request proceeds, the server stays authoritative), and the
+    dispatch itself can no longer throw out of the controller.
+  - **A residual fault is surfaced, never discarded.** `_dispatchApply` wraps
+    the whole dispatch (confirmation dialog included) and turns an unexpected
+    exception into the code-keyed narrative
+    `ai_import.apply_dispatch_failed` — "Das Anwenden konnte nicht gestartet
+    werden (…). Ob etwas übernommen wurde, ist unbekannt – prüfe zuerst die
+    betroffene Episode …" — plus a `[ai-import] apply dispatch failed` log line
+    with the stack trace, in both locales.
+  - **Three tests pin the class of bug**, each failing on the previous code: a
+    throwing dispatch renders the narrative and re-enables the button, an
+    erroring season-scope read is pending instead of an exception, and an
+    unreadable block-info read resolves the scope to `null`. That last one runs
+    the provider's real body, which the previous suite always overrode.
+  - **The episode side of the gate is NAMED, and one tap away** (second report
+    from the same screen: "alle Häkchen aktiviert, der Button wird nicht
+    freigegeben"). `canApply` also requires every episode group to resolve to an
+    EXISTING episode; a script whose `Ep.:` markers are episodes the target
+    block does not have yet seeds create-new targets, so the button stays
+    disabled no matter how many boxes are ticked — and the card said nothing
+    beyond a "Neu anlegen: Episode 292" subtitle that reads like a plan, not a
+    block. The card now states the missing numbers ("Diese Episoden gibt es im
+    Zielblock noch nicht: 292, 293"), names the number-less groups that need the
+    `Ziel ändern` editor, names a duplicate-number contradiction, and offers
+    "Episoden jetzt anlegen (N)" — the iterated per-group creation the sheet
+    already ran, so apply unlocks in one tap. A duplicate numbering withholds
+    that action on purpose: creating one of the two would silently collapse both
+    groups onto one episode instead of asking.
+  - **The class is pinned by tests that state the rule AND its explanation**: a
+    preview whose episodes the block lacks renders the named blocker with its
+    numbers, then creates every missing episode in one tap and dispatches them
+    as `kind: existing`; a title-only group renders the missing-number reason
+    (and no bulk action); two groups on one number render the contradiction and
+    no bulk action; the long-standing "unresolved create targets keep apply
+    disabled" test now also asserts that the reason is ON SCREEN. The tier-1
+    state getters (`creatableGroupRefs`/`creatableGroupNumbers`/
+    `incompleteGroupRefs`) are covered directly.
+  - **Honest limit:** the on-device trigger could not be reproduced from the
+    report, and this screen provisions those episodes automatically on load
+    (`_TypedPreviewBody`'s seeding) — so the reviewer hit the case where that
+    provisioning failed or never completed. Both halves now end in a named state
+    instead of a silent one: the load-time failure surfaces
+    `ai_import.episode_create_failed` *and* the card offers the retry, and
+    anything that still throws names its code via
+    `ai_import.apply_dispatch_failed`.
+
+- **A rejected save says what to change instead of only that it failed**
+  (`0.4.0-beta.59+151 → 0.4.0-beta.60+152`). Reported from a Neuralwatt
+  configuration: switching the provider to one that does not curate the stored
+  Decision Model is refused by the backend with a precise
+  `422 ai-config.decision-model-unknown` — "Das Entscheidungsmodell ist für
+  diesen Anbieter nicht freigegeben." — but `aiConfigErrorCopy` had an arm for
+  only four of the sixteen `ai-config.*` wire codes, so the screen rendered
+  "Die Konfigurationsänderung ist fehlgeschlagen (ai-config.…)" and named no
+  fix. Six retries followed, each leaving another orphaned Vault credential
+  behind; the seventh succeeded only by guessing the right Decision Model.
+  - **All sixteen codes are explained now**, in both locales: the Decision
+    triple (`-model-unknown`, `-provider-unsupported`, the three
+    `decision-…-empty`/`-incomplete` arms), the field validation
+    (`empty-provider`/`-model`/`-prompt`/`-vault-key`), `not-found`,
+    `already-revoked` and the 403 `vault-key-forbidden`. The code-carrying
+    fallback stays for codes the server adds later.
+  - **The registry is pinned by a test, not by a comment.** A new
+    `aiConfigErrorCopy` group walks every `ai-config.*` code in German and
+    English and fails when one falls back to the generic text or leaks the raw
+    code — removing a single arm fails with the exact sentence the user would
+    have read.
+  - **The reasoning-effort picker is one readable row.** Five segments do not
+    fit the 328dp content width of a 360dp phone: the segmented control
+    squeezed every label into a per-character column ("Automatisch" rendered
+    11px wide and 220px tall, the row 236px). It is now the same dropdown the
+    rest of the form uses — one row at any width, locale and text scale — and
+    `auto` is labelled "Auto".
+  - **The Decision provider field no longer overflows.** Its "no scoring"
+    entry is the label every first-run phone opens with, and
+    "— keine (Bewertung deaktiviert) —" is 436px wide, i.e. a 164px
+    `RenderFlex` overflow at 360dp. The entry is "— keine —" now, and the field
+    bounds and ellipsizes whatever a later translation puts there.
+  - **Two narrow-width regressions are pinned** by widget tests at 360dp: the
+    first-run screen and the widest picker state, both in the German template
+    locale (rendered through the new `locale:` seam of the test harness).
+
 - **An inline edit no longer flashes the old value back while the projector
   catches up** (`0.4.0-beta.56+148 → 0.4.0-beta.57+149`, issue #917). The
   sibling gap of #916, on the other branch of the shared reconciliation runner:

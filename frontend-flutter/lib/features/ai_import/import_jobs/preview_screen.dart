@@ -277,14 +277,16 @@ class _TypedPreviewBodyState extends ConsumerState<_TypedPreviewBody> {
                 .read(aiApplyControllerProvider(widget.jobId))
                 .targetFor(groupRef);
             if (target is! CreateEpisodeGroupTarget) continue;
-            final resolved = await ensureGroupEpisodeResolved(
+            final outcome = await ensureGroupEpisodeResolved(
               ref,
               widget.jobId,
               groupRef,
               target,
             );
             if (!mounted) return;
-            if (!resolved) anyFailed = true;
+            // `superseded` (the reviewer re-pointed the group mid-flight) is
+            // neither a failure nor ours to report any more.
+            if (outcome == GroupResolution.failed) anyFailed = true;
           }
           if (anyFailed) {
             final current = ref.read(aiApplyControllerProvider(widget.jobId));

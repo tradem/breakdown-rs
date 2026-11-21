@@ -217,12 +217,15 @@ Future<void> showGroupTargetSheet(
       // command error instead so the reviewer sees WHY apply stays disabled.
       bool resolved = false;
       try {
-        resolved = await ensureGroupEpisodeResolved(
+        final outcome = await ensureGroupEpisodeResolved(
           ref,
           jobId,
           groupRef,
           result,
         );
+        // `superseded`: the reviewer re-pointed this group while the create
+        // was in flight — their pick wins and nothing failed.
+        resolved = outcome != GroupResolution.failed;
       } on Object {
         resolved = false;
       }
@@ -340,8 +343,12 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
   /// cache invalidation). Spinner on the button + disabled while running.
   bool _applying = false;
 
-  /// Set when a SUCCESSFUL apply could not be routed to its imported material
-  /// (issue #759) although the server knows a target episode — a season, block
+  /// The one-tap "create the missing episodes" run (beta.59 report): the button
+  /// spins while the per-group creations are in flight, so a slow call is never
+  /// another silent tap.
+  bool _resolvingGroups = false;
+
+  /// Set when a SUCCESSFUL apply could not be routed to its imported material  /// (issue #759) although the server knows a target episode — a season, block
   /// or episode number the read caches do not hold. The outcome card then says so
   /// instead of leaving the user to wonder why the screen did not change. A job
   /// with NO target episode at all (a schedule merge, or nothing ever applied)
@@ -448,13 +455,13 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     required bool confirmBeforeApply,
   }) async {
     if (_applying) return;
-    if (confirmBeforeApply &&
-        !await _confirmReapply(knownApplied: knownApplied)) {
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _applying = true);
     try {
+      if (confirmBeforeApply &&
+          !await _confirmReapply(knownApplied: knownApplied)) {
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _applying = true);
       final applied = await ref
           .read(aiApplyControllerProvider(widget.jobId).notifier)
           .apply();
@@ -470,10 +477,59 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
       // must not route a disposed section into the imported material (the
       // navigation reads `ref`, which throws after dispose).
       if (!mounted) return;
-      await _openImportedEpisode(response);
+      // Reaching the material is a SEPARATE path from the dispatch (CodeRabbit
+      // review): `_openImportedEpisode` reads the Drift caches, and a cache read
+      // can throw. Letting that reach the outer handler would call
+      // `reportDispatchFailure`, which CLEARS the successful outcome and turns a
+      // completed import into "the dispatch failed, outcome unknown". The apply
+      // is what succeeded here, so the outcome stays and only the navigation is
+      // reported as unresolved (the same honest state a target the caches cannot
+      // resolve already produces).
+      try {
+        await _openImportedEpisode(response);
+      } on Object catch (error, stackTrace) {
+        debugPrint(
+          '[ai-import] opening the imported episode failed for job '
+          '${widget.jobId}: $error\n'
+          '$stackTrace',
+        );
+        if (mounted) setState(() => _navigationUnresolved = true);
+      }
+    } on Object catch (error, stackTrace) {
+      // The one failure mode this tap must never have (beta.59 report: two
+      // script previews, every box checked, the button ENABLED and the tap
+      // did nothing at all). An exception thrown here is swallowed by the
+      // async `onPressed` callback, and because `setState(_applying = true)`
+      // and the `finally` reset land in the same turn, not even a spinner
+      // reaches the screen. So it becomes a surfaced, code-keyed narrative
+      // (`ai_import.apply_dispatch_failed`) plus a log line for the report.
+      debugPrint(
+        '[ai-import] apply dispatch failed for job ${widget.jobId}: $error\n'
+        '$stackTrace',
+      );
+      if (!mounted) return;
+      ref
+          .read(aiApplyControllerProvider(widget.jobId).notifier)
+          .reportDispatchFailure(
+            ProblemError(
+              code: 'ai_import.apply_dispatch_failed',
+              detail: '$error',
+            ),
+          );
     } finally {
       if (mounted) setState(() => _applying = false);
     }
+  }
+
+  /// The reviewer-facing label of one preview group, for the blocker notice:
+  /// the `Ep.:`-derived label, else the bare group ref (never an invented
+  /// number).
+  String _groupLabel(BuildContext context, AiApplyState state, String ref) {
+    final episode = state.episodeOfGroup(ref);
+    final label = episode == null
+        ? ref
+        : draftEpisodeLabel(l10nOf(context), episode.number, episode.title);
+    return label.isEmpty ? ref : label;
   }
 
   /// Ask before a **second** apply of an already-imported preview (issue #800).
@@ -569,6 +625,28 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
     // client can prove, so it must not lock the action (issue #805 review).
     final blockedByLiveRun =
         inFlight != null && inFlight.age != null && !inFlight.isStaleAt(now);
+
+    // The episode-side blocker, NAMED (beta.59 report): a script whose `Ep.:`
+    // markers are episodes the target block does not have yet seeds create-new
+    // targets, so `hasResolvedGroupTargets` keeps the submit button disabled —
+    // and the card used to say nothing about it. Every checkbox could be
+    // ticked and "Import anwenden" stayed grey, which reads as a broken button.
+    final creatableGroups = state.creatableGroupRefs;
+    final creatableNumbers = state.creatableGroupNumbers;
+    final incompleteGroups = state.incompleteGroupRefs;
+    final duplicateCreateNumbers = state.hasDuplicateCreateNumbers;
+
+    /// One tap for the whole episode side: the same per-group resolution the
+    /// "Ziel ändern" sheet runs, iterated (see [resolveAllCreateGroups]).
+    Future<void> resolveGroups() async {
+      if (_resolvingGroups) return;
+      setState(() => _resolvingGroups = true);
+      try {
+        await resolveAllCreateGroups(ref, jobId);
+      } finally {
+        if (mounted) setState(() => _resolvingGroups = false);
+      }
+    }
 
     // The explicit episode pick over the season's episodes from the read DTOs
     // — ids never guessed.
@@ -994,6 +1072,26 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
+              // The episode side, NAMED (beta.59 report): `canApply` also
+              // requires every group to resolve to an EXISTING episode, and a
+              // script whose `Ep.:` markers are new episodes in this block
+              // starts on create targets. Without this notice the reviewer saw
+              // a disabled button, ticked every checkbox and had no way to
+              // learn what was missing.
+              if (creatableGroups.isNotEmpty ||
+                  incompleteGroups.isNotEmpty ||
+                  duplicateCreateNumbers)
+                _UnresolvedGroupsNotice(
+                  numbers: creatableNumbers,
+                  creatableCount: creatableGroups.length,
+                  incompleteLabels: [
+                    for (final ref in incompleteGroups)
+                      _groupLabel(context, state, ref),
+                  ],
+                  duplicateNumbers: duplicateCreateNumbers,
+                  resolving: _resolvingGroups,
+                  onResolve: resolveGroups,
+                ),
               // Issue #805: the blocking run, named. Live → what it is and
               // when a takeover becomes possible; abandoned → the explicit
               // takeover (never an automatic steal); unaged → the server decides.
@@ -1057,6 +1155,99 @@ class _AiApplySectionState extends ConsumerState<AiApplySection> {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The episode-side blocker of the apply, NAMED (beta.59 report: two script
+/// previews, every checkbox ticked, the button permanently disabled and nothing
+/// on screen explaining it).
+///
+/// Three states, each with its own reason — and the creatable one gets the one
+/// tap that resolves it:
+///
+/// - **creatable** (`{numbers}`): create-new targets that already carry their
+///   wire-required number. They block the dispatch until the episodes exist, so
+///   the notice offers [onResolve], the iterated per-group creation the "Ziel
+///   ändern" sheet runs.
+/// - **incomplete** (`{groups}`): create-new targets without a number — nothing
+///   can be created for them, so the copy points at "Ziel ändern" instead of
+///   offering an action that could not work.
+/// - **duplicate numbers**: two groups would create the same number; the server
+///   answers `409 episode.number-already-exists`, so the copy routes to the same
+///   editor — and the bulk action stays AWAY (creating one of them would
+///   silently collapse both groups onto one episode instead of asking).
+///
+/// Nothing here dispatches an apply: it provisions the episodes the apply needs.
+class _UnresolvedGroupsNotice extends StatelessWidget {
+  const _UnresolvedGroupsNotice({
+    required this.numbers,
+    required this.creatableCount,
+    required this.incompleteLabels,
+    required this.duplicateNumbers,
+    required this.resolving,
+    required this.onResolve,
+  });
+
+  final List<int> numbers;
+  final int creatableCount;
+  final List<String> incompleteLabels;
+  final bool duplicateNumbers;
+  final bool resolving;
+  final VoidCallback onResolve;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = l10nOf(context);
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        key: const Key('ai-apply-groups-unresolved'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (numbers.isNotEmpty && !duplicateNumbers) ...[
+            Text(
+              l10n.aiApplyGroupsMissingTitle(
+                numbers.map((number) => '$number').join(', '),
+              ),
+              key: const Key('ai-apply-groups-missing'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 4),
+            OutlinedButton.icon(
+              key: const Key('ai-apply-groups-resolve'),
+              onPressed: resolving ? null : onResolve,
+              icon: resolving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.playlist_add_outlined),
+              label: Text(l10n.aiApplyGroupsMissingAction('$creatableCount')),
+            ),
+          ],
+          if (incompleteLabels.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                l10n.aiApplyGroupsIncompleteTitle(incompleteLabels.join(', ')),
+                key: const Key('ai-apply-groups-incomplete'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          if (duplicateNumbers)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                l10n.aiApplyGroupsDuplicateNumbers,
+                key: const Key('ai-apply-groups-duplicate'),
+                style: TextStyle(color: scheme.error),
+              ),
+            ),
+        ],
       ),
     );
   }

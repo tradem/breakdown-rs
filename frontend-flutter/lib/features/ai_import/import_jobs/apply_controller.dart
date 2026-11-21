@@ -145,18 +145,41 @@ Stream<AiApplyRunState> aiApplyRun(Ref ref, String jobId) async* {
 /// means the scope could not be resolved (no block on the job, or the block is
 /// neither cached nor readable) — the gate then stays PENDING, which disables
 /// the watch instead of denying it.
+///
+/// **Totality is part of that contract.** The function used to spell the
+/// pending answer only for a `Left` Result, while the two reads above it
+/// (`aiJobBlockInfoProvider`'s cached-row read and the Drift `readById`) can
+/// throw: an unreadable cache then escaped this provider as an ERROR, and every
+/// consumer of the gate reads a `.future` — `apply()` awaits it before the
+/// first network call. A throw there is swallowed by the button's async
+/// callback in a single turn (both `setState`s land before the next frame), so
+/// the reviewer saw an ENABLED submit button that provably did nothing: no
+/// spinner, no error, no navigation. An unreadable scope is `null` (pending),
+/// exactly as documented — never an exception.
 @riverpod
 Future<String?> aiApplyJobSeasonId(Ref ref, String jobId) async {
-  final info = await ref.watch(aiJobBlockInfoProvider(jobId).future);
-  final blockId = info?.blockId;
-  if (blockId == null || blockId.isEmpty) return null;
-  final cached = await BlockCacheDao(ref.watch(cacheDatabaseProvider))
-      .readById(blockId);
-  if (cached != null) return cached.seasonId;
-  // Cold cache / offline: the single-block read is the only remaining source
-  // for the season. A failed read answers `null` — pending, never a denial.
-  final fetched = await ref.watch(episodeRepositoryProvider).blockById(blockId);
-  return fetched.fold((_) => null, (block) => block.seasonId);
+  try {
+    final info = await ref.watch(aiJobBlockInfoProvider(jobId).future);
+    final blockId = info?.blockId;
+    if (blockId == null || blockId.isEmpty) return null;
+    final cached = await BlockCacheDao(ref.watch(cacheDatabaseProvider))
+        .readById(blockId);
+    if (cached != null) return cached.seasonId;
+    // Cold cache / offline: the single-block read is the only remaining source
+    // for the season. A failed read answers `null` — pending, never a denial.
+    final fetched = await ref
+        .watch(episodeRepositoryProvider)
+        .blockById(blockId);
+    final resolved = fetched.fold<String?>(
+      (_) => null,
+      (block) => block.seasonId,
+    );
+    return resolved;
+  } on Object {
+    // An unreadable scope (a failing job-row read, a locked/corrupt Drift read,
+    // a transport throw outside a Result): still pending, never a denial.
+    return null;
+  }
 }
 
 /// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
@@ -167,9 +190,19 @@ Future<String?> aiApplyJobSeasonId(Ref ref, String jobId) async {
 /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
 /// uses. A failed or still-pending membership read stays `membership.pending`
 /// (disabled with the waiting line, never the 403 narrative — D3).
+///
+/// **The gate never throws**, for the same reason [aiApplyJobSeasonId] never
+/// does: it is awaited on the dispatch path (`apply()`, the reconciliation's
+/// `gate:` callback and the progress stream), and an escaping error there is
+/// invisible to the reviewer (see that provider's doc comment).
 @riverpod
 Future<ProblemError?> aiApplyStreamGate(Ref ref, String jobId) async {
-  final seasonId = await ref.watch(aiApplyJobSeasonIdProvider(jobId).future);
+  final String? seasonId;
+  try {
+    seasonId = await ref.watch(aiApplyJobSeasonIdProvider(jobId).future);
+  } on Object {
+    return const ProblemError(code: 'membership.pending');
+  }
   if (seasonId == null) {
     return const ProblemError(code: 'membership.pending');
   }
@@ -265,6 +298,20 @@ class CreateEpisodeGroupTarget extends EpisodeGroupTarget {
 
   /// The heading's title, kept verbatim; nullable on the wire.
   final String? name;
+
+  /// VALUE equality, not identity: [AiApplyState.targetFor] DERIVES a fresh
+  /// instance for every group still on its seeded create default, so "is this
+  /// the very target the resolution started from?" — the guard that keeps an
+  /// in-flight resolution from overwriting a pick the reviewer changed
+  /// (`adoptCreatedEpisode`) — can only be answered by value.
+  @override
+  bool operator ==(Object other) =>
+      other is CreateEpisodeGroupTarget &&
+      other.number == number &&
+      other.name == name;
+
+  @override
+  int get hashCode => Object.hash(number, name);
 }
 
 /// Apply the group to the EXISTING episode the reviewer picked (id from the
@@ -276,6 +323,16 @@ class ExistingEpisodeGroupTarget extends EpisodeGroupTarget {
 
   /// Human-readable label captured at pick time (never re-derived).
   final String? label;
+
+  /// Value equality on the identity that matters ([episodeId]); [label] is
+  /// display-only. See [CreateEpisodeGroupTarget.==] for WHY targets compare
+  /// by value.
+  @override
+  bool operator ==(Object other) =>
+      other is ExistingEpisodeGroupTarget && other.episodeId == episodeId;
+
+  @override
+  int get hashCode => episodeId.hashCode;
 }
 
 /// Mirrors `breakdown_core::ai::DraftEpisode::group_key` BYTE-FOR-BYTE:
@@ -770,8 +827,37 @@ class AiApplyState {
   /// UX rule (user report 2026-10-19): the apply button activates only when
   /// the episode side is settled — an unresolved create target keeps it
   /// disabled, so a half-created import can never be dispatched by accident.
+  ///
+  /// **The rule is only half the contract**: a disabled button that names no
+  /// reason is indistinguishable from a broken one (beta.59 report: `292.pdf`
+  /// and `293.pdf` seeded `create` targets for episodes their target block did
+  /// not have yet, every checkbox was ticked and nothing ever enabled). The card
+  /// renders [creatableGroupRefs] / [incompleteGroupRefs] as a NAMED blocker
+  /// with a one-tap resolution, so this getter never silently decides alone.
   bool get hasResolvedGroupTargets =>
       groupRefs.every((ref) => targetFor(ref) is ExistingEpisodeGroupTarget);
+
+  /// Create-new targets that already carry their wire-required number — the
+  /// ones one tap can create (the card's bulk action). Group order, stable.
+  List<String> get creatableGroupRefs => [
+    for (final ref in groupRefs)
+      if (targetFor(ref) case CreateEpisodeGroupTarget(number: _?)) ref,
+  ];
+
+  /// The episode numbers [creatableGroupRefs] would create, in the same order
+  /// (the card's reason line names them instead of counting groups).
+  List<int> get creatableGroupNumbers => [
+    for (final ref in creatableGroupRefs)
+      if (targetFor(ref) case CreateEpisodeGroupTarget(:final number?)) number,
+  ];
+
+  /// Create-new targets WITHOUT a number: nothing can be created for them until
+  /// the reviewer supplies one through "Ziel ändern", so the card says so
+  /// instead of offering an action that could not work.
+  List<String> get incompleteGroupRefs => [
+    for (final ref in groupRefs)
+      if (targetFor(ref) case CreateEpisodeGroupTarget(number: null)) ref,
+  ];
 
   /// The wire acknowledgements: ONE entry per acknowledged `(scene_index,
   /// field)` pair, in the preview's own order (stable, testable).
@@ -1186,13 +1272,27 @@ class AiApplyController extends _$AiApplyController {
   /// the apply's cross-block IDOR guard passes even when the remembered
   /// context episode belonged to another block (or was missing entirely —
   /// the job's block had zero episodes, making apply unreachable before).
-  void adoptCreatedEpisode(
+  ///
+  /// [onlyIfCurrentTarget] makes the write CONDITIONAL: when the group no
+  /// longer carries that very target the adoption is skipped and `false` is
+  /// returned (CodeRabbit review). A resolution AWAITS the block reads and the
+  /// create POST while the per-group "Ziel ändern" button stays enabled — only
+  /// the one-tap trigger is disabled — so a pick the reviewer made in the
+  /// meantime must not be replaced by the resolution it superseded.
+  ///
+  /// Returns whether the adoption was written.
+  bool adoptCreatedEpisode(
     String groupRef, {
     required String episodeId,
     required int number,
     required String projectId,
     String? label,
+    EpisodeGroupTarget? onlyIfCurrentTarget,
   }) {
+    if (onlyIfCurrentTarget != null &&
+        state.targetFor(groupRef) != onlyIfCurrentTarget) {
+      return false;
+    }
     final nextTargets = {
       ...state.groupTargets,
       groupRef: ExistingEpisodeGroupTarget(
@@ -1240,6 +1340,7 @@ class AiApplyController extends _$AiApplyController {
       commandError: keepError ? error : null,
       groupTargets: nextTargets,
     );
+    return true;
   }
 
   /// Records the reviewer's target for one episode group (existing episode
@@ -1318,6 +1419,22 @@ class AiApplyController extends _$AiApplyController {
 
   void dismissCommandError() {
     state = state.copyWith(commandError: null);
+  }
+
+  /// Surfaces a dispatch failure the flow could not express as a [Result] — an
+  /// exception escaping [apply] (the gate chain, the reconciliation, a
+  /// transported throw the repository did not wrap) or a screen-level fault
+  /// before the first request.
+  ///
+  /// The section renders it code-keyed like every other apply failure. Without
+  /// this slot the exception is swallowed by the button's async callback: both
+  /// `setState`s of `_applying` land in the same turn, so no frame shows the
+  /// spinner, and the reviewer is left with an ENABLED button that provably does
+  /// nothing — no spinner, no narrative, no navigation (the beta.59 report).
+  /// Surfaced, never discarded (AGENTS.md §4).
+  void reportDispatchFailure(ProblemError error) {
+    if (!ref.mounted) return;
+    state = state.copyWith(outcome: null, commandError: error);
   }
 
   /// Re-anchors a stored blocked-run notice because the owning run published
@@ -1438,7 +1555,16 @@ class AiApplyController extends _$AiApplyController {
     // a `ref.read` in the continuation would throw `UnmountedRefException` and
     // fail the apply before it dispatches (review of #899).
     final scheduler = ref.read(reconciliationSchedulerProvider);
-    final denial = await ref.read(aiApplyStreamGateProvider(jobId).future);
+    ProblemError? denial;
+    try {
+      denial = await ref.read(aiApplyStreamGateProvider(jobId).future);
+    } on Object {
+      // An UNREADABLE gate is unknown, not a denial (D3 / AGENTS.md §1): the
+      // dispatch proceeds and the server stays authoritative. Rethrowing here
+      // was one way an enabled submit button did nothing at all — the exception
+      // leaves this method before the UI ever renders `_applying`.
+      denial = null;
+    }
     // Only a **resolved** denial blocks the dispatch. `membership.pending` is
     // "not resolved yet" (cold cache, offline, a season scope that did not
     // load), and refusing on it would hide the server's own answer behind a
@@ -1470,7 +1596,14 @@ class AiApplyController extends _$AiApplyController {
         if (!ref.mounted) {
           return const ProblemError(code: 'ai_import.apply_unmounted');
         }
-        return ref.read(aiApplyStreamGateProvider(jobId).future);
+        try {
+          return await ref.read(aiApplyStreamGateProvider(jobId).future);
+        } on Object {
+          // Same rule as the dispatch-path read above: an unreadable gate is
+          // `membership.pending`, which the reconciliation lets through — it
+          // must never throw out of this callback.
+          return const ProblemError(code: 'membership.pending');
+        }
       },
       // A retry is a NEW server-side run: the first run's end frame has
       // already closed the card's subscription, so re-arm it instead of
@@ -1639,6 +1772,13 @@ String aiApplyErrorCopy(AppLocalizations l10n, ProblemError error) =>
       'ai-import.apply-unknown-continuity-candidate' =>
         l10n.aiApplyErrorUnknownContinuityCandidate,
       _ when error.code.startsWith('transport.') => l10n.aiApplyErrorNetwork,
+      // A client-side dispatch failure that never produced a wire code (see
+      // [AiApplyController.reportDispatchFailure]): the tap was swallowed by an
+      // exception before/while the apply ran, so the copy must state that the
+      // outcome is unknown rather than render a bare code.
+      'ai_import.apply_dispatch_failed' => l10n.aiApplyErrorDispatchFailed(
+        error.code,
+      ),
       _ => l10n.aiApplyErrorGeneric(error.code),
     };
 
@@ -1780,6 +1920,45 @@ String groupTargetSummaryLine(
   );
 }
 
+/// How one [ensureGroupEpisodeResolved] attempt ended.
+enum GroupResolution {
+  /// The group now points at an existing episode (adopted, or created right
+  /// here and adopted).
+  resolved,
+
+  /// Nothing was adopted — offline, missing block anchor, incomplete target or
+  /// a number that lives in another block. The caller explains it.
+  failed,
+
+  /// The reviewer re-pointed this group while the resolution was in flight, so
+  /// the result was DROPPED instead of written over their pick. Neither a
+  /// failure nor a resolution: the reviewer's own attempt settles the group.
+  superseded,
+}
+
+/// Adopts [episodeId] for [groupRef] UNLESS the reviewer re-pointed that group
+/// while the resolution was in flight — then their pick wins and nothing is
+/// written (see [AiApplyController.adoptCreatedEpisode]).
+GroupResolution _adoptResolvedEpisode(
+  AiApplyController controller,
+  String groupRef,
+  CreateEpisodeGroupTarget target, {
+  required String episodeId,
+  required int number,
+  required String projectId,
+  String? label,
+}) =>
+    controller.adoptCreatedEpisode(
+      groupRef,
+      episodeId: episodeId,
+      number: number,
+      projectId: projectId,
+      label: label,
+      onlyIfCurrentTarget: target,
+    )
+    ? GroupResolution.resolved
+    : GroupResolution.superseded;
+
 /// Ensures the episode behind [target] EXISTS and the group adopts it — the
 /// in-preview creation (user report 2026-10-19, the 294.pdf empty-picker
 /// flow): an existing project episode with the target's number is adopted,
@@ -1789,21 +1968,22 @@ String groupTargetSummaryLine(
 /// `episode_id` — before this, a block with zero episodes made apply
 /// unreachable (empty picker + create-at-apply requiring a context episode).
 ///
-/// Returns `true` when the group now resolves. Any failure (offline, 409
-/// the recovery can settle, missing block info) returns `false` and leaves
-/// the reviewer's state untouched — the backend 409 recovery stays the
-/// backstop. Called from the preview seeding AND from the "Ziel ändern"
-/// sheet's create branch.
-Future<bool> ensureGroupEpisodeResolved(
+/// Answers [GroupResolution]: `failed` on any failure (offline, a 409 the
+/// recovery can settle, missing block info), which leaves the reviewer's state
+/// untouched — the backend 409 recovery stays the backstop — and `superseded`
+/// when the reviewer re-pointed the group while its resolution was in flight.
+/// Called from the preview seeding, the "Ziel ändern" sheet's create branch and
+/// the one-tap [resolveAllCreateGroups].
+Future<GroupResolution> ensureGroupEpisodeResolved(
   WidgetRef ref,
   String jobId,
   String groupRef,
   CreateEpisodeGroupTarget target,
 ) async {
   final number = target.number;
-  if (number == null) return false;
+  if (number == null) return GroupResolution.failed;
   final blockInfo = await ref.read(aiJobBlockInfoProvider(jobId).future);
-  if (blockInfo == null) return false;
+  if (blockInfo == null) return GroupResolution.failed;
   var projectId = blockInfo.projectId;
   if (projectId.isEmpty) {
     // No remembered project: the block carries it. Repository seam (Result —
@@ -1814,7 +1994,7 @@ Future<bool> ensureGroupEpisodeResolved(
         .blockById(blockInfo.blockId);
     projectId = block.fold((_) => '', (b) => b.projectId);
   }
-  if (projectId.isEmpty) return false;
+  if (projectId.isEmpty) return GroupResolution.failed;
   final controller = ref.read(aiApplyControllerProvider(jobId).notifier);
 
   // An episode with the number may already exist (created by an earlier
@@ -1836,14 +2016,15 @@ Future<bool> ensureGroupEpisodeResolved(
       .toList();
   if (inJobBlock.isNotEmpty) {
     final episode = inJobBlock.first;
-    controller.adoptCreatedEpisode(
+    return _adoptResolvedEpisode(
+      controller,
       groupRef,
+      target,
       episodeId: episode.id,
       number: number,
       projectId: projectId,
       label: target.name == null ? '$number' : '$number \u00b7 ${target.name}',
     );
-    return true;
   }
   final elsewhere = rows.where((episode) => episode.number == number).toList();
   if (elsewhere.isNotEmpty) {
@@ -1864,7 +2045,7 @@ Future<bool> ensureGroupEpisodeResolved(
         },
       ),
     );
-    return false;
+    return GroupResolution.failed;
   }
 
   final created = await ref
@@ -1878,16 +2059,79 @@ Future<bool> ensureGroupEpisodeResolved(
             ..name = target.name,
         ),
       );
-  return created.match((_) => false, (idVersion) {
-    controller.adoptCreatedEpisode(
+  return created.match((_) => GroupResolution.failed, (idVersion) {
+    // The episode EXISTS now (the POST landed) even when the write is skipped:
+    // the reviewer re-pointed the group mid-flight, so the group keeps THEIR
+    // target and the created episode simply stays unassigned.
+    return _adoptResolvedEpisode(
+      controller,
       groupRef,
+      target,
       episodeId: idVersion.id,
       number: number,
       projectId: projectId,
       label: target.name == null ? '$number' : '$number \u00b7 ${target.name}',
     );
-    return true;
   });
+}
+
+/// The card's one-tap resolution of EVERY creatable group target — the action
+/// behind the named blocker (beta.59 report).
+///
+/// The reviewer's mental model is "tick the boxes and apply"; with episode
+/// markers whose episodes the target block does not have yet, every seeded
+/// target is create-new, `hasResolvedGroupTargets` stays false and the button
+/// never activates — while the card named no reason. Rather than weaken the
+/// apply contract (which keeps the 409 `episode.number-already-exists` dance
+/// out of the happy path), the reviewer gets the same resolution the
+/// "Ziel ändern" sheet runs, iterated over every stay-unresolved group.
+///
+/// Never throws: a failed creation surfaces as the card's `commandError` (the
+/// per-group helper and this loop set it) and STOPS the run, so a cross-block
+/// refusal is never papered over by silently creating the remaining episodes.
+/// Returns how many groups ended up resolved.
+Future<int> resolveAllCreateGroups(WidgetRef ref, String jobId) async {
+  final groupRefs = ref
+      .read(aiApplyControllerProvider(jobId))
+      .creatableGroupRefs;
+  var resolved = 0;
+  for (final groupRef in groupRefs) {
+    // Read the CURRENT state per iteration instead of a snapshot taken before
+    // the loop (CodeRabbit review): every resolution AWAITS the block reads and
+    // the create POST, and the per-group "Ziel ändern" button stays enabled the
+    // whole time — only the one-tap trigger is disabled. A group the reviewer
+    // re-pointed meanwhile is no longer a create target and must not be
+    // resolved; a pick changed for the group being resolved is caught by the
+    // adoption's own guard (`superseded`).
+    final state = ref.read(aiApplyControllerProvider(jobId));
+    final target = state.targetFor(groupRef);
+    if (target is! CreateEpisodeGroupTarget) continue;
+    final errorBefore = state.commandError;
+    GroupResolution outcome;
+    try {
+      outcome = await ensureGroupEpisodeResolved(ref, jobId, groupRef, target);
+    } on Object {
+      outcome = GroupResolution.failed;
+    }
+    if (outcome != GroupResolution.failed) {
+      // `superseded`: the reviewer's own pick settles the group — nothing to
+      // report, and definitely not a failure.
+      if (outcome == GroupResolution.resolved) resolved++;
+      continue;
+    }
+    final surfaced = ref.read(aiApplyControllerProvider(jobId)).commandError;
+    if (surfaced == null || identical(surfaced, errorBefore)) {
+      // No specific reason recorded (an empty project id, a failed read): the
+      // card still explains WHY the button stays disabled.
+      ref
+          .read(aiApplyControllerProvider(jobId).notifier)
+          .setCommandError(
+            const ProblemError(code: 'ai_import.episode_create_failed'),
+          );
+    }
+    return resolved;
+  }
+  return resolved;
 }
 
 /// Resolves the display location of a conflicting episode's home (issue

@@ -308,7 +308,16 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: AiApplySection(jobId: 'job-1')),
+          // The card is a SCROLLABLE list item in production (the preview
+          // screen's ListView); hosting it as the whole screen would make any
+          // copy growth an overflow instead of a scroll.
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: AiApplySection(jobId: 'job-1'),
+              ),
+            ),
+          ),
         ),
       );
       await tester.pump();
@@ -361,7 +370,16 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: AiApplySection(jobId: 'job-1')),
+          // The card is a SCROLLABLE list item in production (the preview
+          // screen's ListView); hosting it as the whole screen would make any
+          // copy growth an overflow instead of a scroll.
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: AiApplySection(jobId: 'job-1'),
+              ),
+            ),
+          ),
         ),
       );
       // The group the 409 is about: the draft's `Ep.: 293` marker seeds the
@@ -409,7 +427,16 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
-          child: const MaterialApp(home: AiApplySection(jobId: 'job-1')),
+          // The card is a SCROLLABLE list item in production (the preview
+          // screen's ListView); hosting it as the whole screen would make any
+          // copy growth an overflow instead of a scroll.
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: AiApplySection(jobId: 'job-1'),
+              ),
+            ),
+          ),
         ),
       );
       container.read(aiApplyControllerProvider('job-1').notifier).seedRows([

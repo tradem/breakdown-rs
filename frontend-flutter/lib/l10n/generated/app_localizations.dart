@@ -956,6 +956,48 @@ abstract class AppLocalizations {
   /// **'Die Konfigurationsänderung ist fehlgeschlagen ({code}).'**
   String aiConfigErrorGeneric(Object code);
 
+  /// No description provided for @aiConfigErrorIncomplete.
+  ///
+  /// In de, this message translates to:
+  /// **'Bitte Anbieter, Modell und beide Prompts ausfüllen.'**
+  String get aiConfigErrorIncomplete;
+
+  /// No description provided for @aiConfigErrorNotFound.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Konfiguration existiert nicht mehr. Aktualisiere den Bildschirm.'**
+  String get aiConfigErrorNotFound;
+
+  /// No description provided for @aiConfigErrorAlreadyRevoked.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Konfiguration ist bereits widerrufen. Leg eine neue an.'**
+  String get aiConfigErrorAlreadyRevoked;
+
+  /// No description provided for @aiConfigErrorVaultKeyForbidden.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser API-Schlüssel gehört zu einem anderen Konto. Verwende einen eigenen Schlüssel für diesen Anbieter.'**
+  String get aiConfigErrorVaultKeyForbidden;
+
+  /// No description provided for @aiConfigErrorDecisionIncomplete.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Decision-Modell ist unvollständig. Anbieter, Modell und Schlüssel gehören zusammen – oder wähle „keine“.'**
+  String get aiConfigErrorDecisionIncomplete;
+
+  /// No description provided for @aiConfigErrorDecisionModelUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Modell ist für den gewählten Anbieter nicht freigegeben. Bitte ein anderes Decision-Modell wählen.'**
+  String get aiConfigErrorDecisionModelUnknown;
+
+  /// No description provided for @aiConfigErrorDecisionProviderUnsupported.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Anbieter kann kein Decision-Modell bewerten. Wähle einen anderen Anbieter oder deaktiviere das Decision-Modell.'**
+  String get aiConfigErrorDecisionProviderUnsupported;
+
   /// No description provided for @aiConfigProvidersUnavailable.
   ///
   /// In de, this message translates to:
@@ -2114,7 +2156,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConfigReasoningEffortAuto.
   ///
   /// In de, this message translates to:
-  /// **'Automatisch'**
+  /// **'Auto'**
   String get aiConfigReasoningEffortAuto;
 
   /// No description provided for @aiConfigReasoningEffortMinimal.
@@ -2144,7 +2186,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConfigReasoningEffortUnsupported.
   ///
   /// In de, this message translates to:
-  /// **'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Automatisch“ wählen.'**
+  /// **'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Auto“ wählen.'**
   String get aiConfigReasoningEffortUnsupported;
 
   /// No description provided for @aiJobCostCompact.
@@ -2326,6 +2368,12 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'Das Anwenden ist fehlgeschlagen ({code}).'**
   String aiApplyErrorGeneric(Object code);
+
+  /// No description provided for @aiApplyErrorDispatchFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Anwenden konnte nicht gestartet werden ({code}). Ob etwas übernommen wurde, ist unbekannt – prüfe zuerst die betroffene Episode, bevor du es erneut versuchst.'**
+  String aiApplyErrorDispatchFailed(Object code);
 
   /// No description provided for @aiApplyErrorApplyBlocked.
   ///
@@ -2582,6 +2630,30 @@ abstract class AppLocalizations {
   /// In de, this message translates to:
   /// **'{group} → {target}'**
   String aiApplyGroupTargetSummary(Object group, Object target);
+
+  /// No description provided for @aiApplyGroupsMissingTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Episoden gibt es im Zielblock noch nicht: {numbers}. Erst nach dem Anlegen lässt sich der Import anwenden.'**
+  String aiApplyGroupsMissingTitle(Object numbers);
+
+  /// No description provided for @aiApplyGroupsMissingAction.
+  ///
+  /// In de, this message translates to:
+  /// **'Episoden jetzt anlegen ({count})'**
+  String aiApplyGroupsMissingAction(Object count);
+
+  /// No description provided for @aiApplyGroupsIncompleteTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'Ohne Episoden-Nummer kann keine Episode angelegt werden: {groups}. Trage sie über „Ziel ändern“ ein.'**
+  String aiApplyGroupsIncompleteTitle(Object groups);
+
+  /// No description provided for @aiApplyGroupsDuplicateNumbers.
+  ///
+  /// In de, this message translates to:
+  /// **'Zwei Gruppen würden dieselbe Episoden-Nummer anlegen – vergib über „Ziel ändern“ unterschiedliche Nummern.'**
+  String get aiApplyGroupsDuplicateNumbers;
 
   /// No description provided for @aiApplyGroupCreateNumberLabel.
   ///
@@ -6459,7 +6531,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConfigDecisionDisabled.
   ///
   /// In de, this message translates to:
-  /// **'— keine (Bewertung deaktiviert) —'**
+  /// **'— keine —'**
   String get aiConfigDecisionDisabled;
 
   /// No description provided for @aiConfigDecisionModelLabel.
