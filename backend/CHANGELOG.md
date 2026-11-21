@@ -22,11 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 version per behaviour change, dependency-order lockstep `core → infra → api`)
 and are recorded as a `Changed` bullet. A release means: turn `[Unreleased]`
 into a dated `## [api-vX.Y.Z] – Released <date>` section and cut the image
-tag. Never edit a released entry afterwards. The **release body** is a
-reviewed prose file at `backend/RELEASE-NOTES/<tag>.md`; the
-tag-push workflow attaches it together with the arc42 PDF/HTML artifacts
-(`.github/workflows/docs.yml`), and falls back to GitHub's generated notes
-when no file exists for the tag.
+tag. Never edit a released entry afterwards. The **release body** is resolved by
+`backend/scripts/release-notes.sh`: the curated prose file at
+`backend/RELEASE-NOTES/<tag>.md` when one is checked in (used verbatim), else the
+tag's own section rendered under a mechanical preamble. The tag-push workflow
+attaches it together with the arc42 PDF/HTML artifacts
+(`.github/workflows/docs.yml`) and **fails when neither source exists** — GitHub's
+generated notes are never used.
 
 ## [Unreleased]
 
