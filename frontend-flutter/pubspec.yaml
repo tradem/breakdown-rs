@@ -98,10 +98,10 @@ dependencies:
   # "Open settings" affordance for denied camera/photo-library permission
   # (real Android+iOS handlers; FOSS).
   app_settings: ^9.0.1
-  pdfrx: ^2.12.0
+  pdfrx: ^2.13.1
   share_plus: ^13.3.1
   path_provider: ^2.1.6
-  file_picker: ^13.3.0
+  file_picker: ^13.4.1
   # Editable XML prompt editor with token-aware syntax highlighting (issue
   # #520). Token colors are supplied from Material 3 color-scheme roles.
   flutter_code_editor: ^0.3.5
@@ -125,7 +125,7 @@ dependencies:
   # Word-cloud credits screen (issue #655): SVG rendering of the bundled
   # technology logos (Rust, Flutter) in the "Auf der Schulter von Riesen"
   # section. FOSS package (dart.dev), no native platform channels.
-  flutter_svg: ^2.4.0
+  flutter_svg: ^2.5.0
   connectivity_plus: ^7.3.2
 
   # The following adds the Cupertino Icons font to your application.

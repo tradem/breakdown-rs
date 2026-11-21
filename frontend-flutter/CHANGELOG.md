@@ -42,6 +42,24 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     positive — it applies KGP only when built-in Kotlin is off. See
     `docs/development-troubleshooting.md` for the symptom/fix pair.
 
+- **Dependency refresh** (`flutter pub upgrade` plus the reachable direct
+  bumps). 67 locked packages moved to the newest versions their constraints
+  allow; the visible ones are `file_picker 13.3.0 → 13.4.1`,
+  `flutter_svg 2.4.0 → 2.5.0` and `pdfrx 2.12.0 → 2.13.1` (stays on the 2.x
+  line).
+  - **`pubspec.lock` was re-resolved with the pinned toolchain.** It had been
+    resolved by the v0.4.0 release build (Flutter 3.50.1) and still carried
+    `test 1.32.0` / `test_api 0.7.14`, which Flutter 3.47.6 cannot satisfy
+    (`flutter_test` pins `test_api 0.7.12`) — so every `pub get` since the pin
+    silently re-resolved the lock. It is now consistent with 3.47.6 again.
+  - **The remaining majors are blocked by the Flutter pin, not by the
+    dependency tree** (dart-lang/sdk#64917 → 3.47.6): `pdfrx 3.x` requires
+    Flutter 3.50 / Dart 3.14; the analyzer-14 codegen stack (`freezed 4.0.3`,
+    `build_runner 2.17` / `build 5`) is pinned out by `flutter_test` →
+    `test_api 0.7.12` → `test 1.31.1` → `analyzer <14`; `gherkin 3.x` is
+    pinned out by `flutter_gherkin 2.0.0` (`gherkin: ^2.0.2`). Bump them
+    together with the Flutter version, not before.
+
 ## [0.4.0] – Released 2026-11-21
 
 Stable release of the 0.4.0 alpha/beta line (`0.4.0-alpha.1+52` →
