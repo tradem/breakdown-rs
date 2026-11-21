@@ -39,6 +39,8 @@ import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controll
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_screen.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_state.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_de.dart';
+import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
 
 import '../../support/fake_secure_storage.dart';
 
@@ -514,6 +516,12 @@ void main() {
     double width = 800,
     double textScale = 1.0,
 
+    /// Pins the rendered locale. Omitted, `l10nOf` falls back to
+    /// `AppLocalizationsEn` (the suite's default) and no delegate is installed.
+    /// Pass `Locale('de')` to render the TEMPLATE locale — the delivery
+    /// language, whose labels are the longest ones the layout has to survive.
+    Locale? locale,
+
     /// `false` for a screen with a FOREVER-running animation (a pending provider
     /// keeps a spinner alive, so `pumpAndSettle` would never return): pumps a
     /// fixed number of frames instead.
@@ -536,6 +544,13 @@ void main() {
             theme: ThemeData.light(),
             darkTheme: ThemeData.dark(),
             themeMode: mode,
+            locale: locale,
+            localizationsDelegates: locale == null
+                ? null
+                : AppLocalizations.localizationsDelegates,
+            supportedLocales: locale == null
+                ? const [Locale('en')]
+                : AppLocalizations.supportedLocales,
             // Deterministic host tests (AGENTS.md §6): the Karl Kleiderbügel
             // figure is time-driven, so freeze animations — the static
             // pose is exactly the remove-animations rendering (spec
@@ -640,6 +655,32 @@ void main() {
     await tester.tap(find.byKey(const Key('ai-assistant-model-picker')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('gpt-5.6-luna').last);
+    await tester.pumpAndSettle();
+  }
+
+  /// Picks a `reasoning_effort` level. The picker is a dropdown: the closed
+  /// field only PAINTS the selected entry, so a level must be opened and then
+  /// tapped in the menu. `.last` is the menu copy — the closed field keeps every
+  /// entry in its sizing `IndexedStack`.
+  Future<void> pickReasoningEffort(WidgetTester tester, String level) async {
+    // Resolved through the localization, like the provider/model pickers
+    // above: a by-key tap on a menu entry does not hit-test (the menu paints
+    // inside an overlay list), a `.last` text tap does.
+    final l10n = AppLocalizationsEn();
+    final label = switch (level) {
+      'auto' => l10n.aiConfigReasoningEffortAuto,
+      'minimal' => l10n.aiConfigReasoningEffortMinimal,
+      'low' => l10n.aiConfigReasoningEffortLow,
+      'medium' => l10n.aiConfigReasoningEffortMedium,
+      _ => l10n.aiConfigReasoningEffortHigh,
+    };
+    await tester.ensureVisible(
+      find.byKey(const Key('ai-reasoning-effort-picker')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ai-reasoning-effort-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label).last);
     await tester.pumpAndSettle();
   }
 
@@ -1763,21 +1804,72 @@ void main() {
         find.byKey(const Key('ai-reasoning-effort-picker')),
         findsOneWidget,
       );
-      // `auto` is always there, the declared levels follow.
-      expect(find.byKey(const Key('ai-reasoning-effort-auto')), findsOneWidget);
-      expect(find.byKey(const Key('ai-reasoning-effort-low')), findsOneWidget);
-      expect(find.byKey(const Key('ai-reasoning-effort-high')), findsOneWidget);
-      // Not declared by this model → not offered.
-      expect(find.byKey(const Key('ai-reasoning-effort-medium')), findsNothing);
-      expect(
-        find.byKey(const Key('ai-reasoning-effort-minimal')),
-        findsNothing,
-      );
-
-      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+      final picker = tester.widget<DropdownButton<ReasoningEffortChoice>>(
         find.byKey(const Key('ai-reasoning-effort-picker')),
       );
-      expect(picker.selected, {ReasoningEffortChoice.auto});
+      // `auto` is always offered, the declared levels follow in enum order —
+      // and nothing the pair does not declare, because the aggregate would
+      // answer that with a 422 at save time.
+      expect(picker.items!.map((item) => item.value).toList(), [
+        ReasoningEffortChoice.auto,
+        ReasoningEffortChoice.low,
+        ReasoningEffortChoice.high,
+      ]);
+      expect(picker.value, ReasoningEffortChoice.auto);
+    });
+
+    testWidgets('the picker stays ONE readable row on a 360dp phone with every '
+        'level declared', (tester) async {
+      await setupContainer(
+        modelsValue: Right([
+          _model('gpt-5.6-luna', efforts: ReasoningEffort.values.toList()),
+        ]),
+      );
+      // The narrowest supported Android width in the TEMPLATE locale: German
+      // labels are the longest ones the control has to survive.
+      await pumpScreen(
+        tester,
+        height: 2400,
+        width: 360,
+        locale: const Locale('de'),
+      );
+      await pickProviderAndModel(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'the picker must not overflow a 360dp row',
+      );
+
+      // The regression this pins: the five segments of the old control did not
+      // fit 328dp of content width, so each label was squeezed into a
+      // per-character column ("Automatisch" rendered 11px wide and 220px
+      // tall) and the row grew to 236px. One row is the whole claim.
+      final pickerRect = tester.getRect(
+        find.byKey(const Key('ai-reasoning-effort-picker')),
+      );
+      expect(
+        pickerRect.height,
+        lessThanOrEqualTo(64),
+        reason: 'the picker must stay a single row, was ${pickerRect.height}px',
+      );
+      expect(pickerRect.right, lessThanOrEqualTo(360));
+
+      // Narrow must not mean fewer choices: the menu offers `auto` plus every
+      // level the model declares.
+      await tester.tap(find.byKey(const Key('ai-reasoning-effort-picker')));
+      await tester.pumpAndSettle();
+      for (final level in ReasoningEffort.values) {
+        expect(
+          find.byKey(Key('ai-reasoning-effort-${level.name}')).last,
+          findsOneWidget,
+          reason: '${level.name} must stay reachable on a 360dp phone',
+        );
+      }
     });
 
     testWidgets('a model that declares no parameter renders the honest '
@@ -1803,12 +1895,7 @@ void main() {
       );
       await pumpScreen(tester, height: 2400);
       await pickProviderAndModel(tester);
-      await tester.ensureVisible(
-        find.byKey(const Key('ai-reasoning-effort-low')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('ai-reasoning-effort-low')));
-      await tester.pumpAndSettle();
+      await pickReasoningEffort(tester, 'low');
       await tester.enterText(
         find.byKey(const Key('ai-api-key-field')),
         'sk-test-123',
@@ -1839,10 +1926,10 @@ void main() {
       );
       await pumpScreen(tester, height: 2400);
 
-      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+      final picker = tester.widget<DropdownButton<ReasoningEffortChoice>>(
         find.byKey(const Key('ai-reasoning-effort-picker')),
       );
-      expect(picker.selected, {ReasoningEffortChoice.high});
+      expect(picker.value, ReasoningEffortChoice.high);
     });
 
     testWidgets('RESETTING a stored level to auto reaches the PATCH — the '
@@ -1860,12 +1947,7 @@ void main() {
       );
       await pumpScreen(tester, height: 2400);
 
-      await tester.ensureVisible(
-        find.byKey(const Key('ai-reasoning-effort-picker')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('ai-reasoning-effort-auto')));
-      await tester.pumpAndSettle();
+      await pickReasoningEffort(tester, 'auto');
       await tester.tap(find.byKey(const Key('ai-config-edit-save')));
       await tester.pumpAndSettle();
 
@@ -1891,12 +1973,7 @@ void main() {
       );
       await pumpScreen(tester, height: 2400);
       await pickProviderAndModel(tester);
-      await tester.ensureVisible(
-        find.byKey(const Key('ai-reasoning-effort-medium')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('ai-reasoning-effort-medium')));
-      await tester.pumpAndSettle();
+      await pickReasoningEffort(tester, 'medium');
 
       // Switch to the model that declares nothing: the picker gives way to the
       // honest sentence.
@@ -1913,10 +1990,10 @@ void main() {
       await tester.tap(find.text('gpt-5.6-luna').last);
       await tester.pumpAndSettle();
 
-      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+      final picker = tester.widget<DropdownButton<ReasoningEffortChoice>>(
         find.byKey(const Key('ai-reasoning-effort-picker')),
       );
-      expect(picker.selected, {ReasoningEffortChoice.auto});
+      expect(picker.value, ReasoningEffortChoice.auto);
     });
 
     // --- Reasoning-effort selector: catalogue rotation and unknown catalogues
@@ -1939,22 +2016,20 @@ void main() {
       );
       await pumpScreen(tester, height: 2400);
 
-      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+      final picker = tester.widget<DropdownButton<ReasoningEffortChoice>>(
         find.byKey(const Key('ai-reasoning-effort-picker')),
       );
       // The effective choice is the stored level — a picker that renders NO
       // selected segment while the PATCH still carries `minimal` is the bug.
-      expect(picker.selected, {ReasoningEffortChoice.minimal});
+      expect(picker.value, ReasoningEffortChoice.minimal);
       expect(
         find.byKey(const Key('ai-reasoning-effort-minimal')),
         findsOneWidget,
         reason: 'the undeclared stored level must stay visible',
       );
       expect(
-        picker.segments
-            .firstWhere(
-              (segment) => segment.value == ReasoningEffortChoice.minimal,
-            )
+        picker.items!
+            .firstWhere((item) => item.value == ReasoningEffortChoice.minimal)
             .enabled,
         isFalse,
         reason: 'it is not choosable — it is shown, not offered',
@@ -1966,9 +2041,7 @@ void main() {
         ReasoningEffortChoice.high,
       ]) {
         expect(
-          picker.segments
-              .firstWhere((segment) => segment.value == choice)
-              .enabled,
+          picker.items!.firstWhere((item) => item.value == choice).enabled,
           isTrue,
           reason: '$choice must stay selectable',
         );
@@ -1990,8 +2063,7 @@ void main() {
       );
 
       // Only an EXPLICIT pick moves it — here the existing reset path.
-      await tester.tap(find.byKey(const Key('ai-reasoning-effort-auto')));
-      await tester.pumpAndSettle();
+      await pickReasoningEffort(tester, 'auto');
       expect(find.byKey(const Key('ai-reasoning-effort-stored')), findsNothing);
       await tester.tap(find.byKey(const Key('ai-config-edit-save')));
       await tester.pumpAndSettle();
@@ -2022,12 +2094,14 @@ void main() {
         find.byKey(const Key('ai-reasoning-effort-unknown')),
         findsOneWidget,
       );
-      final picker = tester.widget<SegmentedButton<ReasoningEffortChoice>>(
+      final picker = tester.widget<DropdownButton<ReasoningEffortChoice>>(
         find.byKey(const Key('ai-reasoning-effort-picker')),
       );
-      expect(picker.selected, {
+      expect(
+        picker.value,
         ReasoningEffortChoice.high,
-      }, reason: 'the stored level is kept, not reset to auto');
+        reason: 'the stored level is kept, not reset to auto',
+      );
 
       // A prompt-only edit over the unknown catalogue still carries `high`.
       await _enterPrompt(tester, 'ai-edit-script-prompt', 'Edited blind');
@@ -2991,6 +3065,14 @@ void main() {
       await tester.pumpAndSettle();
 
       // No RenderFlex overflow was reported while laying the bar out.
+      // TEMP-DEBUG
+      debugPrint('STAGE 0 exception: ${tester.takeException()}');
+      for (final e in find.byType(DropdownButtonFormField<Object>).evaluate()) {
+        debugPrint('DROPDOWN: ${e.widget}');
+      }
+      debugPrint(
+        'DROPDOWNS(any): ${find.byType(DropdownButtonFormField<dynamic>).evaluate().length}',
+      );
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('ai-config-unsaved-label')), findsOneWidget);
 
@@ -3433,6 +3515,107 @@ void main() {
         findsNWidgets(2),
       );
       expect(repo.healthCalls, containsAll(<String>['openai', 'neuralwatt']));
+    });
+  });
+
+  // --- aiConfigErrorCopy: the screen's whole error surface --------------------
+  //
+  // The 2026-11-21 report: a precise `422 ai-config.decision-model-unknown` was
+  // rendered as "Die Konfigurationsänderung ist fehlgeschlagen (ai-config.…)"
+  // because the copy switch had no arm for it. The user could not tell what to
+  // change, retried the save six times, and each attempt left another orphaned
+  // Vault credential behind. These tests walk the backend's whole `ai-config.*`
+  // registry, so a missing arm fails HERE instead of in a user's face.
+  group('aiConfigErrorCopy covers every ai-config.* wire code', () {
+    /// The codes `backend/crates/core/src/error_registry.rs` can put on a
+    /// response (`grep 'code: "ai-config.'`). The client cannot read the Rust
+    /// registry, so this list IS the contract: a new backend code needs an arm
+    /// in `aiConfigErrorCopy` AND a line here.
+    const serverCodes = <String>[
+      'ai-config.already-revoked',
+      'ai-config.decision-incomplete',
+      'ai-config.decision-model-empty',
+      'ai-config.decision-model-unknown',
+      'ai-config.decision-provider-unsupported',
+      'ai-config.decision-vault-key-empty',
+      'ai-config.empty-model',
+      'ai-config.empty-prompt',
+      'ai-config.empty-provider',
+      'ai-config.empty-vault-key',
+      'ai-config.forbidden',
+      'ai-config.not-found',
+      'ai-config.provider-mismatch',
+      'ai-config.reasoning-effort-unsupported',
+      'ai-config.vault-key-forbidden',
+      'ai-config.version-mismatch',
+    ];
+
+    // Both delivery locales: a copy arm that exists only in English still
+    // renders the generic German text on the user's phone.
+    for (final locale in <AppLocalizations>[
+      AppLocalizationsEn(),
+      AppLocalizationsDe(),
+    ]) {
+      test('${locale.localeName}: no code falls back to the generic text', () {
+        for (final code in serverCodes) {
+          expect(
+            aiConfigErrorCopy(locale, ProblemError(code: code)),
+            isNot(locale.aiConfigErrorGeneric(code)),
+            reason:
+                '$code has no arm in aiConfigErrorCopy — it renders as '
+                '"${locale.aiConfigErrorGeneric(code)}", which names no fix',
+          );
+        }
+      });
+
+      test(
+        '${locale.localeName}: every explanation is prose, not the code',
+        () {
+          for (final code in serverCodes) {
+            expect(
+              aiConfigErrorCopy(locale, ProblemError(code: code)),
+              isNot(contains(code)),
+              reason: '$code must be explained, not echoed',
+            );
+          }
+        },
+      );
+    }
+
+    test('the decision-model rejection names the fix — the exact 422 a stale '
+        'decision pick produces', () {
+      final l10n = AppLocalizationsEn();
+      expect(
+        aiConfigErrorCopy(
+          l10n,
+          const ProblemError(
+            code: 'ai-config.decision-model-unknown',
+            status: 422,
+          ),
+        ),
+        l10n.aiConfigErrorDecisionModelUnknown,
+      );
+      // The sentence has to carry the action, not just the failure.
+      expect(
+        l10n.aiConfigErrorDecisionModelUnknown,
+        contains('decision model'),
+      );
+      expect(
+        AppLocalizationsDe().aiConfigErrorDecisionModelUnknown,
+        contains('Decision-Modell'),
+      );
+    });
+
+    test('a code the server adds LATER still renders something — the fallback '
+        'stays a safety net, never the plan', () {
+      final l10n = AppLocalizationsEn();
+      expect(
+        aiConfigErrorCopy(
+          l10n,
+          const ProblemError(code: 'ai-config.brand-new'),
+        ),
+        l10n.aiConfigErrorGeneric('ai-config.brand-new'),
+      );
     });
   });
 

@@ -956,6 +956,48 @@ abstract class AppLocalizations {
   /// **'Die Konfigurationsänderung ist fehlgeschlagen ({code}).'**
   String aiConfigErrorGeneric(Object code);
 
+  /// No description provided for @aiConfigErrorIncomplete.
+  ///
+  /// In de, this message translates to:
+  /// **'Bitte Anbieter, Modell und beide Prompts ausfüllen.'**
+  String get aiConfigErrorIncomplete;
+
+  /// No description provided for @aiConfigErrorNotFound.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Konfiguration existiert nicht mehr. Aktualisiere den Bildschirm.'**
+  String get aiConfigErrorNotFound;
+
+  /// No description provided for @aiConfigErrorAlreadyRevoked.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Konfiguration ist bereits widerrufen. Leg eine neue an.'**
+  String get aiConfigErrorAlreadyRevoked;
+
+  /// No description provided for @aiConfigErrorVaultKeyForbidden.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser API-Schlüssel gehört zu einem anderen Konto. Verwende einen eigenen Schlüssel für diesen Anbieter.'**
+  String get aiConfigErrorVaultKeyForbidden;
+
+  /// No description provided for @aiConfigErrorDecisionIncomplete.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Decision-Modell ist unvollständig. Anbieter, Modell und Schlüssel gehören zusammen – oder wähle „keine“.'**
+  String get aiConfigErrorDecisionIncomplete;
+
+  /// No description provided for @aiConfigErrorDecisionModelUnknown.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Modell ist für den gewählten Anbieter nicht freigegeben. Bitte ein anderes Decision-Modell wählen.'**
+  String get aiConfigErrorDecisionModelUnknown;
+
+  /// No description provided for @aiConfigErrorDecisionProviderUnsupported.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieser Anbieter kann kein Decision-Modell bewerten. Wähle einen anderen Anbieter oder deaktiviere das Decision-Modell.'**
+  String get aiConfigErrorDecisionProviderUnsupported;
+
   /// No description provided for @aiConfigProvidersUnavailable.
   ///
   /// In de, this message translates to:
@@ -2114,7 +2156,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConfigReasoningEffortAuto.
   ///
   /// In de, this message translates to:
-  /// **'Automatisch'**
+  /// **'Auto'**
   String get aiConfigReasoningEffortAuto;
 
   /// No description provided for @aiConfigReasoningEffortMinimal.
@@ -2144,7 +2186,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConfigReasoningEffortUnsupported.
   ///
   /// In de, this message translates to:
-  /// **'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Automatisch“ wählen.'**
+  /// **'Das gewählte Modell unterstützt diese Stufe nicht. Bitte eine andere Stufe oder „Auto“ wählen.'**
   String get aiConfigReasoningEffortUnsupported;
 
   /// No description provided for @aiJobCostCompact.
@@ -6459,7 +6501,7 @@ abstract class AppLocalizations {
   /// No description provided for @aiConfigDecisionDisabled.
   ///
   /// In de, this message translates to:
-  /// **'— keine (Bewertung deaktiviert) —'**
+  /// **'— keine —'**
   String get aiConfigDecisionDisabled;
 
   /// No description provided for @aiConfigDecisionModelLabel.

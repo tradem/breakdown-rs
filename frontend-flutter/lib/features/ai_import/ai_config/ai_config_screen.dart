@@ -664,6 +664,9 @@ class _ProviderPicker extends ConsumerWidget {
             : DropdownButtonFormField<String>(
                 key: const Key('ai-provider-picker'),
                 initialValue: state.selectedProviderKey,
+                // A provider key wider than the field must ellipsize, not
+                // overflow the decorator's single-line box (a 360dp phone).
+                isExpanded: true,
                 decoration: InputDecoration(
                   labelText: l10nOf(context).aiConfigProviderLabel,
                   border: const OutlineInputBorder(),
@@ -672,7 +675,11 @@ class _ProviderPicker extends ConsumerWidget {
                   for (final info in value)
                     DropdownMenuItem<String>(
                       value: info.key,
-                      child: Text(info.key),
+                      child: Text(
+                        info.key,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                 ],
                 onChanged: (key) {
@@ -1007,9 +1014,19 @@ class _CostDisplayPreferenceSelector extends ConsumerWidget {
 /// client-side table (issue #736 doctrine: the server owns the catalogue).
 ///
 /// A pair that declares no level renders the section as a single sentence
-/// instead of an empty picker: an empty `SegmentedButton` would read as a
-/// rendering bug, and pretending every model has the parameter would produce a
-/// 422 at save time.
+/// instead of an empty picker: an empty control would read as a rendering bug,
+/// and pretending every model has the parameter would produce a 422 at save
+/// time.
+///
+/// The control is a DROPDOWN, not a segmented button (2026-11-21). Five
+/// segments (auto + four levels) do not fit the 328dp content width of a 360dp
+/// phone: the segmented control squeezed each label into a per-character
+/// column ("Automatisch" rendered 11px wide and 220px tall) and pushed the row
+/// to 236px. A dropdown is one 56px row at any width, any locale and any text
+/// scale, and it matches the provider/model/image pickers this screen already
+/// uses. `value:` (not `FormField.initialValue`) keeps it CONTROLLED: the
+/// controller normalises a drafted level back to `auto` when the model changes
+/// and an uncontrolled field would keep rendering the stale pick.
 ///
 /// Two distinctions keep the section honest (catalogue-rotation review):
 /// * **known vs. unknown** — a model list that is still LOADING or whose fetch
@@ -1044,7 +1061,7 @@ class _ReasoningEffortSelector extends ConsumerWidget {
     final undeclared =
         current != ReasoningEffortChoice.auto && !declared.contains(current);
     // `auto` is always choosable; the declared levels follow in enum order, and
-    // an undeclared-but-effective level is appended as a disabled segment.
+    // an undeclared-but-effective level is appended as a non-choosable entry.
     final choices = <ReasoningEffortChoice>[
       ReasoningEffortChoice.auto,
       for (final choice in ReasoningEffortChoice.values)
@@ -1057,9 +1074,13 @@ class _ReasoningEffortSelector extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l10n.aiConfigReasoningEffortLabel),
-        const SizedBox(height: 8),
-        if (!capability.known) ...[
+        // The picker carries the heading as its floating label; the two
+        // text-only states have no field to hold it.
+        if (!showPicker) ...[
+          Text(l10n.aiConfigReasoningEffortLabel),
+          const SizedBox(height: 8),
+        ],
+        if (!capability.known)
           Text(
             // The model list is loading or failed: no statement about the model
             // is possible, so none is made (a `503` must not read as a product
@@ -1067,9 +1088,8 @@ class _ReasoningEffortSelector extends ConsumerWidget {
             l10n.aiConfigReasoningEffortUnknown,
             key: const Key('ai-reasoning-effort-unknown'),
             style: Theme.of(context).textTheme.bodySmall,
-          ),
-          if (showPicker) const SizedBox(height: 8),
-        ] else if (declared.isEmpty && !undeclared) ...[
+          )
+        else if (declared.isEmpty && !undeclared) ...[
           Text(
             // The pair declares nothing: state the fact, keep `auto` on the wire.
             l10n.aiConfigReasoningEffortUnavailable,
@@ -1081,30 +1101,47 @@ class _ReasoningEffortSelector extends ConsumerWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
-        if (showPicker)
-          SegmentedButton<ReasoningEffortChoice>(
-            key: const Key('ai-reasoning-effort-picker'),
-            segments: [
-              for (final choice in choices)
-                ButtonSegment(
-                  value: choice,
-                  // `auto` and every declared level are choosable; the stored
-                  // level the catalogue does not (or not yet) declare is shown
-                  // as selected-but-disabled rather than silently corrected.
-                  enabled:
-                      choice == ReasoningEffortChoice.auto ||
-                      declared.contains(choice),
-                  label: Text(
-                    _reasoningEffortLabel(l10n, choice),
-                    key: Key('ai-reasoning-effort-${choice.name}'),
-                  ),
-                ),
-            ],
-            selected: {current},
-            onSelectionChanged: (selection) {
-              controller.selectReasoningEffort(selection.first);
-            },
+        if (showPicker) ...[
+          if (!capability.known) const SizedBox(height: 8),
+          InputDecorator(
+            decoration: InputDecoration(
+              labelText: l10n.aiConfigReasoningEffortLabel,
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<ReasoningEffortChoice>(
+                key: const Key('ai-reasoning-effort-picker'),
+                value: current,
+                isExpanded: true,
+                isDense: true,
+                items: [
+                  for (final choice in choices)
+                    DropdownMenuItem<ReasoningEffortChoice>(
+                      value: choice,
+                      key: Key('ai-reasoning-effort-${choice.name}'),
+                      // `auto` and every declared level are choosable; the
+                      // stored level the catalogue does not (or not yet)
+                      // declare stays visible as the current, non-choosable
+                      // entry rather than being silently corrected.
+                      enabled:
+                          choice == ReasoningEffortChoice.auto ||
+                          declared.contains(choice),
+                      child: Text(
+                        _reasoningEffortLabel(l10n, choice),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (choice) {
+                  if (choice == null) return;
+                  controller.selectReasoningEffort(choice);
+                },
+              ),
+            ),
           ),
+        ],
         if (undeclared && capability.known)
           Padding(
             padding: const EdgeInsets.only(top: 4),
@@ -1197,6 +1234,11 @@ class _DecisionSection extends ConsumerWidget {
         DropdownButtonFormField<String?>(
           key: const Key('ai-decision-provider-picker'),
           initialValue: decisionKey,
+          // The "no decision model" entry is the default selection, so its
+          // label sits in the closed field on every first-run phone. Let the
+          // field bound it and ellipsize (`— none —` still fits 360dp; the
+          // decoration must not depend on that).
+          isExpanded: true,
           decoration: InputDecoration(
             labelText: l10n.aiConfigDecisionProviderLabel,
             border: const OutlineInputBorder(),
@@ -1205,7 +1247,11 @@ class _DecisionSection extends ConsumerWidget {
             DropdownMenuItem<String?>(
               value: null,
               key: const Key('ai-decision-provider-disabled'),
-              child: Text(l10n.aiConfigDecisionDisabled),
+              child: Text(
+                l10n.aiConfigDecisionDisabled,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             ...[
               for (final info in discovered)

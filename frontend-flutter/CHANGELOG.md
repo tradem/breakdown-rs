@@ -23,6 +23,42 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **A rejected save says what to change instead of only that it failed**
+  (`0.4.0-beta.59+151 → 0.4.0-beta.60+152`). Reported from a Neuralwatt
+  configuration: switching the provider to one that does not curate the stored
+  Decision Model is refused by the backend with a precise
+  `422 ai-config.decision-model-unknown` — "Das Entscheidungsmodell ist für
+  diesen Anbieter nicht freigegeben." — but `aiConfigErrorCopy` had an arm for
+  only four of the sixteen `ai-config.*` wire codes, so the screen rendered
+  "Die Konfigurationsänderung ist fehlgeschlagen (ai-config.…)" and named no
+  fix. Six retries followed, each leaving another orphaned Vault credential
+  behind; the seventh succeeded only by guessing the right Decision Model.
+  - **All sixteen codes are explained now**, in both locales: the Decision
+    triple (`-model-unknown`, `-provider-unsupported`, the three
+    `decision-…-empty`/`-incomplete` arms), the field validation
+    (`empty-provider`/`-model`/`-prompt`/`-vault-key`), `not-found`,
+    `already-revoked` and the 403 `vault-key-forbidden`. The code-carrying
+    fallback stays for codes the server adds later.
+  - **The registry is pinned by a test, not by a comment.** A new
+    `aiConfigErrorCopy` group walks every `ai-config.*` code in German and
+    English and fails when one falls back to the generic text or leaks the raw
+    code — removing a single arm fails with the exact sentence the user would
+    have read.
+  - **The reasoning-effort picker is one readable row.** Five segments do not
+    fit the 328dp content width of a 360dp phone: the segmented control
+    squeezed every label into a per-character column ("Automatisch" rendered
+    11px wide and 220px tall, the row 236px). It is now the same dropdown the
+    rest of the form uses — one row at any width, locale and text scale — and
+    `auto` is labelled "Auto".
+  - **The Decision provider field no longer overflows.** Its "no scoring"
+    entry is the label every first-run phone opens with, and
+    "— keine (Bewertung deaktiviert) —" is 436px wide, i.e. a 164px
+    `RenderFlex` overflow at 360dp. The entry is "— keine —" now, and the field
+    bounds and ellipsizes whatever a later translation puts there.
+  - **Two narrow-width regressions are pinned** by widget tests at 360dp: the
+    first-run screen and the widest picker state, both in the German template
+    locale (rendered through the new `locale:` seam of the test harness).
+
 - **An inline edit no longer flashes the old value back while the projector
   catches up** (`0.4.0-beta.56+148 → 0.4.0-beta.57+149`, issue #917). The
   sibling gap of #916, on the other branch of the shared reconciliation runner:

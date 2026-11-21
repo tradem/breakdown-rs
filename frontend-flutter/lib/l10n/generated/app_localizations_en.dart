@@ -523,6 +523,34 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get aiConfigErrorIncomplete =>
+      'Fill in the provider, the model and both prompts.';
+
+  @override
+  String get aiConfigErrorNotFound =>
+      'This configuration no longer exists. Refresh the screen.';
+
+  @override
+  String get aiConfigErrorAlreadyRevoked =>
+      'This configuration is already revoked. Create a new one.';
+
+  @override
+  String get aiConfigErrorVaultKeyForbidden =>
+      'That API key belongs to another account. Use your own key for this provider.';
+
+  @override
+  String get aiConfigErrorDecisionIncomplete =>
+      'The decision model is incomplete. Provider, model and key belong together — or choose “none”.';
+
+  @override
+  String get aiConfigErrorDecisionModelUnknown =>
+      'This model is not released for the selected provider. Choose a different decision model.';
+
+  @override
+  String get aiConfigErrorDecisionProviderUnsupported =>
+      'This provider cannot score with a decision model. Choose another provider or disable the decision model.';
+
+  @override
   String get aiConfigProvidersUnavailable => 'Providers could not be loaded.';
 
   @override
@@ -1287,7 +1315,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get aiConfigReasoningEffortAuto => 'Automatic';
+  String get aiConfigReasoningEffortAuto => 'Auto';
 
   @override
   String get aiConfigReasoningEffortMinimal => 'Minimal';
@@ -1303,7 +1331,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get aiConfigReasoningEffortUnsupported =>
-      'The selected model does not support this level. Choose another level or “Automatic”.';
+      'The selected model does not support this level. Choose another level or “Auto”.';
 
   @override
   String aiJobCostCompact(Object value) {
@@ -3949,7 +3977,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiConfigDecisionProviderLabel => 'Decision model provider';
 
   @override
-  String get aiConfigDecisionDisabled => '— none (scoring disabled) —';
+  String get aiConfigDecisionDisabled => '— none —';
 
   @override
   String get aiConfigDecisionModelLabel => 'Decision model';
