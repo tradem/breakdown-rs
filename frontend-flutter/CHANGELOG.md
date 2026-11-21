@@ -24,7 +24,7 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 ## [Unreleased]
 
 - **An apply that cannot run now says why instead of doing nothing**
-  (`0.4.0-beta.60+152 → 0.4.0-beta.61+153`). Reported from the preview screen of
+  (`0.4.0-beta.60+152 → 0.4.0-beta.62+154`). Reported from the preview screen of
   two script imports (`292.pdf`, `293.pdf`): the preview rendered its rows, the
   apply card listed its questions, every checkbox including "Ich habe den
   KI-extrahierten Inhalt geprüft" was set — the submit button never activated,
