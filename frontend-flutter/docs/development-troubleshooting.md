@@ -2,6 +2,7 @@
 SPDX-License-Identifier: AGPL-3.0
 Copyright (C) 2024-2026 Breakdown RS Contributors
 Co-authored-by: glm-5.3-flash-flex (neuralwatt)
+Co-authored-by: deepseek-v4.1-flash (opencode-go)
 -->
 
 # Development Troubleshooting
@@ -11,6 +12,34 @@ Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 > three-part structure.
 
 ## Troubleshooting
+
+### Android build: "Your project's Kotlin version (2.2.10) is lower than Flutter's minimum supported version of 2.2.20"
+
+**Symptom.** `flutter build apk` fails while applying
+`dev.flutter.flutter-gradle-plugin`, quoting a Kotlin version the project does
+not declare anywhere, and the "Potential fix" points at a
+`org.jetbrains.kotlin.android` line in `android/settings.gradle.kts`.
+
+**Cause.** The app uses AGP 9's built-in Kotlin support
+(`android.builtInKotlin=true` in `android/gradle.properties`), so no Kotlin
+Gradle Plugin (KGP) is applied to any module. Flutter's
+`DependencyVersionChecker` still reads the KGP version from the **build
+classpath**, and AGP 9.5.1 bundles KGP 2.2.10 there — below the 2.2.20 that
+Flutter 3.44+ hard-requires. The declared `2.4.21` pin in `settings.gradle.kts`
+is what lifts the classpath; removing that line re-triggers the failure even
+though nothing applies the plugin.
+
+**Fix.** Keep `id("org.jetbrains.kotlin.android") version "2.4.21" apply false`
+in the `plugins {}` block of `android/settings.gradle.kts` (`apply false` adds
+the version to the classpath only — applying it would add a second `kotlin`
+extension and fail). Also keep `android.builtInKotlin=true`; do NOT re-apply
+KGP in `android/app/build.gradle.kts` and do not migrate `kotlinOptions {}`
+back in (the `kotlin { compilerOptions { … } }` block is the KGP-free form).
+The harmless-looking warning "plugins that apply Kotlin Gradle Plugin (KGP):
+app_settings" is Flutter's **static regex** scan of that plugin's build file:
+`app_settings 9.0.1` applies KGP only when `android.builtInKotlin` is false,
+so at runtime it compiles through built-in Kotlin. Re-check both when AGP or
+the Flutter pin moves.
 
 ### `flutter`: "mkdir: … `.cache/flutter_sdk` … Socket ist nicht verbunden / unionfs failed"
 
