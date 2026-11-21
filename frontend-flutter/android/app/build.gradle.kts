@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import groovy.json.JsonSlurper
 // Fully qualified `java.util.Base64` fails inside the Kotlin DSL script
@@ -9,11 +10,12 @@ import java.util.Base64
 
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // The Flutter Gradle Plugin must be applied after the Android Gradle plugin.
     id("dev.flutter.flutter-gradle-plugin")
-    // Kotlin Gradle Plugin — required because android.builtInKotlin=false in
-    // gradle.properties (Flutter template default for AGP 9 compatibility).
-    id("org.jetbrains.kotlin.android")
+    // No `org.jetbrains.kotlin.android`: AGP 9's built-in Kotlin support
+    // compiles the Kotlin sources (android.builtInKotlin=true in
+    // gradle.properties). Applying KGP here as well would add a second
+    // `kotlin` extension and fail the build.
 }
 
 /// Single source for the OIDC redirect URI (task 3.3): `oidc-config.json`
@@ -256,6 +258,8 @@ android {
     }
 }
 
+// Built-in Kotlin compiler options (the `kotlinOptions` block inside `android
+// {}` is the KGP-era form and is not available without KGP).
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
