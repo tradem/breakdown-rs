@@ -144,12 +144,15 @@ jobs:
       # already exists (workflow re-run), skip: nothing can be attached or
       # recreated.
       #
-      # The release BODY comes from the curated notes file
-      # `backend/RELEASE-NOTES/<tag>.md` when the release owner checked one in
-      # (the reviewed prose, versioned in the repo next to the CHANGELOG
-      # entry). Without it the step falls back to GitHub's generated notes, so a
-      # cut never blocks on prose. Both paths create the same draft → attach →
-      # publish sequence, which is the only order that can still upload.
+      # The release BODY comes from `backend/scripts/release-notes.sh`, which
+      # picks the reviewed source in this order: `backend/RELEASE-NOTES/<tag>.md`
+      # when the release owner checked one in (curated prose, used verbatim), else
+      # the tag's `## [api-vX.Y.Z]` section of `backend/CHANGELOG.md` rendered
+      # under a mechanical preamble. The script **exits 2** when neither exists —
+      # it never falls back to GitHub's generated notes, which is how `api-v0.71.0`
+      # shipped a 223-line squash-merge list as its release description. Both paths
+      # feed the same draft → attach → publish sequence, which is the only order
+      # that can still upload.
       - name: Publish documentation to GitHub Release
         if: startsWith(github.ref, 'refs/tags/api-v')
         env:
@@ -164,17 +167,14 @@ jobs:
           fi
           artifacts=(backend/docs/architecture/arc42-typst/dist/architecture-*.pdf \
                      backend/docs/architecture/arc42-typst/dist/architecture-*.html)
-          notes_file="backend/RELEASE-NOTES/${RELEASE_TAG}.md"
-          if [[ -f "${notes_file}" ]]; then
-            echo "Using curated release notes: ${notes_file}"
-            notes_arg=(--notes-file "${notes_file}")
-          else
-            echo "No curated notes for ${RELEASE_TAG}; using generated notes"
-            notes_arg=(--generate-notes)
-          fi
+          # Tag names only, so the renderer can name the previous `api-v*` tag for
+          # the "Full diff" link without a full-history checkout.
+          git fetch --tags --quiet
+          bash backend/scripts/release-notes.sh "${RELEASE_TAG}" \
+            --out "${RUNNER_TEMP}/release-notes.md"
           gh release create "${RELEASE_TAG}" \
             --title "Backend API image ${RELEASE_TAG}" \
-            "${notes_arg[@]}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
             --draft \
             "${artifacts[@]}"
           gh release edit "${RELEASE_TAG}" --draft=false

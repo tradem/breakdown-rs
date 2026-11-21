@@ -2,6 +2,7 @@
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Release runbook — per-crate versions & the `api` image (ADR-020 / ADR-021)
 
@@ -49,20 +50,69 @@ cargo release -p api --dependent              # tag api-vX.Y.Z
   on `infra` and `api` (D3).
 - A `.patches/kameo_es` public-surface break is contained: MAJOR on
   `infra`/`api` only, `core` untouched (D3).
-- The CHANGELOG entry is generated from conventional commits by the release
-  process and must name every moved route plus its `/v{n+1}` replacement when
-  a path version ships (ADR-021 D4.3).
+- The CHANGELOG is **hand-written, not generated from conventional commits**: every
+  behaviour PR appends a prose entry under `## [Unreleased]` (ADR-020 D9), and the
+  cut (§3) turns that section into the dated release entry. A moved route must name
+  its `/v{n+1}` replacement when a path version ships (ADR-021 D4.3).
 
-## 3. Publish the `api` image
+## 3. Publish the `api` image and its GitHub Release
 
-Pushing the `api-vX.Y.Z` Git tag triggers
-`.github/workflows/release-image.yml`, which builds the Dockerfile and pushes:
+Two workflows run on the `api-v*` tag push; nothing is published by hand.
+
+**`.github/workflows/release-image.yml`** builds the Dockerfile and pushes:
 
 - `ghcr.io/<org>/<repo>:api-vX.Y.Z` — immutable, SHA-pinned digest
 - `ghcr.io/<org>/<repo>:api-vX.Y` — moves to the latest patch
 - `ghcr.io/<org>/<repo>:api-vX` — moves to the latest minor
 
 There is **no `:latest`** (ADR-020 D6). Clients pin by `api-vX.Y.Z`.
+
+**`.github/workflows/docs.yml`** creates the GitHub Release: it renders the body,
+creates it as a **draft**, attaches the arc42 PDF/HTML artifacts, then publishes —
+the only order that still works now that a published release is immutable
+(post-hoc `gh release upload` is a 422).
+
+### Where the release body comes from
+
+`backend/scripts/release-notes.sh` resolves the body from two **reviewed** sources,
+in this order (nothing else is accepted):
+
+1. **`backend/RELEASE-NOTES/<tag>.md`** — the curated file, used **verbatim** (minus
+   its SPDX comment header). This is the `api-v0.14.0` structure: title, deploying
+   block, "upgrading from the previous image — read this first", grouped highlights,
+   artifact table. Check one in when the release deserves guidance the changelog
+   bullets cannot give.
+2. **The tag's `## [api-vX.Y.Z]` section of `backend/CHANGELOG.md`**, rendered under
+   a mechanical preamble (title, changelog link pinned to the tag, immutable pull
+   line, both moving tags derived from the tag) with a `Full diff` link to the
+   previous `api-v*` tag.
+
+Neither exists → **exit 2**, and the docs job fails. The fallback is *derived*, never
+generated: `gh release create --generate-notes` is how `api-v0.71.0` shipped a 223-line
+squash-merge list as its description while the curated prose sat unread in the
+changelog. A body is capped at **125000 characters** by GitHub, so the derived render
+stops at 120000 on a line boundary and closes with a
+`_truncated at the release-note character limit_` pointer (the curated path never hits
+this — it is a file the owner sizes).
+
+Locally:
+
+```bash
+bash backend/scripts/release-notes.sh api-vX.Y.Z --out /tmp/notes.md
+```
+
+Both paths are guarded by `backend/scripts/tests/release-notes-test.sh` (CI job
+`release-notes`, 50 assertions): curated-wins-verbatim, section extraction without
+leaking `[Unreleased]` or the previous release, the fail-closed exit 2, the derived
+preamble, slug derivation, and the truncation path.
+
+### The cut itself (do this first)
+
+Turn `## [Unreleased]` into `## [api-vX.Y.Z] – Released <date>` (ADR-020 D9) with the
+standard bullets (shipped artifact + moving tags, companion crate versions, the
+"covers everything since" baseline) and leave a fresh empty `## [Unreleased]` above
+it. Cut it **on the commit you tag** — the body is rendered from what the tag carries.
+Optionally add `backend/RELEASE-NOTES/api-vX.Y.Z.md` in the same PR.
 
 A runtime/security-fix-only release with no crate-API change is a crate PATCH
 → new `api-vX.Y.Z` image; the path version stays put (ADR-021 D2).

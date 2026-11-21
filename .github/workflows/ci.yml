@@ -169,6 +169,24 @@ jobs:
       - run: bash scripts/test-patch-cbmem-extension.sh
         working-directory: .
 
+  # Release notes are DERIVED, not generated (ADR-020 D9): `api-v0.71.0` shipped a
+  # `--generate-notes` body — a 223-line squash-merge list — while the curated prose
+  # sat in `backend/CHANGELOG.md`. `scripts/release-notes.sh` renders the release body
+  # from the tag's cut section and is run by `release-image.yml`, so its four promises
+  # are guarded here: the section renders verbatim without its neighbours, a missing
+  # section fails closed (exit 2, never a commit list), the mechanical preamble derives
+  # the moving tags and the changelog link from the tag, and owner/repo is derivable
+  # (GITHUB_REPOSITORY, ssh/https origin, RELEASE_REPO). Daemon-free — bash + git + a
+  # mktemp fixture: no Rust toolchain, no docker, no database, no network, no gh.
+  release-notes:
+    name: Release notes script (changelog is the source of truth)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: bash scripts/tests/release-notes-test.sh
+
   # SPDX header discipline (AGENTS.md §2, backend/AGENTS.md §7,
   # frontend-flutter/AGENTS.md §10 / issue #814). The rule was prose-only until
   # #814: nothing enforced it, and 138 tracked files had drifted. This job runs
