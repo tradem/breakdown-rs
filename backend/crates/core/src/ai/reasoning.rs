@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Reasoning-effort vocabulary and per-model capability (2026-11-20
 //! output-budget investigation).
@@ -152,11 +153,14 @@ pub fn supported_reasoning_efforts(
         (LlmProvider::Neuralwatt, "qwen3.6-35b" | "qwen3.6-35b-fast" | "qwen-3.8-27b") => Some(ALL),
 
         // --- EURouter: `supported_parameters` contains `reasoning_effort` for
-        // these three, and for nothing else curated. `mistral-large-3` is
-        // deliberately absent: its list has no `reasoning_effort`. ---
-        (LlmProvider::EURouter, "mistral-small-4" | "mistral-medium-3.5" | "deepseek-v4-pro") => {
-            Some(BROAD)
-        }
+        // these four. `mistral-large-3` is deliberately absent: its list has no
+        // `reasoning_effort`, and since #950 it is no longer curated but still
+        // referenced by persisted configs (so the pair must stay unresolved
+        // rather than silently matching something else). ---
+        (
+            LlmProvider::EURouter,
+            "mistral-large-4" | "mistral-small-4" | "mistral-medium-3.5" | "deepseek-v4-pro",
+        ) => Some(BROAD),
 
         // --- OpenRouter: same `supported_parameters` shape. ---
         (

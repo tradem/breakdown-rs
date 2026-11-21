@@ -126,7 +126,7 @@ jobs:
           if [ -z "$AI_LLM_API_KEY" ]; then
             echo "AI_LLM_API_KEY not configured — live LLM smoke will skip (asserts nothing)."
           else
-            echo "AI_LLM_PROVIDER=${AI_LLM_PROVIDER:-eurouter} AI_LLM_MODEL=${AI_LLM_MODEL:-mistral-large-3}"
+            echo "AI_LLM_PROVIDER=${AI_LLM_PROVIDER:-eurouter} AI_LLM_MODEL=${AI_LLM_MODEL:-mistral-large-4}"
             if [ -z "$GDRIVE_CLIENT_ID" ]; then
               echo "GDRIVE_CLIENT_ID not configured — the real-document half will skip (asserts nothing)."
             else
@@ -142,9 +142,10 @@ jobs:
       # output tokens, 70-85 s upstream per 4 KB scene)?
       #
       # Deliberately a SEPARATE provider/model/key (`AI_LLM_PROBE_*`): the step
-      # above must keep guarding what ships (eurouter/mistral-large-3), and the
-      # 2026-11-20 outage silenced two checks at once because both shared one
-      # provider. This one is a measurement — the numbers are in the log lines
+      # above must keep guarding what ships (the curated eurouter recommendation,
+      # `mistral-large-4` since issue #950), and the 2026-11-20 outage silenced
+      # two checks at once because both shared one provider. This one is a
+      # measurement — the numbers are in the log lines
       # `reasoning-effort row` and `reasoning-effort comparison`.
       - name: Reasoning-effort probe (nightly, measurement)
         if: ${{ !cancelled() }}

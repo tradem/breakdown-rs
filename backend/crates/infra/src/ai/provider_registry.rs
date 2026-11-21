@@ -110,6 +110,13 @@ pub fn resolve_provider(value: &str) -> Option<LlmProvider> {
 /// catalogs at the time of issue #675. Previously curated (now rotated-out)
 /// legacy model IDs stay in [`default_allowlist`] and the `ai_model_pricing`
 /// seed migration so existing persisted `AiConfig` records remain valid.
+///
+/// Issue #950 rotated eurouter's recommendation off `mistral-large-3` — the only
+/// curated eurouter model whose `supported_parameters` carries no
+/// `reasoning_effort`, so the effort picker of the #949 stack stayed empty on
+/// exactly the config a new deployment creates. `mistral-large-4` declares it
+/// and is the recommendation since; `mistral-large-3` stays in
+/// `default_allowlist`.
 /// Single source for the models endpoint; a new `LlmProvider` variant must
 /// be added here and to the exhaustive `as_str` match in core.
 pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
@@ -129,7 +136,7 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
             "nvidia/nemotron-3.5-lightning:free",
         ],
         LlmProvider::EURouter => &[
-            "mistral-large-3",
+            "mistral-large-4",
             "mistral-small-4",
             "deepseek-v4-flash",
             "deepseek-v4-pro",
@@ -195,7 +202,9 @@ pub fn recommended_model(provider: LlmProvider) -> Option<&'static str> {
         LlmProvider::OpenAI => Some("gpt-5.6-luna"),
         LlmProvider::Gemini => Some("gemini-3.6-flash"),
         LlmProvider::OpenRouter => Some("openai/gpt-5-mini"),
-        LlmProvider::EURouter => Some("mistral-large-3"),
+        // Issue #950: the recommendation must be the model that declares
+        // `reasoning_effort` (see `the_eurouter_recommendation_publishes_an_effort`).
+        LlmProvider::EURouter => Some("mistral-large-4"),
         LlmProvider::Neuralwatt => Some("glm-5.3"),
         LlmProvider::OpenCodeGo | LlmProvider::OpenCode => Some("glm-5.3"),
         LlmProvider::Ollama => Some("qwen3:8b"),
@@ -306,6 +315,13 @@ pub fn curated_models(provider: LlmProvider) -> Vec<ModelInfo> {
 ///   `supported_parameters` carries no `reasoning_effort` (that is
 ///   `mistral-large-4` — an earlier draft of this comment mixed the two up), so
 ///   pinning an effort there would send a parameter the model does not declare.
+///   Since #950 the id is no longer curated, but persisted `AiConfig` records
+///   still reference it, so the pair must stay `None`-resolved rather than
+///   falling into a default.
+/// - `eurouter/mistral-large-4` **does** declare the parameter and is the
+///   curated recommendation since #950 — declaring it is a capability, not a
+///   measured saving, so it is deliberately still pinned to nothing (the
+///   measurement is owed, see #950).
 /// - the ACCEPTED VALUES differ per model (`opencode/glm-5.3` accepts
 ///   `low|high|max`, no `medium`), which is why the configurable path validates
 ///   against a per-model set instead of one global list.
@@ -336,16 +352,22 @@ mod tests {
             breakdown_core::ai::ReasoningEffort::ALL.to_vec()
         );
 
-        // `mistral-large-3` declares no effort → the picker offers nothing, and
-        // the user cannot configure a value the provider would reject.
-        let large3 = curated_models(LlmProvider::EURouter)
+        // `mistral-large-4` is the eurouter recommendation since #950 and DOES
+        // declare `reasoning_effort`, so the picker offers the three values the
+        // provider's catalogue publishes.
+        let large4 = curated_models(LlmProvider::EURouter)
             .into_iter()
-            .find(|model| model.id == "mistral-large-3")
-            .expect("mistral-large-3 is still curated");
-        assert!(
-            large3.supported_reasoning_efforts.is_empty(),
-            "mistral-large-3 must offer no effort: {:?}",
-            large3.supported_reasoning_efforts
+            .find(|model| model.id == "mistral-large-4")
+            .expect("mistral-large-4 is the curated eurouter recommendation");
+        assert_eq!(
+            large4.supported_reasoning_efforts,
+            vec![
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+            ],
+            "mistral-large-4 must offer low|medium|high — the picker of the \
+             recommended model must not be empty"
         );
 
         // A provider whose catalogue publishes nothing offers nothing at all.
@@ -353,6 +375,26 @@ mod tests {
             curated_models(LlmProvider::OpenAI)
                 .iter()
                 .all(|model| model.supported_reasoning_efforts.is_empty())
+        );
+    }
+
+    /// Issue #950: eurouter's recommendation was the ONE curated model of its
+    /// catalogue whose `supported_parameters` carries no `reasoning_effort`, so
+    /// the effort picker stayed empty on exactly the config a new deployment
+    /// creates. Rotating the recommendation back onto such a model is the
+    /// regression this test refuses.
+    #[test]
+    fn the_eurouter_recommendation_publishes_an_effort() {
+        let recommended =
+            recommended_model(LlmProvider::EURouter).expect("eurouter designates a recommendation");
+        let model = curated_models(LlmProvider::EURouter)
+            .into_iter()
+            .find(|model| model.id == recommended)
+            .expect("the recommendation is curated");
+        assert!(
+            !model.supported_reasoning_efforts.is_empty(),
+            "the eurouter recommendation {recommended} must publish its \
+             reasoning efforts — a default without the knob leaves the picker empty"
         );
     }
 
@@ -389,9 +431,16 @@ mod tests {
         );
         // `eurouter/mistral-large-3` does NOT advertise `reasoning_effort` in its
         // `supported_parameters` (that is `mistral-large-4`), so pinning it would
-        // send a parameter the model does not declare.
+        // send a parameter the model does not declare. It is rotated out of the
+        // curated set since #950 but still referenced by persisted configs.
         assert_eq!(
             default_reasoning_effort(LlmProvider::EURouter, "mistral-large-3"),
+            None
+        );
+        // Declaring the parameter is a capability, not a measured saving: the
+        // #950 recommendation stays unpinned until a measurement exists.
+        assert_eq!(
+            default_reasoning_effort(LlmProvider::EURouter, "mistral-large-4"),
             None
         );
         // A misspelling must not silently pin an effort somewhere else.

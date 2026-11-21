@@ -17,6 +17,17 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.75.0] - Unreleased
+### Changed (issue #950)
+
+- `ai::reasoning::supported_reasoning_efforts` now lists
+  `eurouter/mistral-large-4` (`low|medium|high`, from the provider's
+  `supported_parameters`). It is the curated eurouter recommendation since
+  #950 — the previous default, `mistral-large-3`, declares no
+  `reasoning_effort` at all, so the #949 picker stayed empty on exactly the
+  config a new deployment creates. `mistral-large-3` keeps resolving to `None`:
+  rotated out of the curated set, but still referenced by persisted
+  `AiConfig` records.
+
 ### Added (issue #942 W4)
 
 - New `ProviderAccountProbe` port + `AccountProbeRequest`: the account-scoped

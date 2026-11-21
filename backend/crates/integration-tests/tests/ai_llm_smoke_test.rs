@@ -65,9 +65,11 @@ use infra::ai::{
 use uuid::Uuid;
 
 /// Deployment defaults when the nightly variables are unset: the provider and
-/// assistant model the dev/prod AI configuration currently uses.
+/// assistant model the dev/prod AI configuration currently uses. The model is
+/// the curated eurouter recommendation since issue #950 (`mistral-large-4`
+/// declares `reasoning_effort`, its predecessor did not).
 const DEFAULT_PROVIDER: &str = "eurouter";
-const DEFAULT_MODEL: &str = "mistral-large-3";
+const DEFAULT_MODEL: &str = "mistral-large-4";
 
 /// Per-request provider timeout, mirroring `AI_IMPORT_REQUEST_TIMEOUT_SECS`'s
 /// default. A live call slower than this is a finding, not a flake.
