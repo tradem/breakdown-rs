@@ -30,6 +30,13 @@
 
 set -euo pipefail
 
+# CI exports these and the runner's real repository would leak into every fixture
+# below (a fixture repo must derive `acme/widget`, not the checkout's slug —
+# github.com also exports GITHUB_REPOSITORY for the job, which would make the
+# "underivable slug fails loudly" case unprovokable). Each test that cares sets
+# the variable itself, in its own environment.
+unset GITHUB_REPOSITORY RELEASE_REPO RELEASE_CHANGELOG RELEASE_NOTES_DIR RELEASE_BODY_CHAR_LIMIT
+
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "${TEST_DIR}/../.." && pwd)"
 SCRIPT="${BACKEND_DIR}/scripts/release-notes.sh"
