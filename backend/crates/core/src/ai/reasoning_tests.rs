@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Reasoning-effort vocabulary and capability tests.
 //!
 //! Every assertion here is a fact read from a provider catalogue on 2026-11-20
-//! (see the module docs for the three shapes). The `curated_model_ids`
+//! (the eurouter rows re-read on 2026-11-21 for issue #950; see the module docs
+//! for the three shapes). The `curated_model_ids`
 //! cross-check that catches a *forgotten* model lives in `infra`, where both
 //! lists are visible.
 
@@ -75,7 +77,10 @@ fn eurouter_offers_no_minimal_because_its_catalogue_does_not_declare_it() {
 
 /// The mistake this module exists to prevent: `mistral-large-3` does **not**
 /// advertise `reasoning_effort` (only `mistral-large-4` and `mistral-small-4`
-/// do), so offering it would send an undeclared parameter.
+/// do), so offering it would send an undeclared parameter. Issue #950 rotated it
+/// out of the curated eurouter set, but persisted `AiConfig` records still
+/// reference it — an absent pair must stay absent, never inherit a sibling's
+/// values.
 #[test]
 fn mistral_large_3_offers_nothing() {
     assert_eq!(
@@ -86,6 +91,33 @@ fn mistral_large_3_offers_nothing() {
         LlmProvider::EURouter,
         "mistral-large-3",
         ReasoningEffort::Low
+    ));
+}
+
+/// The #950 successor: the curated eurouter recommendation declares the
+/// parameter, so the picker of the DEFAULT configuration is not empty.
+#[test]
+fn mistral_large_4_offers_low_medium_high() {
+    assert_eq!(
+        supported_reasoning_efforts(LlmProvider::EURouter, "mistral-large-4"),
+        Some(
+            &[
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High
+            ][..]
+        )
+    );
+    assert!(supports_reasoning_effort(
+        LlmProvider::EURouter,
+        "mistral-large-4",
+        ReasoningEffort::Low
+    ));
+    // `minimal` is OpenAI-specific and not declared by the eurouter catalogue.
+    assert!(!supports_reasoning_effort(
+        LlmProvider::EURouter,
+        "mistral-large-4",
+        ReasoningEffort::Minimal
     ));
 }
 
@@ -161,6 +193,7 @@ fn a_supported_pair_never_yields_an_empty_set() {
             "gpt-5.6-luna",
             "gemini-3.6-flash",
             "openai/gpt-5-mini",
+            "mistral-large-4",
             "mistral-large-3",
             "mistral-small-4",
             "glm-5.3-flash",

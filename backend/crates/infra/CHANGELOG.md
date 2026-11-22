@@ -17,6 +17,21 @@ crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
 ## [0.86.0] - Unreleased
+### Changed (issue #950)
+
+- `ai::provider_registry::curated_model_ids(EURouter)` and
+  `recommended_model(EURouter)` point at `mistral-large-4` (the only eurouter
+  successor that declares `reasoning_effort`; the live catalogue was re-read on
+  2026-11-21). `mistral-large-3` stays in `ai::catalog::default_allowlist` and
+  the `ai_model_pricing` seed — a pure catalogue refresh must not invalidate
+  persisted `AiConfig` records.
+- `the_eurouter_recommendation_publishes_an_effort` is the regression gate: it
+  fails if the recommendation is ever rotated back onto a model without the
+  parameter. `mistral-large-4` is deliberately NOT pinned in
+  `default_reasoning_effort` — declaring the knob is a capability, not a
+  measured saving; the measurement this issue owes is still outstanding
+  (eurouter answered `503`/timeouts through 2026-11-21).
+
 ### Added (issue #942 W4)
 
 - `KeyEndpointAccountProbe`: the user-facing account read (`GET {base}/key` for

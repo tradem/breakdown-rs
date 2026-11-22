@@ -5,6 +5,7 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
+// Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -236,7 +237,7 @@ fn default_allowlist() -> HashSet<String> {
         "deepseek/deepseek-v4-flash",
         "deepseek/deepseek-v4.1-flash",
         "nvidia/nemotron-3.5-lightning:free",
-        "mistral-large-3",
+        "mistral-large-4",
         "mistral-small-4",
         "mistral-medium-3.5",
         "deepseek-v4-flash",
@@ -269,8 +270,10 @@ fn default_allowlist() -> HashSet<String> {
         "gemini-2.5-flash-image",
         "gpt-image-2",
         "gpt-image-1",
-        // --- legacy curated models, rotated out of the live catalogs but
-        // --- still referenced by persisted AiConfig records (issue #675) ---
+        // --- legacy curated models, rotated out of the curated set but still
+        // --- referenced by persisted AiConfig records (issue #675; eurouter's
+        // --- `mistral-large-3` joined them in #950) ---
+        "mistral-large-3",
         "mistral-small-3.1",
         "nvidia/nemotron-3-nano:free",
         "glm-5.2",
