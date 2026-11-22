@@ -1,0 +1,44 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: gemini-4-carbon (google) -->
+
+# Tasks — `ai-import-vlm-document-structure`
+
+Structured into four independently reviewable PR packages (`[P1]…[P4]`). Every task respects the `AGENTS.md` §1–§4 guardrails (strict Poor Man's DI at `crates/api/src/main.rs`, zero `Arc<T>` abuse / no double-refcounting of `PgPool` or `reqwest::Client` / borrows `&T` on call paths, no panics/unwraps in production paths, no write-side projection reads, `jiff` time types only, static SQL literals only, no wall-clock timing gates, `#[cfg(feature = "test-support")]` on test helpers, and no new top-level `crates/api` test binaries per `AGENTS.md` §8).
+
+## 1. [P1] Hexagonal Structure Port, `StructuredDocument` IR, Chunk Fingerprint & Golden Eval Harness (issue #958)
+
+- [ ] 1.1 Add `crates/core::ai::document` (`StructuredDocument`, `StructuredPage`, `DocumentBlock`, `BlockAnchor`, `BlockKind`, `NormalizedBBox`, `ExtractionOptions`) with zero infrastructure dependencies and pure borrowed-slice accessors (`D1`).
+- [ ] 1.2 Define `DocumentStructureExtractor` port trait (`parser_fingerprint(&self) -> &'static str` + RPITIT `extract` returning `impl Future<Output = Result<StructuredDocument, DomainError>> + Send`, no `#[async_trait]`) in `crates/core::ai::ports`, parameterize `ScriptImportWorker<Q, C, E = LegacyPdfToTextAdapter>` and `ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter>` with `pub extractor: E` by value, and wire `ConfiguredDocumentExtractor` by value in `WorkerDeps` and `crates/api/src/main.rs` (zero `Arc<dyn DocumentStructureExtractor>` or double-`Arc` wrapping).
+- [ ] 1.3 Implement `LegacyPdfToTextAdapter` (`Copy`, `parser_fingerprint = "legacy-pdftotext-v1"`) wrapping the existing `pdftotext -q -layout` logic so all existing worker unit tests compile and pass unchanged.
+- [ ] 1.4 Implement `SpatialPdfExtractor` (`Copy`, `parser_fingerprint = "poppler-spatial-v1"`) in `crates/infra::ai` using Poppler `pdftotext -bbox-layout` + on-demand `pdftoppm -png -r 150` with bounded output byte caps, `tokio::time::timeout`, and `reap_child` cleanup on every error path.
+- [ ] 1.5 Add `DoclingHttpAdapter` (`Clone` over internal-`Arc` `reqwest::Client` — never `Arc<reqwest::Client>`, `parser_fingerprint = "docling-http-v1"`) and `ConfiguredDocumentExtractor` enum (`AI_DOCUMENT_PARSER=spatial|docling|legacy-pdftotext`, default `spatial`) preserving HTML `<table>` `colspan`/`rowspan` markup.
+- [ ] 1.6 Incorporate `extractor.parser_fingerprint()` into `crates/infra::ai::chunk_store::fingerprint_key` (`#871`) and verify via unit + integration tests that switching adapters invalidates cached partial chunks and restarts at chunk `0` (`D7`).
+- [ ] 1.7 Build the Golden Evaluation Harness: synthetic multi-zone unit fixtures in `crates/core` (always-on in CI) plus the env-gated `AI_EVAL_CORPUS_DIR` corpus runner in `crates/infra/tests/ai_document_eval_corpus.rs` (`D8`).
+- [ ] 1.8 Verify architecture guardrails (`cargo test -p architecture_tests`, `cargo deny check bans`) and update `backend/.github/instructions/ai-import.instructions.md` with `AI_DOCUMENT_PARSER` and `AI_EVAL_CORPUS_DIR`.
+
+## 2. [P2] Zone-Aware Screenplay Segmentation & `SceneIndex` Reconciliation (issue #959 — depends on #958)
+
+- [ ] 2.1 Implement page-level header/footer & continuation stripping (`PageHeader`, `PageFooter`, `"<N> CONTINUED:"`, `"FORTSETZUNG"`) in `crates/core::ai::document` while harvesting `block_number` and `episode` header markers (`D3`, `D4`).
+- [ ] 2.2 Implement Pass 0 page-zone classification (`TitlePage`, `CastList`, `SceneIndex`, `FrontMatter`, `ScriptBody`) in `crates/core` using spatial/structural signals (`"SCRIPT REPORT"`, `"SYNOPSIS"`, `"MEDIZINISCHE FÄLLE"`, `"PERSONEN/ HAUPTCAST"`) with an optional LLM/VLM structural-index fallback for non-standard templates.
+- [ ] 2.3 Extend German/international heading detection and `parse_mood_from_heading` to support `"A+I/T"`, `"I+A/T"`, `"A/I/T"`, and `"I/A/<Time>"` canonical shorthand, bumping `CHUNKER_VERSION`.
+- [ ] 2.4 Restrict `SceneChunk` assembly strictly to `ScriptBody` blocks via verbatim block slicing (zero LLM prose re-transcription so `verify_draft_outfits` verbatim `source_quote` checks remain untouched).
+- [ ] 2.5 Implement `SceneIndex` manifest reconciliation comparing `"SCRIPT REPORT"` scene labels against extracted `ScriptBody` chunks and emitting targeted `scene_number` `Uncertainty` entries on mismatch instead of cross-zone merging.
+- [ ] 2.6 Add deterministic unit tests covering multi-page synopsis isolation, `"A+I/T"` splitting, `"CONTINUED:"` stripping, and `SceneIndex` mismatch detection, and assert `100%` scene-count parity across the `AI_EVAL_CORPUS_DIR` corpus.
+
+## 3. [P3] `CastDirectory`, Deterministic Role Precedence & Continuity Context (issue #961 — depends on #959)
+
+- [ ] 3.1 Implement `CastList` zone parsing into `CastDirectory` (`MainCast` for `"HAUPTCAST"`/`"HAUPTROLLEN"`, `Guest` for `"EPISODENHAUPTROLLEN"`/`"GASTROLLEN"`/`"CROSS"`, `Extra` for `"KOMPARSEN"`/`"STATISTEN"`).
+- [ ] 3.2 Implement dictionary-gated Ghostscript kerning normalization (`"Mik k o"` → `"Mikko"`) restricted strictly to multi-character names present in the document's `CastDirectory`, keeping `verify_draft_outfits` compatible with both raw and normalized text.
+- [ ] 3.3 Implement pure `resolve_character_category` in `crates/core::ai::preview` enforcing the deterministic precedence ladder: (1) `CastDirectory` section (winning even when `inline_ot == true`, e.g. silent `"EPISODENHAUPTROLLEN"` leads → `guest`), (2) pre-loaded season `Character` category slice passed from read-side worker setup, (3) inline `(OT)`/background marker → strictly `extra`, (4) zero-dialogue generic role across `ScriptBody` → `extra`, (5) `main_cast` default (`D5`).
+- [ ] 3.4 Build compact `<document-context>` neighbor-scene brackets (`CastDirectory` summary + `previous_scene` / `next_scene` heading, location, mood, and `script_day` continuity) and inject them into Pass 1 chunk requests and Pass 2 `DecisionQuestion::Choice` state payloads; update `backend/config/default_ai_prompts.toml`.
+- [ ] 3.5 Add unit tests proving zero `(OT)` false-positive `guest` promotions, named `"KOMPARSEN"` → `extra` resolution, `"CROSS"` → `guest` resolution, and Pass 2 neighbor-bracket state construction.
+
+## 4. [P4] Multimodal Vision Seam, Page-Streaming Schedule Extractor & Additive Cast Legend (issue #960 — depends on #958)
+
+- [ ] 4.1 Add `LlmVisionRequest`, `LlmVisionPageInput`, and `LlmClient::chat_vision_constrained` to `crates/core::ai::ports` and implement OpenAI-compatible (`image_url` base64 PNG + text parts) and `Ollama` (`images` array) transports in `crates/infra::ai::client` with `#871`/`#942` circuit-breaker, retry, and pricing accounting (`D2`).
+- [ ] 4.2 Extend `parse_schedule_scene_ref` and `ShootingSchedule` / `ShootingScheduleRow` in `crates/core::ai::preview` with shot-suffix parsing (`"300.37N"` → `ep: 300, scene: 37, shot_suffix: Some("N")`), honest non-episode preservation (`"SB7.2"`, `"T3"` → unmatched), and strictly additive optional `cast_legend` / `cast_refs` fields (`Dummy`, `VoiceOnly`, `ExtraOt`).
+- [ ] 4.3 Refactor `ScheduleImportWorker::process` (`crates/infra::ai::workers`) for PDF inputs to iterate page-by-page via `chat_vision_constrained` with `ScheduleCarryOver` (`active_shooting_day`, `date`, `cast_legend`), skipping `"Drehfrei"` banners, publishing per-page progress frames (`chunk = page_idx`, `chunks_total = page_count`), and guaranteeing zero `CharacterCommands` dispatch on schedule apply (`D6`).
+- [ ] 4.4 Update `backend/config/default_ai_prompts.toml` (`[schedule]`) for multimodal page-level table & `"ROLLEN"` legend extraction.
+- [ ] 4.5 Regenerate OpenAPI & Flutter client for the additive `ShootingSchedule` DTO fields (`UPDATE_OPENAPI=1 cargo test -p api --test contract openapi_drift`, `scripts/regen-client.sh`, `CLIENT_VERSION` minor bump) and attach contract/handler tests as `#[path]` modules in existing `crates/api` harnesses.
+- [ ] 4.6 Run `../scripts/add-spdx-headers.sh --check`, workspace clippy/tests, and the full `AI_EVAL_CORPUS_DIR` suite over all scripts and `Drehplan_1.pdf`.

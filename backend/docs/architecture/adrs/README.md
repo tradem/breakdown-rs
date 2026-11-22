@@ -4,6 +4,7 @@
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
 <!-- Co-authored-by: gemini-4-argon (google) -->
+<!-- Co-authored-by: gemini-4-carbon (google) -->
 
 # Architecture Decision Records (ADRs)
 
@@ -70,6 +71,7 @@ and their consequences.
 | [038](ADR-038-ai-import-sse-progress-and-event-hub.md) | AI Import Push-Based Job Progress — SSE Snapshot+Deltas, Hexagonal Event Hub (Postgres `NOTIFY` + SQLite Seam), and Client Battery Contract | Proposed | 2026-10-16 | Tobias Rademacher (@tradem); gemini-4-argon (google) |
 | [039](ADR-039-target-less-ai-import-declared-season-and-set-once-attach.md) | A Target-Less AI Import — Declared-Season Upload, Set-Once Target Attach, and the Target Season as the Job Scope | Proposed | 2026-11-06 | Tobias Rademacher (@tradem); deepseek-v4.1-flash (opencode-go) |
 | [040](ADR-040-jiff-replaces-chrono.md) | `jiff` replaces `chrono` as the workspace time library (`RUSTSEC-2026-0543`) | Accepted | 2026-11-18 | Tobias Rademacher (@tradem); glm-5.3 (neuralwatt) |
+| [041](ADR-041-pluggable-document-structure-and-zone-aware-vlm-import.md) | Pluggable Document Structure Extraction, Zone-Aware Script Segmentation, and Multimodal Schedule Parsing | Proposed | 2026-11-22 | Tobias Rademacher (@tradem); gemini-4-carbon (google) |
 
 ## Creating a New ADR
 

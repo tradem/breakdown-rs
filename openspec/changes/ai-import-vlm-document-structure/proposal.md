@@ -1,0 +1,64 @@
+<!-- SPDX-License-Identifier: AGPL-3.0 -->
+<!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: gemini-4-carbon (google) -->
+
+# Pluggable Document Structure Extraction, Zone-Aware Script Segmentation, and Multimodal Schedule Parsing
+
+## Why
+
+ADR-013 §1 assumed that flattening PDFs with `pdftotext -layout` into a single UTF-8 string and splitting lines with prefix heuristics (`INT.`/`EXT.`/`I/T`) would suffice because downstream LLMs could compensate for fuzzy boundaries. Empirical evaluation against real multi-episode German broadcast screenplays and shooting-schedule PDFs falsified that assumption across six concrete failure modes:
+
+1. **Front-matter cast lists are silently discarded:** `extract_scenes` drops every line preceding the first scene heading, throwing away explicit cast tables (`"PERSONEN/ HAUPTCAST"`, `"CROSS"`, `"EPISODENHAUPTROLLEN"`, `"KOMPARSEN"` — including named background performers without inline markers) and forcing unlabelled scene appearances onto the `main_cast` fallback.
+2. **Script-report indexes and prose front-matter corrupt the final chunk:** Broadcast scripts bundle a multi-page `"SCRIPT REPORT"` scene index followed by multi-page `"SYNOPSIS"` and case/character bios before the actual script body starts. Because no heading appears inside the prose synopsis, `extract_scenes` glues all synopsis pages onto the last index heading, and `merge_duplicate_scene_numbers` merges that multi-page Episode synopsis into the final real scene — distorting scene counts and hallucinating episode-wide cast into one scene.
+3. **Heading syntax & page-break fragility:** Combined interior/exterior shorthand (`"A+I/T"`, `"I+A/T"`), multi-line wrapped headings, `CONTINUED:` page-turn headers (`45–60` per script), and Ghostscript kerning splits (`"Mik k o"`, `"Em m a"`) cause missed scene splits, noisy dialogue blocks, and split character identities.
+4. **Hardwired concrete PDF adapter:** `ScriptImportWorker` and `ScheduleImportWorker` hold a concrete `infra::ai::PdfTextExtractor` (`pdftotext`) rather than a hexagonal port in `crates/core`, preventing clean substitution with spatial PDF parsers, `Docling`, or multimodal Vision-Language Models (VLMs).
+5. **Single-shot text-flattened shooting schedules fail without CSV exports:** Production schedules seldom arrive as clean CSVs; their PDF exports use dense multi-row visual grids without text delimiters (e.g., `"<Episode>.<Scene>"` on row 1, script day directly underneath on row 2, wrapped location in the middle, numeric cast IDs `"2, 4, 50"` on the right, full-width shooting-day banners, `"Drehfrei"` rows, and two-column `"ROLLEN"` number legends on page 1). Flattening all pages into a single `8192`-token text request scrambles column alignment and risks row truncation.
+
+## What Changes
+
+- **W1 — Hexagonal document-structure port, chunk-resume fingerprint & golden evaluation harness (`crates/core`, `crates/infra`):**
+  - Replace the concrete `PdfTextExtractor` field on AI workers with a hexagonal `DocumentStructureExtractor` port in `crates/core::ai::ports` producing a canonical `StructuredDocument` IR (pages, reading-order blocks with bounding boxes / X-indentation, block roles, optional HTML tables preserving `colspan`/`rowspan`, and optional rendered page PNGs for multimodal passes).
+  - Include `DocumentStructureExtractor::parser_fingerprint()` in `#871` chunk-store fingerprinting (`fingerprint_key`) so switching adapters invalidates incompatible cached chunk prefixes deterministically.
+  - Ship OSI-open, CPU-capable local extraction (`SpatialPdfExtractor` / optional `DoclingHttpAdapter`, keeping `LegacyPdfToTextAdapter` as a zero-dependency test/fallback adapter) plus multimodal VLM vision calls (`LlmClient::chat_vision_constrained`) targeting open-weight Apache-2.0 / MIT models (`Qwen3-VL`, `GLM-OCR`, `PaddleOCR-VL`) on local `Ollama` and GDPR / Zero-Data-Retention (ZDR) European pay-as-you-go endpoints (`EURouter`, Scaleway, OVHcloud, Nebius EU).
+  - Add an `omni_parse_bench`-inspired, env-gated local evaluation harness (`AI_EVAL_CORPUS_DIR`) verifying exact scene counts, zero front-matter leakage, cast-category accuracy, and schedule-row fidelity against out-of-tree production PDFs without checking copyrighted scripts into Git.
+- **W2 — Zone-aware screenplay segmentation & `SceneIndex` reconciliation (`crates/core`, `crates/infra`):**
+  - Classify screenplay pages into semantic zones (`TitlePage`, `CastList`, `SceneIndex`, `FrontMatter`, `ScriptBody`) before scene chunking.
+  - Restrict scene chunk generation strictly to `ScriptBody`, slicing verbatim text spans by block anchors (zero LLM re-typing of scene prose so `verify_draft_outfits` source-quote grounding stays 100% intact), stripping `PageHeader`/`PageFooter` and `"CONTINUED:"` markers, supporting `"A+I/T"` / `"I+A/T"` / `"A/I/T"`, and normalizing Ghostscript kerning-split character tokens against known cast names.
+  - Cross-check `ScriptBody` scene numbers against `SceneIndex` (`"SCRIPT REPORT"`) whenever an index zone is present, surfacing mismatches as structured preview diagnostics/uncertainties instead of silently merging index and synopsis prose into scenes.
+- **W3 — Deterministic cast-role precedence (`CastDirectory`) & neighbor-scene continuity context (`crates/core`, `crates/infra`, `config/default_ai_prompts.toml`):**
+  - Parse `CastList` zones into a structured `CastDirectory` (`main_cast`, `guest` including `"EPISODENHAUPTROLLEN"` and `"CROSS"`, `extra` including named `"KOMPARSEN"`).
+  - Resolve `CharacterCategory` via a **deterministic precedence ladder in `crates/core`** rather than vague LLM prompt heuristics: explicit `CastDirectory` section outranks inline `(OT)` (correctly classifying silent guest leads such as `"JONAS (8, OT)"` under `"EPISODENHAUPTROLLEN"` as `guest` with zero false-positive promotion of un-listed `(OT)` background performers, which remain strictly `extra`), followed by existing season character projection category, inline `(OT)`/background markers, document-wide zero-dialogue generic designations, and grounded `main_cast` fallback.
+  - Inject compact read-only `<document-context>` (known `CastDirectory` + adjacent previous/next scene heading, script day, and location transition) into Pass 1 scene extraction and Pass 2 outfit continuity.
+- **W4 — Page-streaming multimodal schedule extraction & additive cast legend (`crates/core`, `crates/infra`, `crates/api`):**
+  - Replace the single-shot flattened-text PDF schedule call with page-by-page multimodal extraction (`Qwen3-VL` / vision-capable `LlmClient` over rendered page image + spatial text grid) carrying forward `active_shooting_day` and `date` across page boundaries.
+  - Filter non-shooting banners (`"Drehfrei"`), normalize shot suffixes (`"300.37N"` → episode `300`, scene `37` with additive shot note) without fabricating phantom scenes, and keep non-episode units (`"SB7.2"`, `"T3"` `"Vorspann"`) honestly in `unmatched_schedule_rows`.
+  - Parse `"ROLLEN"` number legends (`2 -> Name`, `Dummy`, `Nur Stimme`, `OT`) and per-row numeric cast references as **strictly additive, non-mutating metadata** on `ShootingSchedule` / `ShootingScheduleRow` (never auto-creating or mutating `Character` aggregates during schedule apply).
+
+## Locked Decisions
+
+| # | Decision | Rejected alternative and why |
+|---|---|---|
+| D1 | `DocumentStructureExtractor` port returns `StructuredDocument` IR in `crates/core`, never a flat `String` | Abstracting `&[u8] -> String` discards page boundaries, bounding boxes, block roles, and HTML `colspan`/`rowspan` tables at the port boundary, recreating every downstream ambiguity. |
+| D2 | Strictly OSI-open licenses (MIT / Apache-2.0, compatible with AGPL-3.0) + CPU-capable server base + GDPR/ZDR EU pay-as-you-go VLM | Adopting `HunyuanOCR-1.5` (Tencent Community License), `chandra-ocr-2` (revenue-capped OpenRAIL-M), or `dots.mocr` (custom commercial API restrictions), or requiring a dedicated Netcup vGPU server: restricted weights compromise AGPL-3.0 openness, and dedicated vGPUs break the ~€20/mo hosting target when pay-as-you-go EU ZDR VLM calls cost ~€0.01–€0.05/document. |
+| D3 | Deterministic slice of `ScriptBody` blocks — never VLM re-transcription of screenplay prose | Letting a VLM transcribe 95 script pages into JSON/Markdown wastes output tokens, adds latency, and alters punctuation/wording enough to break `verify_draft_outfits` verbatim `source_quote` checks. |
+| D4 | Zone classification precedes scene splitting; only `ScriptBody` emits `SceneChunk`s | Merging `"SCRIPT REPORT"` index entries with `"ScriptBody"` scenes via `merge_duplicate_scene_numbers`: any prose section (`"SYNOPSIS"`, `"MEDIZINISCHE FÄLLE"`) following the index contaminates the last index entry. `SceneIndex` is a validation manifest, never scene prose. |
+| D5 | Cast-category precedence lives deterministically in `crates/core`, never as a hedged `"rarely guest"` prompt rule | Telling the LLM that `(OT)` is *"mostly extra, rarely guest"* reintroduces `#826` hedging and false-positive promotions. Extracting factual evidence (`CastDirectory` section + inline marker + dialogue presence) and resolving precedence in Rust guarantees zero false positives. |
+| D6 | Schedule cast legends & row cast IDs are additive preview/dispo metadata only | Auto-creating or reclassifying `Character` aggregates from schedule cast numbers would couple schedule imports to character mutations and amplify table OCR noise. Unrecognized cast numbers are dropped rather than guessed. |
+| D7 | `parser_fingerprint()` participates in `#871` `fingerprint_key` | Resuming stored chunks across two different structure extractors or zoning versions would mix incompatible scene indices and ordinals in one `ScriptContext`. |
+| D8 | Out-of-tree Golden Eval Corpus (`AI_EVAL_CORPUS_DIR`) | Committing real broadcast PDFs into Git violates third-party copyright and NDA obligations; synthetic fixtures stay in-repo while real production PDFs run locally via env-configured corpus manifests. |
+
+## Capabilities
+
+### New Capabilities
+- `ai-document-structure-extraction`: Hexagonal `DocumentStructureExtractor` port, canonical `StructuredDocument` IR, OSI-open spatial/Docling/VLM adapters, multimodal vision client seam, chunk-fingerprint integration, and the env-gated golden evaluation harness (`ADR-041`).
+
+### Modified Capabilities
+- `ai-import`: Zone-aware screenplay segmentation (`TitlePage`, `CastList`, `SceneIndex`, `FrontMatter`, `ScriptBody`), `SceneIndex` count reconciliation, deterministic `CastDirectory` + dialogue-based role classification precedence, and page-streaming multimodal shooting-schedule extraction with additive cast-legend metadata.
+- `ai-import-outfit-continuity-pass`: Neighbor-scene continuity context brackets (adjacent location, script day, and direct transition signals) fed from zone-clean `ScriptBody` ordering.
+
+## Impact
+
+- **Architecture & ADRs:** New `ADR-041` in `backend/docs/architecture/adrs/`, amending `ADR-013` §1 (*Fuzzy Chunking*) while preserving `ADR-013` hybrid economics and `ADR-030` preview-before-apply invariants.
+- **Backend (`crates/core`):** `ai::ports` (`DocumentStructureExtractor`, multimodal vision request/outcome types), `ai::document` (`StructuredDocument`, zones, `CastDirectory`), `ai::preview` (zone-aware chunker, `SceneIndex` reconciliation, deterministic role precedence, additive `cast_legend` / `cast_refs` on `ShootingSchedule` / `ShootingScheduleRow`, `CHUNKER_VERSION` bump).
+- **Backend (`crates/infra`):** Pluggable PDF structure adapters (`LegacyPdfToTextAdapter`, CPU spatial/page-render adapter, optional `DoclingHttpAdapter`), multimodal vision support in `ai::client` (OpenAI-compatible vision content parts + `Ollama` images array), `ScriptImportWorker` Pass 0 zoning & context injection, `ScheduleImportWorker` page-streaming carry-over loop, `#871` `chunk_store::fingerprint_key` inclusion of `parser_fingerprint`, and local eval runner test target.
+- **API Contract (`backend/openapi.yaml` & Flutter client):** Strictly additive optional fields on `ShootingSchedule` / `ShootingScheduleRow` (cast legend & resolved row cast notes, plus optional `SceneIndex` reconciliation telemetry on `ScriptContext`); when wire DTOs change in Package 4, `UPDATE_OPENAPI=1` + `scripts/regen-client.sh` + `CLIENT_VERSION` minor bump apply.
