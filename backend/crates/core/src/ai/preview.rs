@@ -1353,7 +1353,8 @@ pub fn zero_dialogue_generic_roles(chunks: &[SceneChunk]) -> Vec<String> {
                 continue;
             }
             // `ANNA (30): Hallo.` is a cue with dialogue on the same line:
-            // split at the FIRST colon, not at a trailing one.
+            // split at the FIRST colon, not at a trailing one. The length cap
+            // below belongs to the cue, not to the dialogue that follows.
             let cue = trimmed
                 .split_once(':')
                 .map_or(trimmed, |(cue, _)| cue)
@@ -1362,7 +1363,7 @@ pub fn zero_dialogue_generic_roles(chunks: &[SceneChunk]) -> Vec<String> {
                 .chars()
                 .filter(|character| character.is_alphabetic())
                 .count();
-            let looks_like_cue = trimmed.chars().count() <= 40
+            let looks_like_cue = cue.chars().count() <= 40
                 && letters >= 2
                 && cue
                     .chars()

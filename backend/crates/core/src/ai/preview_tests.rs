@@ -4651,6 +4651,15 @@ fn zero_dialogue_generic_roles_treat_inline_dialogue_as_speech() {
         zero_dialogue_generic_roles(&silent).contains(&character_identity("PFLEGER 2")),
         "a cue with no dialogue keeps the Extra fallback"
     );
+
+    let mixed = SceneChunk::extract_scenes(
+        "3 I/T - WOHNUNG\nPFLEGER 2:\n\
+         PFLEGER 2: Ich begleite Sie jetzt zurück auf Ihr Zimmer.\n",
+    );
+    assert!(
+        !zero_dialogue_generic_roles(&mixed).contains(&character_identity("PFLEGER 2")),
+        "the 40-char cap applies to the cue, not to inline dialogue"
+    );
 }
 
 #[test]
