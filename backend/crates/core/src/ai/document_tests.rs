@@ -683,6 +683,10 @@ fn a_sentence_starting_with_cast_opens_no_cast_list() {
     for shouty_prose in [
         "CAST THE NET BEFORE SUNRISE.",
         "CAST THE NET",
+        // Two words only: a word cap cannot separate this from a section
+        // heading — the vocabulary check does.
+        "CAST OFF!",
+        "CAST THE LINE, LEYLA!",
         "SYNOPSIS DER FOLGE: LEYLA KOMMT ZURÜCK",
     ] {
         let shouty = text_page(2, shouty_prose);
@@ -713,13 +717,25 @@ fn an_all_caps_section_opening_still_opens_the_cast_list() {
         2,
         "Dr. Leyla Sherbaz (44)\nDr. Matteo Moreau (44)\nKOMPARSEN\nJonas Hauser",
     );
-    let document = StructuredDocument::new("t", vec![body, cast]);
+    let document = StructuredDocument::new("t", vec![body.clone(), cast]);
     let zones = classify_document_zones(&document, is_heading);
     assert_eq!(zones.zone_of(2), PageZone::CastList);
     assert_eq!(
         zones.page(2).and_then(|page| page.banner.as_deref()),
         Some("KOMPARSEN")
     );
+
+    // Section vocabulary with a connective and a separator is still a banner.
+    for banner in ["PERSONEN UND HAUPTCAST", "PERSONEN/ HAUPTCAST", "CAST:"] {
+        let page = text_page(2, &format!("{banner}\nDr. Koch\nLEYLA"));
+        let document = StructuredDocument::new("t", vec![body.clone(), page]);
+        let zones = classify_document_zones(&document, is_heading);
+        assert_eq!(
+            zones.zone_of(2),
+            PageZone::CastList,
+            "{banner:?} is a section heading"
+        );
+    }
 }
 
 #[test]

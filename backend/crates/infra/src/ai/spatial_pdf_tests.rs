@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use breakdown_core::ai::{
     BlockKind, DocumentStructureExtractor, ExtractionOptions, NormalizedBBox, RenderOptions,
+    StructuredDocument, extract_scenes_from_structured,
 };
 use breakdown_core::error::DomainError;
 
@@ -371,4 +372,89 @@ async fn render_page_rejects_a_page_the_document_does_not_have() {
         Err(error) => error,
     };
     assert!(matches!(error, DomainError::Validation { .. }));
+}
+
+// ===========================================================================
+// Adapter → segmentation: a slug in the top band is scene content, not
+// furniture (CodeRabbit review, issue #959).
+// ===========================================================================
+
+/// One page, `612x792` pt: the running header (`Block 098`, `Ep.: 294/1`) and a
+/// scene slug all end inside the top band (`yMax <= 71.28` = 9 % of the height),
+/// so `parse_bbox_layout` tags all three `PageHeader` by geometry alone.
+const TOP_BAND_SLUG_FIXTURE: &str = r#"<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml">
+<body>
+<doc>
+  <page width="612.000000" height="792.000000">
+    <flow>
+      <block xMin="75.000000" yMin="26.000000" xMax="180.000000" yMax="38.000000">
+        <line xMin="75.000000" yMin="26.000000" xMax="180.000000" yMax="38.000000">
+          <word xMin="75.000000" yMin="26.000000" xMax="130.000000" yMax="38.000000">In</word>
+          <word xMin="134.000000" yMin="26.000000" xMax="180.000000" yMax="38.000000">aller</word>
+        </line>
+      </block>
+      <block xMin="475.000000" yMin="26.000000" xMax="551.000000" yMax="46.000000">
+        <line xMin="475.000000" yMin="26.000000" xMax="551.000000" yMax="34.000000">
+          <word xMin="475.000000" yMin="26.000000" xMax="551.000000" yMax="34.000000">Block</word>
+          <word xMin="530.000000" yMin="26.000000" xMax="551.000000" yMax="34.000000">098</word>
+        </line>
+        <line xMin="475.000000" yMin="38.000000" xMax="551.000000" yMax="46.000000">
+          <word xMin="475.000000" yMin="38.000000" xMax="540.000000" yMax="46.000000">Ep.:</word>
+          <word xMin="543.000000" yMin="38.000000" xMax="551.000000" yMax="46.000000">294</word>
+        </line>
+      </block>
+      <block xMin="61.000000" yMin="54.000000" xMax="520.000000" yMax="70.000000">
+        <line xMin="61.000000" yMin="54.000000" xMax="520.000000" yMax="70.000000">
+          <word xMin="61.000000" yMin="54.000000" xMax="75.000000" yMax="70.000000">12</word>
+          <word xMin="80.000000" yMin="54.000000" xMax="104.000000" yMax="70.000000">A/T</word>
+          <word xMin="108.000000" yMin="54.000000" xMax="118.000000" yMax="70.000000">-</word>
+          <word xMin="122.000000" yMin="54.000000" xMax="250.000000" yMax="70.000000">MALERISCHER</word>
+          <word xMin="254.000000" yMin="54.000000" xMax="390.000000" yMax="70.000000">BAUERNHOF</word>
+        </line>
+      </block>
+      <block xMin="61.000000" yMin="120.000000" xMax="520.000000" yMax="160.000000">
+        <line xMin="61.000000" yMin="120.000000" xMax="520.000000" yMax="134.000000">
+          <word xMin="61.000000" yMin="120.000000" xMax="130.000000" yMax="134.000000">Leyla</word>
+          <word xMin="134.000000" yMin="120.000000" xMax="180.000000" yMax="134.000000">steigt</word>
+          <word xMin="184.000000" yMin="120.000000" xMax="215.000000" yMax="134.000000">aus</word>
+          <word xMin="219.000000" yMin="120.000000" xMax="260.000000" yMax="134.000000">dem</word>
+          <word xMin="264.000000" yMin="120.000000" xMax="300.000000" yMax="134.000000">Wagen</word>
+        </line>
+      </block>
+    </flow>
+  </page>
+</doc>
+</body>
+</html>
+"#;
+
+#[test]
+fn a_top_band_slug_from_the_bbox_parser_reaches_the_scene_scanner() {
+    let pages = parse_bbox_layout(TOP_BAND_SLUG_FIXTURE).expect("fixture parses");
+    // The premise: geometry alone cannot tell the slug from the running header.
+    assert_eq!(pages[0].blocks[0].kind, BlockKind::PageHeader);
+    assert_eq!(pages[0].blocks[1].kind, BlockKind::PageHeader);
+    assert_eq!(
+        pages[0].blocks[2].kind,
+        BlockKind::PageHeader,
+        "the slug ends inside the top band, so the adapter tags it a page header"
+    );
+
+    let document = StructuredDocument::new(SPATIAL_PARSER_FINGERPRINT, pages);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 1, "{:?}", segmented.chunks);
+    assert_eq!(
+        segmented.chunks[0].heading,
+        "12 A/T - MALERISCHER BAUERNHOF"
+    );
+    assert_eq!(segmented.chunks[0].scene_number, Some(12));
+    assert_eq!(segmented.chunks[0].mood.as_deref(), Some("A/T"));
+    assert_eq!(segmented.chunks[0].text, "Leyla steigt aus dem Wagen");
+    for leaked in ["Block", "098", "Ep.:", "aller Freundschaft"] {
+        assert!(
+            !segmented.chunks[0].text.contains(leaked),
+            "running header leaked into the scene text: {:?}",
+            segmented.chunks[0].text
+        );
+    }
 }

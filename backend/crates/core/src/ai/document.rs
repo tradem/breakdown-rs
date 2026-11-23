@@ -1038,13 +1038,10 @@ fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)
     // ("... wie in der SYNOPSIS beschrieben") relabel a whole page. Starting the
     // line is not enough on its own either — `"Cast the net before sunrise."`
     // starts with `CAST` and is the first line of a script page — so the line must
-    // also LOOK like a section heading — shouty and short, the way
-    // `"PERSONEN/ HAUPTCAST"` and `"MEDIZINISCHE FÄLLE"` are and a sentence is
-    // not. Getting this wrong is expensive: a `CastList` verdict removes the whole
-    // page from scene prose.
-    if !is_section_heading(line) {
-        return None;
-    }
+    // also LOOK like a section heading — shouty and carrying no word beyond the
+    // section vocabulary, the way `"PERSONEN/ HAUPTCAST"` and `"MEDIZINISCHE
+    // FÄLLE"` do and a sentence does not. Getting this wrong is expensive: a
+    // `CastList` verdict removes the whole page from scene prose.
     for (zone, keywords) in [
         (PageZone::CastList, CAST_LIST_BANNERS.as_slice()),
         (PageZone::FrontMatter, FRONT_MATTER_BANNERS.as_slice()),
@@ -1055,6 +1052,7 @@ fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)
                     .chars()
                     .next()
                     .is_none_or(|next| !next.is_alphanumeric())
+                && is_section_heading(line, rest)
             {
                 return Some((zone, keyword));
             }
@@ -1063,26 +1061,39 @@ fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)
     None
 }
 
-/// Longest line still accepted as a cast/front-matter section banner, counted in
-/// whitespace-separated words.
+/// Connectives that may appear between two section words
+/// (`"PERSONEN UND HAUPTCAST"`).
+const BANNER_CONNECTIVES: [&str; 2] = ["UND", "AND"];
+
+/// Whether a line whose `keyword` prefix matched is still shaped like a section
+/// banner: shouty (no lowercase letter) and — after the keyword — carrying nothing
+/// but separators and further section vocabulary.
 ///
 /// A banner NAMES a section (`"PERSONEN/ HAUPTCAST"`, `"MEDIZINISCHE FÄLLE"`,
 /// `"KOMPARSEN"`, `"CAST:"`); an uppercase SENTENCE (`"CAST THE NET BEFORE
-/// SUNRISE."`, `"CAST THE NET"`) is prose, and a shouty action line is not rare in
-/// a broadcast script. The word cap is what separates the two — the case check
-/// alone does not.
-const BANNER_MAX_WORDS: usize = 2;
-
-/// Whether a line is shaped like a section heading: shouty (no lowercase letter)
-/// and short.
+/// SUNRISE."`, `"CAST OFF!"`) is prose, and a shouty action line is not rare in a
+/// broadcast script. Neither the case check nor a word cap separates the two
+/// (`"CAST OFF!"` is only two words) — the vocabulary does: a banner adds no other
+/// word.
 ///
-/// `"PERSONEN/ HAUPTCAST"` and `"KOMPARSEN"` are section headings; `"Cast the net
-/// before sunrise."` and `"CAST THE NET BEFORE SUNRISE."` are sentences, and both
-/// must stay out — a `CastList` verdict removes the whole page from scene prose.
-fn is_section_heading(line: &str) -> bool {
-    let trimmed = line.trim();
-    !trimmed.chars().any(char::is_lowercase)
-        && trimmed.split_whitespace().count() <= BANNER_MAX_WORDS
+/// A `CastList` verdict removes the whole page from scene prose, so this is worth
+/// being strict about.
+fn is_section_heading(line: &str, rest: &str) -> bool {
+    !line.trim().chars().any(char::is_lowercase)
+        && rest.split_whitespace().all(|word| {
+            let bare = word.trim_matches(|c: char| !c.is_alphanumeric());
+            bare.is_empty() || is_section_word(bare)
+        })
+}
+
+/// Whether `word` is part of the cast/front-matter vocabulary (banner keywords
+/// and the connectives between them).
+fn is_section_word(word: &str) -> bool {
+    CAST_LIST_BANNERS
+        .iter()
+        .chain(FRONT_MATTER_BANNERS.iter())
+        .chain(BANNER_CONNECTIVES.iter())
+        .any(|keyword| keyword.eq_ignore_ascii_case(word))
 }
 
 /// Whether a non-heading line sits in a dialogue column.

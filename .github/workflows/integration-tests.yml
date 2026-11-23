@@ -218,8 +218,8 @@ jobs:
           # unit: the materialiser returns early without the client id (the
           # corpus lives in a private Drive folder), and the sweep then fails its
           # own is_dir assertion — a missing secret must skip, not fail. The gate
-          # reads the env var (never `${{ secrets.* }}` inside `run:`) and both
-          # harnesses document exactly this skip.
+          # reads the env var rather than an expression (no secret may appear in
+          # `run:`, comments included) and both harnesses document this skip.
           if [ -z "${GDRIVE_CLIENT_ID}" ]; then
             echo "skipped: GDRIVE_CLIENT_ID is not configured (private Golden Corpus)"
             exit 0
