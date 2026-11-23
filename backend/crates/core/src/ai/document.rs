@@ -762,17 +762,31 @@ pub fn classify_document_zones(
         let mut dialogue_lines = 0_u32;
         let mut prose_lines = 0_u32;
         let mut banner: Option<(PageZone, &'static str)> = None;
+        let mut first_text_line = true;
         for block in &page.blocks {
             let band = block_role(block.bbox, block.kind);
             for line in block.text.split('\n') {
                 let trimmed = line.trim();
-                if trimmed.is_empty() || band != LineRole::Body {
+                if trimmed.is_empty() {
                     continue;
                 }
+                // A banner may sit in the running-header band or be the page's
+                // first line; a phrase in the middle of body prose must never
+                // relabel the page.
+                let banner_slot = band == LineRole::Header || first_text_line;
+                first_text_line = false;
+                // The banner is looked for in EVERY band, because in the real
+                // documents it IS a running header (`BL98/294-SCRIPT REPORT`,
+                // `DJÄ_BL98_294_DREH210805 -- SCRIPT REPORT  2`): skipping the
+                // header band would leave the index pages unrecognised and every
+                // index entry would parse as a scene.
                 if banner.is_none()
-                    && let Some(found) = page_banner(trimmed)
+                    && let Some(found) = page_banner(trimmed, banner_slot)
                 {
                     banner = Some(found);
+                }
+                if band != LineRole::Body {
+                    continue;
                 }
                 if is_scene_heading(trimmed) {
                     heading_lines = heading_lines.saturating_add(1);
@@ -804,11 +818,16 @@ pub fn classify_document_zones(
             {
                 PageZone::SceneIndex
             }
-            None if heading_lines == 0 && dialogue_lines == 0 => {
+            // A real scene page starts with a heading. Indentation alone is NOT
+            // a scene signal: a cover page's centred title block sits in exactly
+            // the columns a character cue uses (`x0` around 0.30), so counting it
+            // as dialogue turned the title page of every real script into prose.
+            None if heading_lines > 0 => PageZone::ScriptBody,
+            None => {
                 if seen_script_body {
-                    // A page with no scene signal after the script started is a
-                    // continuation page (a scene running over a page break), not
-                    // front matter: dropping it would delete that scene's text.
+                    // No heading, but the script is running: a continuation page
+                    // (a scene over a page break). Dropping it would delete that
+                    // scene's text.
                     PageZone::ScriptBody
                 } else if is_first_page {
                     PageZone::TitlePage
@@ -816,7 +835,6 @@ pub fn classify_document_zones(
                     PageZone::FrontMatter
                 }
             }
-            None => PageZone::ScriptBody,
         };
         // Demote a weak verdict once the script has started: only banners stay
         // authoritative there, so a cover-like page inside the body cannot lose
@@ -903,6 +921,29 @@ fn push_page_lines<'a>(lines: &mut Vec<ZonedLine<'a>>, page: &'a StructuredPage,
     }
 }
 
+/// Whether `haystack` contains `phrase` as a whole word sequence (no
+/// alphanumeric character directly before or after it).
+fn contains_phrase(haystack: &str, phrase: &str) -> bool {
+    let mut from = 0_usize;
+    while let Some(offset) = haystack[from..].find(phrase) {
+        let start = from + offset;
+        let end = start + phrase.len();
+        let left_ok = haystack[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric());
+        let right_ok = haystack[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphanumeric());
+        if left_ok && right_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
 /// The band role the block's geometry and kind assign: header, footer or body.
 ///
 /// The band bounds are the extractor contract from issue #958
@@ -927,10 +968,25 @@ fn block_role(bbox: NormalizedBBox, kind: BlockKind) -> LineRole {
 /// Whole-word matching against the trimmed uppercase line: `"PERSONEN/ HAUPTCAST"`
 /// matches `"PERSONEN"` (the next character is a separator), while `"PERSONAL"`
 /// does not, and `"CASTING"` does not match `"CAST"`.
-fn page_banner(line: &str) -> Option<(PageZone, &'static str)> {
+fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)> {
     let upper = line.trim().to_ascii_uppercase();
+    // The scene-index banner is matched ANYWHERE on a banner line (running header
+    // or the page's first line), as a whole phrase: in the real documents it is a
+    // running header, not a section heading — `BL98/294-SCRIPT REPORT`,
+    // `DJÄ_BL98_294_DREH210805 -- SCRIPT REPORT  2`. A prefix match misses both,
+    // and then every index entry parses as a scene (exactly the doubled,
+    // synopsis-contaminated preview this pass exists to stop). Restricting the
+    // anywhere-match to a banner line is what keeps a dialogue sentence that
+    // merely mentions the phrase from relabelling a script page.
+    for keyword in SCENE_INDEX_BANNERS {
+        if banner_slot && contains_phrase(&upper, keyword) {
+            return Some((PageZone::SceneIndex, keyword));
+        }
+    }
+    // Cast-list and front-matter banners ARE section headings, so they must start
+    // the line: matching them anywhere would let a synopsis sentence
+    // ("... wie in der SYNOPSIS beschrieben") relabel a whole page.
     for (zone, keywords) in [
-        (PageZone::SceneIndex, SCENE_INDEX_BANNERS.as_slice()),
         (PageZone::CastList, CAST_LIST_BANNERS.as_slice()),
         (PageZone::FrontMatter, FRONT_MATTER_BANNERS.as_slice()),
     ] {

@@ -46,8 +46,13 @@ commits (ADR-020 D5).
   the invalidation).
 - The Golden Corpus harness (`tests/ai_document_eval_corpus.rs`) additionally
   asserts zone-aware chunking, continuation-banner stripping, zero
-  scene-index/body drift and — via an optional `<name>.expected` sidecar
-  (`scenes = <N>`) — the exact scene count per document.
+  scene-index/body drift and the exact scene count per document, and it reads the
+  expectations from the in-repo manifest `config/ai_eval_corpus.tsv`
+  (`AI_EVAL_CORPUS_MANIFEST` overrides the path). The manifest is the single
+  definition of the corpus, so a local run and a CI run assert the same numbers;
+  a listed document missing from `AI_EVAL_CORPUS_DIR` fails the sweep, and a
+  `kind = schedule` document is exempt from the script-segmentation assertions
+  instead of being segmented as a screenplay.
 
 ## [0.87.0] - Unreleased
 ### Added (issue #958)

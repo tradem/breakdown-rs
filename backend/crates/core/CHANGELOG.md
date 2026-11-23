@@ -45,6 +45,24 @@ commits (ADR-020 D5).
 - `ExtractionFingerprint` gained `structural_plan_digest: String`
   (`#[serde(default)]`), and `changed_components` reports it.
 
+### Fixed (issue #959, found by running the real broadcast corpus)
+
+- **The scene-index banner is a running header, not a section heading.** The
+  real documents print `BL98/294-SCRIPT REPORT` and
+  `DJÄ_BL98_294_DREH210805 -- SCRIPT REPORT  2`, both in the top band. The
+  banner is now matched anywhere on a *banner line* (top band or the page's
+  first line) instead of as a line prefix, and the banner scan reads every band
+  instead of skipping the header band — without both, neither index page was
+  recognised, every index entry parsed as a scene, and the counts were
+  67/69/70 instead of 40/42/43 (measured on 292/293/294.pdf).
+- **Indentation alone is not a scene signal.** A cover page's centred title block
+  sits in the very columns a character cue uses (`x0` around 0.30), so the
+  dialogue counter turned the title page of every real script into script prose.
+  A page now needs at least one heading to be `ScriptBody`; without one it is
+  `TitlePage`/`FrontMatter` (or a continuation page once the script started).
+- Restricting the anywhere-banner match to a banner slot keeps a dialogue
+  sentence that merely mentions the phrase from relabelling a script page.
+
 ### Changed (issue #959)
 
 - [`ai::preview::CHUNKER_VERSION`] is now `2`: the zone pass changes what a chunk

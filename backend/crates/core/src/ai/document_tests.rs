@@ -626,6 +626,131 @@ fn the_plan_renders_canonically_and_rejects_non_ascending_anchors() {
     assert_eq!(plan.canonical_form(), plan.canonical_form());
 }
 
+// ---------------------------------------------------------------------------
+// Regressions the real broadcast corpus (294.pdf et al.) produced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_script_report_running_header_names_the_index_page() {
+    // The real banner is a RUNNING HEADER, not a section heading:
+    // `BL98/294-SCRIPT REPORT` / `DJÄ_BL98_294_DREH210805 -- SCRIPT REPORT  2`.
+    // A prefix match missed both, every index entry then parsed as a scene and
+    // the preview doubled — measured against the corpus before this fix.
+    let mut index = StructuredPage::new(3, 595.0, 842.0);
+    index.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.05, 0.03, 0.60, 0.05),
+        "BL98/294-SCRIPT REPORT",
+    );
+    index.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.05, 0.10, 0.90, 0.40),
+        "1 A/T - MALERISCHER BAUERNHOF\nTag 1\n2 I/T - KLINIKUM / EINGANG\nTag 1",
+    );
+    let document = StructuredDocument::new("t", vec![index]);
+    let zones = classify_document_zones(&document, is_heading);
+    assert_eq!(
+        zones.zone_of(3),
+        PageZone::SceneIndex,
+        "the running-header banner must be read from the header band"
+    );
+    assert_eq!(
+        zones.page(3).and_then(|page| page.banner.as_deref()),
+        Some("SCRIPT REPORT")
+    );
+}
+
+#[test]
+fn a_phrase_in_mid_page_prose_never_relabels_the_page() {
+    // The anywhere-match is restricted to a banner slot: a line deep inside the
+    // script that merely mentions the phrase must not turn a scene page into an
+    // index (which would delete its scenes).
+    let body = text_page(
+        1,
+        "1 A/T - BAUERNHOF\nLEYLA\nLaut SCRIPT REPORT fehlt hier eine Szene, oder?",
+    );
+    let document = StructuredDocument::new("t", vec![body]);
+    let zones = classify_document_zones(&document, is_heading);
+    assert_eq!(zones.zone_of(1), PageZone::ScriptBody);
+}
+
+#[test]
+fn a_centred_cover_page_is_the_title_page_not_prose() {
+    // A cover page's centred title block sits in exactly the columns a character
+    // cue occupies (`x0` around 0.30), so an indentation-based dialogue signal
+    // alone classified the title page of every real script as script prose.
+    let mut cover = StructuredPage::new(1, 595.0, 842.0);
+    cover.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.30, 0.10, 0.70, 0.12),
+        "(294) \"Freundschaft\"",
+    );
+    cover.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.32, 0.20, 0.68, 0.22),
+        "Eine Serie für den ARD-Vorabend",
+    );
+    cover.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.30, 0.30, 0.70, 0.32),
+        "von Laura Wagner",
+    );
+    let document = StructuredDocument::new("t", vec![cover]);
+    let zones = classify_document_zones(&document, is_heading);
+    assert_eq!(zones.zone_of(1), PageZone::TitlePage);
+    assert_eq!(zones.page(1).map(|page| page.heading_lines), Some(0));
+}
+
+#[test]
+fn synopsis_continuation_pages_between_cover_and_body_are_front_matter() {
+    // The real layout puts five or six `SYNOPSIS` / `MEDIZINISCHE FÄLLE` pages
+    // between the index and the first scene, and only the first of them carries
+    // the banner. Without a heading none of them may become script prose — that
+    // is the six-page contamination of the last scene this issue exists for.
+    let cover = text_page(1, "Block: 098/Ep.: 294");
+    let index = text_page(2, "SCRIPT REPORT\n1 A/T - ORT\nTag 1");
+    let synopsis = text_page(
+        3,
+        "SYNOPSIS\nLeyla kehrt nach zwanzig Jahren in die Klinik zurück und trifft dort auf den Mann, der ihr Leben zerstört hat.",
+    );
+    let continuation = text_page(
+        4,
+        "furchtbare Sorgen. Als ihr Telefon klingelt, streckt sie sich danach, in der Hoffnung, es sei ihr Bruder.",
+    );
+    let medical = text_page(
+        5,
+        "MEDIZINISCHE FÄLLE\nMEERA HAUSER (18): Oberschenkelbruch mit Arterienverletzung, gebrochene Rippen, Lungenkontusion.",
+    );
+    let mut body = StructuredPage::new(6, 595.0, 842.0);
+    body.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.40),
+        "1 A/T - MALERISCHER BAUERNHOF\nLeyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    body.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.35, 0.45, 0.60, 0.47),
+        "LEYLA\nJannis?",
+    );
+    let document = StructuredDocument::new(
+        "t",
+        vec![cover, index, synopsis, continuation, medical, body],
+    );
+    let zones = classify_document_zones(&document, is_heading);
+    let zones_of: Vec<PageZone> = zones.pages().iter().map(|page| page.zone).collect();
+    assert_eq!(
+        zones_of,
+        vec![
+            PageZone::TitlePage,
+            PageZone::SceneIndex,
+            PageZone::FrontMatter,
+            PageZone::FrontMatter,
+            PageZone::FrontMatter,
+            PageZone::ScriptBody,
+        ]
+    );
+}
+
 #[test]
 fn a_uniform_zone_verdict_has_no_counters() {
     let zones = DocumentZones::uniform(2, PageZone::ScriptBody);

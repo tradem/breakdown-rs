@@ -35,7 +35,9 @@ applyTo:
 - `AI_IMPORT_USER_AGENT_<PROVIDER>` – per-provider override, e.g. `AI_IMPORT_USER_AGENT_OPENCODE_GO` or `AI_IMPORT_USER_AGENT_OPENCODE` (takes precedence over the global variable). An empty or header-invalid value is ignored and the next source applies.
 - `AI_DOCUMENT_PARSER` – document-structure adapter (ADR-041 `D1`, issue #958): `spatial` (default), `docling` or `legacy-pdftotext`. Read **once** at startup; an unknown value fails the boot instead of silently selecting another extraction path.
 - `AI_DOCLING_ENDPOINT` – base URL of the `docling-serve` sidecar (e.g. `http://docling:5001/`). Required only when `AI_DOCUMENT_PARSER=docling`; missing or unparsable fails the boot.
-- `AI_EVAL_CORPUS_DIR` – **test-only** (not read at runtime): directory of local PDF scripts/schedules for the Golden Corpus harness `cargo test -p infra --test ai_document_eval_corpus`. Unset ⇒ the harness skips; copyrighted broadcast PDFs never enter Git.
+- `AI_EVAL_CORPUS_DIR` – **test-only** (not read at runtime): directory of local PDF scripts/schedules for the Golden Corpus harness `cargo test -p infra --test ai_document_eval_corpus`. Unset ⇒ the harness skips; copyrighted broadcast PDFs never enter Git. Set ⇒ the run is **complete**: every document the manifest lists must be present, otherwise the sweep fails (a partial corpus is not a green corpus).
+- `AI_EVAL_CORPUS_MANIFEST` – **test-only** override for the expectation manifest, default `backend/config/ai_eval_corpus.tsv`. The manifest is the ONE definition of the corpus (file, kind `script|schedule`, expected scene count, note), so a local run and a CI run assert exactly the same numbers: only the PDFs are out of tree, the expectations are not. Verified against the GDrive fixture folder: `292.pdf` 40, `293.pdf` 42, `294.pdf` 43, `Drehbuch_1.pdf` 42, `Drehbuch_2.pdf` 42, `Drehplan_1.pdf` schedule.
+- **Local corpus run:** `AI_EVAL_CORPUS_DIR=~/Downloads/drive-download cargo test -p infra --test ai_document_eval_corpus -- --nocapture` (from `backend/`; needs `poppler-utils`, i.e. `pdftotext`/`pdftocairo`).
 
 > **Descriptive `User-Agent` (issue #521).** The curated opencode / OpenCode-Go
 > gateways triage requests on `User-Agent`; a blank, generic or reqwest-default
@@ -135,7 +137,8 @@ parser produced, so their flattened view differs in text and boundaries by desig
 - **Verification:** always-on synthetic fixtures in
   `crates/core/src/ai/document_tests.rs` and
   `crates/infra/src/ai/spatial_pdf_tests.rs`; the out-of-tree corpus harness runs
-  only with `AI_EVAL_CORPUS_DIR` set.
+  only with `AI_EVAL_CORPUS_DIR` set and reads its expectations from
+  `config/ai_eval_corpus.tsv`.
 
 #### Zone-aware segmentation (ADR-041 `D3`/`D4`/`D7`, issue #959)
 
