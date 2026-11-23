@@ -2903,7 +2903,13 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>], index: &[SceneIndexEntry]) -> ScanO
             // heading line, or one standing on its own where no heading precedes
             // it (page header / group header), states the day of the scene it
             // OPENS.
-            trailing_day = !is_scene_heading(trimmed) && freshly_opened.is_some();
+            //
+            // `line.is_scene_prose()` is required for the retrospective half: a
+            // page-opening running header (`Tag 2` in the header band) must not
+            // re-date the last scene of the PREVIOUS page, which is still the
+            // "freshly opened" chunk when the new page starts.
+            trailing_day =
+                !is_scene_heading(trimmed) && freshly_opened.is_some() && line.is_scene_prose();
             if !trailing_day {
                 own_day_pending = true;
             }

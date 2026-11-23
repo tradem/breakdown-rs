@@ -4233,6 +4233,55 @@ fn a_top_band_slug_the_spatial_adapter_tags_as_header_still_starts_a_scene() {
 }
 
 #[test]
+fn a_page_header_day_never_redates_the_previous_pages_last_scene() {
+    // CodeRabbit review: page 1 ends with a scene (still "freshly opened" when
+    // page 2 starts), page 2 opens with a running header stating `Tag 2`. A
+    // HEADER line dates the scenes that follow it, never the previous page's
+    // last scene.
+    let mut first = StructuredPage::new(1, 595.0, 842.0);
+    first.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.85),
+        "1 I/T - ORT\nTag 1\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.",
+    );
+    let mut second = StructuredPage::new(2, 595.0, 842.0);
+    second.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.10, 0.030, 0.60, 0.058),
+        "Block 098 Ep.: 294/2",
+    );
+    second.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.10, 0.062, 0.40, 0.080),
+        "Tag 2",
+    );
+    second.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.85),
+        "2 I/T - FLUR\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![first, second]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 2, "{:?}", segmented.chunks);
+    assert_eq!(
+        segmented.chunks[0]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(1),
+        "the page-2 header must not re-date the page-1 scene"
+    );
+    assert_eq!(
+        segmented.chunks[1]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(2),
+        "the header still dates the scenes that follow it"
+    );
+}
+
+#[test]
 fn a_scene_label_is_reconciled_within_its_episode() {
     // CodeRabbit review: episodes 294 and 295 both contain a scene `1`. A
     // label-only comparison called the pair reconciled as soon as ONE of them

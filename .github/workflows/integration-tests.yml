@@ -214,7 +214,16 @@ jobs:
           AI_EVAL_CORPUS_DIR: ${{ runner.temp }}/ai-eval-corpus
         run: |
           # Both commands run in one step so the sweep cannot be skipped while
-          # the materialise half "succeeds".
+          # the materialise half "succeeds". The credential gate is the same
+          # unit: the materialiser returns early without the client id (the
+          # corpus lives in a private Drive folder), and the sweep then fails its
+          # own is_dir assertion — a missing secret must skip, not fail. The gate
+          # reads the env var (never `${{ secrets.* }}` inside `run:`) and both
+          # harnesses document exactly this skip.
+          if [ -z "${GDRIVE_CLIENT_ID}" ]; then
+            echo "skipped: GDRIVE_CLIENT_ID is not configured (private Golden Corpus)"
+            exit 0
+          fi
           cargo test -p integration-tests --test ai_gdrive_corpus_materialize -- --nocapture
           cargo test -p infra --test ai_document_eval_corpus -- --nocapture
 
