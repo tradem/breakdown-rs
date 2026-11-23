@@ -72,13 +72,17 @@ async fn run_bounded_times_out_and_reaps_the_child() {
     let _ = std::fs::remove_file(&pid_file);
     // The only honest proof of reaping is that the pid left `/proc` entirely: a
     // zombie (`Z`) was killed but never collected, and a `R`/`S` entry means the
-    // child is still running. Both fail; only `NotFound` passes, and an
-    // unreadable `/proc` is reported as unsupported instead of as success.
+    // child is still running. Every present-but-unexpected outcome fails; only a
+    // missing pid on a host that *has* `/proc` passes.
     match child_presence(&pid) {
         ChildPresence::Gone => {}
         ChildPresence::Present(state) => panic!(
             "child {pid} is still in /proc with state `{state}`: the timeout branch \
              did not reap it"
+        ),
+        ChildPresence::Unreadable => panic!(
+            "/proc is available but /proc/{pid}/stat could not be read: the reap of \
+             the timed-out child is unproven"
         ),
         ChildPresence::Unsupported => {
             eprintln!("skipped: /proc is unavailable, so the reap cannot be observed")
@@ -89,23 +93,36 @@ async fn run_bounded_times_out_and_reaps_the_child() {
 /// What `/proc` says about a pid after [`run_bounded`] returned.
 #[derive(Debug, PartialEq, Eq)]
 enum ChildPresence {
-    /// No `/proc/<pid>` entry: the child was waited for, not merely killed.
+    /// No `/proc/<pid>` entry **on a host that has `/proc`**: the child was
+    /// waited for, not merely killed.
     Gone,
     /// The entry exists — `Z` for a zombie, `R`/`S`/… for a still-running child.
-    /// `?` means the entry existed but its state could not be read.
+    /// `?` means the entry existed but its state could not be parsed.
     Present(char),
-    /// No `/proc` on this host: the lifecycle check cannot be made.
+    /// `/proc` exists but the entry could not be read, so the reap is unproven.
+    Unreadable,
+    /// This host has no `/proc`: the lifecycle check cannot be made at all.
     Unsupported,
 }
 
 fn child_presence(pid: &str) -> ChildPresence {
+    // Probe `/proc` itself FIRST. Without it the pid lookup below would also
+    // answer `NotFound`, and reading that as `Gone` would make this check pass
+    // vacuously on exactly the platforms it cannot verify.
+    match std::fs::read_to_string("/proc/self/stat") {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ChildPresence::Unsupported;
+        }
+        // An unreadable `/proc/self/stat` is neither "absent" nor "fine".
+        Err(_) => return ChildPresence::Unreadable,
+    }
     match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
         Ok(stat) => ChildPresence::Present(state_of(&stat)),
+        // `/proc` is present here, so a missing pid really does mean the child
+        // was collected.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => ChildPresence::Gone,
-        // A read error only means "no /proc" when /proc itself is missing;
-        // treating every error as `Gone` is exactly what made this check vacuous.
-        Err(_) if !std::path::Path::new("/proc/self/stat").exists() => ChildPresence::Unsupported,
-        Err(_) => ChildPresence::Present('?'),
+        Err(_) => ChildPresence::Unreadable,
     }
 }
 
