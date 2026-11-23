@@ -14,6 +14,9 @@
 //!
 //! * the child is killed **and reaped** on every error and timeout path, so a
 //!   failed render cannot leak a zombie or a spinning `pdftocairo`;
+//! * the child is also killed if the caller **cancels** the future (a task
+//!   aborted at shutdown drops the handle before any error branch can run), so
+//!   Poppler never keeps consuming a core for a caller that stopped waiting;
 //! * stdin is written while stdout is drained (`tokio::join!`) — a one-sided
 //!   write of a large PDF deadlocks against a full pipe buffer;
 //! * the output is read through a `take(max + 1)` limiter, so an adversarially
@@ -57,6 +60,12 @@ pub(crate) async fn run_bounded(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        // Cancellation fallback: if the caller drops this future (worker
+        // shutdown, task abort) neither `reap_child` nor `child.wait()` ever
+        // runs, and Tokio leaves a running child alive by default. The explicit
+        // wait/reap below still owns the normal and error paths, so this only
+        // adds the case that has no code path left to run.
+        .kill_on_drop(true)
         .spawn()
         .map_err(|error| DomainError::validation(format!("could not start {program}: {error}")))?;
 

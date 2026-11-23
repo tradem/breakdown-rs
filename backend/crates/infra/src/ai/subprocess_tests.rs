@@ -50,12 +50,45 @@ async fn run_bounded_passes_output_through_below_the_ceiling() {
 
 #[tokio::test]
 async fn run_bounded_times_out_and_reaps_the_child() {
-    // `sleep` never reads stdin and never writes stdout: the exchange can only
-    // end through the timeout branch.
-    let error = run_bounded("sleep", &["30"], b"", 1024, Duration::from_millis(50))
+    // `sh` records its own pid and then `exec`s a `sleep` that never reads stdin
+    // and never writes stdout: the exchange can only end through the timeout
+    // branch. The pid file is what makes the child observable *after*
+    // `run_bounded` returned — a killed-but-unreaped child stays in `/proc` as a
+    // zombie, which is exactly what the timeout branch's `reap_child` prevents.
+    let pid_file = std::env::temp_dir().join(format!(
+        "breakdown-rs-run-bounded-reap-{}.pid",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&pid_file);
+    let script = format!("echo $$ > {}; exec sleep 30", pid_file.display());
+    let error = run_bounded("sh", &["-c", &script], b"", 1024, Duration::from_secs(1))
         .await
         .expect_err("a hung child must time out");
     assert!(error.to_string().contains("did not finish within"));
+
+    let pid = std::fs::read_to_string(&pid_file)
+        .map(|text| text.trim().to_owned())
+        .expect("the child recorded its pid before the timeout fired");
+    let _ = std::fs::remove_file(&pid_file);
+    assert!(
+        !is_zombie(&pid),
+        "child {pid} is still a zombie: the timeout branch did not reap it"
+    );
+}
+
+/// Whether `pid` is still listed as a zombie (`Z`) in `/proc`.
+///
+/// A reaped child is gone from `/proc` entirely; an unreaped one keeps an entry
+/// whose state is `Z`. Returns `false` where `/proc` is unavailable — the
+/// timeout assertion above stands on its own there.
+fn is_zombie(pid: &str) -> bool {
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    // The `comm` field is parenthesized and may itself contain `)`, so the state
+    // is whatever follows the LAST `)`.
+    stat.rsplit_once(')')
+        .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
 }
 
 #[tokio::test]

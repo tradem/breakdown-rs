@@ -129,6 +129,12 @@ impl NormalizedBBox {
     /// malformed `<page>` element, a degenerate PDF) yields
     /// [`Self::FULL_PAGE`]: the caller learns that this page carries no usable
     /// geometry rather than a bogus zero box, and nothing divides by zero.
+    ///
+    /// A box with inverted edges (`x1 < x0` or `y1 < y0`) also yields
+    /// [`Self::FULL_PAGE`]. [`Self::new`] clamps but cannot un-invert, and an
+    /// inverted box satisfies *both* band predicates at once (`y0 = 0.95`,
+    /// `y1 = 0.05`), so keeping it would classify malformed geometry as a page
+    /// header instead of falling back to body text.
     #[must_use]
     pub fn from_page_points(
         x0: f32,
@@ -138,9 +144,10 @@ impl NormalizedBBox {
         width_pt: f32,
         height_pt: f32,
     ) -> Self {
-        let usable_width = width_pt.is_finite() && width_pt > f32::EPSILON;
-        let usable_height = height_pt.is_finite() && height_pt > f32::EPSILON;
-        if !usable_width || !usable_height {
+        if !usable_dimension(width_pt) || !usable_dimension(height_pt) {
+            return Self::FULL_PAGE;
+        }
+        if x1 < x0 || y1 < y0 {
             return Self::FULL_PAGE;
         }
         Self::new(x0 / width_pt, y0 / height_pt, x1 / width_pt, y1 / height_pt)
@@ -195,6 +202,17 @@ fn clamp_unit(value: f32) -> f32 {
     } else {
         0.0
     }
+}
+
+/// Whether a page dimension can be measured against.
+///
+/// Shared by [`NormalizedBBox::from_page_points`] and
+/// [`StructuredPage::has_geometry`] so "this page has real geometry" and "this
+/// block can be normalized" cannot disagree: an infinite width is not
+/// measurable, and a box normalized against it is [`NormalizedBBox::FULL_PAGE`],
+/// not a measured coordinate.
+fn usable_dimension(value: f32) -> bool {
+    value.is_finite() && value > f32::EPSILON
 }
 
 /// One reading-order block of a page: its address, role, geometry and verbatim
@@ -296,9 +314,14 @@ impl StructuredPage {
     }
 
     /// Whether the extractor reported usable page geometry.
+    ///
+    /// Uses the same finite-and-positive test as
+    /// [`NormalizedBBox::from_page_points`]: a page whose width is infinite
+    /// normalizes every block to [`NormalizedBBox::FULL_PAGE`], so reporting it
+    /// as "has geometry" would present a fallback box as a measurement.
     #[must_use]
     pub fn has_geometry(&self) -> bool {
-        self.width_pt > f32::EPSILON && self.height_pt > f32::EPSILON
+        usable_dimension(self.width_pt) && usable_dimension(self.height_pt)
     }
 }
 

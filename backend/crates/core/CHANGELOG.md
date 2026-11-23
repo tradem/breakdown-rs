@@ -26,9 +26,12 @@ commits (ADR-020 D5).
   preserved `<table>` markup), `NormalizedBBox` (clamped `0.0..=1.0` geometry
   with the header/footer band predicates `HEADER_BAND_MAX_Y1` /
   `FOOTER_BAND_MIN_Y0`), `ExtractionOptions` / `RenderOptions` /
-  `RenderedPage`. `StructuredDocument::flattened_text()` reproduces the old flat
-  `pdftotext -layout` view byte-for-byte, so the line-based segmentation keeps
-  seeing exactly what it saw before. The IR carries **no** page images:
+  `RenderedPage`. `StructuredDocument::flattened_text()` keeps the old flat
+  `pdftotext -layout` view so the line-based segmentation keeps seeing the text
+  it saw before: for `legacy-pdftotext` the result is byte-for-byte that
+  adapter's raw output, while `spatial` and `docling` join the blocks **their**
+  parser produced (different block text and boundaries, so their flattened view
+  differs from `pdftotext -layout` by design). The IR carries **no** page images:
   `RenderedPage` is returned on demand by the port.
 - New `ai::ports::DocumentStructureExtractor` port: `parser_fingerprint()` plus
   native RPITIT `extract` / `render_page` futures (no `#[async_trait]` boxing,

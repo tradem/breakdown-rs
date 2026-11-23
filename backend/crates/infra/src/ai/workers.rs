@@ -569,13 +569,12 @@ where
         }
         // ADR-041 D1: the port returns the structured IR; until issue #959
         // switches segmentation over to zone-aware block slicing, the flattened
-        // view is what the line scanner consumes — byte-identical to the old
-        // flat-text output, so this refactor changes no behaviour.
+        // view is what the line scanner consumes.
         let document = self
             .extractor
             .extract(pdf_bytes, breakdown_core::ai::ExtractionOptions::default())
             .await?;
-        self.process_text(job, worker_id, &document.flattened_text())
+        self.process_text(job, worker_id, &scanner_text(&document))
             .await
     }
 
@@ -1488,6 +1487,21 @@ fn source_text_len(chunk: &breakdown_core::ai::SceneChunk) -> usize {
         .len()
         .saturating_add(1)
         .saturating_add(chunk.text.len())
+}
+
+/// The document as the line scanner must see it.
+///
+/// [`StructuredDocument::flattened_text`] separates pages with a form feed,
+/// exactly as `pdftotext -layout` does — but `str::lines()` splits on `\n` only,
+/// so a form feed does not end a line. The spatial adapter's last block on a
+/// page carries no trailing newline, so without this mapping the last line of
+/// one page would fuse with the first heading of the next
+/// (`"Goodbye.\u{c}2 EXT. PARK - DAY"`) and the heading prefix check would miss
+/// the scene boundary. Mapping the page break onto a line break here keeps
+/// `flattened_text()` itself byte-identical to the legacy output; the legacy
+/// path gains one blank line, which the scanner trims.
+pub(super) fn scanner_text(document: &breakdown_core::ai::StructuredDocument) -> String {
+    document.flattened_text().replace('\u{c}', "\n")
 }
 
 /// The job was reclaimed by another worker while this one was still working.

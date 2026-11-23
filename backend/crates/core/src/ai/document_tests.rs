@@ -105,15 +105,35 @@ fn bbox_from_page_points_normalizes_against_page_size() {
 
 #[test]
 fn bbox_from_page_points_without_usable_geometry_falls_back_to_full_page() {
-    // Zero, negative and NaN page sizes all mean "this page carries no usable
-    // geometry" — never a division by zero and never a bogus zero box.
-    for (width, height) in [(0.0, 842.0), (595.0, 0.0), (-5.0, 842.0), (f32::NAN, 842.0)] {
+    // Zero, negative, infinite and NaN page sizes all mean "this page carries
+    // no usable geometry" — never a division by zero and never a bogus zero box.
+    for (width, height) in [
+        (0.0, 842.0),
+        (595.0, 0.0),
+        (-5.0, 842.0),
+        (f32::NAN, 842.0),
+        (f32::INFINITY, 842.0),
+    ] {
         assert_eq!(
             NormalizedBBox::from_page_points(10.0, 10.0, 20.0, 20.0, width, height),
             NormalizedBBox::FULL_PAGE,
             "page size {width}x{height} should not normalize"
         );
     }
+}
+
+#[test]
+fn bbox_from_page_points_rejects_inverted_edges() {
+    // A reversed `yMin`/`yMax` pair would otherwise be BOTH a header candidate
+    // and a footer candidate, and the spatial adapter's header branch runs
+    // first — malformed geometry would be stored as `PageHeader`.
+    let reversed_y = NormalizedBBox::from_page_points(10.0, 800.0, 20.0, 40.0, 595.0, 842.0);
+    assert_eq!(reversed_y, NormalizedBBox::FULL_PAGE);
+    assert!(!reversed_y.is_header_band());
+    assert!(!reversed_y.is_footer_band());
+
+    let reversed_x = NormalizedBBox::from_page_points(20.0, 10.0, 10.0, 20.0, 595.0, 842.0);
+    assert_eq!(reversed_x, NormalizedBBox::FULL_PAGE);
 }
 
 #[test]
@@ -284,6 +304,10 @@ fn blank_blocks_are_recognised() {
 fn page_geometry_presence_is_reported() {
     assert!(StructuredPage::new(1, 595.0, 842.0).has_geometry());
     assert!(!StructuredPage::new(1, 0.0, 842.0).has_geometry());
+    // Same finite-and-positive rule as `from_page_points`: an infinite page box
+    // normalizes every block to `FULL_PAGE`, so it must not report geometry.
+    assert!(!StructuredPage::new(1, f32::INFINITY, 842.0).has_geometry());
+    assert!(!StructuredPage::new(1, 595.0, f32::NAN).has_geometry());
 }
 
 // ===========================================================================

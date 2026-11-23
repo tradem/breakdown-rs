@@ -359,13 +359,16 @@ async fn render_page_enforces_the_per_page_byte_ceiling() {
 #[tokio::test]
 async fn render_page_rejects_a_page_the_document_does_not_have() {
     let extractor = SpatialPdfExtractor::new(4 * 1024 * 1024, Duration::from_secs(30));
-    let result = extractor
+    let error = match extractor
         .render_page(&tiny_two_page_pdf(), 9, RenderOptions::default())
-        .await;
-    if let Err(error) = result {
-        if poppler_missing(&error) {
-            return;
-        }
-        assert!(matches!(error, DomainError::Validation { .. }));
-    }
+        .await
+    {
+        Ok(rendered) => panic!(
+            "page 9 of a two-page document must not render, got {} bytes",
+            rendered.png_bytes.len()
+        ),
+        Err(error) if poppler_missing(&error) => return,
+        Err(error) => error,
+    };
+    assert!(matches!(error, DomainError::Validation { .. }));
 }

@@ -37,6 +37,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use super::mapping::CachedMappings;
+use super::workers::scanner_text;
 use super::{
     AiImportFeature, AiPreviewStore, ApplyScriptRequest, ApplyWorker, MemoryAiPreviewStore,
     ScheduleApplyRequest, ScheduleApplyWorker, ScheduleImportWorker, ScriptImportWorker,
@@ -8898,4 +8899,41 @@ async fn an_unprofiled_model_sends_no_reasoning_effort_field() {
     let requests = client.requests.lock().unwrap().clone();
     assert!(!requests.is_empty());
     assert_eq!(requests[0].reasoning_effort, None);
+}
+
+/// A page break is a LINE break for the scanner.
+///
+/// `StructuredDocument::flattened_text()` separates pages with a form feed —
+/// byte-identical to `pdftotext -layout` — but `str::lines()` splits on `\n`
+/// only. The spatial adapter's last block on a page carries no trailing newline,
+/// so without the mapping the last line of one page would fuse with the first
+/// heading of the next (`"Goodbye.\u{c}2 EXT. PARK - DAY"`) and the scene
+/// boundary would silently disappear.
+#[test]
+fn scanner_text_turns_page_breaks_into_line_breaks() {
+    use breakdown_core::ai::{BlockKind, NormalizedBBox, StructuredDocument, StructuredPage};
+
+    let mut first = StructuredPage::new(1, 595.0, 842.0);
+    first.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.1, 0.2, 0.9, 0.3),
+        "INT. KITCHEN - DAY\nGoodbye.",
+    );
+    let mut second = StructuredPage::new(2, 595.0, 842.0);
+    second.push_block(
+        BlockKind::Heading,
+        NormalizedBBox::new(0.1, 0.2, 0.9, 0.3),
+        "2 EXT. PARK - DAY",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![first, second]);
+
+    // The flattened view keeps its form feed (byte-identical to the legacy
+    // adapter), so nothing downstream depends on this mapping for that case.
+    assert!(document.flattened_text().contains('\u{c}'));
+    let text = scanner_text(&document);
+    assert!(!text.contains('\u{c}'), "text was {text:?}");
+    assert!(
+        text.lines().any(|line| line == "2 EXT. PARK - DAY"),
+        "the second page heading must be its own line: {text:?}"
+    );
 }

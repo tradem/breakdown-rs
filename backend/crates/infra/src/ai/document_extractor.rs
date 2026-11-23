@@ -157,6 +157,7 @@ impl ConfiguredDocumentExtractor {
                         "{AI_DOCLING_ENDPOINT_ENV}=\"{endpoint}\" is not a URL: {error}"
                     ))
                 })?;
+                validate_docling_base_url(&base_url)?;
                 // The sidecar is an internal service: no proxy, no cross-host
                 // redirect (ADR-024 policy) and no credential to carry.
                 let client = reqwest::Client::builder()
@@ -189,6 +190,34 @@ impl ConfiguredDocumentExtractor {
             Self::Legacy(_) => DocumentParser::LegacyPdfToText,
         }
     }
+}
+
+/// Reject a base URL the adapter cannot build a conversion request from.
+///
+/// `Url::parse` accepts far more than this adapter can use: `mailto:operator@…`
+/// parses, but it is not a *base* URL, so joining the conversion path fails on
+/// every upload; and a slashless path prefix (`http://host/ds`) makes
+/// `join("v1/convert/source")` replace the prefix instead of appending to it.
+/// Both are configuration errors, so they fail the boot rather than the first
+/// import.
+fn validate_docling_base_url(base_url: &Url) -> Result<(), DomainError> {
+    if !matches!(base_url.scheme(), "http" | "https") {
+        return Err(DomainError::validation(format!(
+            "{AI_DOCLING_ENDPOINT_ENV}=\"{base_url}\" must be an http(s) URL"
+        )));
+    }
+    if base_url.cannot_be_a_base() || base_url.host().is_none() {
+        return Err(DomainError::validation(format!(
+            "{AI_DOCLING_ENDPOINT_ENV}=\"{base_url}\" is not an absolute base URL"
+        )));
+    }
+    if !base_url.path().ends_with('/') {
+        return Err(DomainError::validation(format!(
+            "{AI_DOCLING_ENDPOINT_ENV}=\"{base_url}\" must end with a slash, so the \
+             conversion path is appended to its path prefix instead of replacing it"
+        )));
+    }
+    Ok(())
 }
 
 impl DocumentStructureExtractor for ConfiguredDocumentExtractor {

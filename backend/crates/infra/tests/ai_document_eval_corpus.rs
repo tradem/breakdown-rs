@@ -8,10 +8,12 @@
 //! Broadcast scripts and shooting schedules are confidential third-party IP:
 //! they must never enter Git. The corpus therefore lives out of tree and this
 //! harness runs only when `AI_EVAL_CORPUS_DIR` points at it. With the variable
-//! unset the test **skips cleanly** — CI stays green and needs no corpus, while
+//! **unset** the test skips cleanly — CI stays green and needs no corpus, while
 //! the always-on synthetic fixtures in `crates/core/src/ai/document_tests.rs`
 //! and `crates/infra/src/ai/spatial_pdf_tests.rs` keep verifying the IR and the
-//! parser contract on every build.
+//! parser contract on every build. With the variable **set** the corpus is
+//! mandatory: a missing directory, an unreadable one or an empty one fails the
+//! run, because a misconfigured corpus must not look like a green sweep.
 //!
 //! What this harness checks, per PDF, deterministically:
 //!
@@ -62,22 +64,21 @@ fn spatial_extraction_meets_the_golden_corpus_contract() {
         );
         return;
     };
-    if !directory.is_dir() {
-        eprintln!(
-            "skipped: {CORPUS_ENV}={} is not a directory",
-            directory.display()
-        );
-        return;
-    }
-    let pdfs = pdf_files(&directory);
-    if pdfs.is_empty() {
-        eprintln!(
-            "skipped: no .pdf files in {} (point {CORPUS_ENV} at a directory of \
-             scripts and schedules)",
-            directory.display()
-        );
-        return;
-    }
+    // Set means "evaluate this corpus". An invalid or empty path is a failure,
+    // not a skip: otherwise a typo'd directory silently turns the whole corpus
+    // gate into a no-op.
+    assert!(
+        directory.is_dir(),
+        "{CORPUS_ENV}={} is not a directory",
+        directory.display()
+    );
+    let pdfs = pdf_files(&directory)
+        .unwrap_or_else(|error| panic!("could not enumerate {}: {error}", directory.display()));
+    assert!(
+        !pdfs.is_empty(),
+        "no .pdf files in {} (point {CORPUS_ENV} at a directory of scripts and schedules)",
+        directory.display()
+    );
 
     let extractor = SpatialPdfExtractor::new(MAX_OUTPUT_BYTES, TIMEOUT);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -211,11 +212,11 @@ async fn evaluate(extractor: &SpatialPdfExtractor, path: &Path) -> Result<Report
 }
 
 /// Every `*.pdf` directly inside `directory`, in a deterministic order.
-fn pdf_files(directory: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    let mut paths: Vec<PathBuf> = entries
+///
+/// Enumeration failures propagate: a corpus that cannot be listed is a broken
+/// corpus, not an empty one.
+fn pdf_files(directory: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(directory)?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| {
@@ -226,5 +227,5 @@ fn pdf_files(directory: &Path) -> Vec<PathBuf> {
         })
         .collect();
     paths.sort();
-    paths
+    Ok(paths)
 }

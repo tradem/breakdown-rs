@@ -96,8 +96,11 @@ The import workers do not read PDFs themselves. Both are generic over the
 `ScheduleImportWorker<Q, C, E>`), which returns the canonical
 `core::ai::document::StructuredDocument` IR — 1-based pages, reading-order blocks,
 normalized `0.0..=1.0` geometry, preserved `<table>` markup — instead of one flat
-`String`. The pre-#959 segmentation still reads `flattened_text()`, which is
-byte-identical to the old `pdftotext -layout` output.
+`String`. The pre-#959 segmentation still reads `flattened_text()`, which for the
+`legacy-pdftotext` adapter is byte-identical to the old `pdftotext -layout`
+output (the `spatial`/`docling` adapters join the blocks *their* parser produced,
+so their flattened view differs from `pdftotext -layout` in text and boundaries
+by design).
 
 - **Selection happens exactly once**, in `crates/api/src/main.rs`:
   `ConfiguredDocumentExtractor::from_env(&bounds)` → `WorkerDeps.extractor` (by

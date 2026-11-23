@@ -83,6 +83,50 @@ fn paragraphs_collapse_whitespace_and_drop_empty_segments() {
 }
 
 #[test]
+fn adjacent_paragraphs_become_separate_blocks() {
+    // Docling's HTML serializer emits one `<p>` per text item and puts no
+    // separator between siblings; `strip_tags` removes the tags without one, so
+    // without the per-`<p>` split both paragraphs would fuse into
+    // `KitchenLEYLA`.
+    let blocks = blocks_from_docling_html("<p>Kitchen</p><p>LEYLA</p>");
+    let texts: Vec<&str> = blocks.iter().map(|block| block.text.as_str()).collect();
+    assert_eq!(texts, vec!["Kitchen", "LEYLA"]);
+    assert!(
+        blocks
+            .iter()
+            .all(|block| block.kind == BlockKind::Paragraph)
+    );
+}
+
+#[test]
+fn inline_markup_stays_inside_its_paragraph_and_an_unclosed_tag_keeps_the_tail() {
+    let blocks = blocks_from_docling_html("<p>Hallo <b>Welt</b></p><p>zwei");
+    let texts: Vec<&str> = blocks.iter().map(|block| block.text.as_str()).collect();
+    assert_eq!(texts, vec!["Hallo Welt", "zwei"]);
+}
+
+#[test]
+fn a_full_html_document_excludes_head_text_from_the_blocks() {
+    // A full document carries `<title>` text and `<style>` CSS before the body;
+    // `strip_tags` keeps text, so without trimming the head both would surface
+    // as paragraph blocks.
+    let blocks = blocks_from_docling_html(
+        "<!DOCTYPE html><html><head><title>Drehplan</title><style>p{color:red}</style>\
+         </head><body><h1>ROLLEN</h1><p>LEYLA</p></body></html>",
+    );
+    let texts: Vec<&str> = blocks.iter().map(|block| block.text.as_str()).collect();
+    assert_eq!(texts, vec!["ROLLEN", "LEYLA"]);
+}
+
+#[test]
+fn a_body_only_fragment_is_scanned_unchanged() {
+    // Docling's default export is a fragment: no head to trim, no `<body>`.
+    let blocks = blocks_from_docling_html("<h1>ROLLEN</h1>");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].text, "ROLLEN");
+}
+
+#[test]
 fn an_unterminated_table_does_not_swallow_the_document_tail() {
     let blocks = blocks_from_docling_html("<p>before</p><table><tr><td>cell");
     assert_eq!(blocks[0].text, "before");
@@ -141,24 +185,75 @@ fn the_fingerprint_names_the_http_algorithm() {
 
 /// One-shot loopback HTTP server, answering any request with `response`.
 async fn mock_docling(response: String) -> (Url, SocketAddr) {
+    let (url, addr, _captured) = spawn_mock(response).await;
+    (url, addr)
+}
+
+/// Same one-shot server, but it reports the request it received (headers plus
+/// JSON body), so a test can assert the wire shape the adapter sends.
+async fn mock_docling_capturing(response: String) -> (Url, tokio::sync::oneshot::Receiver<String>) {
+    let (url, _addr, captured) = spawn_mock(response).await;
+    (url, captured)
+}
+
+async fn spawn_mock(response: String) -> (Url, SocketAddr, tokio::sync::oneshot::Receiver<String>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a loopback listener");
     let addr = listener.local_addr().expect("a bound address");
+    let (sender, captured) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::io::AsyncWriteExt;
         let Ok((mut socket, _)) = listener.accept().await else {
             return;
         };
-        let mut request = [0_u8; 8192];
-        let _ = socket.read(&mut request).await;
+        let request = read_one_http_request(&mut socket).await;
+        let _ = sender.send(String::from_utf8_lossy(&request).into_owned());
         let _ = socket.write_all(response.as_bytes()).await;
         let _ = socket.flush().await;
     });
     (
         Url::parse(&format!("http://{addr}/")).expect("a valid URL"),
         addr,
+        captured,
     )
+}
+
+/// Read one HTTP/1.1 request in full — headers *and* the `content-length` body.
+/// A single `read` can return only the headers, which would make a
+/// body-asserting test flaky.
+async fn read_one_http_request(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+    let mut request = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    loop {
+        let Ok(read) = socket.read(&mut chunk).await else {
+            return request;
+        };
+        if read == 0 {
+            return request;
+        }
+        request.extend_from_slice(&chunk[..read]);
+        if http_request_is_complete(&request) {
+            return request;
+        }
+    }
+}
+
+fn http_request_is_complete(request: &[u8]) -> bool {
+    let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return false;
+    };
+    let body = String::from_utf8_lossy(&request[..header_end])
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+    request.len() >= header_end + 4 + body
 }
 
 fn http_response(status: &str, body: &str) -> String {
@@ -178,6 +273,35 @@ fn adapter_for(url: Url) -> DoclingHttpAdapter {
         1024 * 1024,
         Duration::from_secs(5),
     )
+}
+
+#[tokio::test]
+async fn extract_sends_the_document_as_a_v1_file_source() {
+    // `v1/convert/source` reads a tagged `sources` array; the pre-v1
+    // `file_sources` key is ignored there, so a sidecar would receive no
+    // document and every upload would fail. A mock that only *answers* cannot
+    // catch that — the request shape is part of the contract.
+    let body = r#"{"status":"success","document":{"html_content":"<p>ok</p>"}}"#;
+    let (url, captured) = mock_docling_capturing(http_response("200 OK", body)).await;
+    adapter_for(url)
+        .extract(b"%PDF-1.4", ExtractionOptions::default())
+        .await
+        .expect("the mock answers a conversion");
+    let request = captured.await.expect("the mock captured the request");
+    assert!(
+        request.contains("POST /v1/convert/source"),
+        "request was {request}"
+    );
+    assert!(request.contains("\"sources\""), "request was {request}");
+    assert!(
+        request.contains("\"kind\":\"file\""),
+        "request was {request}"
+    );
+    assert!(
+        request.contains("\"base64_string\":\"JVBERi0xLjQ=\""),
+        "request was {request}"
+    );
+    assert!(!request.contains("file_sources"), "request was {request}");
 }
 
 #[tokio::test]

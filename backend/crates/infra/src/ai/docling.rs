@@ -155,7 +155,12 @@ impl DocumentStructureExtractor for DoclingHttpAdapter {
                 "to_formats": ["html"],
                 "image_export_mode": "placeholder"
             },
-            "file_sources": [{
+            // `v1/convert/source` takes a tagged `sources` array (the pre-v1
+            // `file_sources` key is not read there), so every entry needs its
+            // `kind` discriminator — without it the sidecar sees no input
+            // document and answers a client error for every upload.
+            "sources": [{
+                "kind": "file",
                 "base64_string": BASE64.encode(bytes),
                 "filename": "document.pdf"
             }]
@@ -263,6 +268,10 @@ pub fn page_from_docling_html(html: &str) -> StructuredPage {
 /// invented.
 #[must_use]
 pub fn blocks_from_docling_html(html: &str) -> Vec<DoclingBlock> {
+    // A full HTML document carries `<head>` text (`<title>`, `<style>` CSS)
+    // before its first structural tag; `strip_tags` removes the *tags* and keeps
+    // their text, so that prefix would otherwise become a paragraph block.
+    let html = body_content(html);
     let mut blocks = Vec::new();
     let mut cursor = 0;
     while let Some((start, tag)) = next_structural_tag(html, cursor) {
@@ -320,6 +329,26 @@ fn next_structural_tag(html: &str, cursor: usize) -> Option<(usize, &'static str
 }
 
 fn push_paragraph(blocks: &mut Vec<DoclingBlock>, markup: &str) {
+    // One `<p>` is one paragraph. Docling's serializer emits text items as
+    // `<p>` siblings with **no** separator between them, so
+    // `<p>Kitchen</p><p>LEYLA</p>` would otherwise collapse into one
+    // `KitchenLEYLA` block. Split on the OPENING tag rather than on `</p>`: a
+    // missing closing tag then only leaves one unsplit segment instead of
+    // swallowing every later paragraph into the first.
+    let mut rest = markup;
+    while let Some(start) = rest.find("<p") {
+        push_paragraph_text(blocks, &rest[..start]);
+        let element = &rest[start..];
+        let end = element[1..]
+            .find("<p")
+            .map_or(element.len(), |offset| offset + 1);
+        push_paragraph_text(blocks, &element[..end]);
+        rest = &element[end..];
+    }
+    push_paragraph_text(blocks, rest);
+}
+
+fn push_paragraph_text(blocks: &mut Vec<DoclingBlock>, markup: &str) {
     let text = collapse_whitespace(&strip_tags(markup));
     if text.is_empty() {
         return;
@@ -329,6 +358,27 @@ fn push_paragraph(blocks: &mut Vec<DoclingBlock>, markup: &str) {
         text,
         html_table: None,
     });
+}
+
+/// The body content of an HTML document: everything after its head
+/// (`<title>`, `<style>`) and after a `<body>` opener.
+///
+/// Docling's default export is a body-only fragment, which passes through
+/// unchanged (`&str` → `&str`, no allocation). A full document is trimmed so
+/// head text never reaches a paragraph block.
+fn body_content(html: &str) -> &str {
+    let mut content = html;
+    if let Some(head) = content.find("<head")
+        && let Some(close) = content[head..].find("</head>")
+    {
+        content = &content[head + close + "</head>".len()..];
+    }
+    if let Some(body) = content.find("<body")
+        && let Some(close) = content[body..].find('>')
+    {
+        content = &content[body + close + 1..];
+    }
+    content
 }
 
 /// Table cell texts as rows joined by newlines and cells by ` | `.

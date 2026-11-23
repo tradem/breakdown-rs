@@ -119,6 +119,43 @@ fn docling_with_an_invalid_endpoint_is_a_startup_error() {
 }
 
 #[test]
+fn docling_with_a_non_http_endpoint_is_a_startup_error() {
+    // `Url::parse` accepts `mailto:`/`file:`, but neither is a usable base URL:
+    // the conversion path can never be joined onto it, so every upload would
+    // fail at runtime instead of the boot failing once.
+    for endpoint in [
+        "mailto:operator@example.org",
+        "file:///etc/docling",
+        "ftp://docling:5001/",
+    ] {
+        let error = ConfiguredDocumentExtractor::build(
+            DocumentParser::Docling,
+            &AiImportBounds::default(),
+            Some(endpoint),
+        )
+        .expect_err("a non-http endpoint must fail startup");
+        assert!(
+            error.to_string().contains(AI_DOCLING_ENDPOINT_ENV),
+            "{endpoint} produced {error}"
+        );
+    }
+}
+
+#[test]
+fn docling_with_a_slashless_path_prefix_is_a_startup_error() {
+    // `join("v1/convert/source")` replaces a slashless prefix instead of
+    // appending to it, so the conversion would land on the wrong path.
+    let error = ConfiguredDocumentExtractor::build(
+        DocumentParser::Docling,
+        &AiImportBounds::default(),
+        Some("http://docling:5001/api"),
+    )
+    .expect_err("a slashless path prefix must fail startup");
+    assert!(error.to_string().contains(AI_DOCLING_ENDPOINT_ENV));
+    assert!(error.to_string().contains("slash"), "error was {error}");
+}
+
+#[test]
 fn docling_with_an_endpoint_builds_the_http_adapter() {
     let extractor = ConfiguredDocumentExtractor::build(
         DocumentParser::Docling,
