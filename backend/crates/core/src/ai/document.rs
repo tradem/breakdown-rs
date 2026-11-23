@@ -786,6 +786,12 @@ pub fn classify_document_zones(
                 {
                     banner = Some(found);
                 }
+                // The band excludes PAGE FURNITURE. A line the heading detector
+                // recognises is scene CONTENT even when it sits in the top band:
+                // the spatial adapter tags every top-band block `PageHeader`, and
+                // a slug printed at the very top of a page would otherwise be
+                // dropped before the scene scanner ever saw it.
+                let band = promote_top_band_heading(band, trimmed, &is_scene_heading);
                 if band != LineRole::Body {
                     continue;
                 }
@@ -882,11 +888,12 @@ pub fn classify_document_zones(
 pub fn zoned_lines<'a>(
     document: &'a StructuredDocument,
     zones: &DocumentZones,
+    is_scene_heading: impl Fn(&str) -> bool,
 ) -> Vec<ZonedLine<'a>> {
     let mut lines: Vec<ZonedLine<'a>> = Vec::new();
     for page in &document.pages {
         let zone = zones.zone_of(page.page_number);
-        push_page_lines(&mut lines, page, zone);
+        push_page_lines(&mut lines, page, zone, &is_scene_heading);
     }
     lines
 }
@@ -900,18 +907,27 @@ pub fn zoned_lines<'a>(
 /// header/footer and continuation filter still applies — those are properties
 /// of a *line*, not of a zone.
 #[must_use]
-pub fn zoned_lines_as_script_body(document: &StructuredDocument) -> Vec<ZonedLine<'_>> {
+pub fn zoned_lines_as_script_body(
+    document: &StructuredDocument,
+    is_scene_heading: impl Fn(&str) -> bool,
+) -> Vec<ZonedLine<'_>> {
     let mut lines: Vec<ZonedLine<'_>> = Vec::new();
     for page in &document.pages {
-        push_page_lines(&mut lines, page, PageZone::ScriptBody);
+        push_page_lines(&mut lines, page, PageZone::ScriptBody, &is_scene_heading);
     }
     lines
 }
 
-fn push_page_lines<'a>(lines: &mut Vec<ZonedLine<'a>>, page: &'a StructuredPage, zone: PageZone) {
+fn push_page_lines<'a>(
+    lines: &mut Vec<ZonedLine<'a>>,
+    page: &'a StructuredPage,
+    zone: PageZone,
+    is_scene_heading: &impl Fn(&str) -> bool,
+) {
     for block in &page.blocks {
         let band = block_role(block.bbox, block.kind);
         for line in block.text.split('\n') {
+            let band = promote_top_band_heading(band, line, is_scene_heading);
             let role = if band == LineRole::Body && is_continuation_marker(line) {
                 LineRole::Continuation
             } else {
@@ -925,6 +941,23 @@ fn push_page_lines<'a>(lines: &mut Vec<ZonedLine<'a>>, page: &'a StructuredPage,
                 text: line,
             });
         }
+    }
+}
+
+/// [`LineRole::Header`] becomes [`LineRole::Body`] when the line is a scene
+/// heading: the band is a geometric heuristic for page furniture, and the spatial
+/// adapter applies it to EVERY top-band block — including a slug printed at the
+/// top of the page. Running metadata (`"Block 098 Ep.: 294/1"`) is no heading, so
+/// it stays excluded.
+fn promote_top_band_heading(
+    band: LineRole,
+    line: &str,
+    is_scene_heading: &impl Fn(&str) -> bool,
+) -> LineRole {
+    if band == LineRole::Header && is_scene_heading(line) {
+        LineRole::Body
+    } else {
+        band
     }
 }
 
@@ -1005,11 +1038,11 @@ fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)
     // ("... wie in der SYNOPSIS beschrieben") relabel a whole page. Starting the
     // line is not enough on its own either — `"Cast the net before sunrise."`
     // starts with `CAST` and is the first line of a script page — so the line must
-    // also LOOK like a section heading: no lowercase letter, the way
+    // also LOOK like a section heading — shouty and short, the way
     // `"PERSONEN/ HAUPTCAST"` and `"MEDIZINISCHE FÄLLE"` are and a sentence is
     // not. Getting this wrong is expensive: a `CastList` verdict removes the whole
     // page from scene prose.
-    if !is_shouty(line) {
+    if !is_section_heading(line) {
         return None;
     }
     for (zone, keywords) in [
@@ -1030,12 +1063,26 @@ fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)
     None
 }
 
-/// Whether a line carries no lowercase letter — the shape a section heading has
-/// (`"PERSONEN/ HAUPTCAST"`) and a body sentence does not (`"Cast the net
-/// before sunrise."`). A line with a digit or punctuation only counts as shouty,
-/// which is intended: a heading `"19.30"` is a heading.
-fn is_shouty(line: &str) -> bool {
-    !line.trim().chars().any(char::is_lowercase)
+/// Longest line still accepted as a cast/front-matter section banner, counted in
+/// whitespace-separated words.
+///
+/// A banner NAMES a section (`"PERSONEN/ HAUPTCAST"`, `"MEDIZINISCHE FÄLLE"`,
+/// `"KOMPARSEN"`, `"CAST:"`); an uppercase SENTENCE (`"CAST THE NET BEFORE
+/// SUNRISE."`, `"CAST THE NET"`) is prose, and a shouty action line is not rare in
+/// a broadcast script. The word cap is what separates the two — the case check
+/// alone does not.
+const BANNER_MAX_WORDS: usize = 2;
+
+/// Whether a line is shaped like a section heading: shouty (no lowercase letter)
+/// and short.
+///
+/// `"PERSONEN/ HAUPTCAST"` and `"KOMPARSEN"` are section headings; `"Cast the net
+/// before sunrise."` and `"CAST THE NET BEFORE SUNRISE."` are sentences, and both
+/// must stay out — a `CastList` verdict removes the whole page from scene prose.
+fn is_section_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    !trimmed.chars().any(char::is_lowercase)
+        && trimmed.split_whitespace().count() <= BANNER_MAX_WORDS
 }
 
 /// Whether a non-heading line sits in a dialogue column.

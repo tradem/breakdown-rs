@@ -2750,7 +2750,7 @@ impl SegmentedScript {
         page.push_block(BlockKind::Paragraph, NormalizedBBox::FULL_PAGE, document);
         let flat = StructuredDocument::new(FLAT_TEXT_PARSER_FINGERPRINT, vec![page]);
         let zones = DocumentZones::uniform(1, PageZone::ScriptBody);
-        let lines = zoned_lines(&flat, &zones);
+        let lines = zoned_lines(&flat, &zones, is_scene_heading);
         // A flat string has no zone: no page can be a `SceneIndex`, so the
         // index manifest is empty and the scanner behaves exactly as before.
         let outcome = scan_zoned_lines(&lines, &[]);
@@ -2793,7 +2793,7 @@ pub fn extract_scenes_from_structured(document: &StructuredDocument) -> Segmente
     if !zones.has_script_body() {
         zones.widen_to_script_body();
     }
-    let lines = zoned_lines(document, &zones);
+    let lines = zoned_lines(document, &zones, is_scene_heading);
     let index = scene_index_entries(&lines);
     let outcome = scan_zoned_lines(&lines, &index);
     let chunks = merge_duplicate_scene_numbers(outcome.chunks);
@@ -2847,6 +2847,11 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>], index: &[SceneIndexEntry]) -> ScanO
     // follows it directly belongs to that scene (the observed `Drehbuch` layout
     // prints `Tag 1` under its slug — see the trailing-column rule below).
     let mut freshly_opened: Option<usize> = None;
+    // Whether the day in effect was STATED for the scene the next chunk opens (a
+    // marker on its heading line, or a page/group header since the last chunk)
+    // rather than inherited from the scenes before it. An inherited day must not
+    // beat the day the scene index lists for that scene.
+    let mut own_day_pending = false;
     // The block the document states (`Block: 098`, issue #827): the FIRST
     // occurrence wins, exactly like the old whole-document scan.
     let mut block_number: Option<i32> = None;
@@ -2890,11 +2895,17 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>], index: &[SceneIndexEntry]) -> ScanO
             // scene (CodeRabbit review, issue #706). First occurrence's
             // label wins: a repeated `Tag 1` (page headers) never rewrites
             // the reviewer-facing label.
-            // A day column on its own line is a TRAILING column: it belongs to
-            // the scene whose slug it follows, not to the scenes after it.
-            trailing_day = !is_scene_heading(trimmed);
             if current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key() {
                 current_day = Some(day);
+            }
+            // A day column on its own line that directly follows a heading is a
+            // TRAILING column: it dates the scene ABOVE it. A marker on the
+            // heading line, or one standing on its own where no heading precedes
+            // it (page header / group header), states the day of the scene it
+            // OPENS.
+            trailing_day = !is_scene_heading(trimmed) && freshly_opened.is_some();
+            if !trailing_day {
+                own_day_pending = true;
             }
         }
         // The trailing-column rule (observed `Drehbuch` layout: the slug, then
@@ -2916,11 +2927,18 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>], index: &[SceneIndexEntry]) -> ScanO
             // INDEX lists for it — per scene, not "the last day the index
             // mentioned" (which is what the shared `current_day` used to hand
             // every following scene).
-            let shooting_day = current_day.clone().or_else(|| {
-                label
-                    .as_deref()
-                    .and_then(|label| index_day_for(index, label, episode_key.as_deref()).cloned())
-            });
+            let indexed_day = label
+                .as_deref()
+                .and_then(|label| index_day_for(index, label, episode_key.as_deref()).cloned());
+            // Precedence: a day the BODY states for this scene wins; then the day
+            // the scene INDEX lists for it; then the day inherited from the
+            // preceding scenes. An inherited `Tag 1` must not date scene 2 when
+            // the index lists `Tag 2` for it (CodeRabbit review).
+            let shooting_day = if own_day_pending {
+                current_day.clone().or(indexed_day)
+            } else {
+                indexed_day.or_else(|| current_day.clone())
+            };
             chunks.push(SceneChunk {
                 index: chunks.len(),
                 heading: trimmed.to_owned(),
@@ -2932,6 +2950,7 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>], index: &[SceneIndexEntry]) -> ScanO
             });
             anchors.push(line.anchor);
             freshly_opened = Some(chunks.len() - 1);
+            own_day_pending = false;
         } else {
             if let Some(current) = chunks.last_mut() {
                 if !current.text.is_empty() {

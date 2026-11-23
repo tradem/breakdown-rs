@@ -4159,6 +4159,80 @@ fn a_body_day_column_still_wins_over_the_index() {
 }
 
 #[test]
+fn an_inherited_body_day_never_beats_the_index_day_of_its_own_scene() {
+    // CodeRabbit review: scene 1 states `Tag 1` in the body, scene 2 states
+    // nothing. Inheriting the day in effect dated scene 2 as `Tag 1` even though
+    // the index lists `Tag 2` for it — an INHERITED day is not this scene's day.
+    let index = zoning_page(
+        1,
+        "SCRIPT REPORT\n1 I/T - ORT 1\nTag 1\n2 I/T - ORT 2\nTag 2",
+    );
+    let body = zoning_page(
+        2,
+        "1 I/T - DREHORT 1\nTag 1\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n\
+         2 I/T - DREHORT 2\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![index, body]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(
+        segmented.chunks[0]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(1)
+    );
+    assert_eq!(
+        segmented.chunks[1]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(2),
+        "scene 2 inherits nothing: its index entry says Tag 2"
+    );
+}
+
+#[test]
+fn a_top_band_slug_the_spatial_adapter_tags_as_header_still_starts_a_scene() {
+    // The spatial adapter tags EVERY top-band block `PageHeader`
+    // (`crates/infra/src/ai/spatial_pdf.rs`), so the band alone cannot decide:
+    // a slug printed at the very top of a page is scene content, a running header
+    // is not. Without the promotion the whole first scene of such a page is lost.
+    let mut page = StructuredPage::new(1, 595.0, 842.0);
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.092, 0.033, 0.551, 0.046),
+        "In aller Freundschaft - Die jungen Ärzte",
+    );
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.776, 0.033, 0.900, 0.058),
+        "Block 098\nEp.: 294/1",
+    );
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.100, 0.070, 0.900, 0.088),
+        "12 A/T - MALERISCHER BAUERNHOF",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.100, 0.120, 0.900, 0.400),
+        "Leyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![page]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 1, "{:?}", segmented.chunks);
+    assert_eq!(
+        segmented.chunks[0].heading,
+        "12 A/T - MALERISCHER BAUERNHOF"
+    );
+    assert_eq!(segmented.chunks[0].scene_number, Some(12));
+    assert_eq!(
+        segmented.chunks[0].text,
+        "Leyla steigt aus dem Wagen und blickt über den Hof."
+    );
+}
+
+#[test]
 fn a_scene_label_is_reconciled_within_its_episode() {
     // CodeRabbit review: episodes 294 and 295 both contain a scene `1`. A
     // label-only comparison called the pair reconciled as soon as ONE of them

@@ -563,7 +563,7 @@ fn header_band_and_continuation_lines_never_reach_the_body() {
     );
     let document = StructuredDocument::new("t", vec![body]);
     let zones = classify_document_zones(&document, is_heading);
-    let lines = zoned_lines(&document, &zones);
+    let lines = zoned_lines(&document, &zones, is_heading);
     let roles: Vec<(LineRole, &str)> = lines.iter().map(|line| (line.role, line.text)).collect();
     assert_eq!(
         roles,
@@ -633,7 +633,7 @@ fn a_top_band_scene_heading_is_not_page_furniture() {
     );
     let document = StructuredDocument::new("t", vec![page]);
     let zones = classify_document_zones(&document, is_heading);
-    let lines = zoned_lines(&document, &zones);
+    let lines = zoned_lines(&document, &zones, is_heading);
     let roles: Vec<(LineRole, &str)> = lines.iter().map(|line| (line.role, line.text)).collect();
     assert_eq!(
         roles,
@@ -667,16 +667,38 @@ fn a_sentence_starting_with_cast_opens_no_cast_list() {
         2,
         "Cast the net before sunrise.\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.",
     );
-    let document = StructuredDocument::new("t", vec![body, prose.clone()]);
+    let document = StructuredDocument::new("t", vec![body.clone(), prose.clone()]);
     let zones = classify_document_zones(&document, is_heading);
     assert_eq!(zones.zone_of(2), PageZone::ScriptBody);
     assert_eq!(zones.page(2).and_then(|page| page.banner.as_deref()), None);
 
     // A front-matter keyword inside a sentence is prose too.
     let mixed = text_page(2, "Wie in der Synopsis beschrieben geht sie über den Hof.");
-    let document = StructuredDocument::new("t", vec![prose, mixed]);
+    let document = StructuredDocument::new("t", vec![body.clone(), mixed]);
     let zones = classify_document_zones(&document, is_heading);
     assert_eq!(zones.page(2).and_then(|page| page.banner.as_deref()), None);
+
+    // UPPERCASE prose is still prose: a shouty action line is not rare in a
+    // broadcast script, and it must not cost the page its scenes.
+    for shouty_prose in [
+        "CAST THE NET BEFORE SUNRISE.",
+        "CAST THE NET",
+        "SYNOPSIS DER FOLGE: LEYLA KOMMT ZURÜCK",
+    ] {
+        let shouty = text_page(2, shouty_prose);
+        let document = StructuredDocument::new("t", vec![body.clone(), shouty]);
+        let zones = classify_document_zones(&document, is_heading);
+        assert_eq!(
+            zones.page(2).and_then(|page| page.banner.as_deref()),
+            None,
+            "{shouty_prose:?} is a sentence, not a section heading"
+        );
+        assert_eq!(
+            zones.zone_of(2),
+            PageZone::ScriptBody,
+            "{shouty_prose:?} must not remove the page from scene prose"
+        );
+    }
 }
 
 #[test]
@@ -725,7 +747,7 @@ fn a_document_without_a_script_page_widens_instead_of_losing_every_scene() {
         NormalizedBBox::new(0.10, 0.50, 0.90, 0.52),
         "1 CONTINUED:",
     );
-    let lines = zoned_lines(&document, &widened);
+    let lines = zoned_lines(&document, &widened, is_heading);
     assert!(lines.iter().any(|line| line.role == LineRole::Continuation));
 }
 
