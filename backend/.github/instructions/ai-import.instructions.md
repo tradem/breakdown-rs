@@ -35,7 +35,9 @@ applyTo:
 - `AI_IMPORT_USER_AGENT_<PROVIDER>` – per-provider override, e.g. `AI_IMPORT_USER_AGENT_OPENCODE_GO` or `AI_IMPORT_USER_AGENT_OPENCODE` (takes precedence over the global variable). An empty or header-invalid value is ignored and the next source applies.
 - `AI_DOCUMENT_PARSER` – document-structure adapter (ADR-041 `D1`, issue #958): `spatial` (default), `docling` or `legacy-pdftotext`. Read **once** at startup; an unknown value fails the boot instead of silently selecting another extraction path.
 - `AI_DOCLING_ENDPOINT` – base URL of the `docling-serve` sidecar (e.g. `http://docling:5001/`). Required only when `AI_DOCUMENT_PARSER=docling`; missing or unparsable fails the boot.
-- `AI_EVAL_CORPUS_DIR` – **test-only** (not read at runtime): directory of local PDF scripts/schedules for the Golden Corpus harness `cargo test -p infra --test ai_document_eval_corpus`. Unset ⇒ the harness skips; copyrighted broadcast PDFs never enter Git.
+- `AI_EVAL_CORPUS_DIR` – **test-only** (not read at runtime): directory of local PDF scripts/schedules for the Golden Corpus harness `cargo test -p infra --test ai_document_eval_corpus`. Unset ⇒ the harness skips; copyrighted broadcast PDFs never enter Git. Set ⇒ the run is **complete**: every document the manifest lists must be present, otherwise the sweep fails (a partial corpus is not a green corpus).
+- `AI_EVAL_CORPUS_MANIFEST` – **test-only** override for the expectation manifest, default `backend/config/ai_eval_corpus.tsv`. The manifest is the ONE definition of the corpus (file, kind `script|schedule`, expected scene count, note), so a local run and a CI run assert exactly the same numbers: only the PDFs are out of tree, the expectations are not. Verified against the GDrive fixture folder: `292.pdf` 40, `293.pdf` 42, `294.pdf` 43, `Drehbuch_1.pdf` 42, `Drehbuch_2.pdf` 42, `Drehplan_1.pdf` schedule.
+- **Local corpus run** (from `backend/`, needs `poppler-utils`): `AI_EVAL_CORPUS_DIR=~/Downloads/drive-download cargo test -p infra --test ai_document_eval_corpus -- --nocapture`. The CI runs the **identical** command; only the PDFs come from somewhere else: `crates/integration-tests/tests/ai_gdrive_corpus_materialize.rs` copies `GDRIVE_ROOT` into `AI_EVAL_CORPUS_DIR` (skips without `GDRIVE_CLIENT_ID`, default target `target/eval-corpus`), and the `integration-tests` workflow step "Golden Corpus (GDrive materialise + zone-aware sweep)" runs materialise + sweep together under the same trust gate as the GDrive smoke. Locally the same two commands work with `GDRIVE_*` in the environment, so a developer reproduces CI byte-for-byte.
 
 > **Descriptive `User-Agent` (issue #521).** The curated opencode / OpenCode-Go
 > gateways triage requests on `User-Agent`; a blank, generic or reqwest-default
@@ -96,11 +98,14 @@ The import workers do not read PDFs themselves. Both are generic over the
 `ScheduleImportWorker<Q, C, E>`), which returns the canonical
 `core::ai::document::StructuredDocument` IR — 1-based pages, reading-order blocks,
 normalized `0.0..=1.0` geometry, preserved `<table>` markup — instead of one flat
-`String`. The pre-#959 segmentation still reads `flattened_text()`, which for the
-`legacy-pdftotext` adapter is byte-identical to the old `pdftotext -layout`
-output (the `spatial`/`docling` adapters join the blocks *their* parser produced,
-so their flattened view differs from `pdftotext -layout` in text and boundaries
-by design).
+`String`. Segmentation is **zone-aware** since issue #959: `ScriptImportWorker::process`
+hands the IR to `core::ai::extract_scenes_from_structured`, which classifies every
+page (`classify_document_zones`) and emits `SceneChunk`s from `ScriptBody` prose
+only. `flattened_text()` survives as the *flat-text seam*
+(`SegmentedScript::from_flat_text`, used by `process_text` and the string-level
+unit tests): for `legacy-pdftotext` it is byte-identical to the old
+`pdftotext -layout` output, while `spatial`/`docling` join the blocks *their*
+parser produced, so their flattened view differs in text and boundaries by design.
 
 - **Selection happens exactly once**, in `crates/api/src/main.rs`:
   `ConfiguredDocumentExtractor::from_env(&bounds)` → `WorkerDeps.extractor` (by
@@ -132,7 +137,43 @@ by design).
 - **Verification:** always-on synthetic fixtures in
   `crates/core/src/ai/document_tests.rs` and
   `crates/infra/src/ai/spatial_pdf_tests.rs`; the out-of-tree corpus harness runs
-  only with `AI_EVAL_CORPUS_DIR` set.
+  only with `AI_EVAL_CORPUS_DIR` set and reads its expectations from
+  `config/ai_eval_corpus.tsv`.
+
+#### Zone-aware segmentation (ADR-041 `D3`/`D4`/`D7`, issue #959)
+
+A broadcast screenplay is not one text: cover page, cast directory, a two-page
+`"SCRIPT REPORT"` index, five pages of `"SYNOPSIS"` prose, and only then the
+script. Scanning that flat string from line 1 glued the synopsis onto the last
+index entry — the model then invented scenes and dumped episode-wide characters
+into the final one. Pass 0 fixes this before a single token is spent:
+
+- **`core::ai::document::classify_document_zones(document, is_scene_heading)`**
+  labels every page `TitlePage | CastList | SceneIndex | FrontMatter | ScriptBody`.
+  Banners (`"SCRIPT REPORT"`, `"PERSONEN/ HAUPTCAST"`, `"SYNOPSIS"`,
+  `"MEDIZINISCHE FÄLLE"`), heading/dialogue counts and the header/footer bands
+  decide it; the caller **injects** the heading detector so zoning and chunking
+  cannot disagree. A page with no scene signal *after* the body started stays
+  `ScriptBody` (a scene running over a page break must not be dropped), and a
+  document with **no** `ScriptBody` page widens to "all prose" instead of
+  failing the import — that flag (`fell_back_to_script_body`) is the signal the
+  VLM structural pass of issue #960 is meant to answer.
+- **`zoned_lines` / `LineRole`** exclude `PageHeader`, `PageFooter` and
+  `"<N> CONTINUED:"` / `"FORTSETZUNG"` banners (`is_continuation_marker`) from
+  chunk text. Chunk text is sliced **verbatim** from the block text — never
+  re-transcribed by a model, because `verify_draft_outfits` validates
+  `source_quote` substrings against exactly those bytes.
+- **`StructuralPlan`** is the accepted plan (page zones + the block anchors cut
+  at) with a canonical rendering; `chunk_store::structural_plan_digest` hashes it
+  into `ExtractionFingerprint::structural_plan_digest`, so a retry that accepts a
+  different plan restarts at chunk `0` instead of splicing two plans.
+- **`SceneIndex` reconciliation** compares the index labels with the body labels
+  and emits a targeted `scene_number` `FieldAmbiguity` on a mismatch — never a
+  cross-zone text merge.
+- **`CHUNKER_VERSION` is `2`.** Bump it again whenever the segmentation changes
+  what a chunk *is*, and remember that a change to the zone rules changes the
+  plan for every document (the digest handles that, the version handles the
+  chunking).
 
 #### AI payload storage (durable source/preview blobs)
 

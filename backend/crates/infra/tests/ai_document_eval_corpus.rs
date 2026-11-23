@@ -24,7 +24,18 @@
 //! 4. a page render returns a bounded PNG within the configured DPI/byte
 //!    ceiling;
 //! 5. the running-header band is detectable on a document that has one — the
-//!    signal the zoning pass (issue #959) strips.
+//!    signal the zoning pass (issue #959) strips;
+//! 6. zone-aware segmentation (issue #959) produces one chunk per `SceneBody`
+//!    scene, no page-turn `CONTINUED:` / `FORTSETZUNG` banner inside any chunk,
+//!    and no `SceneIndex`-vs-body drift (`segmented.uncertainties` is empty);
+//! 7. the manifest (`config/ai_eval_corpus.tsv`) lists every document with its
+//!    kind and expected scene count; a script's chunk count must equal that
+//!    number, and a listed file that is missing from the directory is a failure.
+//!
+//! The manifest is the one place that defines "the corpus", so a local run and a
+//! CI run assert exactly the same thing — the PDFs stay out of Git, the
+//! expectations do not. A PDF the manifest does not list is still checked
+//! structurally; it just carries no count expectation.
 //!
 //! Run it locally with:
 //!
@@ -44,7 +55,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use breakdown_core::ai::{DocumentStructureExtractor, ExtractionOptions, RenderOptions};
+use breakdown_core::ai::{
+    DocumentStructureExtractor, ExtractionOptions, RenderOptions, extract_scenes_from_structured,
+};
 use infra::ai::SpatialPdfExtractor;
 
 /// `AI_EVAL_CORPUS_DIR`: a local directory holding PDF scripts/schedules.
@@ -79,6 +92,24 @@ fn spatial_extraction_meets_the_golden_corpus_contract() {
         "no .pdf files in {} (point {CORPUS_ENV} at a directory of scripts and schedules)",
         directory.display()
     );
+    // The manifest is the contract, so a corpus that is missing a document it
+    // lists is INCOMPLETE — checking only the files that happen to be there
+    // would let a partial checkout pass as a green sweep.
+    let expectations = read_manifest(&manifest_path());
+    assert!(
+        !expectations.is_empty(),
+        "{} lists no document",
+        manifest_path().display()
+    );
+    let mut absent: Vec<String> = Vec::new();
+    for expectation in &expectations {
+        if !pdfs
+            .iter()
+            .any(|pdf| pdf.file_name().and_then(|name| name.to_str()) == Some(&expectation.file))
+        {
+            absent.push(format!("{} ({})", expectation.file, expectation.note));
+        }
+    }
 
     let extractor = SpatialPdfExtractor::new(MAX_OUTPUT_BYTES, TIMEOUT);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -87,20 +118,62 @@ fn spatial_extraction_meets_the_golden_corpus_contract() {
         .expect("a single-threaded runtime for the corpus sweep");
 
     let mut failures: Vec<String> = Vec::new();
+    if !absent.is_empty() {
+        failures.push(format!(
+            "the corpus is incomplete — missing {}: {}",
+            absent.len(),
+            absent.join(", "),
+        ));
+    }
     let mut checked = 0_usize;
     for path in &pdfs {
-        match runtime.block_on(evaluate(&extractor, path)) {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let expectation = expectations
+            .iter()
+            .find(|entry| entry.file == name)
+            .cloned();
+        match runtime.block_on(evaluate(&extractor, path, expectation)) {
             Ok(report) => {
                 checked += 1;
                 eprintln!(
-                    "ok   {} — pages={} blocks={} headers={} tables={} png_bytes={}",
+                    "ok   {} — pages={} blocks={} headers={} tables={} png_bytes={} \
+                     chunks={} expected={:?} zones={}",
                     path.display(),
                     report.pages,
                     report.blocks,
                     report.headers,
                     report.tables,
                     report.png_bytes,
+                    report.chunks,
+                    report.expectation.as_ref().map(|entry| entry.scenes),
+                    report.zones,
                 );
+                // Issue #959: a `SceneIndex` that disagrees with the body is a
+                // scene-count drift the reviewer would otherwise only discover
+                // as a shortfall — fail the sweep instead.
+                if !report.mismatches.is_empty() {
+                    failures.push(format!(
+                        "{}: {} scene-index/body mismatch(es): {}",
+                        path.display(),
+                        report.mismatches.len(),
+                        report.mismatches.join("; "),
+                    ));
+                }
+                if let Some(expectation) = &report.expectation
+                    && expectation.kind == DocumentClass::Script
+                    && expectation.scenes != report.chunks
+                {
+                    failures.push(format!(
+                        "{}: manifest expects {} scene chunks ({}), segmented {}",
+                        path.display(),
+                        expectation.scenes,
+                        expectation.kind.as_str(),
+                        report.chunks,
+                    ));
+                }
             }
             Err(error) => failures.push(format!("{}: {error}", path.display())),
         }
@@ -123,9 +196,58 @@ struct Report {
     headers: usize,
     tables: usize,
     png_bytes: usize,
+    /// Scene chunks the zone-aware segmentation produced (issue #959).
+    chunks: usize,
+    /// Pages each zone claimed, for the operator's diagnosis.
+    zones: String,
+    /// `SceneIndex`-vs-`ScriptBody` findings — must be empty.
+    mismatches: Vec<String>,
+    /// The manifest's entry for this file, when the manifest lists it.
+    expectation: Option<Expectation>,
 }
 
-async fn evaluate(extractor: &SpatialPdfExtractor, path: &Path) -> Result<Report, String> {
+/// One `config/ai_eval_corpus.tsv` record: what the corpus owner states about a
+/// document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Expectation {
+    file: String,
+    kind: DocumentClass,
+    scenes: usize,
+    note: String,
+}
+
+/// What kind of document an expectation describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentClass {
+    /// A screenplay: the zone-aware segmentation assertions apply.
+    Script,
+    /// A shooting schedule: read by the schedule worker, so the script assertions
+    /// (scene chunks, index parity) do not.
+    Schedule,
+}
+
+impl DocumentClass {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "script" => Some(Self::Script),
+            "schedule" => Some(Self::Schedule),
+            _ => None,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Script => "script",
+            Self::Schedule => "schedule",
+        }
+    }
+}
+
+async fn evaluate(
+    extractor: &SpatialPdfExtractor,
+    path: &Path,
+    expectation: Option<Expectation>,
+) -> Result<Report, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("could not read the file: {error}"))?;
     let document = extractor
         .extract(&bytes, ExtractionOptions::default())
@@ -202,15 +324,146 @@ async fn evaluate(extractor: &SpatialPdfExtractor, path: &Path) -> Result<Report
         return Err("the rendered page exceeded the byte ceiling".to_owned());
     }
 
+    // A schedule is read by the schedule worker, never by the script
+    // segmentation: segmenting it here would report a scene count for a document
+    // that has none, and asserting scene chunks on it would be a false contract.
+    // Its structural IR assertions above still run.
+    let is_script = expectation
+        .as_ref()
+        .is_none_or(|expectation| expectation.kind == DocumentClass::Script);
+    let (chunks, zones, mismatches) = if is_script {
+        let segmented = extract_scenes_from_structured(&document);
+        if segmented.chunks.is_empty() {
+            return Err("zone-aware segmentation produced no scene chunk".to_owned());
+        }
+        for chunk in &segmented.chunks {
+            for line in chunk.text.lines() {
+                if breakdown_core::ai::is_continuation_marker(line) {
+                    return Err(format!(
+                        "chunk {:?} still carries the page-turn banner {line:?}",
+                        chunk.heading
+                    ));
+                }
+            }
+        }
+        let mismatches: Vec<String> = segmented
+            .uncertainties
+            .iter()
+            .map(|uncertainty| format!("{}: {}", uncertainty.field, uncertainty.note))
+            .collect();
+        (
+            segmented.chunks.len(),
+            zone_summary(&document, &segmented),
+            mismatches,
+        )
+    } else {
+        (
+            0,
+            "schedule (script segmentation not applied)".to_owned(),
+            Vec::new(),
+        )
+    };
+
     Ok(Report {
         pages: document.page_count(),
         blocks,
         headers,
         tables,
         png_bytes: rendered.png_bytes.len(),
+        chunks,
+        zones,
+        mismatches,
+        expectation,
     })
 }
 
+/// `cast_list=2 script_body=88 title_page=1 …`, ascending by zone name, so two
+/// runs of the same document print the same line.
+fn zone_summary(
+    document: &breakdown_core::ai::StructuredDocument,
+    segmented: &breakdown_core::ai::SegmentedScript,
+) -> String {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for page in segmented.plan.pages() {
+        match counts
+            .iter_mut()
+            .find(|(zone, _)| *zone == page.zone.as_str())
+        {
+            Some((_, count)) => *count += 1,
+            None => counts.push((page.zone.as_str(), 1)),
+        }
+    }
+    counts.sort_by_key(|(zone, _)| *zone);
+    let zones = counts
+        .into_iter()
+        .map(|(zone, count)| format!("{zone}={count}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{zones} (pages={})", document.page_count())
+}
+
+/// The manifest that defines the corpus (`config/ai_eval_corpus.tsv`).
+///
+/// One file for local and CI runs: the PDFs stay confidential and out of Git, the
+/// expectations do not. Overridable with `AI_EVAL_CORPUS_MANIFEST` for an
+/// out-of-tree corpus layout.
+fn manifest_path() -> PathBuf {
+    match std::env::var_os("AI_EVAL_CORPUS_MANIFEST").map(PathBuf::from) {
+        Some(path) => path,
+        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/ai_eval_corpus.tsv"),
+    }
+}
+
+/// Every expectation the manifest states, in file order.
+///
+/// A malformed record is a **failure**, not a skip: silently ignoring a typo
+/// would turn a count assertion into a no-op.
+fn read_manifest(path: &Path) -> Vec<Expectation> {
+    let text = std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("could not read {}: {error}", path.display()));
+    let mut expectations: Vec<Expectation> = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim_end();
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() < 3 {
+            panic!(
+                "{}:{}: expected `file<TAB>kind<TAB>scenes[<TAB>note]`, got {line:?}",
+                path.display(),
+                index + 1
+            );
+        }
+        let file = fields[0].trim();
+        let kind = DocumentClass::parse(fields[1]).unwrap_or_else(|| {
+            panic!(
+                "{}:{}: unknown document kind {:?} (script|schedule)",
+                path.display(),
+                index + 1,
+                fields[1]
+            )
+        });
+        let scenes = fields[2].trim().parse::<usize>().unwrap_or_else(|error| {
+            panic!(
+                "{}:{}: scene count {:?} is not a number: {error}",
+                path.display(),
+                index + 1,
+                fields[2]
+            )
+        });
+        expectations.push(Expectation {
+            file: file.to_owned(),
+            kind,
+            scenes,
+            note: fields
+                .get(3)
+                .map(|note| note.trim().to_owned())
+                .unwrap_or_default(),
+        });
+    }
+    expectations
+}
 /// Every `*.pdf` directly inside `directory`, in a deterministic order.
 ///
 /// Every enumeration failure propagates — opening the directory AND each

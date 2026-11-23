@@ -12,6 +12,10 @@ use std::collections::{HashMap, HashSet};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::document::{
+    BlockAnchor, BlockKind, DocumentZones, NormalizedBBox, PageZone, StructuralPlan,
+    StructuredDocument, StructuredPage, ZonedLine, classify_document_zones, zoned_lines,
+};
 use super::views::{AiImportJobId, DocumentKind, JobStatus};
 use crate::character::category::CharacterCategory;
 use crate::error::DomainError;
@@ -28,7 +32,15 @@ use crate::shared::{AggregateVersion, BlockId, CostumeCategoryId, EpisodeId, Pro
 /// heading retention, merge rules) — otherwise a resume would continue with
 /// boundaries the new chunker never produced, and the preview would mix two
 /// chunkings.
-pub const CHUNKER_VERSION: u32 = 1;
+///
+/// History:
+/// - `1` — the flat `pdftotext -layout` line scanner.
+/// - `2` (issue #959) — zone-aware segmentation: chunks come only from
+///   `ScriptBody` prose, running headers/footers and page-turn `CONTINUED:`
+///   banners never enter a chunk, and combined `A+I` / `I+A` / `A/I` headings
+///   split as scenes. Every one of those changes what a chunk *is*, so a chunk
+///   set written by `1` must not be resumed by `2`.
+pub const CHUNKER_VERSION: u32 = 2;
 
 /// heading. The chunker retains the heading and body so the LLM receives
 /// enough local context without requiring infrastructure dependencies.
@@ -2686,8 +2698,142 @@ pub fn stable_draft_ref(
 /// document's verbatim bytes — it is the identity (`stable_draft_ref`) and
 /// the grounding text the model receives, so silently rewriting it would
 /// desynchronize `source_quote` verification.
+///
+/// This is the **flat-text seam** of the zone-aware segmentation (issue #959):
+/// it wraps the string in a single-page [`StructuredDocument`] whose only page
+/// is [`PageZone::ScriptBody`], so the string-level unit tests keep driving the
+/// exact scanner they always drove. Production reads
+/// [`extract_scenes_from_structured`] instead, which is the same scanner over
+/// zone-classified pages.
 pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
+    SegmentedScript::from_flat_text(document).chunks
+}
+
+/// What one segmentation pass produced: the chunks plus everything Pass 0
+/// decided (ADR-041 `D3`/`D7`, issue #959).
+///
+/// The chunks are the only thing the extraction loop consumes; the plan is what
+/// the `#871` chunk-set fingerprint digests, and the uncertainties are structural
+/// findings the reviewer must see. All three are plain owned values — no `Arc`,
+/// no shared state (ADR-041 appendix A).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentedScript {
+    /// The scene chunks in document order. Their text holds `ScriptBody` prose
+    /// only: no running header, no footer, no continuation banner and no
+    /// front-matter line.
+    pub chunks: Vec<SceneChunk>,
+    /// The production block number the document states in its headers
+    /// (`Block: 098`, issue #827), harvested from the header band — including
+    /// the headers of pages that carry no scene prose.
+    pub block_number: Option<i32>,
+    /// The accepted structural anchor plan: per-page zone labels plus the block
+    /// anchors the chunker cut at. Two different plans mean two incompatible
+    /// chunkings, which is why the digest of this value participates in the
+    /// chunk-set fingerprint.
+    pub plan: StructuralPlan,
+    /// `SceneIndex`-vs-`ScriptBody` reconciliation findings (issue #959).
+    pub uncertainties: Vec<Uncertainty>,
+}
+
+impl SegmentedScript {
+    /// Segment flat text: the pre-#959 entry point, kept as the single-zone seam
+    /// (one `ScriptBody` page).
+    ///
+    /// The plan of this seam is deliberately **anchorless** — a flat string has
+    /// no blocks, so inventing block anchors from line numbers would make the
+    /// plan claim a structure the document does not have. Its canonical form is
+    /// therefore constant, which is exactly the honest statement: the flat seam
+    /// cannot re-zone.
+    #[must_use]
+    pub fn from_flat_text(document: &str) -> Self {
+        let mut page = StructuredPage::new(1, 0.0, 0.0);
+        page.push_block(BlockKind::Paragraph, NormalizedBBox::FULL_PAGE, document);
+        let flat = StructuredDocument::new(FLAT_TEXT_PARSER_FINGERPRINT, vec![page]);
+        let zones = DocumentZones::uniform(1, PageZone::ScriptBody);
+        let lines = zoned_lines(&flat, &zones, is_scene_heading);
+        // A flat string has no zone: no page can be a `SceneIndex`, so the
+        // index manifest is empty and the scanner behaves exactly as before.
+        let outcome = scan_zoned_lines(&lines, &[]);
+        Self {
+            chunks: merge_duplicate_scene_numbers(outcome.chunks),
+            block_number: outcome.block_number,
+            plan: StructuralPlan::from_zones(&zones),
+            uncertainties: Vec::new(),
+        }
+    }
+
+    /// The canonical rendering of the accepted plan — the digest input of the
+    /// `#871` chunk-set fingerprint (ADR-041 `D7`).
+    #[must_use]
+    pub fn plan_canonical_form(&self) -> String {
+        self.plan.canonical_form()
+    }
+}
+
+/// Segment a [`StructuredDocument`] into scene chunks, **only** from
+/// `ScriptBody` prose (ADR-041 `D3`, issue #959).
+///
+/// Three steps, all deterministic and token-free:
+///
+/// 1. **Pass 0** — classify every page ([`classify_document_zones`]).
+///    When that recognises no script page at all, every page is widened to
+///    `ScriptBody` ([`DocumentZones::widen_to_script_body`]): an unfamiliar
+///    template must still produce scenes, degraded, instead of an empty preview.
+/// 2. **Slice** — the line scanner runs over the classified lines, so front
+///    matter, headers, footers and continuation banners are excluded from chunk
+///    text **verbatim**: the block text is sliced as-is, never re-transcribed
+///    (a model re-typing prose would invalidate every `source_quote`
+///    `verify_draft_outfits` checks).
+/// 3. **Reconcile** — the `SceneIndex` entries are compared against the labels
+///    the body actually produced, and a mismatch becomes a targeted uncertainty
+///    instead of a silent scene-count drift.
+#[must_use]
+pub fn extract_scenes_from_structured(document: &StructuredDocument) -> SegmentedScript {
+    let mut zones = classify_document_zones(document, is_scene_heading);
+    if !zones.has_script_body() {
+        zones.widen_to_script_body();
+    }
+    let lines = zoned_lines(document, &zones, is_scene_heading);
+    let index = scene_index_entries(&lines);
+    let outcome = scan_zoned_lines(&lines, &index);
+    let chunks = merge_duplicate_scene_numbers(outcome.chunks);
+    let mut plan = StructuralPlan::from_zones(&zones);
+    for anchor in outcome.anchors {
+        plan.record_anchor(anchor);
+    }
+    let uncertainties = scene_index_uncertainties(&index, &chunks);
+    SegmentedScript {
+        chunks,
+        block_number: outcome.block_number,
+        plan,
+        uncertainties,
+    }
+}
+
+/// What the line scan produced, before the duplicate merge reconciles it.
+struct ScanOutcome {
+    chunks: Vec<SceneChunk>,
+    block_number: Option<i32>,
+    /// The block each chunk's heading came from, in chunk order (pre-merge: a
+    /// merged duplicate keeps both anchors, because both blocks *were* chunk
+    /// starts — the plan pins where cuts happen, not how many rows survive).
+    anchors: Vec<BlockAnchor>,
+}
+
+/// The one line scanner both seams share (`extract_scenes_from_structured` and
+/// `SegmentedScript::from_flat_text`).
+///
+/// Marker harvesting (block, episode, day) reads **every** line, because a page
+/// header states the episode in effect even on a page that carries no scene; only
+/// [`ZonedLine::is_scene_prose`] lines become headings or chunk text.
+///
+/// A `SceneIndex` day column is deliberately NOT harvested into the day in
+/// effect: it belongs to the one scene it sits on, and [`scene_index_entries`]
+/// reads it per entry. Harvesting it would hand the LAST index day to every body
+/// scene that states none of its own (CodeRabbit review).
+fn scan_zoned_lines(lines: &[ZonedLine<'_>], index: &[SceneIndexEntry]) -> ScanOutcome {
     let mut chunks: Vec<SceneChunk> = Vec::new();
+    let mut anchors: Vec<BlockAnchor> = Vec::new();
     // The episode in effect at the current line: the last `Ep.:` marker seen
     // so far (page headers repeat it, which is harmless — same value). A chunk
     // stamps the episode that was in effect at its heading line (issue #581).
@@ -2697,29 +2843,48 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
     // which is harmless — same group. The FIRST occurrence's label wins, so
     // a repeated `Tag 1` never rewrites the reviewer-facing label.
     let mut current_day: Option<DraftShootingDay> = None;
+    // The chunk whose heading was the last content line seen. A day column that
+    // follows it directly belongs to that scene (the observed `Drehbuch` layout
+    // prints `Tag 1` under its slug — see the trailing-column rule below).
+    let mut freshly_opened: Option<usize> = None;
+    // Whether the day in effect was STATED for the scene the next chunk opens (a
+    // marker on its heading line, or a page/group header since the last chunk)
+    // rather than inherited from the scenes before it. An inherited day must not
+    // beat the day the scene index lists for that scene.
+    let mut own_day_pending = false;
+    // The block the document states (`Block: 098`, issue #827): the FIRST
+    // occurrence wins, exactly like the old whole-document scan.
+    let mut block_number: Option<i32> = None;
     // Episode titles from the title page (`(294) "Freundschaft"`): the `Ep.:`
     // page-header markers carry a bare number, but the reviewer expects the
     // episode HEADING to flow into the created episode. Collected in a FIRST
     // pass over the whole document — the title page can sit AFTER the first
     // `Ep.:` marker (the page header on page 1 precedes the title block), so
     // an inline single-pass scan would miss it.
-    let mut episode_titles: std::collections::HashMap<i32, String> =
-        std::collections::HashMap::new();
-    for line in document.lines() {
-        if let Some((number, title)) = title_page_entry(line.trim()) {
+    let mut episode_titles: HashMap<i32, String> = HashMap::new();
+    for line in lines {
+        if let Some((number, title)) = title_page_entry(line.text.trim()) {
             episode_titles.entry(number).or_insert(title);
         }
     }
-    for line in document.lines() {
-        let trimmed = line.trim();
+    for line in lines {
+        let trimmed = line.text.trim();
+        if block_number.is_none() {
+            block_number = block_marker(trimmed);
+        }
         if let Some(episode) = episode_marker(trimmed) {
             let mut episode = episode;
             if episode.title.is_none() {
-                episode.title = episode.number.and_then(|n| episode_titles.get(&n)).cloned();
+                episode.title = episode.number.and_then(|n| episode_titles.get(&n).cloned());
             }
             current_episode = Some(episode);
         }
-        if let Some(day) = day_marker(trimmed)
+        // Day columns live in scene-index pages and in the script body; a
+        // `SYNOPSIS` page's prose must never seed the day group of the first
+        // scenes (that contamination is precisely what zoning removes).
+        let mut trailing_day = false;
+        if line.zone.is_script_body()
+            && let Some(day) = day_marker(trimmed)
             && (is_scene_heading(trimmed) || is_standalone_day_marker(trimmed, &day))
         {
             // Day markers live in scene-index columns (heading lines) and in
@@ -2733,30 +2898,340 @@ pub fn extract_scenes(document: &str) -> Vec<SceneChunk> {
             if current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key() {
                 current_day = Some(day);
             }
+            // A day column on its own line that directly follows a heading is a
+            // TRAILING column: it dates the scene ABOVE it. A marker on the
+            // heading line, or one standing on its own where no heading precedes
+            // it (page header / group header), states the day of the scene it
+            // OPENS.
+            //
+            // `line.is_scene_prose()` is required for the retrospective half: a
+            // page-opening running header (`Tag 2` in the header band) must not
+            // re-date the last scene of the PREVIOUS page, which is still the
+            // "freshly opened" chunk when the new page starts.
+            trailing_day =
+                !is_scene_heading(trimmed) && freshly_opened.is_some() && line.is_scene_prose();
+            if !trailing_day {
+                own_day_pending = true;
+            }
+        }
+        // The trailing-column rule (observed `Drehbuch` layout: the slug, then
+        // its `Tag 1` column): reading the column as "the day of the FOLLOWING
+        // scenes" dated the first scene of the script not at all and every
+        // scene after a day change one day late.
+        if trailing_day && let Some(index) = freshly_opened {
+            chunks[index].shooting_day = current_day.clone();
+        }
+        if !line.is_scene_prose() {
+            freshly_opened = None;
+            continue;
         }
         if is_scene_heading(trimmed) {
             let scene_number = leading_scene_number(&normalize_for_heading_detection(trimmed));
+            let label = leading_scene_label(trimmed);
+            let episode_key = current_episode.as_ref().and_then(DraftEpisode::group_key);
+            // A body scene that states no day of its own inherits the day the
+            // INDEX lists for it — per scene, not "the last day the index
+            // mentioned" (which is what the shared `current_day` used to hand
+            // every following scene).
+            let indexed_day = label
+                .as_deref()
+                .and_then(|label| index_day_for(index, label, episode_key.as_deref()).cloned());
+            // Precedence: a day the BODY states for this scene wins; then the day
+            // the scene INDEX lists for it; then the day inherited from the
+            // preceding scenes. An inherited `Tag 1` must not date scene 2 when
+            // the index lists `Tag 2` for it (CodeRabbit review).
+            let shooting_day = if own_day_pending {
+                current_day.clone().or(indexed_day)
+            } else {
+                indexed_day.or_else(|| current_day.clone())
+            };
             chunks.push(SceneChunk {
                 index: chunks.len(),
                 heading: trimmed.to_owned(),
                 scene_number,
                 episode: current_episode.clone(),
-                shooting_day: current_day.clone(),
+                shooting_day,
                 mood: parse_mood_from_heading(trimmed),
                 text: String::new(),
             });
-        } else if let Some(current) = chunks.last_mut() {
-            if !current.text.is_empty() {
-                current.text.push('\n');
+            anchors.push(line.anchor);
+            freshly_opened = Some(chunks.len() - 1);
+            own_day_pending = false;
+        } else {
+            if let Some(current) = chunks.last_mut() {
+                if !current.text.is_empty() {
+                    current.text.push('\n');
+                }
+                current.text.push_str(line.text.trim_end());
             }
-            current.text.push_str(line.trim_end());
+            // A BLANK line is layout whitespace, not the end of the "column
+            // directly below the heading" window; a line with content ends it.
+            if !trimmed.is_empty() {
+                freshly_opened = None;
+            }
         }
     }
     for chunk in &mut chunks {
         chunk.text = chunk.text.trim().to_owned();
     }
-    merge_duplicate_scene_numbers(chunks)
+    ScanOutcome {
+        chunks,
+        block_number,
+        anchors,
+    }
 }
+
+/// One entry of a `SceneIndex` page: the scene the document itself lists,
+/// together with the context its row states (issue #959).
+///
+/// The index is the document's own manifest — it names the scenes that must
+/// follow and, in the `SCRIPT REPORT` layout, the shooting day and episode each
+/// belongs to. Both facts stay PER ENTRY, so the body scan and the reconciliation
+/// can use them without ever merging text across the zone boundary (ADR-041
+/// `D3`).
+#[derive(Debug, Clone, PartialEq)]
+struct SceneIndexEntry {
+    /// The full leading scene label (`"1"`, `"12A"`) — the same identity the
+    /// duplicate merge and the reconciliation use.
+    label: String,
+    /// The episode in effect on the entry's line
+    /// ([`DraftEpisode::group_key`]). A genuinely unscoped index leaves this
+    /// `None`, which then matches on the label alone.
+    episode: Option<String>,
+    /// The day column the index assigns to this scene (`"Tag 1"`), when it
+    /// states one.
+    day: Option<DraftShootingDay>,
+}
+
+impl SceneIndexEntry {
+    /// Whether this entry describes the scene `label` in `episode`.
+    ///
+    /// The episode only has to agree when the index actually SCOPES the entry:
+    /// an unscoped index (`None`) matches on the label alone, exactly like the
+    /// duplicate merge's own key does.
+    fn matches(&self, label: &str, episode: Option<&str>) -> bool {
+        self.label == label
+            && self
+                .episode
+                .as_deref()
+                .is_none_or(|scoped| Some(scoped) == episode)
+    }
+}
+
+/// Read the `SceneIndex` pages: every listed scene with the episode and the
+/// shooting day its row states (issue #959).
+///
+/// Episode and day markers are tracked on EVERY line — a page header states both
+/// and sits on pages that carry no scene — but only `SceneIndex` lines produce
+/// entries. A day column is either printed on the heading line (`"1  A/T - ORT
+/// Tag 1"`) or on the line right below it (the observed broadcast layout: heading,
+/// then `Tag 1`); the trailing form is attached to the entry above it, so the day
+/// a scene really belongs to never depends on reading order luck.
+fn scene_index_entries(lines: &[ZonedLine<'_>]) -> Vec<SceneIndexEntry> {
+    let mut entries: Vec<SceneIndexEntry> = Vec::new();
+    let mut current_episode: Option<DraftEpisode> = None;
+    let mut current_day: Option<DraftShootingDay> = None;
+    // The entry a trailing day column belongs to (the row directly above it).
+    let mut open_entry: Option<usize> = None;
+    for line in lines {
+        let trimmed = line.text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(episode) = episode_marker(trimmed) {
+            current_episode = Some(episode);
+        }
+        if line.zone != PageZone::SceneIndex {
+            open_entry = None;
+            continue;
+        }
+        let heading = is_scene_heading(trimmed);
+        let stated_day =
+            day_marker(trimmed).filter(|day| heading || is_standalone_day_marker(trimmed, day));
+        let has_stated_day = stated_day.is_some();
+        if let Some(day) = stated_day
+            && current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key()
+        {
+            current_day = Some(day);
+        }
+        if heading {
+            let Some(label) = leading_scene_label(trimmed) else {
+                open_entry = None;
+                continue;
+            };
+            let episode = current_episode.as_ref().and_then(DraftEpisode::group_key);
+            if entries
+                .iter()
+                .any(|entry| entry.matches(&label, episode.as_deref()))
+            {
+                open_entry = None;
+                continue;
+            }
+            entries.push(SceneIndexEntry {
+                label,
+                episode,
+                day: current_day.clone(),
+            });
+            open_entry = Some(entries.len() - 1);
+        } else if has_stated_day {
+            // A day column on its own line labels the row ABOVE it. It OVERRIDES
+            // whatever that row inherited from the previous column: in the
+            // observed layout every row prints its own column, so inheriting
+            // would leave row 2 on row 1's day.
+            if let Some(index) = open_entry {
+                entries[index].day = current_day.clone();
+            }
+            open_entry = None;
+        } else {
+            open_entry = None;
+        }
+    }
+    entries
+}
+
+/// The day the scene index assigns to `label` in `episode`, when it lists one.
+fn index_day_for<'a>(
+    index: &'a [SceneIndexEntry],
+    label: &str,
+    episode: Option<&str>,
+) -> Option<&'a DraftShootingDay> {
+    index
+        .iter()
+        .find(|entry| entry.matches(label, episode))
+        .and_then(|entry| entry.day.as_ref())
+}
+
+/// The uncertainty field an index/body mismatch is reported under (issue #959).
+///
+/// The same string a model-raised scene-number doubt uses, so both land under
+/// one key in the review panel and in the `(scene_index, field)` acknowledgement.
+pub const UNCERTAINTY_FIELD_SCENE_NUMBER: &str = "scene_number";
+
+/// Compare the `SceneIndex` manifest against the labels the body produced.
+///
+/// Exact set equality is the only accepted outcome: a scene the index lists but
+/// the body does not contain (or the reverse) is a scene-count drift, which used
+/// to reach the reviewer as an unexplained shortfall. Each mismatch becomes a
+/// targeted `FieldAmbiguity` naming the label; no text is ever merged across the
+/// zone boundary to make the numbers agree (ADR-041 `D3`).
+///
+/// The comparison is EPISODE-AWARE: two episodes can both list a scene `1`, and a
+/// label-only comparison would call the pair reconciled as soon as one of them
+/// exists (CodeRabbit review). An index that scopes no episode still matches on
+/// the label alone.
+///
+/// When the body produced scenes but NO numbered heading, no label can be
+/// compared at all. That case is reported once, as one document-level finding,
+/// instead of passing silently (a listed scene would otherwise look "present") or
+/// repeating the same sentence per index row.
+fn scene_index_uncertainties(index: &[SceneIndexEntry], chunks: &[SceneChunk]) -> Vec<Uncertainty> {
+    if index.is_empty() {
+        return Vec::new();
+    }
+    let actual: Vec<(usize, String, Option<String>)> = chunks
+        .iter()
+        .filter(|chunk| chunk.scene_number.is_some())
+        .filter_map(|chunk| {
+            leading_scene_label(&chunk.heading).map(|label| {
+                (
+                    chunk.index,
+                    label,
+                    chunk.episode.as_ref().and_then(DraftEpisode::group_key),
+                )
+            })
+        })
+        .collect();
+    if actual.is_empty() {
+        if chunks.is_empty() {
+            return Vec::new();
+        }
+        return vec![Uncertainty {
+            scene_index: 0,
+            field: UNCERTAINTY_FIELD_SCENE_NUMBER.to_owned(),
+            note: format!(
+                "the scene index lists {} scene(s) but no script-body heading states a scene \
+                 number, so the scene list could not be reconciled",
+                index.len()
+            ),
+            suggested_value: None,
+            kind: UncertaintyKind::FieldAmbiguity,
+            candidates: Vec::new(),
+        }];
+    }
+    // Label-only view for placing a finding next to the row a reviewer looks at.
+    let placed: Vec<(usize, String)> = actual
+        .iter()
+        .map(|(index, label, _)| (*index, label.clone()))
+        .collect();
+    let mut uncertainties: Vec<Uncertainty> = Vec::new();
+    for entry in index {
+        if actual
+            .iter()
+            .any(|(_, label, episode)| entry.matches(label, episode.as_deref()))
+        {
+            continue;
+        }
+        uncertainties.push(Uncertainty {
+            // Attach the finding to the row the reviewer would look at for the
+            // gap: the first body scene that sorts AFTER the missing one, so a
+            // missing scene 18 is reported next to scene 19 rather than at row 0.
+            scene_index: nearest_chunk_index(&entry.label, &placed),
+            field: UNCERTAINTY_FIELD_SCENE_NUMBER.to_owned(),
+            note: format!(
+                "scene {} is listed in the scene index but missing from the script body",
+                entry.label
+            ),
+            suggested_value: Some(entry.label.clone()),
+            kind: UncertaintyKind::FieldAmbiguity,
+            candidates: Vec::new(),
+        });
+    }
+    for (scene_index, label, episode) in &actual {
+        if index
+            .iter()
+            .any(|entry| entry.matches(label, episode.as_deref()))
+        {
+            continue;
+        }
+        uncertainties.push(Uncertainty {
+            scene_index: *scene_index,
+            field: UNCERTAINTY_FIELD_SCENE_NUMBER.to_owned(),
+            note: format!("scene {label} appears in the script body but not in the scene index"),
+            suggested_value: Some(label.clone()),
+            kind: UncertaintyKind::FieldAmbiguity,
+            candidates: Vec::new(),
+        });
+    }
+    uncertainties
+}
+
+/// The index of the first scene chunk that sorts after `label`, else the last
+/// chunk's index (a missing scene past the end belongs next to the last row).
+fn nearest_chunk_index(label: &str, actual: &[(usize, String)]) -> usize {
+    let wanted = scene_label_order(label);
+    actual
+        .iter()
+        .find(|(_, found)| scene_label_order(found) > wanted)
+        .map(|(index, _)| *index)
+        .or_else(|| actual.last().map(|(index, _)| *index))
+        .unwrap_or(0)
+}
+
+/// Total order of document scene labels: the numeric part first, then the letter
+/// suffix, so `9 < 12 < 12A` (a plain string comparison would put `12` before `9`).
+fn scene_label_order(label: &str) -> (u32, &str) {
+    let digits: String = label.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let number = digits.parse::<u32>().unwrap_or(u32::MAX);
+    (number, &label[digits.len()..])
+}
+
+/// The parser identifier the flat-text seam stamps on its synthetic document.
+///
+/// Deliberately distinct from every real `DocumentStructureExtractor`
+/// fingerprint (`legacy-pdftotext-v1`, `poppler-spatial-v1`, `docling-http-v1`):
+/// the flat seam has no parser, and its plan must never look like one an adapter
+/// produced.
+const FLAT_TEXT_PARSER_FINGERPRINT: &str = "flat-text";
 
 /// Merge chunks that carry the SAME document scene number (SCRIPT REPORT
 /// format, found via the 294.pdf user import): these documents open with a
@@ -3021,7 +3496,8 @@ fn space_form_is_heading(normalized: &str, original: &str) -> bool {
 }
 
 /// German short form: `I`/`A`, a `/`, a time token (`T`, `N`, `AB`, `D`, …),
-/// then a separator or end of line.
+/// then a separator or end of line — plus the combined interior+exterior forms
+/// (`A+I/T`, `I+A/T`, `A/I/T`, `I/A/N`, issue #959).
 ///
 /// The separator requirement is what keeps this from matching prose: a
 /// time-token length cap of two rejects words that merely start with the
@@ -3037,39 +3513,119 @@ fn is_german_scene_heading(normalized: &str, original: &str) -> bool {
     if space_form_is_heading(normalized, original) {
         return true;
     }
-    let mut chars = normalized.chars();
-    match chars.next() {
-        Some('I') | Some('A') => {}
-        _ => return false,
-    }
-    if chars.next() != Some('/') {
+    let Some((_, _, token_end)) = short_form_prefix(normalized) else {
         return false;
-    }
-    let mut time_token = String::new();
-    // The terminator must be captured INSIDE the loop: a `for` over the
-    // iterator already consumed the non-alphabetic character when the body
-    // breaks, so a following `chars.next()` would read the character AFTER
-    // the separator ("I/T-WOHNUNG" would test 'W' and be rejected).
-    let mut terminator: Option<char> = None;
-    for c in chars.by_ref() {
-        if c.is_ascii_alphabetic() {
-            time_token.push(c);
-            if time_token.len() > 2 {
-                return false;
-            }
-        } else {
-            terminator = Some(c);
-            break;
-        }
-    }
-    if time_token.is_empty() {
-        return false;
-    }
-    match terminator {
+    };
+    // The terminator must be read from the byte AFTER the token: a `for` over a
+    // char iterator would already have consumed the non-alphabetic character
+    // when the token scan stopped ("I/T-WOHNUNG" would test 'W' and reject).
+    match normalized[token_end..].chars().next() {
         None => true,
         Some(c) if c == ' ' || c == '-' || c == '.' || c == '/' => true,
         Some(_) => false,
     }
+}
+
+/// Interior/exterior component of a German short-form heading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShortFormLocation {
+    /// `I` — innen.
+    Interior,
+    /// `A` — außen.
+    Exterior,
+    /// A combined interior+exterior scene (`A+I`, `I+A`, `A/I`, `I/A`).
+    Both,
+}
+
+impl ShortFormLocation {
+    /// The canonical set-shorthand prefix: combined forms normalize to `I/A`
+    /// regardless of their order and separator (issue #959).
+    fn canonical_prefix(self) -> &'static str {
+        match self {
+            Self::Interior => "I",
+            Self::Exterior => "A",
+            Self::Both => "I/A",
+        }
+    }
+}
+
+/// Parse the German short form's location prefix and its time token out of an
+/// already uppercased, scene-label-stripped line (issue #959).
+///
+/// ```text
+/// short := LOC ( ('/' | '+') LOC '/' TOKEN )? '/' TOKEN
+/// LOC   := 'I' | 'A'
+/// TOKEN := 1..=2 ASCII alphabetic characters
+/// ```
+///
+/// One grammar serves **both** heading detection and mood parsing, so the two can
+/// never disagree about `"3 A+I/T - STRASSE"`: before this, the detector required
+/// a `/` directly after `I`/`A` and silently rejected every `A+I/T` and `I+A/T`
+/// heading, merging that scene into its predecessor.
+///
+/// Returns the location, the raw (un-normalized) time token and the byte offset
+/// where the token ends, so a caller can insist on a following separator.
+fn short_form_prefix(normalized: &str) -> Option<(ShortFormLocation, &str, usize)> {
+    let bytes = normalized.as_bytes();
+    let location_at = |index: usize| match bytes.get(index) {
+        Some(b'I') => Some(ShortFormLocation::Interior),
+        Some(b'A') => Some(ShortFormLocation::Exterior),
+        _ => None,
+    };
+    let mut location = location_at(0)?;
+    let mut index = 1_usize;
+    // Set when `LOC '/' X` was ambiguous: `X` could have been the second location
+    // of a combined form or the first letter of the time token (`I/AB`). The
+    // token then has to be a REAL one — see the check below.
+    let mut ambiguous = false;
+    match bytes.get(index) {
+        Some(b'/') => {
+            if location_at(index + 1).is_some() {
+                if bytes.get(index + 2) == Some(&b'/') {
+                    // `I/A/T`: a second LOC, followed by the time separator.
+                    location = ShortFormLocation::Both;
+                    index += 3;
+                } else {
+                    // `I/AB` / `A/AB`: the ordinary form whose time token merely
+                    // BEGINS with a location letter (`AB` = Abend). `A/I` alone
+                    // states no time of day and stays rejected — that is what the
+                    // ambiguity flag enforces below, since the generic token scan
+                    // would happily read `I` as a token.
+                    ambiguous = true;
+                    index += 1;
+                }
+            } else {
+                index += 1;
+            }
+        }
+        Some(b'+') => {
+            location_at(index + 1)?;
+            if bytes.get(index + 2) != Some(&b'/') {
+                return None;
+            }
+            location = ShortFormLocation::Both;
+            index += 3;
+        }
+        _ => return None,
+    }
+    let token_start = index;
+    let mut token_end = token_start;
+    while token_end < bytes.len() && bytes[token_end].is_ascii_alphabetic() {
+        token_end += 1;
+        if token_end - token_start > 2 {
+            return None;
+        }
+    }
+    if token_end == token_start {
+        return None;
+    }
+    // In the ambiguous `LOC '/' LOC-letter …` case the token has to be a real
+    // time token: `I/AB` is a heading, `A/I` is not (it names two locations and
+    // no time of day, and a bare `I`/`A` never normalizes to a time token).
+    if ambiguous && time_shorthand(&normalized[token_start..token_end]).is_none() {
+        return None;
+    }
+    Some((location, &normalized[token_start..token_end], token_end))
 }
 
 fn leading_scene_number(line: &str) -> Option<u32> {
@@ -3141,32 +3697,12 @@ pub fn parse_mood_from_heading(line: &str) -> Option<String> {
     } else if let Some(rest) = normalized.strip_prefix("AUSSEN ") {
         ("A", rest)
     } else {
-        // German short form `I/T` / `A/N`: the time token follows the `/`
-        // directly (same grammar as [`is_german_scene_heading`] — 1–2
-        // alphabetic characters, then a separator or end of line).
-        let mut chars = normalized.chars();
-        match (chars.next(), chars.next()) {
-            (Some('I') | Some('A'), Some('/')) => {}
-            _ => return None,
-        }
-        let location = if normalized.starts_with('I') {
-            "I"
-        } else {
-            "A"
-        };
-        let mut token = String::new();
-        for c in chars {
-            if c.is_ascii_alphabetic() {
-                token.push(c);
-                if token.len() > 2 {
-                    return None;
-                }
-            } else {
-                break;
-            }
-        }
-        let time = time_shorthand(&token)?;
-        return Some(format!("{location}/{time}"));
+        // German short form (`I/T`, `A/N`, combined `A+I/T`, `I/A/T`): the same
+        // grammar the heading detector uses, so a line the chunker splits always
+        // has a parsable mood and vice versa (issue #959).
+        let (location, token, _) = short_form_prefix(&normalized)?;
+        let time = time_shorthand(token)?;
+        return Some(format!("{}/{time}", location.canonical_prefix()));
     };
 
     // Long form: the LAST whitespace-separated word that normalizes into a

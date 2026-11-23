@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0
+# Copyright (C) 2024-2026 Breakdown RS Contributors
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
+#
+# Golden Corpus expectations (ADR-041 D8, issue #959).
+#
+# The PDFs themselves are confidential third-party IP and must never enter Git;
+# they live in the GDrive fixture folder that the nightly workflow reads. This
+# manifest is the ONE place that states what "the corpus" means, so a local run
+# and a CI run assert exactly the same thing:
+#
+#   AI_EVAL_CORPUS_DIR=~/Downloads/drive-download \
+#     cargo test -p infra --test ai_document_eval_corpus -- --nocapture
+#
+# Format: TAB-separated `file  kind  scenes  note`.
+#   kind   = script   → the zone-aware segmentation must produce exactly `scenes`
+#                       scene chunks, no continuation banner, and no
+#                       SceneIndex-vs-body drift.
+#            schedule → a shooting schedule: the script segmentation assertions
+#                       do not apply (it is read by the schedule worker).
+#   scenes = expected scene-chunk count for a script, ignored for a schedule.
+#
+# Every listed file MUST be present in AI_EVAL_CORPUS_DIR once the variable is
+# set: a partial corpus is a failure, not a silent skip. Extra PDFs in the
+# directory are still checked structurally (they just carry no count
+# expectation).
+292.pdf	script	40	Block 098 / Ep. 292
+293.pdf	script	42	Block 098 / Ep. 293
+294.pdf	script	43	Block 098 / Ep. 294
+Drehbuch_1.pdf	script	42	Drehbuch 1
+Drehbuch_2.pdf	script	42	Drehbuch 2
+Drehplan_1.pdf	schedule	0	Shooting schedule (schedule worker, not the script path)

@@ -20,11 +20,11 @@ use breakdown_core::ai::{
     LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan,
     PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot,
     ProviderBreakerState, ProviderHold, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan,
-    ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry,
-    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
+    ScriptContext, SegmentedScript, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk,
+    Telemetry, TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
     UncertaintyAcknowledgement, UncertaintyKind, UsageAccumulator, category_conflict_uncertainties,
-    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_block_number,
-    extract_scenes, mapping_kind, merge_schedule_to_scenes, parse_script_day, plan_scene_apply,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes_from_structured,
+    mapping_kind, merge_schedule_to_scenes, parse_script_day, plan_scene_apply,
     sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
 };
 use breakdown_core::character::commands::CreateCharacter;
@@ -507,12 +507,17 @@ where
     ///
     /// Without a store (tests, and a build without resume) the answer is
     /// `(0, empty, empty key)` — exactly the pre-#871 behaviour.
+    ///
+    /// The structural plan digest is the fourth fingerprint dimension (ADR-041
+    /// `D7`, issue #959): a retry that accepted a different anchor plan must
+    /// restart at chunk `0` instead of splicing two plans into one preview.
     async fn open_chunk_set(
         &self,
         job: &AiImportJob,
         worker_id: &str,
         effective_prompt: &str,
         chunk_count: u32,
+        segmented: &SegmentedScript,
     ) -> Result<(u32, HashMap<u32, StoredChunk>, String), DomainError> {
         let Some(store) = &self.chunks else {
             return Ok((0, HashMap::new(), String::new()));
@@ -527,6 +532,11 @@ where
             // different chunk boundaries, so a stored prefix must never resume
             // across two of them.
             parser_fingerprint: self.extractor.parser_fingerprint().to_owned(),
+            // ADR-041 D7 (issue #959): the accepted zone/anchor plan is part of
+            // what a chunk *is*, so a changed plan (another pass accepting
+            // different page zones or cut anchors) invalidates the stored
+            // prefix exactly like a changed parser does.
+            structural_plan_digest: super::chunk_store::structural_plan_digest(&segmented.plan),
         };
         let key = super::chunk_store::fingerprint_key(&fingerprint);
         // `begin_extraction` logs `#871 chunk resume invalidated` (with
@@ -567,19 +577,40 @@ where
                 "script worker received a non-script job",
             ));
         }
-        // ADR-041 D1: the port returns the structured IR; until issue #959
-        // switches segmentation over to zone-aware block slicing, the flattened
-        // view is what the line scanner consumes.
+        // ADR-041 D1/D3 (issues #958/#959): the port returns the structured IR
+        // and Pass 0 classifies its pages BEFORE a single chunk is cut. Only
+        // `ScriptBody` prose becomes a chunk, so the cast list, the
+        // `SCRIPT REPORT` index and the multi-page `SYNOPSIS` can no longer glue
+        // themselves onto the last scene — the bug that made the model invent
+        // scenes and dump episode-wide characters into the final one.
         let document = self
             .extractor
             .extract(pdf_bytes, breakdown_core::ai::ExtractionOptions::default())
             .await?;
-        self.process_text(job, worker_id, &scanner_text(&document))
-            .await
+        let segmented = extract_scenes_from_structured(&document);
+        self.process_segmented(job, worker_id, &segmented).await
     }
 
-    /// Process already extracted text. This seam keeps PDF subprocess tests
-    /// separate from deterministic worker tests.
+    /// Process already extracted **flat text**. This seam keeps PDF subprocess
+    /// tests separate from deterministic worker tests.
+    ///
+    /// The text is segmented through `SegmentedScript::from_flat_text`, i.e. the
+    /// single-zone (`ScriptBody`) seam: a caller that already has flat text has
+    /// no page structure to classify, and inventing one would change what the
+    /// existing string-level tests pin. Production goes through
+    /// [`Self::process`] → [`Self::process_segmented`] with the zone-aware
+    /// segmentation of the extracted document.
+    pub async fn process_text(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        text: &str,
+    ) -> Result<String, DomainError> {
+        let segmented = SegmentedScript::from_flat_text(text);
+        self.process_segmented(job, worker_id, &segmented).await
+    }
+
+    /// Process one already segmented script (ADR-041 `D3`, issue #959).
     ///
     /// A script job makes one LLM call per chunk (up to `max_chunks_per_script`
     /// of up to `request_timeout_secs` each), which far outlives a single lease
@@ -587,22 +618,22 @@ where
     /// runs, and the loop aborts as soon as the heartbeat reports the claim
     /// was lost — continuing would burn LLM spend on a job another worker has
     /// already taken over.
-    pub async fn process_text(
+    pub async fn process_segmented(
         &self,
         job: &AiImportJob,
         worker_id: &str,
-        text: &str,
+        segmented: &SegmentedScript,
     ) -> Result<String, DomainError> {
         let started = Instant::now();
         let heartbeat = self.start_heartbeat(job.id, worker_id);
-        let chunks = extract_scenes(text);
+        let chunks = &segmented.chunks;
         // The block the DOCUMENT states (issue #827), from the deterministic
         // `Block:` page-header scan — zero extra LLM tokens. Deliberately
         // separate from the job's import TARGET (`job.target`): "the script
         // says block 2" and "this import writes into block 1" are two facts,
         // and only keeping them apart lets a reviewer compare them before the
         // apply's cross-block guard would refuse the run.
-        let script_block = extract_block_number(text);
+        let script_block = segmented.block_number;
         let chunk_count = u32::try_from(chunks.len()).map_err(|error| {
             DomainError::validation(format!(
                 "script chunk count exceeds telemetry range: {error}"
@@ -711,7 +742,7 @@ where
         // configuration; a mismatch deletes them and restarts at chunk 0 rather
         // than resuming across two models, two prompts or two chunkings.
         let (resumed_from, stored, extraction_key) = self
-            .open_chunk_set(job, worker_id, &self.prompt, chunk_count)
+            .open_chunk_set(job, worker_id, &self.prompt, chunk_count, segmented)
             .await?;
         if resumed_from > 0 {
             // The bar must not snap back to zero (D-B5): the first frame already
@@ -763,7 +794,7 @@ where
             )
             .await,
         };
-        for (chunk_index, chunk) in chunks.into_iter().enumerate() {
+        for (chunk_index, chunk) in chunks.iter().enumerate() {
             // Issue #942 W1 follow-up: trial ownership is a fact about the NEXT
             // paid call, not about the whole attempt. A successful first chunk
             // closes the breaker through `record_success` — which clears the
@@ -1221,6 +1252,15 @@ where
         // once every chunk's rows are merged — collect them here, where the
         // whole preview exists, so the reviewer sees the conflict before the
         // apply instead of the plan's first-non-default reconciliation rule.
+        // Structural reconciliation findings (ADR-041 D3, issue #959): a scene
+        // the `SCRIPT REPORT` index lists but the body does not contain (or the
+        // reverse) is a code-keyed drift the reviewer must see BEFORE applying.
+        // `scene_index` is the CHUNK index the segmentation attached the finding
+        // to — the row the reviewer would look at for the gap, not a preview-row
+        // ordinal (a chunk can yield several rows).
+        context
+            .uncertainties
+            .extend(segmented.uncertainties.iter().cloned());
         context
             .uncertainties
             .extend(category_conflict_uncertainties(&context));
@@ -1477,7 +1517,7 @@ async fn compute_cost_snapshot(
 
 /// Source bytes of one chunk exactly as the model receives them (issue #762).
 ///
-/// `process_text` assembles the request body as `format!("{heading}\n{text}")`,
+/// `process_segmented` assembles the request body as `format!("{heading}\n{text}")`,
 /// so the byte budget must count those same three parts: a budget measured on
 /// the raw document would make the published fraction drift away from the work
 /// that is actually left.
@@ -1487,21 +1527,6 @@ fn source_text_len(chunk: &breakdown_core::ai::SceneChunk) -> usize {
         .len()
         .saturating_add(1)
         .saturating_add(chunk.text.len())
-}
-
-/// The document as the line scanner must see it.
-///
-/// [`StructuredDocument::flattened_text`] separates pages with a form feed,
-/// exactly as `pdftotext -layout` does — but `str::lines()` splits on `\n` only,
-/// so a form feed does not end a line. The spatial adapter's last block on a
-/// page carries no trailing newline, so without this mapping the last line of
-/// one page would fuse with the first heading of the next
-/// (`"Goodbye.\u{c}2 EXT. PARK - DAY"`) and the heading prefix check would miss
-/// the scene boundary. Mapping the page break onto a line break here keeps
-/// `flattened_text()` itself byte-identical to the legacy output; the legacy
-/// path gains one blank line, which the scanner trims.
-pub(super) fn scanner_text(document: &breakdown_core::ai::StructuredDocument) -> String {
-    document.flattened_text().replace('\u{c}', "\n")
 }
 
 /// The job was reclaimed by another worker while this one was still working.

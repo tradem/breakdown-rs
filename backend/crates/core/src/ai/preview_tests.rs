@@ -2900,6 +2900,50 @@ Aktion.
 }
 
 #[test]
+fn a_day_column_below_the_heading_dates_that_scene() {
+    // The observed broadcast layout prints the day column UNDER its slug. Read
+    // as "the day of the FOLLOWING scenes", the first scene of the script stayed
+    // undated and every scene after a day change was dated one day late.
+    let document = "\
+1 I/T - KLINIKUM
+Tag 1
+Aktion eins.
+
+2 I/T - FLUR
+Tag 1
+Aktion zwei.
+
+3 A/T - PARKPLATZ
+Tag 2
+Aktion drei.
+";
+    let chunks = SceneChunk::extract_scenes(document);
+    assert_eq!(chunks.len(), 3);
+    assert_eq!(day_number(&chunks[0]), Some(1));
+    assert_eq!(day_number(&chunks[1]), Some(1));
+    assert_eq!(day_number(&chunks[2]), Some(2));
+
+    // A column that stands apart from every heading still labels the scenes
+    // BELOW it (a group header), so both layouts are honoured.
+    let grouped = "\
+Tag 1
+
+1 I/T - KLINIKUM
+Aktion eins.
+
+2 I/T - FLUR
+Aktion zwei.
+";
+    let chunks = SceneChunk::extract_scenes(grouped);
+    assert_eq!(day_number(&chunks[0]), Some(1));
+    assert_eq!(day_number(&chunks[1]), Some(1));
+}
+
+fn day_number(chunk: &SceneChunk) -> Option<i32> {
+    chunk.shooting_day.as_ref().and_then(|day| day.number)
+}
+
+#[test]
 fn old_preview_without_shooting_day_still_loads() {
     // Additive wire convention: a preview stored before `shooting_day`
     // existed keeps deserializing (serde default), and an old-model
@@ -3861,4 +3905,617 @@ fn reconciliation_counters_round_trip_through_the_preview_payload() {
     assert!(encoded.contains("\"scenes_detected\":57"));
     let decoded: ScriptContext = serde_json::from_str(&encoded).expect("payload round trips");
     assert_eq!(decoded, context);
+}
+
+// ===========================================================================
+// Zone-aware segmentation (ADR-041 D3/D7, issue #959)
+// ===========================================================================
+
+use crate::ai::document::{BlockKind, NormalizedBBox, StructuredDocument, StructuredPage};
+
+/// One page carrying `text` in the body band (left margin, no indentation).
+fn zoning_page(number: u32, text: &str) -> StructuredPage {
+    let mut page = StructuredPage::new(number, 595.0, 842.0);
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.85),
+        text,
+    );
+    page
+}
+
+/// The `SCRIPT REPORT` index page: one heading per scene plus its day column.
+fn index_page(number: u32, scenes: u32) -> StructuredPage {
+    let mut text = String::from("SCRIPT REPORT\n");
+    for scene in 1..=scenes {
+        text.push_str(&format!("{scene} I/T - ORT {scene}\nTag 1\n"));
+    }
+    zoning_page(number, &text)
+}
+
+/// A script-body page: `scenes` headings, each with a full-length action line.
+fn body_page(number: u32, scenes: impl Iterator<Item = u32>) -> StructuredPage {
+    let mut text = String::new();
+    for scene in scenes {
+        text.push_str(&format!(
+            "{scene} I/T - DREHORT {scene}\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n"
+        ));
+    }
+    zoning_page(number, &text)
+}
+
+/// The observed broadcast layout, scaled down: cover, cast list, `SCRIPT REPORT`
+/// index `1..=scene_count`, two `SYNOPSIS` pages, then body pages carrying the
+/// same scenes plus a page-break continuation banner.
+fn zoning_fixture(scene_count: u32, body_scene_count: u32) -> StructuredDocument {
+    let title = zoning_page(1, "(294) \"Freundschaft\"\nBlock: 098/Ep.: 294");
+    let cast = zoning_page(2, "PERSONEN/ HAUPTCAST\nDr. Koch\nLEYLA\nKOMPARSEN\nJonas");
+    let index = index_page(3, scene_count);
+    let synopsis_one = zoning_page(
+        4,
+        "SYNOPSIS\nLeyla kehrt nach zwanzig Jahren in die Klinik zurück und trifft dort auf den Mann, der ihr Leben zerstört hat.",
+    );
+    let synopsis_two = zoning_page(
+        5,
+        "MEDIZINISCHE FÄLLE\nDie junge Ärztin übernimmt die Station und gerät zwischen die Fronten der beiden Chefärzte.",
+    );
+    // The body: two scenes per page, with a continuation banner between them.
+    let mut pages = vec![title, cast, index, synopsis_one, synopsis_two];
+    let mut next_page = 6_u32;
+    let mut scene = 1_u32;
+    while scene <= body_scene_count {
+        let upper = (scene + 1).min(body_scene_count);
+        let mut text = String::new();
+        for number in scene..=upper {
+            text.push_str(&format!(
+                "{number} I/T - DREHORT {number}\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n"
+            ));
+        }
+        // A page-turn banner must never reach the chunk text.
+        text.push_str(&format!("{upper} CONTINUED: (2)\n"));
+        pages.push(zoning_page(next_page, &text));
+        next_page += 1;
+        scene = upper + 1;
+    }
+    StructuredDocument::new("poppler-spatial-v1", pages)
+}
+
+#[test]
+fn a_multi_zone_screenplay_yields_one_chunk_per_body_scene_and_no_front_matter() {
+    let document = zoning_fixture(42, 42);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(
+        segmented.chunks.len(),
+        42,
+        "only `ScriptBody` scenes make chunks: the index lists the same 42"
+    );
+    for chunk in &segmented.chunks {
+        for leaked in [
+            "SYNOPSIS",
+            "MEDIZINISCHE FÄLLE",
+            "SCRIPT REPORT",
+            "HAUPTCAST",
+            "Block: 098",
+            "CONTINUED",
+            "zwanzig Jahren",
+            "zwischen die Fronten",
+        ] {
+            assert!(
+                !chunk.text.contains(leaked),
+                "chunk {:?} leaked front matter {leaked:?}: {:?}",
+                chunk.heading,
+                chunk.text
+            );
+        }
+        assert!(
+            !chunk.text.contains("CONTINUED"),
+            "the page-turn banner must be stripped: {:?}",
+            chunk.text
+        );
+    }
+    // The last scene must not swallow six pages of synopsis (the bug this change
+    // exists for): its text is its own action line and nothing else.
+    let last = segmented.chunks.last().expect("42 chunks");
+    assert_eq!(last.scene_number, Some(42));
+    assert!(
+        last.text.lines().count() <= 2,
+        "scene 42 carries its own prose only: {:?}",
+        last.text
+    );
+    // Header harvest: the block number comes from a page that carries no scene.
+    assert_eq!(segmented.block_number, Some(98));
+    assert_eq!(
+        segmented.chunks[0]
+            .episode
+            .as_ref()
+            .and_then(|ep| ep.number),
+        Some(294)
+    );
+    assert_eq!(
+        segmented.chunks[0]
+            .episode
+            .as_ref()
+            .and_then(|ep| ep.title.as_deref()),
+        Some("Freundschaft")
+    );
+    // Index and body agree, so there is no structural uncertainty at all.
+    assert!(segmented.uncertainties.is_empty());
+}
+
+#[test]
+fn a_scene_missing_from_the_body_is_reported_against_the_index() {
+    // The index lists 42 scenes, the body contains only 41: the old pipeline
+    // silently produced a 41-row preview, leaving the reviewer to guess.
+    let document = zoning_fixture(42, 41);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 41);
+    assert_eq!(
+        segmented.uncertainties.len(),
+        1,
+        "{:?}",
+        segmented.uncertainties
+    );
+    let uncertainty = &segmented.uncertainties[0];
+    assert_eq!(uncertainty.field, "scene_number");
+    assert_eq!(uncertainty.suggested_value.as_deref(), Some("42"));
+    assert_eq!(uncertainty.kind, UncertaintyKind::FieldAmbiguity);
+    assert!(
+        uncertainty.note.contains("missing from the script body"),
+        "note must name the drift: {}",
+        uncertainty.note
+    );
+    // The finding sits next to the last row, not on row 0.
+    assert_eq!(uncertainty.scene_index, 40);
+}
+
+#[test]
+fn a_body_scene_absent_from_the_index_is_reported_too() {
+    // Same fixture, but the index stops at 41 while the body has 42.
+    let document = zoning_fixture(41, 42);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 42);
+    assert_eq!(
+        segmented.uncertainties.len(),
+        1,
+        "{:?}",
+        segmented.uncertainties
+    );
+    let uncertainty = &segmented.uncertainties[0];
+    assert_eq!(uncertainty.field, "scene_number");
+    assert_eq!(uncertainty.suggested_value.as_deref(), Some("42"));
+    assert_eq!(uncertainty.scene_index, 41);
+    assert!(uncertainty.note.contains("not in the scene index"));
+}
+
+/// A page whose first block is a running header, so an episode marker can sit
+/// where the real documents print it.
+fn page_with_header(number: u32, header: &str, text: &str) -> StructuredPage {
+    let mut page = StructuredPage::new(number, 595.0, 842.0);
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.10, 0.03, 0.60, 0.06),
+        header,
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.85),
+        text,
+    );
+    page
+}
+
+#[test]
+fn a_body_scene_without_a_day_column_inherits_its_own_index_day() {
+    // CodeRabbit review (data integrity): the index states `Tag 1` for scene 1
+    // and `Tag 2` for scene 2, the body states no day at all. Harvesting the
+    // index columns into ONE day-in-effect left the last index day on every body
+    // scene, so scene 1 was planned on day 2.
+    let index = zoning_page(
+        1,
+        "SCRIPT REPORT\n1 I/T - ORT 1\nTag 1\n2 I/T - ORT 2\nTag 2",
+    );
+    let body = zoning_page(
+        2,
+        "1 I/T - DREHORT 1\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n\
+         2 I/T - DREHORT 2\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![index, body]);
+    let segmented = extract_scenes_from_structured(&document);
+    let days: Vec<Option<i32>> = segmented
+        .chunks
+        .iter()
+        .map(|chunk| chunk.shooting_day.as_ref().and_then(|day| day.number))
+        .collect();
+    assert_eq!(days, vec![Some(1), Some(2)], "{:?}", segmented.chunks);
+    // The index and the body agree on both labels, so no uncertainty is raised.
+    assert!(
+        segmented.uncertainties.is_empty(),
+        "{:?}",
+        segmented.uncertainties
+    );
+}
+
+#[test]
+fn a_body_day_column_still_wins_over_the_index() {
+    // The body is authoritative about its own day: a page header `Tag 3` must
+    // keep beating the `Tag 1` the index lists for the same scene.
+    let index = zoning_page(1, "SCRIPT REPORT\n1 I/T - ORT 1\nTag 1");
+    let body = page_with_header(
+        2,
+        "Block 098 Ep.: 294/1",
+        "Tag 3\n1 I/T - DREHORT 1\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![index, body]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(
+        segmented.chunks[0]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(3),
+        "{:?}",
+        segmented.chunks
+    );
+}
+
+#[test]
+fn an_inherited_body_day_never_beats_the_index_day_of_its_own_scene() {
+    // CodeRabbit review: scene 1 states `Tag 1` in the body, scene 2 states
+    // nothing. Inheriting the day in effect dated scene 2 as `Tag 1` even though
+    // the index lists `Tag 2` for it — an INHERITED day is not this scene's day.
+    let index = zoning_page(
+        1,
+        "SCRIPT REPORT\n1 I/T - ORT 1\nTag 1\n2 I/T - ORT 2\nTag 2",
+    );
+    let body = zoning_page(
+        2,
+        "1 I/T - DREHORT 1\nTag 1\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n\
+         2 I/T - DREHORT 2\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![index, body]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(
+        segmented.chunks[0]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(1)
+    );
+    assert_eq!(
+        segmented.chunks[1]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(2),
+        "scene 2 inherits nothing: its index entry says Tag 2"
+    );
+}
+
+#[test]
+fn a_top_band_slug_the_spatial_adapter_tags_as_header_still_starts_a_scene() {
+    // The spatial adapter tags EVERY top-band block `PageHeader`
+    // (`crates/infra/src/ai/spatial_pdf.rs`), so the band alone cannot decide:
+    // a slug printed at the very top of a page is scene content, a running header
+    // is not. Without the promotion the whole first scene of such a page is lost.
+    let mut page = StructuredPage::new(1, 595.0, 842.0);
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.092, 0.033, 0.551, 0.046),
+        "In aller Freundschaft - Die jungen Ärzte",
+    );
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.776, 0.033, 0.900, 0.058),
+        "Block 098\nEp.: 294/1",
+    );
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.100, 0.070, 0.900, 0.088),
+        "12 A/T - MALERISCHER BAUERNHOF",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.100, 0.120, 0.900, 0.400),
+        "Leyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![page]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 1, "{:?}", segmented.chunks);
+    assert_eq!(
+        segmented.chunks[0].heading,
+        "12 A/T - MALERISCHER BAUERNHOF"
+    );
+    assert_eq!(segmented.chunks[0].scene_number, Some(12));
+    assert_eq!(
+        segmented.chunks[0].text,
+        "Leyla steigt aus dem Wagen und blickt über den Hof."
+    );
+}
+
+#[test]
+fn a_page_header_day_never_redates_the_previous_pages_last_scene() {
+    // CodeRabbit review: page 1 ends with a scene (still "freshly opened" when
+    // page 2 starts), page 2 opens with a running header stating `Tag 2`. A
+    // HEADER line dates the scenes that follow it, never the previous page's
+    // last scene.
+    let mut first = StructuredPage::new(1, 595.0, 842.0);
+    first.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.85),
+        "1 I/T - ORT\nTag 1\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.",
+    );
+    let mut second = StructuredPage::new(2, 595.0, 842.0);
+    second.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.10, 0.030, 0.60, 0.058),
+        "Block 098 Ep.: 294/2",
+    );
+    second.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.10, 0.062, 0.40, 0.080),
+        "Tag 2",
+    );
+    second.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.85),
+        "2 I/T - FLUR\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![first, second]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 2, "{:?}", segmented.chunks);
+    assert_eq!(
+        segmented.chunks[0]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(1),
+        "the page-2 header must not re-date the page-1 scene"
+    );
+    assert_eq!(
+        segmented.chunks[1]
+            .shooting_day
+            .as_ref()
+            .and_then(|day| day.number),
+        Some(2),
+        "the header still dates the scenes that follow it"
+    );
+}
+
+#[test]
+fn a_scene_label_is_reconciled_within_its_episode() {
+    // CodeRabbit review: episodes 294 and 295 both contain a scene `1`. A
+    // label-only comparison called the pair reconciled as soon as ONE of them
+    // existed, so a scene missing from episode 295 was never reported.
+    let index = zoning_page(1, "SCRIPT REPORT\nBlock 098 Ep.: 294/1\n1 I/T - ORT 1");
+    let body_294 = zoning_page(
+        2,
+        "1 I/T - DREHORT 1\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.",
+    );
+    let body_295 = zoning_page(
+        3,
+        "Ep.: 295\n1 I/T - DREHORT 1\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![index, body_294, body_295]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 2);
+    assert_eq!(
+        segmented.uncertainties.len(),
+        1,
+        "episode 295's scene 1 is NOT the scene the index lists: {:?}",
+        segmented.uncertainties
+    );
+    let uncertainty = &segmented.uncertainties[0];
+    assert_eq!(uncertainty.field, "scene_number");
+    assert_eq!(uncertainty.scene_index, 1);
+    assert!(uncertainty.note.contains("not in the scene index"));
+}
+
+#[test]
+fn an_unscoped_index_still_matches_on_the_label_alone() {
+    // The counterpart: an index that states no episode is compared by label, so
+    // an episode-scoped body does not drown the reviewer in false findings.
+    let index = zoning_page(1, "SCRIPT REPORT\n1 I/T - ORT 1");
+    let body = zoning_page(
+        2,
+        "Ep.: 295\n1 I/T - DREHORT 1\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![index, body]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert!(
+        segmented.uncertainties.is_empty(),
+        "{:?}",
+        segmented.uncertainties
+    );
+}
+
+#[test]
+fn a_body_without_scene_numbers_reports_the_unreconciled_index_once() {
+    // CodeRabbit review: the index lists numbered scenes, the body headings state
+    // none (`INT. ROOM - DAY`). The old guard returned no finding at all, so a
+    // scene listed by the index looked "present".
+    let index = zoning_page(1, "SCRIPT REPORT\n1 I/T - ORT 1\n2 I/T - ORT 2");
+    let body = zoning_page(
+        2,
+        "INT. KÜCHE - TAG\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n\
+         EXT. HOF - NACHT\nMatteo hebt den Rucksack auf und nickt ihr langsam zu.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![index, body]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 2);
+    assert_eq!(
+        segmented.uncertainties.len(),
+        1,
+        "one document-level finding, not one per index row: {:?}",
+        segmented.uncertainties
+    );
+    let uncertainty = &segmented.uncertainties[0];
+    assert_eq!(uncertainty.field, "scene_number");
+    assert_eq!(uncertainty.scene_index, 0);
+    assert_eq!(uncertainty.suggested_value, None);
+    assert!(
+        uncertainty.note.contains("could not be reconciled"),
+        "{}",
+        uncertainty.note
+    );
+}
+
+#[test]
+fn combined_plus_and_slash_headings_split_and_normalize_to_the_canonical_mood() {
+    let mut body = zoning_page(
+        1,
+        "3 A+I/T - STRASSE + KLINIKUM\nLeyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    body.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.60, 0.90, 0.80),
+        "42 I+A/T - HAUPTEINGANG\nSie geht langsam durch die Tür und schweigt.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![body]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(
+        segmented.chunks.len(),
+        2,
+        "both combined headings are scene boundaries: {:?}",
+        segmented
+            .chunks
+            .iter()
+            .map(|chunk| chunk.heading.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(segmented.chunks[0].scene_number, Some(3));
+    assert_eq!(segmented.chunks[0].mood.as_deref(), Some("I/A/T"));
+    assert_eq!(segmented.chunks[1].scene_number, Some(42));
+    assert_eq!(segmented.chunks[1].mood.as_deref(), Some("I/A/T"));
+}
+
+#[test]
+fn an_abend_token_never_reads_as_a_second_location() {
+    // CodeRabbit review: the combined-form grammar treated the `A` of `I/AB` as a
+    // second location and then demanded another `/`, so every `I/AB` (Innen,
+    // Abend) heading was silently merged into its predecessor.
+    for (heading, mood) in [
+        ("2 I/AB - KÜCHE", "I/AB"),
+        ("2 A/AB - KÜCHE", "A/AB"),
+        ("2 I/AB - KÜCHE/THEKE", "I/AB"),
+        ("2 I/A/AB - KÜCHE", "I/A/AB"),
+    ] {
+        assert!(is_scene_heading(heading), "{heading:?} must stay a heading");
+        assert_eq!(
+            parse_mood_from_heading(heading).as_deref(),
+            Some(mood),
+            "mood of {heading:?}"
+        );
+    }
+    // `A/I` names two locations and no time of day: no heading, no mood — that
+    // rejection is deliberate, not an accident of the old branch.
+    assert!(!is_scene_heading("2 A/I - STRASSE"));
+    assert_eq!(parse_mood_from_heading("2 A/I - STRASSE"), None);
+    // And a word that merely starts with the letters stays rejected.
+    assert!(!is_scene_heading("2 I/TAXI - KÜCHE"));
+
+    // End to end: the `I/AB` scene starts its own chunk instead of vanishing into
+    // the previous scene's text.
+    let chunks =
+        SceneChunk::extract_scenes("1 I/T - BAUERNHOF\nAktion.\n\n2 I/AB - KÜCHE\nAktion.");
+    assert_eq!(chunks.len(), 2, "{chunks:?}");
+    assert_eq!(chunks[1].mood.as_deref(), Some("I/AB"));
+}
+
+#[test]
+fn every_combined_heading_spelling_normalizes_to_the_same_mood() {
+    for (heading, expected) in [
+        ("3 A+I/T - STRASSE", Some("I/A/T")),
+        ("3 I+A/T - STRASSE", Some("I/A/T")),
+        ("3 A/I/T - STRASSE", Some("I/A/T")),
+        ("3 I/A/T - STRASSE", Some("I/A/T")),
+        ("3 A+I/N - STRASSE", Some("I/A/N")),
+        ("3 I/T - STRASSE", Some("I/T")),
+        ("3 A/N - STRASSE", Some("A/N")),
+        // Not headings / not moods: a location pair without a time token, and a
+        // heading without any parsable time token.
+        ("3 A/I - STRASSE", None),
+        ("3 I/TAGES - STRASSE", None),
+    ] {
+        assert_eq!(
+            parse_mood_from_heading(heading),
+            expected.map(str::to_owned),
+            "mood of {heading:?}"
+        );
+    }
+}
+
+#[test]
+fn a_page_break_never_fuses_the_last_line_with_the_next_heading() {
+    // The spatial adapter's last block on a page carries no trailing newline; the
+    // line-based scanner had to rewrite form feeds into newlines to avoid
+    // `"Goodbye.2 EXT. PARK - DAY"`. Block slicing makes that structurally
+    // impossible — assert it, because a regression here silently loses a scene.
+    let first = zoning_page(1, "1 INT. KITCHEN - DAY\nGoodbye.");
+    let second = zoning_page(2, "2 EXT. PARK - DAY\nAlice waits.");
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![first, second]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 2);
+    assert_eq!(segmented.chunks[0].text, "Goodbye.");
+    assert_eq!(segmented.chunks[1].heading, "2 EXT. PARK - DAY");
+    assert_eq!(segmented.chunks[1].text, "Alice waits.");
+}
+
+#[test]
+fn the_plan_records_the_accepted_zones_and_cut_anchors() {
+    let document = zoning_fixture(4, 4);
+    let segmented = extract_scenes_from_structured(&document);
+    let canonical = segmented.plan_canonical_form();
+    assert!(
+        canonical.starts_with("P01|title_page|"),
+        "plan: {canonical}"
+    );
+    assert!(canonical.contains("P03|scene_index|"), "plan: {canonical}");
+    assert!(canonical.contains("P04|front_matter|"), "plan: {canonical}");
+    assert!(
+        canonical.contains("P06|script_body|P06.B00"),
+        "plan: {canonical}"
+    );
+    // Deterministic: the same document segments to the same plan, which is why a
+    // retry can resume its stored prefix.
+    assert_eq!(
+        segmented.plan_canonical_form(),
+        extract_scenes_from_structured(&document).plan_canonical_form()
+    );
+    // And a different ZONING yields a different plan even when the scenes are
+    // the same: that is exactly the invalidation the digest must catch.
+    let unzoned = StructuredDocument::new("poppler-spatial-v1", vec![body_page(1, 1..=4)]);
+    assert_ne!(
+        segmented.plan_canonical_form(),
+        extract_scenes_from_structured(&unzoned).plan_canonical_form()
+    );
+}
+
+#[test]
+fn the_flat_text_seam_reports_a_constant_anchorless_plan() {
+    // The flat seam has no blocks, so its plan must not claim any: a constant
+    // canonical form is the honest statement, and it keeps the pre-#959
+    // string-level behaviour (the index merge test above relies on it).
+    let flat = SegmentedScript::from_flat_text("1 I/T - ORT\nText.");
+    assert_eq!(flat.chunks.len(), 1);
+    assert_eq!(flat.plan_canonical_form(), "P01|script_body|\n");
+    assert!(flat.uncertainties.is_empty());
+    assert_eq!(flat.block_number, None);
+}
+
+#[test]
+fn a_document_without_a_recognised_script_page_still_segments() {
+    // Widened fallback: no `ScriptBody` verdict, so every page is scanned rather
+    // than the whole import failing with "no scene heading".
+    let document = StructuredDocument::new(
+        "poppler-spatial-v1",
+        vec![zoning_page(
+            1,
+            "SYNOPSIS\n1 I/T - ORT\nLeyla geht langsam über den Hof und bleibt stehen.",
+        )],
+    );
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 1);
+    // Widened, but the cut anchor is still recorded: the plan states what the
+    // segmentation actually did, not what the zone pass wished for.
+    assert_eq!(segmented.plan_canonical_form(), "P01|script_body|P01.B00\n");
 }

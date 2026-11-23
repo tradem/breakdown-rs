@@ -60,6 +60,7 @@ fn fingerprint(model: &str, prompt: &str) -> ExtractionFingerprint {
         prompt_hash: prompt_hash(prompt),
         chunker_version: CHUNKER_VERSION,
         parser_fingerprint: "poppler-spatial-v1".to_owned(),
+        structural_plan_digest: "plan-digest".to_owned(),
     }
 }
 

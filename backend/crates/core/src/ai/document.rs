@@ -374,12 +374,14 @@ impl StructuredDocument {
     /// The document as flat text: block texts joined by a newline inside a page
     /// and pages separated by a form feed (`\u{c}`).
     ///
-    /// This is the compatibility seam for the pre-ADR-041 line-based path: for
-    /// the legacy `pdftotext -layout` adapter the result is byte-identical to
-    /// that adapter's raw output, so `extract_scenes(&str)` keeps seeing
-    /// exactly what it saw before the hexagonal split. Zone-aware segmentation
-    /// (issue #959) replaces this with verbatim block slicing and deletes these
-    /// call sites.
+    /// The compatibility seam of the pre-ADR-041 line-based path, kept for two
+    /// callers: the **flat-text segmentation seam**
+    /// (`preview::SegmentedScript::from_flat_text`, which must keep seeing
+    /// exactly the string the string-level unit tests pin — for the legacy
+    /// `pdftotext -layout` adapter that is byte-identical to its raw output) and
+    /// the line-based schedule reader. Script segmentation itself no longer uses
+    /// it: `preview::extract_scenes_from_structured` slices the blocks verbatim
+    /// per page (ADR-041 `D3`, issue #959).
     #[must_use]
     pub fn flattened_text(&self) -> String {
         let mut out = String::new();
@@ -474,6 +476,792 @@ impl RenderedPage {
             page_number,
             png_bytes,
         }
+    }
+}
+
+// ===========================================================================
+// Pass 0 — page zoning (ADR-041 `D3`/`D4`, issue #959)
+// ===========================================================================
+//
+// A real broadcast screenplay is not one text: it opens with a cover page, a
+// cast directory, a `"SCRIPT REPORT"` scene index and several pages of
+// `"SYNOPSIS"` prose before the first scene. Scanning that flat string from
+// line 1 glues the synopsis onto the last index entry, and the index entries
+// themselves double every scene until the duplicate merge folds them back. The
+// zone pass therefore labels each page ONCE, and the segmentation that follows
+// reads only `SceneBody` prose (see `crate::ai::preview`).
+
+/// Semantic zone of one page (ADR-041 `D3`).
+///
+/// The spelling of [`Self::as_str`] is part of the persisted structural plan, so
+/// it must never be renamed without a plan-digest change (which is exactly what
+/// the digest is for).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PageZone {
+    /// Cover page: production/episode metadata, no scene and no dialogue.
+    TitlePage,
+    /// Cast directory page (`"PERSONEN/ HAUPTCAST"`, `"KOMPARSEN"`, …).
+    CastList,
+    /// Scene index / manifest (`"SCRIPT REPORT"`, heading-only entries).
+    SceneIndex,
+    /// Narrative front matter that carries no scenes (`"SYNOPSIS"`,
+    /// `"MEDIZINISCHE FÄLLE"`, character bios).
+    FrontMatter,
+    /// The script itself: scene headings with action and dialogue.
+    ScriptBody,
+}
+
+impl PageZone {
+    /// Stable spelling for the persisted structural plan (issue #959).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TitlePage => "title_page",
+            Self::CastList => "cast_list",
+            Self::SceneIndex => "scene_index",
+            Self::FrontMatter => "front_matter",
+            Self::ScriptBody => "script_body",
+        }
+    }
+
+    /// Whether this page may emit scene prose.
+    #[must_use]
+    pub const fn is_script_body(self) -> bool {
+        matches!(self, Self::ScriptBody)
+    }
+}
+
+/// The role one line plays inside its block, after the Pass 0 filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LineRole {
+    /// Prose the scene chunk may contain: a heading, action or dialogue line.
+    Body,
+    /// Running-header band (`"Block 098"`, `"Ep.: 292/1"`): harvested for
+    /// metadata, never part of scene prose.
+    Header,
+    /// Footer band, typically the page number.
+    Footer,
+    /// Page-turn continuation banner (`"2 CONTINUED: (2)"`, `"FORTSETZUNG"`).
+    Continuation,
+}
+
+impl LineRole {
+    /// Whether this line may enter a [`crate::ai::preview::SceneChunk`]'s text.
+    #[must_use]
+    pub const fn is_body(self) -> bool {
+        matches!(self, Self::Body)
+    }
+}
+
+/// What the Pass 0 scan found on one page.
+///
+/// The counters are kept (not just the verdict) because they are what makes a
+/// wrong zone explainable in a log line or a corpus report: `"page 12: 0
+/// headings, 0 dialogue lines → front_matter"` is a diagnosis, `front_matter`
+/// alone is a mystery.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageZoneRecord {
+    pub page_number: u32,
+    pub zone: PageZone,
+    /// Lines that look like scene headings (the caller supplies the detector).
+    pub heading_lines: u32,
+    /// Indented cue/dialogue lines (geometry) or cue-shaped lines (flat text).
+    pub dialogue_lines: u32,
+    /// The banner that decided the zone (`"SCRIPT REPORT"`, `"SYNOPSIS"`…).
+    pub banner: Option<String>,
+}
+
+/// The Pass 0 verdict: one [`PageZoneRecord`] per page, in document order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentZones {
+    pages: Vec<PageZoneRecord>,
+    /// Set when the deterministic pass recognised no `ScriptBody` page at all
+    /// and every page was therefore treated as script prose (see
+    /// [`Self::fell_back_to_script_body`]).
+    fell_back: bool,
+}
+
+impl DocumentZones {
+    /// A uniform verdict: every page `1..=page_count` gets `zone`.
+    ///
+    /// This is the flat-text seam's verdict (`preview::SegmentedScript::from_flat_text`
+    /// wraps one string in one page and must keep scanning it exactly as the
+    /// pre-#959 line scanner did — classifying that page by banner or heading
+    /// shape would *change* the string-level behaviour the existing unit tests
+    /// pin). The counters stay `0`, which is honest: no page was examined.
+    #[must_use]
+    pub fn uniform(page_count: u32, zone: PageZone) -> Self {
+        Self {
+            pages: (1..=page_count)
+                .map(|page_number| PageZoneRecord {
+                    page_number,
+                    zone,
+                    heading_lines: 0,
+                    dialogue_lines: 0,
+                    banner: None,
+                })
+                .collect(),
+            fell_back: false,
+        }
+    }
+
+    /// The record of one 1-based page.
+    #[must_use]
+    pub fn page(&self, page_number: u32) -> Option<&PageZoneRecord> {
+        self.pages
+            .iter()
+            .find(|page| page.page_number == page_number)
+    }
+
+    /// The zone of a page; [`PageZone::ScriptBody`] for a page the pass never
+    /// saw (a caller asking about a page outside the document gets the honest
+    /// "treat it as prose" answer, never a silently dropped page).
+    #[must_use]
+    pub fn zone_of(&self, page_number: u32) -> PageZone {
+        self.page(page_number)
+            .map_or(PageZone::ScriptBody, |record| record.zone)
+    }
+
+    /// Every page record, in document order.
+    #[must_use]
+    pub fn pages(&self) -> &[PageZoneRecord] {
+        &self.pages
+    }
+
+    /// Whether at least one page was classified as script body.
+    #[must_use]
+    pub fn has_script_body(&self) -> bool {
+        self.pages.iter().any(|page| page.zone.is_script_body())
+    }
+
+    /// Whether the deterministic pass recognised no script page and the caller
+    /// fell back to "every page is prose".
+    ///
+    /// This is the honest degradation the ADR-041 `D3` fallback seam names: an
+    /// unfamiliar template must produce scene prose (possibly noisy, trimmed by
+    /// the continuation filter) instead of an empty preview. A caller that
+    /// observes this flag is the one expected to reach for the VLM structural
+    /// pass (issue #960) — until it exists, the flag is the signal to log.
+    #[must_use]
+    pub fn fell_back_to_script_body(&self) -> bool {
+        self.fell_back
+    }
+
+    /// Widen every page to [`PageZone::ScriptBody`].
+    ///
+    /// Called by the segmentation when [`Self::has_script_body`] is `false`: a
+    /// document whose cover/cast/synopsis banners were all recognised but whose
+    /// body used a heading convention this build does not know would otherwise
+    /// segment to zero scenes and fail the whole import. Widening degrades to
+    /// the pre-#959 behaviour (one flat scan) instead of refusing the document.
+    pub fn widen_to_script_body(&mut self) {
+        for page in &mut self.pages {
+            page.zone = PageZone::ScriptBody;
+            page.banner = None;
+        }
+        self.fell_back = true;
+    }
+}
+
+/// One line of the document together with the zoning it received.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ZonedLine<'a> {
+    pub page_number: u32,
+    pub zone: PageZone,
+    /// The block this line came from — the anchor a structural plan records.
+    pub anchor: BlockAnchor,
+    pub role: LineRole,
+    pub text: &'a str,
+}
+
+impl ZonedLine<'_> {
+    /// Whether this line may enter scene prose: it must sit in the script body
+    /// AND be a body line (not a header, footer or continuation banner).
+    #[must_use]
+    pub fn is_scene_prose(self) -> bool {
+        self.zone.is_script_body() && self.role.is_body()
+    }
+}
+
+/// Page banners that mark a scene index / manifest page. Compared against the
+/// trimmed uppercase line start, as a whole word.
+const SCENE_INDEX_BANNERS: [&str; 2] = ["SCRIPT REPORT", "SZENENÜBERSICHT"];
+
+/// Page banners that open a cast directory section.
+const CAST_LIST_BANNERS: [&str; 9] = [
+    "PERSONEN",
+    "HAUPTCAST",
+    "EPISODENHAUPTROLLEN",
+    "HAUPTROLLEN",
+    "GASTROLLEN",
+    "DARSTELLER",
+    "KOMPARSEN",
+    "STATISTEN",
+    "CAST",
+];
+
+/// Page banners that open narrative front matter carrying no scenes.
+const FRONT_MATTER_BANNERS: [&str; 4] = ["SYNOPSIS", "EXPOSÉ", "EXPOSE", "MEDIZINISCHE FÄLLE"];
+
+/// A page needs at least this many heading lines — and zero dialogue lines — to
+/// be read as an index without a banner. Below it, a heading-only page is a
+/// script page whose scene simply continues (two- or three-scene pages are the
+/// norm in the body).
+const MIN_INDEX_HEADINGS: u32 = 6;
+
+/// Left edge (`bbox.x0`) from which a block counts as indented — the character
+/// cue (`0.35..0.45`) and dialogue (`0.25..0.32`) columns of a screenplay.
+const INDENT_MIN_X0: f32 = 0.22;
+
+/// Longest line still accepted as a character cue by the flat-text heuristic.
+const CHARACTER_CUE_MAX_CHARS: usize = 32;
+
+/// Shortest line that still counts as prose when deciding whether a page is a
+/// body-less index. A scene-index entry is a heading plus a short day column
+/// (`"Tag 1"`, `"1. Spieltag"`); a script page carries full action sentences.
+const PROSE_MIN_CHARS: usize = 32;
+
+/// Classify every page of `document` into a [`PageZone`] (ADR-041 `D3`, issue
+/// #959).
+///
+/// Deterministic and pure: no LLM, no I/O, and no token cost — two linear
+/// passes over the block text of a 100-page script. `is_scene_heading` is
+/// injected rather than re-implemented here, so the zoning verdict and the
+/// chunker's split decision can never disagree about what a heading is (the
+/// caller passes `preview::is_scene_heading`; tests pass a stub).
+///
+/// The signals, in the order they decide a page:
+///
+/// 1. a scene-index banner (`"SCRIPT REPORT"`) → [`PageZone::SceneIndex`];
+/// 2. a cast-directory banner (`"PERSONEN/ HAUPTCAST"`, `"KOMPARSEN"`) →
+///    [`PageZone::CastList`];
+/// 3. `>= 6` heading lines and **no** prose or dialogue line, **before** the
+///    script body has started → [`PageZone::SceneIndex`] (the banner-less
+///    `SCRIPT REPORT`);
+/// 4. the first page, with neither headings nor dialogue → [`PageZone::TitlePage`];
+/// 5. a front-matter banner (`"SYNOPSIS"`, `"MEDIZINISCHE FÄLLE"`) →
+///    [`PageZone::FrontMatter`];
+/// 6. any heading or dialogue line → [`PageZone::ScriptBody`];
+/// 7. otherwise [`PageZone::FrontMatter`] — weak, and demoted back to script
+///    body when a script page precedes it (see below).
+///
+/// The last step is the one that keeps a synopsis from being silently dropped in
+/// the middle of the script: a page that carries no scene signal but follows a
+/// `ScriptBody` page is a continuation page (a scene running over a page break),
+/// not front matter. Only the weak verdicts (`FrontMatter`, `TitlePage`) are
+/// demoted; a banner stays authoritative wherever it appears.
+#[must_use]
+pub fn classify_document_zones(
+    document: &StructuredDocument,
+    is_scene_heading: impl Fn(&str) -> bool,
+) -> DocumentZones {
+    let mut pages: Vec<PageZoneRecord> = Vec::with_capacity(document.pages.len());
+    let mut seen_script_body = false;
+    for (index, page) in document.pages.iter().enumerate() {
+        let is_first_page = index == 0;
+        let mut heading_lines = 0_u32;
+        let mut dialogue_lines = 0_u32;
+        let mut prose_lines = 0_u32;
+        let mut banner: Option<(PageZone, &'static str)> = None;
+        let mut first_text_line = true;
+        for block in &page.blocks {
+            let band = block_role(block.bbox, block.kind);
+            for line in block.text.split('\n') {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                // A banner may sit in the running-header band or be the page's
+                // first line; a phrase in the middle of body prose must never
+                // relabel the page.
+                let banner_slot = band == LineRole::Header || first_text_line;
+                first_text_line = false;
+                // The banner is looked for in EVERY band, because in the real
+                // documents it IS a running header (`BL98/294-SCRIPT REPORT`,
+                // `DJÄ_BL98_294_DREH210805 -- SCRIPT REPORT  2`): skipping the
+                // header band would leave the index pages unrecognised and every
+                // index entry would parse as a scene.
+                if banner.is_none()
+                    && let Some(found) = page_banner(trimmed, banner_slot)
+                {
+                    banner = Some(found);
+                }
+                // The band excludes PAGE FURNITURE. A line the heading detector
+                // recognises is scene CONTENT even when it sits in the top band:
+                // the spatial adapter tags every top-band block `PageHeader`, and
+                // a slug printed at the very top of a page would otherwise be
+                // dropped before the scene scanner ever saw it.
+                let band = promote_top_band_heading(band, trimmed, &is_scene_heading);
+                if band != LineRole::Body {
+                    continue;
+                }
+                if is_scene_heading(trimmed) {
+                    heading_lines = heading_lines.saturating_add(1);
+                } else if is_dialogue_line(block.bbox, page.has_geometry(), trimmed) {
+                    dialogue_lines = dialogue_lines.saturating_add(1);
+                } else if trimmed.chars().count() >= PROSE_MIN_CHARS {
+                    prose_lines = prose_lines.saturating_add(1);
+                }
+            }
+        }
+        let bannered = match banner {
+            // A series title on the cover (`"MEDIZINISCHE FÄLLE"`) is not a
+            // section banner: the first page is the title page unless it also
+            // carries a scene signal. Both verdicts exclude the page from prose,
+            // but the honest label matters for the plan and the log.
+            Some((PageZone::FrontMatter, _)) if is_first_page && heading_lines == 0 => None,
+            Some((zone, _)) => Some(zone),
+            None => None,
+        };
+        let zone = match bannered {
+            Some(zone) => zone,
+            // The banner-less index: a heading-only page, and only while the
+            // script body has not started yet. The extra conditions are what
+            // keep an ACTION-only script page (six short scenes, whose action
+            // lines are shorter than `PROSE_MIN_CHARS`) from being mistaken for
+            // an index — such a page still carries full-length action lines.
+            // The `seen_script_body` guard covers the remaining shape: short
+            // action (`Sie nickt.`) after the body started is a body page, and
+            // dropping it would lose every scene on it. A banner stays
+            // authoritative wherever it appears (branch above).
+            None if !seen_script_body
+                && heading_lines >= MIN_INDEX_HEADINGS
+                && dialogue_lines == 0
+                && prose_lines == 0 =>
+            {
+                PageZone::SceneIndex
+            }
+            // A real scene page starts with a heading. Indentation alone is NOT
+            // a scene signal: a cover page's centred title block sits in exactly
+            // the columns a character cue uses (`x0` around 0.30), so counting it
+            // as dialogue turned the title page of every real script into prose.
+            None if heading_lines > 0 => PageZone::ScriptBody,
+            None => {
+                if seen_script_body {
+                    // No heading, but the script is running: a continuation page
+                    // (a scene over a page break). Dropping it would delete that
+                    // scene's text.
+                    PageZone::ScriptBody
+                } else if is_first_page {
+                    PageZone::TitlePage
+                } else {
+                    PageZone::FrontMatter
+                }
+            }
+        };
+        // Demote a weak verdict once the script has started: only banners stay
+        // authoritative there, so a cover-like page inside the body cannot lose
+        // its prose to `TitlePage`/`FrontMatter`.
+        let zone = if seen_script_body
+            && bannered.is_none()
+            && matches!(zone, PageZone::FrontMatter | PageZone::TitlePage)
+        {
+            PageZone::ScriptBody
+        } else {
+            zone
+        };
+        if zone.is_script_body() {
+            seen_script_body = true;
+        }
+        pages.push(PageZoneRecord {
+            page_number: page.page_number,
+            zone,
+            heading_lines,
+            dialogue_lines,
+            banner: banner.map(|(_, keyword)| keyword.to_owned()),
+        });
+    }
+    DocumentZones {
+        pages,
+        fell_back: false,
+    }
+}
+
+/// Every line of `document` in reading order, tagged with the zone its page got
+/// and the role its block gave it.
+///
+/// Block text is split on `\n`: the IR stores a block's verbatim text, and the
+/// line is the unit the heading detector, the marker scans and the chunk text
+/// all work on. Blank lines are kept — they separate action paragraphs inside a
+/// scene, and the chunk text must stay the document's text.
+#[must_use]
+pub fn zoned_lines<'a>(
+    document: &'a StructuredDocument,
+    zones: &DocumentZones,
+    is_scene_heading: impl Fn(&str) -> bool,
+) -> Vec<ZonedLine<'a>> {
+    let mut lines: Vec<ZonedLine<'a>> = Vec::new();
+    for page in &document.pages {
+        let zone = zones.zone_of(page.page_number);
+        push_page_lines(&mut lines, page, zone, &is_scene_heading);
+    }
+    lines
+}
+
+/// [`zoned_lines`] for a caller that has no zoning pass: every page is treated
+/// as [`PageZone::ScriptBody`].
+///
+/// This is the flat-text seam (`preview::extract_scenes(&str)`): the pre-#959
+/// line scanner saw one undifferentiated text, and the wrapper that keeps the
+/// existing string-level unit tests valid must keep seeing exactly that. The
+/// header/footer and continuation filter still applies — those are properties
+/// of a *line*, not of a zone.
+#[must_use]
+pub fn zoned_lines_as_script_body(
+    document: &StructuredDocument,
+    is_scene_heading: impl Fn(&str) -> bool,
+) -> Vec<ZonedLine<'_>> {
+    let mut lines: Vec<ZonedLine<'_>> = Vec::new();
+    for page in &document.pages {
+        push_page_lines(&mut lines, page, PageZone::ScriptBody, &is_scene_heading);
+    }
+    lines
+}
+
+fn push_page_lines<'a>(
+    lines: &mut Vec<ZonedLine<'a>>,
+    page: &'a StructuredPage,
+    zone: PageZone,
+    is_scene_heading: &impl Fn(&str) -> bool,
+) {
+    for block in &page.blocks {
+        let band = block_role(block.bbox, block.kind);
+        for line in block.text.split('\n') {
+            let band = promote_top_band_heading(band, line, is_scene_heading);
+            let role = if band == LineRole::Body && is_continuation_marker(line) {
+                LineRole::Continuation
+            } else {
+                band
+            };
+            lines.push(ZonedLine {
+                page_number: page.page_number,
+                zone,
+                anchor: block.id,
+                role,
+                text: line,
+            });
+        }
+    }
+}
+
+/// [`LineRole::Header`] becomes [`LineRole::Body`] when the line is a scene
+/// heading: the band is a geometric heuristic for page furniture, and the spatial
+/// adapter applies it to EVERY top-band block — including a slug printed at the
+/// top of the page. Running metadata (`"Block 098 Ep.: 294/1"`) is no heading, so
+/// it stays excluded.
+fn promote_top_band_heading(
+    band: LineRole,
+    line: &str,
+    is_scene_heading: &impl Fn(&str) -> bool,
+) -> LineRole {
+    if band == LineRole::Header && is_scene_heading(line) {
+        LineRole::Body
+    } else {
+        band
+    }
+}
+
+/// Whether `haystack` contains `phrase` as a whole word sequence (no
+/// alphanumeric character directly before or after it).
+fn contains_phrase(haystack: &str, phrase: &str) -> bool {
+    let mut from = 0_usize;
+    while let Some(offset) = haystack[from..].find(phrase) {
+        let start = from + offset;
+        let end = start + phrase.len();
+        let left_ok = haystack[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric());
+        let right_ok = haystack[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphanumeric());
+        if left_ok && right_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+/// The band role the block's geometry and kind assign: header, footer or body.
+///
+/// The band bounds are the extractor contract from issue #958
+/// ([`HEADER_BAND_MAX_Y1`] / [`FOOTER_BAND_MIN_Y0`]): whichever adapter produced
+/// the IR already tagged the top-band blocks `PageHeader`, and this function is
+/// what turns that tag into "excluded from prose". A page-leading line that sits
+/// inside the band is therefore excluded too — the corpus harness's
+/// expected-scene-count assertion (issue #959) is what surfaces that as a scene
+/// shortfall instead of a silent loss.
+///
+/// The geometry fallback deliberately spares [`BlockKind::Heading`]: an adapter
+/// that classified a block as a heading knows more than the band does, and a
+/// scene heading that happens to END inside the top band (`y1 <= 0.09`, e.g. a
+/// slug directly under the running header) is still the first line of its scene.
+/// Only the *page furniture* bands exclude by position, and the extractor tags
+/// that furniture `PageHeader` anyway.
+fn block_role(bbox: NormalizedBBox, kind: BlockKind) -> LineRole {
+    if kind == BlockKind::PageHeader {
+        return LineRole::Header;
+    }
+    if bbox.is_header_band() && kind != BlockKind::Heading {
+        return LineRole::Header;
+    }
+    if kind == BlockKind::PageFooter || bbox.is_footer_band() {
+        return LineRole::Footer;
+    }
+    LineRole::Body
+}
+
+/// The zone a banner line names, if any.
+///
+/// Whole-word matching against the trimmed uppercase line: `"PERSONEN/ HAUPTCAST"`
+/// matches `"PERSONEN"` (the next character is a separator), while `"PERSONAL"`
+/// does not, and `"CASTING"` does not match `"CAST"`.
+fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)> {
+    let upper = line.trim().to_ascii_uppercase();
+    // The scene-index banner is matched ANYWHERE on a banner line (running header
+    // or the page's first line), as a whole phrase: in the real documents it is a
+    // running header, not a section heading — `BL98/294-SCRIPT REPORT`,
+    // `DJÄ_BL98_294_DREH210805 -- SCRIPT REPORT  2`. A prefix match misses both,
+    // and then every index entry parses as a scene (exactly the doubled,
+    // synopsis-contaminated preview this pass exists to stop). Restricting the
+    // anywhere-match to a banner line is what keeps a dialogue sentence that
+    // merely mentions the phrase from relabelling a script page.
+    for keyword in SCENE_INDEX_BANNERS {
+        if banner_slot && contains_phrase(&upper, keyword) {
+            return Some((PageZone::SceneIndex, keyword));
+        }
+    }
+    // Cast-list and front-matter banners ARE section headings, so they must start
+    // the line: matching them anywhere would let a synopsis sentence
+    // ("... wie in der SYNOPSIS beschrieben") relabel a whole page. Starting the
+    // line is not enough on its own either — `"Cast the net before sunrise."`
+    // starts with `CAST` and is the first line of a script page — so the line must
+    // also LOOK like a section heading — shouty and carrying no word beyond the
+    // section vocabulary, the way `"PERSONEN/ HAUPTCAST"` and `"MEDIZINISCHE
+    // FÄLLE"` do and a sentence does not. Getting this wrong is expensive: a
+    // `CastList` verdict removes the whole page from scene prose.
+    for (zone, keywords) in [
+        (PageZone::CastList, CAST_LIST_BANNERS.as_slice()),
+        (PageZone::FrontMatter, FRONT_MATTER_BANNERS.as_slice()),
+    ] {
+        for keyword in keywords {
+            if let Some(rest) = upper.strip_prefix(keyword)
+                && rest
+                    .chars()
+                    .next()
+                    .is_none_or(|next| !next.is_alphanumeric())
+                && is_section_heading(line, rest)
+            {
+                return Some((zone, keyword));
+            }
+        }
+    }
+    None
+}
+
+/// Connectives that may appear between two section words
+/// (`"PERSONEN UND HAUPTCAST"`).
+const BANNER_CONNECTIVES: [&str; 2] = ["UND", "AND"];
+
+/// Whether a line whose `keyword` prefix matched is still shaped like a section
+/// banner: shouty (no lowercase letter) and — after the keyword — carrying nothing
+/// but separators and further section vocabulary.
+///
+/// A banner NAMES a section (`"PERSONEN/ HAUPTCAST"`, `"MEDIZINISCHE FÄLLE"`,
+/// `"KOMPARSEN"`, `"CAST:"`); an uppercase SENTENCE (`"CAST THE NET BEFORE
+/// SUNRISE."`, `"CAST OFF!"`) is prose, and a shouty action line is not rare in a
+/// broadcast script. Neither the case check nor a word cap separates the two
+/// (`"CAST OFF!"` is only two words) — the vocabulary does: a banner adds no other
+/// word.
+///
+/// A `CastList` verdict removes the whole page from scene prose, so this is worth
+/// being strict about.
+fn is_section_heading(line: &str, rest: &str) -> bool {
+    !line.trim().chars().any(char::is_lowercase)
+        && rest.split_whitespace().all(|word| {
+            let bare = word.trim_matches(|c: char| !c.is_alphanumeric());
+            bare.is_empty() || is_section_word(bare)
+        })
+}
+
+/// Whether `word` is part of the cast/front-matter vocabulary (banner keywords
+/// and the connectives between them).
+fn is_section_word(word: &str) -> bool {
+    CAST_LIST_BANNERS
+        .iter()
+        .chain(FRONT_MATTER_BANNERS.iter())
+        .chain(BANNER_CONNECTIVES.iter())
+        .any(|keyword| keyword.eq_ignore_ascii_case(word))
+}
+
+/// Whether a non-heading line sits in a dialogue column.
+///
+/// With geometry, the block's `x0` decides: a screenplay indents every character
+/// cue and dialogue run to the left of the action column. Without geometry (the
+/// `legacy-pdftotext` adapter hands over one whole-page block at
+/// [`NormalizedBBox::FULL_PAGE`]) the shape of the line has to stand in: a
+/// shouty, short, digit-free all-caps line is a character cue (`"LEYLA"`,
+/// `"DR. KOCH"`), while an index entry (`"1 A/T - BAUERNHOF"`) or a day column
+/// (`"Tag 1"`) is not.
+fn is_dialogue_line(bbox: NormalizedBBox, has_geometry: bool, line: &str) -> bool {
+    if has_geometry {
+        return bbox.x0 >= INDENT_MIN_X0;
+    }
+    looks_like_character_cue(line)
+}
+
+fn looks_like_character_cue(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > CHARACTER_CUE_MAX_CHARS {
+        return false;
+    }
+    let mut letters = 0_usize;
+    for c in trimmed.chars() {
+        if c.is_ascii_uppercase() {
+            letters += 1;
+        } else if !matches!(c, ' ' | '.' | '-' | '\'' | '/') {
+            // A digit, a lowercase letter or punctuation that prose uses
+            // disqualifies the line: cues carry none of them.
+            return false;
+        }
+    }
+    letters >= 2
+}
+
+/// Whether the line is a page-turn continuation banner.
+///
+/// Recognised forms (the observed `pdftotext` output of a broadcast script):
+/// `"2 CONTINUED:"`, `"2 CONTINUED: (2)"`, `"CONTINUED:"`, `"(2) CONTINUED"`,
+/// `"2 FORTSETZUNG"`. The keyword must be followed by nothing but separators,
+/// digits and parentheses, so a dialogue line (`"Fortsetzung folgt."`) is never
+/// stripped: the filter exists to remove page-break noise, not prose.
+#[must_use]
+pub fn is_continuation_marker(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    // A continuation banner may be prefixed by the scene number or the page
+    // number, in either order: `2 CONTINUED: (2)`, `(2) CONTINUED`.
+    let stripped = trimmed.trim_start_matches(|c: char| {
+        c.is_ascii_digit()
+            || c.is_whitespace()
+            || c == '.'
+            || c == '-'
+            || c == ':'
+            || c == '('
+            || c == ')'
+    });
+    let upper = stripped.to_ascii_uppercase();
+    for keyword in ["CONTINUED", "FORTSETZUNG"] {
+        if let Some(rest) = upper.strip_prefix(keyword)
+            && rest.chars().all(|c| {
+                c.is_ascii_digit()
+                    || c.is_whitespace()
+                    || c == '.'
+                    || c == '-'
+                    || c == ':'
+                    || c == '('
+                    || c == ')'
+            })
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// The accepted structural anchor plan: the zones Pass 0 decided plus the block
+/// anchors the chunker actually cut at (ADR-041 `D3`/`D7`, issue #959).
+///
+/// It is the one artefact whose change must restart a partially extracted
+/// document instead of splicing two plans, so it has a canonical, deterministic
+/// rendering ([`Self::canonical_form`]) that the `#871` fingerprint digests. No
+/// map iteration, no `Debug` formatting, no locale-dependent ordering: ascending
+/// page, ascending anchor, one record per line.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StructuralPlan {
+    pages: Vec<PlanPage>,
+}
+
+/// One page of a [`StructuralPlan`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanPage {
+    pub page_number: u32,
+    pub zone: PageZone,
+    /// Block anchors where a `SceneChunk` starts on this page, ascending.
+    pub anchors: Vec<BlockAnchor>,
+}
+
+impl StructuralPlan {
+    /// The plan the zone pass alone defines (no cut anchors yet).
+    #[must_use]
+    pub fn from_zones(zones: &DocumentZones) -> Self {
+        Self {
+            pages: zones
+                .pages
+                .iter()
+                .map(|record| PlanPage {
+                    page_number: record.page_number,
+                    zone: record.zone,
+                    anchors: Vec::new(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The plan's pages, in document order.
+    #[must_use]
+    pub fn pages(&self) -> &[PlanPage] {
+        &self.pages
+    }
+
+    /// Whether the plan has no page at all (an empty document).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pages.is_empty()
+    }
+
+    /// Record one chunk-start anchor.
+    ///
+    /// Anchors must arrive in document order; a duplicate or a descending anchor
+    /// is ignored and reported as `false`, so a plan can never render two
+    /// different canonical forms for the same document (which would invalidate a
+    /// chunk set at random). A page the pass did not see is ignored for the same
+    /// reason.
+    pub fn record_anchor(&mut self, anchor: BlockAnchor) -> bool {
+        let Some(page) = self
+            .pages
+            .iter_mut()
+            .find(|page| page.page_number == anchor.page_number)
+        else {
+            return false;
+        };
+        if page.anchors.last().is_some_and(|last| *last >= anchor) {
+            return false;
+        }
+        page.anchors.push(anchor);
+        true
+    }
+
+    /// The canonical rendering the fingerprint digests: one line per page,
+    /// `P<NN>|<zone>|<anchor>,<anchor>` — ascending page, ascending anchor.
+    #[must_use]
+    pub fn canonical_form(&self) -> String {
+        let mut out = String::new();
+        for page in &self.pages {
+            out.push_str(&format!("P{:02}|{}|", page.page_number, page.zone.as_str()));
+            for (index, anchor) in page.anchors.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                out.push_str(&format!("{anchor}"));
+            }
+            out.push('\n');
+        }
+        out
     }
 }
 

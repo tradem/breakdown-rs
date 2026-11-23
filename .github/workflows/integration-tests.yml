@@ -178,6 +178,55 @@ jobs:
           echo "GDRIVE lengths: client_id=${#GDRIVE_CLIENT_ID} secret=${#GDRIVE_CLIENT_SECRET} refresh=${#GDRIVE_REFRESH_TOKEN} root=${#GDRIVE_ROOT}"
           cargo test -p integration-tests --test ai_gdrive_fixture_test -- --nocapture
 
+      - name: Install poppler-utils (Golden Corpus sweep needs pdftotext/pdftocairo)
+        if: >-
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+           contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                    github.event.pull_request.author_association))
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      # Issue #959 / ADR-041 D8: the Golden Corpus is the same run locally and in
+      # CI. The PDFs are confidential broadcast scripts, so they are fetched from
+      # the GDrive fixture folder into a runner-local directory; the EXPECTATIONS
+      # are in the repo (`backend/config/ai_eval_corpus.tsv`), which is what makes
+      # the two runs assert identical numbers. Same trust gate as the GDrive smoke
+      # above: the step injects live credentials into code from the merge ref.
+      #
+      # Local equivalent (one command, same assertions):
+      #   cd backend
+      #   AI_EVAL_CORPUS_DIR=$PWD/target/eval-corpus \
+      #     cargo test -p integration-tests --test ai_gdrive_corpus_materialize -- --nocapture
+      #   AI_EVAL_CORPUS_DIR=$PWD/target/eval-corpus \
+      #     cargo test -p infra --test ai_document_eval_corpus -- --nocapture
+      - name: Golden Corpus (GDrive materialise + zone-aware sweep)
+        timeout-minutes: 10
+        if: >-
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+           contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'),
+                    github.event.pull_request.author_association))
+        env:
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
+          AI_EVAL_CORPUS_DIR: ${{ runner.temp }}/ai-eval-corpus
+        run: |
+          # Both commands run in one step so the sweep cannot be skipped while
+          # the materialise half "succeeds". The credential gate is the same
+          # unit: the materialiser returns early without the client id (the
+          # corpus lives in a private Drive folder), and the sweep then fails its
+          # own is_dir assertion — a missing secret must skip, not fail. The gate
+          # reads the env var rather than an expression (no secret may appear in
+          # `run:`, comments included) and both harnesses document this skip.
+          if [ -z "${GDRIVE_CLIENT_ID}" ]; then
+            echo "skipped: GDRIVE_CLIENT_ID is not configured (private Golden Corpus)"
+            exit 0
+          fi
+          cargo test -p integration-tests --test ai_gdrive_corpus_materialize -- --nocapture
+          cargo test -p infra --test ai_document_eval_corpus -- --nocapture
+
       # Step-level guard: a wedged container would otherwise burn the whole
       # 30-minute job budget (2026-09-30: audit_cross_cutting_tests stalled
       # 24 min in an unbounded Redis multiplexed connect and the job timeout

@@ -16,6 +16,68 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.77.0] - Unreleased
+### Added (issue #959)
+
+- `ai::document` grew the **Pass 0 page zoning** of ADR-041 `D3`/`D4`:
+  `PageZone` (`TitlePage`, `CastList`, `SceneIndex`, `FrontMatter`,
+  `ScriptBody`), `LineRole` (`Body`/`Header`/`Footer`/`Continuation`),
+  `PageZoneRecord`, `DocumentZones` (`zone_of`, `has_script_body`,
+  `widen_to_script_body`, `fell_back_to_script_body`, `uniform`),
+  `ZonedLine` (`is_scene_prose`), `classify_document_zones(document, is_scene_heading)`
+  and `zoned_lines(document, zones)`, plus the pure
+  `is_continuation_marker` filter (`"2 CONTINUED: (2)"`, `"FORTSETZUNG"`).
+  The heading detector is **injected** rather than re-implemented, so the zoning
+  verdict and the chunker's split decision can never disagree.
+- `ai::document::StructuralPlan` / `PlanPage` — the accepted structural anchor
+  plan (per-page zone plus the block anchors the chunker cut at) with a
+  deterministic `canonical_form()`. It is the digest input that keeps a partial
+  extraction from splicing chunks cut under two different plans.
+- `ai::preview::SegmentedScript` (`chunks`, `block_number`, `plan`,
+  `uncertainties`, `plan_canonical_form`), `extract_scenes_from_structured` and
+  `SegmentedScript::from_flat_text` — segmentation emits `SceneChunk`s from
+  `ScriptBody` prose only, sliced verbatim from the document blocks (never
+  re-transcribed, so `verify_draft_outfits` keeps verifying real quotes).
+- `ai::preview::UNCERTAINTY_FIELD_SCENE_NUMBER` and the `SceneIndex`→`ScriptBody`
+  reconciliation: a scene the index lists but the body lacks (or vice versa)
+  becomes a targeted `FieldAmbiguity` naming the label instead of a silent
+  scene-count drift.
+- `ExtractionFingerprint` gained `structural_plan_digest: String`
+  (`#[serde(default)]`), and `changed_components` reports it.
+
+### Fixed (issue #959, found by running the real broadcast corpus)
+
+- **The scene-index banner is a running header, not a section heading.** The
+  real documents print `BL98/294-SCRIPT REPORT` and
+  `DJÄ_BL98_294_DREH210805 -- SCRIPT REPORT  2`, both in the top band. The
+  banner is now matched anywhere on a *banner line* (top band or the page's
+  first line) instead of as a line prefix, and the banner scan reads every band
+  instead of skipping the header band — without both, neither index page was
+  recognised, every index entry parsed as a scene, and the counts were
+  67/69/70 instead of 40/42/43 (measured on 292/293/294.pdf).
+- **Indentation alone is not a scene signal.** A cover page's centred title block
+  sits in the very columns a character cue uses (`x0` around 0.30), so the
+  dialogue counter turned the title page of every real script into script prose.
+  A page now needs at least one heading to be `ScriptBody`; without one it is
+  `TitlePage`/`FrontMatter` (or a continuation page once the script started).
+- Restricting the anywhere-banner match to a banner slot keeps a dialogue
+  sentence that merely mentions the phrase from relabelling a script page.
+
+### Changed (issue #959)
+
+- [`ai::preview::CHUNKER_VERSION`] is now `2`: the zone pass changes what a chunk
+  **is** (ScriptBody-only prose, stripped header/footer/continuation lines), so a
+  chunk set written by chunker `1` is invalidated instead of resumed.
+- `is_german_scene_heading` and `parse_mood_from_heading` share one short-form
+  grammar (`LOC (('/'|'+') LOC)? '/' TOKEN`) and accept the combined headings
+  `"A+I/T"`, `"I+A/T"`, `"A/I/T"`, `"I/A/T"`, all normalized to the canonical
+  three-component mood `I/A/<Time>`. Before this, every `A+I/T` heading was
+  rejected and its scene silently merged into the previous one.
+- `extract_scenes(&str)` is now the **flat-text seam** of
+  `extract_scenes_from_structured`: it wraps the string in a single `ScriptBody`
+  page (so the string-level merge/heading behaviour is unchanged) but it also
+  strips page-turn continuation markers.
+
 ## [0.76.0] - Unreleased
 ### Added (issue #958)
 

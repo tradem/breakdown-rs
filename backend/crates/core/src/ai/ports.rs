@@ -2103,6 +2103,20 @@ pub struct ExtractionFingerprint {
     /// invalidation we want.
     #[serde(default)]
     pub parser_fingerprint: String,
+    /// The digest of the accepted structural anchor plan (ADR-041 `D3`/`D7`,
+    /// issue #959): the per-page zone labels plus the block anchors the chunker
+    /// cut at, rendered canonically (`StructuralPlan::canonical_form`) and
+    /// hashed by `chunk_store::structural_plan_digest`.
+    ///
+    /// Two chunkings cut under two different anchor plans must never be spliced
+    /// into one `ScriptContext`, so the digest participates in
+    /// [`fingerprint_key`](crate::ai::AiImportChunkStore) exactly like
+    /// `parser_fingerprint` does. An empty string means "not recorded" — a chunk
+    /// set written before this field existed, or the flat-text seam, which has no
+    /// zoning plan at all — and compares unequal to every real digest, which is
+    /// the invalidation we want.
+    #[serde(default)]
+    pub structural_plan_digest: String,
 }
 
 impl ExtractionFingerprint {
@@ -2130,6 +2144,9 @@ impl ExtractionFingerprint {
         }
         if self.parser_fingerprint != previous.parser_fingerprint {
             changed.push("parser_fingerprint");
+        }
+        if self.structural_plan_digest != previous.structural_plan_digest {
+            changed.push("structural_plan_digest");
         }
         changed
     }
