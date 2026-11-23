@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: gemini-4-carbon (google) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Delta: ai-import — zone-aware script segmentation, deterministic cast precedence, and multimodal schedule streaming
 
@@ -99,7 +100,7 @@ Screenplay processing SHALL parse `CastList` pages into a `CastDirectory` (`main
 - **THEN** `"Dr. Kai Hoffmann"` is classified as `guest`
 
 ### Requirement: Page-streaming multimodal schedule extraction preserves multi-row cells and additive cast legends
-Non-CSV shooting schedules SHALL be extracted page-by-page using multimodal vision (`LlmClient::chat_vision_constrained`) with carry-over of the active shooting-day banner (`shooting_day_label`, `date`) across page breaks, publishing per-page job progress frames. Rest-day banners (`"Drehfrei"`) SHALL NOT emit rows or shooting days. When a schedule contains a numeric role legend (`"ROLLEN"`), the extractor SHALL populate an optional `cast_legend` map and validate per-row numeric cast IDs against it as strictly additive preview metadata; applying a schedule SHALL NEVER create, rename, or reclassify `Character` aggregates.
+Non-CSV shooting schedules SHALL be extracted page-by-page using multimodal vision (`LlmClient::chat_vision_constrained`) with carry-over of the active shooting-day banner (`shooting_day_label`, `date`) across page breaks, publishing per-page job progress frames. Each page image SHALL be rendered on demand for that page (`DocumentStructureExtractor::render_page`) and released before the next page is rendered, so retained image memory never scales with page count. Rest-day banners (`"Drehfrei"`) SHALL NOT emit rows or shooting days. When a schedule contains a numeric role legend (`"ROLLEN"`), the extractor SHALL populate an optional `cast_legend` map and validate per-row numeric cast IDs against it as strictly additive preview metadata; applying a schedule SHALL NEVER create, rename, or reclassify `Character` aggregates.
 
 #### Scenario: Multi-page schedule carries active shooting day across a page break and skips rest days
 - **WHEN** page 2 ends under `"3. Drehtag: Mi. 20.10.2021"` and page 3 begins with three scene rows before `"4. Drehtag: Do. 21.10.2021"` and later contains `"Drehfrei: So. 24.10.2021"`

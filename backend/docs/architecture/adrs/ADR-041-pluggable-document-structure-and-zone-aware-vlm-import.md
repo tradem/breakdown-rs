@@ -6,7 +6,7 @@
 
 **Status**: Proposed
 **Date**: 2026-11-22
-**Author**: Tobias Rademacher (@tradem); gemini-4-carbon (google)
+**Author**: Tobias Rademacher (@tradem); gemini-4-carbon (google); deepseek-v4.1-flash (opencode-go)
 **Related**: ADR-001 (Hexagonal Architecture), ADR-006 (utoipa OpenAPI), ADR-013 (Hybrid LLM Script Parsing — amends §1 Fuzzy Chunking), ADR-024 (TLS & Curated Outbound HTTP), ADR-027 (Secrets Vault), ADR-030 (AI Import Bounded Context), ADR-031 (HTTP Error Surface), ADR-038 (AI Import SSE Progress)
 **Source change**: `openspec/changes/ai-import-vlm-document-structure/` (tracked in GitHub issues #958 `[P1]`, #959 `[P2]`, #961 `[P3]`, #960 `[P4]`)
 
@@ -35,8 +35,9 @@ We amend `ADR-013` §1 by replacing flat-string PDF extraction and unzoned line-
 
 `ScriptImportWorker` and `ScheduleImportWorker` no longer depend on a concrete `infra::ai::PdfTextExtractor`. Instead, `crates/core::ai::ports` defines `DocumentStructureExtractor`:
 
-- Returns a pure domain IR `StructuredDocument` containing ordered `StructuredPage` entries, reading-order `DocumentBlock`s with normalized bounding boxes (`x0, y0, x1, y1` — preserving screenplay indentation columns), structural block kinds (`PageHeader`, `PageFooter`, `Heading`, `Paragraph`, `Table`, `ListItem`), optional HTML `<table>` markup preserving `colspan`/`rowspan`, and optional rendered page images (PNG bytes) on demand for multimodal passes.
-- Exposes `fn parser_fingerprint(&self) -> &'static str`, which MUST be folded into `#871` `chunk_store::fingerprint_key` alongside `CHUNKER_VERSION`, provider, model, and prompt so cached chunk prefixes never resume across different structure extractors.
+- Returns a pure domain IR `StructuredDocument` containing ordered `StructuredPage` entries, reading-order `DocumentBlock`s with normalized bounding boxes (`x0, y0, x1, y1` — preserving screenplay indentation columns), structural block kinds (`PageHeader`, `PageFooter`, `Heading`, `Paragraph`, `Table`, `ListItem`), and optional HTML `<table>` markup preserving `colspan`/`rowspan`.
+- Carries **no** rendered page images: a companion on-demand `render_page(&self, document, page_number) -> RenderedPage` returns the PNG for exactly one page, so a page-streaming caller renders, sends, and drops one image at a time (aggregate retention `O(1)` pages, not `O(K)`), bounded per page and document-wide.
+- Exposes `fn parser_fingerprint(&self) -> &'static str`, which MUST be folded into `#871` `chunk_store::fingerprint_key` alongside `CHUNKER_VERSION`, provider, model, and prompt so cached chunk prefixes never resume across different structure extractors. Because the optional VLM/LLM structural index pass is non-deterministic, the accepted anchor plan (zone labels + anchor block IDs) is persisted with the chunk set and its canonical digest (`structural_plan_digest`) enters `fingerprint_key` too: an unchanged re-run resumes the stored prefix, a changed plan restarts extraction at chunk `0` instead of splicing two plans.
 - Uses **idiomatic static dispatch (`E: DocumentStructureExtractor`) and Poor Man's DI** rather than `Arc<dyn DocumentStructureExtractor>` or `#[async_trait]` heap boxing: `ScriptImportWorker<Q, C, E = LegacyPdfToTextAdapter>` and `ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter>` hold `extractor: E` by value, and `WorkerDeps` holds a `Clone` enum `ConfiguredDocumentExtractor` wired once at the composition root (`crates/api/src/main.rs`) with zero redundant `Arc` wrapping.
 
 ### D2 — Open-source licensing & hybrid CPU + EU ZDR VLM topology
@@ -46,7 +47,7 @@ We evaluate and select technologies strictly on **OSI openness** and **deploymen
 - **Accepted open components (MIT / Apache-2.0):**
   1. **On-host CPU extraction & rendering (0 € marginal cost, 0 bytes egress):** Because production screenplays and schedules are born-digital PDFs (not scans), local spatial extraction + targeted page-to-PNG rendering runs in milliseconds per page on a CPU vServer (`SpatialPdfExtractor` / `LegacyPdfToTextAdapter` fallback), with an optional `DoclingHttpAdapter` (`docling-serve`, MIT / Apache-2.0 under LF AI & Data, including TableFormer and `Granite-Docling-258M`) for self-hosted layout/table enrichment on CPU or small GPUs.
   2. **Multimodal VLM reasoning & table extraction (`LlmClient::chat_vision_constrained`):** Targets **Apache-2.0 / MIT open-weight VLMs** — primarily **`Qwen3-VL`** (Apache-2.0), **`GLM-OCR`** (MIT), and **`PaddleOCR-VL`** (Apache-2.0).
-     - **Production (Pay-as-you-go, GDPR / ZDR / No-Training):** Routed through curated OpenAI-compatible vision endpoints with EU data residency and contractual Zero Data Retention (`EURouter`, Scaleway Generative APIs Paris, OVHcloud AI Endpoints EU, Nebius Token Factory EU — ~€0.005–€0.02 per 8-page schedule, ~€0.01–€0.03 for screenplay structural zoning).
+     - **Production (Pay-as-you-go, GDPR / ZDR / No-Training):** Routed through curated OpenAI-compatible vision endpoints with EU data residency and contractual Zero Data Retention (`EURouter`, Scaleway Generative APIs Paris, OVHcloud AI Endpoints EU, Nebius Token Factory EU — ~€0.005–€0.02 per 8-page schedule, ~€0.01–€0.03 for screenplay structural zoning). `chat_vision_constrained` SHALL reject (fail-closed) any production OpenAI-compatible endpoint whose provider policy does not declare Zero Data Retention, no training on customer inputs, and EU data residency, and the check SHALL run **before** any page image is serialized, because publishing an unpublished screenplay page to a non-compliant endpoint is an NDA/GDPR breach that cannot be undone server-side.
      - **Local development (4 GB VRAM / CPU):** Executed locally via `Ollama` (`Qwen3-VL:2b/4b` Q4 or `GLM-OCR` 0.9B) with zero external network traffic.
 - **Explicitly rejected on openness/licensing grounds:**
   - `HunyuanOCR-1.5` (*Tencent Hunyuan Community License* — territory/commercial clauses, non-OSI).
@@ -109,4 +110,4 @@ An env-gated test/CLI harness (`AI_EVAL_CORPUS_DIR`) evaluates adapters and zoni
 ## Notes
 
 - **CQRS Boundary (`AGENTS.md` §1):** Any existing season `Character` list used as a fallback hint for `CastDirectory` MUST be read at job preparation in the worker/read-side orchestration and passed into pure `core` functions as an immutable value slice — write-side command adapters and aggregates remain completely untouched.
-- **Chunk Resume (`#871`):** Bump `CHUNKER_VERSION` and include `extractor.parser_fingerprint()` in `chunk_store::fingerprint_key` when landing Package 1/2.
+- **Chunk Resume (`#871`):** Bump `CHUNKER_VERSION` and include `extractor.parser_fingerprint()` **and** the accepted anchor plan's `structural_plan_digest` in `chunk_store::fingerprint_key` when landing Package 1/2.

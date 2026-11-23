@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
 <!-- Co-authored-by: gemini-4-carbon (google) -->
+<!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
 
 # Design — Pluggable Document Structure Extraction, Zone-Aware Script Segmentation, and Multimodal Schedule Parsing
 
@@ -45,6 +46,9 @@ Deployment targets a cost-efficient CPU vServer (Netcup RS series, no dedicated 
          │  • extract(&self, bytes, opts)            │
          │      -> impl Future<Output = Result<      │
          │           StructuredDocument, ...>> + Send│
+         │  • render_page(&self, doc, page_number)   │
+         │      -> impl Future<Output = Result<      │
+         │           RenderedPage, ...>> + Send      │
          └─────────────────────┬─────────────────────┘
                                │ (static dispatch `E`, enum `ConfiguredDocumentExtractor` in `WorkerDeps` — NO `Arc<dyn ...>`)
        ┌───────────────────────┼───────────────────────┐
@@ -73,9 +77,12 @@ pub struct StructuredPage {
     pub width_pt: f32,
     pub height_pt: f32,
     pub blocks: Vec<DocumentBlock>,
-    /// Populated on demand (e.g. schedule pages or ambiguous layout pages)
-    /// bounded by DPI and max-byte ceilings.
-    pub rendered_png: Option<Vec<u8>>,
+}
+
+/// One on-demand page render — never stored in the IR.
+pub struct RenderedPage {
+    pub page_number: u32,
+    pub png_bytes: Vec<u8>,
 }
 
 pub struct DocumentBlock {
@@ -89,7 +96,9 @@ pub struct DocumentBlock {
 
 **Why `NormalizedBBox` matters for screenplays:** Screenplay formatting encodes semantics in horizontal indentation (`x0`): scene headings and action sit at the left margin (`x0 ≈ 0.10–0.15`), character cues sit centered (`x0 ≈ 0.35–0.45`), dialogue sits indented (`x0 ≈ 0.25–0.32`), and running headers (`"Block 098"`, `"Ep.: 292/1"`) sit in the top band (`y0 < 0.09`). Preserving `bbox` lets `SpatialPdfExtractor` (built on Poppler `pdftotext -bbox-layout` + `pdftoppm -png -r 150`, both already in the Poppler toolchain alongside `pdftotext`!) extract exact spatial coordinates on a Netcup CPU vServer in `< 300 ms` per 95-page script with zero C++ build-time linking hazards.
 
-**Chunk-store invalidation (`#871`):** `chunk_store::fingerprint_key` incorporates `extractor.parser_fingerprint()` and bumped `CHUNKER_VERSION`. Any switch between `legacy-pdftotext-v1`, `poppler-spatial-v1`, or `docling-http-v1` invalidates stale stored chunks cleanly at `open_chunk_set`.
+**Rendered pages are on-demand, never retained (`D1`):** `StructuredDocument` carries **no** PNG bytes — `extract` returns text, blocks, and geometry only. Page images come from `render_page(&self, document, page_number)`, which the caller invokes immediately before one multimodal call and drops immediately after it, so retained image memory is bounded by one page (or an explicit bounded batch) regardless of document length, and `AI_IMPORT_MAX_RENDERED_TOTAL_BYTES` caps the bytes rendered for a whole document as a second, independent ceiling.
+
+**Chunk-store invalidation (`#871`):** `chunk_store::fingerprint_key` incorporates `extractor.parser_fingerprint()`, the `structural_plan_digest` of the accepted structural anchor plan, and the bumped `CHUNKER_VERSION`. Any switch between `legacy-pdftotext-v1`, `poppler-spatial-v1`, or `docling-http-v1` invalidates stale stored chunks cleanly at `open_chunk_set`; a retry that re-runs the VLM structural pass and lands on a different anchor plan (different anchor block IDs or zone boundaries) changes the digest and therefore restarts extraction at chunk `0` instead of splicing a chunk prefix cut under the earlier plan onto the later one.
 
 ---
 
@@ -120,6 +129,23 @@ pub struct LlmVisionRequest {
 
 - **OpenAI-compatible providers (`EURouter`, `OpenRouter`, `OpenAI`, `Gemini`, `Neuralwatt`, `OpenCode*`):** Serializes `pages` as `content: [{ "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }, { "type": "text", ... }]` with existing TLS/DNS-pinning, descriptive `User-Agent` (`#521`), and `#871`/`#942` circuit-breaker & hold accounting.
 - **Local `Ollama`:** Serializes `images: ["<base64>"]` on `/api/chat` with `format: <json_schema>`, running `qwen3-vl:4b` or `glm-ocr` within 4 GB VRAM.
+
+**Pre-egress provider-policy gate (`D2`, binding before any image part is serialized):** a `LlmVisionRequest` is rejected with a validation error unless the target provider declares **all three** guarantees ADR-041 §D2 requires for screenplay/schedule images — Zero Data Retention, no training on customer inputs, and EU data residency. The declaration lives in one deterministic table in `crates/core` (next to `catalog.rs`'s curated provider metadata), read by a pure `fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy`:
+
+```rust
+pub struct VisionEgressPolicy {
+    pub zero_data_retention: bool,
+    pub no_training_on_inputs: bool,
+    pub eu_data_residency: bool,
+}
+
+pub fn vision_egress_compliant(policy: VisionEgressPolicy) -> bool {
+    policy.zero_data_retention && policy.no_training_on_inputs && policy.eu_data_residency
+}
+```
+
+- **Fail-closed:** every provider starts **undeclared** — `vision_egress_compliant` returns `false` until an entry explicitly asserts all three guarantees, so adding a provider cannot silently leak a page image. `LlmProvider::Ollama` is the only provider exempt without a declaration, because no bytes leave the host. Text-only `chat_constrained`/`extract_schedule` paths are unchanged.
+- **Ordering is the point:** the gate runs in the transport before the request body is built (`crates/infra/src/ai/client.rs`, alongside the existing `req.provider != self.provider` check), so a rejected call performs zero HTTP egress and cannot be retried into a leak by the circuit-breaker/retry loop.
 
 ---
 
@@ -156,6 +182,8 @@ StructuredDocument (Pages 1..N)
 
 **Why hybrid zoning (deterministic first, VLM fallback for non-standard formats)?**
 For standard German/English scripts, spatial Signals (`SCRIPT REPORT` banner or `>= 8` consecutive body-less scene headings on one page = `SceneIndex`; `"PERSONEN"`/`"HAUPTCAST"`/`"DARSTELLER"`/`"CAST"` = `CastList`; `"SYNOPSIS"`/`"EXPOSÉ"`/`"MEDIZINISCHE FÄLLE"` = `FrontMatter`) classify zones in `< 5 ms` at **zero token cost**. When a script uses an unfamiliar layout (e.g., zero recognized headings in `ScriptBody` or ambiguous zone transitions), a single compact VLM/LLM structural index pass over page summaries classifies the zones and identifies scene heading block anchors (`P11.B02`), while Rust still performs the verbatim text slice.
+
+**The accepted anchor plan is an input to chunk identity (`D7`):** the structural pass is the one non-deterministic step that decides *where* chunks begin, so the plan it produced (per-page zone labels plus the ordered anchor block IDs `P04.B03`, `P11.B02`, …) is serialized canonically (ascending page, ascending block ordinal, no map iteration order) and hashed into `structural_plan_digest`. The digest is persisted with the chunk set and folded into `fingerprint_key`. A retry that re-runs the pass therefore has two honest outcomes only: identical plan → digest unchanged → the stored chunk prefix is reused as-is; changed plan → digest mismatch → `open_chunk_set` deletes the stale partial chunks and restarts at chunk `0`. Re-running the *slice* under a second plan while keeping a prefix cut under the first is never permitted, because mixing anchor plans inside one `ScriptContext` can drop or duplicate scene content.
 
 ---
 
@@ -200,10 +228,12 @@ Both Pass 1 (`<document-context>` XML block appended alongside `<input>`) and Pa
 Schedule PDF (Pages 1..K)
        │
        ▼
-`DocumentStructureExtractor::extract(..., render_pages = true)`
+`DocumentStructureExtractor::extract(...)` (no page images)
        │
        ▼
 Page Loop (p = 1..=K) with `ScheduleCarryOver { active_day_label, active_date, cast_legend }`
+  • `render_page(document, p)` -> `RenderedPage` (dropped at the end of this iteration,
+    document-wide ceiling `AI_IMPORT_MAX_RENDERED_TOTAL_BYTES`)
   • Multimodal call (`LlmClient::chat_vision_constrained`):
       Input : Page `p` PNG + spatial block table/text hint + `carry_over` JSON
       Output: `SchedulePageExtraction { legend_entries, day_banners_seen, rows, end_of_page_day }`
@@ -237,7 +267,8 @@ Located in `backend/crates/infra/tests/ai_document_eval_corpus.rs` (ignored by d
 
 ## Risks / Trade-offs
 
-- **[Risk] Poppler `pdftoppm` memory/CPU spike on malformed or huge PDFs on a small Netcup vServer** → **Mitigation:** Render pages lazily one page (or bounded batch) at a time at capped `150 DPI` grayscale/RGB, enforce `AI_IMPORT_MAX_DOCUMENT_BYTES` (`20 MiB`), cap rendered PNG bytes per page, and apply the battle-tested `tokio::time::timeout` + `reap_child` cleanup pattern from `crates/infra/src/ai/pdf.rs`.
+- **[Risk] Poppler `pdftoppm` memory/CPU spike on malformed or huge PDFs on a small Netcup vServer** → **Mitigation:** `StructuredDocument` never retains rendered bytes; pages are rendered on demand via `render_page` one page (or bounded batch) at a time at capped `150 DPI` grayscale/RGB and dropped right after their multimodal call, so aggregate retention is `O(1)` pages rather than `O(K)`. Enforce `AI_IMPORT_MAX_DOCUMENT_BYTES` (`20 MiB`), a rendered-PNG byte cap per page **and** the document-wide `AI_IMPORT_MAX_RENDERED_TOTAL_BYTES` ceiling (a `K`-page schedule aborts as `ValidationError` once the cumulative rendered bytes exceed it), and apply the battle-tested `tokio::time::timeout` + `reap_child` cleanup pattern from `crates/infra/src/ai/pdf.rs`.
+- **[Risk] A retried import resumes a chunk prefix cut under a different VLM anchor plan** → **Mitigation:** the accepted anchor plan is persisted with the chunk set and its `structural_plan_digest` enters `fingerprint_key` (see §3), so a changed plan restarts at chunk `0` instead of splicing two plans into one `ScriptContext`.
 - **[Risk] Kerning normalization (`"Mik k o"` → `"Mikko"`) accidentally collapses two real German words** → **Mitigation:** Normalization is dictionary-gated exclusively against multi-character proper names present in the same document's `CastDirectory` (never free-form spellchecking), and `verify_draft_outfits` checks both raw and kerning-normalized chunk text.
 - **[Risk] Multimodal provider endpoint lacks JSON-schema `response_format` alongside image inputs** → **Mitigation:** Reuse `ai::client`'s constrained-JSON fallback + bounded inner parse retry when a provider rejects combined `image_url` + strict `json_schema`.
 - **[Risk] In-flight jobs across upgrade hold pre-`ADR-041` cached chunks** → **Mitigation:** `CHUNKER_VERSION` bump + `parser_fingerprint` in `chunk_store::fingerprint_key` (`D7`) cleanly discards pre-upgrade partial chunk sets on the next worker claim and restarts extraction at chunk `0`.
@@ -284,12 +315,12 @@ This section is binding for implementation agents across `[P1]…[P4]`:
 ### B. Backward-Compatible Serde & Persistence Touchpoints
 
 - **`ExtractionFingerprint` (`crates/core/src/ai/ports.rs`) & `fingerprint_key` (`crates/infra/src/ai/chunk_store.rs:320`):**
-  - Add `#[serde(default)] pub parser_fingerprint: String` to `ExtractionFingerprint` so existing JSON `components` rows in `ai_import` deserialize cleanly (defaulting to `""`).
-  - Append `hasher.update(b"|"); hasher.update(fingerprint.parser_fingerprint.as_bytes());` at the end of `fingerprint_key` and populate `parser_fingerprint: self.extractor.parser_fingerprint().to_owned()` inside `ScriptImportWorker::open_chunk_set` (`crates/infra/src/ai/workers.rs:514`).
+  - Add `#[serde(default)] pub parser_fingerprint: String` and `#[serde(default)] pub structural_plan_digest: String` to `ExtractionFingerprint` so existing JSON `components` rows in `ai_import` deserialize cleanly (defaulting to `""`).
+  - Append `hasher.update(b"|"); hasher.update(fingerprint.parser_fingerprint.as_bytes()); hasher.update(b"|"); hasher.update(fingerprint.structural_plan_digest.as_bytes());` at the end of `fingerprint_key` and populate both inside `ScriptImportWorker::open_chunk_set` (`crates/infra/src/ai/workers.rs:514`): `parser_fingerprint: self.extractor.parser_fingerprint().to_owned()` and the digest of the plan Pass 0 actually accepted (empty for the deterministic-only path, where no plan exists).
 - **Stored Garage S3 Preview Compatibility (`crates/core/src/ai/preview.rs`):**
   - Every new field on `ScriptContext`, `ShootingSchedule` (`#[serde(default)] pub cast_legend: BTreeMap<String, ScheduleLegendEntry>`), and `ShootingScheduleRow` (`#[serde(default)] pub shot_suffix: Option<String>`, `#[serde(default)] pub cast_refs: Vec<ScheduleCastMember>`) MUST carry `#[serde(default)]` so previews persisted in Garage S3 before this change deserialize without error.
 - **Poppler Spatial Parsing (`crates/infra/src/ai/spatial_pdf.rs`):**
-  - Invoke `pdftotext -q -bbox-layout - -` and `pdftoppm -q -png -r 150` using the exact `tokio::join!(write, read)` + `max_output_bytes` cap + `tokio::time::timeout` + `reap_child` lifecycle from `crates/infra/src/ai/pdf.rs:46-143`.
+  - Invoke `pdftotext -q -bbox-layout - -` and, per on-demand `render_page` call, `pdftoppm -q -png -r 150 -f <page> -l <page>` using the exact `tokio::join!(write, read)` + `max_output_bytes` cap + `tokio::time::timeout` + `reap_child` lifecycle from `crates/infra/src/ai/pdf.rs:46-143`.
   - Guard page dimension normalization against zero/negative dimensions (`if width_pt <= f32::EPSILON || height_pt <= f32::EPSILON`) and clamp `NormalizedBBox` coordinates to `0.0..=1.0` with zero `unwrap()`/`expect()`.
 - **Pass 2 Continuity Touchpoint (`crates/core/src/ai/continuity.rs`):**
   - Extend the gap state builder in `crates/core/src/ai/continuity.rs` with `previous_scene: Option<NeighborSceneBrief>` and `next_scene: Option<NeighborSceneBrief>` derived from the ordered `ScriptContext.scenes` slice.
