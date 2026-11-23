@@ -20,10 +20,10 @@
 //!    contiguous stored prefix. `MAX(chunk_index) + 1` over `0, 1, 3` would
 //!    answer 4 and quietly omit chunk 2 from the preview.
 
-use breakdown_core::ai::AiImportJobId;
 use breakdown_core::ai::ports::{
     AiImportChunkStore, ChunkSetState, ExtractionFingerprint, StoredChunk, resume_cursor,
 };
+use breakdown_core::ai::{AiImportJobId, StructuralPlan};
 use breakdown_core::error::DomainError;
 use sqlx::{PgPool, Row};
 
@@ -310,21 +310,23 @@ impl AiImportChunkStore for PgAiImportChunkStore {
     }
 }
 
-/// `sha256(document_digest | provider | model | prompt_hash | chunker_version | parser_fingerprint)`.
+/// `sha256(document_digest | provider | model | prompt_hash | chunker_version | parser_fingerprint | structural_plan_digest)`.
 ///
 /// The one authoritative rendering of the fingerprint (D-B7). Length-prefixing is
 /// deliberately omitted: the components are a digest (hex), two provider/model
 /// keys, a hex hash and two short ASCII identifiers, none of which can contain
 /// the `|` separator, so the concatenation is unambiguous.
 ///
-/// `parser_fingerprint` is the last component on purpose (ADR-041 `D7`, issue
-/// #958): a deployment that switches `AI_DOCUMENT_PARSER` must never resume a
-/// stored prefix cut by the previous parser, because two parsers disagree about
-/// page boundaries, block order and therefore chunk boundaries even when the
-/// bytes, provider, model and prompt are identical. An empty
-/// `parser_fingerprint` (a chunk set written before the field existed) hashes
-/// differently from every real fingerprint, which is exactly the invalidation
-/// we want.
+/// `parser_fingerprint` and `structural_plan_digest` are the last components on
+/// purpose (ADR-041 `D7`, issues #958/#959): a deployment that switches
+/// `AI_DOCUMENT_PARSER` must never resume a stored prefix cut by the previous
+/// parser, because two parsers disagree about page boundaries, block order and
+/// therefore chunk boundaries even when the bytes, provider, model and prompt
+/// are identical — and a re-run that accepts a *different* structural anchor plan
+/// (different page zones or different cut anchors) must never splice chunks cut
+/// under the old plan into one preview. An empty value (a chunk set written
+/// before the field existed, or the flat-text seam, which has no plan) hashes
+/// differently from every real digest, which is exactly the invalidation we want.
 #[must_use]
 pub fn fingerprint_key(fingerprint: &ExtractionFingerprint) -> String {
     use sha2::{Digest, Sha256};
@@ -340,6 +342,30 @@ pub fn fingerprint_key(fingerprint: &ExtractionFingerprint) -> String {
     hasher.update(fingerprint.chunker_version.to_string().as_bytes());
     hasher.update(b"|");
     hasher.update(fingerprint.parser_fingerprint.as_bytes());
+    hasher.update(b"|");
+    hasher.update(fingerprint.structural_plan_digest.as_bytes());
+    hex(&hasher.finalize())
+}
+
+/// The digest of an accepted structural anchor plan (ADR-041 `D3`/`D7`, issue
+/// #959): `sha256` over [`StructuralPlan::canonical_form`].
+///
+/// Canonical, so two runs that accepted the same zones and anchors produce the
+/// same digest and may resume the stored prefix, while any change produces a
+/// different one and restarts extraction at chunk `0`. An empty plan (no page at
+/// all) yields an empty digest — "not recorded", never a digest of nothing.
+///
+/// Computed here rather than in `core` because `sha2` is forbidden to
+/// `breakdown_core` (ADR-017 architecture gate); `core` owns the canonical
+/// *rendering*, `infra` owns the hashing.
+#[must_use]
+pub fn structural_plan_digest(plan: &StructuralPlan) -> String {
+    if plan.is_empty() {
+        return String::new();
+    }
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(plan.canonical_form().as_bytes());
     hex(&hasher.finalize())
 }
 
@@ -398,6 +424,7 @@ mod tests {
             prompt_hash: prompt_hash.to_owned(),
             chunker_version: breakdown_core::ai::preview::CHUNKER_VERSION,
             parser_fingerprint: "poppler-spatial-v1".to_owned(),
+            structural_plan_digest: "plan-digest".to_owned(),
         }
     }
 
@@ -455,10 +482,31 @@ mod tests {
         let parsed: ExtractionFingerprint =
             serde_json::from_value(stored).expect("legacy fingerprint must deserialize");
         assert!(parsed.parser_fingerprint.is_empty());
+        assert!(parsed.structural_plan_digest.is_empty());
         assert_ne!(
             fingerprint_key(&parsed),
             fingerprint_key(&fingerprint("m", "p"))
         );
+    }
+
+    #[test]
+    fn a_changed_structural_plan_invalidates_the_key() {
+        // ADR-041 D7 / issue #959: two anchor plans cut different chunk
+        // boundaries, so a stored prefix must never resume across them.
+        let plan_a = ExtractionFingerprint {
+            structural_plan_digest: "plan-a".to_owned(),
+            ..fingerprint("m", "p")
+        };
+        let plan_b = ExtractionFingerprint {
+            structural_plan_digest: "plan-b".to_owned(),
+            ..fingerprint("m", "p")
+        };
+        assert_ne!(fingerprint_key(&plan_a), fingerprint_key(&plan_b));
+        assert_eq!(
+            plan_b.changed_components(&plan_a),
+            vec!["structural_plan_digest"]
+        );
+        assert!(structural_plan_digest(&StructuralPlan::default()).is_empty());
     }
 
     #[test]

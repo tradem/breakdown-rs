@@ -3862,3 +3862,311 @@ fn reconciliation_counters_round_trip_through_the_preview_payload() {
     let decoded: ScriptContext = serde_json::from_str(&encoded).expect("payload round trips");
     assert_eq!(decoded, context);
 }
+
+// ===========================================================================
+// Zone-aware segmentation (ADR-041 D3/D7, issue #959)
+// ===========================================================================
+
+use crate::ai::document::{BlockKind, NormalizedBBox, StructuredDocument, StructuredPage};
+
+/// One page carrying `text` in the body band (left margin, no indentation).
+fn zoning_page(number: u32, text: &str) -> StructuredPage {
+    let mut page = StructuredPage::new(number, 595.0, 842.0);
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.85),
+        text,
+    );
+    page
+}
+
+/// The `SCRIPT REPORT` index page: one heading per scene plus its day column.
+fn index_page(number: u32, scenes: u32) -> StructuredPage {
+    let mut text = String::from("SCRIPT REPORT\n");
+    for scene in 1..=scenes {
+        text.push_str(&format!("{scene} I/T - ORT {scene}\nTag 1\n"));
+    }
+    zoning_page(number, &text)
+}
+
+/// A script-body page: `scenes` headings, each with a full-length action line.
+fn body_page(number: u32, scenes: impl Iterator<Item = u32>) -> StructuredPage {
+    let mut text = String::new();
+    for scene in scenes {
+        text.push_str(&format!(
+            "{scene} I/T - DREHORT {scene}\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n"
+        ));
+    }
+    zoning_page(number, &text)
+}
+
+/// The observed broadcast layout, scaled down: cover, cast list, `SCRIPT REPORT`
+/// index `1..=scene_count`, two `SYNOPSIS` pages, then body pages carrying the
+/// same scenes plus a page-break continuation banner.
+fn zoning_fixture(scene_count: u32, body_scene_count: u32) -> StructuredDocument {
+    let title = zoning_page(1, "(294) \"Freundschaft\"\nBlock: 098/Ep.: 294");
+    let cast = zoning_page(2, "PERSONEN/ HAUPTCAST\nDr. Koch\nLEYLA\nKOMPARSEN\nJonas");
+    let index = index_page(3, scene_count);
+    let synopsis_one = zoning_page(
+        4,
+        "SYNOPSIS\nLeyla kehrt nach zwanzig Jahren in die Klinik zurück und trifft dort auf den Mann, der ihr Leben zerstört hat.",
+    );
+    let synopsis_two = zoning_page(
+        5,
+        "MEDIZINISCHE FÄLLE\nDie junge Ärztin übernimmt die Station und gerät zwischen die Fronten der beiden Chefärzte.",
+    );
+    // The body: two scenes per page, with a continuation banner between them.
+    let mut pages = vec![title, cast, index, synopsis_one, synopsis_two];
+    let mut next_page = 6_u32;
+    let mut scene = 1_u32;
+    while scene <= body_scene_count {
+        let upper = (scene + 1).min(body_scene_count);
+        let mut text = String::new();
+        for number in scene..=upper {
+            text.push_str(&format!(
+                "{number} I/T - DREHORT {number}\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.\n"
+            ));
+        }
+        // A page-turn banner must never reach the chunk text.
+        text.push_str(&format!("{upper} CONTINUED: (2)\n"));
+        pages.push(zoning_page(next_page, &text));
+        next_page += 1;
+        scene = upper + 1;
+    }
+    StructuredDocument::new("poppler-spatial-v1", pages)
+}
+
+#[test]
+fn a_multi_zone_screenplay_yields_one_chunk_per_body_scene_and_no_front_matter() {
+    let document = zoning_fixture(42, 42);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(
+        segmented.chunks.len(),
+        42,
+        "only `ScriptBody` scenes make chunks: the index lists the same 42"
+    );
+    for chunk in &segmented.chunks {
+        for leaked in [
+            "SYNOPSIS",
+            "MEDIZINISCHE FÄLLE",
+            "SCRIPT REPORT",
+            "HAUPTCAST",
+            "Block: 098",
+            "CONTINUED",
+            "zwanzig Jahren",
+            "zwischen die Fronten",
+        ] {
+            assert!(
+                !chunk.text.contains(leaked),
+                "chunk {:?} leaked front matter {leaked:?}: {:?}",
+                chunk.heading,
+                chunk.text
+            );
+        }
+        assert!(
+            !chunk.text.contains("CONTINUED"),
+            "the page-turn banner must be stripped: {:?}",
+            chunk.text
+        );
+    }
+    // The last scene must not swallow six pages of synopsis (the bug this change
+    // exists for): its text is its own action line and nothing else.
+    let last = segmented.chunks.last().expect("42 chunks");
+    assert_eq!(last.scene_number, Some(42));
+    assert!(
+        last.text.lines().count() <= 2,
+        "scene 42 carries its own prose only: {:?}",
+        last.text
+    );
+    // Header harvest: the block number comes from a page that carries no scene.
+    assert_eq!(segmented.block_number, Some(98));
+    assert_eq!(
+        segmented.chunks[0]
+            .episode
+            .as_ref()
+            .and_then(|ep| ep.number),
+        Some(294)
+    );
+    assert_eq!(
+        segmented.chunks[0]
+            .episode
+            .as_ref()
+            .and_then(|ep| ep.title.as_deref()),
+        Some("Freundschaft")
+    );
+    // Index and body agree, so there is no structural uncertainty at all.
+    assert!(segmented.uncertainties.is_empty());
+}
+
+#[test]
+fn a_scene_missing_from_the_body_is_reported_against_the_index() {
+    // The index lists 42 scenes, the body contains only 41: the old pipeline
+    // silently produced a 41-row preview, leaving the reviewer to guess.
+    let document = zoning_fixture(42, 41);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 41);
+    assert_eq!(
+        segmented.uncertainties.len(),
+        1,
+        "{:?}",
+        segmented.uncertainties
+    );
+    let uncertainty = &segmented.uncertainties[0];
+    assert_eq!(uncertainty.field, "scene_number");
+    assert_eq!(uncertainty.suggested_value.as_deref(), Some("42"));
+    assert_eq!(uncertainty.kind, UncertaintyKind::FieldAmbiguity);
+    assert!(
+        uncertainty.note.contains("missing from the script body"),
+        "note must name the drift: {}",
+        uncertainty.note
+    );
+    // The finding sits next to the last row, not on row 0.
+    assert_eq!(uncertainty.scene_index, 40);
+}
+
+#[test]
+fn a_body_scene_absent_from_the_index_is_reported_too() {
+    // Same fixture, but the index stops at 41 while the body has 42.
+    let document = zoning_fixture(41, 42);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 42);
+    assert_eq!(
+        segmented.uncertainties.len(),
+        1,
+        "{:?}",
+        segmented.uncertainties
+    );
+    let uncertainty = &segmented.uncertainties[0];
+    assert_eq!(uncertainty.field, "scene_number");
+    assert_eq!(uncertainty.suggested_value.as_deref(), Some("42"));
+    assert_eq!(uncertainty.scene_index, 41);
+    assert!(uncertainty.note.contains("not in the scene index"));
+}
+
+#[test]
+fn combined_plus_and_slash_headings_split_and_normalize_to_the_canonical_mood() {
+    let mut body = zoning_page(
+        1,
+        "3 A+I/T - STRASSE + KLINIKUM\nLeyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    body.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.60, 0.90, 0.80),
+        "42 I+A/T - HAUPTEINGANG\nSie geht langsam durch die Tür und schweigt.",
+    );
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![body]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(
+        segmented.chunks.len(),
+        2,
+        "both combined headings are scene boundaries: {:?}",
+        segmented
+            .chunks
+            .iter()
+            .map(|chunk| chunk.heading.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(segmented.chunks[0].scene_number, Some(3));
+    assert_eq!(segmented.chunks[0].mood.as_deref(), Some("I/A/T"));
+    assert_eq!(segmented.chunks[1].scene_number, Some(42));
+    assert_eq!(segmented.chunks[1].mood.as_deref(), Some("I/A/T"));
+}
+
+#[test]
+fn every_combined_heading_spelling_normalizes_to_the_same_mood() {
+    for (heading, expected) in [
+        ("3 A+I/T - STRASSE", Some("I/A/T")),
+        ("3 I+A/T - STRASSE", Some("I/A/T")),
+        ("3 A/I/T - STRASSE", Some("I/A/T")),
+        ("3 I/A/T - STRASSE", Some("I/A/T")),
+        ("3 A+I/N - STRASSE", Some("I/A/N")),
+        ("3 I/T - STRASSE", Some("I/T")),
+        ("3 A/N - STRASSE", Some("A/N")),
+        // Not headings / not moods: a location pair without a time token, and a
+        // heading without any parsable time token.
+        ("3 A/I - STRASSE", None),
+        ("3 I/TAGES - STRASSE", None),
+    ] {
+        assert_eq!(
+            parse_mood_from_heading(heading),
+            expected.map(str::to_owned),
+            "mood of {heading:?}"
+        );
+    }
+}
+
+#[test]
+fn a_page_break_never_fuses_the_last_line_with_the_next_heading() {
+    // The spatial adapter's last block on a page carries no trailing newline; the
+    // line-based scanner had to rewrite form feeds into newlines to avoid
+    // `"Goodbye.2 EXT. PARK - DAY"`. Block slicing makes that structurally
+    // impossible — assert it, because a regression here silently loses a scene.
+    let first = zoning_page(1, "1 INT. KITCHEN - DAY\nGoodbye.");
+    let second = zoning_page(2, "2 EXT. PARK - DAY\nAlice waits.");
+    let document = StructuredDocument::new("poppler-spatial-v1", vec![first, second]);
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 2);
+    assert_eq!(segmented.chunks[0].text, "Goodbye.");
+    assert_eq!(segmented.chunks[1].heading, "2 EXT. PARK - DAY");
+    assert_eq!(segmented.chunks[1].text, "Alice waits.");
+}
+
+#[test]
+fn the_plan_records_the_accepted_zones_and_cut_anchors() {
+    let document = zoning_fixture(4, 4);
+    let segmented = extract_scenes_from_structured(&document);
+    let canonical = segmented.plan_canonical_form();
+    assert!(
+        canonical.starts_with("P01|title_page|"),
+        "plan: {canonical}"
+    );
+    assert!(canonical.contains("P03|scene_index|"), "plan: {canonical}");
+    assert!(canonical.contains("P04|front_matter|"), "plan: {canonical}");
+    assert!(
+        canonical.contains("P06|script_body|P06.B00"),
+        "plan: {canonical}"
+    );
+    // Deterministic: the same document segments to the same plan, which is why a
+    // retry can resume its stored prefix.
+    assert_eq!(
+        segmented.plan_canonical_form(),
+        extract_scenes_from_structured(&document).plan_canonical_form()
+    );
+    // And a different ZONING yields a different plan even when the scenes are
+    // the same: that is exactly the invalidation the digest must catch.
+    let unzoned = StructuredDocument::new("poppler-spatial-v1", vec![body_page(1, 1..=4)]);
+    assert_ne!(
+        segmented.plan_canonical_form(),
+        extract_scenes_from_structured(&unzoned).plan_canonical_form()
+    );
+}
+
+#[test]
+fn the_flat_text_seam_reports_a_constant_anchorless_plan() {
+    // The flat seam has no blocks, so its plan must not claim any: a constant
+    // canonical form is the honest statement, and it keeps the pre-#959
+    // string-level behaviour (the index merge test above relies on it).
+    let flat = SegmentedScript::from_flat_text("1 I/T - ORT\nText.");
+    assert_eq!(flat.chunks.len(), 1);
+    assert_eq!(flat.plan_canonical_form(), "P01|script_body|\n");
+    assert!(flat.uncertainties.is_empty());
+    assert_eq!(flat.block_number, None);
+}
+
+#[test]
+fn a_document_without_a_recognised_script_page_still_segments() {
+    // Widened fallback: no `ScriptBody` verdict, so every page is scanned rather
+    // than the whole import failing with "no scene heading".
+    let document = StructuredDocument::new(
+        "poppler-spatial-v1",
+        vec![zoning_page(
+            1,
+            "SYNOPSIS\n1 I/T - ORT\nLeyla geht langsam über den Hof und bleibt stehen.",
+        )],
+    );
+    let segmented = extract_scenes_from_structured(&document);
+    assert_eq!(segmented.chunks.len(), 1);
+    // Widened, but the cut anchor is still recorded: the plan states what the
+    // segmentation actually did, not what the zone pass wished for.
+    assert_eq!(segmented.plan_canonical_form(), "P01|script_body|P01.B00\n");
+}

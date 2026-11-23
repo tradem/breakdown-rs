@@ -16,6 +16,39 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.88.0] - Unreleased
+### Added (issue #959)
+
+- `ai::chunk_store::structural_plan_digest(&StructuralPlan) -> String` — the
+  `sha256` of the plan's canonical form (empty for an empty plan), the value
+  `ExtractionFingerprint::structural_plan_digest` carries. It lives here rather
+  than in `core` because `sha2` is forbidden to `breakdown_core` (ADR-017):
+  `core` owns the canonical rendering, `infra` owns the hashing.
+- `ScriptImportWorker::process_segmented(job, worker_id, &SegmentedScript)` —
+  the LLM loop over an already segmented script, so the PDF/segmentation seam and
+  the paid-call loop can be tested apart.
+
+### Changed (issue #959)
+
+- `ScriptImportWorker::process` segments the extracted `StructuredDocument`
+  through `core::ai::extract_scenes_from_structured` instead of flattening it:
+  only `ScriptBody` prose becomes a chunk, so the cast list, the `SCRIPT REPORT`
+  index and the multi-page `SYNOPSIS` can no longer glue themselves onto the last
+  scene. `process_text` stays as the flat-text seam
+  (`SegmentedScript::from_flat_text`) for the existing worker tests.
+- `open_chunk_set` folds the accepted plan's digest into the `#871` chunk-set
+  fingerprint next to `parser_fingerprint`, so a retry that accepted a different
+  zone/anchor plan restarts at chunk `0` instead of splicing two plans.
+- Scene-index reconciliation findings from the segmentation are appended to
+  `ScriptContext.uncertainties` of the stored preview.
+- `fingerprint_key` now also hashes `structural_plan_digest` (both components are
+  appended at the end; an empty value sorts unequal to every real one, which is
+  the invalidation).
+- The Golden Corpus harness (`tests/ai_document_eval_corpus.rs`) additionally
+  asserts zone-aware chunking, continuation-banner stripping, zero
+  scene-index/body drift and — via an optional `<name>.expected` sidecar
+  (`scenes = <N>`) — the exact scene count per document.
+
 ## [0.87.0] - Unreleased
 ### Added (issue #958)
 

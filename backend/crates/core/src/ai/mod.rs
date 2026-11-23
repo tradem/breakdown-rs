@@ -55,8 +55,9 @@ pub use decision::{
 };
 pub use document::{
     BlockAnchor, BlockKind, DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentBlock,
-    ExtractionOptions, NormalizedBBox, RenderOptions, RenderedPage, StructuredDocument,
-    StructuredPage,
+    DocumentZones, ExtractionOptions, LineRole, NormalizedBBox, PageZone, PageZoneRecord, PlanPage,
+    RenderOptions, RenderedPage, StructuralPlan, StructuredDocument, StructuredPage, ZonedLine,
+    classify_document_zones, is_continuation_marker, zoned_lines,
 };
 pub use error::AiConfigError;
 pub use events::AiConfigEvent;
@@ -80,14 +81,16 @@ pub use preview::{
     MergedScene, OutfitApplyPlan, OutfitBeatSlot, OutfitContinuityCandidate,
     OutfitContinuitySelection, OutfitDecision, PieceApplyPlan, PlannedEpisode, PlannedShootingDay,
     RejectedOutfit, RejectedOutfitReason, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan,
-    SceneBeatLane, SceneChunk, ScriptApplyPlan, ScriptContext, ShootingDayPlan, ShootingSchedule,
-    ShootingScheduleRow, UNCERTAINTY_FIELD_CHARACTERS, UnappliedOutfit, UnappliedOutfitReason,
-    Uncertainty, UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
+    SceneBeatLane, SceneChunk, ScriptApplyPlan, ScriptContext, SegmentedScript, ShootingDayPlan,
+    ShootingSchedule, ShootingScheduleRow, UNCERTAINTY_FIELD_CHARACTERS,
+    UNCERTAINTY_FIELD_SCENE_NUMBER, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
     character_identity, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
     ensure_script_applyable, episode_group_refs, extract_block_number, extract_scenes,
-    is_meta_summary, merge_from_input, merge_schedule_to_scenes, parse_mood_from_heading,
-    parse_schedule_scene_ref, parse_script_day, plan_scene_apply, sanitize_meta_summary,
-    scene_beat_lanes, shooting_day_group_refs, stable_draft_ref, verify_draft_outfits,
+    extract_scenes_from_structured, is_meta_summary, merge_from_input, merge_schedule_to_scenes,
+    parse_mood_from_heading, parse_schedule_scene_ref, parse_script_day, plan_scene_apply,
+    sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs, stable_draft_ref,
+    verify_draft_outfits,
 };
 pub use provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 pub use reasoning::{

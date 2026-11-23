@@ -96,11 +96,14 @@ The import workers do not read PDFs themselves. Both are generic over the
 `ScheduleImportWorker<Q, C, E>`), which returns the canonical
 `core::ai::document::StructuredDocument` IR — 1-based pages, reading-order blocks,
 normalized `0.0..=1.0` geometry, preserved `<table>` markup — instead of one flat
-`String`. The pre-#959 segmentation still reads `flattened_text()`, which for the
-`legacy-pdftotext` adapter is byte-identical to the old `pdftotext -layout`
-output (the `spatial`/`docling` adapters join the blocks *their* parser produced,
-so their flattened view differs from `pdftotext -layout` in text and boundaries
-by design).
+`String`. Segmentation is **zone-aware** since issue #959: `ScriptImportWorker::process`
+hands the IR to `core::ai::extract_scenes_from_structured`, which classifies every
+page (`classify_document_zones`) and emits `SceneChunk`s from `ScriptBody` prose
+only. `flattened_text()` survives as the *flat-text seam*
+(`SegmentedScript::from_flat_text`, used by `process_text` and the string-level
+unit tests): for `legacy-pdftotext` it is byte-identical to the old
+`pdftotext -layout` output, while `spatial`/`docling` join the blocks *their*
+parser produced, so their flattened view differs in text and boundaries by design.
 
 - **Selection happens exactly once**, in `crates/api/src/main.rs`:
   `ConfiguredDocumentExtractor::from_env(&bounds)` → `WorkerDeps.extractor` (by
@@ -133,6 +136,41 @@ by design).
   `crates/core/src/ai/document_tests.rs` and
   `crates/infra/src/ai/spatial_pdf_tests.rs`; the out-of-tree corpus harness runs
   only with `AI_EVAL_CORPUS_DIR` set.
+
+#### Zone-aware segmentation (ADR-041 `D3`/`D4`/`D7`, issue #959)
+
+A broadcast screenplay is not one text: cover page, cast directory, a two-page
+`"SCRIPT REPORT"` index, five pages of `"SYNOPSIS"` prose, and only then the
+script. Scanning that flat string from line 1 glued the synopsis onto the last
+index entry — the model then invented scenes and dumped episode-wide characters
+into the final one. Pass 0 fixes this before a single token is spent:
+
+- **`core::ai::document::classify_document_zones(document, is_scene_heading)`**
+  labels every page `TitlePage | CastList | SceneIndex | FrontMatter | ScriptBody`.
+  Banners (`"SCRIPT REPORT"`, `"PERSONEN/ HAUPTCAST"`, `"SYNOPSIS"`,
+  `"MEDIZINISCHE FÄLLE"`), heading/dialogue counts and the header/footer bands
+  decide it; the caller **injects** the heading detector so zoning and chunking
+  cannot disagree. A page with no scene signal *after* the body started stays
+  `ScriptBody` (a scene running over a page break must not be dropped), and a
+  document with **no** `ScriptBody` page widens to "all prose" instead of
+  failing the import — that flag (`fell_back_to_script_body`) is the signal the
+  VLM structural pass of issue #960 is meant to answer.
+- **`zoned_lines` / `LineRole`** exclude `PageHeader`, `PageFooter` and
+  `"<N> CONTINUED:"` / `"FORTSETZUNG"` banners (`is_continuation_marker`) from
+  chunk text. Chunk text is sliced **verbatim** from the block text — never
+  re-transcribed by a model, because `verify_draft_outfits` validates
+  `source_quote` substrings against exactly those bytes.
+- **`StructuralPlan`** is the accepted plan (page zones + the block anchors cut
+  at) with a canonical rendering; `chunk_store::structural_plan_digest` hashes it
+  into `ExtractionFingerprint::structural_plan_digest`, so a retry that accepts a
+  different plan restarts at chunk `0` instead of splicing two plans.
+- **`SceneIndex` reconciliation** compares the index labels with the body labels
+  and emits a targeted `scene_number` `FieldAmbiguity` on a mismatch — never a
+  cross-zone text merge.
+- **`CHUNKER_VERSION` is `2`.** Bump it again whenever the segmentation changes
+  what a chunk *is*, and remember that a change to the zone rules changes the
+  plan for every document (the digest handles that, the version handles the
+  chunking).
 
 #### AI payload storage (durable source/preview blobs)
 

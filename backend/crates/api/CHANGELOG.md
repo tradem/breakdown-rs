@@ -17,6 +17,13 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.71.2] - Unreleased
+### Changed (issue #959)
+
+- Dependency re-pin only (`breakdown_core` 0.77.0, `infra` 0.88.0): zone-aware
+  script segmentation and the structural-plan chunk fingerprint arrive through
+  the existing worker wiring, so no `api` code changed.
+
 ## [0.71.1] - Unreleased
 ### Changed (issue #958)
 
