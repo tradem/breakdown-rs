@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -137,10 +138,16 @@ fn chunk_location(scene: &SceneChunk) -> Option<String> {
     }
 }
 
-fn neighbor_brief(scene: &SceneChunk, current_day: Option<&str>) -> NeighborSceneBrief {
+fn neighbor_brief(scene: &SceneChunk, current_day_key: Option<&str>) -> NeighborSceneBrief {
     let neighbor_day = day_label(scene);
-    let same_script_day = match (&neighbor_day, current_day) {
-        (Some(neighbor), Some(current)) => neighbor.trim().eq_ignore_ascii_case(current.trim()),
+    let neighbor_day_key = scene
+        .shooting_day
+        .as_ref()
+        .and_then(DraftShootingDay::group_key);
+    // The group key is the day identity; the display label can differ for the
+    // same numbered day after another day intervened in the marker scan.
+    let same_script_day = match (neighbor_day_key.as_deref(), current_day_key) {
+        (Some(neighbor), Some(current)) => neighbor == current,
         _ => false,
     };
     NeighborSceneBrief {
@@ -159,15 +166,18 @@ pub fn neighbor_brackets(chunks: &[SceneChunk]) -> Vec<SceneNeighbors> {
         .iter()
         .enumerate()
         .map(|(index, chunk)| {
-            let current_day = day_label(chunk);
+            let current_day_key = chunk
+                .shooting_day
+                .as_ref()
+                .and_then(DraftShootingDay::group_key);
             SceneNeighbors {
                 previous_scene: index
                     .checked_sub(1)
                     .and_then(|previous| chunks.get(previous))
-                    .map(|scene| neighbor_brief(scene, current_day.as_deref())),
+                    .map(|scene| neighbor_brief(scene, current_day_key.as_deref())),
                 next_scene: chunks
                     .get(index + 1)
-                    .map(|scene| neighbor_brief(scene, current_day.as_deref())),
+                    .map(|scene| neighbor_brief(scene, current_day_key.as_deref())),
             }
         })
         .collect()
@@ -1271,8 +1281,13 @@ fn has_background_marker(name: &str) -> bool {
 /// Deterministic cast-directory lookup (issue #961): exact normalized identity
 /// first, then a unique given-name/surname token match. A token shared by two
 /// entries is ambiguous and deliberately does NOT match.
-fn directory_matches<'a>(name: &str, directory: &'a CastDirectory) -> Vec<&'a CastDirectoryEntry> {
-    let identity = character_identity(name);
+pub fn cast_directory_matches<'a>(
+    name: &str,
+    directory: &'a CastDirectory,
+) -> Vec<&'a CastDirectoryEntry> {
+    // A cue's trailing `(OT)` / `(8, OT)` is not part of the figure's name —
+    // the same fold the season-cast lookup below uses.
+    let identity = character_identity(name_without_parenthetical(name));
     let exact: Vec<&CastDirectoryEntry> = directory
         .entries
         .iter()
@@ -1358,6 +1373,15 @@ pub fn zero_dialogue_generic_roles(chunks: &[SceneChunk]) -> Vec<String> {
                 if is_generic_role(cue) && !candidates.contains(&identity) {
                     candidates.push(identity.clone());
                 }
+                // `PFLEGER 2: Hallo.` speaks on the cue line itself; without
+                // this the role falls through to the `Extra` default.
+                let inline_dialogue = trimmed
+                    .split_once(':')
+                    .map_or("", |(_, dialogue)| dialogue)
+                    .trim();
+                if !inline_dialogue.is_empty() && !speaking.contains(&identity) {
+                    speaking.push(identity.clone());
+                }
                 pending_cue = Some(identity);
                 continue;
             }
@@ -1398,7 +1422,7 @@ pub fn resolve_character_category(
     existing_season_cast: &[ExistingSeasonCharacter],
     zero_dialogue_roles: &[String],
 ) -> (CharacterCategory, Option<Uncertainty>) {
-    let matches = directory_matches(name, directory);
+    let matches = cast_directory_matches(name, directory);
     if let Some(first) = matches.first() {
         let conflicting = matches
             .iter()

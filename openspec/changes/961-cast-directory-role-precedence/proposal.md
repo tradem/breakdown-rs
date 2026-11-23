@@ -32,7 +32,7 @@ both closed at `53a9c56`; no P3 symbol exists yet, so there is no drift to recon
 ## Verification
 
 - Deterministic unit tests for the four acceptance examples, kerning safety (ordinary German prose untouched, grounded outfits kept), Pass-1 context rendering and Pass-2 neighbour state.
-- `cargo test -p breakdown-core`, `cargo test -p breakdown-infra`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p architecture_tests`.
+- `cargo test -p breakdown_core`, `cargo test -p infra`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p architecture_tests`.
 - `AI_EVAL_CORPUS_DIR=~/Downloads/drive-download cargo test -p infra --test ai_document_eval_corpus -- --nocapture` → **pass**: 5/5 scripts at their expected scene counts (40/42/43/42/42) and **20/20** cast-category assertions via the real resolver (the manifest now carries `cast=name:category` expectations for every script).
 
 ## Version bumps (planned)

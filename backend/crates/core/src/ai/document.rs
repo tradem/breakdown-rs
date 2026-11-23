@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Canonical document-structure IR (ADR-041 `D1`, issue #958).
@@ -921,6 +922,14 @@ pub fn parse_cast_directory_from_text(
     for (offset, line) in text.lines().enumerate() {
         if cast_section(line).is_some() {
             in_cast = true;
+        } else if in_cast
+            && page_banner(line, true).is_some_and(|(zone, _)| zone != PageZone::CastList)
+        {
+            // A recognized non-cast banner (`SYNOPSIS`, `SCRIPT REPORT`, ...)
+            // ends the directory. `page_banner` requires a section-shaped line,
+            // so shouty prose (`CAST OFF!`) and a valid `KOMPARSEN` header are
+            // not mistaken for one another.
+            in_cast = false;
         } else if in_cast && is_scene_heading(line) {
             in_cast = false;
         }
@@ -999,8 +1008,10 @@ pub fn normalize_kerning(text: &str, directory: &CastDirectory) -> String {
         let mut index = 0usize;
         while index < words.len() {
             if words[index].is_empty() {
-                out.push(' ');
                 index += 1;
+                if index < words.len() {
+                    out.push(' ');
+                }
                 continue;
             }
             let mut matched = false;
@@ -1017,10 +1028,11 @@ pub fn normalize_kerning(text: &str, directory: &CastDirectory) -> String {
                     continue;
                 }
                 let collapsed: String = segment.concat();
+                let collapsed_key = collapsed_name(&collapsed);
                 let original = segment.join(" ");
                 let Some(canonical) = dictionary
                     .iter()
-                    .find(|(known, _)| known == &collapsed_name(&collapsed))
+                    .find(|(known, _)| known == &collapsed_key)
                     .map(|(_, canonical)| canonical)
                 else {
                     continue;
@@ -1030,7 +1042,10 @@ pub fn normalize_kerning(text: &str, directory: &CastDirectory) -> String {
                 }
                 out.push_str(canonical);
                 index += take;
-                if index < words.len() && !words[index].is_empty() {
+                // One separator per split token: an empty token emits the
+                // next one itself, so repeated spaces in unrelated prose
+                // survive byte-for-byte.
+                if index < words.len() {
                     out.push(' ');
                 }
                 matched = true;
@@ -1039,7 +1054,7 @@ pub fn normalize_kerning(text: &str, directory: &CastDirectory) -> String {
             if !matched {
                 out.push_str(words[index]);
                 index += 1;
-                if index < words.len() && !words[index].is_empty() {
+                if index < words.len() {
                     out.push(' ');
                 }
             }

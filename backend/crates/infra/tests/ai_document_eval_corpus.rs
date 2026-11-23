@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Golden Corpus evaluation harness for the document-structure adapters
@@ -280,6 +281,15 @@ fn cast_failures(directory: &CastDirectory, assertions: &[CastAssertion]) -> Vec
     assertions
         .iter()
         .filter_map(|assertion| {
+            // The resolver's last rung is `main_cast`, so a name absent from the
+            // directory would otherwise satisfy every `main_cast` assertion.
+            // Use the same matcher as the resolver to keep short-name matches.
+            if breakdown_core::ai::cast_directory_matches(&assertion.name, directory).is_empty() {
+                return Some(format!(
+                    "cast {:?}: name is missing from the parsed cast directory",
+                    assertion.name
+                ));
+            }
             let (resolved, uncertainty) =
                 resolve_character_category(&assertion.name, 0, directory, &[], &[]);
             if resolved == assertion.category && uncertainty.is_none() {

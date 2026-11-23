@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Unit tests for the canonical document-structure IR (issue #958).
@@ -986,4 +987,51 @@ fn kerning_normalization_is_dictionary_gated_and_never_spellchecks_prose() {
         "Mikko Rantala geht langsam. Der Arzt hilft."
     );
     assert_eq!(normalize_kerning(split, &CastDirectory::default()), split);
+}
+
+#[test]
+fn cast_collection_stops_at_a_recognized_non_cast_banner() {
+    let text = "KOMPARSEN\nHeiko Neubert\nCAST OFF!\nAnna Schmidt\n\n\
+               SYNOPSIS\nJonas Weber wartet im Flur.\n";
+    let directory = parse_cast_directory_from_text(text, |_| false);
+    let names: Vec<&str> = directory
+        .entries
+        .iter()
+        .map(|entry| entry.canonical_name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"Heiko Neubert"),
+        "uppercase prose is not a section banner"
+    );
+    assert!(
+        names.contains(&"Anna Schmidt"),
+        "a valid cast heading keeps collection active"
+    );
+    assert!(
+        !names.iter().any(|name| name.contains("Jonas Weber")),
+        "synopsis prose must not enter the cast directory: {names:?}"
+    );
+}
+
+#[test]
+fn kerning_normalization_keeps_repeated_spaces_byte_identical() {
+    let directory = CastDirectory::new(vec![CastDirectoryEntry {
+        canonical_name: "Mikko Rantala".to_owned(),
+        normalized_identity: "mikko rantala".to_owned(),
+        declared_category: CharacterCategory::MainCast,
+        raw_section: "PERSONEN".to_owned(),
+        inline_ot: false,
+    }]);
+    assert_eq!(
+        normalize_kerning("Der  Arzt hilft.", &directory),
+        "Der  Arzt hilft."
+    );
+    assert_eq!(
+        normalize_kerning("  Der Arzt  ", &directory),
+        "  Der Arzt  "
+    );
+    assert_eq!(
+        normalize_kerning("Mik k o Rantala  geht", &directory),
+        "Mikko Rantala  geht"
+    );
 }

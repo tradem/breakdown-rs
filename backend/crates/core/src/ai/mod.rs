@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4-flash (opencode-go)
@@ -87,14 +88,14 @@ pub use preview::{
     ScriptContext, SegmentedScript, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,
     UNCERTAINTY_FIELD_CHARACTERS, UNCERTAINTY_FIELD_SCENE_NUMBER, UnappliedOutfit,
     UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
-    category_conflict_uncertainties, character_identity, character_mapping_ref, draft_row_ref,
-    ensure_merge_applyable, ensure_script_applyable, episode_group_refs, extract_block_number,
-    extract_scenes, extract_scenes_from_structured, is_meta_summary, merge_from_input,
-    merge_schedule_to_scenes, neighbor_brackets, neighbor_state, parse_mood_from_heading,
-    parse_schedule_scene_ref, parse_script_day, plan_scene_apply, render_document_context,
-    resolve_character_category, sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs,
-    stable_draft_ref, verify_draft_outfits, verify_draft_outfits_with_normalized,
-    zero_dialogue_generic_roles,
+    cast_directory_matches, category_conflict_uncertainties, character_identity,
+    character_mapping_ref, draft_row_ref, ensure_merge_applyable, ensure_script_applyable,
+    episode_group_refs, extract_block_number, extract_scenes, extract_scenes_from_structured,
+    is_meta_summary, merge_from_input, merge_schedule_to_scenes, neighbor_brackets, neighbor_state,
+    parse_mood_from_heading, parse_schedule_scene_ref, parse_script_day, plan_scene_apply,
+    render_document_context, resolve_character_category, sanitize_meta_summary, scene_beat_lanes,
+    shooting_day_group_refs, stable_draft_ref, verify_draft_outfits,
+    verify_draft_outfits_with_normalized, zero_dialogue_generic_roles,
 };
 pub use provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 pub use reasoning::{

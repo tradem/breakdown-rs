@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -4635,4 +4636,87 @@ fn zero_dialogue_generic_roles_are_extra_and_neighbors_carry_script_day_parity()
     let context = render_document_context(&p3_cast_directory(), None);
     assert!(context.contains("Jonas Weber [guest]"));
     assert!(context.contains("<document-context>"));
+}
+
+#[test]
+fn zero_dialogue_generic_roles_treat_inline_dialogue_as_speech() {
+    let speaking = SceneChunk::extract_scenes("3 I/T - WOHNUNG\nPFLEGER 2: Hallo.\n");
+    assert!(
+        !zero_dialogue_generic_roles(&speaking).contains(&character_identity("PFLEGER 2")),
+        "a cue with dialogue on its own line speaks"
+    );
+
+    let silent = SceneChunk::extract_scenes("3 I/T - WOHNUNG\nPFLEGER 2:\n");
+    assert!(
+        zero_dialogue_generic_roles(&silent).contains(&character_identity("PFLEGER 2")),
+        "a cue with no dialogue keeps the Extra fallback"
+    );
+}
+
+#[test]
+fn a_parenthetical_cue_hits_duplicate_exact_directory_entries() {
+    let entry = |section: &str, category: CharacterCategory| CastDirectoryEntry {
+        canonical_name: "Jonas Weber".to_owned(),
+        normalized_identity: "jonas weber".to_owned(),
+        declared_category: category,
+        raw_section: section.to_owned(),
+        inline_ot: false,
+    };
+    let directory = CastDirectory::new(vec![
+        entry("GASTROLLEN", CharacterCategory::Guest),
+        entry("KOMPARSEN", CharacterCategory::Extra),
+    ]);
+    let (category, uncertainty) =
+        resolve_character_category("JONAS WEBER (OT)", 0, &directory, &[], &[]);
+    assert_eq!(category, CharacterCategory::Guest);
+    let uncertainty = uncertainty.expect("two sections for one name are a real conflict");
+    assert!(uncertainty.note.contains("guest vs extra"));
+}
+
+#[test]
+fn neighbor_script_day_parity_uses_the_group_key_not_the_display_label() {
+    let day = |number: i32, label: &str| DraftShootingDay {
+        number: Some(number),
+        label: Some(label.to_owned()),
+        score: None,
+    };
+    let chunk = |index: usize, shooting_day: DraftShootingDay| SceneChunk {
+        index,
+        heading: format!("{index} I/T - OP"),
+        scene_number: u32::try_from(index).ok(),
+        episode: None,
+        shooting_day: Some(shooting_day),
+        mood: None,
+        text: String::new(),
+    };
+    let chunks = vec![
+        chunk(0, day(1, "Tag 1")),
+        chunk(1, day(2, "Tag 2")),
+        chunk(2, day(1, "Day 1")),
+        chunk(3, day(1, "Tag 1")),
+    ];
+    let brackets = neighbor_brackets(&chunks);
+    assert_eq!(
+        brackets[0]
+            .next_scene
+            .as_ref()
+            .and_then(|scene| scene.script_day.as_deref()),
+        Some("Tag 2")
+    );
+    assert!(
+        !brackets[0]
+            .next_scene
+            .as_ref()
+            .is_some_and(|scene| scene.same_script_day),
+        "day 1 and day 2 are different days"
+    );
+    let previous = brackets[3]
+        .previous_scene
+        .as_ref()
+        .expect("a previous scene exists");
+    assert_eq!(previous.script_day.as_deref(), Some("Day 1"));
+    assert!(
+        previous.same_script_day,
+        "both scenes are day 1 regardless of their display label: {previous:?}"
+    );
 }

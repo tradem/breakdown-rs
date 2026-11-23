@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0 -->
 <!-- Copyright (C) 2024-2026 Breakdown RS Contributors -->
+<!-- Co-authored-by: hy4-flash-free (opencode-go) -->
 <!-- Co-authored-by: space-bunny-free (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4-flash (neuralwatt) -->
@@ -34,7 +35,8 @@ commits (ADR-020 D5).
   only for a genuine two-section conflict. Added `ExistingSeasonCharacter`,
   `NeighborSceneBrief`, `SceneNeighbors`, `neighbor_brackets`,
   `render_document_context`, `verify_draft_outfits_with_normalized` and
-  `zero_dialogue_generic_roles`.
+  `zero_dialogue_generic_roles`, plus `cast_directory_matches` as the shared
+  exact/short-name directory lookup for the resolver and the eval harness.
 - `ai::continuity::continuity_state` now includes the `previous_scene` /
   `next_scene` transition metadata (`same_script_day` included) in the Pass-2
   decision payload.
