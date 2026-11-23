@@ -17,7 +17,15 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.71.0] - Unreleased
+## [0.71.1] - Unreleased
+### Changed (issue #958)
+
+- Composition root: the document-structure adapter is selected once at startup
+  from `AI_DOCUMENT_PARSER` (`spatial` default, `docling`, `legacy-pdftotext`)
+  and handed to both import worker loops by value. An unknown value, or
+  `docling` without `AI_DOCLING_ENDPOINT`, fails startup instead of surfacing on
+  the first job. No wire change — `backend/openapi.yaml` is untouched.
+
 ### Added (issue #942 W4)
 
 - `GET /v1/ai-import/providers/{provider}/health?model=` — the caller's own

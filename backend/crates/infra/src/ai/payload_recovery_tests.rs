@@ -250,7 +250,10 @@ fn script_worker(
         queue,
         client: Arc::new(UnusedLlmClient),
         previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -268,7 +271,10 @@ fn schedule_worker(
         queue,
         client: Arc::new(UnusedLlmClient),
         previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),

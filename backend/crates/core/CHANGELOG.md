@@ -16,7 +16,30 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.75.0] - Unreleased
+## [0.76.0] - Unreleased
+### Added (issue #958)
+
+- New `ai::document` module — the canonical document-structure IR of ADR-041
+  `D1`: `StructuredDocument` (parser fingerprint + pages), `StructuredPage`
+  (1-based number, page box in PDF points, reading-order blocks),
+  `DocumentBlock` (`BlockAnchor`, `BlockKind`, `NormalizedBBox`, verbatim text,
+  preserved `<table>` markup), `NormalizedBBox` (clamped `0.0..=1.0` geometry
+  with the header/footer band predicates `HEADER_BAND_MAX_Y1` /
+  `FOOTER_BAND_MIN_Y0`), `ExtractionOptions` / `RenderOptions` /
+  `RenderedPage`. `StructuredDocument::flattened_text()` reproduces the old flat
+  `pdftotext -layout` view byte-for-byte, so the line-based segmentation keeps
+  seeing exactly what it saw before. The IR carries **no** page images:
+  `RenderedPage` is returned on demand by the port.
+- New `ai::ports::DocumentStructureExtractor` port: `parser_fingerprint()` plus
+  native RPITIT `extract` / `render_page` futures (no `#[async_trait]` boxing,
+  no `Arc<dyn ...>` — the two import workers are generic over it and dispatch
+  statically).
+- `ExtractionFingerprint` gained `parser_fingerprint: String`
+  (`#[serde(default)]`, so previously stored chunk-set rows still deserialize)
+  and `changed_components` now reports it. A switch of document-structure
+  adapter therefore invalidates the `#871` chunk set instead of resuming a
+  prefix cut by another parser.
+
 ### Changed (issue #950)
 
 - `ai::reasoning::supported_reasoning_efforts` now lists

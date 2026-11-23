@@ -20,6 +20,7 @@ pub mod commands;
 pub mod continuity;
 pub mod cost;
 pub mod decision;
+pub mod document;
 pub mod error;
 pub mod events;
 pub mod ports;
@@ -52,6 +53,11 @@ pub use decision::{
     is_curated_decision_model, is_decision_capable, noul, question_keys, scene_grounding_factor,
     score, score5,
 };
+pub use document::{
+    BlockAnchor, BlockKind, DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentBlock,
+    ExtractionOptions, NormalizedBBox, RenderOptions, RenderedPage, StructuredDocument,
+    StructuredPage,
+};
 pub use error::AiConfigError;
 pub use events::AiConfigEvent;
 pub use ports::LlmProvider;
@@ -59,11 +65,12 @@ pub use ports::{
     AccountBudget, AccountProbeRequest, AccountProbeSnapshot, AccountProbeStatus, AiConfigCommands,
     AiConfigRepository, AiImportChunkStore, AiImportEnqueueRequest, AiImportEnqueueResult,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
-    CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider, ExtractionFingerprint, HoldEvidence,
-    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmModelCatalog, ModelInfo,
-    ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeCapability, ProbeLease, ProbeOutcome,
-    ProviderAccountProbe, ProviderBreakerSnapshot, ProviderHealth, StoredChunk,
-    TargetAttachOutcome, UsageAccumulator, mapping_kind, probe_capability, resume_cursor,
+    CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider, DocumentStructureExtractor,
+    ExtractionFingerprint, HoldEvidence, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
+    LlmModelCatalog, ModelInfo, ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeCapability,
+    ProbeLease, ProbeOutcome, ProviderAccountProbe, ProviderBreakerSnapshot, ProviderHealth,
+    StoredChunk, TargetAttachOutcome, UsageAccumulator, mapping_kind, probe_capability,
+    resume_cursor,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,

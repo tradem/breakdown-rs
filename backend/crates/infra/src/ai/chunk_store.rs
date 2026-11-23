@@ -310,12 +310,21 @@ impl AiImportChunkStore for PgAiImportChunkStore {
     }
 }
 
-/// `sha256(document_digest | provider | model | prompt_hash | chunker_version)`.
+/// `sha256(document_digest | provider | model | prompt_hash | chunker_version | parser_fingerprint)`.
 ///
 /// The one authoritative rendering of the fingerprint (D-B7). Length-prefixing is
 /// deliberately omitted: the components are a digest (hex), two provider/model
-/// keys and a hex hash, none of which can contain the `|` separator, so the
-/// concatenation is unambiguous.
+/// keys, a hex hash and two short ASCII identifiers, none of which can contain
+/// the `|` separator, so the concatenation is unambiguous.
+///
+/// `parser_fingerprint` is the last component on purpose (ADR-041 `D7`, issue
+/// #958): a deployment that switches `AI_DOCUMENT_PARSER` must never resume a
+/// stored prefix cut by the previous parser, because two parsers disagree about
+/// page boundaries, block order and therefore chunk boundaries even when the
+/// bytes, provider, model and prompt are identical. An empty
+/// `parser_fingerprint` (a chunk set written before the field existed) hashes
+/// differently from every real fingerprint, which is exactly the invalidation
+/// we want.
 #[must_use]
 pub fn fingerprint_key(fingerprint: &ExtractionFingerprint) -> String {
     use sha2::{Digest, Sha256};
@@ -329,6 +338,8 @@ pub fn fingerprint_key(fingerprint: &ExtractionFingerprint) -> String {
     hasher.update(fingerprint.prompt_hash.as_bytes());
     hasher.update(b"|");
     hasher.update(fingerprint.chunker_version.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(fingerprint.parser_fingerprint.as_bytes());
     hex(&hasher.finalize())
 }
 
@@ -386,6 +397,7 @@ mod tests {
             model: model.to_owned(),
             prompt_hash: prompt_hash.to_owned(),
             chunker_version: breakdown_core::ai::preview::CHUNKER_VERSION,
+            parser_fingerprint: "poppler-spatial-v1".to_owned(),
         }
     }
 
@@ -407,6 +419,46 @@ mod tests {
         b.chunker_version += 1;
         assert_eq!(b.changed_components(&a), vec!["model", "chunker_version"]);
         assert!(a.changed_components(&a).is_empty());
+    }
+
+    #[test]
+    fn switching_the_document_parser_invalidates_the_key() {
+        // ADR-041 D7 / issue #958: the same document, provider, model, prompt and
+        // chunker must not resume across two structure extractors.
+        let legacy = ExtractionFingerprint {
+            parser_fingerprint: "legacy-pdftotext-v1".to_owned(),
+            ..fingerprint("m", "p")
+        };
+        let spatial = ExtractionFingerprint {
+            parser_fingerprint: "poppler-spatial-v1".to_owned(),
+            ..fingerprint("m", "p")
+        };
+        assert_ne!(fingerprint_key(&legacy), fingerprint_key(&spatial));
+        assert_eq!(
+            spatial.changed_components(&legacy),
+            vec!["parser_fingerprint"]
+        );
+    }
+
+    #[test]
+    fn a_pre_upgrade_fingerprint_without_a_parser_still_deserializes() {
+        // Chunk sets written before the field existed carry no
+        // `parser_fingerprint` key; `#[serde(default)]` must keep them readable
+        // (and hash differently from any real fingerprint → clean restart).
+        let stored = serde_json::json!({
+            "document_digest": "digest",
+            "provider": "opencode-go",
+            "model": "m",
+            "prompt_hash": "p",
+            "chunker_version": breakdown_core::ai::preview::CHUNKER_VERSION,
+        });
+        let parsed: ExtractionFingerprint =
+            serde_json::from_value(stored).expect("legacy fingerprint must deserialize");
+        assert!(parsed.parser_fingerprint.is_empty());
+        assert_ne!(
+            fingerprint_key(&parsed),
+            fingerprint_key(&fingerprint("m", "p"))
+        );
     }
 
     #[test]

@@ -26,11 +26,14 @@ pub mod credentials;
 pub mod csv_schedule;
 pub mod decision_client;
 pub mod decision_scoring;
+pub mod docling;
+pub mod document_extractor;
 pub mod events;
 pub mod gdrive_source;
 pub mod heartbeat;
 pub mod mapping;
 mod mapping_metrics;
+mod markup;
 pub mod merge_worker;
 pub mod ollama;
 pub mod outfit_continuity;
@@ -50,6 +53,8 @@ pub mod queue;
 pub mod runtime;
 pub mod schedule_apply;
 pub mod shutdown;
+pub mod spatial_pdf;
+mod subprocess;
 pub mod transport;
 mod user_agent;
 pub mod worker_loop;
@@ -61,6 +66,13 @@ pub use concurrency::{AiConcurrencyLimiter, AiConcurrencyPermit};
 pub use credentials::AiCredentialResolver;
 pub use csv_schedule::parse_schedule_csv;
 pub use decision_client::{HttpDecisionClient, decision_endpoint};
+pub use docling::{
+    DOCLING_CONVERT_PATH, DOCLING_PARSER_FINGERPRINT, DoclingBlock, DoclingHttpAdapter,
+    blocks_from_docling_html, page_from_docling_html,
+};
+pub use document_extractor::{
+    AI_DOCLING_ENDPOINT_ENV, AI_DOCUMENT_PARSER_ENV, ConfiguredDocumentExtractor, DocumentParser,
+};
 pub use events::{AiJobEventHub, JOB_EVENTS_CHANNEL, spawn_pg_job_event_listener};
 pub use gdrive_source::{GDriveDocument, GDriveDocumentSource};
 pub use heartbeat::{
@@ -71,7 +83,7 @@ pub use merge_worker::{QueueMergeWorker, merge_loaded_schedule};
 pub use ollama::OllamaChatClient;
 pub use payload_cleanup::AiPayloadGcConfig;
 pub use payload_storage::OpenDalAiPayloadStorage;
-pub use pdf::PdfTextExtractor;
+pub use pdf::{LEGACY_PARSER_FINGERPRINT, LegacyPdfToTextAdapter, pages_from_layout_text};
 pub use pg_concurrency::{
     DEFAULT_PERMIT_LEASE, PermitReclaimer, PgAiConcurrencyLimiter, PgAiConcurrencyPermit,
     RECLAIM_ATTEMPTS, RECLAIM_LOCK_TIMEOUT, permit_renewal_interval, reclaim_retry_budget,
@@ -95,6 +107,7 @@ pub use schedule_apply::{
     AppliedDay, ScheduleApplyRequest, ScheduleApplyResult, ScheduleApplyWorker,
 };
 pub use shutdown::{AiJobGuard, AiWorkerLifecycle, DRAIN_TIMEOUT};
+pub use spatial_pdf::{SPATIAL_PARSER_FINGERPRINT, SpatialPdfExtractor, parse_bbox_layout};
 pub use transport::{
     curated_provider_redirect_policy, hosted_provider_redirect_policy, ollama_redirect_policy,
 };

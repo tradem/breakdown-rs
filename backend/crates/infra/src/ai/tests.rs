@@ -962,7 +962,10 @@ fn script_worker(
         queue,
         client: Arc::new(FakeLlmClient),
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -1076,7 +1079,10 @@ fn schedule_worker(
         queue,
         client,
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -1269,7 +1275,10 @@ fn script_worker_with_client<C: LlmClient + 'static>(
         queue,
         client: Arc::new(client),
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -1480,7 +1489,10 @@ async fn script_worker_surfaces_document_global_category_conflicts() {
         queue: Arc::clone(&queue),
         client: Arc::new(FakeLlmClientWithConflictingCategories),
         previews: previews.clone() as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -1524,7 +1536,10 @@ async fn script_worker_backfills_scene_number_from_chunk_heading() {
         queue: Arc::clone(&queue),
         client: Arc::new(FakeLlmClientWithoutSceneNumber),
         previews: previews.clone() as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -1572,7 +1587,10 @@ async fn script_worker_preserves_model_title_when_scan_has_none() {
         queue: Arc::clone(&queue),
         client: Arc::new(FakeLlmClientWithEpisodeTitle),
         previews: previews.clone() as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -3047,7 +3065,7 @@ fn tiny_script_pdf() -> Vec<u8> {
 /// extractions must all complete without deadlock or shared-state corruption.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pdf_extractor_handles_concurrent_use_without_deadlock() {
-    let extractor = Arc::new(super::PdfTextExtractor::new(
+    let extractor = Arc::new(super::LegacyPdfToTextAdapter::new(
         1024 * 1024,
         std::time::Duration::from_secs(30),
     ));
@@ -3056,7 +3074,9 @@ async fn pdf_extractor_handles_concurrent_use_without_deadlock() {
     for _ in 0..8 {
         let extractor = Arc::clone(&extractor);
         let pdf = pdf.clone();
-        handles.push(tokio::spawn(async move { extractor.extract(&pdf).await }));
+        handles.push(tokio::spawn(async move {
+            extractor.extract_layout_text(&pdf).await
+        }));
     }
     for handle in handles {
         let text = handle
@@ -3074,9 +3094,9 @@ async fn pdf_extractor_handles_concurrent_use_without_deadlock() {
 /// promptly instead of letting the outer timeout fire with a misleading message.
 #[tokio::test]
 async fn pdf_extractor_rejects_oversized_output_with_bound_error() {
-    let extractor = super::PdfTextExtractor::new(1, std::time::Duration::from_secs(30));
+    let extractor = super::LegacyPdfToTextAdapter::new(1, std::time::Duration::from_secs(30));
     let error = extractor
-        .extract(&tiny_script_pdf())
+        .extract_layout_text(&tiny_script_pdf())
         .await
         .expect_err("oversized output must be rejected");
     assert!(
@@ -5205,7 +5225,10 @@ async fn extraction_drops_an_ungrounded_costume_and_records_an_uncertainty() {
             ],
         }),
         previews: Arc::clone(&previews) as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(5)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(5),
+        ),
         provider: LlmProvider::Ollama,
         model: "fixture".to_owned(),
         prompt: "fixture".to_owned(),
@@ -6177,7 +6200,10 @@ fn scoring_worker(
         queue,
         client: Arc::new(TwoChunkScoringLlmClient),
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -6690,7 +6716,10 @@ async fn a_failed_schedule_scoring_request_without_labelled_rows_records_scoring
         queue: Arc::clone(&queue),
         client: Arc::new(UnlabelledScheduleClient),
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -7263,7 +7292,10 @@ fn cost_worker(
         queue,
         client: Arc::new(SingleChunkUsageClient),
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -7513,7 +7545,10 @@ fn per_request_cost_worker(
         queue,
         client: Arc::new(TwoChunkUsageClient::default()),
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
@@ -7773,7 +7808,10 @@ fn resume_worker(
         queue,
         client: Arc::new(CountingScriptClient::default()),
         previews: previews as Arc<dyn AiPreviewStore>,
-        extractor: super::PdfTextExtractor::new(1024 * 1024, std::time::Duration::from_secs(30)),
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
