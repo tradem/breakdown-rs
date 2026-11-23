@@ -33,6 +33,9 @@ applyTo:
 - `AI_IMPORT_DEFAULT_PROMPTS_PATH` – optional deployment override documented for prompt packaging; the built-in fallback is `config/default_ai_prompts.toml`.
 - `AI_IMPORT_USER_AGENT` – global override for the `User-Agent` sent by every AI provider HTTP client (default: `breakdown-rs-backend/<version> (ai-import)`).
 - `AI_IMPORT_USER_AGENT_<PROVIDER>` – per-provider override, e.g. `AI_IMPORT_USER_AGENT_OPENCODE_GO` or `AI_IMPORT_USER_AGENT_OPENCODE` (takes precedence over the global variable). An empty or header-invalid value is ignored and the next source applies.
+- `AI_DOCUMENT_PARSER` – document-structure adapter (ADR-041 `D1`, issue #958): `spatial` (default), `docling` or `legacy-pdftotext`. Read **once** at startup; an unknown value fails the boot instead of silently selecting another extraction path.
+- `AI_DOCLING_ENDPOINT` – base URL of the `docling-serve` sidecar (e.g. `http://docling:5001/`). Required only when `AI_DOCUMENT_PARSER=docling`; missing or unparsable fails the boot.
+- `AI_EVAL_CORPUS_DIR` – **test-only** (not read at runtime): directory of local PDF scripts/schedules for the Golden Corpus harness `cargo test -p infra --test ai_document_eval_corpus`. Unset ⇒ the harness skips; copyrighted broadcast PDFs never enter Git.
 
 > **Descriptive `User-Agent` (issue #521).** The curated opencode / OpenCode-Go
 > gateways triage requests on `User-Agent`; a blank, generic or reqwest-default
@@ -85,6 +88,51 @@ applyTo:
 > await hangs; dropping the handle instead aborts the task and silently
 > downgrades those reclaims to lease-only — exactly the 900s capacity outage
 > this design removes. Use `abort()` when the ordering cannot be guaranteed.
+
+#### Document-structure extraction (ADR-041 `D1`/`D7`, issue #958)
+
+The import workers do not read PDFs themselves. Both are generic over the
+`DocumentStructureExtractor` port (`ScriptImportWorker<Q, C, E = LegacyPdfToTextAdapter>`,
+`ScheduleImportWorker<Q, C, E>`), which returns the canonical
+`core::ai::document::StructuredDocument` IR — 1-based pages, reading-order blocks,
+normalized `0.0..=1.0` geometry, preserved `<table>` markup — instead of one flat
+`String`. The pre-#959 segmentation still reads `flattened_text()`, which for the
+`legacy-pdftotext` adapter is byte-identical to the old `pdftotext -layout`
+output (the `spatial`/`docling` adapters join the blocks *their* parser produced,
+so their flattened view differs from `pdftotext -layout` in text and boundaries
+by design).
+
+- **Selection happens exactly once**, in `crates/api/src/main.rs`:
+  `ConfiguredDocumentExtractor::from_env(&bounds)` → `WorkerDeps.extractor` (by
+  **value**). Never introduce `Arc<dyn DocumentStructureExtractor>`,
+  `Arc<ConfiguredDocumentExtractor>`, `Arc<SpatialPdfExtractor>`,
+  `Arc<LegacyPdfToTextAdapter>` or `Arc<reqwest::Client>`: `Spatial`/`Legacy` are `Copy`
+  two-word configs and `reqwest::Client`/`PgPool` are already internal `Arc`s.
+- **Adapters:** `spatial` (`poppler-spatial-v1`, `pdftotext -bbox-layout` + on-demand
+  `pdftocairo` page renders), `docling` (`docling-http-v1`, `docling-serve` HTML with
+  `colspan`/`rowspan`), `legacy-pdftotext` (`legacy-pdftotext-v1`, flat text, the
+  rollback target — it refuses `render_page` by name).
+- **The IR carries no page images.** `render_page(bytes, page_number, RenderOptions)`
+  renders one page on demand (bounded by `RenderOptions::max_bytes` and the adapter
+  timeout) so a page-streaming caller keeps one page's PNG, not a document's worth
+  (ADR-041 `D1`; the document-wide ceiling belongs to the page-streaming loop in
+  issue #960).
+- **`parser_fingerprint` is fingerprint, not decoration.** It enters
+  `chunk_store::fingerprint_key` next to `CHUNKER_VERSION`, so switching
+  `AI_DOCUMENT_PARSER` deletes the stored chunk prefix and restarts at chunk `0`
+  instead of splicing chunks cut by two different parsers. Changing what an adapter
+  *emits* therefore requires bumping its fingerprint — otherwise a stored prefix
+  silently resumes under the old algorithm.
+- **Every subprocess goes through `ai::subprocess::run_bounded`**: stdin/stdout
+  streaming, `max_output_bytes + 1` read limit, `tokio::time::timeout`, and
+  kill-and-**reap** on every error/timeout branch. Do not spawn `pdftotext`/
+  `pdftocairo` directly anywhere else — a leaked child is exactly what that helper
+  exists to prevent. `pdftocairo` (not `pdftoppm`) renders page PNGs: `pdftoppm`
+  cannot stream to stdout and would need a temporary file path.
+- **Verification:** always-on synthetic fixtures in
+  `crates/core/src/ai/document_tests.rs` and
+  `crates/infra/src/ai/spatial_pdf_tests.rs`; the out-of-tree corpus harness runs
+  only with `AI_EVAL_CORPUS_DIR` set.
 
 #### AI payload storage (durable source/preview blobs)
 

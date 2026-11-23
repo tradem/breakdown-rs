@@ -29,7 +29,7 @@ use anyhow::Result;
 use api::auth::{AuthState, AuthorizationState};
 use api::routes::app_router;
 use api::state::{AiPorts, AppState, ProductionPorts};
-use breakdown_core::ai::AiImportBounds;
+use breakdown_core::ai::{AiImportBounds, DocumentStructureExtractor};
 use breakdown_core::membership::policy::AuthorizationPolicy;
 use breakdown_core::settings::CredentialVault;
 use infra::ai::{
@@ -876,6 +876,17 @@ async fn main() -> Result<()> {
 
     if ai_import_enabled {
         let bounds = AiImportBounds::from_env();
+        // Document-structure adapter (ADR-041 `D1`, issue #958): read from
+        // `AI_DOCUMENT_PARSER` exactly once, here, and handed to both worker
+        // loops by value. A typo in the variable fails startup instead of
+        // silently switching the extraction path, and a `docling` selection
+        // without `AI_DOCLING_ENDPOINT` fails here rather than on the first job.
+        let document_extractor = infra::ai::ConfiguredDocumentExtractor::from_env(&bounds)?;
+        info!(
+            parser = document_extractor.parser().as_str(),
+            fingerprint = document_extractor.parser_fingerprint(),
+            "AI document-structure extractor selected (ADR-041 D1)"
+        );
         let (limiter, reclaimer) = PgAiConcurrencyLimiter::new(
             pool.clone(),
             bounds.max_concurrent_jobs_global,
@@ -944,6 +955,7 @@ async fn main() -> Result<()> {
         ai_worker_handles.push(spawn_script_import_worker(
             WorkerDeps {
                 runtime: Arc::clone(&runtime),
+                extractor: document_extractor.clone(),
                 queue: worker_ai_import_queue.clone(),
                 source: worker_ai_document_source.clone(),
                 previews: worker_ai_preview_store.clone(),
@@ -965,6 +977,7 @@ async fn main() -> Result<()> {
         ai_worker_handles.push(spawn_schedule_import_worker(
             WorkerDeps {
                 runtime,
+                extractor: document_extractor,
                 queue: worker_ai_import_queue,
                 source: worker_ai_document_source,
                 previews: worker_ai_preview_store,

@@ -59,8 +59,8 @@ use breakdown_core::ai::{
 };
 use breakdown_core::settings::ports::{CredentialVault, GDriveCredentialBundle};
 use infra::ai::{
-    AiDocumentSource, GDriveDocument, GDriveDocumentSource, OpenAiCompatibleChatClient,
-    PdfTextExtractor, default_prompt,
+    AiDocumentSource, GDriveDocument, GDriveDocumentSource, LegacyPdfToTextAdapter,
+    OpenAiCompatibleChatClient, default_prompt,
 };
 use uuid::Uuid;
 
@@ -308,7 +308,7 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
 struct LiveExtraction<'a> {
     client: &'a OpenAiCompatibleChatClient,
     source: &'a GDriveDocumentSource,
-    extractor: &'a PdfTextExtractor,
+    extractor: &'a LegacyPdfToTextAdapter,
     documents: &'a [GDriveDocument],
     live: &'a LiveLlm,
     prompt: &'a str,
@@ -344,10 +344,10 @@ async fn llm_reads_every_gdrive_script_fixture() -> Result<()> {
     let client =
         OpenAiCompatibleChatClient::new(live.provider, live.api_key.clone(), REQUEST_TIMEOUT)
             .await?;
-    // `-layout` is what production uses (see `PdfTextExtractor`): the same
+    // `-layout` is what production uses (see `LegacyPdfToTextAdapter`): the same
     // invocation must produce the same headings for the splitter, otherwise the
     // smoke measures a different pipeline than the product.
-    let extractor = PdfTextExtractor::new(
+    let extractor = LegacyPdfToTextAdapter::new(
         usize::try_from(bounds.max_document_bytes).unwrap_or(usize::MAX),
         PDF_EXTRACT_TIMEOUT,
     );
@@ -397,7 +397,7 @@ async fn llm_reads_every_gdrive_script_fixture() -> Result<()> {
 /// differently would answer a different question.
 async fn load_fixture_chunks(
     source: &GDriveDocumentSource,
-    extractor: &PdfTextExtractor,
+    extractor: &LegacyPdfToTextAdapter,
     documents: &[GDriveDocument],
     name: &str,
 ) -> Result<Vec<SceneChunk>> {
@@ -415,13 +415,16 @@ async fn load_fixture_chunks(
         .load(&document.handle)
         .await
         .with_context(|| format!("could not load {} from GDrive", document.name))?;
-    let text = extractor.extract(&bytes).await.with_context(|| {
-        format!(
-            "pdftotext could not read {} ({} bytes)",
-            document.name,
-            bytes.len()
-        )
-    })?;
+    let text = extractor
+        .extract_layout_text(&bytes)
+        .await
+        .with_context(|| {
+            format!(
+                "pdftotext could not read {} ({} bytes)",
+                document.name,
+                bytes.len()
+            )
+        })?;
     let chunks = extract_scenes(&text);
     tracing::info!(
         document = %document.name,
@@ -739,7 +742,7 @@ async fn reasoning_effort_trades_output_tokens_for_wall_clock() -> Result<()> {
 
     let prompt = default_prompt(DocumentKind::Script).context("production script prompt")?;
     let bounds = AiImportBounds::default();
-    let extractor = PdfTextExtractor::new(
+    let extractor = LegacyPdfToTextAdapter::new(
         usize::try_from(bounds.max_document_bytes).unwrap_or(usize::MAX),
         PDF_EXTRACT_TIMEOUT,
     );
@@ -1150,7 +1153,7 @@ async fn reasoning_effort_document_quality_and_cost() -> Result<()> {
 
     let prompt = default_prompt(DocumentKind::Script).context("production script prompt")?;
     let bounds = AiImportBounds::default();
-    let extractor = PdfTextExtractor::new(
+    let extractor = LegacyPdfToTextAdapter::new(
         usize::try_from(bounds.max_document_bytes).unwrap_or(usize::MAX),
         PDF_EXTRACT_TIMEOUT,
     );

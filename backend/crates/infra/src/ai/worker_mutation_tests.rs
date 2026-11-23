@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use crate::ai::pdf::PdfTextExtractor;
+use crate::ai::pdf::LegacyPdfToTextAdapter;
 use crate::ai::preview_store::{AiDocumentSource, AiPreviewStore};
 use crate::ai::workers::{ScheduleImportWorker, ScriptImportWorker, claim_lost_error};
 
@@ -325,7 +325,7 @@ async fn script_worker_returns_false_when_no_jobs() {
         queue,
         client,
         previews,
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
@@ -357,7 +357,7 @@ async fn schedule_worker_returns_false_when_no_jobs() {
         queue,
         client,
         previews,
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
@@ -392,7 +392,7 @@ async fn script_worker_skips_wrong_kind() {
         queue,
         client,
         previews,
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
@@ -450,7 +450,7 @@ async fn start_heartbeat_returns_none_without_lease() {
         queue,
         client,
         previews,
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
@@ -479,7 +479,7 @@ async fn start_heartbeat_returns_some_with_lease() {
         queue,
         client,
         previews,
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
@@ -589,7 +589,7 @@ fn script_worker<C: LlmClient + 'static>(
         queue,
         client,
         previews: Arc::new(MockPreviewStore),
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
@@ -714,7 +714,7 @@ async fn script_preview_stores_the_block_the_document_states() {
         // the stored value on its own.
         client: Arc::new(EpisodeMockClient),
         previews: Arc::clone(&previews) as Arc<dyn AiPreviewStore>,
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
@@ -852,7 +852,7 @@ async fn schedule_worker_publishes_extraction_and_storing_progress() {
         queue: Arc::clone(&queue),
         client,
         previews: Arc::new(MockPreviewStore),
-        extractor: PdfTextExtractor::new(1024, Duration::from_secs(30)),
+        extractor: LegacyPdfToTextAdapter::new(1024, Duration::from_secs(30)),
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),

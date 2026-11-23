@@ -16,7 +16,37 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
-## [0.86.0] - Unreleased
+## [0.87.0] - Unreleased
+### Added (issue #958)
+
+- `ai::pdf::LegacyPdfToTextAdapter` replaces `PdfTextExtractor` and implements
+  the new `DocumentStructureExtractor` port (`parser_fingerprint =
+  "legacy-pdftotext-v1"`): the same `pdftotext -q -layout` subprocess, split on
+  the form feed into 1-based pages so `flattened_text()` is byte-identical to
+  the old flat string. It is the `spatial` rollback target and refuses
+  `render_page` by name.
+- `ai::spatial_pdf::SpatialPdfExtractor` (`"poppler-spatial-v1"`): Poppler
+  `-bbox-layout` XHTML → `StructuredDocument` with normalized geometry,
+  `PageHeader`/`PageFooter` bands and dense `BlockAnchor`s, plus an on-demand
+  `render_page` via `pdftocairo` (bounded per page). The `-layout` text is
+  unchanged in behaviour — only the same page text is now carried as blocks.
+- `ai::docling::DoclingHttpAdapter` (`"docling-http-v1"`): optional
+  `docling-serve` sidecar adapter preserving `<table>` `colspan`/`rowspan`
+  markup, with a hard response-byte ceiling and transient/permanent error
+  classification.
+- `ai::document_extractor::{ConfiguredDocumentExtractor, DocumentParser}`: the
+  `Clone` enum selected **once** in the composition root from
+  `AI_DOCUMENT_PARSER` (`spatial` default, `docling`, `legacy-pdftotext`),
+  stored by value in `WorkerDeps` and `match`-dispatched (no
+  `Arc<dyn DocumentStructureExtractor>`, no double `Arc`).
+- `ScriptImportWorker<Q, C, E = LegacyPdfToTextAdapter>` and
+  `ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter>` are generic over the
+  port; `chunk_store::fingerprint_key` folds `parser_fingerprint` into the
+  `#871` key.
+- `crates/infra/tests/ai_document_eval_corpus.rs`: the env-gated
+  `AI_EVAL_CORPUS_DIR` Golden Corpus harness (ADR-041 `D8`), which skips
+  cleanly when unset — copyrighted broadcast PDFs never enter Git.
+
 ### Changed (issue #950)
 
 - `ai::provider_registry::curated_model_ids(EURouter)` and

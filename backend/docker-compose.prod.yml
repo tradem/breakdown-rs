@@ -389,6 +389,15 @@ services:
       AI_IMPORT_USER_AGENT: ${AI_IMPORT_USER_AGENT:-}
       AI_IMPORT_USER_AGENT_OPENCODE_GO: ${AI_IMPORT_USER_AGENT_OPENCODE_GO:-}
       AI_IMPORT_USER_AGENT_OPENCODE: ${AI_IMPORT_USER_AGENT_OPENCODE:-}
+      # --- Document-structure extraction (ADR-041 D1, issue #958) ---
+      # `spatial` (default) reads PDF page boxes and indentation columns via
+      # poppler-utils; `docling` routes through a self-hosted `docling-serve`
+      # sidecar and additionally preserves <table> colspan/rowspan markup;
+      # `legacy-pdftotext` is the flat-text rollback target. Switching this
+      # value invalidates stored chunk prefixes (#871) instead of resuming a
+      # prefix cut by the previous parser.
+      AI_DOCUMENT_PARSER: ${AI_DOCUMENT_PARSER:-spatial}
+      AI_DOCLING_ENDPOINT: ${AI_DOCLING_ENDPOINT:-}
       # --- AI payload GC (periodic cleanup) ---
       AI_PAYLOAD_GC_ENABLED: ${AI_PAYLOAD_GC_ENABLED:-true}
       AI_PAYLOAD_GC_INTERVAL_SECS: ${AI_PAYLOAD_GC_INTERVAL_SECS:-3600}

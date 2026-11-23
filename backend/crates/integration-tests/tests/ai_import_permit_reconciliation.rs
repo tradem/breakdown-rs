@@ -185,7 +185,7 @@ fn schedule_worker(
         queue,
         client: Arc::new(UnusedLlmClient),
         previews: Arc::new(MemoryAiPreviewStore::default()) as Arc<dyn AiPreviewStore>,
-        extractor: infra::ai::PdfTextExtractor::new(
+        extractor: infra::ai::LegacyPdfToTextAdapter::new(
             1024 * 1024,
             std::time::Duration::from_secs(30),
         ),

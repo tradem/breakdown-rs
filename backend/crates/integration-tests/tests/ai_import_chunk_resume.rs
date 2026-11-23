@@ -10,7 +10,8 @@
 //! 2. the cursor survives a process restart (it is derived from rows, not held in
 //!    memory);
 //! 3. a fingerprint mismatch **clears** the rows and restarts at 0 — never a
-//!    partial resume across two models/prompts/chunkings;
+//!    partial resume across two models/prompts/chunkings/document parsers
+//!    (ADR-041 `D7`, issue #958);
 //! 4. a re-run chunk is counted **once** in the usage sum (`ON CONFLICT DO
 //!    UPDATE` replaces, never adds);
 //! 5. a hole is not resumed past (`0, 1, 3` ⇒ cursor 2) and the tail is deleted;
@@ -58,6 +59,7 @@ fn fingerprint(model: &str, prompt: &str) -> ExtractionFingerprint {
         model: model.to_owned(),
         prompt_hash: prompt_hash(prompt),
         chunker_version: CHUNKER_VERSION,
+        parser_fingerprint: "poppler-spatial-v1".to_owned(),
     }
 }
 
@@ -189,6 +191,55 @@ async fn a_prompt_edit_invalidates_too() -> Result<()> {
         .begin_extraction(id, "w1", &edited, &fingerprint_key(&edited))
         .await?;
     assert_eq!(outcome, ChunkSetState::Invalidated(vec!["prompt"]));
+    Ok(())
+}
+
+/// ADR-041 `D7` / issue #958: switching the document-structure adapter must
+/// invalidate a partially stored set exactly like a model or prompt change.
+/// The stored chunks were cut from ANOTHER parser's page and block boundaries,
+/// so resuming them would splice two different documents into one `ScriptContext`.
+#[tokio::test]
+async fn switching_the_document_parser_invalidates_the_set() -> Result<()> {
+    let (pool, _container) = crate::fixtures::spawn_postgres().await?;
+    let queue = PgAiImportQueue::new(pool.clone());
+    let store = PgAiImportChunkStore::new(pool.clone());
+    let id = claimed_job(&queue, "d1", "w1").await;
+
+    let spatial = ExtractionFingerprint {
+        parser_fingerprint: "poppler-spatial-v1".to_owned(),
+        ..fingerprint(MODEL, "prompt one")
+    };
+    let spatial_key = fingerprint_key(&spatial);
+    store
+        .begin_extraction(id, "w1", &spatial, &spatial_key)
+        .await?;
+    for index in 0..3 {
+        store.put(id, "w1", &spatial_key, &chunk(index, 1)).await?;
+    }
+    assert_eq!(resume_cursor(&store.load(id).await?), 3);
+
+    // The operator switched `AI_DOCUMENT_PARSER` to the rollback adapter.
+    let legacy = ExtractionFingerprint {
+        parser_fingerprint: "legacy-pdftotext-v1".to_owned(),
+        ..spatial.clone()
+    };
+    let outcome = store
+        .begin_extraction(id, "w1", &legacy, &fingerprint_key(&legacy))
+        .await?;
+    assert_eq!(
+        outcome,
+        ChunkSetState::Invalidated(vec!["parser_fingerprint"]),
+        "the invalidation must NAME the parser, not just report a mismatch"
+    );
+    assert!(
+        store.load(id).await?.is_empty(),
+        "no chunk cut by the spatial parser may survive into the legacy run"
+    );
+    assert_eq!(
+        resume_cursor(&store.load(id).await?),
+        0,
+        "restart at chunk 0"
+    );
     Ok(())
 }
 

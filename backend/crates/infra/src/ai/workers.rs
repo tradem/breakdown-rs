@@ -16,9 +16,9 @@ use breakdown_core::ai::{
     AiModelPricingRepository, AppliedEpisode, ApplyGateError, ApplyMapping, ApplyMappingDecision,
     ApplyProgress, ApplyRunId, ApplyStage, CategoryVocabularyEntry, CharacterApplyPlan,
     ChunkSetState, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry, DocumentKind,
-    DraftScene, EpisodeGroupPlan, ExtractionFingerprint, HoldEvidence, LlmCallUsage,
-    LlmChatRequest, LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL,
-    PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot,
+    DocumentStructureExtractor, DraftScene, EpisodeGroupPlan, ExtractionFingerprint, HoldEvidence,
+    LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan,
+    PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot,
     ProviderBreakerState, ProviderHold, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan,
     ScriptContext, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry,
     TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
@@ -65,7 +65,7 @@ use uuid::Uuid;
 
 use super::heartbeat::LeaseHeartbeat;
 use super::mapping_metrics::scope_mapping_writes;
-use super::pdf::PdfTextExtractor;
+use super::pdf::LegacyPdfToTextAdapter;
 use super::pg_concurrency::{PgAiConcurrencyLimiter, PgAiConcurrencyPermit};
 use super::preview_store::{AiDocumentSource, AiPreviewStore};
 use super::provider_registry::default_reasoning_effort;
@@ -254,11 +254,17 @@ async fn release_permit_logging_errors(permit: PgAiConcurrencyPermit, job_id: Ai
 
 /// Script import pipeline. It is deliberately independent of HTTP and can be
 /// driven by a queue worker or deterministic integration tests.
-pub struct ScriptImportWorker<Q, C> {
+///
+/// `E` is the document-structure adapter (ADR-041 `D1`, issue #958), held **by
+/// value** and dispatched statically — never `Arc<dyn
+/// DocumentStructureExtractor>`. The default keeps the flat-text adapter, which
+/// is what the deterministic worker tests drive; the composition root wires the
+/// enum chosen by `AI_DOCUMENT_PARSER`.
+pub struct ScriptImportWorker<Q, C, E = LegacyPdfToTextAdapter> {
     pub queue: Arc<Q>,
     pub client: Arc<C>,
     pub previews: Arc<dyn AiPreviewStore>,
-    pub extractor: PdfTextExtractor,
+    pub extractor: E,
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
@@ -377,10 +383,11 @@ pub struct DecisionPass {
     pub model: String,
 }
 
-impl<Q, C> ScriptImportWorker<Q, C>
+impl<Q, C, E> ScriptImportWorker<Q, C, E>
 where
     Q: AiImportQueue + 'static,
     C: LlmClient + 'static,
+    E: DocumentStructureExtractor + 'static,
 {
     /// Claim and process the next runnable script job.
     ///
@@ -516,6 +523,10 @@ where
             model: self.model.clone(),
             prompt_hash: super::chunk_store::prompt_hash(effective_prompt),
             chunker_version: breakdown_core::ai::preview::CHUNKER_VERSION,
+            // ADR-041 D7 (issue #958): a different structure extractor cuts
+            // different chunk boundaries, so a stored prefix must never resume
+            // across two of them.
+            parser_fingerprint: self.extractor.parser_fingerprint().to_owned(),
         };
         let key = super::chunk_store::fingerprint_key(&fingerprint);
         // `begin_extraction` logs `#871 chunk resume invalidated` (with
@@ -556,8 +567,15 @@ where
                 "script worker received a non-script job",
             ));
         }
-        let text = self.extractor.extract(pdf_bytes).await?;
-        self.process_text(job, worker_id, &text).await
+        // ADR-041 D1: the port returns the structured IR; until issue #959
+        // switches segmentation over to zone-aware block slicing, the flattened
+        // view is what the line scanner consumes.
+        let document = self
+            .extractor
+            .extract(pdf_bytes, breakdown_core::ai::ExtractionOptions::default())
+            .await?;
+        self.process_text(job, worker_id, &scanner_text(&document))
+            .await
     }
 
     /// Process already extracted text. This seam keeps PDF subprocess tests
@@ -1471,6 +1489,21 @@ fn source_text_len(chunk: &breakdown_core::ai::SceneChunk) -> usize {
         .saturating_add(chunk.text.len())
 }
 
+/// The document as the line scanner must see it.
+///
+/// [`StructuredDocument::flattened_text`] separates pages with a form feed,
+/// exactly as `pdftotext -layout` does — but `str::lines()` splits on `\n` only,
+/// so a form feed does not end a line. The spatial adapter's last block on a
+/// page carries no trailing newline, so without this mapping the last line of
+/// one page would fuse with the first heading of the next
+/// (`"Goodbye.\u{c}2 EXT. PARK - DAY"`) and the heading prefix check would miss
+/// the scene boundary. Mapping the page break onto a line break here keeps
+/// `flattened_text()` itself byte-identical to the legacy output; the legacy
+/// path gains one blank line, which the scanner trims.
+pub(super) fn scanner_text(document: &breakdown_core::ai::StructuredDocument) -> String {
+    document.flattened_text().replace('\u{c}', "\n")
+}
+
 /// The job was reclaimed by another worker while this one was still working.
 /// Surfaced as a `Conflict` so the caller abandons the job instead of retrying
 /// — the new owner is already redoing the work.
@@ -1485,11 +1518,12 @@ fn claim_lost_error(id: AiImportJobId, worker_id: &str) -> DomainError {
 /// extracted to text and passed to an LLM client implementing
 /// `extract_schedule`. The extraction path is derived from the job's persisted
 /// `source_format`, never from a caller-supplied flag (issue #221).
-pub struct ScheduleImportWorker<Q, C> {
+pub struct ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter> {
     pub queue: Arc<Q>,
     pub client: Arc<C>,
     pub previews: Arc<dyn AiPreviewStore>,
-    pub extractor: PdfTextExtractor,
+    /// See [`ScriptImportWorker::extractor`] — same port, same by-value wiring.
+    pub extractor: E,
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
@@ -1503,10 +1537,11 @@ pub struct ScheduleImportWorker<Q, C> {
     pub decision: Option<DecisionResolution>,
 }
 
-impl<Q, C> ScheduleImportWorker<Q, C>
+impl<Q, C, E> ScheduleImportWorker<Q, C, E>
 where
     Q: AiImportQueue + 'static,
     C: LlmClient + 'static,
+    E: DocumentStructureExtractor + 'static,
 {
     pub async fn run_once(
         &self,
@@ -1678,7 +1713,16 @@ where
                 return Ok(String::new());
             }
             let source_text = match job.source_format {
-                SourceFormat::Pdf => self.extractor.extract(bytes).await?,
+                SourceFormat::Pdf => {
+                    // Issue #960 replaces this flattened view with per-page
+                    // rendering; today the schedule prompt still reads text, and
+                    // the flattened document is what the flat adapter always
+                    // produced.
+                    self.extractor
+                        .extract(bytes, breakdown_core::ai::ExtractionOptions::default())
+                        .await?
+                        .flattened_text()
+                }
                 // `Csv` never reaches this branch (`native_csv` above), so the
                 // fallback is exactly `PlainText`.
                 _ => String::from_utf8(bytes.to_vec()).map_err(|error| {

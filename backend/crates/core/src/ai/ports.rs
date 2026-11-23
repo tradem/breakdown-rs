@@ -25,6 +25,8 @@ use crate::shared::{AggregateVersion, BlockId, UserId};
 
 use super::apply_run::{ApplyRunRequest, ClaimedApplyRun};
 
+use super::document::{ExtractionOptions, RenderOptions, RenderedPage, StructuredDocument};
+
 use super::preview::{ScriptContext, ShootingSchedule};
 
 use super::provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
@@ -307,6 +309,67 @@ impl<T> LlmCallOutcome<T> {
     pub fn new(output: T, usage: LlmCallUsage) -> Self {
         Self { output, usage }
     }
+}
+
+/// Hexagonal port for document-structure extraction (ADR-041 `D1`, issue #958).
+///
+/// An adapter turns raw document bytes (a script or shooting-schedule PDF, or a
+/// sidecar's answer) into the canonical
+/// [`StructuredDocument`](super::document::StructuredDocument) IR — pages,
+/// reading-order blocks, normalized geometry — instead of one flat `String`.
+/// Both import workers are generic over this port
+/// (`ScriptImportWorker<Q, C, E = LegacyPdfToTextAdapter>`), so the adapter is
+/// chosen ONCE at the composition root and dispatched statically: no
+/// `Arc<dyn DocumentStructureExtractor>`, no vtable, no `#[async_trait]`
+/// boxing. Adapters are small plain structs (`Copy` for the two subprocess
+/// ones, a cheap `Clone` over `reqwest`'s internally-`Arc` client for the HTTP
+/// one) and are passed **by value**.
+///
+/// Two rules every implementation owes its callers:
+///
+/// 1. **`parser_fingerprint` is a stable identifier of the extraction
+///    algorithm** (`"legacy-pdftotext-v1"`, `"poppler-spatial-v1"`,
+///    `"docling-http-v1"`). It enters the `#871` chunk fingerprint, so changing
+///    it deliberately invalidates cached partial chunks; changing an adapter's
+///    output without bumping it quietly resumes chunks cut by the old
+///    algorithm.
+/// 2. **No page images in the IR.** `extract` returns text and geometry only;
+///    images come from [`Self::render_page`], which the caller invokes
+///    immediately before one multimodal call and drops immediately after, so
+///    retained image memory is bounded by one page rather than by document
+///    length (ADR-041 `D1`).
+pub trait DocumentStructureExtractor: Send + Sync {
+    /// Stable identifier of this extraction algorithm, e.g.
+    /// `"poppler-spatial-v1"`. Folded into the `#871` chunk fingerprint
+    /// (ADR-041 `D7`), so a change of algorithm restarts extraction at chunk
+    /// `0` instead of splicing chunks cut by two different parsers.
+    fn parser_fingerprint(&self) -> &'static str;
+
+    /// Extract the document structure.
+    ///
+    /// Returns `impl Future` (RPITIT) rather than a boxed future: the port is
+    /// used through static dispatch only, and an implementation that needs no
+    /// async work (a pure HTML transform) must not be forced to allocate.
+    fn extract(
+        &self,
+        bytes: &[u8],
+        options: ExtractionOptions,
+    ) -> impl std::future::Future<Output = Result<StructuredDocument, DomainError>> + Send;
+
+    /// Render exactly one page to PNG, on demand.
+    ///
+    /// Takes the **source bytes** again, not the document: the IR deliberately
+    /// retains no page images and no copy of the source (ADR-041 `D1`), so the
+    /// caller keeps the loaded document for the length of the page loop and
+    /// hands it back here. Implementations must bound the render with
+    /// `options.max_bytes` and a timeout, and must kill **and reap** a
+    /// timed-out or oversized child process.
+    fn render_page(
+        &self,
+        bytes: &[u8],
+        page_number: u32,
+        options: RenderOptions,
+    ) -> impl std::future::Future<Output = Result<RenderedPage, DomainError>> + Send;
 }
 
 #[async_trait]
@@ -2024,6 +2087,22 @@ pub struct ExtractionFingerprint {
     /// chunker change would silently resume with boundaries the new chunker
     /// never produced.
     pub chunker_version: u32,
+    /// The `DocumentStructureExtractor::parser_fingerprint()` of the adapter
+    /// that produced the text this chunk set was cut from (ADR-041 `D7`,
+    /// issue #958).
+    ///
+    /// Two parsers disagree about page boundaries, block order and therefore
+    /// chunk boundaries even when the bytes, provider, model and prompt are
+    /// identical, so a stored prefix must never be resumed across them.
+    ///
+    /// `#[serde(default)]` is **mandatory**: chunk sets written before this
+    /// field existed carry no `parser_fingerprint` key, and without the default
+    /// every one of those rows would fail to deserialize — the resume path
+    /// would error instead of invalidating. An empty string is treated as "not
+    /// recorded" and compares unequal to every real fingerprint, which is the
+    /// invalidation we want.
+    #[serde(default)]
+    pub parser_fingerprint: String,
 }
 
 impl ExtractionFingerprint {
@@ -2048,6 +2127,9 @@ impl ExtractionFingerprint {
         }
         if self.chunker_version != previous.chunker_version {
             changed.push("chunker_version");
+        }
+        if self.parser_fingerprint != previous.parser_fingerprint {
+            changed.push("parser_fingerprint");
         }
         changed
     }

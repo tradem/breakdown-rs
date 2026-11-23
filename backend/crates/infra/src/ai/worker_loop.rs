@@ -45,8 +45,8 @@ use tracing::{info, warn};
 use crate::vault::settings_id_from_binding_key;
 
 use super::client::OpenAiCompatibleChatClient;
+use super::document_extractor::ConfiguredDocumentExtractor;
 use super::ollama::OllamaChatClient;
-use super::pdf::PdfTextExtractor;
 use super::preview_store::AiDocumentSource;
 use super::preview_store::AiPreviewStore;
 use super::queue::PgAiImportQueue;
@@ -84,6 +84,12 @@ pub fn shutdown_signal() -> (watch::Sender<bool>, ShutdownSignal) {
 /// root's wiring read as "build deps, spawn workers".
 pub struct WorkerDeps {
     pub runtime: Arc<AiWorkerRuntime>,
+    /// The document-structure adapter selected once, at the composition root,
+    /// from `AI_DOCUMENT_PARSER` (ADR-041 `D1`, issue #958). Held **by value**:
+    /// the enum is a `Clone` of two-word configs plus a `reqwest::Client` that
+    /// is already an internal `Arc`, so neither `Arc<ConfiguredDocumentExtractor>`
+    /// nor `Arc<dyn DocumentStructureExtractor>` belongs here.
+    pub extractor: ConfiguredDocumentExtractor,
     pub queue: Arc<PgAiImportQueue>,
     pub source: Arc<dyn AiDocumentSource>,
     pub previews: Arc<dyn AiPreviewStore>,
@@ -603,10 +609,7 @@ async fn script_worker_tick(
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),
-                extractor: PdfTextExtractor::new(
-                    usize::try_from(deps.bounds.max_document_bytes).unwrap_or(usize::MAX),
-                    Duration::from_secs(deps.bounds.request_timeout_secs),
-                ),
+                extractor: deps.extractor.clone(),
                 provider: config.provider,
                 model: config.model,
                 prompt: config.prompt,
@@ -661,10 +664,7 @@ async fn script_worker_tick(
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),
-                extractor: PdfTextExtractor::new(
-                    usize::try_from(deps.bounds.max_document_bytes).unwrap_or(usize::MAX),
-                    Duration::from_secs(deps.bounds.request_timeout_secs),
-                ),
+                extractor: deps.extractor.clone(),
                 provider: config.provider,
                 model: config.model,
                 prompt: config.prompt,
@@ -857,10 +857,7 @@ async fn schedule_worker_tick(
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),
-                extractor: PdfTextExtractor::new(
-                    usize::try_from(deps.bounds.max_document_bytes).unwrap_or(usize::MAX),
-                    Duration::from_secs(deps.bounds.request_timeout_secs),
-                ),
+                extractor: deps.extractor.clone(),
                 provider: config.provider,
                 model: config.model,
                 prompt: config.prompt,
@@ -911,10 +908,7 @@ async fn schedule_worker_tick(
                 queue: deps.queue.clone(),
                 client,
                 previews: deps.previews.clone(),
-                extractor: PdfTextExtractor::new(
-                    usize::try_from(deps.bounds.max_document_bytes).unwrap_or(usize::MAX),
-                    Duration::from_secs(deps.bounds.request_timeout_secs),
-                ),
+                extractor: deps.extractor.clone(),
                 provider: config.provider,
                 model: config.model,
                 prompt: config.prompt,

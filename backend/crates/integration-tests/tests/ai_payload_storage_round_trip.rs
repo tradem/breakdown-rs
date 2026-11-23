@@ -76,7 +76,7 @@ fn schedule_worker(
         queue,
         client: Arc::new(UnusedLlmClient),
         previews,
-        extractor: infra::ai::PdfTextExtractor::new(1024 * 1024, Duration::from_secs(30)),
+        extractor: infra::ai::LegacyPdfToTextAdapter::new(1024 * 1024, Duration::from_secs(30)),
         provider: LlmProvider::Neuralwatt,
         model: "unused".to_owned(),
         prompt: "unused".to_owned(),
