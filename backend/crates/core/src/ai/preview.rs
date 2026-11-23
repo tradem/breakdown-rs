@@ -2751,7 +2751,9 @@ impl SegmentedScript {
         let flat = StructuredDocument::new(FLAT_TEXT_PARSER_FINGERPRINT, vec![page]);
         let zones = DocumentZones::uniform(1, PageZone::ScriptBody);
         let lines = zoned_lines(&flat, &zones);
-        let outcome = scan_zoned_lines(&lines);
+        // A flat string has no zone: no page can be a `SceneIndex`, so the
+        // index manifest is empty and the scanner behaves exactly as before.
+        let outcome = scan_zoned_lines(&lines, &[]);
         Self {
             chunks: merge_duplicate_scene_numbers(outcome.chunks),
             block_number: outcome.block_number,
@@ -2782,8 +2784,8 @@ impl SegmentedScript {
 ///    text **verbatim**: the block text is sliced as-is, never re-transcribed
 ///    (a model re-typing prose would invalidate every `source_quote`
 ///    `verify_draft_outfits` checks).
-/// 3. **Reconcile** — the `SceneIndex` labels are compared against the labels the
-///    body actually produced, and a mismatch becomes a targeted uncertainty
+/// 3. **Reconcile** — the `SceneIndex` entries are compared against the labels
+///    the body actually produced, and a mismatch becomes a targeted uncertainty
 ///    instead of a silent scene-count drift.
 #[must_use]
 pub fn extract_scenes_from_structured(document: &StructuredDocument) -> SegmentedScript {
@@ -2792,14 +2794,14 @@ pub fn extract_scenes_from_structured(document: &StructuredDocument) -> Segmente
         zones.widen_to_script_body();
     }
     let lines = zoned_lines(document, &zones);
-    let outcome = scan_zoned_lines(&lines);
-    let expected_labels = scene_index_labels(&lines);
+    let index = scene_index_entries(&lines);
+    let outcome = scan_zoned_lines(&lines, &index);
     let chunks = merge_duplicate_scene_numbers(outcome.chunks);
     let mut plan = StructuralPlan::from_zones(&zones);
     for anchor in outcome.anchors {
         plan.record_anchor(anchor);
     }
-    let uncertainties = scene_index_uncertainties(&expected_labels, &chunks);
+    let uncertainties = scene_index_uncertainties(&index, &chunks);
     SegmentedScript {
         chunks,
         block_number: outcome.block_number,
@@ -2824,7 +2826,12 @@ struct ScanOutcome {
 /// Marker harvesting (block, episode, day) reads **every** line, because a page
 /// header states the episode in effect even on a page that carries no scene; only
 /// [`ZonedLine::is_scene_prose`] lines become headings or chunk text.
-fn scan_zoned_lines(lines: &[ZonedLine<'_>]) -> ScanOutcome {
+///
+/// A `SceneIndex` day column is deliberately NOT harvested into the day in
+/// effect: it belongs to the one scene it sits on, and [`scene_index_entries`]
+/// reads it per entry. Harvesting it would hand the LAST index day to every body
+/// scene that states none of its own (CodeRabbit review).
+fn scan_zoned_lines(lines: &[ZonedLine<'_>], index: &[SceneIndexEntry]) -> ScanOutcome {
     let mut chunks: Vec<SceneChunk> = Vec::new();
     let mut anchors: Vec<BlockAnchor> = Vec::new();
     // The episode in effect at the current line: the last `Ep.:` marker seen
@@ -2836,6 +2843,10 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>]) -> ScanOutcome {
     // which is harmless — same group. The FIRST occurrence's label wins, so
     // a repeated `Tag 1` never rewrites the reviewer-facing label.
     let mut current_day: Option<DraftShootingDay> = None;
+    // The chunk whose heading was the last content line seen. A day column that
+    // follows it directly belongs to that scene (the observed `Drehbuch` layout
+    // prints `Tag 1` under its slug — see the trailing-column rule below).
+    let mut freshly_opened: Option<usize> = None;
     // The block the document states (`Block: 098`, issue #827): the FIRST
     // occurrence wins, exactly like the old whole-document scan.
     let mut block_number: Option<i32> = None;
@@ -2866,7 +2877,8 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>]) -> ScanOutcome {
         // Day columns live in scene-index pages and in the script body; a
         // `SYNOPSIS` page's prose must never seed the day group of the first
         // scenes (that contamination is precisely what zoning removes).
-        if matches!(line.zone, PageZone::SceneIndex | PageZone::ScriptBody)
+        let mut trailing_day = false;
+        if line.zone.is_script_body()
             && let Some(day) = day_marker(trimmed)
             && (is_scene_heading(trimmed) || is_standalone_day_marker(trimmed, &day))
         {
@@ -2878,30 +2890,60 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>]) -> ScanOutcome {
             // scene (CodeRabbit review, issue #706). First occurrence's
             // label wins: a repeated `Tag 1` (page headers) never rewrites
             // the reviewer-facing label.
+            // A day column on its own line is a TRAILING column: it belongs to
+            // the scene whose slug it follows, not to the scenes after it.
+            trailing_day = !is_scene_heading(trimmed);
             if current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key() {
                 current_day = Some(day);
             }
         }
+        // The trailing-column rule (observed `Drehbuch` layout: the slug, then
+        // its `Tag 1` column): reading the column as "the day of the FOLLOWING
+        // scenes" dated the first scene of the script not at all and every
+        // scene after a day change one day late.
+        if trailing_day && let Some(index) = freshly_opened {
+            chunks[index].shooting_day = current_day.clone();
+        }
         if !line.is_scene_prose() {
+            freshly_opened = None;
             continue;
         }
         if is_scene_heading(trimmed) {
             let scene_number = leading_scene_number(&normalize_for_heading_detection(trimmed));
+            let label = leading_scene_label(trimmed);
+            let episode_key = current_episode.as_ref().and_then(DraftEpisode::group_key);
+            // A body scene that states no day of its own inherits the day the
+            // INDEX lists for it — per scene, not "the last day the index
+            // mentioned" (which is what the shared `current_day` used to hand
+            // every following scene).
+            let shooting_day = current_day.clone().or_else(|| {
+                label
+                    .as_deref()
+                    .and_then(|label| index_day_for(index, label, episode_key.as_deref()).cloned())
+            });
             chunks.push(SceneChunk {
                 index: chunks.len(),
                 heading: trimmed.to_owned(),
                 scene_number,
                 episode: current_episode.clone(),
-                shooting_day: current_day.clone(),
+                shooting_day,
                 mood: parse_mood_from_heading(trimmed),
                 text: String::new(),
             });
             anchors.push(line.anchor);
-        } else if let Some(current) = chunks.last_mut() {
-            if !current.text.is_empty() {
-                current.text.push('\n');
+            freshly_opened = Some(chunks.len() - 1);
+        } else {
+            if let Some(current) = chunks.last_mut() {
+                if !current.text.is_empty() {
+                    current.text.push('\n');
+                }
+                current.text.push_str(line.text.trim_end());
             }
-            current.text.push_str(line.text.trim_end());
+            // A BLANK line is layout whitespace, not the end of the "column
+            // directly below the heading" window; a line with content ends it.
+            if !trimmed.is_empty() {
+                freshly_opened = None;
+            }
         }
     }
     for chunk in &mut chunks {
@@ -2914,29 +2956,124 @@ fn scan_zoned_lines(lines: &[ZonedLine<'_>]) -> ScanOutcome {
     }
 }
 
-/// The ordered scene labels a `SceneIndex` page states (`"1    A/T - ORT"` →
-/// `"1"`), deduplicated in first-seen order.
+/// One entry of a `SceneIndex` page: the scene the document itself lists,
+/// together with the context its row states (issue #959).
 ///
-/// The label — not just the numeric part — is the identity, so an inserted scene
-/// (`12A`) is compared honestly against the index instead of being folded into
-/// `12` (the same rule [`merge_duplicate_scene_numbers`] uses).
-fn scene_index_labels(lines: &[ZonedLine<'_>]) -> Vec<String> {
-    let mut labels: Vec<String> = Vec::new();
+/// The index is the document's own manifest — it names the scenes that must
+/// follow and, in the `SCRIPT REPORT` layout, the shooting day and episode each
+/// belongs to. Both facts stay PER ENTRY, so the body scan and the reconciliation
+/// can use them without ever merging text across the zone boundary (ADR-041
+/// `D3`).
+#[derive(Debug, Clone, PartialEq)]
+struct SceneIndexEntry {
+    /// The full leading scene label (`"1"`, `"12A"`) — the same identity the
+    /// duplicate merge and the reconciliation use.
+    label: String,
+    /// The episode in effect on the entry's line
+    /// ([`DraftEpisode::group_key`]). A genuinely unscoped index leaves this
+    /// `None`, which then matches on the label alone.
+    episode: Option<String>,
+    /// The day column the index assigns to this scene (`"Tag 1"`), when it
+    /// states one.
+    day: Option<DraftShootingDay>,
+}
+
+impl SceneIndexEntry {
+    /// Whether this entry describes the scene `label` in `episode`.
+    ///
+    /// The episode only has to agree when the index actually SCOPES the entry:
+    /// an unscoped index (`None`) matches on the label alone, exactly like the
+    /// duplicate merge's own key does.
+    fn matches(&self, label: &str, episode: Option<&str>) -> bool {
+        self.label == label
+            && self
+                .episode
+                .as_deref()
+                .is_none_or(|scoped| Some(scoped) == episode)
+    }
+}
+
+/// Read the `SceneIndex` pages: every listed scene with the episode and the
+/// shooting day its row states (issue #959).
+///
+/// Episode and day markers are tracked on EVERY line — a page header states both
+/// and sits on pages that carry no scene — but only `SceneIndex` lines produce
+/// entries. A day column is either printed on the heading line (`"1  A/T - ORT
+/// Tag 1"`) or on the line right below it (the observed broadcast layout: heading,
+/// then `Tag 1`); the trailing form is attached to the entry above it, so the day
+/// a scene really belongs to never depends on reading order luck.
+fn scene_index_entries(lines: &[ZonedLine<'_>]) -> Vec<SceneIndexEntry> {
+    let mut entries: Vec<SceneIndexEntry> = Vec::new();
+    let mut current_episode: Option<DraftEpisode> = None;
+    let mut current_day: Option<DraftShootingDay> = None;
+    // The entry a trailing day column belongs to (the row directly above it).
+    let mut open_entry: Option<usize> = None;
     for line in lines {
-        if line.zone != PageZone::SceneIndex {
-            continue;
-        }
         let trimmed = line.text.trim();
-        if trimmed.is_empty() || !is_scene_heading(trimmed) {
+        if trimmed.is_empty() {
             continue;
         }
-        if let Some(label) = leading_scene_label(trimmed)
-            && !labels.contains(&label)
+        if let Some(episode) = episode_marker(trimmed) {
+            current_episode = Some(episode);
+        }
+        if line.zone != PageZone::SceneIndex {
+            open_entry = None;
+            continue;
+        }
+        let heading = is_scene_heading(trimmed);
+        let stated_day =
+            day_marker(trimmed).filter(|day| heading || is_standalone_day_marker(trimmed, day));
+        let has_stated_day = stated_day.is_some();
+        if let Some(day) = stated_day
+            && current_day.as_ref().and_then(DraftShootingDay::group_key) != day.group_key()
         {
-            labels.push(label);
+            current_day = Some(day);
+        }
+        if heading {
+            let Some(label) = leading_scene_label(trimmed) else {
+                open_entry = None;
+                continue;
+            };
+            let episode = current_episode.as_ref().and_then(DraftEpisode::group_key);
+            if entries
+                .iter()
+                .any(|entry| entry.matches(&label, episode.as_deref()))
+            {
+                open_entry = None;
+                continue;
+            }
+            entries.push(SceneIndexEntry {
+                label,
+                episode,
+                day: current_day.clone(),
+            });
+            open_entry = Some(entries.len() - 1);
+        } else if has_stated_day {
+            // A day column on its own line labels the row ABOVE it. It OVERRIDES
+            // whatever that row inherited from the previous column: in the
+            // observed layout every row prints its own column, so inheriting
+            // would leave row 2 on row 1's day.
+            if let Some(index) = open_entry {
+                entries[index].day = current_day.clone();
+            }
+            open_entry = None;
+        } else {
+            open_entry = None;
         }
     }
-    labels
+    entries
+}
+
+/// The day the scene index assigns to `label` in `episode`, when it lists one.
+fn index_day_for<'a>(
+    index: &'a [SceneIndexEntry],
+    label: &str,
+    episode: Option<&str>,
+) -> Option<&'a DraftShootingDay> {
+    index
+        .iter()
+        .find(|entry| entry.matches(label, episode))
+        .and_then(|entry| entry.day.as_ref())
 }
 
 /// The uncertainty field an index/body mismatch is reported under (issue #959).
@@ -2952,43 +3089,87 @@ pub const UNCERTAINTY_FIELD_SCENE_NUMBER: &str = "scene_number";
 /// to reach the reviewer as an unexplained shortfall. Each mismatch becomes a
 /// targeted `FieldAmbiguity` naming the label; no text is ever merged across the
 /// zone boundary to make the numbers agree (ADR-041 `D3`).
-fn scene_index_uncertainties(expected: &[String], chunks: &[SceneChunk]) -> Vec<Uncertainty> {
-    if expected.is_empty() {
+///
+/// The comparison is EPISODE-AWARE: two episodes can both list a scene `1`, and a
+/// label-only comparison would call the pair reconciled as soon as one of them
+/// exists (CodeRabbit review). An index that scopes no episode still matches on
+/// the label alone.
+///
+/// When the body produced scenes but NO numbered heading, no label can be
+/// compared at all. That case is reported once, as one document-level finding,
+/// instead of passing silently (a listed scene would otherwise look "present") or
+/// repeating the same sentence per index row.
+fn scene_index_uncertainties(index: &[SceneIndexEntry], chunks: &[SceneChunk]) -> Vec<Uncertainty> {
+    if index.is_empty() {
         return Vec::new();
     }
-    let actual: Vec<(usize, String)> = chunks
+    let actual: Vec<(usize, String, Option<String>)> = chunks
         .iter()
         .filter(|chunk| chunk.scene_number.is_some())
-        .filter_map(|chunk| leading_scene_label(&chunk.heading).map(|label| (chunk.index, label)))
+        .filter_map(|chunk| {
+            leading_scene_label(&chunk.heading).map(|label| {
+                (
+                    chunk.index,
+                    label,
+                    chunk.episode.as_ref().and_then(DraftEpisode::group_key),
+                )
+            })
+        })
         .collect();
     if actual.is_empty() {
-        return Vec::new();
+        if chunks.is_empty() {
+            return Vec::new();
+        }
+        return vec![Uncertainty {
+            scene_index: 0,
+            field: UNCERTAINTY_FIELD_SCENE_NUMBER.to_owned(),
+            note: format!(
+                "the scene index lists {} scene(s) but no script-body heading states a scene \
+                 number, so the scene list could not be reconciled",
+                index.len()
+            ),
+            suggested_value: None,
+            kind: UncertaintyKind::FieldAmbiguity,
+            candidates: Vec::new(),
+        }];
     }
+    // Label-only view for placing a finding next to the row a reviewer looks at.
+    let placed: Vec<(usize, String)> = actual
+        .iter()
+        .map(|(index, label, _)| (*index, label.clone()))
+        .collect();
     let mut uncertainties: Vec<Uncertainty> = Vec::new();
-    for label in expected {
-        if actual.iter().any(|(_, found)| found == label) {
+    for entry in index {
+        if actual
+            .iter()
+            .any(|(_, label, episode)| entry.matches(label, episode.as_deref()))
+        {
             continue;
         }
         uncertainties.push(Uncertainty {
             // Attach the finding to the row the reviewer would look at for the
             // gap: the first body scene that sorts AFTER the missing one, so a
             // missing scene 18 is reported next to scene 19 rather than at row 0.
-            scene_index: nearest_chunk_index(label, &actual),
+            scene_index: nearest_chunk_index(&entry.label, &placed),
             field: UNCERTAINTY_FIELD_SCENE_NUMBER.to_owned(),
             note: format!(
-                "scene {label} is listed in the scene index but missing from the script body"
+                "scene {} is listed in the scene index but missing from the script body",
+                entry.label
             ),
-            suggested_value: Some(label.clone()),
+            suggested_value: Some(entry.label.clone()),
             kind: UncertaintyKind::FieldAmbiguity,
             candidates: Vec::new(),
         });
     }
-    for (index, label) in &actual {
-        if expected.iter().any(|listed| listed == label) {
+    for (scene_index, label, episode) in &actual {
+        if index
+            .iter()
+            .any(|entry| entry.matches(label, episode.as_deref()))
+        {
             continue;
         }
         uncertainties.push(Uncertainty {
-            scene_index: *index,
+            scene_index: *scene_index,
             field: UNCERTAINTY_FIELD_SCENE_NUMBER.to_owned(),
             note: format!("scene {label} appears in the script body but not in the scene index"),
             suggested_value: Some(label.clone()),
@@ -3347,7 +3528,7 @@ impl ShortFormLocation {
 /// already uppercased, scene-label-stripped line (issue #959).
 ///
 /// ```text
-/// short := LOC ( ('/' | '+') LOC )? '/' TOKEN
+/// short := LOC ( ('/' | '+') LOC '/' TOKEN )? '/' TOKEN
 /// LOC   := 'I' | 'A'
 /// TOKEN := 1..=2 ASCII alphabetic characters
 /// ```
@@ -3368,20 +3549,30 @@ fn short_form_prefix(normalized: &str) -> Option<(ShortFormLocation, &str, usize
     };
     let mut location = location_at(0)?;
     let mut index = 1_usize;
+    // Set when `LOC '/' X` was ambiguous: `X` could have been the second location
+    // of a combined form or the first letter of the time token (`I/AB`). The
+    // token then has to be a REAL one — see the check below.
+    let mut ambiguous = false;
     match bytes.get(index) {
-        Some(b'/') => match location_at(index + 1) {
-            // `I/A/T`: a second LOC, which must be followed by the time
-            // separator. Without it the line is no heading at all (`A/I` alone
-            // states no time of day and no set).
-            Some(_) => {
-                if bytes.get(index + 2) != Some(&b'/') {
-                    return None;
+        Some(b'/') => {
+            if location_at(index + 1).is_some() {
+                if bytes.get(index + 2) == Some(&b'/') {
+                    // `I/A/T`: a second LOC, followed by the time separator.
+                    location = ShortFormLocation::Both;
+                    index += 3;
+                } else {
+                    // `I/AB` / `A/AB`: the ordinary form whose time token merely
+                    // BEGINS with a location letter (`AB` = Abend). `A/I` alone
+                    // states no time of day and stays rejected — that is what the
+                    // ambiguity flag enforces below, since the generic token scan
+                    // would happily read `I` as a token.
+                    ambiguous = true;
+                    index += 1;
                 }
-                location = ShortFormLocation::Both;
-                index += 3;
+            } else {
+                index += 1;
             }
-            None => index += 1,
-        },
+        }
         Some(b'+') => {
             location_at(index + 1)?;
             if bytes.get(index + 2) != Some(&b'/') {
@@ -3401,6 +3592,12 @@ fn short_form_prefix(normalized: &str) -> Option<(ShortFormLocation, &str, usize
         }
     }
     if token_end == token_start {
+        return None;
+    }
+    // In the ambiguous `LOC '/' LOC-letter …` case the token has to be a real
+    // time token: `I/AB` is a heading, `A/I` is not (it names two locations and
+    // no time of day, and a bare `I`/`A` never normalizes to a time token).
+    if ambiguous && time_shorthand(&normalized[token_start..token_end]).is_none() {
         return None;
     }
     Some((location, &normalized[token_start..token_end], token_end))

@@ -735,8 +735,9 @@ const PROSE_MIN_CHARS: usize = 32;
 /// 1. a scene-index banner (`"SCRIPT REPORT"`) → [`PageZone::SceneIndex`];
 /// 2. a cast-directory banner (`"PERSONEN/ HAUPTCAST"`, `"KOMPARSEN"`) →
 ///    [`PageZone::CastList`];
-/// 3. `>= 6` heading lines and **no** dialogue line → [`PageZone::SceneIndex`]
-///    (the banner-less `SCRIPT REPORT`);
+/// 3. `>= 6` heading lines and **no** prose or dialogue line, **before** the
+///    script body has started → [`PageZone::SceneIndex`] (the banner-less
+///    `SCRIPT REPORT`);
 /// 4. the first page, with neither headings nor dialogue → [`PageZone::TitlePage`];
 /// 5. a front-matter banner (`"SYNOPSIS"`, `"MEDIZINISCHE FÄLLE"`) →
 ///    [`PageZone::FrontMatter`];
@@ -808,11 +809,17 @@ pub fn classify_document_zones(
         };
         let zone = match bannered {
             Some(zone) => zone,
-            // The banner-less index: a heading-only page. The two extra
-            // conditions are what keep an ACTION-only script page (six short
-            // scenes, no dialogue yet) from being mistaken for an index — such
-            // a page still carries full-length action lines.
-            None if heading_lines >= MIN_INDEX_HEADINGS
+            // The banner-less index: a heading-only page, and only while the
+            // script body has not started yet. The extra conditions are what
+            // keep an ACTION-only script page (six short scenes, whose action
+            // lines are shorter than `PROSE_MIN_CHARS`) from being mistaken for
+            // an index — such a page still carries full-length action lines.
+            // The `seen_script_body` guard covers the remaining shape: short
+            // action (`Sie nickt.`) after the body started is a body page, and
+            // dropping it would lose every scene on it. A banner stays
+            // authoritative wherever it appears (branch above).
+            None if !seen_script_body
+                && heading_lines >= MIN_INDEX_HEADINGS
                 && dialogue_lines == 0
                 && prose_lines == 0 =>
             {
@@ -953,8 +960,18 @@ fn contains_phrase(haystack: &str, phrase: &str) -> bool {
 /// inside the band is therefore excluded too — the corpus harness's
 /// expected-scene-count assertion (issue #959) is what surfaces that as a scene
 /// shortfall instead of a silent loss.
+///
+/// The geometry fallback deliberately spares [`BlockKind::Heading`]: an adapter
+/// that classified a block as a heading knows more than the band does, and a
+/// scene heading that happens to END inside the top band (`y1 <= 0.09`, e.g. a
+/// slug directly under the running header) is still the first line of its scene.
+/// Only the *page furniture* bands exclude by position, and the extractor tags
+/// that furniture `PageHeader` anyway.
 fn block_role(bbox: NormalizedBBox, kind: BlockKind) -> LineRole {
-    if kind == BlockKind::PageHeader || bbox.is_header_band() {
+    if kind == BlockKind::PageHeader {
+        return LineRole::Header;
+    }
+    if bbox.is_header_band() && kind != BlockKind::Heading {
         return LineRole::Header;
     }
     if kind == BlockKind::PageFooter || bbox.is_footer_band() {
@@ -985,7 +1002,16 @@ fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)
     }
     // Cast-list and front-matter banners ARE section headings, so they must start
     // the line: matching them anywhere would let a synopsis sentence
-    // ("... wie in der SYNOPSIS beschrieben") relabel a whole page.
+    // ("... wie in der SYNOPSIS beschrieben") relabel a whole page. Starting the
+    // line is not enough on its own either — `"Cast the net before sunrise."`
+    // starts with `CAST` and is the first line of a script page — so the line must
+    // also LOOK like a section heading: no lowercase letter, the way
+    // `"PERSONEN/ HAUPTCAST"` and `"MEDIZINISCHE FÄLLE"` are and a sentence is
+    // not. Getting this wrong is expensive: a `CastList` verdict removes the whole
+    // page from scene prose.
+    if !is_shouty(line) {
+        return None;
+    }
     for (zone, keywords) in [
         (PageZone::CastList, CAST_LIST_BANNERS.as_slice()),
         (PageZone::FrontMatter, FRONT_MATTER_BANNERS.as_slice()),
@@ -1002,6 +1028,14 @@ fn page_banner(line: &str, banner_slot: bool) -> Option<(PageZone, &'static str)
         }
     }
     None
+}
+
+/// Whether a line carries no lowercase letter — the shape a section heading has
+/// (`"PERSONEN/ HAUPTCAST"`) and a body sentence does not (`"Cast the net
+/// before sunrise."`). A line with a digit or punctuation only counts as shouty,
+/// which is intended: a heading `"19.30"` is a heading.
+fn is_shouty(line: &str) -> bool {
+    !line.trim().chars().any(char::is_lowercase)
 }
 
 /// Whether a non-heading line sits in a dialogue column.

@@ -500,6 +500,39 @@ fn an_action_only_script_page_is_not_mistaken_for_an_index() {
 }
 
 #[test]
+fn a_short_action_page_after_the_body_started_stays_script_body() {
+    // CodeRabbit review: six short scenes whose action lines are shorter than
+    // `PROSE_MIN_CHARS` (`Sie nickt.`) and that carry no dialogue are exactly the
+    // shape the banner-less index rule looks for. ONCE THE SCRIPT RUNS, such a
+    // page is a body page — reading it as an index drops all six scenes.
+    let body = text_page(
+        1,
+        "1 A/T - BAUERNHOF\nLeyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    let mut short = StructuredPage::new(2, 595.0, 842.0);
+    for scene in 2..=7_u32 {
+        short.push_block(
+            BlockKind::Paragraph,
+            NormalizedBBox::new(0.10, 0.10, 0.60, 0.12),
+            format!("{scene} A/T - ORT"),
+        );
+        short.push_block(
+            BlockKind::Paragraph,
+            NormalizedBBox::new(0.10, 0.13, 0.90, 0.15),
+            "Sie nickt.",
+        );
+    }
+    let document = StructuredDocument::new("t", vec![body, short]);
+    let zones = classify_document_zones(&document, is_heading);
+    assert_eq!(zones.zone_of(1), PageZone::ScriptBody);
+    assert_eq!(
+        zones.zone_of(2),
+        PageZone::ScriptBody,
+        "a short-action page after the script started is body prose, not an index"
+    );
+}
+
+#[test]
 fn a_signal_free_page_after_the_body_stays_script_body() {
     // A scene running over a page break: no heading, no banner — dropping it
     // would delete that scene's dialogue.
@@ -569,6 +602,102 @@ fn continuation_markers_are_recognized_without_swallowing_prose() {
     ] {
         assert!(!is_continuation_marker(prose), "must keep {prose:?}");
     }
+}
+
+#[test]
+fn a_top_band_scene_heading_is_not_page_furniture() {
+    // CodeRabbit review: the bbox band alone turned a scene heading that ends
+    // inside the running-header band (`y1 <= 0.09`) into a `Header` line, which is
+    // excluded from prose — the scene would silently disappear. An adapter that
+    // says `Heading` knows more than the band does.
+    let mut page = StructuredPage::new(1, 595.0, 842.0);
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.10, 0.03, 0.60, 0.05),
+        "Block 098 Ep.: 292/1",
+    );
+    page.push_block(
+        BlockKind::Heading,
+        NormalizedBBox::new(0.10, 0.06, 0.90, 0.08),
+        "1 A/T - BAUERNHOF",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.60, 0.06, 0.90, 0.08),
+        "Seite 3",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.12, 0.90, 0.40),
+        "Leyla steigt aus dem Wagen.",
+    );
+    let document = StructuredDocument::new("t", vec![page]);
+    let zones = classify_document_zones(&document, is_heading);
+    let lines = zoned_lines(&document, &zones);
+    let roles: Vec<(LineRole, &str)> = lines.iter().map(|line| (line.role, line.text)).collect();
+    assert_eq!(
+        roles,
+        vec![
+            (LineRole::Header, "Block 098 Ep.: 292/1"),
+            (LineRole::Body, "1 A/T - BAUERNHOF"),
+            // A `Paragraph` in the same band stays furniture: the exemption is
+            // for structured headings only.
+            (LineRole::Header, "Seite 3"),
+            (LineRole::Body, "Leyla steigt aus dem Wagen."),
+        ]
+    );
+    assert!(
+        lines[1].is_scene_prose(),
+        "the top-band slug must reach the scene scanner"
+    );
+    assert_eq!(zones.page(1).map(|page| page.heading_lines), Some(1));
+    assert_eq!(zones.zone_of(1), PageZone::ScriptBody);
+}
+
+#[test]
+fn a_sentence_starting_with_cast_opens_no_cast_list() {
+    // CodeRabbit review: `CAST` matched as a line PREFIX, so `"Cast the net before
+    // sunrise."` — the first line of a script page — zoned the page `CastList`,
+    // which removes it from scene prose entirely.
+    let body = text_page(
+        1,
+        "1 A/T - BAUERNHOF\nLeyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    let prose = text_page(
+        2,
+        "Cast the net before sunrise.\nLeyla geht langsam über den Hof und bleibt vor der Tür stehen.",
+    );
+    let document = StructuredDocument::new("t", vec![body, prose.clone()]);
+    let zones = classify_document_zones(&document, is_heading);
+    assert_eq!(zones.zone_of(2), PageZone::ScriptBody);
+    assert_eq!(zones.page(2).and_then(|page| page.banner.as_deref()), None);
+
+    // A front-matter keyword inside a sentence is prose too.
+    let mixed = text_page(2, "Wie in der Synopsis beschrieben geht sie über den Hof.");
+    let document = StructuredDocument::new("t", vec![prose, mixed]);
+    let zones = classify_document_zones(&document, is_heading);
+    assert_eq!(zones.page(2).and_then(|page| page.banner.as_deref()), None);
+}
+
+#[test]
+fn an_all_caps_section_opening_still_opens_the_cast_list() {
+    // The counterpart: a shouty section heading is a banner wherever it sits — it
+    // is neither the page's first line nor in the header band here.
+    let body = text_page(
+        1,
+        "1 A/T - BAUERNHOF\nLeyla steigt aus dem Wagen und blickt über den Hof.",
+    );
+    let cast = text_page(
+        2,
+        "Dr. Leyla Sherbaz (44)\nDr. Matteo Moreau (44)\nKOMPARSEN\nJonas Hauser",
+    );
+    let document = StructuredDocument::new("t", vec![body, cast]);
+    let zones = classify_document_zones(&document, is_heading);
+    assert_eq!(zones.zone_of(2), PageZone::CastList);
+    assert_eq!(
+        zones.page(2).and_then(|page| page.banner.as_deref()),
+        Some("KOMPARSEN")
+    );
 }
 
 #[test]
