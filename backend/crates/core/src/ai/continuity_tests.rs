@@ -210,13 +210,40 @@ fn the_state_names_the_current_scene_and_the_prior_appearance() {
     let preview = preview(vec![first, second]);
     let gap = outfit_continuity_gaps(&preview).remove(0);
     let prior = prior_outfit(&preview, gap.scene_index, &gap.character_identity);
-    let state = continuity_state(&preview.scenes[1], &gap, prior);
+    let state = continuity_state(&preview.scenes[1], &gap, prior, None);
     assert_eq!(state["kind"], "outfit_continuity");
     assert_eq!(state["character"], "BEN");
     assert_eq!(state["scene"]["location"], "FLUR");
     assert_eq!(state["prior_appearance"]["outfit_name"], "Zivil-Look");
     assert_eq!(state["prior_appearance"]["outfit_pieces"][0], "Hemd");
     assert_eq!(state["context_changed"], false);
+}
+
+#[test]
+fn the_state_carries_previous_and_next_scene_brackets() {
+    use crate::ai::preview::{NeighborSceneBrief, SceneNeighbors};
+
+    let first = scene("s1", &["BEN"], Some("Ben kommt an."));
+    let second = scene("s2", &["BEN"], Some("Ben wartet."));
+    let preview = preview(vec![first, second]);
+    let gap = outfit_continuity_gaps(&preview).remove(0);
+    let neighbors = SceneNeighbors {
+        previous_scene: Some(NeighborSceneBrief {
+            scene_number: Some(1),
+            location: Some("FLUR".to_owned()),
+            mood: Some("I/T".to_owned()),
+            script_day: Some("Tag 1".to_owned()),
+            same_script_day: true,
+        }),
+        next_scene: None,
+    };
+    let state = continuity_state(&preview.scenes[1], &gap, None, Some(&neighbors));
+    assert_eq!(state["previous_scene"]["scene_number"], 1);
+    assert_eq!(state["previous_scene"]["location"], "FLUR");
+    assert_eq!(state["previous_scene"]["mood"], "I/T");
+    assert_eq!(state["previous_scene"]["script_day"], "Tag 1");
+    assert_eq!(state["previous_scene"]["same_script_day"], true);
+    assert!(state["next_scene"].is_null());
 }
 
 #[test]

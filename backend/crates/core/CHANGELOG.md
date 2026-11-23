@@ -16,6 +16,29 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.78.0] - Unreleased
+### Added (issue #961)
+
+- `ai::document` grew `CastDirectory` / `CastDirectoryEntry`, the static
+  `CAST_SECTION_MAPPING`, `parse_cast_directory` (over `CastList` lines) and
+  `parse_cast_directory_from_text` (flat-text seam). Comma-separated extra
+  lists are split outside parentheticals; trailing `(44)` / `(8, OT)` / `(MT)`
+  markers are stripped from the canonical name while `inline_ot` keeps the fact.
+- `ai::document::normalize_kerning` repairs Ghostscript intra-word splits only
+  when the joined run matches a multi-character name from that document's cast
+  directory — ordinary German prose is byte-identical. `SegmentedScript` now
+  carries the owned `cast_directory`.
+- `ai::preview::resolve_character_category` implements the pure precedence
+  ladder (cast section → existing season cast → strict inline background marker
+  → zero-dialogue generic role → `main_cast`) with one `characters` uncertainty
+  only for a genuine two-section conflict. Added `ExistingSeasonCharacter`,
+  `NeighborSceneBrief`, `SceneNeighbors`, `neighbor_brackets`,
+  `render_document_context`, `verify_draft_outfits_with_normalized` and
+  `zero_dialogue_generic_roles`.
+- `ai::continuity::continuity_state` now includes the `previous_scene` /
+  `next_scene` transition metadata (`same_script_day` included) in the Pass-2
+  decision payload.
+
 ## [0.77.0] - Unreleased
 ### Added (issue #959)
 

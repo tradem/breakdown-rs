@@ -12,21 +12,24 @@
 #   AI_EVAL_CORPUS_DIR=~/Downloads/drive-download \
 #     cargo test -p infra --test ai_document_eval_corpus -- --nocapture
 #
-# Format: TAB-separated `file  kind  scenes  note`.
+# Format: TAB-separated `file  kind  scenes  note  cast`.
 #   kind   = script   → the zone-aware segmentation must produce exactly `scenes`
 #                       scene chunks, no continuation banner, and no
 #                       SceneIndex-vs-body drift.
 #            schedule → a shooting schedule: the script segmentation assertions
 #                       do not apply (it is read by the schedule worker).
 #   scenes = expected scene-chunk count for a script, ignored for a schedule.
+#   cast   = comma-separated `name:category` assertions (`main_cast|guest|extra`)
+#            resolved through the deterministic #961 ladder against that
+#            document's parsed CastDirectory; `-` means no cast assertion.
 #
 # Every listed file MUST be present in AI_EVAL_CORPUS_DIR once the variable is
 # set: a partial corpus is a failure, not a silent skip. Extra PDFs in the
 # directory are still checked structurally (they just carry no count
 # expectation).
-292.pdf	script	40	Block 098 / Ep. 292
-293.pdf	script	42	Block 098 / Ep. 293
-294.pdf	script	43	Block 098 / Ep. 294
-Drehbuch_1.pdf	script	42	Drehbuch 1
-Drehbuch_2.pdf	script	42	Drehbuch 2
-Drehplan_1.pdf	schedule	0	Shooting schedule (schedule worker, not the script path)
+292.pdf	script	40	Block 098 / Ep. 292	cast=Dr. Leyla Sherbaz:main_cast,Frida Bäumer:guest,Mikko Rantala:main_cast,Mutter mit Kind:extra
+293.pdf	script	42	Block 098 / Ep. 293	cast=Mikko Rantala:main_cast,Beatrice Schneider:guest,Monika Koch:extra
+294.pdf	script	43	Block 098 / Ep. 294	cast=Dr. Leyla Sherbaz:main_cast,Dr. Kai Hoffmann:guest,Jannis Hauser:guest,Schwester:extra
+Drehbuch_1.pdf	script	42	Drehbuch 1	cast=Mikko Rantala:main_cast,Rafael Schmitz:guest,Heiko Neubert:extra
+Drehbuch_2.pdf	script	42	Drehbuch 2	cast=Dr. Leyla Sherbaz:main_cast,Zoe Sherbaz:guest,Mira Sherbaz:guest,Hebamme:extra
+Drehplan_1.pdf	schedule	0	Shooting schedule (schedule worker, not the script path)	-

@@ -132,6 +132,7 @@ async fn a_continuation_attaches_a_continued_from_scene_outfit() {
         })),
         &mut preview,
         &mut UsageAccumulator::default(),
+        &[],
         || false,
     )
     .await;
@@ -167,6 +168,7 @@ async fn an_inference_attaches_a_context_look_and_a_review_entry() {
         })),
         &mut preview,
         &mut UsageAccumulator::default(),
+        &[],
         || false,
     )
     .await;
@@ -196,6 +198,7 @@ async fn a_gap_answer_records_the_script_derivable_candidates_only() {
         })),
         &mut preview,
         &mut UsageAccumulator::default(),
+        &[],
         || false,
     )
     .await;
@@ -224,6 +227,7 @@ async fn a_first_appearance_offers_no_candidates() {
         })),
         &mut preview,
         &mut UsageAccumulator::default(),
+        &[],
         || false,
     )
     .await;
@@ -239,6 +243,7 @@ async fn a_decision_failure_leaves_the_preview_untouched() {
         &pass(Arc::new(FailingClient)),
         &mut preview,
         &mut UsageAccumulator::default(),
+        &[],
         || false,
     )
     .await;
@@ -269,6 +274,7 @@ async fn a_lost_claim_stops_before_the_next_paid_request() {
         })),
         &mut preview,
         &mut UsageAccumulator::default(),
+        &[],
         || true,
     )
     .await;
@@ -286,6 +292,7 @@ async fn a_preview_without_gaps_is_a_no_op() {
         &pass(Arc::new(FailingClient)),
         &mut preview,
         &mut UsageAccumulator::default(),
+        &[],
         || false,
     )
     .await;
@@ -306,6 +313,7 @@ async fn pass_two_telemetry_accumulates_into_the_job_usage() {
         })),
         &mut preview,
         &mut usage,
+        &[],
         || false,
     )
     .await;

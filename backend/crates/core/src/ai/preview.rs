@@ -13,8 +13,9 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::document::{
-    BlockAnchor, BlockKind, DocumentZones, NormalizedBBox, PageZone, StructuralPlan,
-    StructuredDocument, StructuredPage, ZonedLine, classify_document_zones, zoned_lines,
+    BlockAnchor, BlockKind, CastDirectory, CastDirectoryEntry, DocumentZones, NormalizedBBox,
+    PageZone, StructuralPlan, StructuredDocument, StructuredPage, ZonedLine,
+    classify_document_zones, parse_cast_directory, parse_cast_directory_from_text, zoned_lines,
 };
 use super::views::{AiImportJobId, DocumentKind, JobStatus};
 use crate::character::category::CharacterCategory;
@@ -76,6 +77,164 @@ impl SceneChunk {
     pub fn extract_scenes(document: &str) -> Vec<Self> {
         extract_scenes(document)
     }
+}
+
+/// A character already present in the target season's read model (issue #961).
+///
+/// Loaded ONCE by the worker at the read boundary and passed as a borrowed
+/// slice into the pure resolver — never fetched inside an adapter, saga or
+/// aggregate (CQRS boundary, `AGENTS.md` §1). Plain value data, no `Arc`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExistingSeasonCharacter {
+    pub name: String,
+    pub category: CharacterCategory,
+}
+
+/// Compact transition metadata for one adjacent scene (issue #961).
+///
+/// Derived from the ordered `ScriptBody` chunks; Pass 1 puts a bracket in the
+/// `<document-context>` block and Pass 2 puts the same facts in its decision
+/// state, so neither pass invents continuity out of thin air.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeighborSceneBrief {
+    pub scene_number: Option<u32>,
+    pub location: Option<String>,
+    pub mood: Option<String>,
+    pub script_day: Option<String>,
+    /// `true` when this neighbour carries the SAME script day as the scene it
+    /// brackets (a location change inside one day is weaker continuity than a
+    /// day change).
+    pub same_script_day: bool,
+}
+
+/// The previous/next bracket of one scene, aligned with `SceneChunk` order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SceneNeighbors {
+    pub previous_scene: Option<NeighborSceneBrief>,
+    pub next_scene: Option<NeighborSceneBrief>,
+}
+
+fn day_label(scene: &SceneChunk) -> Option<String> {
+    scene
+        .shooting_day
+        .as_ref()
+        .and_then(|day| day.display_label())
+}
+
+/// The location part of a scene heading (`"3 I/T - WOHNUNG ZOE"` →
+/// `"WOHNUNG ZOE"`). Only used for the compact neighbour bracket; the
+/// model's `location` field on the draft row stays authoritative.
+fn chunk_location(scene: &SceneChunk) -> Option<String> {
+    let location = scene
+        .heading
+        .split_once(" - ")
+        .map_or(scene.heading.as_str(), |(_, location)| location)
+        .trim();
+    if location.is_empty() || location.chars().count() > 120 {
+        None
+    } else {
+        Some(location.to_owned())
+    }
+}
+
+fn neighbor_brief(scene: &SceneChunk, current_day: Option<&str>) -> NeighborSceneBrief {
+    let neighbor_day = day_label(scene);
+    let same_script_day = match (&neighbor_day, current_day) {
+        (Some(neighbor), Some(current)) => neighbor.trim().eq_ignore_ascii_case(current.trim()),
+        _ => false,
+    };
+    NeighborSceneBrief {
+        scene_number: scene.scene_number,
+        location: chunk_location(scene),
+        mood: scene.mood.clone(),
+        script_day: neighbor_day,
+        same_script_day,
+    }
+}
+
+/// Build one neighbour bracket per chunk from the ordered `ScriptBody` chunks.
+#[must_use]
+pub fn neighbor_brackets(chunks: &[SceneChunk]) -> Vec<SceneNeighbors> {
+    chunks
+        .iter()
+        .enumerate()
+        .map(|(index, chunk)| {
+            let current_day = day_label(chunk);
+            SceneNeighbors {
+                previous_scene: index
+                    .checked_sub(1)
+                    .and_then(|previous| chunks.get(previous))
+                    .map(|scene| neighbor_brief(scene, current_day.as_deref())),
+                next_scene: chunks
+                    .get(index + 1)
+                    .map(|scene| neighbor_brief(scene, current_day.as_deref())),
+            }
+        })
+        .collect()
+}
+
+/// How many cast names the compact Pass-1 context may carry. Real front matter
+/// has 20–60 names; the cap keeps an extraordinary cast sheet from crowding the
+/// scene text out of the prompt window.
+const MAX_DOCUMENT_CONTEXT_NAMES: usize = 80;
+
+fn brief_json(brief: Option<&NeighborSceneBrief>) -> serde_json::Value {
+    brief.map_or(serde_json::Value::Null, |brief| {
+        serde_json::json!({
+            "scene_number": brief.scene_number,
+            "location": brief.location,
+            "mood": brief.mood,
+            "script_day": brief.script_day,
+            "same_script_day": brief.same_script_day,
+        })
+    })
+}
+
+/// The JSON view Pass 2 embeds in its `DecisionQuestion::Choice` state.
+#[must_use]
+pub fn neighbor_state(
+    neighbors: Option<&SceneNeighbors>,
+) -> (serde_json::Value, serde_json::Value) {
+    match neighbors {
+        Some(neighbors) => (
+            brief_json(neighbors.previous_scene.as_ref()),
+            brief_json(neighbors.next_scene.as_ref()),
+        ),
+        None => (serde_json::Value::Null, serde_json::Value::Null),
+    }
+}
+
+/// The compact `<document-context>` prefix of a Pass-1 request (issue #961).
+///
+/// It states the declared cast categories and the adjacent-scene bracket; the
+/// resolver below applies the same cast data deterministically AFTER the model
+/// answers, so the prompt is context, never the authority.
+#[must_use]
+pub fn render_document_context(
+    directory: &CastDirectory,
+    neighbors: Option<&SceneNeighbors>,
+) -> String {
+    let mut out = String::from("<document-context>\n");
+    if !directory.is_empty() {
+        out.push_str("<cast-directory>Cast-sheet sections are authoritative, including an (OT) marker inside a listed name.\n");
+        for entry in directory.entries.iter().take(MAX_DOCUMENT_CONTEXT_NAMES) {
+            out.push_str(&format!(
+                "- {} [{}]\n",
+                entry.canonical_name,
+                entry.declared_category.as_str()
+            ));
+        }
+        out.push_str("</cast-directory>\n");
+    }
+    if let Some(neighbors) = neighbors {
+        out.push_str(&format!(
+            "<previous_scene>{}</previous_scene>\n<next_scene>{}</next_scene>\n",
+            brief_json(neighbors.previous_scene.as_ref()),
+            brief_json(neighbors.next_scene.as_ref())
+        ));
+    }
+    out.push_str("</document-context>");
+    out
 }
 
 /// One episode of the source script, as the deterministic marker scan (and,
@@ -1077,6 +1236,209 @@ pub fn character_identity(name: &str) -> String {
     out
 }
 
+/// Name tokens of a scene cue or cast entry, with trailing parentheticals and
+/// punctuation removed (`"Dr. Leyla Sherbaz (8, OT)"` → `["dr", "leyla",
+/// "sherbaz"]`). Deliberately conservative: every token must be at least two
+/// characters, so a bare initial can never identify a figure.
+fn name_without_parenthetical(name: &str) -> &str {
+    name.rfind('(')
+        .filter(|_| name.trim_end().ends_with(')'))
+        .map_or(name, |open| name[..open].trim_end())
+}
+
+fn identity_tokens(name: &str) -> Vec<String> {
+    let base = name_without_parenthetical(name);
+    base.split_whitespace()
+        .map(|token| {
+            token
+                .trim_matches(|character: char| !character.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|token| token.chars().count() >= 2)
+        .collect()
+}
+
+fn has_background_marker(name: &str) -> bool {
+    let folded = name.to_uppercase().replace(['.', '(', ')'], " ");
+    folded.split_whitespace().any(|token| {
+        matches!(
+            token,
+            "OT" | "OFF-TEXT" | "STATIST" | "STATISTIN" | "KOMPARSE" | "KOMPARSEN"
+        )
+    })
+}
+
+/// Deterministic cast-directory lookup (issue #961): exact normalized identity
+/// first, then a unique given-name/surname token match. A token shared by two
+/// entries is ambiguous and deliberately does NOT match.
+fn directory_matches<'a>(name: &str, directory: &'a CastDirectory) -> Vec<&'a CastDirectoryEntry> {
+    let identity = character_identity(name);
+    let exact: Vec<&CastDirectoryEntry> = directory
+        .entries
+        .iter()
+        .filter(|entry| entry.normalized_identity == identity)
+        .collect();
+    if !exact.is_empty() {
+        return exact;
+    }
+    let tokens = identity_tokens(name);
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+    directory
+        .entries
+        .iter()
+        .filter(|entry| {
+            let entry_tokens = identity_tokens(&entry.canonical_name);
+            tokens.iter().all(|token| entry_tokens.contains(token))
+                && tokens.iter().any(|token| {
+                    directory
+                        .entries
+                        .iter()
+                        .filter(|other| identity_tokens(&other.canonical_name).contains(token))
+                        .count()
+                        == 1
+                })
+        })
+        .collect()
+}
+
+const GENERIC_ROLE_WORDS: &[&str] = &[
+    "PASSANT",
+    "PASSANTIN",
+    "PFLEGER",
+    "PFLEGERIN",
+    "KOMPARSE",
+    "KOMPARSEN",
+    "STATIST",
+    "STATISTIN",
+    "EXTRA",
+];
+
+fn is_generic_role(name: &str) -> bool {
+    identity_tokens(name).iter().any(|token| {
+        GENERIC_ROLE_WORDS.iter().any(|role| {
+            token.eq_ignore_ascii_case(role) || token.to_ascii_uppercase().starts_with(role)
+        })
+    })
+}
+
+/// Generic background roles with NO indented dialogue anywhere in the script
+/// (ladder step 4 of issue #961). A cue followed by an indented lowercase line
+/// is evidence of dialogue; an outline stub or a cast-only mention is not.
+#[must_use]
+pub fn zero_dialogue_generic_roles(chunks: &[SceneChunk]) -> Vec<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    let mut speaking: Vec<String> = Vec::new();
+    for chunk in chunks {
+        let mut pending_cue: Option<String> = None;
+        for line in chunk.text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // `ANNA (30): Hallo.` is a cue with dialogue on the same line:
+            // split at the FIRST colon, not at a trailing one.
+            let cue = trimmed
+                .split_once(':')
+                .map_or(trimmed, |(cue, _)| cue)
+                .trim();
+            let letters = cue
+                .chars()
+                .filter(|character| character.is_alphabetic())
+                .count();
+            let looks_like_cue = trimmed.chars().count() <= 40
+                && letters >= 2
+                && cue
+                    .chars()
+                    .filter(|character| character.is_alphabetic())
+                    .all(|character| character.is_uppercase());
+            if looks_like_cue {
+                let identity = character_identity(cue);
+                if is_generic_role(cue) && !candidates.contains(&identity) {
+                    candidates.push(identity.clone());
+                }
+                pending_cue = Some(identity);
+                continue;
+            }
+            if (line.starts_with(' ') || line.starts_with('\t'))
+                && trimmed.chars().count() > 2
+                && trimmed.chars().any(char::is_lowercase)
+                && let Some(identity) = pending_cue.as_ref()
+                && !speaking.contains(identity)
+            {
+                speaking.push(identity.clone());
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .filter(|identity| !speaking.contains(identity))
+        .collect()
+}
+
+/// The deterministic role-precedence ladder of issue #961 (ADR-041 `D5`).
+///
+/// 1. an explicit `CastDirectory` match wins unconditionally — even when the
+///    cast line carried `(OT)`: a silent episodic lead is `guest`, a named
+///    `KOMPARSE` is `extra` without any inline marker;
+/// 2. an existing season `Character` read-model entry;
+/// 3. an inline background marker (`(OT)`, `(O.T.)`, `Off-Text`, `Statist`,
+///    `Komparse`) — strictly `extra`, never a promotion to `guest`;
+/// 4. a numbered/generic role with zero dialogue across the whole script;
+/// 5. the grounded `main_cast` default.
+///
+/// Only a genuine conflict between two `CastDirectory` categories produces an
+/// uncertainty, and exactly one — zero LLM hedging, zero `(OT)` false positives.
+#[must_use]
+pub fn resolve_character_category(
+    name: &str,
+    scene_index: usize,
+    directory: &CastDirectory,
+    existing_season_cast: &[ExistingSeasonCharacter],
+    zero_dialogue_roles: &[String],
+) -> (CharacterCategory, Option<Uncertainty>) {
+    let matches = directory_matches(name, directory);
+    if let Some(first) = matches.first() {
+        let conflicting = matches
+            .iter()
+            .any(|entry| entry.declared_category != first.declared_category);
+        let uncertainty = conflicting.then(|| Uncertainty {
+            scene_index,
+            field: UNCERTAINTY_FIELD_CHARACTERS.to_owned(),
+            note: format!(
+                "{}: the cast directory declares conflicting categories {}",
+                character_identity(name),
+                matches
+                    .iter()
+                    .map(|entry| entry.declared_category.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" vs ")
+            ),
+            suggested_value: Some(first.declared_category.as_str().to_owned()),
+            kind: UncertaintyKind::FieldAmbiguity,
+            candidates: Vec::new(),
+        });
+        return (first.declared_category, uncertainty);
+    }
+
+    // An inline `(OT)` attached to a scene cue is not part of the figure's
+    // identity when matching the season read model (issue #961).
+    let identity = character_identity(name_without_parenthetical(name));
+    if let Some(known) = existing_season_cast.iter().find(|character| {
+        character_identity(name_without_parenthetical(&character.name)) == identity
+    }) {
+        return (known.category, None);
+    }
+    if has_background_marker(name) {
+        return (CharacterCategory::Extra, None);
+    }
+    if zero_dialogue_roles.contains(&identity) {
+        return (CharacterCategory::Extra, None);
+    }
+    (CharacterCategory::MainCast, None)
+}
+
 /// Prefix of the mapping `draft_ref` that holds a figure shared by several draft
 /// rows.
 ///
@@ -1108,18 +1470,39 @@ pub fn character_mapping_ref(identity: &str) -> String {
 /// genuinely derived garment. A rejected outfit takes its pieces with it — they
 /// exist only as part of that look.
 pub fn verify_draft_outfits(scene: &mut DraftScene, chunk_text: &str) -> Vec<RejectedOutfit> {
+    verify_draft_outfits_against(scene, &[chunk_text])
+}
+
+/// Kerning-aware variant (issue #961): a model that saw the normalized prompt
+/// view may quote `"Mik k o"` as `"Mikko"` (or the other way round), so a
+/// verbatim `source_quote` is accepted against EITHER view. The check stays
+/// grounded — a quote absent from both is still rejected.
+#[must_use]
+pub fn verify_draft_outfits_with_normalized(
+    scene: &mut DraftScene,
+    raw_text: &str,
+    normalized_text: &str,
+) -> Vec<RejectedOutfit> {
+    if raw_text == normalized_text {
+        verify_draft_outfits(scene, raw_text)
+    } else {
+        verify_draft_outfits_against(scene, &[raw_text, normalized_text])
+    }
+}
+
+fn verify_draft_outfits_against(scene: &mut DraftScene, texts: &[&str]) -> Vec<RejectedOutfit> {
     let mut rejected = Vec::new();
     let characters: Vec<String> = scene
         .characters
         .iter()
         .map(|c| character_identity(&c.name))
         .collect();
-    let haystack = grounded_text(chunk_text);
+    let haystacks: Vec<String> = texts.iter().map(|text| grounded_text(text)).collect();
 
     let mut kept: Vec<DraftOutfit> = Vec::with_capacity(scene.outfits.len());
     for outfit in std::mem::take(&mut scene.outfits) {
         let quote = grounded_text(&outfit.source_quote);
-        if quote.is_empty() || !haystack.contains(&quote) {
+        if quote.is_empty() || !haystacks.iter().any(|haystack| haystack.contains(&quote)) {
             rejected.push(RejectedOutfit {
                 reason: RejectedOutfitReason::UngroundedQuote,
                 character_name: outfit.character_name,
@@ -2733,6 +3116,10 @@ pub struct SegmentedScript {
     pub plan: StructuralPlan,
     /// `SceneIndex`-vs-`ScriptBody` reconciliation findings (issue #959).
     pub uncertainties: Vec<Uncertainty>,
+    /// The front-matter cast sheet parsed from `CastList` pages (issue #961).
+    /// Plain owned data, built once per extraction and borrowed by every
+    /// chunk; never an `Arc` and never re-read from the document per chunk.
+    pub cast_directory: CastDirectory,
 }
 
 impl SegmentedScript {
@@ -2759,6 +3146,7 @@ impl SegmentedScript {
             block_number: outcome.block_number,
             plan: StructuralPlan::from_zones(&zones),
             uncertainties: Vec::new(),
+            cast_directory: parse_cast_directory_from_text(document, is_scene_heading),
         }
     }
 
@@ -2807,6 +3195,7 @@ pub fn extract_scenes_from_structured(document: &StructuredDocument) -> Segmente
         block_number: outcome.block_number,
         plan,
         uncertainties,
+        cast_directory: parse_cast_directory(&lines),
     }
 }
 

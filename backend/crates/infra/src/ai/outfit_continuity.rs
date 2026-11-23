@@ -24,10 +24,10 @@
 
 use breakdown_core::ai::{
     ContinuityOutcome, DecisionRequest, DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin,
-    DraftOutfitProvenance, OutfitContinuityGap, ScriptContext, Uncertainty, UncertaintyKind,
-    UsageAccumulator, character_identity, context_look_name, continuity_candidates,
-    continuity_questions, continuity_state, draft_row_ref, outfit_continuity_gaps, prior_outfit,
-    question_keys, resolve_continuity_outcome,
+    DraftOutfitProvenance, OutfitContinuityGap, SceneNeighbors, ScriptContext, Uncertainty,
+    UncertaintyKind, UsageAccumulator, character_identity, context_look_name,
+    continuity_candidates, continuity_questions, continuity_state, draft_row_ref,
+    outfit_continuity_gaps, prior_outfit, question_keys, resolve_continuity_outcome,
 };
 
 use super::workers::DecisionPass;
@@ -72,6 +72,10 @@ pub async fn run_outfit_continuity_pass(
     // well as their usage, so a 2xx answer that reports no usage is still a
     // recorded Decision-Model call.
     usage: &mut UsageAccumulator,
+    // Pass-1 neighbour brackets, aligned with `preview.scenes` (issue #961).
+    // An empty slice is the honest degradation when no segmentation metadata
+    // is available; the decision then sees `null` neighbours.
+    neighbors: &[SceneNeighbors],
     claim_lost: impl Fn() -> bool,
 ) -> ContinuityPassReport {
     let gaps = outfit_continuity_gaps(preview);
@@ -101,7 +105,7 @@ pub async fn run_outfit_continuity_pass(
         let request = DecisionRequest {
             provider: pass.provider,
             model: pass.model.clone(),
-            state: continuity_state(scene, gap, prior),
+            state: continuity_state(scene, gap, prior, neighbors.get(gap.scene_index)),
             questions: questions.clone(),
         };
         let outcome =

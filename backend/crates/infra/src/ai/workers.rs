@@ -16,16 +16,19 @@ use breakdown_core::ai::{
     AiModelPricingRepository, AppliedEpisode, ApplyGateError, ApplyMapping, ApplyMappingDecision,
     ApplyProgress, ApplyRunId, ApplyStage, CategoryVocabularyEntry, CharacterApplyPlan,
     ChunkSetState, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry, DocumentKind,
-    DocumentStructureExtractor, DraftScene, EpisodeGroupPlan, ExtractionFingerprint, HoldEvidence,
-    LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, MergedPreview, OutfitApplyPlan,
-    PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot,
-    ProviderBreakerState, ProviderHold, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan,
-    ScriptContext, SegmentedScript, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk,
-    Telemetry, TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
+    DocumentStructureExtractor, DraftScene, EpisodeGroupPlan, ExistingSeasonCharacter,
+    ExtractionFingerprint, HoldEvidence, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
+    MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
+    PlannedShootingDay, ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold,
+    ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, SceneNeighbors, ScriptContext,
+    SegmentedScript, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry,
+    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
     UncertaintyAcknowledgement, UncertaintyKind, UsageAccumulator, category_conflict_uncertainties,
     character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes_from_structured,
-    mapping_kind, merge_schedule_to_scenes, parse_script_day, plan_scene_apply,
-    sanitize_meta_summary, scene_beat_lanes, stable_draft_ref, verify_draft_outfits,
+    mapping_kind, merge_schedule_to_scenes, neighbor_brackets, normalize_kerning, parse_script_day,
+    plan_scene_apply, render_document_context, resolve_character_category, sanitize_meta_summary,
+    scene_beat_lanes, stable_draft_ref, verify_draft_outfits_with_normalized,
+    zero_dialogue_generic_roles,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -572,6 +575,19 @@ where
         worker_id: &str,
         pdf_bytes: &[u8],
     ) -> Result<String, DomainError> {
+        self.process_with_cast(job, worker_id, pdf_bytes, &[]).await
+    }
+
+    /// Same as [`Self::process`], with the season cast pre-loaded by the worker
+    /// read boundary (issue #961). The slice is borrowed by value — never an
+    /// `Arc`, never a repository call inside the extraction loop.
+    pub async fn process_with_cast(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        pdf_bytes: &[u8],
+        existing_season_cast: &[ExistingSeasonCharacter],
+    ) -> Result<String, DomainError> {
         if job.document_kind != DocumentKind::Script {
             return Err(DomainError::validation(
                 "script worker received a non-script job",
@@ -588,7 +604,8 @@ where
             .extract(pdf_bytes, breakdown_core::ai::ExtractionOptions::default())
             .await?;
         let segmented = extract_scenes_from_structured(&document);
-        self.process_segmented(job, worker_id, &segmented).await
+        self.process_segmented_with_cast(job, worker_id, &segmented, existing_season_cast)
+            .await
     }
 
     /// Process already extracted **flat text**. This seam keeps PDF subprocess
@@ -624,9 +641,31 @@ where
         worker_id: &str,
         segmented: &SegmentedScript,
     ) -> Result<String, DomainError> {
+        self.process_segmented_with_cast(job, worker_id, segmented, &[])
+            .await
+    }
+
+    /// Process one segmented script with the pre-loaded season cast available
+    /// to the deterministic category resolver (issue #961).
+    pub async fn process_segmented_with_cast(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        segmented: &SegmentedScript,
+        existing_season_cast: &[ExistingSeasonCharacter],
+    ) -> Result<String, DomainError> {
         let started = Instant::now();
         let heartbeat = self.start_heartbeat(job.id, worker_id);
         let chunks = &segmented.chunks;
+        // Issue #961: the directory and the neighbour brackets are built ONCE
+        // for this extraction and borrowed by every chunk. No `Arc`, no
+        // repository lookup in the loop, no re-parse per scene.
+        let cast_directory = &segmented.cast_directory;
+        let chunk_neighbors = neighbor_brackets(chunks);
+        let zero_dialogue_roles = zero_dialogue_generic_roles(chunks);
+        // Aligned with the preview rows the chunk loop pushes; Pass 2 indexes it
+        // by `gap.scene_index` (one preview row may come from a model split).
+        let mut scene_neighbors: Vec<SceneNeighbors> = Vec::new();
         // The block the DOCUMENT states (issue #827), from the deterministic
         // `Block:` page-header scan — zero extra LLM tokens. Deliberately
         // separate from the job's import TARGET (`job.target`): "the script
@@ -689,6 +728,9 @@ where
         // scene.
         let mut scenes_extracted = 0u32;
         let mut scenes_synthesized = 0u32;
+        // Issue #961: a conflicting cast-directory identity is reported ONCE
+        // per job, even when several scenes/rows mention the same figure.
+        let mut conflict_notified: Vec<String> = Vec::new();
         // Preview rows whose own Decision Model scoring request failed after
         // the bounded quick retry, plus whether any request failed at all
         // (issue #767). Summed across chunks and recorded in the job's decision
@@ -816,10 +858,19 @@ where
                 gate = ProviderGate { trial, ..gate };
             }
             // Hoisted because the grounding check below must verify a quote
-            // against *exactly* the bytes the model was given. Grounding against
-            // a differently assembled string would drop real quotes and pass
-            // invented ones near a boundary.
-            let source_text = format!("{}\n{}", chunk.heading, chunk.text);
+            // against the bytes the model was given. Issue #961 adds a
+            // dictionary-gated normalized view for Ghostscript kerning splits;
+            // the check accepts BOTH that view and the verbatim chunk, never an
+            // arbitrary paraphrase, and never the trailing context block.
+            let raw_scene_text = format!("{}\n{}", chunk.heading, chunk.text);
+            let normalized_text = normalize_kerning(&chunk.text, cast_directory);
+            let normalized_scene_text = format!("{}\n{}", chunk.heading, normalized_text);
+            // The context is trailing metadata, not scene prose: the heading
+            // stays the first line and the prompt marks the block as reference
+            // only, so a cast name can never be quoted as wardrobe evidence.
+            let document_context =
+                render_document_context(cast_directory, chunk_neighbors.get(chunk_index));
+            let source_text = format!("{normalized_scene_text}\n\n{document_context}");
             let request = LlmChatRequest {
                 provider: self.provider,
                 model: self.model.clone(),
@@ -1029,6 +1080,29 @@ where
                         // Issue #722: remember whether the guard fired for
                         // THIS scene — the synopsis score degrades to the
                         // honest 0.0 for it (issue #722 §3.2).
+                        // Issue #961 (D5): the deterministic ladder decides
+                        // EVERY role type after the model answered. The cast
+                        // directory wins over an inline `(OT)` on a listed
+                        // name; only UNLISTED background markers become extra.
+                        // One uncertainty per (row, identity), never one per
+                        // repeated mention of the same figure.
+                        let row_index = context.scenes.len();
+                        for character in &mut scene.characters {
+                            let (category, uncertainty) = resolve_character_category(
+                                &character.name,
+                                row_index,
+                                cast_directory,
+                                existing_season_cast,
+                                &zero_dialogue_roles,
+                            );
+                            character.category = category;
+                            if let Some(uncertainty) = uncertainty
+                                && !conflict_notified.contains(&uncertainty.note)
+                            {
+                                conflict_notified.push(uncertainty.note.clone());
+                                context.uncertainties.push(uncertainty);
+                            }
+                        }
                         let sanitized = sanitize_meta_summary(&mut scene);
                         if sanitized {
                             meta_rewrites += 1;
@@ -1049,7 +1123,11 @@ where
                         // Issue #722: count the drops of THIS scene — a
                         // grounding penalty input for the scene score.
                         let mut scene_dropped = 0usize;
-                        for rejected in verify_draft_outfits(&mut scene, &source_text) {
+                        for rejected in verify_draft_outfits_with_normalized(
+                            &mut scene,
+                            &raw_scene_text,
+                            &normalized_scene_text,
+                        ) {
                             scene_dropped += 1;
                             context.uncertainties.push(Uncertainty {
                                 // 0-based index of the row pushed just below.
@@ -1173,6 +1251,15 @@ where
                             ..DraftScene::default()
                         });
                     }
+                    // Issue #961: one neighbour bracket per preview row, so a
+                    // model that split one chunk into several scenes still
+                    // gives every Pass-2 gap the same transition evidence.
+                    if let Some(neighbors) = chunk_neighbors.get(chunk_index) {
+                        let pushed = context.scenes.len().saturating_sub(chunk_first_scene);
+                        for _ in 0..pushed {
+                            scene_neighbors.push(neighbors.clone());
+                        }
+                    }
                 }
                 Err(failure) => {
                     // Issue #871: the gate can refuse mid-attempt — from the top
@@ -1236,6 +1323,7 @@ where
                     // Pass 2 is a Decision-Model pass too (#768): its calls
                     // belong to the decision component.
                     &mut decision_usage,
+                    &scene_neighbors,
                     || super::heartbeat::claim_lost(heartbeat.as_ref()),
                 )
                 .await

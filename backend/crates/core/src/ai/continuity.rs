@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 
 use super::decision::{ChoiceOption, DecisionAnswer, DecisionQuestion, question_keys};
 use super::preview::{
-    DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin, DraftScene, ScriptContext,
-    character_identity, draft_row_ref, is_meta_summary,
+    DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin, DraftScene, SceneNeighbors,
+    ScriptContext, character_identity, draft_row_ref, is_meta_summary, neighbor_state,
 };
 
 /// Minimum calibrated probability for an Option A / Option B row to become a
@@ -237,6 +237,7 @@ pub fn continuity_state(
     scene: &DraftScene,
     gap: &OutfitContinuityGap,
     prior: Option<PriorOutfit<'_>>,
+    neighbors: Option<&SceneNeighbors>,
 ) -> serde_json::Value {
     let prior_appearance = prior.map(|prior| {
         serde_json::json!({
@@ -256,6 +257,7 @@ pub fn continuity_state(
                 .collect::<Vec<_>>(),
         })
     });
+    let (previous_scene, next_scene) = neighbor_state(neighbors);
     serde_json::json!({
         "kind": "outfit_continuity",
         "character": gap.character_name,
@@ -272,6 +274,10 @@ pub fn continuity_state(
         },
         "prior_appearance": prior_appearance,
         "context_changed": prior.map(|prior| context_changed(&prior, scene)),
+        // Issue #961: the neighbour scene bracket travels with the gap so a
+        // decision can weigh a day/location change without reading chunk text.
+        "previous_scene": previous_scene,
+        "next_scene": next_scene,
     })
 }
 

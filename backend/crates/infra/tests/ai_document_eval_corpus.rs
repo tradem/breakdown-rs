@@ -56,8 +56,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use breakdown_core::ai::{
-    DocumentStructureExtractor, ExtractionOptions, RenderOptions, extract_scenes_from_structured,
+    CastDirectory, DocumentStructureExtractor, ExtractionOptions, RenderOptions,
+    extract_scenes_from_structured, resolve_character_category,
 };
+use breakdown_core::character::category::CharacterCategory;
 use infra::ai::SpatialPdfExtractor;
 
 /// `AI_EVAL_CORPUS_DIR`: a local directory holding PDF scripts/schedules.
@@ -162,6 +164,14 @@ fn spatial_extraction_meets_the_golden_corpus_contract() {
                         report.mismatches.join("; "),
                     ));
                 }
+                if !report.cast_failures.is_empty() {
+                    failures.push(format!(
+                        "{}: {} cast-category assertion(s) failed: {}",
+                        path.display(),
+                        report.cast_failures.len(),
+                        report.cast_failures.join("; "),
+                    ));
+                }
                 if let Some(expectation) = &report.expectation
                     && expectation.kind == DocumentClass::Script
                     && expectation.scenes != report.chunks
@@ -202,6 +212,8 @@ struct Report {
     zones: String,
     /// `SceneIndex`-vs-`ScriptBody` findings — must be empty.
     mismatches: Vec<String>,
+    /// Cast-directory category assertions that did not resolve as declared.
+    cast_failures: Vec<String>,
     /// The manifest's entry for this file, when the manifest lists it.
     expectation: Option<Expectation>,
 }
@@ -214,6 +226,72 @@ struct Expectation {
     kind: DocumentClass,
     scenes: usize,
     note: String,
+    /// `name:category` assertions checked against the parsed `CastDirectory`
+    /// (issue #961). The name may be a short scene cue; the deterministic
+    /// resolver applies the documented given-name/surname rule.
+    cast: Vec<CastAssertion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CastAssertion {
+    name: String,
+    category: CharacterCategory,
+}
+
+impl CastAssertion {
+    fn parse(value: &str, path: &Path, line: usize) -> Vec<Self> {
+        let value = value.trim();
+        if value.is_empty() || value == "-" {
+            return Vec::new();
+        }
+        let Some(list) = value.strip_prefix("cast=") else {
+            panic!(
+                "{}:{line}: expected `cast=<name>:<category>,…`, got {value:?}",
+                path.display()
+            );
+        };
+        list.split(',')
+            .map(|entry| {
+                let (name, category) = entry.trim().split_once(':').unwrap_or_else(|| {
+                    panic!(
+                        "{}:{line}: cast assertion {entry:?} needs `name:category`",
+                        path.display()
+                    )
+                });
+                let category = match category.trim() {
+                    "main_cast" => CharacterCategory::MainCast,
+                    "guest" => CharacterCategory::Guest,
+                    "extra" => CharacterCategory::Extra,
+                    other => panic!("{}:{line}: unknown cast category {other:?}", path.display()),
+                };
+                Self {
+                    name: name.trim().to_owned(),
+                    category,
+                }
+            })
+            .collect()
+    }
+}
+
+/// Resolve the manifest assertions through the SAME pure resolver the worker
+/// uses; a corpus that passes here proves the deterministic ladder, not a
+/// hand-written lookup in the harness.
+fn cast_failures(directory: &CastDirectory, assertions: &[CastAssertion]) -> Vec<String> {
+    assertions
+        .iter()
+        .filter_map(|assertion| {
+            let (resolved, uncertainty) =
+                resolve_character_category(&assertion.name, 0, directory, &[], &[]);
+            if resolved == assertion.category && uncertainty.is_none() {
+                None
+            } else {
+                Some(format!(
+                    "cast {:?}: expected {:?}, resolved {:?}",
+                    assertion.name, assertion.category, resolved
+                ))
+            }
+        })
+        .collect()
 }
 
 /// What kind of document an expectation describes.
@@ -331,7 +409,7 @@ async fn evaluate(
     let is_script = expectation
         .as_ref()
         .is_none_or(|expectation| expectation.kind == DocumentClass::Script);
-    let (chunks, zones, mismatches) = if is_script {
+    let (chunks, zones, mismatches, cast_failures) = if is_script {
         let segmented = extract_scenes_from_structured(&document);
         if segmented.chunks.is_empty() {
             return Err("zone-aware segmentation produced no scene chunk".to_owned());
@@ -351,15 +429,21 @@ async fn evaluate(
             .iter()
             .map(|uncertainty| format!("{}: {}", uncertainty.field, uncertainty.note))
             .collect();
+        let cast_failures = expectation
+            .as_ref()
+            .map(|entry| cast_failures(&segmented.cast_directory, &entry.cast))
+            .unwrap_or_default();
         (
             segmented.chunks.len(),
             zone_summary(&document, &segmented),
             mismatches,
+            cast_failures,
         )
     } else {
         (
             0,
             "schedule (script segmentation not applied)".to_owned(),
+            Vec::new(),
             Vec::new(),
         )
     };
@@ -373,6 +457,7 @@ async fn evaluate(
         chunks,
         zones,
         mismatches,
+        cast_failures,
         expectation,
     })
 }
@@ -460,6 +545,7 @@ fn read_manifest(path: &Path) -> Vec<Expectation> {
                 .get(3)
                 .map(|note| note.trim().to_owned())
                 .unwrap_or_default(),
+            cast: CastAssertion::parse(fields.get(4).copied().unwrap_or("-"), path, index + 1),
         });
     }
     expectations

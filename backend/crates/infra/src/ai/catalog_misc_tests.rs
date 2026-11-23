@@ -242,10 +242,11 @@ fn script_prompt_element(prompt: &str, element: &str) -> String {
 /// Follow-up (the same live import, second reading): #826 still called a figure
 /// that stands under `Darsteller` AND carries an inline `(OT)` a genuine
 /// conflict, so the section won and the figure fell back to `main_cast` behind
-/// a blocking uncertainty. An inline marker attached to the NAME now outranks
-/// the section — `(OT)` is always `extra`, never hedged, never `main_cast`. A
-/// name WITHOUT a marker keeps following its section, so the grounded default
-/// survives where the document states nothing about the figure itself.
+/// a blocking uncertainty. Issue #961 settles the last case: a parsed cast
+/// directory entry wins even when its own line carries `(OT)` (a silent
+/// episodic lead is `guest`), while an inline marker on an UNLISTED figure is
+/// strictly `extra` — never hedged, never `guest`. A name with no signal keeps
+/// the grounded `main_cast` default.
 #[test]
 fn script_prompt_classifies_ot_markers_as_extras_without_an_uncertainty() {
     let prompt = embedded_script_prompt();
@@ -265,10 +266,10 @@ fn script_prompt_classifies_ot_markers_as_extras_without_an_uncertainty() {
          off-screen-voice homonym `Off-Ton`: {characters}"
     );
     assert!(
-        characters.contains("attached to the name outranks the section")
-            && characters.contains("no fallback to `main_cast`"),
-        "an inline `(OT)` must outrank the section and never fall back to \
-         `main_cast`: {characters}"
+        characters.contains("copy the bracketed category exactly")
+            && characters.contains("even if the cast line carried"),
+        "a listed cast-directory category must win even with an inline `(OT)`: \
+         {characters}"
     );
     assert!(
         characters.contains("\"may indicate\""),
@@ -281,9 +282,9 @@ fn script_prompt_classifies_ot_markers_as_extras_without_an_uncertainty() {
          a conflict — that reading demoted the marker to a hint: {characters}"
     );
     assert!(
-        characters.contains("a name with no inline marker follows its section"),
-        "the section must stay authoritative for a name the document does not \
-         mark: {characters}"
+        characters.contains("for a figure not listed in either")
+            && characters.contains("is strictly `extra`"),
+        "an unlisted inline marker must be strictly `extra`: {characters}"
     );
 }
 

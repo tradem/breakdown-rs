@@ -35,8 +35,10 @@ use std::time::Duration;
 use super::heartbeat::LeaseHeartbeat;
 use super::heartbeat::claim_lost;
 use breakdown_core::ai::{
-    AiImportBounds, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind, LlmProvider,
+    AiImportBounds, AiImportJob, AiImportJobId, AiImportQueue, DocumentKind,
+    ExistingSeasonCharacter, LlmProvider,
 };
+use breakdown_core::character::ports::CharacterRepository;
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::CredentialVault;
 use tokio::sync::watch;
@@ -55,7 +57,13 @@ use super::workers::{
     DecisionResolution, ProviderGate, ScheduleImportWorker, ScriptImportWorker, hold_job,
 };
 use crate::ai::{DecisionPass, HttpDecisionClient};
+use crate::queries::CharacterRepositoryImpl;
 use crate::queries::ai_config::{AiConfigRepositoryImpl, AiWorkerConfig, AiWorkerDecisionConfig};
+
+/// Bounded single-page read of the target season's existing cast (issue #961).
+/// A season this large is already beyond a realistic script; the bound keeps a
+/// malformed projection from turning category resolution into a memory sink.
+const MAX_SEASON_CAST_LOOKUP: i64 = 1000;
 
 /// How long a worker sleeps when the queue is empty before polling again.
 /// Bounded so a worker notices a shutdown signal within one interval.
@@ -94,6 +102,10 @@ pub struct WorkerDeps {
     pub source: Arc<dyn AiDocumentSource>,
     pub previews: Arc<dyn AiPreviewStore>,
     pub config_repo: AiConfigRepositoryImpl,
+    /// Character read model, held **by value** — `PgCharacterRepository` wraps
+    /// an internal-`Arc` `PgPool`, so an extra `Arc` would double-refcount it
+    /// (issue #961). Used ONLY here at the worker read boundary.
+    pub character_repo: CharacterRepositoryImpl,
     pub credentials: Arc<dyn CredentialVault>,
     pub bounds: AiImportBounds,
     /// Pricing read model for the completion cost snapshots (issue #675).
@@ -531,6 +543,40 @@ async fn script_worker_tick(
         return Ok(());
     }
 
+    // Issue #961: the target season's existing cast is loaded ONCE here, at
+    // the worker read boundary, before any chunk is extracted. A missing
+    // target, a projection miss or a repository error degrades to an empty
+    // slice — best effort, never a reason to block the import.
+    let existing_season_cast: Vec<ExistingSeasonCharacter> = match job.target.as_ref() {
+        Some(target) => {
+            match deps
+                .character_repo
+                // Non-audit read at the worker read boundary: role categories
+                // are a worker input, never event metadata (issue #961).
+                .list_by_season(target.season_id, MAX_SEASON_CAST_LOOKUP, 0) // ast-grep-ignore: cqrs-boundary
+                .await
+            {
+                Ok(characters) => characters
+                    .into_iter()
+                    .map(|character| ExistingSeasonCharacter {
+                        name: character.name,
+                        category: character.category,
+                    })
+                    .collect(),
+                Err(error) => {
+                    warn!(
+                        worker_id,
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "could not load existing season cast; resolving roles without it"
+                    );
+                    Vec::new()
+                }
+            }
+        }
+        None => Vec::new(),
+    };
+
     // Fetch the API key only for OpenAI-compatible providers. Ollama needs no
     // bearer token (its base URL is plain HTTP), so fetching one would issue
     // an unnecessary Vault request (issue #214).
@@ -623,7 +669,7 @@ async fn script_worker_tick(
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
-                    worker.process(&job, worker_id, &bytes)
+                    worker.process_with_cast(&job, worker_id, &bytes, &existing_season_cast)
                 })
                 .await
         }
@@ -675,7 +721,7 @@ async fn script_worker_tick(
             };
             deps.runtime
                 .run_job_as(user_id.as_str(), worker_id, || {
-                    worker.process(&job, worker_id, &bytes)
+                    worker.process_with_cast(&job, worker_id, &bytes, &existing_season_cast)
                 })
                 .await
         }

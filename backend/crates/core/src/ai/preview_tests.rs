@@ -4519,3 +4519,120 @@ fn a_document_without_a_recognised_script_page_still_segments() {
     // segmentation actually did, not what the zone pass wished for.
     assert_eq!(segmented.plan_canonical_form(), "P01|script_body|P01.B00\n");
 }
+
+// Issue #961 — cast-directory precedence, kerning safety and continuity context.
+
+fn p3_cast_directory() -> CastDirectory {
+    parse_cast_directory_from_text(
+        "PERSONEN/ HAUPTCAST\nDr. Leyla Sherbaz (44)\nMikko Rantala\n\
+         EPISODENHAUPTROLLEN\nJonas Weber (8, OT)\nCROSS\nDr. Kai Hoffmann\n\
+         KOMPARSEN\nHeiko Neubert\n",
+        |_| false,
+    )
+}
+
+#[test]
+fn the_cast_directory_beats_inline_ot_and_unlisted_background_is_strictly_extra() {
+    let directory = p3_cast_directory();
+    let existing: Vec<ExistingSeasonCharacter> = Vec::new();
+    let generic: Vec<String> = Vec::new();
+    let (jonas, uncertainty) =
+        resolve_character_category("JONAS WEBER (OT)", 0, &directory, &existing, &generic);
+    assert_eq!(jonas, CharacterCategory::Guest);
+    assert!(uncertainty.is_none(), "a declared section is never a doubt");
+
+    let (heiko, uncertainty) =
+        resolve_character_category("Heiko Neubert", 1, &directory, &existing, &generic);
+    assert_eq!(heiko, CharacterCategory::Extra);
+    assert!(uncertainty.is_none());
+
+    let (kai, uncertainty) =
+        resolve_character_category("Dr. Kai Hoffmann", 2, &directory, &existing, &generic);
+    assert_eq!(kai, CharacterCategory::Guest);
+    assert!(uncertainty.is_none());
+
+    let (leyla, uncertainty) =
+        resolve_character_category("LEYLA SHERBAZ", 3, &directory, &existing, &generic);
+    assert_eq!(leyla, CharacterCategory::MainCast);
+    assert!(
+        uncertainty.is_none(),
+        "a unique surname token is unambiguous"
+    );
+
+    let (passant, uncertainty) =
+        resolve_character_category("PASSANT (OT)", 4, &directory, &existing, &generic);
+    assert_eq!(passant, CharacterCategory::Extra);
+    assert!(
+        uncertainty.is_none(),
+        "zero false-positive guest promotions"
+    );
+
+    let (unknown, uncertainty) =
+        resolve_character_category("ANNA", 5, &directory, &existing, &generic);
+    assert_eq!(unknown, CharacterCategory::MainCast);
+    assert!(
+        uncertainty.is_none(),
+        "a missing signal is not an ambiguity"
+    );
+}
+
+#[test]
+fn an_existing_season_character_outweighs_inline_markers_but_not_the_cast_sheet() {
+    let directory = p3_cast_directory();
+    let existing = vec![ExistingSeasonCharacter {
+        name: "Anna Schmidt".to_owned(),
+        category: CharacterCategory::Guest,
+    }];
+    let generic: Vec<String> = Vec::new();
+    let (anna, _) =
+        resolve_character_category("ANNA SCHMIDT (OT)", 0, &directory, &existing, &generic);
+    assert_eq!(anna, CharacterCategory::Guest);
+    let (jonas, _) = resolve_character_category("JONAS", 1, &directory, &existing, &generic);
+    assert_eq!(jonas, CharacterCategory::Guest);
+}
+
+#[test]
+fn kerning_normalized_quotes_keep_grounded_outfits() {
+    use crate::ai::normalize_kerning;
+
+    let directory = p3_cast_directory();
+    let raw = "Mik k o in OP";
+    let normalized = normalize_kerning(raw, &directory);
+    assert_eq!(normalized, "Mikko in OP");
+    assert_eq!(
+        normalize_kerning("Der Arzt geht in den OP.", &directory),
+        "Der Arzt geht in den OP."
+    );
+    let mut scene = DraftScene {
+        characters: vec![DraftCharacter::from("Mikko")],
+        outfits: vec![DraftOutfit {
+            character_name: "Mikko".to_owned(),
+            name: "OP".to_owned(),
+            source_quote: "Mikko in OP".to_owned(),
+            ..DraftOutfit::default()
+        }],
+        ..DraftScene::default()
+    };
+    let rejected = verify_draft_outfits_with_normalized(&mut scene, raw, &normalized);
+    assert!(rejected.is_empty(), "the normalized quote is grounded");
+    assert_eq!(scene.outfits.len(), 1);
+}
+
+#[test]
+fn zero_dialogue_generic_roles_are_extra_and_neighbors_carry_script_day_parity() {
+    let chunks =
+        SceneChunk::extract_scenes("3 I/T - WOHNUNG\nPFLEGER 2\nANNA (30): Hallo.\n    Ja.\n");
+    let roles = zero_dialogue_generic_roles(&chunks);
+    assert!(roles.contains(&character_identity("PFLEGER 2")));
+    assert!(!roles.contains(&character_identity("ANNA")));
+
+    let neighbors = neighbor_brackets(&chunks);
+    assert_eq!(neighbors.len(), chunks.len());
+    for bracket in neighbors {
+        assert!(bracket.previous_scene.is_none());
+        assert!(bracket.next_scene.is_none());
+    }
+    let context = render_document_context(&p3_cast_directory(), None);
+    assert!(context.contains("Jonas Weber [guest]"));
+    assert!(context.contains("<document-context>"));
+}

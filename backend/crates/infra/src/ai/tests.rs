@@ -1432,11 +1432,12 @@ async fn script_worker_records_matching_scene_counters_for_a_healthy_run() {
     assert_eq!(state.telemetry[0].scenes_synthesized, 0);
 }
 
-/// Issue #695: the model classifies per chunk, so a document-global conflict
-/// (the same figure under two cast sections with differing non-default
-/// categories) is only visible after the chunk rows are merged. The fake
-/// returns two rows of one figure with conflicting categories; the stored
-/// preview must carry the blocking conflict uncertainty.
+/// Issue #695 / #961: a document-global cast-section conflict is only visible
+/// once the whole cast directory has been parsed. The flat seam now carries a
+/// `BEN` listed under both `EPISODENHAUPTROLLEN` and `KOMPARSEN`, and the fake
+/// returns two rows of that figure; the deterministic resolver must emit ONE
+/// blocking conflict uncertainty for the identity (not one per row), and the
+/// first declared section (`guest`) is the suggestion.
 #[derive(Clone, Default)]
 struct FakeLlmClientWithConflictingCategories;
 
@@ -1506,7 +1507,11 @@ async fn script_worker_surfaces_document_global_category_conflicts() {
     };
     let job = script_job(AiImportJobId::new());
     let handle = worker
-        .process_text(&job, "test-worker", "1. INT. KITCHEN - DAY\nA")
+        .process_text(
+            &job,
+            "test-worker",
+            "EPISODENHAUPTROLLEN\nBEN\nKOMPARSEN\nBen\n1. INT. KITCHEN - DAY\nA",
+        )
         .await
         .unwrap();
     let payload = previews.get(&handle).await.unwrap().unwrap();

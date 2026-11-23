@@ -54,10 +54,12 @@ pub use decision::{
     score, score5,
 };
 pub use document::{
-    BlockAnchor, BlockKind, DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentBlock,
-    DocumentZones, ExtractionOptions, LineRole, NormalizedBBox, PageZone, PageZoneRecord, PlanPage,
-    RenderOptions, RenderedPage, StructuralPlan, StructuredDocument, StructuredPage, ZonedLine,
-    classify_document_zones, is_continuation_marker, zoned_lines,
+    BlockAnchor, BlockKind, CAST_SECTION_MAPPING, CastDirectory, CastDirectoryEntry,
+    DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentBlock, DocumentZones, ExtractionOptions,
+    LineRole, NormalizedBBox, PageZone, PageZoneRecord, PlanPage, RenderOptions, RenderedPage,
+    StructuralPlan, StructuredDocument, StructuredPage, ZonedLine, classify_document_zones,
+    is_continuation_marker, normalize_kerning, parse_cast_directory,
+    parse_cast_directory_from_text, zoned_lines,
 };
 pub use error::AiConfigError;
 pub use events::AiConfigEvent;
@@ -77,20 +79,22 @@ pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
     CategoryVocabularyEntry, CharacterApplyPlan, ContinuationPlan, DraftCharacter, DraftEpisode,
     DraftOutfit, DraftOutfitCandidate, DraftOutfitOrigin, DraftOutfitProvenance, DraftPiece,
-    DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget, MergeInput, MergedPreview,
-    MergedScene, OutfitApplyPlan, OutfitBeatSlot, OutfitContinuityCandidate,
-    OutfitContinuitySelection, OutfitDecision, PieceApplyPlan, PlannedEpisode, PlannedShootingDay,
-    RejectedOutfit, RejectedOutfitReason, ReviewerDecisions, SceneApplyCommand, SceneApplyPlan,
-    SceneBeatLane, SceneChunk, ScriptApplyPlan, ScriptContext, SegmentedScript, ShootingDayPlan,
-    ShootingSchedule, ShootingScheduleRow, UNCERTAINTY_FIELD_CHARACTERS,
-    UNCERTAINTY_FIELD_SCENE_NUMBER, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
-    UncertaintyAcknowledgement, UncertaintyKind, category_conflict_uncertainties,
-    character_identity, character_mapping_ref, draft_row_ref, ensure_merge_applyable,
-    ensure_script_applyable, episode_group_refs, extract_block_number, extract_scenes,
-    extract_scenes_from_structured, is_meta_summary, merge_from_input, merge_schedule_to_scenes,
-    parse_mood_from_heading, parse_schedule_scene_ref, parse_script_day, plan_scene_apply,
-    sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs, stable_draft_ref,
-    verify_draft_outfits,
+    DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget, ExistingSeasonCharacter,
+    MergeInput, MergedPreview, MergedScene, NeighborSceneBrief, OutfitApplyPlan, OutfitBeatSlot,
+    OutfitContinuityCandidate, OutfitContinuitySelection, OutfitDecision, PieceApplyPlan,
+    PlannedEpisode, PlannedShootingDay, RejectedOutfit, RejectedOutfitReason, ReviewerDecisions,
+    SceneApplyCommand, SceneApplyPlan, SceneBeatLane, SceneChunk, SceneNeighbors, ScriptApplyPlan,
+    ScriptContext, SegmentedScript, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,
+    UNCERTAINTY_FIELD_CHARACTERS, UNCERTAINTY_FIELD_SCENE_NUMBER, UnappliedOutfit,
+    UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
+    category_conflict_uncertainties, character_identity, character_mapping_ref, draft_row_ref,
+    ensure_merge_applyable, ensure_script_applyable, episode_group_refs, extract_block_number,
+    extract_scenes, extract_scenes_from_structured, is_meta_summary, merge_from_input,
+    merge_schedule_to_scenes, neighbor_brackets, neighbor_state, parse_mood_from_heading,
+    parse_schedule_scene_ref, parse_script_day, plan_scene_apply, render_document_context,
+    resolve_character_category, sanitize_meta_summary, scene_beat_lanes, shooting_day_group_refs,
+    stable_draft_ref, verify_draft_outfits, verify_draft_outfits_with_normalized,
+    zero_dialogue_generic_roles,
 };
 pub use provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 pub use reasoning::{

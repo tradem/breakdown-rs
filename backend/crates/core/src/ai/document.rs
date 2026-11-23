@@ -25,6 +25,8 @@
 
 use std::fmt;
 
+use crate::character::category::CharacterCategory;
+
 /// Structural role of one [`DocumentBlock`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockKind {
@@ -699,6 +701,353 @@ const CAST_LIST_BANNERS: [&str; 9] = [
     "STATISTEN",
     "CAST",
 ];
+
+/// Deterministic section-header → role mapping (issue #961, ADR-041 `D5`).
+///
+/// A `'static` slice, not a `HashMap`/`LazyLock`: a ~20-entry linear scan costs
+/// nothing next to a page of text and keeps `core` free of allocation on the
+/// hot path. Headers are uppercased and whitespace-folded before lookup.
+pub const CAST_SECTION_MAPPING: &[(&str, CharacterCategory)] = &[
+    ("PERSONEN", CharacterCategory::MainCast),
+    ("PERSONEN/ HAUPTCAST", CharacterCategory::MainCast),
+    ("HAUPTCAST", CharacterCategory::MainCast),
+    ("HAUPTROLLEN", CharacterCategory::MainCast),
+    ("DURCHGEHENDE ROLLEN", CharacterCategory::MainCast),
+    ("DARSTELLER", CharacterCategory::MainCast),
+    ("MAIN CAST", CharacterCategory::MainCast),
+    ("CAST", CharacterCategory::MainCast),
+    ("EPISODENHAUPTROLLEN", CharacterCategory::Guest),
+    ("EPISODENROLLEN", CharacterCategory::Guest),
+    ("GASTROLLEN", CharacterCategory::Guest),
+    ("GASTDARSTELLER", CharacterCategory::Guest),
+    ("CROSS", CharacterCategory::Guest),
+    ("GUEST CAST", CharacterCategory::Guest),
+    ("KOMPARSEN", CharacterCategory::Extra),
+    ("KOMPARSERIE", CharacterCategory::Extra),
+    ("STATISTEN", CharacterCategory::Extra),
+    ("STATISTERIE", CharacterCategory::Extra),
+    ("KLEINDARSTELLER", CharacterCategory::Extra),
+    ("TAGESROLLEN", CharacterCategory::Extra),
+    ("EXTRAS", CharacterCategory::Extra),
+];
+
+/// One figure declared on a `PageZone::CastList` page (issue #961).
+///
+/// `declared_category` is the section the document put the name in. It stays
+/// authoritative even when the same line carries an `(OT)` parenthetical:
+/// `"Jonas Weber (8, OT)"` under `EPISODENHAUPTROLLEN` is a silent episodic
+/// lead (`guest`), not a background performer. `inline_ot` is retained as the
+/// fact it is, for prompt context and debugging — never as a vote that outranks
+/// the section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CastDirectoryEntry {
+    pub canonical_name: String,
+    pub normalized_identity: String,
+    pub declared_category: CharacterCategory,
+    pub raw_section: String,
+    pub inline_ot: bool,
+}
+
+/// The parsed front-matter cast list of one document. Plain owned data, built
+/// once per import and borrowed by every chunk/post-processing step — never
+/// wrapped in `Arc` (issue #961).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CastDirectory {
+    pub entries: Vec<CastDirectoryEntry>,
+}
+
+impl CastDirectory {
+    #[must_use]
+    pub fn new(entries: Vec<CastDirectoryEntry>) -> Self {
+        Self { entries }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// Uppercase, fold runs of whitespace, drop a trailing section colon.
+fn cast_header_key(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut pending_space = false;
+    for character in line.trim().trim_end_matches(':').chars() {
+        if character.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.extend(character.to_uppercase());
+    }
+    out
+}
+
+fn cast_section(line: &str) -> Option<(CharacterCategory, String)> {
+    let key = cast_header_key(line);
+    CAST_SECTION_MAPPING
+        .iter()
+        .find(|(header, _)| *header == key)
+        .map(|(header, category)| (*category, (*header).to_owned()))
+}
+
+/// Only case and whitespace are folded — the same identity rule the outfit
+/// mapping uses, so a cast-list name binds to the same figures downstream.
+fn cast_identity(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut pending_space = false;
+    for character in name.chars() {
+        if character.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.extend(character.to_lowercase());
+    }
+    out
+}
+
+/// Strip ONE trailing parenthetical, recording whether it carried an `(OT)`
+/// marker. `"Jonas Weber (8, OT)"` → (`"Jonas Weber"`, `true`).
+fn strip_cast_parenthetical(raw: &str) -> (&str, bool) {
+    let trimmed = raw.trim();
+    let Some(open) = trimmed.rfind('(') else {
+        return (trimmed, false);
+    };
+    if !trimmed.ends_with(')') || open == 0 {
+        return (trimmed, false);
+    }
+    let inside = &trimmed[open + 1..trimmed.len() - 1];
+    if inside.len() > 40 || inside.contains('(') || inside.contains(')') {
+        return (trimmed, false);
+    }
+    let compact = inside.replace('.', "");
+    let inline_ot = compact
+        .split(|character: char| !character.is_alphanumeric())
+        .any(|token| token.eq_ignore_ascii_case("OT"));
+    (trimmed[..open].trim(), inline_ot)
+}
+
+fn looks_like_cast_name(name: &str) -> bool {
+    let letters = name
+        .chars()
+        .filter(|character| character.is_alphabetic())
+        .count();
+    letters >= 2 && name.chars().count() <= 80 && !name.to_ascii_uppercase().contains("CONTINUED")
+}
+
+/// A `KOMPARSEN` page often lists several extras on one comma-separated line.
+/// Commas INSIDE a parenthetical (`"Jonas Weber (8, OT)"`) are not separators,
+/// so split only at depth zero.
+fn cast_name_candidates(line: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0u32;
+    for (offset, character) in line.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(line[start..offset].trim());
+                start = offset + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(line[start..].trim());
+    parts
+}
+
+/// Parse cast entries from the lines the zone classifier marked `CastList`.
+///
+/// Only lines after a known section banner become entries, so a stray name in
+/// a title page or an action line can never enter the directory. The parse is
+/// deterministic and pure: no model call, no I/O, no state beyond the current
+/// section.
+#[must_use]
+pub fn parse_cast_directory(lines: &[ZonedLine<'_>]) -> CastDirectory {
+    let mut entries = Vec::new();
+    let mut current: Option<(CharacterCategory, String)> = None;
+    for line in lines {
+        if line.zone != PageZone::CastList {
+            continue;
+        }
+        let text = line.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if let Some(section) = cast_section(text) {
+            current = Some(section);
+            continue;
+        }
+        let Some((category, raw_section)) = current.as_ref() else {
+            continue;
+        };
+        for candidate in cast_name_candidates(text) {
+            let (canonical_name, inline_ot) = strip_cast_parenthetical(candidate);
+            if !looks_like_cast_name(canonical_name) {
+                continue;
+            }
+            let normalized_identity = cast_identity(canonical_name);
+            entries.push(CastDirectoryEntry {
+                canonical_name: canonical_name.to_owned(),
+                normalized_identity,
+                declared_category: *category,
+                raw_section: raw_section.clone(),
+                inline_ot,
+            });
+        }
+    }
+    CastDirectory::new(entries)
+}
+
+/// Flat-text seam for the legacy `pdftotext -layout` adapter: fabricate
+/// `CastList` lines from a plain string so the same parser (and the same
+/// section table) serves both extraction paths (issue #961). A cast section
+/// stays open until a scene heading or another known banner appears.
+#[must_use]
+pub fn parse_cast_directory_from_text(
+    text: &str,
+    is_scene_heading: impl Fn(&str) -> bool,
+) -> CastDirectory {
+    let mut lines: Vec<ZonedLine<'_>> = Vec::new();
+    let mut in_cast = false;
+    for (offset, line) in text.lines().enumerate() {
+        if cast_section(line).is_some() {
+            in_cast = true;
+        } else if in_cast && is_scene_heading(line) {
+            in_cast = false;
+        }
+        if in_cast {
+            lines.push(ZonedLine {
+                page_number: 1,
+                zone: PageZone::CastList,
+                anchor: BlockAnchor::new(1, u32::try_from(offset).unwrap_or(u32::MAX)),
+                role: LineRole::Body,
+                text: line,
+            });
+        }
+    }
+    parse_cast_directory(&lines)
+}
+
+fn collapsed_name(name: &str) -> String {
+    name.chars()
+        .filter(|character| !character.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// The kerning dictionary contains full names AND their multi-character name
+/// tokens — `"Mikko Rantala"` licenses both `"Mik k o Rantala"` and a bare
+/// `"Mik k o"`. Abbreviations (`"Dr."`) are excluded: joining prose around
+/// them would be free-form spellchecking, which issue #961 forbids.
+fn kerning_dictionary(directory: &CastDirectory) -> Vec<(String, String)> {
+    let mut dictionary: Vec<(String, String)> = Vec::new();
+    for entry in &directory.entries {
+        let mut add = |collapsed: String, canonical: &str| {
+            if collapsed.len() >= 2 && !dictionary.iter().any(|(known, _)| known == &collapsed) {
+                dictionary.push((collapsed, canonical.to_owned()));
+            }
+        };
+        add(collapsed_name(&entry.canonical_name), &entry.canonical_name);
+        for token in entry.canonical_name.split_whitespace() {
+            if token.ends_with('.')
+                || token
+                    .chars()
+                    .filter(|character| character.is_alphabetic())
+                    .count()
+                    < 2
+            {
+                continue;
+            }
+            add(collapsed_name(token), token);
+        }
+    }
+    dictionary
+}
+
+/// Repair Ghostscript/PDF24 intra-word kerning splits (`"Mik k o"` →
+/// `"Mikko"`) **only** when the whitespace-collapsed run equals a name in
+/// `directory` (issue #961). Ordinary German prose and names not in the cast
+/// list are left byte-for-byte alone.
+///
+/// The result is a prompt-facing view, not a replacement for the chunk's
+/// verbatim text: `verify_draft_outfits` checks quotes against both the raw
+/// and the normalized view so a grounded outfit is never dropped.
+#[must_use]
+pub fn normalize_kerning(text: &str, directory: &CastDirectory) -> String {
+    if directory.is_empty() {
+        return text.to_owned();
+    }
+    let dictionary = kerning_dictionary(directory);
+    if dictionary.is_empty() {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let (body, newline) = line
+            .strip_suffix('\n')
+            .map_or((line, ""), |rest| (rest, "\n"));
+        let words: Vec<&str> = body.split(' ').collect();
+        let mut index = 0usize;
+        while index < words.len() {
+            if words[index].is_empty() {
+                out.push(' ');
+                index += 1;
+                continue;
+            }
+            let mut matched = false;
+            // Four tokens cover `"Le yla Sher baz"`; longer runs are far
+            // more likely to be an ordinary phrase than a kerning split.
+            for take in (2..=4).rev() {
+                let Some(segment) = words.get(index..index + take) else {
+                    continue;
+                };
+                if segment
+                    .iter()
+                    .any(|word| word.is_empty() || word.contains('\t'))
+                {
+                    continue;
+                }
+                let collapsed: String = segment.concat();
+                let original = segment.join(" ");
+                let Some(canonical) = dictionary
+                    .iter()
+                    .find(|(known, _)| known == &collapsed_name(&collapsed))
+                    .map(|(_, canonical)| canonical)
+                else {
+                    continue;
+                };
+                if original == *canonical {
+                    continue;
+                }
+                out.push_str(canonical);
+                index += take;
+                if index < words.len() && !words[index].is_empty() {
+                    out.push(' ');
+                }
+                matched = true;
+                break;
+            }
+            if !matched {
+                out.push_str(words[index]);
+                index += 1;
+                if index < words.len() && !words[index].is_empty() {
+                    out.push(' ');
+                }
+            }
+        }
+        out.push_str(newline);
+    }
+    out
+}
 
 /// Page banners that open narrative front matter carrying no scenes.
 const FRONT_MATTER_BANNERS: [&str; 4] = ["SYNOPSIS", "EXPOSÉ", "EXPOSE", "MEDIZINISCHE FÄLLE"];
