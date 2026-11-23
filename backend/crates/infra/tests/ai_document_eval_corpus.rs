@@ -213,19 +213,21 @@ async fn evaluate(extractor: &SpatialPdfExtractor, path: &Path) -> Result<Report
 
 /// Every `*.pdf` directly inside `directory`, in a deterministic order.
 ///
-/// Enumeration failures propagate: a corpus that cannot be listed is a broken
-/// corpus, not an empty one.
+/// Every enumeration failure propagates — opening the directory AND each
+/// `read_dir` entry. Swallowing a per-entry error would let the sweep pass on
+/// whichever entries happened to be readable, i.e. on a partial corpus.
 fn pdf_files(directory: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(directory)?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
-        })
-        .collect();
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+        {
+            paths.push(path);
+        }
+    }
     paths.sort();
     Ok(paths)
 }

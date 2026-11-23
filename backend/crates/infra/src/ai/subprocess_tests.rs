@@ -70,25 +70,53 @@ async fn run_bounded_times_out_and_reaps_the_child() {
         .map(|text| text.trim().to_owned())
         .expect("the child recorded its pid before the timeout fired");
     let _ = std::fs::remove_file(&pid_file);
-    assert!(
-        !is_zombie(&pid),
-        "child {pid} is still a zombie: the timeout branch did not reap it"
-    );
+    // The only honest proof of reaping is that the pid left `/proc` entirely: a
+    // zombie (`Z`) was killed but never collected, and a `R`/`S` entry means the
+    // child is still running. Both fail; only `NotFound` passes, and an
+    // unreadable `/proc` is reported as unsupported instead of as success.
+    match child_presence(&pid) {
+        ChildPresence::Gone => {}
+        ChildPresence::Present(state) => panic!(
+            "child {pid} is still in /proc with state `{state}`: the timeout branch \
+             did not reap it"
+        ),
+        ChildPresence::Unsupported => {
+            eprintln!("skipped: /proc is unavailable, so the reap cannot be observed")
+        }
+    }
 }
 
-/// Whether `pid` is still listed as a zombie (`Z`) in `/proc`.
+/// What `/proc` says about a pid after [`run_bounded`] returned.
+#[derive(Debug, PartialEq, Eq)]
+enum ChildPresence {
+    /// No `/proc/<pid>` entry: the child was waited for, not merely killed.
+    Gone,
+    /// The entry exists — `Z` for a zombie, `R`/`S`/… for a still-running child.
+    /// `?` means the entry existed but its state could not be read.
+    Present(char),
+    /// No `/proc` on this host: the lifecycle check cannot be made.
+    Unsupported,
+}
+
+fn child_presence(pid: &str) -> ChildPresence {
+    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(stat) => ChildPresence::Present(state_of(&stat)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => ChildPresence::Gone,
+        // A read error only means "no /proc" when /proc itself is missing;
+        // treating every error as `Gone` is exactly what made this check vacuous.
+        Err(_) if !std::path::Path::new("/proc/self/stat").exists() => ChildPresence::Unsupported,
+        Err(_) => ChildPresence::Present('?'),
+    }
+}
+
+/// The process state letter of one `/proc/<pid>/stat` line.
 ///
-/// A reaped child is gone from `/proc` entirely; an unreaped one keeps an entry
-/// whose state is `Z`. Returns `false` where `/proc` is unavailable — the
-/// timeout assertion above stands on its own there.
-fn is_zombie(pid: &str) -> bool {
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    // The `comm` field is parenthesized and may itself contain `)`, so the state
-    // is whatever follows the LAST `)`.
+/// Field 3 is the state, but field 2 (`comm`) is parenthesized and may itself
+/// contain `)`, so the state is whatever follows the LAST `)`.
+fn state_of(stat: &str) -> char {
     stat.rsplit_once(')')
-        .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
+        .and_then(|(_, rest)| rest.trim_start().chars().next())
+        .unwrap_or('?')
 }
 
 #[tokio::test]
