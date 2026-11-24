@@ -909,9 +909,14 @@ impl ShootingScheduleSchema {
 /// UNSUPPORTED (not merely an unrelated error that echoes the field name, and
 /// not an unrelated capability statement like "does not support images") —
 /// the only signal eligible for the one-shot vision fallback (CodeRabbit
-/// review, PR #967 follow-ups). The unsupported claim must appear WITHIN
-/// 80 characters of the field name, so a distant unrelated sentence does not
-/// qualify.
+/// review, PR #967 follow-ups).
+///
+/// Two guards keep the check honest (CodeRabbit's PR #967 round-4 follow-up):
+/// an occurrence of the field name in a JSON KEY position
+/// (`"response_format":`) — i.e. the provider echoing the request back — is
+/// NOT treated as a prose mention; and the unsupported claim must appear
+/// within 80 characters of such a prose mention. Window slicing is
+/// char-boundary safe, so multibyte characters cannot panic it.
 fn names_unsupported_response_format(body: &str) -> bool {
     const PROXIMITY: usize = 80;
     let lower = body.to_ascii_lowercase();
@@ -927,13 +932,35 @@ fn names_unsupported_response_format(body: &str) -> bool {
             let start = from + found;
             let window_start = start.saturating_sub(PROXIMITY);
             let window_end = (start + marker.len() + PROXIMITY).min(lower.len());
-            if lower[window_start..window_end].contains("response_format") {
+            if window_contains_prose_response_format(&lower, window_start, window_end) {
                 return true;
             }
             from = start + marker.len();
         }
     }
     false
+}
+
+/// Whether the byte window `[start, end)` contains a PROSE mention of
+/// `response_format` — one not in a JSON key position (`"response_format":`)
+/// and not slicing through a multibyte character.
+fn window_contains_prose_response_format(lower: &str, start: usize, end: usize) -> bool {
+    // Widen to char boundaries: a raw byte offset can land inside a multibyte
+    // character and slicing would panic.
+    let ws = (0..=start)
+        .rev()
+        .find(|i| lower.is_char_boundary(*i))
+        .unwrap_or(0);
+    let we = (end..=lower.len())
+        .find(|i| lower.is_char_boundary(*i))
+        .unwrap_or(lower.len());
+    let window = &lower[ws..we];
+    window.match_indices("response_format").any(|(offset, _)| {
+        let after = &window[offset + "response_format".len()..];
+        // A JSON key is immediately followed by `":` (or `'`-quoted
+        // variants). A prose mention is followed by other text.
+        !after.starts_with("\":") && !after.starts_with("\' :")
+    })
 }
 
 #[derive(Debug, Serialize)]

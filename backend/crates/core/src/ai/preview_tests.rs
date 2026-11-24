@@ -5572,3 +5572,14 @@ fn a_separate_inline_legend_block_is_found_alongside_paired_entries() {
         extracted.legend_entries
     );
 }
+
+/// CodeRabbit's PR #967 round-4 follow-up: the period is REQUIRED in the bare
+/// banner branch — `"2 Drehtag"` (no period) is not a banner, because
+/// `shooting_day_identity` keys numbered days on the `N.` shape and a
+/// period-less match would flip-flop the day identity.
+#[test]
+fn a_period_less_day_banner_text_is_not_a_banner() {
+    assert!(!is_shooting_day_banner("2 Drehtag"));
+    assert!(!is_shooting_day_banner("12 Drehtag"));
+    assert!(is_shooting_day_banner("2. Drehtag"));
+}

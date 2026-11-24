@@ -1969,17 +1969,20 @@ pub fn is_shooting_day_banner(text: &str) -> bool {
     if lower.contains("drehtag:") || lower.contains("shooting day") {
         return true;
     }
-    // Bare numbered German banner: `<digits>. Drehtag` (colon optional).
+    // Bare numbered German banner: `<digits>. Drehtag` (colon optional, but
+    // the PERIOD after the day number is REQUIRED — CodeRabbit's PR #967
+    // round-4 follow-up: `"2 Drehtag"` must not match, because
+    // `shooting_day_identity` keys numbered days on the `N.`-with-period
+    // shape and a period-less text would flip-flop the day identity).
     let head = lower.split(':').next().unwrap_or("").trim();
     let digits: String = head.chars().take_while(char::is_ascii_digit).collect();
     if digits.is_empty() {
         return false;
     }
-    let rest = head[digits.len()..]
-        .trim_start()
-        .trim_start_matches('.')
-        .trim_start();
-    rest.starts_with("drehtag")
+    let Some(rest) = head[digits.len()..].trim_start().strip_prefix('.') else {
+        return false;
+    };
+    rest.trim_start().starts_with("drehtag")
 }
 
 /// Identity of a shooting day, as the banners of one document encode it

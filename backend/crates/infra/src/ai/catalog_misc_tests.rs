@@ -497,9 +497,16 @@ fn an_override_file_without_schedule_flat_falls_back_to_the_built_in_flat_prompt
         .expect("a missing [schedule_flat] entry must not fail resolution");
     assert_eq!(defaults.script, "script override");
     assert_eq!(defaults.schedule, "page override");
+    // Compare against the EMBEDDED file, not `default_flat_schedule_prompt()`:
+    // the latter reads `AI_IMPORT_DEFAULT_PROMPTS_PATH` and would be
+    // environment-dependent (CodeRabbit's PR #967 round-4 follow-up).
+    let built_in = super::prompts::parse_prompt_file(super::prompts::EMBEDDED_PROMPT_FILE)
+        .expect("embedded prompt file must parse")
+        .schedule_flat
+        .expect("embedded file must contain [schedule_flat]")
+        .text;
     assert_eq!(
-        defaults.schedule_flat,
-        super::prompts::default_flat_schedule_prompt().unwrap(),
+        defaults.schedule_flat, built_in,
         "the flat prompt falls back to the built-in flat default"
     );
     assert_ne!(
@@ -517,8 +524,11 @@ fn a_blank_schedule_flat_entry_falls_back_to_the_built_in_flat_prompt() {
     .expect("a blank [schedule_flat] entry must parse");
     let defaults = super::prompts::resolve_prompts(file)
         .expect("a blank [schedule_flat] entry must not fail resolution");
-    assert_eq!(
-        defaults.schedule_flat,
-        super::prompts::default_flat_schedule_prompt().unwrap()
-    );
+    // Embedded-file comparison — env-independent (round-4 follow-up).
+    let built_in = super::prompts::parse_prompt_file(super::prompts::EMBEDDED_PROMPT_FILE)
+        .expect("embedded prompt file must parse")
+        .schedule_flat
+        .expect("embedded file must contain [schedule_flat]")
+        .text;
+    assert_eq!(defaults.schedule_flat, built_in);
 }

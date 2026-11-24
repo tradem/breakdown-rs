@@ -2036,3 +2036,39 @@ async fn a_distant_unrelated_unsupported_statement_does_not_fall_back() {
     );
     server.verify().await;
 }
+
+// CodeRabbit's PR #967 round-4 follow-ups on the fallback evidence helper.
+
+/// A provider echoing the request back puts `response_format` in a JSON KEY
+/// position; that is not a prose unsupported-format statement.
+#[test]
+fn an_echoed_request_body_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images"},"response_format":{"type":"json_schema"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}
+
+/// The window slice is char-boundary safe: a multibyte character near the
+/// window edge must not panic the helper.
+#[test]
+fn the_proximity_window_is_char_boundary_safe() {
+    // 'é' (2 bytes) + 79 ASCII + the claim adjacent to the field name.
+    let body = format!("é{}", "a".repeat(79));
+    assert!(super::names_unsupported_response_format(&format!(
+        "{body} not support response_format"
+    )));
+    // And the distant case stays negative even with multibyte padding.
+    assert!(!super::names_unsupported_response_format(&format!(
+        "{body} unrelated text, and much later the request echoed response_format"
+    )));
+}
+
+/// A genuine unsupported-format statement still qualifies.
+#[test]
+fn a_genuine_unsupported_format_statement_is_fallback_evidence() {
+    assert!(super::names_unsupported_response_format(
+        "'response_format' of type 'json_schema' is not supported by this model"
+    ));
+    assert!(super::names_unsupported_response_format(
+        "unsupported value for response_format"
+    ));
+}
