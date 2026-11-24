@@ -2508,7 +2508,16 @@ fn extract_spatial_legend_entries(
         })
         .collect();
 
+    // Code and NAME blocks consumed by the pairing are excluded from the
+    // inline scan (CodeRabbit's PR #967 round-7 follow-up): a name block like
+    // "2 Polizisten" (character named "2 Polizisten" for code 150) would
+    // otherwise re-parse as a phantom legend entry `2 = Polizisten` — a cast
+    // code the legend never defined.
+    let mut paired_block_ids: std::collections::HashSet<super::document::BlockAnchor> =
+        std::collections::HashSet::new();
+
     for code_block in &code_blocks {
+        paired_block_ids.insert(code_block.id);
         let companion = below
             .iter()
             .copied()
@@ -2519,6 +2528,7 @@ fn extract_spatial_legend_entries(
             })
             .min_by(|a, b| a.bbox.x0.total_cmp(&b.bbox.x0));
         if let Some(name_block) = companion {
+            paired_block_ids.insert(name_block.id);
             let codes: Vec<&str> = code_block
                 .text
                 .lines()
@@ -2553,6 +2563,9 @@ fn extract_spatial_legend_entries(
     //    is not one), and codes the pairing already recorded are skipped, so
     //    no duplicate entries arise.
     for block in std::iter::once(rollen_block).chain(below.iter().copied()) {
+        if paired_block_ids.contains(&block.id) {
+            continue;
+        }
         for line in block.text.lines() {
             let Some(entry) = parse_inline_legend_line(line) else {
                 continue;

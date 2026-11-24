@@ -2091,3 +2091,12 @@ fn a_json_value_echo_of_response_format_is_not_fallback_evidence() {
     let body = r#"{"error":{"message":"Model does not support images","param":"response_format"}}"#;
     assert!(!super::names_unsupported_response_format(body));
 }
+
+/// CodeRabbit's PR #967 round-7 follow-up: the claim and the mention must
+/// live in the SAME sentence — "does not support images. Request included
+/// response_format" crosses a sentence boundary and is not evidence.
+#[test]
+fn a_sentence_boundary_between_claim_and_mention_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images. Request included response_format"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}

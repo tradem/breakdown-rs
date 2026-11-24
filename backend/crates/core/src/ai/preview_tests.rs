@@ -5629,3 +5629,37 @@ fn the_period_less_colon_day_form_has_the_same_identity_as_the_numbered_form() {
         "the same day in the period-less colon form keeps its date"
     );
 }
+
+/// CodeRabbit's PR #967 round-7 follow-up: a paired NAME block whose text
+/// starts with a digit ("2 Polizisten" as the name of code 150) must NOT
+/// re-parse as a phantom inline legend entry `2 = Polizisten`.
+#[test]
+fn paired_name_blocks_are_excluded_from_the_inline_scan() {
+    let mut page = StructuredPage::new(3, 595.0, 842.0);
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.20, 0.20, 0.22),
+        "ROLLEN",
+    );
+    // Two-column layout: code column "150", name column "2 Polizisten".
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.23, 0.14, 0.30),
+        "150",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.16, 0.23, 0.40, 0.30),
+        "2 Polizisten",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    assert_eq!(
+        extracted.legend_entries.len(),
+        1,
+        "only the paired entry survives, no phantom code-2 entry: {:?}",
+        extracted.legend_entries
+    );
+    assert_eq!(extracted.legend_entries[0].code, "150");
+    assert_eq!(extracted.legend_entries[0].character_name, "2 Polizisten");
+}

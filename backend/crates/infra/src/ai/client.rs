@@ -917,6 +917,23 @@ impl ShootingScheduleSchema {
 /// means the claim is about something else and the mention is merely echoed
 /// request data (`"message":"does not support images","param":
 /// "response_format"`, `"response_format":{...}`), which never qualifies.
+/// Whether the gap text crosses a sentence boundary (`.`/`!`/`?` followed by
+/// whitespace or end-of-text): the unsupported claim and the field mention
+/// must live in the SAME sentence — "does not support images. Request
+/// included response_format" is two statements, not evidence (CodeRabbit's
+/// PR #967 round-7 follow-up).
+fn gap_has_sentence_boundary(gap: &str) -> bool {
+    let mut rest = gap;
+    while let Some(pos) = rest.find(['.', '!', '?']) {
+        let after = &rest[pos + 1..];
+        if after.is_empty() || after.starts_with(char::is_whitespace) {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
 fn names_unsupported_response_format(body: &str) -> bool {
     const MAX_GAP: usize = 80;
     let lower = body.to_ascii_lowercase();
@@ -947,6 +964,7 @@ fn names_unsupported_response_format(body: &str) -> bool {
                     continue;
                 };
                 if gap.len() <= MAX_GAP
+                    && !gap_has_sentence_boundary(gap)
                     && gap.chars().all(|c| {
                         c.is_alphanumeric()
                             || c.is_whitespace()
