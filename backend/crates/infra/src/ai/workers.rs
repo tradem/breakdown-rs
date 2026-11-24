@@ -714,21 +714,13 @@ where
         // telemetry overwrite covers every billed call, not only this
         // attempt's. Stored chunks replay their OWN usage below; the two
         // never overlap.
-        {
-            let prior_usage = match self.queue.recorded_usage(job.id).await {
-                Ok(usage) => usage,
-                Err(error) => {
-                    tracing::warn!(
-                        job_id = %job.id.as_uuid(),
-                        %error,
-                        "could not read prior attempt usage; accounting restarts at zero"
-                    );
-                    LlmCallUsage::default()
-                }
-            };
-            if prior_usage != LlmCallUsage::default() {
-                extraction_usage.record(prior_usage);
-            }
+        // A FAILED read propagates BEFORE any paid work: continuing from zero
+        // would let the completion-time overwrite erase the persisted total
+        // (CodeRabbit review, PR #967 round 8) — the failed read is not
+        // evidence of zero.
+        let prior_usage = self.queue.recorded_usage(job.id).await?;
+        if prior_usage != LlmCallUsage::default() {
+            extraction_usage.record(prior_usage);
         }
         let mut decision_usage = UsageAccumulator::default();
         // Globally unique scene counter across all chunks — the tail of
@@ -1314,7 +1306,7 @@ where
                             worker_id,
                             &gate,
                             index,
-                            failure.evidence.as_ref(),
+                            failure.evidence.as_deref(),
                         )
                         .await?;
                         return Ok(String::new());
@@ -1832,17 +1824,11 @@ where
         // covers every billed call of the job, not only this attempt's. The
         // prior total rides the ledger as ONE aggregate entry, which
         // `priced_calls` prices exactly like the pre-#794 aggregate.
-        let prior_usage = match self.queue.recorded_usage(job.id).await {
-            Ok(usage) => usage,
-            Err(error) => {
-                tracing::warn!(
-                    job_id = %job.id.as_uuid(),
-                    %error,
-                    "could not read prior attempt usage; accounting restarts at zero"
-                );
-                LlmCallUsage::default()
-            }
-        };
+        // A FAILED read propagates BEFORE any paid work: continuing from zero
+        // would let the completion-time overwrite erase the persisted total
+        // (CodeRabbit review, PR #967 round 8) — the failed read is not
+        // evidence of zero.
+        let prior_usage = self.queue.recorded_usage(job.id).await?;
         if prior_usage != LlmCallUsage::default() {
             extraction_usage.record(prior_usage);
         }
@@ -1916,7 +1902,7 @@ where
                             worker_id,
                             &gate,
                             0,
-                            failure.evidence.as_ref(),
+                            failure.evidence.as_deref(),
                         )
                         .await?;
                         return Ok(String::new());
@@ -1992,7 +1978,7 @@ where
                             worker_id,
                             &gate,
                             0,
-                            failure.evidence.as_ref(),
+                            failure.evidence.as_deref(),
                         )
                         .await?;
                         return Ok(String::new());
@@ -2130,9 +2116,30 @@ where
         // Issue #675: usage accumulates across EVERY paid page call, so the
         // cost snapshot of an 8-page schedule covers all 8 pages exactly.
         let mut total_usage = LlmCallUsage::default();
+        // Issue #942 W1 follow-up, mirrored from the script chunk loop
+        // (CodeRabbit review, PR #967 round 8): trial ownership is a fact
+        // about the NEXT paid call. A successful page 1 closes the breaker and
+        // clears the token — without this re-read every later page of a trial
+        // would keep running with zero retries even though the trial is over.
+        // The budget stays fixed WITHIN one `retry_bounded` call.
+        let mut gate = ProviderGate {
+            trial: gate.trial,
+            ..*gate
+        };
 
         for (index, page) in document.pages.iter().enumerate() {
             let page_number = page.page_number;
+            if gate.trial {
+                let trial = trial_pending(
+                    self.queue.as_ref(),
+                    self.provider,
+                    &self.model,
+                    job.id,
+                    self.bounds.breaker_enabled,
+                )
+                .await;
+                gate = ProviderGate { trial, ..gate };
+            }
             // Publish the page boundary BEFORE the billable call so a stalled
             // page is visible in the progress stream (issue #664).
             progress.stage = AiImportStage::Extracting;
@@ -2191,7 +2198,7 @@ where
                 self.client.as_ref(),
                 vision_request,
                 self.bounds.max_attempt_retries as usize,
-                gate,
+                &gate,
             )
             .await
             {
@@ -5199,12 +5206,12 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
 /// `evidence` is the bounded failure that parked the job (issue #942 W2). It is
 /// persisted on the attempt history — one row per hold *series* — because a hold
 /// that carried only a problem code left the operator with nothing to grep.
-/// The already-billed usage a breaker sentinel carries (issue #970); `None`
-/// for any other error.
+/// The already-billed usage an error carries (issue #970): a breaker
+/// sentinel's orphaned usage, or a provider failure's billed-responses
+/// payload. `None` for any other error.
 fn orphaned_usage(error: &AnyhowError) -> Option<LlmCallUsage> {
-    error
-        .downcast_ref::<DomainError>()
-        .and_then(super::provider_health::orphaned_usage)
+    let domain = error.downcast_ref::<DomainError>()?;
+    super::provider_health::orphaned_usage(domain).or_else(|| domain.billed_usage())
 }
 
 /// Persist ONE attempt's partial usage on the running job row before a hold
@@ -5474,8 +5481,9 @@ struct CallFailure {
     error: DomainError,
     /// The bounded narrative of the failure that fired, when there was one.
     /// `None` when no paid call was started at all (the breaker was already
-    /// open), where `mark_held` synthesizes its own reason.
-    evidence: Option<HoldEvidence>,
+    /// open), where `mark_held` synthesizes its own reason. Boxed: the `Err`
+    /// variant must stay below the `result_large_err` threshold.
+    evidence: Option<Box<HoldEvidence>>,
     /// Usage of the paid calls COMPLETED before the failure (issue #970,
     /// CodeRabbit review PR #967): a hold must persist it, so a re-drive
     /// resumes the accounting instead of losing the billed pages. `None` when
@@ -5544,13 +5552,18 @@ where
     // Issue #942 W2: the last REAL failure, captured before any breaker refusal
     // replaces it with the sentinel. Diagnostic only — it never changes which
     // retry the loop grants.
-    let mut evidence: Option<HoldEvidence> = None;
+    let mut evidence: Option<Box<HoldEvidence>> = None;
+    // Issue #970 (CodeRabbit review PR #967): usage billed by the attempts'
+    // COMPLETED responses, accumulated across iterations — every sentinel this
+    // loop returns carries it, so a hold persists it and a re-drive resumes
+    // the accounting.
+    let mut carried_usage = LlmCallUsage::default();
     loop {
         if !gate.admits().await {
             return Err(CallFailure {
                 error: breaker_open_error(),
                 evidence: evidence.take(),
-                usage: None,
+                usage: Some(Box::new(carried_usage)),
             });
         }
         match op().await {
@@ -5581,7 +5594,10 @@ where
                 // Issue #942 W2: remember WHY this call failed *before* any
                 // sentinel can replace it. This is the only place the real
                 // failure is visible — the hold that may follow is built from it.
-                evidence = Some(hold_evidence(&error));
+                evidence = Some(Box::new(hold_evidence(&error)));
+                if let Some(usage) = orphaned_usage(&error) {
+                    carried_usage.accumulate(usage);
+                }
                 if is_provider_failure(&error)
                     && is_transient(&error)
                     && gate.record_failure(retry_hint_of(&error)).await
@@ -5592,13 +5608,14 @@ where
                     return Err(CallFailure {
                         error: breaker_open_error(),
                         evidence: evidence.take(),
-                        usage: None,
+                        // Issue #970: this failure's own billed usage rides
+                        // the sentinel the hold persists.
+                        usage: Some(Box::new(carried_usage)),
                     });
                 }
                 if !is_transient(&error) || attempt >= max_retries {
                     // A real failure, not a hold: the caller fails the job with
                     // the provider narrative through `mark_failed`.
-                    let orphaned = orphaned_usage(&error);
                     return Err(CallFailure {
                         error: error
                             .downcast::<DomainError>()
@@ -5606,8 +5623,9 @@ where
                         evidence: None,
                         // Issue #970: a breaker sentinel from the client's
                         // mid-attempt refusal carries the usage of the
-                        // attempt's already-billed responses.
-                        usage: orphaned.map(Box::new),
+                        // attempt's already-billed responses — and any
+                        // earlier iteration's billed usage rides along.
+                        usage: Some(Box::new(carried_usage)),
                     });
                 }
                 attempt += 1;
@@ -5618,7 +5636,9 @@ where
                     return Err(CallFailure {
                         error: breaker_open_error(),
                         evidence: evidence.take(),
-                        usage: None,
+                        // Issue #970: prior iterations' billed usage rides the
+                        // sentinel the hold persists.
+                        usage: Some(Box::new(carried_usage)),
                     });
                 }
                 // `attempt` is the 1-based retry counter, as it was for the

@@ -115,6 +115,13 @@ pub enum DomainError {
         code: &'static ProblemCode,
         reason: String,
         retry_after: Option<std::time::Duration>,
+        /// Usage already billed by the COMPLETED responses of the same
+        /// attempt (issue #970, CodeRabbit review PR #967): a provider
+        /// failure that arrives AFTER billed answers must not drop their
+        /// accounting when the failure itself cannot carry an output.
+        /// `None`/zero for every non-provider source of this variant.
+        /// `Arc` keeps the variant no larger than before the field.
+        usage: Option<std::sync::Arc<crate::ai::LlmCallUsage>>,
     },
 
     /// The AI-import provider breaker refused a billable request (issue #871).
@@ -748,6 +755,7 @@ impl DomainError {
             code: &DOMAIN_SERVICE_UNAVAILABLE,
             reason: reason.into(),
             retry_after: None,
+            usage: None,
         }
     }
 
@@ -771,6 +779,7 @@ impl DomainError {
             code: &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
             reason: reason.into(),
             retry_after: None,
+            usage: None,
         }
     }
 
@@ -796,6 +805,7 @@ impl DomainError {
             code: &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
             reason: reason.into(),
             retry_after,
+            usage: None,
         }
     }
 
@@ -815,6 +825,33 @@ impl DomainError {
             *slot = retry_after;
         }
         self
+    }
+
+    /// Attach the usage the attempt already billed (issue #970, CodeRabbit
+    /// review PR #967). A no-op on every variant other than
+    /// [`DomainError::ServiceUnavailable`] — the only one a provider failure
+    /// travels on — so a call site can express "these tokens were billed
+    /// before the failure" without restructuring how it built the error.
+    #[must_use]
+    pub fn with_billed_usage(mut self, usage: crate::ai::LlmCallUsage) -> Self {
+        if let DomainError::ServiceUnavailable { usage: slot, .. } = &mut self {
+            *slot = Some(std::sync::Arc::new(usage));
+        }
+        self
+    }
+
+    /// The usage billed by the completed responses of the same attempt, when
+    /// the error carries it (issue #970). `None`/zero for every variant that
+    /// cannot, so a caller that only wants to persist the accounting needs no
+    /// `match` over the taxonomy.
+    #[must_use]
+    pub fn billed_usage(&self) -> Option<crate::ai::LlmCallUsage> {
+        match self {
+            DomainError::ServiceUnavailable {
+                usage: Some(usage), ..
+            } => Some(**usage),
+            _ => None,
+        }
     }
 
     /// The wait the failing dependency asked for, when it said so (issue #926).

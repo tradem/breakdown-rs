@@ -2473,7 +2473,8 @@ impl AiImportQueue for PgAiImportQueue {
     ) -> Result<breakdown_core::ai::LlmCallUsage, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT tokens_in, tokens_out, cached_tokens_in, energy_millijoules
+            SELECT tokens_in, tokens_out, cached_tokens_in,
+                   COALESCE(energy_millijoules, 0) AS energy_millijoules
             FROM ai_import.ai_import_job
             WHERE id = $1
             "#,
@@ -2519,7 +2520,11 @@ impl AiImportQueue for PgAiImportQueue {
             SET tokens_in = tokens_in + $3,
                 tokens_out = tokens_out + $4,
                 cached_tokens_in = cached_tokens_in + $5,
-                energy_millijoules = energy_millijoules + $6,
+                -- `energy_millijoules` is nullable with no insert default
+                -- (CodeRabbit review, PR #967): a fresh job's NULL must not
+                -- swallow the additive write (`NULL + $6` is NULL), which
+                -- would make the later `recorded_usage` read fail.
+                energy_millijoules = COALESCE(energy_millijoules, 0) + $6,
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
             "#,

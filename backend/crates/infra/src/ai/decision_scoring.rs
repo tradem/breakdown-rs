@@ -508,6 +508,7 @@ mod tests {
                 code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
                 reason: "decision endpoint down".into(),
                 retry_after: None,
+                usage: None,
             })
         }
     }
@@ -541,6 +542,7 @@ mod tests {
                     code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
                     reason: "decision endpoint down".into(),
                     retry_after: None,
+                    usage: None,
                 });
             }
             Err(DomainError::validation("the rubric is malformed"))

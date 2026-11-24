@@ -2515,6 +2515,17 @@ fn extract_spatial_legend_entries(
     // code the legend never defined.
     let mut paired_block_ids: std::collections::HashSet<super::document::BlockAnchor> =
         std::collections::HashSet::new();
+    // The NAME LINES the pairing actually consumed, keyed by their block
+    // (CodeRabbit review, PR #967 round 8): a parser may merge an inline entry
+    // into a name block (`Ben\n3 = Alice` beside code 150) — `zip` consumes
+    // only `Ben`, so only THAT line is paired; the remaining lines still
+    // belong to the inline scan. Whole-block exclusion would drop the explicit
+    // `3 = Alice` entry; whole-block inclusion would re-parse a consumed name
+    // like `2 Polizisten` into a phantom `2 = Polizisten` entry.
+    let mut consumed_name_lines: std::collections::HashMap<
+        super::document::BlockAnchor,
+        std::collections::HashSet<usize>,
+    > = std::collections::HashMap::new();
 
     for code_block in &code_blocks {
         paired_block_ids.insert(code_block.id);
@@ -2528,7 +2539,6 @@ fn extract_spatial_legend_entries(
             })
             .min_by(|a, b| a.bbox.x0.total_cmp(&b.bbox.x0));
         if let Some(name_block) = companion {
-            paired_block_ids.insert(name_block.id);
             let codes: Vec<&str> = code_block
                 .text
                 .lines()
@@ -2541,7 +2551,15 @@ fn extract_spatial_legend_entries(
                 .map(str::trim)
                 .filter(|line| !line.is_empty())
                 .collect();
+            let consumed = consumed_name_lines.entry(name_block.id).or_default();
             for (code, raw_name) in codes.into_iter().zip(names) {
+                consumed.insert(
+                    name_block
+                        .text
+                        .lines()
+                        .position(|line| line.trim() == raw_name)
+                        .unwrap_or(usize::MAX),
+                );
                 if let Some(normalized) = normalize_schedule_legend_entry(ScheduleLegendEntry {
                     code: code.to_owned(),
                     character_name: raw_name.to_owned(),
@@ -2566,7 +2584,11 @@ fn extract_spatial_legend_entries(
         if paired_block_ids.contains(&block.id) {
             continue;
         }
-        for line in block.text.lines() {
+        let consumed = consumed_name_lines.get(&block.id);
+        for (line_index, line) in block.text.lines().enumerate() {
+            if consumed.is_some_and(|lines| lines.contains(&line_index)) {
+                continue;
+            }
             let Some(entry) = parse_inline_legend_line(line) else {
                 continue;
             };

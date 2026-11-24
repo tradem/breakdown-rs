@@ -82,6 +82,23 @@ generated notes are never used.
 
 ## [api-v0.71.0] – Released 2026-11-21
 
+  - **In-process breaker gates use `admits_paid_call`** (CodeRabbit review,
+    PR #967 round 8): a `half_open` breaker admits the claim-fenced trial
+    holder inside the hosted and Ollama clients, so the trial actually runs
+    its recovery probe.
+  - **Trial ownership refreshes per page** in the vision loop (mirroring the
+    script chunk loop): a closed-after-page-1 breaker restores the full retry
+    budget for the later pages.
+  - **Provider failures carry billed usage** (issue #970 round 8):
+    `DomainError::ServiceUnavailable` gained an optional `usage` payload
+    (`with_billed_usage`), and every post-response failure path of the hosted
+    and Ollama clients attaches the attempt's accumulated counters, so a hold
+    persists the usage of a billed malformed response followed by a provider
+    failure.
+  - **Accounting reads are fail-closed**: a failed `recorded_usage` read
+    propagates before any paid work instead of continuing from zero (which
+    would let the completion-time overwrite erase the persisted total), and
+    the partial-usage statements coalesce the nullable `energy_millijoules`.
   - **Usage across breaker holds (issue #970).** The schedule page loop carries
     the usage of the pages billed before a hold on the failure
     (`CallFailure::usage`) and the worker persists it additively on the running
@@ -89,7 +106,10 @@ generated notes are never used.
     parking; a re-drive resumes the accounting from the persisted counters
     (`AiImportQueue::recorded_usage`) and the completion-time telemetry
     overwrite stays the full prior-plus-attempt total, so the cost snapshot
-    covers every billed call instead of only the last attempt's.
+    covers every billed call whose partial-usage write succeeded (the write
+    is best-effort: a failed write logs a warning and the hold proceeds, and
+    the re-drive then starts without that attempt's usage) instead of only
+    the last attempt's.
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.71.0` (immutable,
   SHA-pinned digest) plus the moving tags `api-v0.71` and `api-v0`.
 - Companion crate versions at this release: `core 0.75.0`,

@@ -1367,6 +1367,7 @@ pub trait AiImportQueue: Send + Sync {
             code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
             reason: "seed_succeeded is not implemented by this AI import queue adapter".to_owned(),
             retry_after: None,
+            usage: None,
         })
     }
 
@@ -1487,6 +1488,7 @@ pub trait AiImportQueue: Send + Sync {
             code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
             reason: "this AI import queue adapter cannot attach a target block".to_owned(),
             retry_after: None,
+            usage: None,
         })
     }
 }

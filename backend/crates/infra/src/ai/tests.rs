@@ -6386,6 +6386,7 @@ impl DecisionClient for FailingDecisionClient {
             code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
             reason: "decision endpoint down".into(),
             retry_after: None,
+            usage: None,
         })
     }
 }
@@ -6417,6 +6418,7 @@ impl breakdown_core::settings::CredentialVault for UnreadableCredentialVault {
             code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
             reason: "vault unavailable".into(),
             retry_after: None,
+            usage: None,
         })
     }
 

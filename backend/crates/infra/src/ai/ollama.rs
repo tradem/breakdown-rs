@@ -253,7 +253,10 @@ impl LlmClient for OllamaChatClient {
                 && !health
                     .state(LlmProvider::Ollama, &req.model)
                     .await
-                    .map(|snapshot| snapshot.admits_claim())
+                    // `admits_paid_call`, NOT `admits_claim` (CodeRabbit review, PR
+                    // #967): this in-process gate runs inside a fenced job, so
+                    // a `half_open` breaker must admit the trial holder.
+                    .map(|snapshot| snapshot.admits_paid_call())
                     .unwrap_or(true)
             {
                 // Issue #970 (CodeRabbit review PR #967): prior billed
@@ -296,7 +299,10 @@ impl LlmClient for OllamaChatClient {
                 && !health
                     .state(LlmProvider::Ollama, &req.model)
                     .await
-                    .map(|snapshot| snapshot.admits_claim())
+                    // `admits_paid_call`, NOT `admits_claim` (CodeRabbit review, PR
+                    // #967): this in-process gate runs inside a fenced job, so
+                    // a `half_open` breaker must admit the trial holder.
+                    .map(|snapshot| snapshot.admits_paid_call())
                     .unwrap_or(true)
             {
                 // Issue #970 (CodeRabbit review PR #967): prior billed

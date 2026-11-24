@@ -98,7 +98,12 @@ impl OpenAiCompatibleChatClient {
         health
             .state(self.provider, model)
             .await
-            .map(|snapshot| snapshot.admits_claim())
+            // `admits_paid_call`, NOT `admits_claim` (CodeRabbit review, PR
+            // #967): this in-process gate runs inside a job the claim
+            // predicate already fenced, so a `half_open` breaker must admit
+            // the trial holder — `admits_claim` would end the trial without
+            // ever testing provider recovery.
+            .map(|snapshot| snapshot.admits_paid_call())
             .unwrap_or(true)
     }
 
@@ -299,8 +304,9 @@ impl OpenAiCompatibleChatClient {
                 let verdict = body.verdict(self.provider);
                 // Issue #926: the hint travels in the error payload, so the retry
                 // scheduler upstream honours it without a second header read.
-                return Err(classify_http_status_rich(
-                    status, &body.text, hint.wait, verdict,
+                return Err(with_attempt_usage(
+                    classify_http_status_rich(status, &body.text, hint.wait, verdict),
+                    total_usage,
                 ));
             }
             // Empty-completion fix (2026-11-20 incident): the identifying
@@ -313,7 +319,10 @@ impl OpenAiCompatibleChatClient {
                 .json::<ChatCompletionResponse>()
                 .await
                 .map_err(|error| {
-                    DomainError::validation(format!("invalid LLM response: {error}"))
+                    with_attempt_usage(
+                        DomainError::validation(format!("invalid LLM response: {error}")),
+                        total_usage,
+                    )
                 })?;
             total_usage.accumulate(envelope.usage());
             let (content, finish_reason) = match step_for_response(
@@ -355,7 +364,7 @@ impl OpenAiCompatibleChatClient {
                         %error,
                         "LLM provider returned no usable content — failing the attempt"
                     );
-                    return Err(error);
+                    return Err(with_attempt_usage(error, total_usage));
                 }
             };
             match serde_json::from_str(content) {
@@ -377,9 +386,12 @@ impl OpenAiCompatibleChatClient {
                                 " (after bounded retries with a grown output-token \
                                  budget)"
                             };
-                            return Err(DomainError::validation(format!(
-                                "LLM JSON did not match {schema_name}: {error}{suffix}"
-                            )));
+                            return Err(with_attempt_usage(
+                                DomainError::validation(format!(
+                                    "LLM JSON did not match {schema_name}: {error}{suffix}"
+                                )),
+                                total_usage,
+                            ));
                         }
                     }
                 }
@@ -498,8 +510,9 @@ impl OpenAiCompatibleChatClient {
                     continue;
                 }
                 let verdict = body.verdict(self.provider);
-                return Err(classify_http_status_rich(
-                    status, &body.text, hint.wait, verdict,
+                return Err(with_attempt_usage(
+                    classify_http_status_rich(status, &body.text, hint.wait, verdict),
+                    total_usage,
                 ));
             }
             let meta = ResponseMeta::capture(response.headers());
@@ -507,7 +520,10 @@ impl OpenAiCompatibleChatClient {
                 .json::<ChatCompletionResponse>()
                 .await
                 .map_err(|error| {
-                    DomainError::validation(format!("invalid LLM response: {error}"))
+                    with_attempt_usage(
+                        DomainError::validation(format!("invalid LLM response: {error}")),
+                        total_usage,
+                    )
                 })?;
             total_usage.accumulate(envelope.usage());
             let (content, finish_reason) = match step_for_response(
@@ -544,7 +560,7 @@ impl OpenAiCompatibleChatClient {
                         %error,
                         "vision provider returned no usable content — failing the attempt"
                     );
-                    return Err(error);
+                    return Err(with_attempt_usage(error, total_usage));
                 }
             };
             match serde_json::from_str(content) {
@@ -556,9 +572,12 @@ impl OpenAiCompatibleChatClient {
                             truncation_retries -= 1;
                         }
                         None => {
-                            return Err(DomainError::validation(format!(
-                                "vision LLM JSON did not match {schema_name}: {error}"
-                            )));
+                            return Err(with_attempt_usage(
+                                DomainError::validation(format!(
+                                    "vision LLM JSON did not match {schema_name}: {error}"
+                                )),
+                                total_usage,
+                            ));
                         }
                     }
                 }
@@ -718,6 +737,18 @@ fn strict_compatible(mut schema: serde_json::Value) -> serde_json::Value {
     }
     walk(&mut schema);
     schema
+}
+
+/// Attach the usage the attempt already billed to a provider failure
+/// (issue #970, CodeRabbit review PR #967): a 429/5xx/transport failure that
+/// arrives AFTER billed responses must not drop their accounting when the
+/// failure itself cannot carry an output. A no-op on every variant other
+/// than the provider-unavailable [`DomainError::ServiceUnavailable`].
+fn with_attempt_usage(error: DomainError, usage: LlmCallUsage) -> DomainError {
+    if usage == LlmCallUsage::default() {
+        return error;
+    }
+    error.with_billed_usage(usage)
 }
 
 /// Shared schema-preparation helper (issue #726): derive the JSON schema for

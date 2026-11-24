@@ -5663,3 +5663,43 @@ fn paired_name_blocks_are_excluded_from_the_inline_scan() {
     assert_eq!(extracted.legend_entries[0].code, "150");
     assert_eq!(extracted.legend_entries[0].character_name, "2 Polizisten");
 }
+
+/// CodeRabbit's PR #967 round-8 follow-up: a name block that carries BOTH a
+/// paired name ("Ben" for code 150) and an inline entry ("3 = Alice") keeps
+/// the inline entry — only the CONSUMED name line is excluded from the inline
+/// scan, not the whole block.
+#[test]
+fn only_consumed_name_lines_are_excluded_from_the_inline_scan() {
+    let mut page = StructuredPage::new(3, 595.0, 842.0);
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.20, 0.20, 0.22),
+        "ROLLEN",
+    );
+    // Two-column pair: code 150 with a two-line name block whose FIRST line
+    // is the paired name.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.23, 0.14, 0.30),
+        "150",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.16, 0.23, 0.40, 0.30),
+        "Ben\n3 = Alice",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    let mut names: Vec<&str> = extracted
+        .legend_entries
+        .iter()
+        .map(|entry| entry.character_name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec!["Alice", "Ben"],
+        "the paired name and the inline entry both survive: {:?}",
+        extracted.legend_entries
+    );
+}

@@ -2100,3 +2100,70 @@ fn a_sentence_boundary_between_claim_and_mention_is_not_fallback_evidence() {
     let body = r#"{"error":{"message":"Model does not support images. Request included response_format"}}"#;
     assert!(!super::names_unsupported_response_format(body));
 }
+
+/// Issue #970 (CodeRabbit review, PR #967 round 8): a billed response with
+/// malformed JSON followed by a provider failure must carry the billed usage
+/// ON the error — the hold persists it instead of dropping the accounting.
+#[tokio::test]
+async fn a_provider_failure_after_a_billed_response_carries_the_usage() {
+    let server = wiremock::MockServer::start().await;
+    // First response: billed (tokens 100), but the answer is malformed JSON —
+    // the loop re-requests with a grown budget (the countdown ignores the
+    // reported finish reason).
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 1_024}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-billed",
+                "model": "glm-5.3-flash",
+                "choices": [{
+                    "message": {"role": "assistant", "content": "{not json"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 25}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    // Second response: the provider fails transiently.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 2_048}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(503)
+                .set_body_json(serde_json::json!({"error": {"message": "provider overloaded"}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the 503 must fail the attempt");
+    assert!(
+        error.is_retryable(),
+        "the 503 stays on the classification path: {error}"
+    );
+    assert_eq!(
+        error.billed_usage().map(|usage| usage.tokens_in),
+        Some(100),
+        "the billed response's usage travels ON the provider error: {error}"
+    );
+    server.verify().await;
+}
