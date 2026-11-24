@@ -2167,3 +2167,18 @@ async fn a_provider_failure_after_a_billed_response_carries_the_usage() {
     );
     server.verify().await;
 }
+
+/// CodeRabbit's PR #967 round-9 follow-up: a positive statement about the
+/// format between the mention and the unsupported claim ("response_format is
+/// valid but images are not supported") is not evidence — the claim is about
+/// the images, not the format.
+#[test]
+fn a_positive_format_statement_between_mention_and_claim_is_not_evidence() {
+    assert!(!super::names_unsupported_response_format(
+        "response_format is valid but images are not supported"
+    ));
+    // Genuine single-sentence statements still qualify.
+    assert!(super::names_unsupported_response_format(
+        "'response_format' of type 'json_schema' is not supported by this model"
+    ));
+}

@@ -1971,9 +1971,10 @@ pub fn is_shooting_day_banner(text: &str) -> bool {
     }
     // Bare numbered German banner: `<digits>. Drehtag` (colon optional, but
     // the PERIOD after the day number is REQUIRED — CodeRabbit's PR #967
-    // round-4 follow-up: `"2 Drehtag"` must not match, because
-    // `shooting_day_identity` keys numbered days on the `N.`-with-period
-    // shape and a period-less text would flip-flop the day identity).
+    // round-4 follow-up: `"2 Drehtag"` must not match as a BANNER. The day
+    // identity in `shooting_day_identity` accepts BOTH written shapes
+    // (`2. Drehtag` / `2 Drehtag:`) as one numbered day, so the period-less
+    // colon form cannot flip-flop the identity or clear a same-day date).
     let head = lower.split(':').next().unwrap_or("").trim();
     let digits: String = head.chars().take_while(char::is_ascii_digit).collect();
     if digits.is_empty() {
@@ -2545,21 +2546,20 @@ fn extract_spatial_legend_entries(
                 .map(str::trim)
                 .filter(|line| !line.is_empty())
                 .collect();
-            let names: Vec<&str> = name_block
+            let names: Vec<(usize, &str)> = name_block
                 .text
                 .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
+                .enumerate()
+                .filter(|(_, line)| !line.trim().is_empty())
+                .map(|(index, line)| (index, line.trim()))
                 .collect();
             let consumed = consumed_name_lines.entry(name_block.id).or_default();
-            for (code, raw_name) in codes.into_iter().zip(names) {
-                consumed.insert(
-                    name_block
-                        .text
-                        .lines()
-                        .position(|line| line.trim() == raw_name)
-                        .unwrap_or(usize::MAX),
-                );
+            // Pair against the ORIGINAL line indices (CodeRabbit's PR #967
+            // round-9 follow-up): a value-based lookup would mark only the
+            // FIRST matching line, so repeated names (`2 Polizisten` twice)
+            // would leave the second unconsumed for the inline scan.
+            for (code, (line_index, raw_name)) in codes.into_iter().zip(names) {
+                consumed.insert(line_index);
                 if let Some(normalized) = normalize_schedule_legend_entry(ScheduleLegendEntry {
                     code: code.to_owned(),
                     character_name: raw_name.to_owned(),

@@ -5573,10 +5573,11 @@ fn a_separate_inline_legend_block_is_found_alongside_paired_entries() {
     );
 }
 
-/// CodeRabbit's PR #967 round-4 follow-up: the period is REQUIRED in the bare
-/// banner branch — `"2 Drehtag"` (no period) is not a banner, because
-/// `shooting_day_identity` keys numbered days on the `N.` shape and a
-/// period-less match would flip-flop the day identity.
+/// CodeRabbit's PR #967 round-4 follow-up: the period is REQUIRED for the
+/// bare (colon-less) banner branch — `"2 Drehtag"` (no period, no colon) is
+/// not a banner. The period-less COLON form (`"2 Drehtag:"`) IS a banner, and
+/// `shooting_day_identity` treats both written shapes as one numbered day, so
+/// no shape flip-flops the identity.
 #[test]
 fn a_period_less_day_banner_text_is_not_a_banner() {
     assert!(!is_shooting_day_banner("2 Drehtag"));
@@ -5700,6 +5701,46 @@ fn only_consumed_name_lines_are_excluded_from_the_inline_scan() {
         names,
         vec!["Alice", "Ben"],
         "the paired name and the inline entry both survive: {:?}",
+        extracted.legend_entries
+    );
+}
+
+/// CodeRabbit's PR #967 round-9 follow-up: pairing consumes the ACTUAL line
+/// indices, so repeated names (`2 Polizisten` twice beside codes 150/151)
+/// mark BOTH name lines consumed and the inline scan finds no phantom
+/// `2 = Polizisten` entry.
+#[test]
+fn repeated_paired_names_consume_all_their_lines() {
+    let mut page = StructuredPage::new(3, 595.0, 842.0);
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.20, 0.20, 0.22),
+        "ROLLEN",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.23, 0.14, 0.30),
+        "150\n151",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.16, 0.23, 0.40, 0.30),
+        "2 Polizisten\n2 Polizisten",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    assert_eq!(
+        extracted.legend_entries.len(),
+        2,
+        "only the two paired entries survive: {:?}",
+        extracted.legend_entries
+    );
+    assert!(
+        extracted
+            .legend_entries
+            .iter()
+            .all(|entry| entry.code == "150" || entry.code == "151"),
+        "no phantom code-2 entry: {:?}",
         extracted.legend_entries
     );
 }

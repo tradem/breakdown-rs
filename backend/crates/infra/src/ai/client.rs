@@ -956,6 +956,16 @@ impl ShootingScheduleSchema {
 /// means the claim is about something else and the mention is merely echoed
 /// request data (`"message":"does not support images","param":
 /// "response_format"`, `"response_format":{...}`), which never qualifies.
+/// Whether the gap between the `response_format` mention and the unsupported
+/// claim contains a POSITIVE statement about the format (`"response_format is
+/// valid but images are not supported"`) — then the claim is not about the
+/// format and the pair is not evidence (CodeRabbit's PR #967 round-9
+/// follow-up).
+fn gap_names_the_format_positively(gap: &str) -> bool {
+    const POSITIVE: [&str; 4] = ["valid", " ok", "accepted", "allowed"];
+    POSITIVE.iter().any(|word| gap.contains(word))
+}
+
 /// Whether the gap text crosses a sentence boundary (`.`/`!`/`?` followed by
 /// whitespace or end-of-text): the unsupported claim and the field mention
 /// must live in the SAME sentence — "does not support images. Request
@@ -1004,6 +1014,7 @@ fn names_unsupported_response_format(body: &str) -> bool {
                 };
                 if gap.len() <= MAX_GAP
                     && !gap_has_sentence_boundary(gap)
+                    && !gap_names_the_format_positively(gap)
                     && gap.chars().all(|c| {
                         c.is_alphanumeric()
                             || c.is_whitespace()
