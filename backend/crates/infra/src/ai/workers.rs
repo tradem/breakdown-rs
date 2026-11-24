@@ -5271,13 +5271,32 @@ async fn record_attempt_usage<Q: AiImportQueue + ?Sized>(
         // total, and an additive write of zeros would be a no-op anyway.
         return;
     }
-    if let Err(error) = queue.record_partial_usage(id, worker_id, &usage).await {
-        tracing::warn!(
-            job_id = %id.as_uuid(),
-            %error,
-            "could not persist the held attempt's partial usage; the re-drive restarts the accounting"
-        );
+    // Bounded retry (issue #970, CodeRabbit review PR #967 round 11): a
+    // transient write failure must not silently lose the accounting note.
+    // After the bound the warning is the honest last resort — the hold (or
+    // terminal failure) proceeds, because blocking it cannot recover the
+    // write either.
+    let mut last_error = None;
+    for attempt in 0..=2 {
+        match queue.record_partial_usage(id, worker_id, &usage).await {
+            Ok(()) => return,
+            Err(error) => {
+                last_error = Some(error);
+                tracing::warn!(
+                    job_id = %id.as_uuid(),
+                    attempt,
+                    "partial-usage write failed; retrying"
+                );
+            }
+        }
     }
+    tracing::warn!(
+        job_id = %id.as_uuid(),
+        error = %last_error.unwrap_or_else(|| DomainError::validation(
+            "unreachable: the retry loop always sets an error"
+        )),
+        "could not persist the attempt's partial usage after retries; the re-drive restarts the accounting"
+    );
 }
 
 pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(

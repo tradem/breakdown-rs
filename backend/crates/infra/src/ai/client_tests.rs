@@ -2183,6 +2183,57 @@ fn a_positive_format_statement_between_mention_and_claim_is_not_evidence() {
     ));
 }
 
+/// Issue #970 (CodeRabbit review, PR #967 round 11): MULTIPLE billed
+/// malformed responses through the REAL client accumulate into the terminal
+/// failure's carried usage — the exact sequence the hold/dead-letter path
+/// persists.
+#[tokio::test]
+async fn multiple_billed_malformed_responses_accumulate_into_the_terminal_failure() {
+    let server = wiremock::MockServer::start().await;
+    // Three billed responses, each malformed: budgets 1024 → 2048 → 4096.
+    for (max_tokens, tokens_in) in [(1_024, 100), (2_048, 50), (4_096, 30)] {
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .and(wiremock::matchers::body_partial_json(
+                serde_json::json!({"max_tokens": max_tokens}),
+            ))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-billed",
+                    "model": "glm-5.3-flash",
+                    "choices": [{
+                        "message": {"role": "assistant", "content": "{not json"},
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {"prompt_tokens": tokens_in, "completion_tokens": 10}
+                })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the exhausted decode budget must fail the attempt");
+    assert_eq!(
+        error.billed_usage().map(|usage| usage.tokens_in),
+        Some(180),
+        "every billed response's usage accumulates into the terminal error: {error}"
+    );
+    server.verify().await;
+}
+
 /// Issue #970 (CodeRabbit review, PR #967 round 10): a billed response
 /// followed by a DETERMINISTIC transport failure — the mock answers the
 /// first request, then the listener is gone, so the second request is
@@ -2201,15 +2252,33 @@ async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
         // CLOSE the listener explicitly: the retry's connection is
         // deterministically refused, not timed out.
         drop(listener);
+        // Read the request to its declared Content-Length (CodeRabbit's PR
+        // #967 round-11 follow-up: a nested-JSON chunk can end in `}` before
+        // the body is complete).
         let mut request = Vec::new();
         let mut chunk = [0_u8; 1024];
-        loop {
+        let content_length: Option<usize> = loop {
             let read = stream.read(&mut chunk).await.unwrap_or(0);
             request.extend_from_slice(&chunk[..read]);
-            if request.ends_with(b"}") || read == 0 {
-                break;
+            let text = String::from_utf8_lossy(&request);
+            if let Some(header_end) = text.find("\r\n\r\n")
+                && let Some(len) = text
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().ok())
+                    })
+                    .flatten()
+                && request.len() >= header_end + 4 + len
+            {
+                break Some(len);
             }
-        }
+            if read == 0 {
+                break None;
+            }
+        };
+        let _ = content_length;
         let body = serde_json::json!({
             "id": "chatcmpl-billed",
             "model": "glm-5.3-flash",
@@ -2249,6 +2318,14 @@ async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
         .chat_constrained(chat_request(1_024))
         .await
         .expect_err("the refused second request must fail the attempt");
+    // The failure is the CONNECTION REFUSAL, not the (never-firing) deadline:
+    // a reqwest timeout renders "operation timed out" — its absence plus the
+    // instant completion distinguishes the deterministic refusal from any
+    // deadline fire.
+    assert!(
+        !error.to_string().to_lowercase().contains("timed out"),
+        "the failure must be the connection refusal, not the deadline: {error}"
+    );
     assert_eq!(
         error.billed_usage().map(|usage| usage.tokens_in),
         Some(100),
