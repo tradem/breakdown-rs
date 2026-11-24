@@ -5583,3 +5583,49 @@ fn a_period_less_day_banner_text_is_not_a_banner() {
     assert!(!is_shooting_day_banner("12 Drehtag"));
     assert!(is_shooting_day_banner("2. Drehtag"));
 }
+
+/// CodeRabbit's PR #967 round-5 follow-up: numbered-day identity is
+/// consistent across both written shapes — a `"2 Drehtag:"` continuation
+/// (no period, colon form) is the SAME day as `"2. Drehtag: …"` and keeps its
+/// date, and a bare `"2 Drehtag:"` row is recognized as a day banner.
+#[test]
+fn the_period_less_colon_day_form_has_the_same_identity_as_the_numbered_form() {
+    assert!(is_shooting_day_banner("2 Drehtag:"));
+
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![
+                SchedulePageRow {
+                    row_ref: "300.33".into(),
+                    scene_ref: Some("300.33".into()),
+                    shooting_day_label: Some("2. Drehtag: Mo. 19.10.2021".into()),
+                    date: None,
+                    location: None,
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "300.35".into(),
+                    scene_ref: Some("300.35".into()),
+                    shooting_day_label: Some("2 Drehtag:".into()),
+                    date: None,
+                    location: None,
+                    order: Some(2),
+                    cast_codes: Vec::new(),
+                },
+            ],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+    assert_eq!(rows[0].date, Some(Date::new(2021, 10, 19).unwrap()));
+    assert_eq!(
+        rows[1].date,
+        Some(Date::new(2021, 10, 19).unwrap()),
+        "the same day in the period-less colon form keeps its date"
+    );
+}

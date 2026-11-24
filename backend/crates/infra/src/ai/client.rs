@@ -955,11 +955,24 @@ fn window_contains_prose_response_format(lower: &str, start: usize, end: usize) 
         .find(|i| lower.is_char_boundary(*i))
         .unwrap_or(lower.len());
     let window = &lower[ws..we];
-    window.match_indices("response_format").any(|(offset, _)| {
-        let after = &window[offset + "response_format".len()..];
-        // A JSON key is immediately followed by `":` (or `'`-quoted
-        // variants). A prose mention is followed by other text.
-        !after.starts_with("\":") && !after.starts_with("\' :")
+    const KEY: &str = "response_format";
+    window.match_indices(KEY).any(|(offset, _)| {
+        let before = &window[..offset];
+        let mut after = &window[offset + KEY.len()..];
+        // A JSON KEY position — the provider echoing the request back — is a
+        // QUOTED `"response_format"` whose closing quote is followed by
+        // optional whitespace and `:` (CodeRabbit's PR #967 round-5 follow-up:
+        // the colon may be separated by whitespace:
+        // `"response_format" : {"type": ...}`). Prose mentions ('response
+        // format' of type … is not supported / unsupported value for
+        // response_format) do not match that shape.
+        let quoted = before.ends_with('"') || before.ends_with('\'');
+        after = after.trim_start();
+        if let Some(rest) = after.strip_prefix('"').or_else(|| after.strip_prefix('\'')) {
+            after = rest;
+        }
+        // A JSON key is NOT a prose mention; every other occurrence counts.
+        !(quoted && after.trim_start().starts_with(':'))
     })
 }
 

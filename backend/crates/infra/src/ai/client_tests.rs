@@ -2072,3 +2072,12 @@ fn a_genuine_unsupported_format_statement_is_fallback_evidence() {
         "unsupported value for response_format"
     ));
 }
+
+/// CodeRabbit's PR #967 round-5 follow-up: the JSON-key detection tolerates
+/// whitespace between the quoted key and the colon
+/// (`"response_format" : {"type": ...}`).
+#[test]
+fn a_json_key_with_whitespace_before_the_colon_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images"},"response_format" : {"type":"json_schema"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}

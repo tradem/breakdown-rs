@@ -2000,17 +2000,32 @@ enum ShootingDayIdentity {
 
 #[must_use]
 fn shooting_day_identity(normalized_label: &str) -> ShootingDayIdentity {
-    let head = normalized_label.trim().split(':').next().unwrap_or("");
+    // Lowercased head: the day-number detection compares against the keyword
+    // case-insensitively ("Drehtag" / "drehtag").
+    let head = normalized_label
+        .trim()
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let digits: String = head
         .trim()
         .chars()
         .take_while(|c| c.is_ascii_digit())
         .collect();
     if let Ok(number) = digits.parse::<u32>() {
-        // A leading number only counts when it is a day number, not the first
-        // digits of an unnumbered label like "3 Sat Studio".
-        let rest = head.trim()[digits.len()..].trim_start();
-        if rest.starts_with('.') {
+        // A leading number only counts when it is a DAY number — the word
+        // `Drehtag` follows, with the period OPTIONAL (CodeRabbit's PR #967
+        // round-5 follow-up): documents write both `2. Drehtag` and
+        // `2 Drehtag:`, and the two shapes must resolve to the SAME identity
+        // so a period-less continuation cannot flip-flop the day and clear
+        // its date. A label like "3 Sat Studio" is not a numbered day.
+        let rest = head.trim()[digits.len()..]
+            .trim_start()
+            .strip_prefix('.')
+            .unwrap_or_else(|| head.trim()[digits.len()..].trim_start())
+            .trim_start();
+        if rest.starts_with("drehtag") {
             return ShootingDayIdentity::Numbered(number);
         }
     }
