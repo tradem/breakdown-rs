@@ -171,7 +171,14 @@ pub enum DomainError {
     /// stays `false` and the breaker invariant of #927 is untouched. No
     /// `retry_after`: there is nothing left to schedule.
     #[error("LLM provider quota exhausted: {reason}")]
-    LlmProviderQuotaExhausted { reason: String },
+    LlmProviderQuotaExhausted {
+        reason: String,
+        /// Usage already billed by the COMPLETED responses of the same
+        /// attempt (issue #970, CodeRabbit review PR #967 round 12): a quota
+        /// refusal after billed answers must not drop their accounting.
+        /// `Arc` keeps the variant small.
+        usage: Option<std::sync::Arc<crate::ai::LlmCallUsage>>,
+    },
 
     /// Upstream dependency rejected our credential (401/403, invalid or
     /// expired token). Distinct from [`DomainError::ServiceUnavailable`] so
@@ -872,7 +879,8 @@ impl DomainError {
     pub fn with_billed_usage(mut self, usage: crate::ai::LlmCallUsage) -> Self {
         let slot = match &mut self {
             DomainError::ServiceUnavailable { usage: slot, .. }
-            | DomainError::Validation { usage: slot, .. } => slot,
+            | DomainError::Validation { usage: slot, .. }
+            | DomainError::LlmProviderQuotaExhausted { usage: slot, .. } => slot,
             _ => return self,
         };
         *slot = Some(std::sync::Arc::new(usage));
@@ -890,6 +898,9 @@ impl DomainError {
                 usage: Some(usage), ..
             }
             | DomainError::Validation {
+                usage: Some(usage), ..
+            }
+            | DomainError::LlmProviderQuotaExhausted {
                 usage: Some(usage), ..
             } => Some(**usage),
             _ => None,
@@ -926,6 +937,7 @@ impl DomainError {
     pub fn llm_provider_quota_exhausted(reason: impl Into<String>) -> Self {
         DomainError::LlmProviderQuotaExhausted {
             reason: reason.into(),
+            usage: None,
         }
     }
 

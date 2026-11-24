@@ -644,6 +644,7 @@ impl AiImportQueue for FakeQueue {
         _id: breakdown_core::ai::AiImportJobId,
         _worker_id: &str,
         usage: &breakdown_core::ai::LlmCallUsage,
+        _key: Uuid,
     ) -> Result<(), DomainError> {
         self.state.lock().unwrap().partial_usage.push(*usage);
         Ok(())

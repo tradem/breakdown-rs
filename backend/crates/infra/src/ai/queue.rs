@@ -2513,18 +2513,38 @@ impl AiImportQueue for PgAiImportQueue {
         id: AiImportJobId,
         worker_id: &str,
         usage: &breakdown_core::ai::LlmCallUsage,
+        key: Uuid,
     ) -> Result<(), DomainError> {
+        // Idempotent per key (issue #970, CodeRabbit review PR #967 round
+        // 12): ONE statement both guards and applies — a retry after a lost
+        // acknowledgement re-evaluates the key the first commit stored and
+        // adds NOTHING the second time. The key rides the (transient,
+        // claim-owned) `progress` JSONB, so no schema change is needed and
+        // the claim reset clears it for the next attempt.
         let result = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
-            SET tokens_in = tokens_in + $3,
-                tokens_out = tokens_out + $4,
-                cached_tokens_in = cached_tokens_in + $5,
+            SET tokens_in = tokens_in + CASE
+                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
+                    ELSE $3 END,
+                tokens_out = tokens_out + CASE
+                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
+                    ELSE $4 END,
+                cached_tokens_in = cached_tokens_in + CASE
+                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
+                    ELSE $5 END,
                 -- `energy_millijoules` is nullable with no insert default
                 -- (CodeRabbit review, PR #967): a fresh job's NULL must not
                 -- swallow the additive write (`NULL + $6` is NULL), which
                 -- would make the later `recorded_usage` read fail.
-                energy_millijoules = COALESCE(energy_millijoules, 0) + $6,
+                energy_millijoules = COALESCE(energy_millijoules, 0) + CASE
+                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
+                    ELSE $6 END,
+                progress = jsonb_set(
+                    COALESCE(progress, '{}'::jsonb),
+                    '{partial_usage_key}',
+                    to_jsonb($7::text)
+                ),
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
             "#,
@@ -2535,6 +2555,7 @@ impl AiImportQueue for PgAiImportQueue {
         .bind(i64::try_from(usage.tokens_out).unwrap_or(i64::MAX))
         .bind(i64::try_from(usage.cached_tokens_in).unwrap_or(i64::MAX))
         .bind(i64::try_from(usage.energy_millijoules).unwrap_or(i64::MAX))
+        .bind(key)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;

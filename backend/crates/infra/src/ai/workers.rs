@@ -5276,16 +5276,21 @@ async fn record_attempt_usage<Q: AiImportQueue + ?Sized>(
     // After the bound the warning is the honest last resort — the hold (or
     // terminal failure) proceeds, because blocking it cannot recover the
     // write either.
+    // One idempotency key per hold/failure, reused verbatim across write
+    // retries (issue #970, CodeRabbit review PR #967 round 12): a lost
+    // acknowledgement after commit cannot double-add the additive counters —
+    // the storage-side guard keys on it.
+    let key = Uuid::now_v7();
     let mut last_error = None;
     for attempt in 0..=2 {
-        match queue.record_partial_usage(id, worker_id, &usage).await {
+        match queue.record_partial_usage(id, worker_id, &usage, key).await {
             Ok(()) => return,
             Err(error) => {
                 last_error = Some(error);
                 tracing::warn!(
                     job_id = %id.as_uuid(),
                     attempt,
-                    "partial-usage write failed; retrying"
+                    "partial-usage write failed; retrying with the same idempotency key"
                 );
             }
         }

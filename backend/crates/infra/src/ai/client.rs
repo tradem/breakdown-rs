@@ -758,6 +758,9 @@ fn with_attempt_usage(error: DomainError, usage: LlmCallUsage) -> DomainError {
     if usage == LlmCallUsage::default() {
         return error;
     }
+    // Provider failures that can arrive after billed responses: the
+    // transient-unavailable path and the terminal quota path (issue #970,
+    // CodeRabbit review PR #967 round 12).
     error.with_billed_usage(usage)
 }
 

@@ -684,6 +684,11 @@ pub trait AiImportQueue: Send + Sync {
         _id: AiImportJobId,
         _worker_id: &str,
         _usage: &LlmCallUsage,
+        // Idempotency key (issue #970, CodeRabbit review PR #967 round 12):
+        // ONE key per hold/failure, reused verbatim across write retries, so
+        // a lost acknowledgement after commit can never double-add the
+        // additive counters.
+        _key: Uuid,
     ) -> Result<(), DomainError> {
         Ok(())
     }
