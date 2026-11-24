@@ -584,6 +584,10 @@ impl FakeQueue {
 #[derive(Default)]
 struct FakeQueueState {
     succeeded: Vec<AiImportJobId>,
+    /// Test switch (issue #970 round-8 regression): `recorded_usage` fails
+    /// when set, so a test can assert the worker propagates the read failure
+    /// BEFORE any paid call instead of continuing from zero.
+    fail_recorded_usage: bool,
     failed: Vec<AiImportJobId>,
     /// The `mark_failed` payload per failed attempt — narrative, code,
     /// retryability and the provider's wait hint (issue #926). The production
@@ -623,6 +627,18 @@ struct FakeQueueState {
 
 #[async_trait]
 impl AiImportQueue for FakeQueue {
+    async fn recorded_usage(
+        &self,
+        _id: breakdown_core::ai::AiImportJobId,
+    ) -> Result<breakdown_core::ai::LlmCallUsage, DomainError> {
+        if self.state.lock().unwrap().fail_recorded_usage {
+            return Err(DomainError::service_unavailable(
+                "the usage read failed (test switch)",
+            ));
+        }
+        Ok(breakdown_core::ai::LlmCallUsage::default())
+    }
+
     async fn record_partial_usage(
         &self,
         _id: breakdown_core::ai::AiImportJobId,
@@ -9320,4 +9336,47 @@ async fn ollama_vision_rejects_non_ollama_provider() {
         error.to_string().contains("non-Ollama"),
         "unexpected error: {error}"
     );
+}
+
+/// Issue #970 round-8 regression (CodeRabbit review, PR #967): a FAILED
+/// `recorded_usage` read propagates BEFORE any paid call — the worker must not
+/// continue from zero, because the completion-time overwrite would erase the
+/// persisted total.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_usage_read_fails_the_job_before_any_paid_call() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    queue.state.lock().unwrap().fail_recorded_usage = true;
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingVisionScheduleClient::default());
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "the failed usage read must fail the job: {result:?}"
+    );
+    assert!(
+        client.page_numbers.lock().unwrap().is_empty(),
+        "no paid page call may start on an unknown accounting state"
+    );
+    assert!(queue.state.lock().unwrap().failed.is_empty());
 }

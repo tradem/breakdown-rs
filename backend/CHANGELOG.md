@@ -108,7 +108,9 @@ generated notes are never used.
     overwrite stays the full prior-plus-attempt total, so the cost snapshot
     covers every billed call whose partial-usage write succeeded (the write
     is best-effort: a failed write logs a warning and the hold proceeds, and
-    the re-drive then starts without that attempt's usage) instead of only
+    the re-drive then starts without that attempt's usage); a FAILED read of
+    the persisted counters propagates instead — the attempt never starts, so
+    an unknown accounting state is never treated as zero — instead of only
     the last attempt's.
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.71.0` (immutable,
   SHA-pinned digest) plus the moving tags `api-v0.71` and `api-v0`.
