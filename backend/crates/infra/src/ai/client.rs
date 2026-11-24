@@ -906,17 +906,34 @@ impl ShootingScheduleSchema {
 }
 
 /// Evidence that a 4xx body actually reports the `response_format` as
-/// UNSUPPORTED (not merely an unrelated validation error that echoes the
-/// field name) — the only signal eligible for the one-shot vision fallback
-/// (CodeRabbit review, PR #967 follow-up).
+/// UNSUPPORTED (not merely an unrelated error that echoes the field name, and
+/// not an unrelated capability statement like "does not support images") —
+/// the only signal eligible for the one-shot vision fallback (CodeRabbit
+/// review, PR #967 follow-ups). The unsupported claim must appear WITHIN
+/// 80 characters of the field name, so a distant unrelated sentence does not
+/// qualify.
 fn names_unsupported_response_format(body: &str) -> bool {
+    const PROXIMITY: usize = 80;
     let lower = body.to_ascii_lowercase();
-    lower.contains("response_format")
-        && (lower.contains("unsupport")
-            // covers "does not support", "provider does not support", …
-            || lower.contains("not support")
-            || lower.contains("doesn't support")
-            || lower.contains("cannot support"))
+    let markers = [
+        "unsupport",
+        "not support", // covers "does not support", "provider does not support", …
+        "doesn't support",
+        "cannot support",
+    ];
+    for marker in markers {
+        let mut from = 0;
+        while let Some(found) = lower[from..].find(marker) {
+            let start = from + found;
+            let window_start = start.saturating_sub(PROXIMITY);
+            let window_end = (start + marker.len() + PROXIMITY).min(lower.len());
+            if lower[window_start..window_end].contains("response_format") {
+                return true;
+            }
+            from = start + marker.len();
+        }
+    }
+    false
 }
 
 #[derive(Debug, Serialize)]

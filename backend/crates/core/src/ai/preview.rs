@@ -1955,10 +1955,31 @@ pub fn is_drehfrei_banner(text: &str) -> bool {
 
 /// Whether `text` is a shooting-day header banner (e.g.
 /// `"1. Drehtag: Mo. 18.10.2021 - Vorstopp: 9:15"`).
+///
+/// A bare numbered German day banner (`"2. Drehtag"`, no colon) counts too
+/// (CodeRabbit's PR #967 follow-up): a page that reports it as a standalone
+/// row reference would otherwise emit an unmatched banner row and keep the
+/// previous day — with its date — active for the following scenes. Ordinary
+/// scene references (`"300.33"`, `"2"`, `"T3"`) never match: a banner needs
+/// the word `Drehtag` (or `shooting day`) after the day number.
 #[must_use]
 pub fn is_shooting_day_banner(text: &str) -> bool {
-    let lower = text.trim().to_ascii_lowercase();
-    lower.contains("drehtag:") || lower.contains("shooting day")
+    let trimmed = text.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("drehtag:") || lower.contains("shooting day") {
+        return true;
+    }
+    // Bare numbered German banner: `<digits>. Drehtag` (colon optional).
+    let head = lower.split(':').next().unwrap_or("").trim();
+    let digits: String = head.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        return false;
+    }
+    let rest = head[digits.len()..]
+        .trim_start()
+        .trim_start_matches('.')
+        .trim_start();
+    rest.starts_with("drehtag")
 }
 
 /// Identity of a shooting day, as the banners of one document encode it
@@ -2504,29 +2525,27 @@ fn extract_spatial_legend_entries(
         }
     }
 
-    // Heading-block inline entries are scanned ALWAYS (CodeRabbit's PR #967
-    // follow-up): a parser may merge `ROLLEN\n2 = Ben` into ONE block while
-    // OTHER legend lines land in separate paired blocks below — the y-position
-    // filter excludes the heading block from `below`, and gating this scan on
-    // `entries.is_empty()` would drop code `2` in that mixed layout. The bare
-    // `ROLLEN` heading line yields no entry (`parse_inline_legend_line`
-    // requires a numeric code), and the block is scanned exactly once, so no
-    // duplicate entries arise.
-    for line in rollen_block.text.lines() {
-        if let Some(entry) = parse_inline_legend_line(line) {
-            entries.push(entry);
-        }
-    }
-
-    // 2. Fallback for single-block or flat-line `"<code> = <name>"` /
-    //    `"<code> <name>"` legend layouts.
-    if entries.is_empty() {
-        for block in below {
-            for line in block.text.lines() {
-                if let Some(entry) = parse_inline_legend_line(line) {
-                    entries.push(entry);
-                }
+    // 2. Inline scan — ALWAYS, over the heading block AND the blocks below
+    //    (CodeRabbit's PR #967 follow-ups): a parser may merge `ROLLEN\n2 = Ben`
+    //    into ONE block (the y-position filter excludes it from `below`), and a
+    //    separate inline block below (`3 = Alice`) must be found even when the
+    //    two-column pairing already produced entries. The pure digit / name
+    //    column blocks of a two-column layout yield NO inline entries
+    //    (`parse_inline_legend_line` requires a numeric code, and a bare name
+    //    is not one), and codes the pairing already recorded are skipped, so
+    //    no duplicate entries arise.
+    for block in std::iter::once(rollen_block).chain(below.iter().copied()) {
+        for line in block.text.lines() {
+            let Some(entry) = parse_inline_legend_line(line) else {
+                continue;
+            };
+            if entries
+                .iter()
+                .any(|existing: &ScheduleLegendEntry| existing.code == entry.code)
+            {
+                continue;
             }
+            entries.push(entry);
         }
     }
     entries

@@ -1995,3 +1995,44 @@ fn a_german_dot_date_in_the_flat_schedule_path_is_not_dropped() {
         "the German calendar date survives the flat decode"
     );
 }
+
+/// An unrelated capability statement ("does not support images") far from the
+/// echoed field name is NOT fallback evidence: the unsupported claim must sit
+/// within the proximity window of `response_format` (CodeRabbit's PR #967
+/// round-3 follow-up).
+#[tokio::test]
+async fn a_distant_unrelated_unsupported_statement_does_not_fall_back() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {"message": "this model does not support image inputs at all, which is a \
+                         capability constraint unrelated to schema handling; the request echoed \
+                         response_format in its payload"}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("an unrelated capability statement must not trigger the fallback");
+    assert!(
+        !error.to_string().contains("json_object"),
+        "the fallback never ran: {error}"
+    );
+    server.verify().await;
+}

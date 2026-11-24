@@ -8,9 +8,9 @@ use breakdown_core::error::DomainError;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-struct PromptFile {
-    script: PromptEntry,
-    schedule: PromptEntry,
+pub(crate) struct PromptFile {
+    pub(crate) script: PromptEntry,
+    pub(crate) schedule: PromptEntry,
     /// CodeRabbit review, PR #967: the flat (legacy-PDF / plain-text) schedule
     /// path gets its own prompt — its input is flattened text and its output
     /// schema is `ShootingSchedule`, not the page-image `SchedulePageExtraction`
@@ -18,12 +18,12 @@ struct PromptFile {
     /// deployment prompt file without `[schedule_flat]` keeps loading
     /// (CodeRabbit's PR #967 follow-up): the built-in flat default fills in.
     #[serde(default)]
-    schedule_flat: Option<PromptEntry>,
+    pub(crate) schedule_flat: Option<PromptEntry>,
 }
 
 #[derive(Debug, Deserialize)]
-struct PromptEntry {
-    text: String,
+pub(crate) struct PromptEntry {
+    pub(crate) text: String,
 }
 
 /// The two prompt defaults served by `GET /v1/ai-import/defaults` (issue
@@ -46,6 +46,14 @@ pub struct AiPromptDefaults {
 pub(crate) const EMBEDDED_PROMPT_FILE: &str =
     include_str!("../../../../config/default_ai_prompts.toml");
 
+/// Parse a prompt-file source (CodeRabbit's PR #967 follow-up: exposed for
+/// the override-file regression tests, which must not depend on the
+/// environment variable).
+pub(crate) fn parse_prompt_file(source: &str) -> Result<PromptFile, DomainError> {
+    toml::from_str(source)
+        .map_err(|error| DomainError::validation(format!("invalid default AI prompts: {error}")))
+}
+
 fn load_prompt_file() -> Result<PromptFile, DomainError> {
     let source = match std::env::var("AI_IMPORT_DEFAULT_PROMPTS_PATH") {
         Ok(path) if !path.trim().is_empty() => std::fs::read_to_string(&path).map_err(|error| {
@@ -53,8 +61,7 @@ fn load_prompt_file() -> Result<PromptFile, DomainError> {
         })?,
         _ => EMBEDDED_PROMPT_FILE.to_owned(),
     };
-    toml::from_str(&source)
-        .map_err(|error| DomainError::validation(format!("invalid default AI prompts: {error}")))
+    parse_prompt_file(&source)
 }
 
 /// The single-source defaults for both document kinds. Reads the prompt file
@@ -62,6 +69,16 @@ fn load_prompt_file() -> Result<PromptFile, DomainError> {
 /// worker seeding never drift (issue #471).
 pub fn default_prompts() -> Result<AiPromptDefaults, DomainError> {
     let file = load_prompt_file()?;
+    resolve_prompts(file)
+}
+
+/// Validate one parsed prompt file into the served defaults (CodeRabbit's PR
+/// #967 follow-up: extracted so a regression test can exercise an override
+/// file's resolution without touching `AI_IMPORT_DEFAULT_PROMPTS_PATH`).
+/// A deployment override without a `[schedule_flat]` entry (or with a blank
+/// one) falls back to the BUILT-IN flat prompt — never to the page-image
+/// prompt, and never to a load failure.
+pub(crate) fn resolve_prompts(file: PromptFile) -> Result<AiPromptDefaults, DomainError> {
     if file.script.text.trim().is_empty() {
         return Err(DomainError::validation(
             "default AI script prompt must not be empty",
@@ -72,10 +89,6 @@ pub fn default_prompts() -> Result<AiPromptDefaults, DomainError> {
             "default AI schedule prompt must not be empty",
         ));
     }
-    // A deployment override without a `[schedule_flat]` entry (or with a
-    // blank one) falls back to the BUILT-IN flat prompt — never to the
-    // page-image prompt, and never to a load failure (CodeRabbit's PR #967
-    // follow-up).
     let schedule_flat = match file.schedule_flat {
         Some(entry) if !entry.text.trim().is_empty() => entry.text,
         _ => built_in_flat_schedule_prompt()?,

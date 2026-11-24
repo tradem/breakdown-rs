@@ -477,3 +477,48 @@ fn resolve_provider_works_for_known_names() {
     assert!(super::provider_registry::resolve_provider("ollama").is_some());
     assert!(super::provider_registry::resolve_provider("unknown").is_none());
 }
+
+// ===========================================================================
+// CodeRabbit's PR #967 round-3 follow-ups: flat prompt robustness
+// ===========================================================================
+
+/// A prompt-file override WITHOUT a `[schedule_flat]` entry still loads, and
+/// the flat prompt falls back to the BUILT-IN flat text (never the page-image
+/// prompt, never a load failure).
+#[test]
+fn an_override_file_without_schedule_flat_falls_back_to_the_built_in_flat_prompt() {
+    let file = super::prompts::parse_prompt_file(
+        "[script]\ntext = \"script override\"\n\n[schedule]\ntext = \"page override\"\n",
+    )
+    .expect("an override without [schedule_flat] must parse");
+    assert!(file.schedule_flat.is_none());
+
+    let defaults = super::prompts::resolve_prompts(file)
+        .expect("a missing [schedule_flat] entry must not fail resolution");
+    assert_eq!(defaults.script, "script override");
+    assert_eq!(defaults.schedule, "page override");
+    assert_eq!(
+        defaults.schedule_flat,
+        super::prompts::default_flat_schedule_prompt().unwrap(),
+        "the flat prompt falls back to the built-in flat default"
+    );
+    assert_ne!(
+        defaults.schedule_flat, defaults.schedule,
+        "the fallback must never be the page-image prompt"
+    );
+}
+
+/// A BLANK `[schedule_flat]` entry behaves like an absent one.
+#[test]
+fn a_blank_schedule_flat_entry_falls_back_to_the_built_in_flat_prompt() {
+    let file = super::prompts::parse_prompt_file(
+        "[script]\ntext = \"s\"\n\n[schedule]\ntext = \"p\"\n\n[schedule_flat]\ntext = \"   \"\n",
+    )
+    .expect("a blank [schedule_flat] entry must parse");
+    let defaults = super::prompts::resolve_prompts(file)
+        .expect("a blank [schedule_flat] entry must not fail resolution");
+    assert_eq!(
+        defaults.schedule_flat,
+        super::prompts::default_flat_schedule_prompt().unwrap()
+    );
+}

@@ -232,16 +232,7 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
     // #967 follow-up): the JSONB may additionally carry additive worker keys
     // such as `schedule_flat`, which a direct `HashMap<DocumentKind, _>`
     // decode would reject. The view only surfaces document kinds.
-    let prompts: HashMap<DocumentKind, String> = prompts_map_from_row(row)?
-        .into_iter()
-        .filter_map(|(key, prompt)| match key.as_str() {
-            "script" => Some((DocumentKind::Script, prompt)),
-            "schedule" => Some((DocumentKind::Schedule, prompt)),
-            // Additive worker keys (e.g. `schedule_flat`) are not document
-            // kinds: skip them in the view instead of failing the row.
-            _ => None,
-        })
-        .collect();
+    let prompts: HashMap<DocumentKind, String> = document_kind_prompts(prompts_map_from_row(row)?);
     let mut prompt_kinds: Vec<_> = prompts.keys().copied().collect();
     prompt_kinds.sort_by_key(|kind| kind.as_str());
     // A kind is "stored" only when the text actually has content: a blank
@@ -408,13 +399,36 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
 fn prompts_map_from_row(
     row: &PgRow,
 ) -> Result<std::collections::HashMap<String, String>, DomainError> {
-    row.try_get::<serde_json::Value, _>("prompts")
-        .map_err(map_sqlx_error)
-        .and_then(|value| {
-            serde_json::from_value(value).map_err(|error| {
-                DomainError::validation(format!("invalid AI prompt projection: {error}"))
-            })
+    let value = row
+        .try_get::<serde_json::Value, _>("prompts")
+        .map_err(map_sqlx_error)?;
+    prompts_map_from_json(&value)
+}
+
+/// CodeRabbit's PR #967 follow-up: split out so the string-keyed decode —
+/// tolerant of additive keys like `schedule_flat` — is regression-testable
+/// without a database row.
+fn prompts_map_from_json(
+    value: &serde_json::Value,
+) -> Result<std::collections::HashMap<String, String>, DomainError> {
+    serde_json::from_value(value.clone())
+        .map_err(|error| DomainError::validation(format!("invalid AI prompt projection: {error}")))
+}
+
+/// Filter the string-keyed prompt map back to document kinds for the
+/// read-model view (additive worker keys such as `schedule_flat` are skipped,
+/// not rejected — CodeRabbit's PR #967 follow-up; extracted for tests).
+fn document_kind_prompts(
+    prompts: std::collections::HashMap<String, String>,
+) -> HashMap<DocumentKind, String> {
+    prompts
+        .into_iter()
+        .filter_map(|(key, prompt)| match key.as_str() {
+            "script" => Some((DocumentKind::Script, prompt)),
+            "schedule" => Some((DocumentKind::Schedule, prompt)),
+            _ => None,
         })
+        .collect()
 }
 
 /// Resolve the FLAT-path schedule prompt (CodeRabbit review, PR #967): the
@@ -436,9 +450,37 @@ fn parse_flat_schedule_prompt(row: &PgRow) -> Result<String, DomainError> {
 
 #[cfg(test)]
 mod prompt_resolution_tests {
-    use super::resolve_prompt;
+    use super::{document_kind_prompts, prompts_map_from_json, resolve_prompt};
     use crate::ai::default_prompt;
     use breakdown_core::ai::DocumentKind;
+
+    /// CodeRabbit's PR #967 round-3 follow-up: the string-keyed decode must
+    /// tolerate the additive `schedule_flat` key (a DocumentKind-keyed decode
+    /// would reject the WHOLE map), and the read-model view must still map the
+    /// two document kinds out of a map that carries it.
+    #[test]
+    fn a_stored_schedule_flat_key_does_not_break_prompt_decoding_or_the_view() {
+        let map = prompts_map_from_json(&serde_json::json!({
+            "script": "script prompt",
+            "schedule": "page prompt",
+            "schedule_flat": "flat prompt"
+        }))
+        .expect("the additive key must not break the decode");
+        assert_eq!(
+            map.get("schedule_flat").map(String::as_str),
+            Some("flat prompt")
+        );
+
+        let view_prompts = document_kind_prompts(map);
+        assert_eq!(view_prompts.len(), 2, "only document kinds surface");
+        assert_eq!(
+            view_prompts
+                .get(&DocumentKind::Schedule)
+                .map(String::as_str),
+            Some("page prompt")
+        );
+        assert!(view_prompts.contains_key(&DocumentKind::Script));
+    }
 
     /// Design D6's precedence, in both directions.
     #[test]

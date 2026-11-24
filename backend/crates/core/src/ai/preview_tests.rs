@@ -5473,3 +5473,102 @@ fn mixed_legend_layout_keeps_the_heading_block_entry_and_the_paired_blocks() {
         extracted.legend_entries
     );
 }
+
+/// CodeRabbit's PR #967 round-3 follow-up: a BARE numbered German day banner
+/// (`"2. Drehtag"`, no colon) is a day banner, not a scene row — otherwise it
+/// emits an unmatched row and the previous day (with its date) stays active.
+#[test]
+fn a_bare_numbered_day_banner_without_a_colon_is_recognized() {
+    assert!(is_shooting_day_banner("2. Drehtag"));
+    assert!(is_shooting_day_banner("12. Drehtag"));
+    assert!(is_shooting_day_banner("2. Drehtag: Mo. 18.10.2021"));
+    assert!(is_shooting_day_banner("1. SHOOTING DAY"));
+    // Ordinary scene references never match.
+    assert!(!is_shooting_day_banner("300.33"));
+    assert!(!is_shooting_day_banner("2"));
+    assert!(!is_shooting_day_banner("T3"));
+    assert!(!is_shooting_day_banner("SB7.2"));
+
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![
+                SchedulePageRow {
+                    row_ref: "300.33".into(),
+                    scene_ref: Some("300.33".into()),
+                    shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".into()),
+                    date: None,
+                    location: None,
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "2. Drehtag".into(),
+                    scene_ref: None,
+                    shooting_day_label: None,
+                    date: None,
+                    location: None,
+                    order: Some(2),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "300.40".into(),
+                    scene_ref: Some("300.40".into()),
+                    shooting_day_label: None,
+                    date: None,
+                    location: None,
+                    order: Some(3),
+                    cast_codes: Vec::new(),
+                },
+            ],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+    assert_eq!(
+        rows.len(),
+        2,
+        "the bare banner row must not emit a scene row"
+    );
+    assert_eq!(
+        rows[1].date, None,
+        "day 2 starts without a date: the carried date must be cleared"
+    );
+}
+
+/// CodeRabbit's PR #967 round-3 follow-up: a separate INLINE block below the
+/// heading (`3 = Alice`) is found even when the two-column pairing already
+/// produced entries — and paired entries are never duplicated.
+#[test]
+fn a_separate_inline_legend_block_is_found_alongside_paired_entries() {
+    let mut page = StructuredPage::new(3, 595.0, 842.0);
+    // Heading block with an inline entry.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.20, 0.40, 0.25),
+        "ROLLEN\n2 = Ben",
+    );
+    // A separate INLINE (not two-column) block below.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.26, 0.40, 0.31),
+        "3 = Alice",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    let mut names: Vec<&str> = extracted
+        .legend_entries
+        .iter()
+        .map(|entry| entry.character_name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec!["Alice", "Ben"],
+        "the heading entry and the separate inline entry both survive: {:?}",
+        extracted.legend_entries
+    );
+}
