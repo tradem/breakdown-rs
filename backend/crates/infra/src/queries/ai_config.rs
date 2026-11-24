@@ -228,14 +228,20 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
 /// one place.
 fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
     let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
-    let prompts: HashMap<DocumentKind, String> = row
-        .try_get::<serde_json::Value, _>("prompts")
-        .map_err(map_sqlx_error)
-        .and_then(|value| {
-            serde_json::from_value(value).map_err(|error| {
-                DomainError::validation(format!("invalid AI prompt projection: {error}"))
-            })
-        })?;
+    // String-keyed decode + filter back to document kinds (CodeRabbit's PR
+    // #967 follow-up): the JSONB may additionally carry additive worker keys
+    // such as `schedule_flat`, which a direct `HashMap<DocumentKind, _>`
+    // decode would reject. The view only surfaces document kinds.
+    let prompts: HashMap<DocumentKind, String> = prompts_map_from_row(row)?
+        .into_iter()
+        .filter_map(|(key, prompt)| match key.as_str() {
+            "script" => Some((DocumentKind::Script, prompt)),
+            "schedule" => Some((DocumentKind::Schedule, prompt)),
+            // Additive worker keys (e.g. `schedule_flat`) are not document
+            // kinds: skip them in the view instead of failing the row.
+            _ => None,
+        })
+        .collect();
     let mut prompt_kinds: Vec<_> = prompts.keys().copied().collect();
     prompt_kinds.sort_by_key(|kind| kind.as_str());
     // A kind is "stored" only when the text actually has content: a blank
@@ -387,19 +393,28 @@ pub(crate) fn resolve_prompt(
 }
 
 fn parse_prompt_for_kind(row: &PgRow, kind: &DocumentKind) -> Result<String, DomainError> {
-    let prompts: HashMap<DocumentKind, String> = row
-        .try_get::<serde_json::Value, _>("prompts")
+    let prompts = prompts_map_from_row(row)?;
+    resolve_prompt(prompts.get(kind.as_str()), kind)
+}
+
+fn map_sqlx_error(error: sqlx::Error) -> DomainError {
+    DomainError::service_unavailable(format!("AI config database error: {error}"))
+}
+
+/// Decode the `prompts` JSONB as a STRING-keyed map (CodeRabbit's PR #967
+/// follow-up): the map carries the two document kinds PLUS additive keys such
+/// as `"schedule_flat"`, which a `HashMap<DocumentKind, _>` decode would
+/// reject — one unknown key must not break every prompt lookup for the row.
+fn prompts_map_from_row(
+    row: &PgRow,
+) -> Result<std::collections::HashMap<String, String>, DomainError> {
+    row.try_get::<serde_json::Value, _>("prompts")
         .map_err(map_sqlx_error)
         .and_then(|value| {
             serde_json::from_value(value).map_err(|error| {
                 DomainError::validation(format!("invalid AI prompt projection: {error}"))
             })
-        })?;
-    resolve_prompt(prompts.get(kind), kind)
-}
-
-fn map_sqlx_error(error: sqlx::Error) -> DomainError {
-    DomainError::service_unavailable(format!("AI config database error: {error}"))
+        })
 }
 
 /// Resolve the FLAT-path schedule prompt (CodeRabbit review, PR #967): the
@@ -408,14 +423,7 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
 /// without the key fall back to the built-in flat default), else
 /// [`crate::ai::default_flat_schedule_prompt`].
 fn parse_flat_schedule_prompt(row: &PgRow) -> Result<String, DomainError> {
-    let prompts: std::collections::HashMap<String, String> = row
-        .try_get::<serde_json::Value, _>("prompts")
-        .map_err(map_sqlx_error)
-        .and_then(|value| {
-            serde_json::from_value(value).map_err(|error| {
-                DomainError::validation(format!("invalid AI prompt projection: {error}"))
-            })
-        })?;
+    let prompts = prompts_map_from_row(row)?;
     match prompts
         .get("schedule_flat")
         .map(|prompt| prompt.as_str())

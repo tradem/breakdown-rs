@@ -14,8 +14,11 @@ struct PromptFile {
     /// CodeRabbit review, PR #967: the flat (legacy-PDF / plain-text) schedule
     /// path gets its own prompt — its input is flattened text and its output
     /// schema is `ShootingSchedule`, not the page-image `SchedulePageExtraction`
-    /// contract the `[schedule]` prompt describes.
-    schedule_flat: PromptEntry,
+    /// contract the `[schedule]` prompt describes. OPTIONAL so an older
+    /// deployment prompt file without `[schedule_flat]` keeps loading
+    /// (CodeRabbit's PR #967 follow-up): the built-in flat default fills in.
+    #[serde(default)]
+    schedule_flat: Option<PromptEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,16 +72,36 @@ pub fn default_prompts() -> Result<AiPromptDefaults, DomainError> {
             "default AI schedule prompt must not be empty",
         ));
     }
-    if file.schedule_flat.text.trim().is_empty() {
-        return Err(DomainError::validation(
-            "default AI flat-schedule prompt must not be empty",
-        ));
-    }
+    // A deployment override without a `[schedule_flat]` entry (or with a
+    // blank one) falls back to the BUILT-IN flat prompt — never to the
+    // page-image prompt, and never to a load failure (CodeRabbit's PR #967
+    // follow-up).
+    let schedule_flat = match file.schedule_flat {
+        Some(entry) if !entry.text.trim().is_empty() => entry.text,
+        _ => built_in_flat_schedule_prompt()?,
+    };
     Ok(AiPromptDefaults {
         script: file.script.text,
         schedule: file.schedule.text,
-        schedule_flat: file.schedule_flat.text,
+        schedule_flat,
     })
+}
+
+/// The built-in `[schedule_flat]` text, read from the compiled-in prompt file
+/// (independent of `AI_IMPORT_DEFAULT_PROMPTS_PATH`), so a deployment override
+/// that predates the flat prompt still gets a working flat default.
+fn built_in_flat_schedule_prompt() -> Result<String, DomainError> {
+    let file: PromptFile = toml::from_str(EMBEDDED_PROMPT_FILE).map_err(|error| {
+        DomainError::validation(format!("invalid built-in AI prompts: {error}"))
+    })?;
+    file.schedule_flat
+        .map(|entry| entry.text)
+        .filter(|text| !text.trim().is_empty())
+        .ok_or_else(|| {
+            DomainError::validation(
+                "the built-in AI prompt file must carry a [schedule_flat] entry",
+            )
+        })
 }
 
 /// The flat-path schedule prompt (CodeRabbit review, PR #967). Stored

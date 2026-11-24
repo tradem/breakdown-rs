@@ -5433,3 +5433,43 @@ fn a_cast_cell_between_two_tight_rows_is_assigned_exactly_once() {
     );
     assert_eq!(extracted.rows[1].cast_codes, vec!["7".to_owned()]);
 }
+
+/// CodeRabbit's PR #967 follow-up: a MIXED legend layout — the heading block
+/// merged with one inline entry while OTHER entries land in separate paired
+/// blocks — must keep BOTH: the heading-block scan is not gated on
+/// `entries.is_empty()` any more.
+#[test]
+fn mixed_legend_layout_keeps_the_heading_block_entry_and_the_paired_blocks() {
+    let mut page = StructuredPage::new(3, 595.0, 842.0);
+    // Heading block with an inline entry.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.20, 0.40, 0.25),
+        "ROLLEN\n2 = Ben",
+    );
+    // Separate paired code/name blocks below.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.26, 0.14, 0.31),
+        "3",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.16, 0.26, 0.40, 0.31),
+        "Alice",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    let mut names: Vec<&str> = extracted
+        .legend_entries
+        .iter()
+        .map(|entry| entry.character_name.as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        vec!["Alice", "Ben"],
+        "the heading block entry and the paired block entry both survive: {:?}",
+        extracted.legend_entries
+    );
+}

@@ -1877,3 +1877,121 @@ async fn a_free_string_vision_modifier_normalizes_instead_of_failing_the_page() 
     );
     server.verify().await;
 }
+
+/// An unrelated 400 validation error that merely ECHOES the field name is NOT
+/// evidence of an unsupported format: no fallback, single request, the
+/// classification path answers (CodeRabbit's PR #967 follow-up).
+#[tokio::test]
+async fn an_unrelated_400_echoing_response_format_does_not_fall_back() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {"message": "validation failed: field `response_format` must be an object"}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("an unrelated 400 must fail without a fallback re-send");
+    assert!(
+        !error.to_string().contains("json_object"),
+        "the fallback never ran: {error}"
+    );
+    server.verify().await;
+}
+
+/// An explicit unsupported-format rejection on 400 DOES earn the one-shot
+/// fallback: the second request carries the plain `json_object` response
+/// format and its valid page answer decodes (CodeRabbit review, PR #967).
+#[tokio::test]
+async fn an_explicit_unsupported_format_400_falls_back_once_to_plain_json() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "response_format": {"type": "json_schema"}
+        })))
+        .respond_with(
+            wiremock::ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {"message": "response_format json_schema is not supported for this model"}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "response_format": {"type": "json_object"}
+        })))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-fallback",
+            "model": "qwen3-vl",
+            "choices": [{
+                "message": {"role": "assistant", "content": "{\"legend_entries\":[],\"rows\":[]}"},
+                "finish_reason": "stop"
+            }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let outcome = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect("the plain json_object fallback answers with a valid page");
+    assert!(outcome.output.rows.is_empty());
+    server.verify().await;
+}
+
+/// The flat schedule path accepts German dot dates: the flat schema decode
+/// goes through the core parser (`parse_schedule_date`), which handles ISO and
+/// German dot notation (CodeRabbit's PR #967 follow-up).
+#[test]
+fn a_german_dot_date_in_the_flat_schedule_path_is_not_dropped() {
+    use super::{ScheduleRowSchema, ScheduleSceneRefSchema, ShootingScheduleSchema};
+
+    let decoded = ScheduleRowSchema {
+        row_ref: "300.33".into(),
+        scene_number: Some(ScheduleSceneRefSchema::Text("300.33".into())),
+        shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".into()),
+        date: Some("18.10.2021".into()),
+        location: Some("KLINIKUM".into()),
+        order: Some(1),
+    };
+    let core = ShootingScheduleSchema {
+        rows: vec![decoded],
+    }
+    .into_core();
+    assert_eq!(
+        core.rows[0].date,
+        Some(jiff::civil::date(2021, 10, 18)),
+        "the German calendar date survives the flat decode"
+    );
+}

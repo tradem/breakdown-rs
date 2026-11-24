@@ -2504,14 +2504,24 @@ fn extract_spatial_legend_entries(
         }
     }
 
+    // Heading-block inline entries are scanned ALWAYS (CodeRabbit's PR #967
+    // follow-up): a parser may merge `ROLLEN\n2 = Ben` into ONE block while
+    // OTHER legend lines land in separate paired blocks below — the y-position
+    // filter excludes the heading block from `below`, and gating this scan on
+    // `entries.is_empty()` would drop code `2` in that mixed layout. The bare
+    // `ROLLEN` heading line yields no entry (`parse_inline_legend_line`
+    // requires a numeric code), and the block is scanned exactly once, so no
+    // duplicate entries arise.
+    for line in rollen_block.text.lines() {
+        if let Some(entry) = parse_inline_legend_line(line) {
+            entries.push(entry);
+        }
+    }
+
     // 2. Fallback for single-block or flat-line `"<code> = <name>"` /
-    //    `"<code> <name>"` legend layouts. The heading block itself is scanned
-    //    too: a parser may merge `ROLLEN` and the first legend lines into ONE
-    //    block, which the `below` y-position filter would exclude entirely
-    //    (CodeRabbit review, PR #967). The bare `ROLLEN` heading line yields no
-    //    entry (`parse_inline_legend_line` requires a numeric code).
+    //    `"<code> <name>"` legend layouts.
     if entries.is_empty() {
-        for block in std::iter::once(rollen_block).chain(below.iter().copied()) {
+        for block in below {
             for line in block.text.lines() {
                 if let Some(entry) = parse_inline_legend_line(line) {
                     entries.push(entry);

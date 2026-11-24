@@ -468,16 +468,18 @@ impl OpenAiCompatibleChatClient {
                 // One bounded fallback: a provider that rejects the combined
                 // image + strict-schema body answers 4xx naming the response
                 // format; retry once with plain JSON-object mode.
-                // Narrow eligibility (CodeRabbit review, PR #967): ONLY an
-                // explicit unsupported-format rejection on a validation status
-                // (400/422) earns the fallback. A 429 that happens to mention
-                // `response_format` in its body must keep its Retry-After on
-                // the existing classification path, never re-send the image
-                // immediately; likewise auth (401/403) and quota (402) errors.
+                // Narrow eligibility (CodeRabbit review, PR #967 + follow-up):
+                // ONLY an explicit unsupported-format rejection — a validation
+                // status (400/422) whose body NAMES `response_format` AND says
+                // it is unsupported — earns the fallback. A 429 that happens to
+                // mention `response_format` keeps its Retry-After on the
+                // classification path (never re-sends the image immediately);
+                // and an unrelated 400 validation error that merely ECHOES the
+                // field name is not evidence of an unsupported format either.
                 let status_code = status.as_u16();
                 if !plain_json_fallback
                     && (status_code == 400 || status_code == 422)
-                    && body.text.to_ascii_lowercase().contains("response_format")
+                    && names_unsupported_response_format(&body.text)
                 {
                     tracing::warn!(
                         provider = ?self.provider,
@@ -886,7 +888,13 @@ impl ShootingScheduleSchema {
                         episode_number,
                         shot_suffix,
                         shooting_day_label: row.shooting_day_label,
-                        date: row.date.as_deref().and_then(|raw| raw.parse().ok()),
+                        // The flat prompt accepts ISO AND German dot dates (CodeRabbit's PR #967
+                        // follow-up): the core parser handles both, so a German
+                        // calendar date is not silently dropped to None.
+                        date: row
+                            .date
+                            .as_deref()
+                            .and_then(breakdown_core::ai::parse_schedule_date),
                         location: row.location,
                         order: row.order,
                         cast_refs: Vec::new(),
@@ -895,6 +903,20 @@ impl ShootingScheduleSchema {
                 .collect(),
         }
     }
+}
+
+/// Evidence that a 4xx body actually reports the `response_format` as
+/// UNSUPPORTED (not merely an unrelated validation error that echoes the
+/// field name) — the only signal eligible for the one-shot vision fallback
+/// (CodeRabbit review, PR #967 follow-up).
+fn names_unsupported_response_format(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("response_format")
+        && (lower.contains("unsupport")
+            // covers "does not support", "provider does not support", …
+            || lower.contains("not support")
+            || lower.contains("doesn't support")
+            || lower.contains("cannot support"))
 }
 
 #[derive(Debug, Serialize)]
