@@ -2182,3 +2182,60 @@ fn a_positive_format_statement_between_mention_and_claim_is_not_evidence() {
         "'response_format' of type 'json_schema' is not supported by this model"
     ));
 }
+
+/// Issue #970 (CodeRabbit review, PR #967 round 9): a billed response
+/// followed by a TRANSPORT failure (request timeout) keeps the billed usage
+/// on the error.
+#[tokio::test]
+async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
+    let server = wiremock::MockServer::start().await;
+    // First response: billed (tokens 100), but the answer is malformed JSON —
+    // the loop re-requests with a grown budget.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 1_024}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-billed",
+                "model": "glm-5.3-flash",
+                "choices": [{
+                    "message": {"role": "assistant", "content": "{not json"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 25}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    // Second response: the provider never answers — the request times out
+    // (a transport failure, not an HTTP status).
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_delay(Duration::from_secs(10)))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_millis(500),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the timeout must fail the attempt");
+    assert_eq!(
+        error.billed_usage().map(|usage| usage.tokens_in),
+        Some(100),
+        "the billed response's usage survives the transport failure: {error}"
+    );
+    server.verify().await;
+}

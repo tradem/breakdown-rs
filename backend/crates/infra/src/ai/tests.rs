@@ -9380,3 +9380,131 @@ async fn a_failed_usage_read_fails_the_job_before_any_paid_call() {
     );
     assert!(queue.state.lock().unwrap().failed.is_empty());
 }
+
+/// Issue #970 (CodeRabbit review, PR #967 round 9): a FAILED outer attempt
+/// whose billed usage rides the error, followed by a SUCCESSFUL retry, keeps
+/// BOTH usages exactly once — and a later hold persists the sum, never a
+/// duplicate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_successful_retry_after_a_billed_failure_counts_usage_once() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // The breaker starts CLOSED (page 1 is billed across two attempts) and
+    // the client OPENS it during the page-2 call, so the hold follows billed
+    // work — the exact accounting shape of issue #970.
+    let client = Arc::new(BilledRetryThenHoldVisionClient {
+        calls: Arc::default(),
+        queue_state: Arc::clone(&queue.state),
+    });
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &two_page_pdf())
+        .await
+        .expect("a hold is not a failure");
+
+    assert_eq!(result, "", "a hold returns no preview handle");
+    let recorded = queue.partial_usage();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(
+        recorded[0].tokens_in, 130,
+        "failed attempt (30) + successful retry (100), exactly once each: {recorded:?}"
+    );
+}
+
+/// Vision client: page 1 fails ONCE with a transient billed error, then
+/// succeeds; page 2 returns the breaker sentinel.
+#[derive(Clone)]
+struct BilledRetryThenHoldVisionClient {
+    calls: Arc<Mutex<Vec<u32>>>,
+    /// The fake queue's state: the client opens the breaker during the
+    /// page-2 call, so the hold (with its `retry_at`) follows billed work.
+    queue_state: Arc<Mutex<FakeQueueState>>,
+}
+
+#[async_trait]
+impl LlmClient for BilledRetryThenHoldVisionClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "BilledRetryThenHoldVisionClient only extracts schedule pages",
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        let call = {
+            let mut calls = self.calls.lock().unwrap();
+            calls.push(request.page.page_number);
+            calls.len()
+        };
+        if request.page.page_number > 1 {
+            // Open the breaker with a probe time BEFORE failing, so the
+            // hold that follows parks the job instead of releasing it.
+            self.queue_state.lock().unwrap().breaker =
+                Some(breakdown_core::ai::ProviderBreakerSnapshot {
+                    state: breakdown_core::ai::ProviderBreakerState::Open,
+                    consecutive_failures: 3,
+                    flap_count: 0,
+                    retry_at: Some(Timestamp::now() + SignedDuration::from_mins(5)),
+                    trial_job: None,
+                });
+            return Err(super::provider_health::breaker_open_error());
+        }
+        if call == 1 {
+            // First attempt of page 1: transient provider failure that still
+            // billed tokens (a truncated answer the attempt discards).
+            return Err(
+                DomainError::llm_provider_unavailable("LLM provider returned HTTP 503")
+                    .with_billed_usage(breakdown_core::ai::LlmCallUsage {
+                        tokens_in: 30,
+                        tokens_out: 0,
+                        cached_tokens_in: 0,
+                        energy_millijoules: 0,
+                    }),
+            );
+        }
+        Ok(LlmCallOutcome::new(
+            breakdown_core::ai::SchedulePageExtraction {
+                legend_entries: Vec::new(),
+                rows: vec![breakdown_core::ai::SchedulePageRow {
+                    row_ref: "300.33".into(),
+                    scene_ref: Some("300.33".into()),
+                    shooting_day_label: None,
+                    date: None,
+                    location: None,
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                }],
+                end_of_page_shooting_day_label: None,
+                end_of_page_date: None,
+            },
+            breakdown_core::ai::LlmCallUsage {
+                tokens_in: 100,
+                tokens_out: 40,
+                cached_tokens_in: 0,
+                energy_millijoules: 0,
+            },
+        ))
+    }
+}
