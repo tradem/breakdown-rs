@@ -2197,11 +2197,10 @@ async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
         // Answer the FIRST request with a valid billed body, then keep the
         // stream open forever: the listener is consumed, so the client's
         // second request is deterministically refused at the transport.
-        let (stream, _) = listener.accept().await.unwrap();
+        let (mut stream, _) = listener.accept().await.unwrap();
         // CLOSE the listener explicitly: the retry's connection is
         // deterministically refused, not timed out.
         drop(listener);
-        let mut stream = stream;
         let mut request = Vec::new();
         let mut chunk = [0_u8; 1024];
         loop {
@@ -2228,9 +2227,10 @@ async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
         );
         let _ = stream.write_all(response.as_bytes()).await;
         let _ = stream.flush().await;
-        // Hold the socket open (never read again): the response stays
-        // delivered, the listener is gone, the retry is refused.
-        let _ = std::future::pending::<()>().await;
+        // Close the served connection gracefully (the response is complete,
+        // nothing is left unread, so this is a FIN, not an RST): the client's
+        // pooled connection dies and the retry reconnects into a CLOSED port.
+        drop(stream);
     });
 
     let mut client = OpenAiCompatibleChatClient::with_http(
