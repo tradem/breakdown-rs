@@ -1481,7 +1481,8 @@ async fn an_empty_completion_is_re_requested_with_a_doubled_budget() {
         ..Default::default()
     };
     assert_eq!(
-        outcome.usage, expected,
+        outcome.usage(),
+        expected,
         "the discarded empty answer's tokens were paid too"
     );
 
@@ -1661,7 +1662,7 @@ async fn chat_vision_gate_passes_a_compliant_provider_through_to_the_transport()
         .await
         .expect("a compliant provider reaches the transport and decodes");
     assert_eq!(outcome.output.rows[0].row_ref, "300.33");
-    assert_eq!(outcome.usage.tokens_in, 11);
+    assert_eq!(outcome.usage().tokens_in, 11);
     server.verify().await;
 }
 
@@ -2161,7 +2162,9 @@ async fn a_provider_failure_after_a_billed_response_carries_the_usage() {
         "the 503 stays on the classification path: {error}"
     );
     assert_eq!(
-        error.billed_usage().map(|usage| usage.tokens_in),
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
         Some(100),
         "the billed response's usage travels ON the provider error: {error}"
     );
@@ -2227,7 +2230,9 @@ async fn multiple_billed_malformed_responses_accumulate_into_the_terminal_failur
         .await
         .expect_err("the exhausted decode budget must fail the attempt");
     assert_eq!(
-        error.billed_usage().map(|usage| usage.tokens_in),
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
         Some(180),
         "every billed response's usage accumulates into the terminal error: {error}"
     );
@@ -2327,7 +2332,9 @@ async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
         "the failure must be the connection refusal, not the deadline: {error}"
     );
     assert_eq!(
-        error.billed_usage().map(|usage| usage.tokens_in),
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
         Some(100),
         "the billed response's usage survives the transport failure: {error}"
     );
@@ -2411,7 +2418,9 @@ async fn a_quota_failure_after_a_billed_response_carries_the_usage() {
     );
     assert!(!error.is_retryable(), "quota stays terminal: {error}");
     assert_eq!(
-        error.billed_usage().map(|usage| usage.tokens_in),
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
         Some(100),
         "the billed response's usage travels on the quota error: {error}"
     );

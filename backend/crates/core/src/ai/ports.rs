@@ -295,6 +295,21 @@ impl LlmCallUsage {
             .energy_millijoules
             .saturating_add(other.energy_millijoules);
     }
+
+    /// The element-wise sum of a **per-request ledger** (issues #794, #970).
+    ///
+    /// This is the only honest way to collapse a ledger: the summed counters
+    /// lose the request boundaries the energy cap is applied to, so every
+    /// caller that persists or prices usage keeps the ledger and derives the
+    /// totals from it here.
+    #[must_use]
+    pub fn total(calls: &[Self]) -> Self {
+        let mut total = Self::default();
+        for call in calls {
+            total.accumulate(*call);
+        }
+        total
+    }
 }
 
 /// One cost component's accumulated usage **plus** how many billable calls
@@ -336,6 +351,14 @@ impl UsageAccumulator {
         self.per_call.push(usage);
     }
 
+    /// Record every request of a per-request ledger, in order (issues #794,
+    /// #970) — one entry per billed request, never one aggregate entry.
+    pub fn record_all(&mut self, calls: &[LlmCallUsage]) {
+        for call in calls {
+            self.record(*call);
+        }
+    }
+
     /// The requests this component's cost is priced over (issue #794).
     ///
     /// Normally the retained per-call ledger. An accumulator whose counters were
@@ -353,15 +376,45 @@ impl UsageAccumulator {
 }
 
 /// The parsed output of one LLM call plus its usage telemetry (design D3).
+///
+/// `usage` is the **per-request ledger** of the paid responses this outcome
+/// consumed (issue #970, CodeRabbit review PR #967): one adapter call may
+/// re-request an answer inside one attempt (truncation/empty-completion
+/// retries, issue #925), and the provider bills every one of those requests.
+/// Keeping them as separate entries is what lets the energy cap stay
+/// per-request (issue #794) — an `LlmCallUsage` aggregate would only bound it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmCallOutcome<T> {
     pub output: T,
-    pub usage: LlmCallUsage,
+    ledger: Vec<LlmCallUsage>,
 }
 
 impl<T> LlmCallOutcome<T> {
+    /// A single-request outcome — the shape of every adapter that issues
+    /// exactly one paid request.
     pub fn new(output: T, usage: LlmCallUsage) -> Self {
-        Self { output, usage }
+        Self {
+            output,
+            ledger: vec![usage],
+        }
+    }
+
+    /// An outcome built from the per-request ledger of the attempt's
+    /// (re-)requests, in billing order.
+    pub fn from_calls(output: T, ledger: Vec<LlmCallUsage>) -> Self {
+        Self { output, ledger }
+    }
+
+    /// The requests this outcome was billed for, in call order.
+    #[must_use]
+    pub fn calls(&self) -> &[LlmCallUsage] {
+        &self.ledger
+    }
+
+    /// The summed counters of the ledger.
+    #[must_use]
+    pub fn usage(&self) -> LlmCallUsage {
+        LlmCallUsage::total(&self.ledger)
     }
 }
 
@@ -666,28 +719,47 @@ pub trait AiImportQueue: Send + Sync {
         Ok(())
     }
 
-    /// Usage already persisted on the job row by PRIOR attempts of this job
-    /// (held attempts' partial writes — CodeRabbit review, PR #967, issue
-    /// #970). Zeros for a first attempt and for queues that do not track
-    /// usage, so a worker can resume the accounting instead of restarting it.
-    async fn recorded_usage(&self, _id: AiImportJobId) -> Result<LlmCallUsage, DomainError> {
-        Ok(LlmCallUsage::default())
+    /// The **per-request billed-call ledger** this job row already carries
+    /// (issue #970, CodeRabbit review PR #967): one entry per paid provider
+    /// request of EVERY earlier attempt of the job, in billing order.
+    ///
+    /// This — not the completion-time telemetry counters — is what a re-drive
+    /// seeds its accumulator from. Two reasons, both CodeRabbit findings on PR
+    /// #967 that the summed counters could not satisfy:
+    ///
+    /// * the energy cap of issue #794 is per **request**, and
+    ///   `Σ min(raw_i, token_i) < min(Σ raw, Σ token)`: seeding one aggregate
+    ///   entry overstates the billed energy of every prior request;
+    /// * the completion-time write (`record_worker_telemetry`) already covers
+    ///   the whole job, so seeding the same numbers again on top of the
+    ///   stored-chunk replay double-counts a crashed attempt.
+    ///
+    /// Empty for a first attempt and for queues that do not track usage.
+    async fn recorded_billed_calls(
+        &self,
+        _id: AiImportJobId,
+    ) -> Result<Vec<LlmCallUsage>, DomainError> {
+        Ok(Vec::new())
     }
 
-    /// Add ONE attempt's partial usage to the RUNNING job row before a hold,
-    /// so a re-drive resumes the accounting instead of losing the billed calls
-    /// of completed pages (CodeRabbit review, PR #967, issue #970). Queues
-    /// without usage persistence treat this as a no-op; the completion-time
-    /// telemetry overwrite stays the full prior-plus-attempt total.
-    async fn record_partial_usage(
+    /// Append billed requests to the RUNNING job row's ledger.
+    ///
+    /// Two callers, one storage shape: the worker appends each paid request as
+    /// soon as it was billed (so a crash cannot lose it), and the hold/failure
+    /// path appends the usage an error carried (a provider answer that was
+    /// billed but whose output was discarded). Neither ever rewrites an entry
+    /// — the ledger is append-only, which is what makes it safe to seed from
+    /// on the next attempt. Queues without usage persistence treat this as a
+    /// no-op.
+    async fn append_billed_calls(
         &self,
         _id: AiImportJobId,
         _worker_id: &str,
-        _usage: &LlmCallUsage,
+        _calls: &[LlmCallUsage],
         // Idempotency key (issue #970, CodeRabbit review PR #967 round 12):
-        // ONE key per hold/failure, reused verbatim across write retries, so
-        // a lost acknowledgement after commit can never double-add the
-        // additive counters.
+        // ONE key per append site, reused verbatim across write retries, so a
+        // lost acknowledgement after commit can never add the same calls a
+        // second time.
         _key: Uuid,
     ) -> Result<(), DomainError> {
         Ok(())

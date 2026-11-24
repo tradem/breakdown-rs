@@ -244,9 +244,11 @@ impl LlmClient for OllamaChatClient {
             ));
         }
         let mut last_parse_error = None;
-        // Usage accumulates across every paid call, including the discarded
-        // responses of bounded parse retries (issue #675).
-        let mut total_usage = LlmCallUsage::default();
+        // The per-request ledger of every paid call, including the discarded
+        // responses of bounded parse retries (issue #675) — one entry per
+        // request, never one running total (CodeRabbit review, PR #967 round
+        // 13): the #794 energy cap is per request.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
         for _attempt in 0..=self.max_parse_retries {
             // Issue #871: before EVERY billable request, parse retries included.
             if let Some(health) = &self.health
@@ -262,7 +264,7 @@ impl LlmClient for OllamaChatClient {
                 // Issue #970 (CodeRabbit review PR #967): prior billed
                 // responses of this attempt travel on the sentinel.
                 return Err(super::provider_health::breaker_open_error_with_usage(
-                    total_usage,
+                    billed.clone(),
                 ));
             }
             // Issue #970 (CodeRabbit review PR #967 round 9): prior billed
@@ -271,10 +273,10 @@ impl LlmClient for OllamaChatClient {
             let (content, usage) = self
                 .request_once(&req)
                 .await
-                .map_err(|error| error.with_billed_usage(total_usage))?;
-            total_usage.accumulate(usage);
+                .map_err(|error| error.with_billed_usage(billed.clone()))?;
+            billed.push(usage);
             match serde_json::from_str::<ScriptContext>(&content) {
-                Ok(context) => return Ok(LlmCallOutcome::new(context, total_usage)),
+                Ok(context) => return Ok(LlmCallOutcome::from_calls(context, billed)),
                 Err(error) => last_parse_error = Some(error),
             }
         }
@@ -286,7 +288,7 @@ impl LlmClient for OllamaChatClient {
         Err(DomainError::validation(format!(
             "Ollama returned invalid ScriptContext after bounded retries: {detail}"
         ))
-        .with_billed_usage(total_usage))
+        .with_billed_usage(billed))
     }
 
     async fn chat_vision_constrained(
@@ -302,7 +304,8 @@ impl LlmClient for OllamaChatClient {
             ));
         }
         let mut last_parse_error: Option<String> = None;
-        let mut total_usage = LlmCallUsage::default();
+        // Issue #970 (CodeRabbit review PR #967 round 13): see the text path.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
         for _attempt in 0..=self.max_parse_retries {
             if let Some(health) = &self.health
                 && !health
@@ -317,15 +320,15 @@ impl LlmClient for OllamaChatClient {
                 // Issue #970 (CodeRabbit review PR #967): prior billed
                 // responses of this attempt travel on the sentinel.
                 return Err(super::provider_health::breaker_open_error_with_usage(
-                    total_usage,
+                    billed.clone(),
                 ));
             }
             // Issue #970 (CodeRabbit review PR #967 round 9): see the text path.
             let (content, usage) = self
                 .request_vision_once(req)
                 .await
-                .map_err(|error| error.with_billed_usage(total_usage))?;
-            total_usage.accumulate(usage);
+                .map_err(|error| error.with_billed_usage(billed.clone()))?;
+            billed.push(usage);
             // Decode through the provider-facing schema type (CodeRabbit
             // review, PR #967), like the hosted vision path: a rows-less
             // object must FAIL (not silently default to an empty page), and a
@@ -334,7 +337,7 @@ impl LlmClient for OllamaChatClient {
             match serde_json::from_str::<crate::ai::client::SchedulePageExtractionSchema>(&content)
             {
                 Ok(extraction) => match extraction.into_core() {
-                    Ok(extraction) => return Ok(LlmCallOutcome::new(extraction, total_usage)),
+                    Ok(extraction) => return Ok(LlmCallOutcome::from_calls(extraction, billed)),
                     Err(error) => last_parse_error = Some(error.to_string()),
                 },
                 Err(error) => last_parse_error = Some(error.to_string()),
@@ -345,7 +348,7 @@ impl LlmClient for OllamaChatClient {
         Err(DomainError::validation(format!(
             "Ollama returned invalid SchedulePageExtraction after bounded retries: {detail}"
         ))
-        .with_billed_usage(total_usage))
+        .with_billed_usage(billed))
     }
 }
 

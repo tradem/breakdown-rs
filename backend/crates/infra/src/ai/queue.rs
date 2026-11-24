@@ -2465,16 +2465,21 @@ impl AiImportQueue for PgAiImportQueue {
     /// Without the fence a displaced worker's telemetry would commit over the
     /// new owner's numbers even though its subsequent `mark_succeeded` is
     /// rejected — the metrics would describe work that was thrown away.
-    /// Issue #970: the usage counters of PRIOR attempts (held attempts'
-    /// partial writes) on the job row, so a re-drive resumes the accounting.
-    async fn recorded_usage(
+    ///
+    /// Issue #970 (CodeRabbit review PR #967): returns the job row's
+    /// **per-request billed-call ledger** — one entry per paid provider request
+    /// of every earlier attempt, in billing order — which is the only seed a
+    /// re-drive resumes its accounting from. Deliberately NOT the
+    /// completion-time counters: they are an aggregate (so they would lose the
+    /// per-request #794 energy cap) and they already cover the whole job (so
+    /// seeding them would count a replayed stored chunk twice).
+    async fn recorded_billed_calls(
         &self,
         id: AiImportJobId,
-    ) -> Result<breakdown_core::ai::LlmCallUsage, DomainError> {
+    ) -> Result<Vec<breakdown_core::ai::LlmCallUsage>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT tokens_in, tokens_out, cached_tokens_in,
-                   COALESCE(energy_millijoules, 0) AS energy_millijoules
+            SELECT billed_calls
             FROM ai_import.ai_import_job
             WHERE id = $1
             "#,
@@ -2483,67 +2488,54 @@ impl AiImportQueue for PgAiImportQueue {
         .fetch_one(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
-        Ok(breakdown_core::ai::LlmCallUsage {
-            tokens_in: row
-                .try_get::<i64, _>("tokens_in")
-                .map_err(map_sqlx_error)?
-                .max(0) as u64,
-            tokens_out: row
-                .try_get::<i64, _>("tokens_out")
-                .map_err(map_sqlx_error)?
-                .max(0) as u64,
-            cached_tokens_in: row
-                .try_get::<i64, _>("cached_tokens_in")
-                .map_err(map_sqlx_error)?
-                .max(0) as u64,
-            energy_millijoules: row
-                .try_get::<i64, _>("energy_millijoules")
-                .map_err(map_sqlx_error)?
-                .max(0) as u64,
+        let raw: serde_json::Value = row.try_get("billed_calls").map_err(map_sqlx_error)?;
+        serde_json::from_value::<Vec<breakdown_core::ai::LlmCallUsage>>(raw).map_err(|error| {
+            DomainError::validation(format!("billed-call ledger is undecodable: {error}"))
         })
     }
 
-    /// Issue #970: add ONE attempt's partial usage to the RUNNING job row
-    /// before a hold (owner-fenced like every worker write), so a re-drive
-    /// resumes the accounting instead of losing the billed calls of completed
-    /// pages. The completion-time telemetry overwrite stays the full
-    /// prior-plus-attempt total, so the additive write never double-counts.
-    async fn record_partial_usage(
+    /// Issue #970 (CodeRabbit review PR #967): append the paid requests of one
+    /// attempt (or of one completed page/chunk) to the ledger of the RUNNING
+    /// job row, owner-fenced like every worker write. The completion-time
+    /// telemetry write stores the totals derived from the whole ledger, so the
+    /// append never double-counts.
+    async fn append_billed_calls(
         &self,
         id: AiImportJobId,
         worker_id: &str,
-        usage: &breakdown_core::ai::LlmCallUsage,
+        calls: &[breakdown_core::ai::LlmCallUsage],
         key: Uuid,
     ) -> Result<(), DomainError> {
-        // Idempotent per key (issue #970, CodeRabbit review PR #967 round
-        // 12): ONE statement both guards and applies — a retry after a lost
+        if calls.is_empty() {
+            return Ok(());
+        }
+        // Idempotent per key (issue #970, CodeRabbit review PR #967 round 12):
+        // ONE statement both guards and applies — a retry after a lost
         // acknowledgement re-evaluates the key the first commit stored and
-        // adds NOTHING the second time. The key rides the (transient,
-        // claim-owned) `progress` JSONB, so no schema change is needed and
-        // the claim reset clears it for the next attempt.
+        // appends NOTHING the second time. The key rides the (transient,
+        // claim-owned) `progress` JSONB, so no schema change is needed and the
+        // claim reset clears it for the next attempt.
+        let appended = serde_json::to_value(calls).map_err(|error| {
+            DomainError::validation(format!("billed-call ledger is not serializable: {error}"))
+        })?;
         let result = sqlx::query(
             r#"
             UPDATE ai_import.ai_import_job
-            SET tokens_in = tokens_in + CASE
-                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
-                    ELSE $3 END,
-                tokens_out = tokens_out + CASE
-                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
-                    ELSE $4 END,
-                cached_tokens_in = cached_tokens_in + CASE
-                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
-                    ELSE $5 END,
-                -- `energy_millijoules` is nullable with no insert default
-                -- (CodeRabbit review, PR #967): a fresh job's NULL must not
-                -- swallow the additive write (`NULL + $6` is NULL), which
-                -- would make the later `recorded_usage` read fail.
-                energy_millijoules = COALESCE(energy_millijoules, 0) + CASE
-                    WHEN COALESCE(progress->>'partial_usage_key', '') = $7 THEN 0
-                    ELSE $6 END,
+            SET billed_calls = CASE
+                    -- `$3::text` on BOTH sides: without the cast the
+                    -- comparison against the TEXT extracted from `progress`
+                    -- makes the server infer `$3` as TEXT, and a UUID-typed
+                    -- bind then fails to decode (SQLSTATE 22P03) — the
+                    -- integration test `an_append_is_idempotent_per_key`
+                    -- caught exactly that.
+                    WHEN COALESCE(progress->>'partial_usage_key', '') = ($3::text)
+                        THEN billed_calls
+                    ELSE billed_calls || $4
+                END,
                 progress = jsonb_set(
                     COALESCE(progress, '{}'::jsonb),
                     '{partial_usage_key}',
-                    to_jsonb($7::text)
+                    to_jsonb($3::text)
                 ),
                 updated_at = now()
             WHERE id = $1 AND status = 'running' AND worker_id = $2
@@ -2551,11 +2543,8 @@ impl AiImportQueue for PgAiImportQueue {
         )
         .bind(id.as_uuid())
         .bind(worker_id)
-        .bind(i64::try_from(usage.tokens_in).unwrap_or(i64::MAX))
-        .bind(i64::try_from(usage.tokens_out).unwrap_or(i64::MAX))
-        .bind(i64::try_from(usage.cached_tokens_in).unwrap_or(i64::MAX))
-        .bind(i64::try_from(usage.energy_millijoules).unwrap_or(i64::MAX))
         .bind(key)
+        .bind(appended)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx_error)?;
@@ -2563,7 +2552,7 @@ impl AiImportQueue for PgAiImportQueue {
             result.rows_affected(),
             id,
             worker_id,
-            "record partial usage for",
+            "record billed calls for",
         )?;
         Ok(())
     }

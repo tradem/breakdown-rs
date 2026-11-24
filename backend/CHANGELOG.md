@@ -92,23 +92,38 @@ generated notes are never used.
     and Ollama clients attaches the attempt's accumulated counters, so a hold
     persists the usage of a billed malformed response followed by a provider
     failure.
-  - **Accounting reads are fail-closed**: a failed `recorded_usage` read
-    propagates before any paid work instead of continuing from zero (which
-    would let the completion-time overwrite erase the persisted total), and
-    the partial-usage statements coalesce the nullable `energy_millijoules`.
-  - **Usage across breaker holds (issue #970).** The schedule page loop carries
-    the usage of the pages billed before a hold on the failure
-    (`CallFailure::usage`) and the worker persists it additively on the running
-    job row (`AiImportQueue::record_partial_usage`, owner-fenced) before
-    parking; a re-drive resumes the accounting from the persisted counters
-    (`AiImportQueue::recorded_usage`) and the completion-time telemetry
-    overwrite stays the full prior-plus-attempt total, so the cost snapshot
-    covers every billed call whose partial-usage write succeeded (the write
-    is best-effort: a failed write logs a warning and the hold proceeds, and
-    the re-drive then starts without that attempt's usage); a FAILED read of
-    the persisted counters propagates instead — the attempt never starts, so
-    an unknown accounting state is never treated as zero — instead of only
-    the last attempt's.
+  - **Accounting reads are fail-closed**: a failed billed-call read propagates
+    before any paid work instead of continuing from zero (which would let the
+    completion-time overwrite erase the persisted total).
+  - **Usage across breaker holds (issue #970).** The only seed of a re-drive is
+    the job row's **per-request billed-call ledger**
+    (`ai_import_job.billed_calls`, migration `20261124000001`):
+    `AiImportQueue::append_billed_calls` appends one entry per paid provider
+    request right after the call returned (and, before a hold or a terminal
+    failure, the entries an error carried), and
+    `AiImportQueue::recorded_billed_calls` seeds the next attempt from them.
+    Three properties are deliberate:
+    1. **Per request, never an aggregate.** The provider caps energy per
+       request (issue #794), and `Σ min(raw_i, token_i) <= min(Σ raw, Σ token)`
+       — seeding the summed counters as one entry overstated the billed energy
+       of every prior request.
+    2. **Independent of the completion counters.** `tokens_in`/`energy_millijoules`
+       stay the completion total written by `record_worker_telemetry`, so a
+       worker that died between that write and `mark_succeeded` no longer makes
+       the re-drive count the stored-chunk replay on top of a total that
+       already covered it.
+    3. **Append-only.** The ledger is never rewritten or cleared: every entry is
+       a request the provider actually billed, which stays true across a retry,
+       a re-drive and a chunk-set invalidation.
+    Stored chunks now replay their payload only (their usage is already on the
+    ledger), the appends are owner-fenced and idempotent per key, and a FAILED
+    read propagates before any paid work — an unknown accounting state is never
+    treated as zero. The `Uuid` parameter of the append statement is cast to
+    `text` on both sides of the idempotency comparison: without the cast the
+    server inferred `TEXT` for a UUID-typed bind and every append failed with
+    SQLSTATE 22P03 (`an_append_is_idempotent_per_key` in
+    `crates/integration-tests/tests/ai_import_billed_calls.rs` is the
+    regression).
 
 ## [api-v0.71.0] – Released 2026-11-21
 

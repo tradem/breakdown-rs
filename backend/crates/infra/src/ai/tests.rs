@@ -584,10 +584,14 @@ impl FakeQueue {
 #[derive(Default)]
 struct FakeQueueState {
     succeeded: Vec<AiImportJobId>,
-    /// Test switch (issue #970 round-8 regression): `recorded_usage` fails
+    /// Test switch (issue #970 round-8 regression): the billed-call read fails
     /// when set, so a test can assert the worker propagates the read failure
     /// BEFORE any paid call instead of continuing from zero.
     fail_recorded_usage: bool,
+    /// The per-request ledger the fake row already carries (issue #970): the
+    /// worker seeds its accounting from it, so a test can assert a re-drive
+    /// resumes instead of restarting.
+    prior_calls: Vec<breakdown_core::ai::LlmCallUsage>,
     failed: Vec<AiImportJobId>,
     /// The `mark_failed` payload per failed attempt — narrative, code,
     /// retryability and the provider's wait hint (issue #926). The production
@@ -601,8 +605,9 @@ struct FakeQueueState {
     progress: Vec<breakdown_core::ai::AiImportProgress>,
     /// Every hold the worker materialized (issue #871, D-A4).
     holds: Vec<breakdown_core::ai::ProviderHold>,
-    /// The partial usage writes before each hold (issue #970, CodeRabbit
-    /// review PR #967), in order.
+    /// The billed-call ledger appends the worker performed (issue #970,
+    /// CodeRabbit review PR #967), flattened in append order — one entry per
+    /// paid request.
     partial_usage: Vec<breakdown_core::ai::LlmCallUsage>,
     /// The evidence carried by each hold, index-aligned with `holds` (issue
     /// #942 W2: a hold must never arrive without a reason).
@@ -627,26 +632,30 @@ struct FakeQueueState {
 
 #[async_trait]
 impl AiImportQueue for FakeQueue {
-    async fn recorded_usage(
+    async fn recorded_billed_calls(
         &self,
         _id: breakdown_core::ai::AiImportJobId,
-    ) -> Result<breakdown_core::ai::LlmCallUsage, DomainError> {
+    ) -> Result<Vec<breakdown_core::ai::LlmCallUsage>, DomainError> {
         if self.state.lock().unwrap().fail_recorded_usage {
             return Err(DomainError::service_unavailable(
                 "the usage read failed (test switch)",
             ));
         }
-        Ok(breakdown_core::ai::LlmCallUsage::default())
+        Ok(self.state.lock().unwrap().prior_calls.to_vec())
     }
 
-    async fn record_partial_usage(
+    async fn append_billed_calls(
         &self,
         _id: breakdown_core::ai::AiImportJobId,
         _worker_id: &str,
-        usage: &breakdown_core::ai::LlmCallUsage,
+        calls: &[breakdown_core::ai::LlmCallUsage],
         _key: Uuid,
     ) -> Result<(), DomainError> {
-        self.state.lock().unwrap().partial_usage.push(*usage);
+        self.state
+            .lock()
+            .unwrap()
+            .partial_usage
+            .extend_from_slice(calls);
         Ok(())
     }
 
@@ -7886,6 +7895,20 @@ fn resume_worker(
 #[tokio::test]
 async fn a_resumed_script_job_pays_only_for_the_missing_chunks() {
     let queue = Arc::new(FakeQueue::default());
+    // Issue #970 round 13: a stored chunk exists only because an earlier attempt
+    // paid for it AND appended its usage to the job row's ledger (the append is
+    // the write that precedes the chunk-store write), so the resumed attempt
+    // models that row state here.
+    queue.state.lock().unwrap().prior_calls = vec![
+        LlmCallUsage {
+            tokens_in: 100,
+            ..LlmCallUsage::default()
+        },
+        LlmCallUsage {
+            tokens_in: 100,
+            ..LlmCallUsage::default()
+        },
+    ];
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let store = Arc::new(InMemoryChunkStore::with_prefix(2));
     let worker = resume_worker(
@@ -7932,8 +7955,9 @@ async fn a_resumed_script_job_pays_only_for_the_missing_chunks() {
         "the stored prefix and the fresh calls assemble the SAME preview"
     );
 
-    // Token sum (D-B4): the resumed chunks' usage is NOT lost — 2 × 100 stored
-    // plus 2 × 50 fresh = 300.
+    // Token sum (D-B4): the resumed chunks' usage is NOT lost — 2 × 100 on the
+    // row's ledger (seeded) plus 2 × 50 fresh = 300. The stored chunks replay
+    // their payload only, so nothing is counted twice.
     let telemetry = the_only_telemetry(&queue);
     assert_eq!(telemetry.tokens_in, 300);
 
@@ -9425,10 +9449,17 @@ async fn a_successful_retry_after_a_billed_failure_counts_usage_once() {
 
     assert_eq!(result, "", "a hold returns no preview handle");
     let recorded = queue.partial_usage();
-    assert_eq!(recorded.len(), 1);
+    // One ledger entry per PAID REQUEST (issue #970, CodeRabbit review PR #967
+    // round 13): the discarded first attempt's answer (30) and the successful
+    // retry (100) stay separate, so the #794 energy cap can price each on its
+    // own.
     assert_eq!(
-        recorded[0].tokens_in, 130,
-        "failed attempt (30) + successful retry (100), exactly once each: {recorded:?}"
+        recorded
+            .iter()
+            .map(|call| call.tokens_in)
+            .collect::<Vec<_>>(),
+        vec![30, 100],
+        "failed attempt and successful retry, exactly once each: {recorded:?}"
     );
 }
 
@@ -9480,12 +9511,12 @@ impl LlmClient for BilledRetryThenHoldVisionClient {
             // billed tokens (a truncated answer the attempt discards).
             return Err(
                 DomainError::llm_provider_unavailable("LLM provider returned HTTP 503")
-                    .with_billed_usage(breakdown_core::ai::LlmCallUsage {
+                    .with_billed_usage(vec![breakdown_core::ai::LlmCallUsage {
                         tokens_in: 30,
                         tokens_out: 0,
                         cached_tokens_in: 0,
                         energy_millijoules: 0,
-                    }),
+                    }]),
             );
         }
         Ok(LlmCallOutcome::new(
@@ -9557,6 +9588,170 @@ async fn a_terminal_failure_persists_its_carried_usage() {
     assert_eq!(recorded[0].tokens_in, 60);
 }
 
+/// Issue #970 round-13 regression (CodeRabbit review, PR #967): the re-drive
+/// seeds the job row's **per-request billed-call ledger**, so the #794 energy
+/// cap still applies per request after a hold.
+///
+/// The rate card is 1 nano/token and 1 nano/mJ (`input = 1_000_000` nano per
+/// million tokens, `energy = 3_600_000_000` nano per kWh), which makes the two
+/// hypotheses arithmetically distinguishable:
+///
+/// * per request: `min(1_000, 100) + min(10, 5_000)` = **110** nano;
+/// * one aggregate entry: `min(1_010 token, 5_100 raw)` = **1_010** nano.
+#[tokio::test]
+async fn a_re_drive_prices_the_seeded_ledger_per_request() {
+    let queue = Arc::new(FakeQueue::default());
+    // The billed-call ledger of the attempt that held: two PAID requests, the
+    // first energy-light (its energy stays uncapped), the second token-light
+    // (its energy is capped hard).
+    queue.state.lock().unwrap().prior_calls = vec![
+        LlmCallUsage {
+            tokens_in: 1_000,
+            energy_millijoules: 100,
+            ..LlmCallUsage::default()
+        },
+        LlmCallUsage {
+            tokens_in: 10,
+            energy_millijoules: 5_000,
+            ..LlmCallUsage::default()
+        },
+    ];
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = ScriptImportWorker {
+        chunks: None,
+        queue: Arc::clone(&queue),
+        // A zero-usage answer keeps the seeded ledger the only priced usage.
+        client: Arc::new(ZeroUsageScriptClient),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: Some(Arc::new(MapPricingRepo::default().with_row(
+            LlmProvider::Neuralwatt,
+            "deepseek-v4-flash",
+            pricing_at(
+                1_000_000,     // 1 nano per token
+                1_000_000,     // 1 nano per output token
+                3_600_000_000, // 1 nano per mJ
+                breakdown_core::ai::PricingSource::CuratedSeed,
+            ),
+        ))),
+        decision: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    let cost = telemetry.cost.expect("cost snapshot recorded");
+    let energy = cost.energy_cost.as_ref().expect("extraction energy cost");
+    assert_eq!(
+        energy.raw_energy_nano, 5_100,
+        "the uncapped figure is the sum over the requests"
+    );
+    assert_eq!(
+        energy.effective_capped_nano, 110,
+        "the cap is applied per request, never to the summed seed"
+    );
+    assert!(energy.capped_by_token_cost);
+    // The token figure stays the aggregate one, priced once over the sum
+    // (issue #794).
+    let token = cost.token_cost.as_ref().expect("extraction token cost");
+    assert_eq!(token.tokens_in, 1_010);
+    assert_eq!(token.total_nano, 1_010);
+}
+
+/// Script client that bills nothing: the seeded ledger is the only usage in the
+/// test above.
+#[derive(Clone, Default)]
+struct ZeroUsageScriptClient;
+
+#[async_trait]
+impl LlmClient for ZeroUsageScriptClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                scenes: vec![DraftScene {
+                    summary: Some("zero-usage call".to_owned()),
+                    ..Default::default()
+                }],
+                ..ScriptContext::default()
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Err(DomainError::validation(
+            "ZeroUsageScriptClient only extracts scripts",
+        ))
+    }
+}
+
+/// Issue #970 round-13 regression (CodeRabbit review, PR #967): a worker that
+/// died between its completion-time telemetry write and `mark_succeeded` must
+/// not be counted twice by the re-drive.
+///
+/// The old seed read the completion-time counters, which already covered the
+/// whole job, and the stored chunks then replayed their usage ON TOP — a
+/// 100-token chunk came back as 200. Now the seed is the ledger (the crashed
+/// attempt's paid requests, appended before each chunk was stored) and the
+/// stored chunks replay their payload only: 200 seeded + 2 × 50 fresh = 300,
+/// never 500.
+#[tokio::test]
+async fn a_crashed_attempts_completion_total_is_not_counted_twice() {
+    let queue = Arc::new(FakeQueue::default());
+    // The crashed attempt appended both paid requests to the row's ledger
+    // before storing the chunks; its completion telemetry may or may not have
+    // landed — the re-drive must not care either way.
+    queue.state.lock().unwrap().prior_calls = vec![
+        LlmCallUsage {
+            tokens_in: 100,
+            ..LlmCallUsage::default()
+        },
+        LlmCallUsage {
+            tokens_in: 100,
+            ..LlmCallUsage::default()
+        },
+    ];
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let store = Arc::new(InMemoryChunkStore::with_prefix(2));
+    let worker = resume_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::clone(&store),
+    );
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(&job, "test-worker", FOUR_SCENE_SCRIPT)
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    assert_eq!(
+        telemetry.tokens_in, 300,
+        "2 × 100 seeded + 2 × 50 fresh: the stored chunks are not re-counted"
+    );
+}
+
 /// Vision client: a TERMINAL (non-breaker, non-retryable) failure that
 /// carries the attempt's billed usage.
 #[derive(Clone, Default)]
@@ -9584,14 +9779,14 @@ impl LlmClient for TerminalBilledValidationClient {
             .unwrap()
             .push(request.page.page_number);
         Err(
-            DomainError::validation("unrecoverable decode failure").with_billed_usage(
+            DomainError::validation("unrecoverable decode failure").with_billed_usage(vec![
                 breakdown_core::ai::LlmCallUsage {
                     tokens_in: 60,
                     tokens_out: 10,
                     cached_tokens_in: 0,
                     energy_millijoules: 0,
                 },
-            ),
+            ]),
         )
     }
 }

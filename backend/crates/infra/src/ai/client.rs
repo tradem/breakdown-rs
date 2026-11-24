@@ -238,17 +238,20 @@ impl OpenAiCompatibleChatClient {
         // retry hint (below).
         let mut budget = req.max_tokens;
         let mut truncation_retries = MAX_TRUNCATION_RETRIES;
-        // Usage accumulates across every paid HTTP response, including the
-        // discarded responses of truncation retries (issue #675) — the
-        // provider billed those tokens too.
-        let mut total_usage = LlmCallUsage::default();
+        // The per-request ledger of every paid HTTP response of this attempt,
+        // including the discarded responses of truncation retries (issue #675)
+        // — the provider billed those tokens too. One ENTRY per request, never
+        // one running total (CodeRabbit review, PR #967 round 13): the energy
+        // cap of issue #794 is applied per request, so `Σ min(raw_i, token_i)`
+        // is only reproducible from an unmerged ledger.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
         loop {
             // Issue #871: BEFORE every billable request, truncation retries
             // included. An open breaker costs no request and no delay.
             if !self.admits_billable_request(&req.model).await {
                 // Issue #970 (CodeRabbit review PR #967): see the vision path.
                 return Err(super::provider_health::breaker_open_error_with_usage(
-                    total_usage,
+                    billed.clone(),
                 ));
             }
             let body = ChatCompletionRequest {
@@ -291,7 +294,7 @@ impl OpenAiCompatibleChatClient {
                 // timeout AFTER billed responses keeps their usage on the
                 // error instead of dropping it at the boundary.
                 .map_err(|error| {
-                    with_attempt_usage(classify_transport_error(error), total_usage)
+                    with_attempt_usage(classify_transport_error(error), billed.clone())
                 })?;
             let status = response.status();
             // Issue #925: the hint must be read from the headers BEFORE the body
@@ -311,7 +314,7 @@ impl OpenAiCompatibleChatClient {
                 // scheduler upstream honours it without a second header read.
                 return Err(with_attempt_usage(
                     classify_http_status_rich(status, &body.text, hint.wait, verdict),
-                    total_usage,
+                    billed.clone(),
                 ));
             }
             // Empty-completion fix (2026-11-20 incident): the identifying
@@ -326,10 +329,10 @@ impl OpenAiCompatibleChatClient {
                 .map_err(|error| {
                     with_attempt_usage(
                         DomainError::validation(format!("invalid LLM response: {error}")),
-                        total_usage,
+                        billed.clone(),
                     )
                 })?;
-            total_usage.accumulate(envelope.usage());
+            billed.push(envelope.usage());
             let (content, finish_reason) = match step_for_response(
                 &envelope,
                 &meta,
@@ -369,12 +372,12 @@ impl OpenAiCompatibleChatClient {
                         %error,
                         "LLM provider returned no usable content — failing the attempt"
                     );
-                    return Err(with_attempt_usage(error, total_usage));
+                    return Err(with_attempt_usage(error, billed.clone()));
                 }
             };
             match serde_json::from_str(content) {
                 Ok(context) => {
-                    return Ok(LlmCallOutcome::new(context, total_usage));
+                    return Ok(LlmCallOutcome::from_calls(context, billed));
                 }
                 Err(error) => {
                     match next_truncation_budget(finish_reason, budget, truncation_retries) {
@@ -395,7 +398,7 @@ impl OpenAiCompatibleChatClient {
                                 DomainError::validation(format!(
                                     "LLM JSON did not match {schema_name}: {error}{suffix}"
                                 )),
-                                total_usage,
+                                billed.clone(),
                             ));
                         }
                     }
@@ -428,14 +431,15 @@ impl OpenAiCompatibleChatClient {
         let mut plain_json_fallback = false;
         let mut budget = req.max_tokens;
         let mut truncation_retries = MAX_TRUNCATION_RETRIES;
-        let mut total_usage = LlmCallUsage::default();
+        // Issue #970: one ledger entry per paid request — see the text path.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
         loop {
             if !self.admits_billable_request(&req.model).await {
                 // Issue #970 (CodeRabbit review PR #967): the responses of
                 // this attempt billed SO FAR travel on the sentinel, so the
                 // hold persists them instead of dropping them here.
                 return Err(super::provider_health::breaker_open_error_with_usage(
-                    total_usage,
+                    billed.clone(),
                 ));
             }
             let body = VisionChatCompletionRequest {
@@ -488,7 +492,7 @@ impl OpenAiCompatibleChatClient {
                 // timeout AFTER billed responses keeps their usage on the
                 // error instead of dropping it at the boundary.
                 .map_err(|error| {
-                    with_attempt_usage(classify_transport_error(error), total_usage)
+                    with_attempt_usage(classify_transport_error(error), billed.clone())
                 })?;
             let status = response.status();
             let hint = parse_retry_hint(response.headers(), status);
@@ -522,7 +526,7 @@ impl OpenAiCompatibleChatClient {
                 let verdict = body.verdict(self.provider);
                 return Err(with_attempt_usage(
                     classify_http_status_rich(status, &body.text, hint.wait, verdict),
-                    total_usage,
+                    billed.clone(),
                 ));
             }
             let meta = ResponseMeta::capture(response.headers());
@@ -532,10 +536,10 @@ impl OpenAiCompatibleChatClient {
                 .map_err(|error| {
                     with_attempt_usage(
                         DomainError::validation(format!("invalid LLM response: {error}")),
-                        total_usage,
+                        billed.clone(),
                     )
                 })?;
-            total_usage.accumulate(envelope.usage());
+            billed.push(envelope.usage());
             let (content, finish_reason) = match step_for_response(
                 &envelope,
                 &meta,
@@ -570,11 +574,11 @@ impl OpenAiCompatibleChatClient {
                         %error,
                         "vision provider returned no usable content — failing the attempt"
                     );
-                    return Err(with_attempt_usage(error, total_usage));
+                    return Err(with_attempt_usage(error, billed.clone()));
                 }
             };
             match serde_json::from_str(content) {
-                Ok(decoded) => return Ok(LlmCallOutcome::new(decoded, total_usage)),
+                Ok(decoded) => return Ok(LlmCallOutcome::from_calls(decoded, billed)),
                 Err(error) => {
                     match next_truncation_budget(finish_reason, budget, truncation_retries) {
                         Some(grown) => {
@@ -586,7 +590,7 @@ impl OpenAiCompatibleChatClient {
                                 DomainError::validation(format!(
                                     "vision LLM JSON did not match {schema_name}: {error}"
                                 )),
-                                total_usage,
+                                billed.clone(),
                             ));
                         }
                     }
@@ -623,9 +627,10 @@ impl LlmClient for OpenAiCompatibleChatClient {
         let decoded = self
             .request_decoded::<ShootingScheduleSchema>(&req, schema, "ShootingSchedule")
             .await?;
-        Ok(LlmCallOutcome::new(
+        let calls = decoded.calls().to_vec();
+        Ok(LlmCallOutcome::from_calls(
             decoded.output.into_core(),
-            decoded.usage,
+            calls,
         ))
     }
 
@@ -652,8 +657,9 @@ impl LlmClient for OpenAiCompatibleChatClient {
         let decoded = self
             .request_vision_decoded::<SchedulePageExtractionSchema>(req, "schedule_page")
             .await?;
+        let calls = decoded.calls().to_vec();
         let output = decoded.output.into_core()?;
-        Ok(LlmCallOutcome::new(output, decoded.usage))
+        Ok(LlmCallOutcome::from_calls(output, calls))
     }
 }
 
@@ -749,19 +755,23 @@ fn strict_compatible(mut schema: serde_json::Value) -> serde_json::Value {
     schema
 }
 
-/// Attach the usage the attempt already billed to a provider failure
+/// Attach the requests the attempt already billed to a provider failure
 /// (issue #970, CodeRabbit review PR #967): a 429/5xx/transport failure that
 /// arrives AFTER billed responses must not drop their accounting when the
 /// failure itself cannot carry an output. A no-op on every variant other
 /// than the provider-unavailable [`DomainError::ServiceUnavailable`].
-fn with_attempt_usage(error: DomainError, usage: LlmCallUsage) -> DomainError {
-    if usage == LlmCallUsage::default() {
+///
+/// `calls` is the attempt's **per-request ledger** (CodeRabbit review, PR #967
+/// round 13): the caller persists it entry by entry, so the #794 energy cap
+/// still applies per request after the re-drive.
+fn with_attempt_usage(error: DomainError, calls: Vec<LlmCallUsage>) -> DomainError {
+    if calls.is_empty() || calls.iter().all(|call| *call == LlmCallUsage::default()) {
         return error;
     }
     // Provider failures that can arrive after billed responses: the
     // transient-unavailable path and the terminal quota path (issue #970,
     // CodeRabbit review PR #967 round 12).
-    error.with_billed_usage(usage)
+    error.with_billed_usage(calls)
 }
 
 /// Shared schema-preparation helper (issue #726): derive the JSON schema for

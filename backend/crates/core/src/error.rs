@@ -92,7 +92,7 @@ pub enum DomainError {
         /// client's terminal decode failure arrives AFTER billed answers, and
         /// the attempt's accounting must not lose them. `None` for every
         /// non-provider source. `Arc` keeps the variant small.
-        usage: Option<std::sync::Arc<crate::ai::LlmCallUsage>>,
+        usage: Option<std::sync::Arc<Vec<crate::ai::LlmCallUsage>>>,
     },
 
     /// State conflict (409).
@@ -127,7 +127,7 @@ pub enum DomainError {
         /// accounting when the failure itself cannot carry an output.
         /// `None`/zero for every non-provider source of this variant.
         /// `Arc` keeps the variant no larger than before the field.
-        usage: Option<std::sync::Arc<crate::ai::LlmCallUsage>>,
+        usage: Option<std::sync::Arc<Vec<crate::ai::LlmCallUsage>>>,
     },
 
     /// The AI-import provider breaker refused a billable request (issue #871).
@@ -144,7 +144,7 @@ pub enum DomainError {
     BreakerOpen {
         code: &'static ProblemCode,
         reason: String,
-        usage: std::sync::Arc<crate::ai::LlmCallUsage>,
+        usage: std::sync::Arc<Vec<crate::ai::LlmCallUsage>>,
     },
 
     /// The **LLM provider refuses to serve this account any more** because its
@@ -177,7 +177,7 @@ pub enum DomainError {
         /// attempt (issue #970, CodeRabbit review PR #967 round 12): a quota
         /// refusal after billed answers must not drop their accounting.
         /// `Arc` keeps the variant small.
-        usage: Option<std::sync::Arc<crate::ai::LlmCallUsage>>,
+        usage: Option<std::sync::Arc<Vec<crate::ai::LlmCallUsage>>>,
     },
 
     /// Upstream dependency rejected our credential (401/403, invalid or
@@ -875,24 +875,30 @@ impl DomainError {
     /// [`DomainError::ServiceUnavailable`] — the only one a provider failure
     /// travels on — so a call site can express "these tokens were billed
     /// before the failure" without restructuring how it built the error.
+    ///
+    /// `calls` is the **per-request ledger** of the billed responses, one entry
+    /// per paid request (CodeRabbit review, PR #967 round 13): the energy cap
+    /// of issue #794 applies per request, so a summed payload could not price
+    /// them honestly once persisted.
     #[must_use]
-    pub fn with_billed_usage(mut self, usage: crate::ai::LlmCallUsage) -> Self {
+    pub fn with_billed_usage(mut self, calls: Vec<crate::ai::LlmCallUsage>) -> Self {
         let slot = match &mut self {
             DomainError::ServiceUnavailable { usage: slot, .. }
             | DomainError::Validation { usage: slot, .. }
             | DomainError::LlmProviderQuotaExhausted { usage: slot, .. } => slot,
             _ => return self,
         };
-        *slot = Some(std::sync::Arc::new(usage));
+        *slot = Some(std::sync::Arc::new(calls));
         self
     }
 
-    /// The usage billed by the completed responses of the same attempt, when
-    /// the error carries it (issue #970). `None`/zero for every variant that
-    /// cannot, so a caller that only wants to persist the accounting needs no
-    /// `match` over the taxonomy.
+    /// The requests billed by the completed responses of the same attempt, when
+    /// the error carries them (issue #970). One entry per paid request — never
+    /// an aggregate — so the caller can persist and price each on its own
+    /// (issue #794). `None` for every variant that cannot, so a caller that
+    /// only wants to persist the accounting needs no `match` over the taxonomy.
     #[must_use]
-    pub fn billed_usage(&self) -> Option<crate::ai::LlmCallUsage> {
+    pub fn billed_usage(&self) -> Option<&[crate::ai::LlmCallUsage]> {
         match self {
             DomainError::ServiceUnavailable {
                 usage: Some(usage), ..
@@ -902,7 +908,7 @@ impl DomainError {
             }
             | DomainError::LlmProviderQuotaExhausted {
                 usage: Some(usage), ..
-            } => Some(**usage),
+            } => Some(usage.as_slice()),
             _ => None,
         }
     }
