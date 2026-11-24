@@ -5540,6 +5540,12 @@ async fn retry_bounded<F, Fut, T>(
     mut op: F,
     max_retries: usize,
     gate: &ProviderGate<'_, impl AiImportQueue + ?Sized>,
+    // Issue #970 (CodeRabbit review PR #967 round 9): the caller-owned sink
+    // for usage billed by FAILED attempts. The successful attempt's usage
+    // travels in `Ok`; the failed attempts' usage would otherwise be dropped
+    // exactly when a later attempt succeeds — so the caller merges the sink
+    // into the outcome's usage.
+    billed: &mut LlmCallUsage,
 ) -> Result<T, CallFailure>
 where
     F: FnMut() -> Fut,
@@ -5554,16 +5560,16 @@ where
     // retry the loop grants.
     let mut evidence: Option<Box<HoldEvidence>> = None;
     // Issue #970 (CodeRabbit review PR #967): usage billed by the attempts'
-    // COMPLETED responses, accumulated across iterations — every sentinel this
-    // loop returns carries it, so a hold persists it and a re-drive resumes
-    // the accounting.
-    let mut carried_usage = LlmCallUsage::default();
+    // COMPLETED responses, accumulated across iterations into the caller's
+    // sink — every sentinel this loop returns carries it, so a hold persists
+    // it and a re-drive resumes the accounting.
+    let carried_usage = &mut *billed;
     loop {
         if !gate.admits().await {
             return Err(CallFailure {
                 error: breaker_open_error(),
                 evidence: evidence.take(),
-                usage: Some(Box::new(carried_usage)),
+                usage: Some(Box::new(*carried_usage)),
             });
         }
         match op().await {
@@ -5610,7 +5616,7 @@ where
                         evidence: evidence.take(),
                         // Issue #970: this failure's own billed usage rides
                         // the sentinel the hold persists.
-                        usage: Some(Box::new(carried_usage)),
+                        usage: Some(Box::new(*carried_usage)),
                     });
                 }
                 if !is_transient(&error) || attempt >= max_retries {
@@ -5625,7 +5631,7 @@ where
                         // mid-attempt refusal carries the usage of the
                         // attempt's already-billed responses — and any
                         // earlier iteration's billed usage rides along.
-                        usage: Some(Box::new(carried_usage)),
+                        usage: Some(Box::new(*carried_usage)),
                     });
                 }
                 attempt += 1;
@@ -5638,7 +5644,7 @@ where
                         evidence: evidence.take(),
                         // Issue #970: prior iterations' billed usage rides the
                         // sentinel the hold persists.
-                        usage: Some(Box::new(carried_usage)),
+                        usage: Some(Box::new(*carried_usage)),
                     });
                 }
                 // `attempt` is the 1-based retry counter, as it was for the
@@ -5679,6 +5685,9 @@ where
 {
     // Issue #942 W2: the failure and its evidence travel together, so the chunk
     // loop can hold the job WITH the reason the provider refused.
+    // Issue #970 (CodeRabbit review PR #967 round 9): failed attempts' billed
+    // usage rides the sink and merges into the successful attempt's outcome.
+    let mut billed = LlmCallUsage::default();
     retry_bounded(
         || async {
             client
@@ -5688,9 +5697,13 @@ where
         },
         max_retries,
         gate,
+        &mut billed,
     )
     .await
-    .map(|value| (value.output, value.usage))
+    .map(|mut value| {
+        value.usage.accumulate(billed);
+        (value.output, value.usage)
+    })
 }
 
 async fn retry_schedule<C, Q>(
@@ -5703,6 +5716,8 @@ where
     C: LlmClient + ?Sized,
     Q: AiImportQueue + ?Sized,
 {
+    // Issue #970 (CodeRabbit review PR #967 round 9): see `retry_chat`.
+    let mut billed = LlmCallUsage::default();
     retry_bounded(
         || async {
             client
@@ -5712,9 +5727,13 @@ where
         },
         max_retries,
         gate,
+        &mut billed,
     )
     .await
-    .map(|value| (value.output, value.usage))
+    .map(|mut value| {
+        value.usage.accumulate(billed);
+        (value.output, value.usage)
+    })
 }
 
 /// One multimodal schedule-page call with the bounded in-attempt retry
@@ -5733,6 +5752,8 @@ where
     // PR #967): every attempt re-uses the SAME `LlmVisionRequest`, so the page
     // PNG is never duplicated per retry — the single-page allocation bound of
     // issue #960 holds with zero clones and no `Arc`.
+    // Issue #970 (CodeRabbit review PR #967 round 9): see `retry_chat`.
+    let mut billed = LlmCallUsage::default();
     retry_bounded(
         || async {
             client
@@ -5742,9 +5763,13 @@ where
         },
         max_retries,
         gate,
+        &mut billed,
     )
     .await
-    .map(|value| (value.output, value.usage))
+    .map(|mut value| {
+        value.usage.accumulate(billed);
+        (value.output, value.usage)
+    })
 }
 
 /// Heartbeat cadence of one apply run's progress payload (issue #800 #3).

@@ -287,7 +287,12 @@ impl OpenAiCompatibleChatClient {
                 .json(&body)
                 .send()
                 .await
-                .map_err(classify_transport_error)?;
+                // Issue #970 (CodeRabbit review PR #967 round 9): a transport
+                // timeout AFTER billed responses keeps their usage on the
+                // error instead of dropping it at the boundary.
+                .map_err(|error| {
+                    with_attempt_usage(classify_transport_error(error), total_usage)
+                })?;
             let status = response.status();
             // Issue #925: the hint must be read from the headers BEFORE the body
             // is consumed (`Response::json`/`chunk` take the response): the
@@ -479,7 +484,12 @@ impl OpenAiCompatibleChatClient {
                 .json(&body)
                 .send()
                 .await
-                .map_err(classify_transport_error)?;
+                // Issue #970 (CodeRabbit review PR #967 round 9): a transport
+                // timeout AFTER billed responses keeps their usage on the
+                // error instead of dropping it at the boundary.
+                .map_err(|error| {
+                    with_attempt_usage(classify_transport_error(error), total_usage)
+                })?;
             let status = response.status();
             let hint = parse_retry_hint(response.headers(), status);
             log_hint("hosted_vision_chat", &hint);

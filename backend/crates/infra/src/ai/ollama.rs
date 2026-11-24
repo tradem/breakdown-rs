@@ -265,7 +265,13 @@ impl LlmClient for OllamaChatClient {
                     total_usage,
                 ));
             }
-            let (content, usage) = self.request_once(&req).await?;
+            // Issue #970 (CodeRabbit review PR #967 round 9): prior billed
+            // responses of this attempt ride the error instead of being
+            // dropped at the `?`.
+            let (content, usage) = self
+                .request_once(&req)
+                .await
+                .map_err(|error| error.with_billed_usage(total_usage))?;
             total_usage.accumulate(usage);
             match serde_json::from_str::<ScriptContext>(&content) {
                 Ok(context) => return Ok(LlmCallOutcome::new(context, total_usage)),
@@ -311,7 +317,11 @@ impl LlmClient for OllamaChatClient {
                     total_usage,
                 ));
             }
-            let (content, usage) = self.request_vision_once(req).await?;
+            // Issue #970 (CodeRabbit review PR #967 round 9): see the text path.
+            let (content, usage) = self
+                .request_vision_once(req)
+                .await
+                .map_err(|error| error.with_billed_usage(total_usage))?;
             total_usage.accumulate(usage);
             // Decode through the provider-facing schema type (CodeRabbit
             // review, PR #967), like the hosted vision path: a rows-less
