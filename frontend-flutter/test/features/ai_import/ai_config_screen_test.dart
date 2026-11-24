@@ -78,13 +78,12 @@ AiImportDefaults _defaults({
   String script = '',
   String schedule = '',
   String scheduleFlat = '',
-}) =>
-    AiImportDefaults(
-      (b) => b
-        ..script = script
-        ..schedule = schedule
-        ..scheduleFlat = scheduleFlat,
-    );
+}) => AiImportDefaults(
+  (b) => b
+    ..script = script
+    ..schedule = schedule
+    ..scheduleFlat = scheduleFlat,
+);
 
 ModelInfo _model(
   String id, {
