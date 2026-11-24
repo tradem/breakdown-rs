@@ -1793,6 +1793,26 @@ where
         // per-call ledger (#794) is a single entry here, but it goes through the
         // same type as the script worker's chunk ledger.
         let mut extraction_usage = UsageAccumulator::default();
+        // Issue #970 (CodeRabbit review PR #967): usage persisted by PRIOR
+        // attempts' holds resumes the accounting — the accumulator (and with
+        // it the completion-time telemetry overwrite and the cost snapshot)
+        // covers every billed call of the job, not only this attempt's. The
+        // prior total rides the ledger as ONE aggregate entry, which
+        // `priced_calls` prices exactly like the pre-#794 aggregate.
+        let prior_usage = match self.queue.recorded_usage(job.id).await {
+            Ok(usage) => usage,
+            Err(error) => {
+                tracing::warn!(
+                    job_id = %job.id.as_uuid(),
+                    %error,
+                    "could not read prior attempt usage; accounting restarts at zero"
+                );
+                LlmCallUsage::default()
+            }
+        };
+        if prior_usage != LlmCallUsage::default() {
+            extraction_usage.record(prior_usage);
+        }
         let mut decision_usage = UsageAccumulator::default();
         // Rows the schedule scoring request left unscored and whether that
         // request failed (issue #767); both stay empty on the native CSV path,
@@ -1845,7 +1865,17 @@ where
                 {
                     // Issue #871: a breaker refusal is a HOLD (same rationale as
                     // the flat path below).
-                    Err(failure) if is_breaker_open(&failure.error) => {
+                    Err(mut failure) if is_breaker_open(&failure.error) => {
+                        // Issue #970 (CodeRabbit review PR #967): persist the
+                        // usage of the pages billed before the hold, so the
+                        // re-drive's accounting resumes instead of restarting.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            failure.usage.take().map(|boxed| *boxed),
+                        )
+                        .await;
                         hold_job(
                             self.queue.as_ref(),
                             &self.bounds,
@@ -2113,13 +2143,24 @@ where
                 )
                 .map(|effort| effort.as_str().to_owned()),
             };
-            let (extraction, usage) = retry_schedule_page(
+            let (extraction, usage) = match retry_schedule_page(
                 self.client.as_ref(),
                 vision_request,
                 self.bounds.max_attempt_retries as usize,
                 gate,
             )
-            .await?;
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(mut failure) => {
+                    // Issue #970 (CodeRabbit review PR #967): the pages billed
+                    // BEFORE the failure travel with it, so the hold can
+                    // persist their usage and a re-drive resumes the
+                    // accounting instead of losing the paid calls.
+                    failure.usage = Some(Box::new(total_usage));
+                    return Err(failure);
+                }
+            };
             total_usage.accumulate(usage);
             carry_over.apply_page(extraction, &mut rows);
             // The RenderedPage is dropped here: the next iteration renders the
@@ -5108,6 +5149,34 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
 /// `evidence` is the bounded failure that parked the job (issue #942 W2). It is
 /// persisted on the attempt history — one row per hold *series* — because a hold
 /// that carried only a problem code left the operator with nothing to grep.
+/// Persist ONE attempt's partial usage on the running job row before a hold
+/// (issue #970, CodeRabbit review PR #967). Best-effort by contract: a failed
+/// write is logged and the hold proceeds — losing the accounting note must
+/// never block the hold that protects the provider — but the result is never
+/// silently discarded.
+async fn record_attempt_usage<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    id: AiImportJobId,
+    worker_id: &str,
+    usage: Option<LlmCallUsage>,
+) {
+    let Some(usage) = usage else {
+        return;
+    };
+    if usage == LlmCallUsage::default() {
+        // Nothing billed in this attempt: the row already carries the prior
+        // total, and an additive write of zeros would be a no-op anyway.
+        return;
+    }
+    if let Err(error) = queue.record_partial_usage(id, worker_id, &usage).await {
+        tracing::warn!(
+            job_id = %id.as_uuid(),
+            %error,
+            "could not persist the held attempt's partial usage; the re-drive restarts the accounting"
+        );
+    }
+}
+
 pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
     queue: &Q,
     bounds: &AiImportBounds,
@@ -5349,6 +5418,12 @@ struct CallFailure {
     /// `None` when no paid call was started at all (the breaker was already
     /// open), where `mark_held` synthesizes its own reason.
     evidence: Option<HoldEvidence>,
+    /// Usage of the paid calls COMPLETED before the failure (issue #970,
+    /// CodeRabbit review PR #967): a hold must persist it, so a re-drive
+    /// resumes the accounting instead of losing the billed pages. `None` when
+    /// the failure carries no completed-call usage. Boxed: the `Err` variant
+    /// must stay below the `result_large_err` threshold.
+    usage: Option<Box<LlmCallUsage>>,
 }
 
 impl From<DomainError> for CallFailure {
@@ -5356,6 +5431,7 @@ impl From<DomainError> for CallFailure {
         Self {
             error,
             evidence: None,
+            usage: None,
         }
     }
 }
@@ -5416,6 +5492,7 @@ where
             return Err(CallFailure {
                 error: breaker_open_error(),
                 evidence: evidence.take(),
+                usage: None,
             });
         }
         match op().await {
@@ -5457,6 +5534,7 @@ where
                     return Err(CallFailure {
                         error: breaker_open_error(),
                         evidence: evidence.take(),
+                        usage: None,
                     });
                 }
                 if !is_transient(&error) || attempt >= max_retries {
@@ -5467,6 +5545,7 @@ where
                             .downcast::<DomainError>()
                             .unwrap_or_else(|other| DomainError::validation(other.to_string())),
                         evidence: None,
+                        usage: None,
                     });
                 }
                 attempt += 1;
@@ -5477,6 +5556,7 @@ where
                     return Err(CallFailure {
                         error: breaker_open_error(),
                         evidence: evidence.take(),
+                        usage: None,
                     });
                 }
                 // `attempt` is the 1-based retry counter, as it was for the

@@ -666,6 +666,28 @@ pub trait AiImportQueue: Send + Sync {
         Ok(())
     }
 
+    /// Usage already persisted on the job row by PRIOR attempts of this job
+    /// (held attempts' partial writes — CodeRabbit review, PR #967, issue
+    /// #970). Zeros for a first attempt and for queues that do not track
+    /// usage, so a worker can resume the accounting instead of restarting it.
+    async fn recorded_usage(&self, _id: AiImportJobId) -> Result<LlmCallUsage, DomainError> {
+        Ok(LlmCallUsage::default())
+    }
+
+    /// Add ONE attempt's partial usage to the RUNNING job row before a hold,
+    /// so a re-drive resumes the accounting instead of losing the billed calls
+    /// of completed pages (CodeRabbit review, PR #967, issue #970). Queues
+    /// without usage persistence treat this as a no-op; the completion-time
+    /// telemetry overwrite stays the full prior-plus-attempt total.
+    async fn record_partial_usage(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        _usage: &LlmCallUsage,
+    ) -> Result<(), DomainError> {
+        Ok(())
+    }
+
     async fn get(&self, id: AiImportJobId) -> Result<Option<AiImportJob>, DomainError>;
 
     /// List the caller's jobs, newest first (issue #337).

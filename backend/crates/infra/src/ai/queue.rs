@@ -2465,6 +2465,83 @@ impl AiImportQueue for PgAiImportQueue {
     /// Without the fence a displaced worker's telemetry would commit over the
     /// new owner's numbers even though its subsequent `mark_succeeded` is
     /// rejected — the metrics would describe work that was thrown away.
+    /// Issue #970: the usage counters of PRIOR attempts (held attempts'
+    /// partial writes) on the job row, so a re-drive resumes the accounting.
+    async fn recorded_usage(
+        &self,
+        id: AiImportJobId,
+    ) -> Result<breakdown_core::ai::LlmCallUsage, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT tokens_in, tokens_out, cached_tokens_in, energy_millijoules
+            FROM ai_import.ai_import_job
+            WHERE id = $1
+            "#,
+        )
+        .bind(id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        Ok(breakdown_core::ai::LlmCallUsage {
+            tokens_in: row
+                .try_get::<i64, _>("tokens_in")
+                .map_err(map_sqlx_error)?
+                .max(0) as u64,
+            tokens_out: row
+                .try_get::<i64, _>("tokens_out")
+                .map_err(map_sqlx_error)?
+                .max(0) as u64,
+            cached_tokens_in: row
+                .try_get::<i64, _>("cached_tokens_in")
+                .map_err(map_sqlx_error)?
+                .max(0) as u64,
+            energy_millijoules: row
+                .try_get::<i64, _>("energy_millijoules")
+                .map_err(map_sqlx_error)?
+                .max(0) as u64,
+        })
+    }
+
+    /// Issue #970: add ONE attempt's partial usage to the RUNNING job row
+    /// before a hold (owner-fenced like every worker write), so a re-drive
+    /// resumes the accounting instead of losing the billed calls of completed
+    /// pages. The completion-time telemetry overwrite stays the full
+    /// prior-plus-attempt total, so the additive write never double-counts.
+    async fn record_partial_usage(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        usage: &breakdown_core::ai::LlmCallUsage,
+    ) -> Result<(), DomainError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET tokens_in = tokens_in + $3,
+                tokens_out = tokens_out + $4,
+                cached_tokens_in = cached_tokens_in + $5,
+                energy_millijoules = energy_millijoules + $6,
+                updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(i64::try_from(usage.tokens_in).unwrap_or(i64::MAX))
+        .bind(i64::try_from(usage.tokens_out).unwrap_or(i64::MAX))
+        .bind(i64::try_from(usage.cached_tokens_in).unwrap_or(i64::MAX))
+        .bind(i64::try_from(usage.energy_millijoules).unwrap_or(i64::MAX))
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        ensure_claim_owned(
+            result.rows_affected(),
+            id,
+            worker_id,
+            "record partial usage for",
+        )?;
+        Ok(())
+    }
+
     async fn record_worker_telemetry(
         &self,
         id: AiImportJobId,

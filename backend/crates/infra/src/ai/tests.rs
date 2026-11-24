@@ -522,6 +522,11 @@ impl FakeQueue {
         self.state.lock().unwrap().progress.clone()
     }
 
+    /// The partial usage writes before each hold, in order (issue #970).
+    fn partial_usage(&self) -> Vec<breakdown_core::ai::LlmCallUsage> {
+        self.state.lock().unwrap().partial_usage.clone()
+    }
+
     /// The holds this worker materialized, in order (issue #871, D-A4).
     fn holds(&self) -> Vec<breakdown_core::ai::ProviderHold> {
         self.state.lock().unwrap().holds.clone()
@@ -592,6 +597,9 @@ struct FakeQueueState {
     progress: Vec<breakdown_core::ai::AiImportProgress>,
     /// Every hold the worker materialized (issue #871, D-A4).
     holds: Vec<breakdown_core::ai::ProviderHold>,
+    /// The partial usage writes before each hold (issue #970, CodeRabbit
+    /// review PR #967), in order.
+    partial_usage: Vec<breakdown_core::ai::LlmCallUsage>,
     /// The evidence carried by each hold, index-aligned with `holds` (issue
     /// #942 W2: a hold must never arrive without a reason).
     hold_evidence: Vec<Option<breakdown_core::ai::HoldEvidence>>,
@@ -615,6 +623,16 @@ struct FakeQueueState {
 
 #[async_trait]
 impl AiImportQueue for FakeQueue {
+    async fn record_partial_usage(
+        &self,
+        _id: breakdown_core::ai::AiImportJobId,
+        _worker_id: &str,
+        usage: &breakdown_core::ai::LlmCallUsage,
+    ) -> Result<(), DomainError> {
+        self.state.lock().unwrap().partial_usage.push(*usage);
+        Ok(())
+    }
+
     async fn enqueue(
         &self,
         request: AiImportEnqueueRequest,
@@ -9066,6 +9084,169 @@ async fn schedule_worker_streams_a_spatial_pdf_page_by_page_through_vision() {
         preview.rows[0].shooting_day_label.as_deref(),
         Some("1. Drehtag: Mo. 18.10.2021")
     );
+}
+
+/// Issue #970 (CodeRabbit review, PR #967): when the breaker holds the job
+/// AFTER page 1 succeeded, page 1's billed usage travels with the failure and
+/// is persisted on the job row BEFORE the hold — a re-drive resumes the
+/// accounting instead of losing the paid call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_breaker_hold_persists_the_billed_pages_usage() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // The breaker starts CLOSED (page 1 is billed) and the client OPENS it
+    // during the page-2 call, so the hold happens AFTER a billed page — the
+    // exact accounting-loss shape of issue #970.
+    let client = Arc::new(HoldOnSecondPageVisionClient {
+        page_numbers: Arc::default(),
+        queue_state: Arc::clone(&queue.state),
+    });
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &two_page_pdf())
+        .await
+        .expect("a hold is not a failure");
+
+    assert_eq!(result, "", "a hold returns no preview handle");
+    assert!(
+        queue.state.lock().unwrap().failed.is_empty(),
+        "a hold is not a failure"
+    );
+    assert_eq!(queue.holds().len(), 1, "the job is held");
+    let recorded = queue.partial_usage();
+    assert_eq!(
+        recorded.len(),
+        1,
+        "the pages billed before the hold are persisted once"
+    );
+    assert_eq!(recorded[0].tokens_in, 100, "page 1's billed usage");
+    assert_eq!(recorded[0].tokens_out, 40);
+}
+
+/// Vision client: page 1 answers a valid extraction WITH usage, page 2
+/// returns the breaker sentinel — the exact hold-after-a-billed-page shape.
+#[derive(Clone)]
+struct HoldOnSecondPageVisionClient {
+    page_numbers: Arc<Mutex<Vec<u32>>>,
+    /// The fake queue's state: the client opens the breaker during the page-2
+    /// call, so the hold (with its `retry_at`) follows a BILLED page.
+    queue_state: Arc<Mutex<FakeQueueState>>,
+}
+
+#[async_trait]
+impl LlmClient for HoldOnSecondPageVisionClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "HoldOnSecondPageVisionClient only extracts schedule pages",
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        self.page_numbers
+            .lock()
+            .unwrap()
+            .push(request.page.page_number);
+        if request.page.page_number > 1 {
+            // Open the breaker with a probe time BEFORE failing, so the
+            // hold that follows parks the job instead of releasing it.
+            self.queue_state.lock().unwrap().breaker =
+                Some(breakdown_core::ai::ProviderBreakerSnapshot {
+                    state: breakdown_core::ai::ProviderBreakerState::Open,
+                    consecutive_failures: 3,
+                    flap_count: 0,
+                    retry_at: Some(Timestamp::now() + SignedDuration::from_mins(5)),
+                    trial_job: None,
+                });
+        }
+        if request.page.page_number == 1 {
+            Ok(LlmCallOutcome::new(
+                breakdown_core::ai::SchedulePageExtraction {
+                    legend_entries: Vec::new(),
+                    rows: vec![breakdown_core::ai::SchedulePageRow {
+                        row_ref: "300.33".into(),
+                        scene_ref: Some("300.33".into()),
+                        shooting_day_label: None,
+                        date: None,
+                        location: None,
+                        order: Some(1),
+                        cast_codes: Vec::new(),
+                    }],
+                    end_of_page_shooting_day_label: None,
+                    end_of_page_date: None,
+                },
+                breakdown_core::ai::LlmCallUsage {
+                    tokens_in: 100,
+                    tokens_out: 40,
+                    cached_tokens_in: 0,
+                    energy_millijoules: 0,
+                },
+            ))
+        } else {
+            Err(super::provider_health::breaker_open_error())
+        }
+    }
+}
+
+/// A hand-built two-page PDF (same construction as [`tiny_script_pdf`], with
+/// `/Count 2` and a second page object).
+fn two_page_pdf() -> Vec<u8> {
+    let mut pdf = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    let mut add_object = |object: String| {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(object.as_bytes());
+    };
+    add_object("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj".to_owned());
+    add_object("2 0 obj\n<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>\nendobj".to_owned());
+    add_object("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj".to_owned());
+    add_object(
+        "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj".to_owned(),
+    );
+    let stream = "BT /F1 12 Tf 72 720 Td (1. INT. KITCHEN - DAY) Tj ET";
+    add_object(format!(
+        "5 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+        stream.len(),
+        stream
+    ));
+    add_object("6 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>\nendobj".to_owned());
+    let stream2 = "BT /F1 12 Tf 72 720 Td (2. INT. OFFICE - NIGHT) Tj ET";
+    add_object(format!(
+        "7 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+        stream2.len(),
+        stream2
+    ));
+    let xref_offset = pdf.len();
+    pdf.extend_from_slice(b"xref\n0 8\n0000000000 65535 f \n");
+    for offset in offsets {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    );
+    pdf
 }
 
 /// A schedule PDF whose configured extractor cannot render pages
