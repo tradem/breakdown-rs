@@ -17,6 +17,14 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.71.3] - Unreleased
+### Changed (issue #961)
+
+- Composition root: `WorkerDeps` now carries the by-value character read model
+  used once per script job for deterministic role resolution; the API's
+  dependency pins move to `breakdown_core` 0.78.0 / `infra` 0.89.0. No wire or
+  OpenAPI change.
+
 ## [0.71.2] - Unreleased
 ### Changed (issue #959)
 

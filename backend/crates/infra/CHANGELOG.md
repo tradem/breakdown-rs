@@ -16,6 +16,21 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.89.0] - Unreleased
+### Added (issue #961)
+
+- `WorkerDeps.character_repo` (`CharacterRepositoryImpl`, by value) lets the
+  script worker load the target season's existing cast ONCE at the read boundary
+  (bounded, best-effort; a miss or error becomes an empty slice) and pass it to
+  `ScriptImportWorker::process_with_cast` as a borrowed slice. No write-side
+  projection read, no `Arc` wrapper around the pool-backed repository.
+- `ScriptImportWorker::process_with_cast` / `process_segmented_with_cast` apply
+  the deterministic category resolver after each chunk, inject the compact
+  `<document-context>` (cast summary + neighbor scenes) into the Pass-1 prompt,
+  and verify outfits against both raw and kerning-normalized scene text.
+- Pass 2 receives one neighbor bracket per preview row; `continuity_state`
+  therefore sees `previous_scene` / `next_scene` transition metadata.
+
 ## [0.88.0] - Unreleased
 ### Added (issue #959)
 

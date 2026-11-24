@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
@@ -4518,4 +4519,213 @@ fn a_document_without_a_recognised_script_page_still_segments() {
     // Widened, but the cut anchor is still recorded: the plan states what the
     // segmentation actually did, not what the zone pass wished for.
     assert_eq!(segmented.plan_canonical_form(), "P01|script_body|P01.B00\n");
+}
+
+// Issue #961 — cast-directory precedence, kerning safety and continuity context.
+
+fn p3_cast_directory() -> CastDirectory {
+    parse_cast_directory_from_text(
+        "PERSONEN/ HAUPTCAST\nDr. Leyla Sherbaz (44)\nMikko Rantala\n\
+         EPISODENHAUPTROLLEN\nJonas Weber (8, OT)\nCROSS\nDr. Kai Hoffmann\n\
+         KOMPARSEN\nHeiko Neubert\n",
+        |_| false,
+    )
+}
+
+#[test]
+fn the_cast_directory_beats_inline_ot_and_unlisted_background_is_strictly_extra() {
+    let directory = p3_cast_directory();
+    let existing: Vec<ExistingSeasonCharacter> = Vec::new();
+    let generic: Vec<String> = Vec::new();
+    let (jonas, uncertainty) =
+        resolve_character_category("JONAS WEBER (OT)", 0, &directory, &existing, &generic);
+    assert_eq!(jonas, CharacterCategory::Guest);
+    assert!(uncertainty.is_none(), "a declared section is never a doubt");
+
+    let (heiko, uncertainty) =
+        resolve_character_category("Heiko Neubert", 1, &directory, &existing, &generic);
+    assert_eq!(heiko, CharacterCategory::Extra);
+    assert!(uncertainty.is_none());
+
+    let (kai, uncertainty) =
+        resolve_character_category("Dr. Kai Hoffmann", 2, &directory, &existing, &generic);
+    assert_eq!(kai, CharacterCategory::Guest);
+    assert!(uncertainty.is_none());
+
+    let (leyla, uncertainty) =
+        resolve_character_category("LEYLA SHERBAZ", 3, &directory, &existing, &generic);
+    assert_eq!(leyla, CharacterCategory::MainCast);
+    assert!(
+        uncertainty.is_none(),
+        "a unique surname token is unambiguous"
+    );
+
+    let (passant, uncertainty) =
+        resolve_character_category("PASSANT (OT)", 4, &directory, &existing, &generic);
+    assert_eq!(passant, CharacterCategory::Extra);
+    assert!(
+        uncertainty.is_none(),
+        "zero false-positive guest promotions"
+    );
+
+    let (unknown, uncertainty) =
+        resolve_character_category("ANNA", 5, &directory, &existing, &generic);
+    assert_eq!(unknown, CharacterCategory::MainCast);
+    assert!(
+        uncertainty.is_none(),
+        "a missing signal is not an ambiguity"
+    );
+}
+
+#[test]
+fn an_existing_season_character_outweighs_inline_markers_but_not_the_cast_sheet() {
+    let directory = p3_cast_directory();
+    let existing = vec![ExistingSeasonCharacter {
+        name: "Anna Schmidt".to_owned(),
+        category: CharacterCategory::Guest,
+    }];
+    let generic: Vec<String> = Vec::new();
+    let (anna, _) =
+        resolve_character_category("ANNA SCHMIDT (OT)", 0, &directory, &existing, &generic);
+    assert_eq!(anna, CharacterCategory::Guest);
+    let (jonas, _) = resolve_character_category("JONAS", 1, &directory, &existing, &generic);
+    assert_eq!(jonas, CharacterCategory::Guest);
+}
+
+#[test]
+fn kerning_normalized_quotes_keep_grounded_outfits() {
+    use crate::ai::normalize_kerning;
+
+    let directory = p3_cast_directory();
+    let raw = "Mik k o in OP";
+    let normalized = normalize_kerning(raw, &directory);
+    assert_eq!(normalized, "Mikko in OP");
+    assert_eq!(
+        normalize_kerning("Der Arzt geht in den OP.", &directory),
+        "Der Arzt geht in den OP."
+    );
+    let mut scene = DraftScene {
+        characters: vec![DraftCharacter::from("Mikko")],
+        outfits: vec![DraftOutfit {
+            character_name: "Mikko".to_owned(),
+            name: "OP".to_owned(),
+            source_quote: "Mikko in OP".to_owned(),
+            ..DraftOutfit::default()
+        }],
+        ..DraftScene::default()
+    };
+    let rejected = verify_draft_outfits_with_normalized(&mut scene, raw, &normalized);
+    assert!(rejected.is_empty(), "the normalized quote is grounded");
+    assert_eq!(scene.outfits.len(), 1);
+}
+
+#[test]
+fn zero_dialogue_generic_roles_are_extra_and_neighbors_carry_script_day_parity() {
+    let chunks =
+        SceneChunk::extract_scenes("3 I/T - WOHNUNG\nPFLEGER 2\nANNA (30): Hallo.\n    Ja.\n");
+    let roles = zero_dialogue_generic_roles(&chunks);
+    assert!(roles.contains(&character_identity("PFLEGER 2")));
+    assert!(!roles.contains(&character_identity("ANNA")));
+
+    let neighbors = neighbor_brackets(&chunks);
+    assert_eq!(neighbors.len(), chunks.len());
+    for bracket in neighbors {
+        assert!(bracket.previous_scene.is_none());
+        assert!(bracket.next_scene.is_none());
+    }
+    let context = render_document_context(&p3_cast_directory(), None);
+    assert!(context.contains("Jonas Weber [guest]"));
+    assert!(context.contains("<document-context>"));
+}
+
+#[test]
+fn zero_dialogue_generic_roles_treat_inline_dialogue_as_speech() {
+    let speaking = SceneChunk::extract_scenes("3 I/T - WOHNUNG\nPFLEGER 2: Hallo.\n");
+    assert!(
+        !zero_dialogue_generic_roles(&speaking).contains(&character_identity("PFLEGER 2")),
+        "a cue with dialogue on its own line speaks"
+    );
+
+    let silent = SceneChunk::extract_scenes("3 I/T - WOHNUNG\nPFLEGER 2:\n");
+    assert!(
+        zero_dialogue_generic_roles(&silent).contains(&character_identity("PFLEGER 2")),
+        "a cue with no dialogue keeps the Extra fallback"
+    );
+
+    let mixed = SceneChunk::extract_scenes(
+        "3 I/T - WOHNUNG\nPFLEGER 2:\n\
+         PFLEGER 2: Ich begleite Sie jetzt zurück auf Ihr Zimmer.\n",
+    );
+    assert!(
+        !zero_dialogue_generic_roles(&mixed).contains(&character_identity("PFLEGER 2")),
+        "the 40-char cap applies to the cue, not to inline dialogue"
+    );
+}
+
+#[test]
+fn a_parenthetical_cue_hits_duplicate_exact_directory_entries() {
+    let entry = |section: &str, category: CharacterCategory| CastDirectoryEntry {
+        canonical_name: "Jonas Weber".to_owned(),
+        normalized_identity: "jonas weber".to_owned(),
+        declared_category: category,
+        raw_section: section.to_owned(),
+        inline_ot: false,
+    };
+    let directory = CastDirectory::new(vec![
+        entry("GASTROLLEN", CharacterCategory::Guest),
+        entry("KOMPARSEN", CharacterCategory::Extra),
+    ]);
+    let (category, uncertainty) =
+        resolve_character_category("JONAS WEBER (OT)", 0, &directory, &[], &[]);
+    assert_eq!(category, CharacterCategory::Guest);
+    let uncertainty = uncertainty.expect("two sections for one name are a real conflict");
+    assert!(uncertainty.note.contains("guest vs extra"));
+}
+
+#[test]
+fn neighbor_script_day_parity_uses_the_group_key_not_the_display_label() {
+    let day = |number: i32, label: &str| DraftShootingDay {
+        number: Some(number),
+        label: Some(label.to_owned()),
+        score: None,
+    };
+    let chunk = |index: usize, shooting_day: DraftShootingDay| SceneChunk {
+        index,
+        heading: format!("{index} I/T - OP"),
+        scene_number: u32::try_from(index).ok(),
+        episode: None,
+        shooting_day: Some(shooting_day),
+        mood: None,
+        text: String::new(),
+    };
+    let chunks = vec![
+        chunk(0, day(1, "Tag 1")),
+        chunk(1, day(2, "Tag 2")),
+        chunk(2, day(1, "Day 1")),
+        chunk(3, day(1, "Tag 1")),
+    ];
+    let brackets = neighbor_brackets(&chunks);
+    assert_eq!(
+        brackets[0]
+            .next_scene
+            .as_ref()
+            .and_then(|scene| scene.script_day.as_deref()),
+        Some("Tag 2")
+    );
+    assert!(
+        !brackets[0]
+            .next_scene
+            .as_ref()
+            .is_some_and(|scene| scene.same_script_day),
+        "day 1 and day 2 are different days"
+    );
+    let previous = brackets[3]
+        .previous_scene
+        .as_ref()
+        .expect("a previous scene exists");
+    assert_eq!(previous.script_day.as_deref(), Some("Day 1"));
+    assert!(
+        previous.same_script_day,
+        "both scenes are day 1 regardless of their display label: {previous:?}"
+    );
 }

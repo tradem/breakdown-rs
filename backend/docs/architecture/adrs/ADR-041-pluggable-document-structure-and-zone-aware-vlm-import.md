@@ -73,6 +73,8 @@ To improve `main_cast` / `guest` / `extra` assignment without inducing LLM hedgi
   2. For unlisted characters: existing season `Character` projection category (passed in from the read edge at job start, respecting the CQRS boundary) → explicit inline `(OT)`/background marker (strictly `extra`) → zero-dialogue generic role designator across the script (`extra`) → `main_cast` default.
 - **Neighbor-Scene Continuity Bracket:** Each Pass 1 chunk and Pass 2 continuity gap receives compact metadata for the immediately preceding and succeeding `ScriptBody` scenes (number, location, mood, script day, shared characters) alongside `CastDirectory`.
 
+**Shipped by issue #961 (P3):** `document::parse_cast_directory` / `CastDirectory` (static section table, comma-list and parenthetical parsing), `document::normalize_kerning` (dictionary-gated Ghostscript repairs only), `preview::resolve_character_category` (the ladder above, with one `characters` uncertainty only for conflicting sections), `preview::neighbor_brackets` / `render_document_context` for Pass 1, and `continuity::continuity_state` `previous_scene` / `next_scene` fields for Pass 2. The resolver runs in `core` AFTER the model answers; the season cast slice is loaded once in `infra::ai::worker_loop` at the read boundary and passed by borrow, never through an `Arc` or a write-side repository call. Grounding accepts a quote against both the raw and the normalized view, so a kerning repair cannot drop a real outfit.
+
 ### D5 — Page-streaming multimodal schedule extraction & additive cast legend
 
 Non-CSV shooting schedules are processed **page-by-page** rather than as a single flattened text blob:

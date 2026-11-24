@@ -36,7 +36,7 @@ applyTo:
 - `AI_DOCUMENT_PARSER` – document-structure adapter (ADR-041 `D1`, issue #958): `spatial` (default), `docling` or `legacy-pdftotext`. Read **once** at startup; an unknown value fails the boot instead of silently selecting another extraction path.
 - `AI_DOCLING_ENDPOINT` – base URL of the `docling-serve` sidecar (e.g. `http://docling:5001/`). Required only when `AI_DOCUMENT_PARSER=docling`; missing or unparsable fails the boot.
 - `AI_EVAL_CORPUS_DIR` – **test-only** (not read at runtime): directory of local PDF scripts/schedules for the Golden Corpus harness `cargo test -p infra --test ai_document_eval_corpus`. Unset ⇒ the harness skips; copyrighted broadcast PDFs never enter Git. Set ⇒ the run is **complete**: every document the manifest lists must be present, otherwise the sweep fails (a partial corpus is not a green corpus).
-- `AI_EVAL_CORPUS_MANIFEST` – **test-only** override for the expectation manifest, default `backend/config/ai_eval_corpus.tsv`. The manifest is the ONE definition of the corpus (file, kind `script|schedule`, expected scene count, note), so a local run and a CI run assert exactly the same numbers: only the PDFs are out of tree, the expectations are not. Verified against the GDrive fixture folder: `292.pdf` 40, `293.pdf` 42, `294.pdf` 43, `Drehbuch_1.pdf` 42, `Drehbuch_2.pdf` 42, `Drehplan_1.pdf` schedule.
+- `AI_EVAL_CORPUS_MANIFEST` – **test-only** override for the expectation manifest, default `backend/config/ai_eval_corpus.tsv`. The manifest is the ONE definition of the corpus (file, kind `script|schedule`, expected scene count, note, `cast=<name>:<category>,…`), so a local run and a CI run assert exactly the same numbers and cast verdicts: only the PDFs are out of tree, the expectations are not. The `cast` column is resolved through the production `resolve_character_category` against that document's parsed `CastDirectory`; a missing name, a wrong category or an emitted uncertainty fails the sweep. Verified against the GDrive fixture folder (issue #961): `292.pdf` 40, `293.pdf` 42, `294.pdf` 43, `Drehbuch_1.pdf` 42, `Drehbuch_2.pdf` 42, `Drehplan_1.pdf` schedule — 20/20 cast assertions.
 - **Local corpus run** (from `backend/`, needs `poppler-utils`): `AI_EVAL_CORPUS_DIR=~/Downloads/drive-download cargo test -p infra --test ai_document_eval_corpus -- --nocapture`. The CI runs the **identical** command; only the PDFs come from somewhere else: `crates/integration-tests/tests/ai_gdrive_corpus_materialize.rs` copies `GDRIVE_ROOT` into `AI_EVAL_CORPUS_DIR` (skips without `GDRIVE_CLIENT_ID`, default target `target/eval-corpus`), and the `integration-tests` workflow step "Golden Corpus (GDrive materialise + zone-aware sweep)" runs materialise + sweep together under the same trust gate as the GDrive smoke. Locally the same two commands work with `GDRIVE_*` in the environment, so a developer reproduces CI byte-for-byte.
 
 > **Descriptive `User-Agent` (issue #521).** The curated opencode / OpenCode-Go
@@ -174,6 +174,44 @@ into the final one. Pass 0 fixes this before a single token is spent:
   what a chunk *is*, and remember that a change to the zone rules changes the
   plan for every document (the digest handles that, the version handles the
   chunking).
+
+#### Cast directory & deterministic categories (ADR-041 `D4`, issue #961)
+
+The front-matter cast sheet is parsed once per extraction into a plain owned
+`core::ai::CastDirectory` (`document::parse_cast_directory` over `CastList`
+lines; the flat-text seam uses `parse_cast_directory_from_text`). Section
+headers map through the `'static` `CAST_SECTION_MAPPING` slice — no `HashMap`,
+`LazyLock` or `Arc`. Trailing `(44)` / `(8, OT)` / `(MT)` parentheticals are
+stripped from `canonical_name` / `normalized_identity`; `inline_ot` records the
+fact but never outranks the declared section. `SegmentedScript.cast_directory`
+is borrowed by every chunk.
+
+- **Role ladder:** `preview::resolve_character_category` returns the declared
+  `CastDirectory` category first (unconditionally, including a listed
+  `"Jonas Weber (8, OT)"` → `guest`), then a season `Character` category, then
+  a strict inline background marker (`(OT)` / `(O.T.)` / `Off-Text` /
+  `Statist` / `Komparse` → `extra`), then a zero-dialogue generic role, then
+  `main_cast`. Exactly one `characters` uncertainty is added for a genuine
+  two-section conflict; a missing signal and a marker are never doubts. The
+  worker overwrites the model's category AFTER each chunk — the prompt is
+  context, never the authority (zero hedging, zero `(OT)` → `guest` promotions).
+- **Season cast boundary:** `WorkerDeps.character_repo` is
+  `CharacterRepositoryImpl` **by value** (its `PgPool` is already an internal
+  `Arc`). `script_worker_tick` calls `list_by_season` once for
+  `job.target.season_id`, bounded and best-effort; a miss, an error or a missing
+  target becomes an empty slice. No repository call in an adapter, saga or
+  aggregate (`AGENTS.md` §1).
+- **Kerning:** `document::normalize_kerning` joins whitespace-split runs only
+  when they match a multi-character name in the same `CastDirectory` (`"Mik k
+  o"` → `"Mikko"`); ordinary prose is untouched. The model sees the normalized
+  view inside a trailing `<document-context>` block, while
+  `verify_draft_outfits_with_normalized` accepts a `source_quote` against the
+  raw AND the normalized scene text.
+- **Continuity:** `neighbor_brackets` derives `previous_scene` / `next_scene`
+  (number, location, mood, script day, `same_script_day`) from ordered chunks;
+  Pass 1 renders them with the cast summary, Pass 2 adds the same pair to the
+  `continuity_state` decision payload. A model split of one chunk gives every
+  resulting preview row the same bracket.
 
 #### AI payload storage (durable source/preview blobs)
 

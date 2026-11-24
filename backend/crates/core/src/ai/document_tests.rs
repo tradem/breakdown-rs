@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 // Copyright (C) 2024-2026 Breakdown RS Contributors
+// Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 //! Unit tests for the canonical document-structure IR (issue #958).
@@ -10,11 +11,13 @@
 //! text round-trip) is verified on every build.
 
 use super::{
-    BlockAnchor, BlockKind, DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentBlock,
-    DocumentZones, ExtractionOptions, FOOTER_BAND_MIN_Y0, HEADER_BAND_MAX_Y1, LineRole,
-    NormalizedBBox, PageZone, RenderOptions, RenderedPage, StructuralPlan, StructuredDocument,
-    StructuredPage, classify_document_zones, is_continuation_marker, zoned_lines,
+    BlockAnchor, BlockKind, CAST_SECTION_MAPPING, CastDirectory, CastDirectoryEntry,
+    DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentBlock, DocumentZones, ExtractionOptions,
+    FOOTER_BAND_MIN_Y0, HEADER_BAND_MAX_Y1, LineRole, NormalizedBBox, PageZone, RenderOptions,
+    RenderedPage, StructuralPlan, StructuredDocument, StructuredPage, classify_document_zones,
+    is_continuation_marker, normalize_kerning, parse_cast_directory_from_text, zoned_lines,
 };
+use crate::character::category::CharacterCategory;
 
 /// A three-page synthetic document: a title page, a `SYNOPSIS` front-matter page
 /// and one script-body page with a running header band and an indented cue.
@@ -927,4 +930,108 @@ fn a_uniform_zone_verdict_has_no_counters() {
     assert_eq!(zones.page(1).map(|page| page.heading_lines), Some(0));
     // A page outside the document is treated as prose, never dropped.
     assert_eq!(zones.zone_of(7), PageZone::ScriptBody);
+}
+
+#[test]
+fn cast_sections_split_comma_lists_and_record_inline_ot() {
+    let text = "PERSONEN/ HAUPTCAST\nDr. Leyla Sherbaz (44)\nEPISODENHAUPTROLLEN\nJonas Weber (8, OT)\nCROSS\nDr. Kai Hoffmann\nKOMPARSEN\nHeiko Neubert, Anna Schmidt (MT)\n";
+    let directory = parse_cast_directory_from_text(text, |_| false);
+    assert_eq!(directory.entries.len(), 5);
+    let jonas = directory
+        .entries
+        .iter()
+        .find(|entry| entry.normalized_identity == "jonas weber")
+        .expect("the episodic lead is a cast entry");
+    assert_eq!(jonas.declared_category, CharacterCategory::Guest);
+    assert_eq!(jonas.raw_section, "EPISODENHAUPTROLLEN");
+    assert!(jonas.inline_ot);
+    assert_eq!(jonas.canonical_name, "Jonas Weber");
+    let heiko = directory
+        .entries
+        .iter()
+        .find(|entry| entry.canonical_name == "Heiko Neubert")
+        .expect("the first comma-separated extra is its own entry");
+    assert_eq!(heiko.declared_category, CharacterCategory::Extra);
+    assert!(!heiko.inline_ot);
+    assert!(
+        directory
+            .entries
+            .iter()
+            .any(|entry| entry.canonical_name == "Anna Schmidt")
+    );
+    let kai = directory
+        .entries
+        .iter()
+        .find(|entry| entry.canonical_name == "Dr. Kai Hoffmann")
+        .expect("CROSS is a guest section");
+    assert_eq!(kai.declared_category, CharacterCategory::Guest);
+    assert!(
+        CAST_SECTION_MAPPING
+            .iter()
+            .any(|(header, category)| *header == "EXTRAS" && *category == CharacterCategory::Extra)
+    );
+}
+
+#[test]
+fn kerning_normalization_is_dictionary_gated_and_never_spellchecks_prose() {
+    let directory = CastDirectory::new(vec![CastDirectoryEntry {
+        canonical_name: "Mikko Rantala".to_owned(),
+        normalized_identity: "mikko rantala".to_owned(),
+        declared_category: CharacterCategory::MainCast,
+        raw_section: "PERSONEN".to_owned(),
+        inline_ot: false,
+    }]);
+    let split = "Mik k o Rantala geht langsam. Der Arzt hilft.";
+    assert_eq!(
+        normalize_kerning(split, &directory),
+        "Mikko Rantala geht langsam. Der Arzt hilft."
+    );
+    assert_eq!(normalize_kerning(split, &CastDirectory::default()), split);
+}
+
+#[test]
+fn cast_collection_stops_at_a_recognized_non_cast_banner() {
+    let text = "KOMPARSEN\nHeiko Neubert\nCAST OFF!\nAnna Schmidt\n\n\
+               SYNOPSIS\nJonas Weber wartet im Flur.\n";
+    let directory = parse_cast_directory_from_text(text, |_| false);
+    let names: Vec<&str> = directory
+        .entries
+        .iter()
+        .map(|entry| entry.canonical_name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"Heiko Neubert"),
+        "uppercase prose is not a section banner"
+    );
+    assert!(
+        names.contains(&"Anna Schmidt"),
+        "a valid cast heading keeps collection active"
+    );
+    assert!(
+        !names.iter().any(|name| name.contains("Jonas Weber")),
+        "synopsis prose must not enter the cast directory: {names:?}"
+    );
+}
+
+#[test]
+fn kerning_normalization_keeps_repeated_spaces_byte_identical() {
+    let directory = CastDirectory::new(vec![CastDirectoryEntry {
+        canonical_name: "Mikko Rantala".to_owned(),
+        normalized_identity: "mikko rantala".to_owned(),
+        declared_category: CharacterCategory::MainCast,
+        raw_section: "PERSONEN".to_owned(),
+        inline_ot: false,
+    }]);
+    assert_eq!(
+        normalize_kerning("Der  Arzt hilft.", &directory),
+        "Der  Arzt hilft."
+    );
+    assert_eq!(
+        normalize_kerning("  Der Arzt  ", &directory),
+        "  Der Arzt  "
+    );
+    assert_eq!(
+        normalize_kerning("Mik k o Rantala  geht", &directory),
+        "Mikko Rantala  geht"
+    );
 }
