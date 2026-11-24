@@ -2347,3 +2347,73 @@ fn invalid_is_not_the_positive_token_valid() {
         "response_format is valid but images are not supported"
     ));
 }
+
+/// Issue #970 (CodeRabbit review, PR #967 round 12): a billed malformed
+/// response followed by a QUOTA failure keeps the billed usage on the
+/// terminal error — the quota variant carries the counters like the
+/// transient-unavailable path, with its code and terminal classification
+/// unchanged.
+#[tokio::test]
+async fn a_quota_failure_after_a_billed_response_carries_the_usage() {
+    let server = wiremock::MockServer::start().await;
+    // First response: billed (tokens 100), malformed JSON — the loop
+    // re-requests with a grown budget.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 1_024}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-billed",
+                "model": "glm-5.3-flash",
+                "choices": [{
+                    "message": {"role": "assistant", "content": "{not json"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 25}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    // Second response: the wallet is empty (terminal quota refusal).
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 2_048}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(402)
+                .set_body_json(serde_json::json!({"error": {"message": "insufficient_quota"}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the quota refusal must fail the attempt");
+    assert_eq!(
+        error.code().code,
+        "ai-import.provider-quota-exhausted",
+        "the quota classification is unchanged: {error}"
+    );
+    assert!(!error.is_retryable(), "quota stays terminal: {error}");
+    assert_eq!(
+        error.billed_usage().map(|usage| usage.tokens_in),
+        Some(100),
+        "the billed response's usage travels on the quota error: {error}"
+    );
+    server.verify().await;
+}
