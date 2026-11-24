@@ -5125,3 +5125,311 @@ fn pre_p4_stored_schedule_preview_deserializes_with_serde_defaults() {
     assert_eq!(decoded.rows[0].shot_suffix, None);
     assert!(decoded.rows[0].cast_refs.is_empty());
 }
+
+// ===========================================================================
+// CodeRabbit review, PR #967 — day-banner transition rule, late legends and
+// mixed legend/scene pages
+// ===========================================================================
+
+#[test]
+fn an_undated_new_day_banner_clears_the_carried_date() {
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    // Day 1 with a date, one row beneath it.
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![
+                SchedulePageRow {
+                    row_ref: "300.33".into(),
+                    scene_ref: Some("300.33".into()),
+                    shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".into()),
+                    date: None,
+                    location: None,
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                },
+                // Undated day-2 banner row: the previous date must NOT leak
+                // into day 2.
+                SchedulePageRow {
+                    row_ref: "2. Drehtag:".into(),
+                    scene_ref: None,
+                    shooting_day_label: None,
+                    date: None,
+                    location: None,
+                    order: Some(2),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "300.40".into(),
+                    scene_ref: Some("300.40".into()),
+                    shooting_day_label: None,
+                    date: None,
+                    location: None,
+                    order: Some(3),
+                    cast_codes: Vec::new(),
+                },
+            ],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+    assert_eq!(rows.len(), 2, "the banner row must not emit a scene row");
+    assert_eq!(rows[0].date, Some(Date::new(2021, 10, 18).unwrap()));
+    assert_eq!(
+        rows[1].date, None,
+        "day 2 without a stated date must not inherit day 1's date"
+    );
+}
+
+#[test]
+fn an_undated_end_of_page_banner_clears_the_carried_date() {
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![SchedulePageRow {
+                row_ref: "300.33".into(),
+                scene_ref: Some("300.33".into()),
+                shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".into()),
+                date: None,
+                location: None,
+                order: Some(1),
+                cast_codes: Vec::new(),
+            }],
+            end_of_page_shooting_day_label: Some("2. Drehtag".into()),
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+    // Next page: an undated row under the new day inherits NO date.
+    let mut next_rows = Vec::new();
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![SchedulePageRow {
+                row_ref: "300.41".into(),
+                scene_ref: Some("300.41".into()),
+                shooting_day_label: None,
+                date: None,
+                location: None,
+                order: Some(1),
+                cast_codes: Vec::new(),
+            }],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut next_rows,
+    );
+    assert_eq!(
+        next_rows[0].date, None,
+        "an undated end-of-page day banner must clear the previous day's date"
+    );
+}
+
+#[test]
+fn a_same_day_continuation_banner_keeps_its_date() {
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![
+                SchedulePageRow {
+                    row_ref: "300.33".into(),
+                    scene_ref: Some("300.33".into()),
+                    shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".into()),
+                    date: None,
+                    location: None,
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                },
+                // Continuation row reporting the SAME day by number without a
+                // date: the date must be retained, not cleared.
+                SchedulePageRow {
+                    row_ref: "300.35".into(),
+                    scene_ref: Some("300.35".into()),
+                    shooting_day_label: Some("1. Drehtag".into()),
+                    date: None,
+                    location: None,
+                    order: Some(2),
+                    cast_codes: Vec::new(),
+                },
+            ],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+    assert_eq!(rows[0].date, Some(Date::new(2021, 10, 18).unwrap()));
+    assert_eq!(
+        rows[1].date,
+        Some(Date::new(2021, 10, 18).unwrap()),
+        "the same day continuing without a date keeps its date"
+    );
+}
+
+#[test]
+fn cast_codes_resolve_against_a_legend_from_a_later_page() {
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    // Page 1: a row casting code "2" before any legend exists, plus an
+    // unknown code "99".
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![SchedulePageRow {
+                row_ref: "300.33".into(),
+                scene_ref: Some("300.33".into()),
+                shooting_day_label: None,
+                date: None,
+                location: None,
+                order: Some(1),
+                cast_codes: vec!["2".into(), "99".into()],
+            }],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+    // Page 2: the legend finally defines code 2.
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: vec![ScheduleLegendEntry {
+                code: "2".into(),
+                character_name: "Ben".into(),
+                modifier: ScheduleRoleModifier::None,
+            }],
+            rows: Vec::new(),
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+    assert!(
+        rows[0].cast_refs.is_empty(),
+        "page-time resolution cannot know the late legend yet"
+    );
+    carry_over.finalize_cast_refs(&mut rows);
+    assert_eq!(rows[0].cast_refs.len(), 1, "code 99 stays dropped");
+    assert_eq!(rows[0].cast_refs[0].character_name, "Ben");
+}
+
+#[test]
+fn a_page_with_scene_rows_and_a_rollen_legend_keeps_its_rows() {
+    let mut page = StructuredPage::new(7, 595.0, 842.0);
+    // Scene row at the top of the page.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.08, 0.12, 0.13, 0.15),
+        "300.37N",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.30, 0.12, 0.65, 0.16),
+        "KLINIKUM / ITS",
+    );
+    // ROLLEN legend section at the BOTTOM of the same page.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.80, 0.20, 0.82),
+        "ROLLEN",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.83, 0.14, 0.90),
+        "2\n4",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.16, 0.83, 0.40, 0.90),
+        "Ben\nPhilipp",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    assert_eq!(
+        extracted.rows.len(),
+        1,
+        "scene rows above a ROLLEN section must survive the page"
+    );
+    assert_eq!(extracted.rows[0].row_ref, "300.37N");
+    // The legend itself is still extracted from the full page.
+    assert_eq!(extracted.legend_entries.len(), 2);
+}
+
+#[test]
+fn a_legend_only_page_still_returns_no_scene_rows() {
+    let mut page = StructuredPage::new(3, 595.0, 842.0);
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.20, 0.20, 0.22),
+        "ROLLEN",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.23, 0.14, 0.30),
+        "2\n4",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.16, 0.23, 0.40, 0.30),
+        "Ben\nPhilipp",
+    );
+    let extracted = extract_schedule_page_from_structured(&page);
+    assert!(
+        extracted.rows.is_empty(),
+        "a legend-only page must not invent scene rows"
+    );
+}
+
+#[test]
+fn inline_legend_entries_in_the_rollen_heading_block_are_read() {
+    let mut page = StructuredPage::new(3, 595.0, 842.0);
+    // ONE block containing the heading AND the first legend line.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.10, 0.20, 0.40, 0.25),
+        "ROLLEN\n2 = Ben",
+    );
+    let extracted = extract_schedule_page_from_structured(&page);
+    assert_eq!(
+        extracted.legend_entries.len(),
+        1,
+        "the inline entry inside the heading block must be found"
+    );
+    assert_eq!(extracted.legend_entries[0].character_name, "Ben");
+}
+
+#[test]
+fn a_cast_cell_between_two_tight_rows_is_assigned_exactly_once() {
+    let mut page = StructuredPage::new(4, 595.0, 842.0);
+    // Two scene rows only 0.012 apart — both within the old ±0.015 filter of
+    // a cell aligned anywhere between them.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.08, 0.200, 0.13, 0.210),
+        "300.33",
+    );
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.08, 0.212, 0.13, 0.222),
+        "300.34",
+    );
+    // One cast cell aligned between the two rows.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.67, 0.209, 0.73, 0.212),
+        "7",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    assert_eq!(extracted.rows.len(), 2);
+    let total: usize = extracted.rows.iter().map(|row| row.cast_codes.len()).sum();
+    assert_eq!(
+        total, 1,
+        "one cell must land on exactly ONE row (the nearest), not both"
+    );
+    assert_eq!(extracted.rows[1].cast_codes, vec!["7".to_owned()]);
+}

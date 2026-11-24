@@ -417,6 +417,25 @@ fn the_default_attempt_window_is_28_minutes_for_ollama() {
 }
 
 #[test]
+fn the_default_vision_attempt_window_adds_one_fallback_request_hosted() {
+    // CodeRabbit PR #967: the hosted vision path can send ONE request beyond
+    // the truncation-retry count (the `response_format` fallback does not
+    // consume a truncation retry), so its permit-hold window is the shared
+    // bound plus exactly one request timeout: 22 min + 120 s = 1440 s.
+    let b = AiImportBounds::default();
+    assert_eq!(
+        b.vision_attempt_worst_case_secs(HOSTED_INNER_RETRIES),
+        22 * 60 + 120
+    );
+    // The Ollama vision path has no format fallback: its window stays at the
+    // shared bound (28 min).
+    assert_eq!(
+        b.vision_attempt_worst_case_secs(OLLAMA_INNER_RETRIES) - b.request_timeout_secs,
+        b.attempt_worst_case_secs(OLLAMA_INNER_RETRIES)
+    );
+}
+
+#[test]
 fn the_hint_clamp_is_the_larger_backoff_term() {
     // Issue #926: the backoff term is a ceiling over BOTH the computed cap and
     // the server-hint clamp, because `retry_bounded` sleeps the larger of the

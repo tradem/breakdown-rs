@@ -27,6 +27,11 @@ pub struct AiWorkerConfig {
     pub model: String,
     pub prompt: String,
     pub vault_key_id: String,
+    /// The FLAT-path schedule prompt (CodeRabbit review, PR #967): only
+    /// resolved for `DocumentKind::Schedule` jobs (the flat branch runs for
+    /// legacy-PDF / plain-text sources; the page-streaming branch keeps
+    /// `prompt`). `None` for script jobs.
+    pub flat_prompt: Option<String>,
     /// Configured `reasoning_effort` (2026-11-20 investigation). `Auto` = no
     /// explicit level: the curated profile (if any), else the provider default.
     pub reasoning_effort: ReasoningEffortChoice,
@@ -90,6 +95,14 @@ impl AiConfigRepositoryImpl {
 
         let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
         let prompt = parse_prompt_for_kind(&row, &kind)?;
+        // CodeRabbit review, PR #967: the flat schedule path carries its own
+        // prompt contract (flattened text in, `ShootingSchedule` out). A stored
+        // `"schedule_flat"` key in the prompts JSONB wins; otherwise the
+        // built-in flat default applies — never the page-streaming prompt.
+        let flat_prompt = match kind {
+            DocumentKind::Schedule => Some(parse_flat_schedule_prompt(&row)?),
+            DocumentKind::Script => None,
+        };
 
         // Decision Model slot (issue #722): all three columns are NULL or
         // all set (the aggregate validates the triple). A partially-set row
@@ -135,6 +148,7 @@ impl AiConfigRepositoryImpl {
             provider,
             model: row.try_get("assistant_model").map_err(map_sqlx_error)?,
             prompt,
+            flat_prompt,
             vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
             reasoning_effort: parse_optional_reasoning_effort(
                 row.try_get::<Option<String>, _>("reasoning_effort")
@@ -386,6 +400,30 @@ fn parse_prompt_for_kind(row: &PgRow, kind: &DocumentKind) -> Result<String, Dom
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
     DomainError::service_unavailable(format!("AI config database error: {error}"))
+}
+
+/// Resolve the FLAT-path schedule prompt (CodeRabbit review, PR #967): the
+/// same stored-wins precedence as [`parse_prompt_for_kind`], keyed by the
+/// string `"schedule_flat"` in the prompts JSONB (additive — old config rows
+/// without the key fall back to the built-in flat default), else
+/// [`crate::ai::default_flat_schedule_prompt`].
+fn parse_flat_schedule_prompt(row: &PgRow) -> Result<String, DomainError> {
+    let prompts: std::collections::HashMap<String, String> = row
+        .try_get::<serde_json::Value, _>("prompts")
+        .map_err(map_sqlx_error)
+        .and_then(|value| {
+            serde_json::from_value(value).map_err(|error| {
+                DomainError::validation(format!("invalid AI prompt projection: {error}"))
+            })
+        })?;
+    match prompts
+        .get("schedule_flat")
+        .map(|prompt| prompt.as_str())
+        .filter(|prompt| !prompt.trim().is_empty())
+    {
+        Some(prompt) => Ok(prompt.to_owned()),
+        None => crate::ai::default_flat_schedule_prompt(),
+    }
 }
 
 #[cfg(test)]

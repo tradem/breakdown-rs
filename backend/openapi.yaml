@@ -361,7 +361,13 @@ components:
         prompts the import workers seed from.
       properties:
         schedule:
-          description: Default prompt seed for schedule imports.
+          description: Default prompt seed for schedule imports (page-streaming vision path).
+          type: string
+        schedule_flat:
+          description: |-
+            Default prompt seed for the FLAT schedule path (legacy-PDF /
+            plain-text: flattened text in, `ShootingSchedule` out) — CodeRabbit
+            review, PR #967. Additive on the wire.
           type: string
         script:
           description: Default prompt seed for script imports.
@@ -369,6 +375,7 @@ components:
       required:
       - script
       - schedule
+      - schedule_flat
       type: object
     AiImportJob:
       description: |-

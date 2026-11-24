@@ -272,6 +272,22 @@ impl AiImportBounds {
             )
     }
 
+    /// The analytic worst case of one VISION attempt (hosted multimodal page
+    /// path, CodeRabbit review PR #967): the shared formula above PLUS one
+    /// further `request_timeout_secs`, because `request_vision_decoded` can
+    /// re-send the request once more than the truncation-retry count — the
+    /// `response_format` fallback does not consume a truncation retry. This is
+    /// a bound on the documented permit-hold figure only (no runtime deadline
+    /// reads it); the Ollama vision path has no fallback and keeps
+    /// [`Self::attempt_worst_case_secs`].
+    ///
+    /// With the defaults: hosted vision = 22 min + 120 s = **24 min**.
+    #[must_use]
+    pub const fn vision_attempt_worst_case_secs(&self, inner_retries: u32) -> u64 {
+        self.attempt_worst_case_secs(inner_retries)
+            .saturating_add(self.request_timeout_secs)
+    }
+
     /// Worst-case token budget for one script before provider-side spend
     /// controls are considered.
     pub const fn worst_case_tokens(&self) -> u64 {

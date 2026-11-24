@@ -275,7 +275,7 @@ impl LlmClient for OllamaChatClient {
 
     async fn chat_vision_constrained(
         &self,
-        req: LlmVisionRequest,
+        req: &LlmVisionRequest,
     ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
         // Local-only transport: no pre-egress policy gate is needed because no
         // bytes leave the host (ADR-041 `D2`), but a misrouted request must
@@ -285,7 +285,7 @@ impl LlmClient for OllamaChatClient {
                 "Ollama client received a non-Ollama vision request",
             ));
         }
-        let mut last_parse_error = None;
+        let mut last_parse_error: Option<String> = None;
         let mut total_usage = LlmCallUsage::default();
         for _attempt in 0..=self.max_parse_retries {
             if let Some(health) = &self.health
@@ -297,16 +297,23 @@ impl LlmClient for OllamaChatClient {
             {
                 return Err(super::provider_health::breaker_open_error());
             }
-            let (content, usage) = self.request_vision_once(&req).await?;
+            let (content, usage) = self.request_vision_once(req).await?;
             total_usage.accumulate(usage);
-            match serde_json::from_str::<SchedulePageExtraction>(&content) {
-                Ok(extraction) => return Ok(LlmCallOutcome::new(extraction, total_usage)),
-                Err(error) => last_parse_error = Some(error),
+            // Decode through the provider-facing schema type (CodeRabbit
+            // review, PR #967), like the hosted vision path: a rows-less
+            // object must FAIL (not silently default to an empty page), and a
+            // free-string modifier (the schema permits any text plus null)
+            // must normalize instead of failing the whole page.
+            match serde_json::from_str::<crate::ai::client::SchedulePageExtractionSchema>(&content)
+            {
+                Ok(extraction) => match extraction.into_core() {
+                    Ok(extraction) => return Ok(LlmCallOutcome::new(extraction, total_usage)),
+                    Err(error) => last_parse_error = Some(error.to_string()),
+                },
+                Err(error) => last_parse_error = Some(error.to_string()),
             }
         }
-        let detail = last_parse_error
-            .map(|error| error.to_string())
-            .unwrap_or_else(|| "unknown JSON parse error".to_owned());
+        let detail = last_parse_error.unwrap_or_else(|| "unknown JSON parse error".to_owned());
         Err(DomainError::validation(format!(
             "Ollama returned invalid SchedulePageExtraction after bounded retries: {detail}"
         )))

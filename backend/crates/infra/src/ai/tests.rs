@@ -1090,6 +1090,8 @@ fn schedule_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
@@ -6422,6 +6424,7 @@ fn worker_decision_config(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        flat_prompt: Some("fixture prompt".to_owned()),
         vault_key_id: format!("settings-{}", uuid::Uuid::now_v7()),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         decision,
@@ -6736,6 +6739,8 @@ async fn a_failed_schedule_scoring_request_without_labelled_rows_records_scoring
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
@@ -8966,7 +8971,7 @@ impl LlmClient for RecordingVisionScheduleClient {
 
     async fn chat_vision_constrained(
         &self,
-        request: breakdown_core::ai::LlmVisionRequest,
+        request: &breakdown_core::ai::LlmVisionRequest,
     ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
         assert!(
             request
@@ -8985,7 +8990,10 @@ impl LlmClient for RecordingVisionScheduleClient {
             .lock()
             .unwrap()
             .push(request.page.page_number);
-        self.contexts.lock().unwrap().push(request.user_context);
+        self.contexts
+            .lock()
+            .unwrap()
+            .push(request.user_context.clone());
         Ok(LlmCallOutcome::new(
             breakdown_core::ai::SchedulePageExtraction {
                 legend_entries: Vec::new(),
@@ -9028,6 +9036,8 @@ async fn schedule_worker_streams_a_spatial_pdf_page_by_page_through_vision() {
         provider: LlmProvider::Neuralwatt,
         model: "qwen3-vl".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
@@ -9078,6 +9088,8 @@ async fn schedule_worker_keeps_the_flat_text_path_for_the_legacy_parser() {
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
@@ -9118,7 +9130,7 @@ async fn ollama_vision_rejects_non_ollama_provider() {
         reasoning_effort: None,
     };
     let error = client
-        .chat_vision_constrained(request)
+        .chat_vision_constrained(&request)
         .await
         .expect_err("a misrouted vision request must fail closed");
     assert!(

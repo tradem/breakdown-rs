@@ -1894,6 +1894,15 @@ pub struct ScheduleCarryOver {
     pub active_date: Option<Date>,
     #[serde(default)]
     pub cast_legend: std::collections::BTreeMap<String, ScheduleLegendEntry>,
+    /// Per-row raw cast codes recorded by [`ScheduleCarryOver::apply_page`]
+    /// (row index into the cumulative `out_rows` vec → raw codes), resolved
+    /// against the COMPLETE document legend by
+    /// [`ScheduleCarryOver::finalize_cast_refs`] (CodeRabbit review, PR #967):
+    /// a legend defined on a LATER page must still resolve rows from earlier
+    /// pages, so codes are never dropped at page time. Transient extraction
+    /// state — never serialized.
+    #[serde(skip, default)]
+    pending_cast_codes: Vec<(usize, Vec<String>)>,
 }
 
 /// One row extracted from a single schedule page before carry-over and
@@ -1950,6 +1959,38 @@ pub fn is_drehfrei_banner(text: &str) -> bool {
 pub fn is_shooting_day_banner(text: &str) -> bool {
     let lower = text.trim().to_ascii_lowercase();
     lower.contains("drehtag:") || lower.contains("shooting day")
+}
+
+/// Identity of a shooting day, as the banners of one document encode it
+/// (CodeRabbit review, PR #967): numbered days (`"1. Drehtag"`,
+/// `"7. Drehtag: Mo. 25.10.2021"`) are identified by their DAY NUMBER — the
+/// same day may appear once with its date and later as a bare `"2. Drehtag"`
+/// continuation row — while unnumbered days fall back to the trimmed label.
+/// Comparing identities instead of raw label text keeps a continuation banner
+/// from clearing the date it did not restate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ShootingDayIdentity {
+    Numbered(u32),
+    Labelled(String),
+}
+
+#[must_use]
+fn shooting_day_identity(normalized_label: &str) -> ShootingDayIdentity {
+    let head = normalized_label.trim().split(':').next().unwrap_or("");
+    let digits: String = head
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if let Ok(number) = digits.parse::<u32>() {
+        // A leading number only counts when it is a day number, not the first
+        // digits of an unnumbered label like "3 Sat Studio".
+        let rest = head.trim()[digits.len()..].trim_start();
+        if rest.starts_with('.') {
+            return ShootingDayIdentity::Numbered(number);
+        }
+    }
+    ShootingDayIdentity::Labelled(normalized_label.trim().to_owned())
 }
 
 /// Normalize a raw shooting-day banner by stripping trailing operational notes
@@ -2147,13 +2188,12 @@ impl ScheduleCarryOver {
                     .filter(|s| !s.trim().is_empty())
                     .unwrap_or(raw_ref_trimmed);
                 if let Some(normalized_label) = normalize_day_banner_label(banner_source) {
-                    self.active_date = raw_row
+                    let parsed_date = raw_row
                         .date
                         .as_deref()
                         .and_then(parse_schedule_date)
-                        .or_else(|| parse_date_from_day_banner(&normalized_label))
-                        .or(self.active_date);
-                    self.active_shooting_day_label = Some(normalized_label);
+                        .or_else(|| parse_date_from_day_banner(&normalized_label));
+                    self.advance_shooting_day(normalized_label, parsed_date);
                 }
                 continue;
             }
@@ -2168,15 +2208,7 @@ impl ScheduleCarryOver {
                     .as_deref()
                     .and_then(parse_schedule_date)
                     .or_else(|| parse_date_from_day_banner(&label));
-                // Update the date when the day CHANGED or when this banner
-                // states a fresh parseable date; identical bodies would trip
-                // `clippy::if_same_then_else`.
-                if self.active_shooting_day_label.as_deref() != Some(label.as_str())
-                    || parsed_date.is_some()
-                {
-                    self.active_date = parsed_date;
-                }
-                self.active_shooting_day_label = Some(label);
+                self.advance_shooting_day(label, parsed_date);
             } else if let Some(parsed_date) = raw_row.date.as_deref().and_then(parse_schedule_date)
             {
                 self.active_date = Some(parsed_date);
@@ -2207,6 +2239,12 @@ impl ScheduleCarryOver {
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned);
+            // Record the raw codes for `finalize_cast_refs`: the legend may only
+            // be complete after later pages, so resolution also happens at the
+            // end of the document (the page-time resolution below stays as the
+            // best-effort value a caller sees before finalizing).
+            self.pending_cast_codes
+                .push((out_rows.len(), raw_row.cast_codes.clone()));
             let cast_refs = resolve_schedule_cast_refs(&raw_row.cast_codes, &self.cast_legend);
 
             out_rows.push(ShootingScheduleRow {
@@ -2228,13 +2266,52 @@ impl ScheduleCarryOver {
             .as_deref()
             .and_then(normalize_day_banner_label)
         {
-            self.active_date = page
+            let parsed_date = page
                 .end_of_page_date
                 .as_deref()
                 .and_then(parse_schedule_date)
-                .or_else(|| parse_date_from_day_banner(&end_label))
-                .or(self.active_date);
-            self.active_shooting_day_label = Some(end_label);
+                .or_else(|| parse_date_from_day_banner(&end_label));
+            self.advance_shooting_day(end_label, parsed_date);
+        }
+    }
+
+    /// The ONE shooting-day transition rule shared by all three banner paths
+    /// (standalone banner row, day-labelled row, end-of-page banner — CodeRabbit
+    /// review, PR #967):
+    ///
+    /// - a parsed date always updates `active_date`;
+    /// - the SAME day continuing without a date keeps the carried date (a bare
+    ///   `"1. Drehtag"` continuation row must not erase its day's date);
+    /// - a DIFFERENT day starting without a date clears `active_date` — the
+    ///   previous day's date must never leak into the next day's rows.
+    fn advance_shooting_day(&mut self, normalized_label: String, parsed_date: Option<Date>) {
+        let same_day = self
+            .active_shooting_day_label
+            .as_deref()
+            .is_some_and(|active| {
+                shooting_day_identity(active) == shooting_day_identity(&normalized_label)
+            });
+        match parsed_date {
+            Some(date) => self.active_date = Some(date),
+            None if !same_day => self.active_date = None,
+            // Same day, no restated date: retain the known date.
+            None => {}
+        }
+        self.active_shooting_day_label = Some(normalized_label);
+    }
+
+    /// Resolve every row's raw cast codes against the COMPLETE document legend
+    /// (CodeRabbit review, PR #967). Must run ONCE after the last page has been
+    /// applied, on the same `out_rows` vec every [`ScheduleCarryOver::apply_page`]
+    /// appended to: a legend defined on a later page then also resolves the rows
+    /// of earlier pages. Codes that remain unknown at that point are dropped
+    /// (same rule as page-time resolution).
+    pub fn finalize_cast_refs(&self, out_rows: &mut [ShootingScheduleRow]) {
+        for (row_index, raw_codes) in &self.pending_cast_codes {
+            let Some(row) = out_rows.get_mut(*row_index) else {
+                continue;
+            };
+            row.cast_refs = resolve_schedule_cast_refs(raw_codes, &self.cast_legend);
         }
     }
 }
@@ -2307,6 +2384,9 @@ pub fn extract_schedule_from_structured(document: &StructuredDocument) -> Shooti
         let extraction = extract_schedule_page_from_structured(page);
         carry_over.apply_page(extraction, &mut rows);
     }
+    // The legend is complete after the last page: resolve every row's raw cast
+    // codes against the final legend (CodeRabbit review, PR #967).
+    carry_over.finalize_cast_refs(&mut rows);
     ShootingSchedule {
         block_id: None,
         rows,
@@ -2425,9 +2505,13 @@ fn extract_spatial_legend_entries(
     }
 
     // 2. Fallback for single-block or flat-line `"<code> = <name>"` /
-    //    `"<code> <name>"` legend layouts.
+    //    `"<code> <name>"` legend layouts. The heading block itself is scanned
+    //    too: a parser may merge `ROLLEN` and the first legend lines into ONE
+    //    block, which the `below` y-position filter would exclude entirely
+    //    (CodeRabbit review, PR #967). The bare `ROLLEN` heading line yields no
+    //    entry (`parse_inline_legend_line` requires a numeric code).
     if entries.is_empty() {
-        for block in below {
+        for block in std::iter::once(rollen_block).chain(below.iter().copied()) {
             for line in block.text.lines() {
                 if let Some(entry) = parse_inline_legend_line(line) {
                     entries.push(entry);
@@ -2469,19 +2553,37 @@ fn parse_inline_legend_line(line: &str) -> Option<ScheduleLegendEntry> {
 fn extract_spatial_schedule_rows(
     blocks: &[&super::document::DocumentBlock],
 ) -> (Vec<SchedulePageRow>, Option<String>, Option<String>) {
-    // If this page is a ROLLEN legend page with no table rows, return early.
-    if blocks.iter().any(|block| {
-        block
-            .text
-            .lines()
-            .any(|line| line.trim().eq_ignore_ascii_case("ROLLEN"))
-    }) {
-        return (Vec::new(), None, None);
-    }
+    // A page can mix REAL scene rows (top) with the ROLLEN legend (bottom):
+    // exclude the legend REGION (the ROLLEN heading block and everything below
+    // it) instead of dropping the whole page (CodeRabbit review, PR #967). A
+    // legend-only page still returns no scene rows — nothing parseable
+    // remains — and the numeric legend code column can no longer masquerade as
+    // scene references.
+    let legend_blocks: Vec<&super::document::DocumentBlock> = blocks
+        .iter()
+        .copied()
+        .filter(|block| {
+            block
+                .text
+                .lines()
+                .any(|line| line.trim().eq_ignore_ascii_case("ROLLEN"))
+        })
+        .collect();
+    let blocks: Vec<&super::document::DocumentBlock> = match legend_blocks
+        .iter()
+        .min_by(|a, b| a.bbox.y0.total_cmp(&b.bbox.y0))
+    {
+        Some(rollen_block) => blocks
+            .iter()
+            .copied()
+            .filter(|block| block.bbox.y0 < rollen_block.bbox.y0)
+            .collect(),
+        None => blocks.to_vec(),
+    };
 
     // Collect shooting-day banners (excluding `"Drehfrei"` rest-day banners).
     let mut day_banners: Vec<(f32, String, Option<String>)> = Vec::new();
-    for block in blocks {
+    for block in &blocks {
         for line in block.text.lines() {
             let trimmed = line.trim();
             if is_drehfrei_banner(trimmed) {
@@ -2526,9 +2628,34 @@ fn extract_spatial_schedule_rows(
 
     // Resolve center-column locations for each row (handling both 1-row blocks
     // and Poppler-merged multi-row center blocks).
-    let locations = resolve_spatial_row_locations(blocks, &ref_blocks);
+    let locations = resolve_spatial_row_locations(&blocks, &ref_blocks);
+
+    // Cast cells (right column): collected ONCE, then each cell is assigned to
+    // its NEAREST eligible scene row (CodeRabbit review, PR #967). The old
+    // per-row ±0.015 filter could admit one cell for TWO rows whose y
+    // positions are less than 0.015 apart, duplicating both cast members onto
+    // both scenes; nearest-row assignment gives every cell exactly one row.
+    let cast_cells: Vec<(f32, Vec<String>)> = blocks
+        .iter()
+        .filter(|block| {
+            (0.60..=0.82).contains(&block.bbox.x0)
+                && !block.text.to_ascii_lowercase().contains("komparsen")
+        })
+        .map(|block| {
+            let codes = block
+                .text
+                .split(|c: char| c == ',' || c.is_ascii_whitespace())
+                .map(str::trim)
+                .filter(|token| !token.is_empty() && token.bytes().all(|b| b.is_ascii_digit()))
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            (block.bbox.y0, codes)
+        })
+        .filter(|(_, codes)| !codes.is_empty())
+        .collect();
 
     let mut rows = Vec::with_capacity(ref_blocks.len());
+    let mut row_ys = Vec::with_capacity(ref_blocks.len());
     for (idx, ref_block) in ref_blocks.iter().enumerate() {
         let Some(first_line) = ref_block.text.lines().find(|l| !l.trim().is_empty()) else {
             continue;
@@ -2541,23 +2668,6 @@ fn extract_spatial_schedule_rows(
             .iter()
             .rfind(|(banner_y, _, _)| *banner_y <= row_y + 0.005);
 
-        let cast_codes = blocks
-            .iter()
-            .filter(|block| {
-                (0.60..=0.82).contains(&block.bbox.x0)
-                    && (block.bbox.y0 - row_y).abs() <= 0.015
-                    && !block.text.to_ascii_lowercase().contains("komparsen")
-            })
-            .flat_map(|block| {
-                block
-                    .text
-                    .split(|c: char| c == ',' || c.is_ascii_whitespace())
-                    .map(str::trim)
-                    .filter(|token| !token.is_empty() && token.bytes().all(|b| b.is_ascii_digit()))
-                    .map(str::to_owned)
-            })
-            .collect::<Vec<_>>();
-
         rows.push(SchedulePageRow {
             row_ref: scene_token.to_owned(),
             scene_ref: Some(scene_token.to_owned()),
@@ -2565,8 +2675,24 @@ fn extract_spatial_schedule_rows(
             date: active_banner.and_then(|(_, _, date)| date.clone()),
             location: locations.get(idx).cloned().flatten(),
             order: u32::try_from(idx + 1).ok(),
-            cast_codes,
+            cast_codes: Vec::new(),
         });
+        row_ys.push(row_y);
+    }
+
+    // Assign each cast cell to its nearest scene row within the ±0.015
+    // alignment window; an isolated cell aligned to one row resolves exactly
+    // as before.
+    for (cell_y, codes) in cast_cells {
+        if let Some((best_row, _)) = row_ys
+            .iter()
+            .enumerate()
+            .map(|(idx, row_y)| (idx, (cell_y - *row_y).abs()))
+            .filter(|(_, distance)| *distance <= 0.015)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+        {
+            rows[best_row].cast_codes.extend(codes);
+        }
     }
 
     let last_row_y = ref_blocks.last().map(|block| block.bbox.y0).unwrap_or(0.0);

@@ -1642,6 +1642,11 @@ pub struct ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter> {
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
+    /// The FLAT-path prompt (CodeRabbit review, PR #967): used by the
+    /// legacy-PDF / plain-text branch, whose input is flattened text and whose
+    /// output schema is `ShootingSchedule`. The page-streaming vision branch
+    /// keeps `prompt` (page image in, `SchedulePageExtraction` out).
+    pub flat_prompt: String,
     /// See [`ScriptImportWorker::reasoning_effort`].
     pub reasoning_effort: breakdown_core::ai::ReasoningEffortChoice,
     pub bounds: AiImportBounds,
@@ -1878,7 +1883,10 @@ where
                 let request = LlmChatRequest {
                     provider: self.provider,
                     model: self.model.clone(),
-                    prompt: self.prompt.clone(),
+                    // The flat path speaks the flat prompt's contract
+                    // (CodeRabbit review, PR #967) — never the page-image
+                    // prompt the vision branch uses.
+                    prompt: self.flat_prompt.clone(),
                     source_text,
                     max_tokens: self.bounds.max_tokens_per_req,
                     response_schema: None,
@@ -2118,6 +2126,11 @@ where
             // next page into a fresh allocation.
         }
 
+        // CodeRabbit review, PR #967: the legend is complete after the last
+        // page — resolve every row's raw cast codes against the final legend
+        // (rows from pages BEFORE the legend page included), dropping codes
+        // that remain unknown.
+        carry_over.finalize_cast_refs(&mut rows);
         Ok((
             ShootingSchedule {
                 block_id: None,
@@ -5554,10 +5567,14 @@ where
     C: LlmClient + ?Sized,
     Q: AiImportQueue + ?Sized,
 {
+    // The request is borrowed through the retry closure (CodeRabbit review,
+    // PR #967): every attempt re-uses the SAME `LlmVisionRequest`, so the page
+    // PNG is never duplicated per retry — the single-page allocation bound of
+    // issue #960 holds with zero clones and no `Arc`.
     retry_bounded(
         || async {
             client
-                .chat_vision_constrained(request.clone())
+                .chat_vision_constrained(&request)
                 .await
                 .map_err(AnyhowError::new)
         },

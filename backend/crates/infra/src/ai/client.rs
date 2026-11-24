@@ -468,8 +468,15 @@ impl OpenAiCompatibleChatClient {
                 // One bounded fallback: a provider that rejects the combined
                 // image + strict-schema body answers 4xx naming the response
                 // format; retry once with plain JSON-object mode.
+                // Narrow eligibility (CodeRabbit review, PR #967): ONLY an
+                // explicit unsupported-format rejection on a validation status
+                // (400/422) earns the fallback. A 429 that happens to mention
+                // `response_format` in its body must keep its Retry-After on
+                // the existing classification path, never re-send the image
+                // immediately; likewise auth (401/403) and quota (402) errors.
+                let status_code = status.as_u16();
                 if !plain_json_fallback
-                    && status.is_client_error()
+                    && (status_code == 400 || status_code == 422)
                     && body.text.to_ascii_lowercase().contains("response_format")
                 {
                     tracing::warn!(
@@ -585,7 +592,7 @@ impl LlmClient for OpenAiCompatibleChatClient {
 
     async fn chat_vision_constrained(
         &self,
-        req: LlmVisionRequest,
+        req: &LlmVisionRequest,
     ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
         // Pre-egress provider-policy gate (ADR-041 `D2`): runs BEFORE any base64
         // encoding or HTTP call, so a rejected call performs zero egress and
@@ -603,7 +610,11 @@ impl LlmClient for OpenAiCompatibleChatClient {
                 "LLM request provider does not match configured client",
             ));
         }
-        self.request_vision_decoded(&req, "schedule_page").await
+        let decoded = self
+            .request_vision_decoded::<SchedulePageExtractionSchema>(req, "schedule_page")
+            .await?;
+        let output = decoded.output.into_core()?;
+        Ok(LlmCallOutcome::new(output, decoded.usage))
     }
 }
 
@@ -757,7 +768,7 @@ enum ScheduleSceneRefSchema {
 struct ScheduleModifierSchema(String);
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-struct ScheduleLegendEntrySchema {
+pub(crate) struct ScheduleLegendEntrySchema {
     code: String,
     character_name: String,
     #[serde(default)]
@@ -768,7 +779,7 @@ struct ScheduleLegendEntrySchema {
 struct ScheduleCastCodeSchema(String);
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-struct SchedulePageRowSchema {
+pub(crate) struct SchedulePageRowSchema {
     row_ref: String,
     #[serde(default)]
     scene_ref: Option<String>,
@@ -786,16 +797,68 @@ struct SchedulePageRowSchema {
 
 /// Provider-facing mirror of [`breakdown_core::ai::SchedulePageExtraction`]
 /// for the multimodal page-streaming schedule path (issue #960).
+///
+/// `rows` is deliberately NOT `#[serde(default)]` (CodeRabbit review, PR
+/// #967): a provider answering an unrelated JSON object (`{"message": "could
+/// not read page"}`) must FAIL the decode instead of silently defaulting to
+/// an empty — and therefore "successful" — page. An explicit `"rows": []`
+/// stays valid for a page with no scene rows. `legend_entries` and the
+/// end-of-page pair keep their defaults: the schema legitimately marks them
+/// nullable/omittable.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-struct SchedulePageExtractionSchema {
+pub(crate) struct SchedulePageExtractionSchema {
     #[serde(default)]
     legend_entries: Vec<ScheduleLegendEntrySchema>,
-    #[serde(default)]
     rows: Vec<SchedulePageRowSchema>,
     #[serde(default)]
     end_of_page_shooting_day_label: Option<String>,
     #[serde(default)]
     end_of_page_date: Option<String>,
+}
+
+impl SchedulePageExtractionSchema {
+    /// Map the provider-facing extraction onto the core type. The free-string
+    /// modifier (the hosted schema permits `"modifier": null` and any text,
+    /// e.g. `"Nur Stimme"`) is normalized through
+    /// [`ScheduleRoleModifier::parse_tag`] instead of failing the whole page
+    /// on the core enum's strict slug decode (CodeRabbit review, PR #967).
+    pub(crate) fn into_core(
+        self,
+    ) -> Result<breakdown_core::ai::SchedulePageExtraction, DomainError> {
+        let legend_entries = self
+            .legend_entries
+            .into_iter()
+            .map(|entry| breakdown_core::ai::ScheduleLegendEntry {
+                code: entry.code,
+                character_name: entry.character_name,
+                modifier: entry
+                    .modifier
+                    .map(|modifier| {
+                        breakdown_core::ai::ScheduleRoleModifier::parse_tag(&modifier.0)
+                    })
+                    .unwrap_or(breakdown_core::ai::ScheduleRoleModifier::None),
+            })
+            .collect();
+        let rows = self
+            .rows
+            .into_iter()
+            .map(|row| breakdown_core::ai::SchedulePageRow {
+                row_ref: row.row_ref,
+                scene_ref: row.scene_ref,
+                shooting_day_label: row.shooting_day_label,
+                date: row.date,
+                location: row.location,
+                order: row.order,
+                cast_codes: row.cast_codes.into_iter().map(|code| code.0).collect(),
+            })
+            .collect();
+        Ok(breakdown_core::ai::SchedulePageExtraction {
+            legend_entries,
+            rows,
+            end_of_page_shooting_day_label: self.end_of_page_shooting_day_label,
+            end_of_page_date: self.end_of_page_date,
+        })
+    }
 }
 
 impl ShootingScheduleSchema {

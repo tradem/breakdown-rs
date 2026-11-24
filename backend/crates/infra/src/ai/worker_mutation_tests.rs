@@ -361,6 +361,8 @@ async fn schedule_worker_returns_false_when_no_jobs() {
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "test".into(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
@@ -856,6 +858,8 @@ async fn schedule_worker_publishes_extraction_and_storing_progress() {
         provider: LlmProvider::OpenAI,
         model: "gpt-4o".into(),
         prompt: "test".into(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "test".into(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,

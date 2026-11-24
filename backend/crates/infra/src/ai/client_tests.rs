@@ -1583,7 +1583,7 @@ async fn chat_vision_rejects_a_non_compliant_provider_before_egress() {
         reasoning_effort: None,
     };
     let error = client
-        .chat_vision_constrained(request)
+        .chat_vision_constrained(&request)
         .await
         .expect_err("a provider without ZDR + no-training + EU residency must be refused");
     let detail = error.to_string();
@@ -1593,20 +1593,55 @@ async fn chat_vision_rejects_a_non_compliant_provider_before_egress() {
     );
 }
 
-/// A compliant provider passes the gate and reaches the transport: an
-/// unreachable endpoint yields a transport error, NOT the policy refusal —
-/// proving the gate ran before the request without failing the call itself.
+/// A compliant provider passes the gate and reaches the transport — verified
+/// against a LOCAL wiremock, not the live EURouter URL (CodeRabbit review, PR
+/// #967): the mock expects exactly one vision POST and answers with a valid
+/// page extraction, so the test asserts the request actually reached a server
+/// (no wall-clock deadline guessing) and that the answer decodes.
 #[tokio::test]
 async fn chat_vision_gate_passes_a_compliant_provider_through_to_the_transport() {
     use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
 
-    let client = OpenAiCompatibleChatClient::with_http(
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "model": "qwen3-vl",
+            "messages": [
+                {"role": "system"},
+                {"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw=="}},
+                    {"type": "text"}
+                ]}
+            ]
+        })))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({
+                "id": "chatcmpl-vision-ok",
+                "model": "qwen3-vl",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "{\"legend_entries\":[],\"rows\":[{\"row_ref\":\"300.33\",\"rows\":null}]}"
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7}
+            }),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
         reqwest::Client::new(),
         LlmProvider::EURouter,
         "test-key".to_owned(),
-        Duration::from_millis(1),
+        Duration::from_secs(5),
     )
     .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
     let request = LlmVisionRequest {
         provider: LlmProvider::EURouter,
         model: "qwen3-vl".to_owned(),
@@ -1621,12 +1656,224 @@ async fn chat_vision_gate_passes_a_compliant_provider_through_to_the_transport()
         response_schema: None,
         reasoning_effort: None,
     };
-    let error = client
-        .chat_vision_constrained(request)
+    let outcome = client
+        .chat_vision_constrained(&request)
         .await
-        .expect_err("an unreachable endpoint must fail the call");
+        .expect("a compliant provider reaches the transport and decodes");
+    assert_eq!(outcome.output.rows[0].row_ref, "300.33");
+    assert_eq!(outcome.usage.tokens_in, 11);
+    server.verify().await;
+}
+
+/// The refused provider performs ZERO egress: the same local mock seam is
+/// mounted with `expect(0)` and the policy refusal is returned before any
+/// HTTP attempt (CodeRabbit review, PR #967 — deterministic, no live URL).
+#[tokio::test]
+async fn chat_vision_gate_refusal_performs_zero_requests() {
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(wiremock::ResponseTemplate::new(200))
+        .expect(0..1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = LlmVisionRequest {
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("Neuralwatt is not vision-egress compliant");
+    assert!(error.to_string().contains("Zero Data Retention"));
+    server.verify().await;
+}
+
+// ===========================================================================
+// CodeRabbit review, PR #967 — format-fallback eligibility and the
+// provider-facing page decoder
+// ===========================================================================
+
+fn vision_request_fixture() -> breakdown_core::ai::LlmVisionRequest {
+    breakdown_core::ai::LlmVisionRequest {
+        provider: LlmProvider::EURouter,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: breakdown_core::ai::LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    }
+}
+
+/// A `429` whose error body happens to mention `response_format` must keep its
+/// Retry-After on the classification path — it must NEVER trigger the plain
+/// JSON-object fallback (which would re-send the image immediately, ignoring
+/// the provider-requested wait). The fallback is reserved for explicit
+/// unsupported-format rejections on validation statuses (400/422).
+#[tokio::test]
+async fn a_rate_limited_body_mentioning_response_format_is_not_a_format_fallback() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(429)
+                .insert_header("retry-after", "7")
+                .set_body_json(serde_json::json!({
+                    "error": {"message": "rate limit exceeded for response_format json_schema requests"}
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("a 429 must fail the attempt, not fall back");
     assert!(
-        !error.to_string().contains("Zero Data Retention"),
-        "the policy gate must not be the failure: {error}"
+        error.is_retryable(),
+        "the 429 keeps its classification: {error}"
     );
+    assert_eq!(
+        error.retry_after(),
+        Some(Duration::from_secs(7)),
+        "the provider-requested wait survives: {error}"
+    );
+    server.verify().await;
+}
+
+/// A vision page decode of an unrelated JSON object must FAIL, not silently
+/// default to an empty (successful) page: the provider-facing decoder requires
+/// an explicit `rows` array (CodeRabbit review, PR #967).
+#[tokio::test]
+async fn a_rows_less_vision_answer_fails_instead_of_reporting_an_empty_page() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-bad",
+            "model": "qwen3-vl",
+            "choices": [{
+                "message": {"role": "assistant", "content": "{\"message\": \"could not read page\"}"},
+                "finish_reason": "stop"
+            }]
+        })))
+        // The countdown ignores the reported finish reason (PR #931-era
+        // behaviour): a malformed answer consumes the FULL bounded truncation
+        // budget — 1 + HOSTED_INNER_RETRIES = 3 requests — before failing.
+        .expect(3)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("an unrelated JSON object must not decode as an empty page");
+    assert!(
+        error.to_string().contains("vision LLM JSON did not match"),
+        "the decode failure surfaces: {error}"
+    );
+    server.verify().await;
+}
+
+/// The hosted schema permits `modifier: null` and free strings ("Nur Stimme");
+/// the provider-facing decoder normalizes them into the core enum instead of
+/// failing the page (CodeRabbit review, PR #967).
+#[tokio::test]
+async fn a_free_string_vision_modifier_normalizes_instead_of_failing_the_page() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-mod",
+                "model": "qwen3-vl",
+                "choices": [{
+                    "message": {"role": "assistant", "content": serde_json::json!({
+                        "legend_entries": [
+                            {"code": "2", "character_name": "Ben", "modifier": "Nur Stimme"},
+                            {"code": "4", "character_name": "Philipp", "modifier": null}
+                        ],
+                        "rows": []
+                    }).to_string()},
+                    "finish_reason": "stop"
+                }]
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let outcome = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect("schema-permitted modifier values must decode");
+    assert_eq!(outcome.output.legend_entries.len(), 2);
+    assert_eq!(
+        outcome.output.legend_entries[0].modifier,
+        breakdown_core::ai::ScheduleRoleModifier::VoiceOnly
+    );
+    assert_eq!(
+        outcome.output.legend_entries[1].modifier,
+        breakdown_core::ai::ScheduleRoleModifier::None
+    );
+    server.verify().await;
 }

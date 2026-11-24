@@ -11,6 +11,11 @@ use serde::Deserialize;
 struct PromptFile {
     script: PromptEntry,
     schedule: PromptEntry,
+    /// CodeRabbit review, PR #967: the flat (legacy-PDF / plain-text) schedule
+    /// path gets its own prompt — its input is flattened text and its output
+    /// schema is `ShootingSchedule`, not the page-image `SchedulePageExtraction`
+    /// contract the `[schedule]` prompt describes.
+    schedule_flat: PromptEntry,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +30,8 @@ struct PromptEntry {
 pub struct AiPromptDefaults {
     pub script: String,
     pub schedule: String,
+    /// Flat-path schedule prompt (flattened text in, `ShootingSchedule` out).
+    pub schedule_flat: String,
 }
 
 /// The prompt file compiled into the binary: the fallback `load_prompt_file`
@@ -62,10 +69,31 @@ pub fn default_prompts() -> Result<AiPromptDefaults, DomainError> {
             "default AI schedule prompt must not be empty",
         ));
     }
+    if file.schedule_flat.text.trim().is_empty() {
+        return Err(DomainError::validation(
+            "default AI flat-schedule prompt must not be empty",
+        ));
+    }
     Ok(AiPromptDefaults {
         script: file.script.text,
         schedule: file.schedule.text,
+        schedule_flat: file.schedule_flat.text,
     })
+}
+
+/// The flat-path schedule prompt (CodeRabbit review, PR #967). Stored
+/// configuration prompts cannot override it yet — the stored-prompt map is
+/// keyed by [`DocumentKind`], and the flat path is a transport detail of the
+/// same schedule job, not a third kind.
+pub fn default_flat_schedule_prompt() -> Result<String, DomainError> {
+    let defaults = default_prompts()?;
+    let prompt = defaults.schedule_flat;
+    if prompt.trim().is_empty() {
+        return Err(DomainError::validation(
+            "default AI flat-schedule prompt must not be empty",
+        ));
+    }
+    Ok(prompt)
 }
 
 pub fn default_prompt(kind: DocumentKind) -> Result<String, DomainError> {

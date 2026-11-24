@@ -9127,8 +9127,12 @@ pub async fn list_ai_image_models<P: Ports>(
 pub struct AiImportDefaults {
     /// Default prompt seed for script imports.
     pub script: String,
-    /// Default prompt seed for schedule imports.
+    /// Default prompt seed for schedule imports (page-streaming vision path).
     pub schedule: String,
+    /// Default prompt seed for the FLAT schedule path (legacy-PDF /
+    /// plain-text: flattened text in, `ShootingSchedule` out) — CodeRabbit
+    /// review, PR #967. Additive on the wire.
+    pub schedule_flat: String,
 }
 
 #[utoipa::path(
@@ -9165,6 +9169,7 @@ pub async fn get_ai_import_defaults<P: Ports>(
         Json(AiImportDefaults {
             script: defaults.script,
             schedule: defaults.schedule,
+            schedule_flat: defaults.schedule_flat,
         }),
     ))
 }

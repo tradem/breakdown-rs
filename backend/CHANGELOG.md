@@ -32,6 +32,54 @@ generated notes are never used.
 
 ## [Unreleased]
 
+### Fixed
+
+- CodeRabbitAI review, PR #967 (issue #960 multimodal schedule streaming):
+  - **Flat schedule path prompt.** The legacy-PDF / plain-text import path no
+    longer reuses the page-streaming vision prompt: a new `[schedule_flat]`
+    default (also exposed as `schedule_flat` on `GET /v1/ai-import/defaults`
+    and via the `"schedule_flat"` stored-prompt key) describes its actual
+    contract — flattened text in, whole-document `ShootingSchedule` out.
+  - **Shooting-day transition rule.** All three day-banner paths (standalone
+    banner row, day-labelled row, end-of-page banner) now share one rule in
+    `ScheduleCarryOver::apply_page`: a fresh date always updates, the SAME day
+    continuing without a date keeps its date (day identity is the day NUMBER
+    for `"N. Drehtag"`, not the raw label text), and a DIFFERENT day starting
+    without a date clears the carried date instead of leaking it.
+  - **Cast legend finalization.** Raw cast codes are kept per row
+    (`ScheduleCarryOver` pending list) and resolved against the COMPLETE
+    document legend by `ScheduleCarryOver::finalize_cast_refs` — both the
+    structured extractor and the vision page loop call it after the last page,
+    so a legend defined on a later page also resolves earlier pages' rows.
+    Codes that remain unknown at finalization are dropped, as before.
+  - **Legend/scene mixed pages.** `extract_spatial_schedule_rows` no longer
+    drops a whole page because a `ROLLEN` marker exists: the legend REGION is
+    excluded and scene rows above it survive; a legend-only page still returns
+    no rows. The inline legend fallback also reads lines inside the `ROLLEN`
+    heading block (parsers may merge `ROLLEN\n2 = Ben` into one block).
+  - **Cast-cell row assignment.** Each right-column cast cell is assigned to
+    its NEAREST scene row (± 0.015 window), so two rows closer than the window
+    can no longer both inherit the same cast members.
+  - **Vision transport.** `LlmClient::chat_vision_constrained` now borrows
+    `&LlmVisionRequest`, so the retry wrapper re-uses one PNG allocation
+    instead of cloning it per attempt.
+  - **Vision decoder.** The hosted and Ollama vision paths decode through the
+    provider-facing `SchedulePageExtractionSchema`: an unrelated JSON object
+    without `rows` now FAILS instead of decoding as an empty page, and a
+    schema-permitted modifier (`null` / free strings like `"Nur Stimme"`)
+    normalizes via `ScheduleRoleModifier::parse_tag` instead of failing the
+    page.
+  - **Format-fallback eligibility.** The vision `response_format` fallback only
+    triggers on an explicit unsupported-format rejection with status 400/422 —
+    a `429` mentioning `response_format` keeps its Retry-After on the
+    classification path instead of immediately re-sending the image.
+  - **Permit-hold bound.** `AiImportBounds::vision_attempt_worst_case_secs`
+    accounts for the one extra request the vision fallback path can send
+    (hosted: 22 min + 120 s = 24 min); Ollama keeps the shared bound.
+  - **Gate tests.** The compliant-provider vision test now verifies against a
+    local wiremock (one expected POST, valid page answer; zero requests for a
+    refused provider) instead of the live EURouter URL and a 1 ms deadline.
+
 ## [api-v0.71.0] – Released 2026-11-21
 
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.71.0` (immutable,

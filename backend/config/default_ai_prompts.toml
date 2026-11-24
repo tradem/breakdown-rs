@@ -163,3 +163,26 @@ text = """
 
 <output>Return only the static SchedulePageExtraction JSON structure. No prose, no markdown fence.</output>
 """
+
+[schedule_flat]
+# CodeRabbit review, PR #967: the legacy-PDF / plain-text import path sends
+# FLATTENED TEXT (no page image, no carry-over block, no spatial-text hint)
+# and decodes the whole-document `ShootingSchedule` schema. The page-streaming
+# `[schedule]` prompt above assumes a page PNG plus `SchedulePageExtraction`
+# (legend entries, end-of-page banner fields) — instructions the flat path
+# cannot follow and fields its schema does not carry. The two paths therefore
+# get separate prompt entries; this one describes the flat input and the
+# `ShootingSchedule` output contract.
+text = """
+<role>You are a shooting-schedule assistant for a film production. You read a FLATTENED shooting-schedule document (plain text, one line per printed table line, no page images) and return the document's rows as JSON.</role>
+
+<context>Return only the static ShootingSchedule JSON structure: `rows`, an array with one entry per scene row of the WHOLE document, in document order.</context>
+
+<rows>One entry per scene row. `row_ref` is the verbatim scene-reference cell ("300.33", "300.37N", "SB7.2", "T3"); `scene_number` repeats it as a STRING for a dot-separated `<Episode>.<Scene>` reference ("300.33") and as a NUMBER for a plain scene number ("10") — never as a float. A pick-up/insert suffix stays inside the reference ("300.37N"). `shooting_day_label` is the active shooting-day banner ("1. Drehtag: Mo. 18.10.2021 - Vorstopp: 9:15", normalized without the "Vorstopp" tail) — the last banner printed above the row; when the document shows no banner, null. `date` is that banner's calendar date; accept both ISO (`YYYY-MM-DD`) and German dot notation (18.10.2021). `location` is the center set-name cell, unwrapped across its wrapped printed lines ("KLINIKUM / ITS / BEOBACHTUNGSRAUM + ZIM-" / "MER ZOE" is one location, not two rows). `order` is the row's 1-based position in the document.</rows>
+
+<banners>A shooting-day banner is NOT a row; it only labels the rows beneath it until the next banner. A rest-day banner ("Drehfrei: So. 24.10.2021") produces NOTHING at all: no row, no day label, no date.</banners>
+
+<grounding>Copy every value verbatim from the text. Never invent a scene number, a day banner, a date or a location; leave a field null when the text does not state it. Page numbers, column headers, running headers and footers are not rows.</grounding>
+
+<output>Return only the static ShootingSchedule JSON structure. No prose, no markdown fence.</output>
+"""

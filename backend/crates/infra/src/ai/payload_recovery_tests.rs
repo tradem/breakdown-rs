@@ -278,6 +278,8 @@ fn schedule_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,

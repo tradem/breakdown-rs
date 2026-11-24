@@ -906,6 +906,15 @@ async fn schedule_worker_tick(
                 extractor: deps.extractor.clone(),
                 provider: config.provider,
                 model: config.model,
+                // CodeRabbit review, PR #967: the flat branch runs the flat
+                // prompt contract; the page-image prompt stays with the vision
+                // branch. `None` is impossible for schedule jobs (resolved in
+                // `find_worker_config`), but the fallback keeps the wiring
+                // total instead of panicking.
+                flat_prompt: config
+                    .flat_prompt
+                    .clone()
+                    .unwrap_or_else(|| config.prompt.clone()),
                 prompt: config.prompt,
                 reasoning_effort: config.reasoning_effort,
                 bounds: deps.bounds,
@@ -957,6 +966,15 @@ async fn schedule_worker_tick(
                 extractor: deps.extractor.clone(),
                 provider: config.provider,
                 model: config.model,
+                // CodeRabbit review, PR #967: the flat branch runs the flat
+                // prompt contract; the page-image prompt stays with the vision
+                // branch. `None` is impossible for schedule jobs (resolved in
+                // `find_worker_config`), but the fallback keeps the wiring
+                // total instead of panicking.
+                flat_prompt: config
+                    .flat_prompt
+                    .clone()
+                    .unwrap_or_else(|| config.prompt.clone()),
                 prompt: config.prompt,
                 reasoning_effort: config.reasoning_effort,
                 bounds: deps.bounds,

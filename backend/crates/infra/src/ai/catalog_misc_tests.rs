@@ -150,6 +150,16 @@ fn default_prompts_returns_both_document_kinds() {
         defaults.schedule,
         super::prompts::default_prompt(DocumentKind::Schedule).unwrap()
     );
+    // CodeRabbit review, PR #967: the flat schedule path has its own prompt
+    // contract and its own non-empty default.
+    assert!(
+        !defaults.schedule_flat.trim().is_empty(),
+        "flat-schedule default must exist"
+    );
+    assert_eq!(
+        defaults.schedule_flat,
+        super::prompts::default_flat_schedule_prompt().unwrap()
+    );
 }
 
 /// Issue #607: an outline-style block (heading + day marker, no body) used to

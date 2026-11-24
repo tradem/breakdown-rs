@@ -471,7 +471,11 @@ pub trait LlmClient: Send + Sync {
 
     async fn chat_vision_constrained(
         &self,
-        req: LlmVisionRequest,
+        // Borrowed, NOT owned (CodeRabbit review, PR #967): the retry wrapper
+        // around this port re-uses the SAME `LlmVisionRequest` across attempts,
+        // so an 8 MiB page PNG is never duplicated per retry. Implementations
+        // that need ownership clone internally.
+        req: &LlmVisionRequest,
     ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
         let _ = req;
         Err(DomainError::validation(
@@ -481,7 +485,7 @@ pub trait LlmClient: Send + Sync {
 
     async fn extract_schedule_page(
         &self,
-        req: LlmVisionRequest,
+        req: &LlmVisionRequest,
     ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
         self.chat_vision_constrained(req).await
     }
