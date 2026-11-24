@@ -1916,6 +1916,7 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
                     "character {} is not assigned to this scene",
                     command.character_id
                 ),
+                usage: None,
             });
         }
         // Identical-last guard, faithful to the aggregate: appending the
@@ -1930,6 +1931,7 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
             return Err(DomainError::Validation {
                 code: &breakdown_core::error_registry::SCENE_VALIDATION,
                 reason: "Outfit beat identical to the character's last beat".to_owned(),
+                usage: None,
             });
         }
         drop(assigned);
@@ -5512,6 +5514,7 @@ async fn a_refused_beat_is_reported_distinctly_from_the_ungrounded_drop() {
     *fixture.scenes.fail_beat_with.lock().unwrap() = Some(DomainError::Validation {
         code: &breakdown_core::error_registry::SCENE_CHARACTER_NOT_IN_SCENE,
         reason: "character was removed from the scene".to_owned(),
+        usage: None,
     });
 
     let result = fixture

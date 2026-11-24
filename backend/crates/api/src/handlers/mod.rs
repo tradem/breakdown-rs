@@ -911,6 +911,7 @@ async fn authorize_piece_in_project<P: Ports>(
         return Err(ApiError::Domain(DomainError::Validation {
             code: &PIECE_CONTAINER_UNRESOLVED,
             reason: "piece has no assigned character and no season repertoire — cannot determine its series".into(),
+                usage: None,
         }));
     };
     membership_gate(

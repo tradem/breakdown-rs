@@ -79,9 +79,6 @@ generated notes are never used.
   - **Gate tests.** The compliant-provider vision test now verifies against a
     local wiremock (one expected POST, valid page answer; zero requests for a
     refused provider) instead of the live EURouter URL and a 1 ms deadline.
-
-## [api-v0.71.0] – Released 2026-11-21
-
   - **In-process breaker gates use `admits_paid_call`** (CodeRabbit review,
     PR #967 round 8): a `half_open` breaker admits the claim-fenced trial
     holder inside the hosted and Ollama clients, so the trial actually runs
@@ -112,6 +109,9 @@ generated notes are never used.
     the persisted counters propagates instead — the attempt never starts, so
     an unknown accounting state is never treated as zero — instead of only
     the last attempt's.
+
+## [api-v0.71.0] – Released 2026-11-21
+
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.71.0` (immutable,
   SHA-pinned digest) plus the moving tags `api-v0.71` and `api-v0`.
 - Companion crate versions at this release: `core 0.75.0`,

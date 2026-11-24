@@ -972,8 +972,16 @@ impl ShootingScheduleSchema {
 /// format and the pair is not evidence (CodeRabbit's PR #967 round-9
 /// follow-up).
 fn gap_names_the_format_positively(gap: &str) -> bool {
-    const POSITIVE: [&str; 4] = ["valid", " ok", "accepted", "allowed"];
-    POSITIVE.iter().any(|word| gap.contains(word))
+    // Word-boundary tokens (CodeRabbit's PR #967 round-10 follow-up):
+    // substring matching would read "invalid" as "valid" and reject an
+    // explicit unsupported-format statement.
+    let tokens: Vec<&str> = gap
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    ["valid", "ok", "accepted", "allowed"]
+        .iter()
+        .any(|word| tokens.contains(word))
 }
 
 /// Whether the gap text crosses a sentence boundary (`.`/`!`/`?` followed by

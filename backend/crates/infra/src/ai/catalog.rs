@@ -142,6 +142,7 @@ impl LlmModelCatalog for OpenAiCompatibleModelCatalog {
             return Err(DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_VAULT_KEY,
                 reason: "LLM API key must not be empty".into(),
+                usage: None,
             });
         }
         let key = SecretValue::new(vaulted_key.to_owned());

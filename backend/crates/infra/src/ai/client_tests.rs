@@ -2183,59 +2183,85 @@ fn a_positive_format_statement_between_mention_and_claim_is_not_evidence() {
     ));
 }
 
-/// Issue #970 (CodeRabbit review, PR #967 round 9): a billed response
-/// followed by a TRANSPORT failure (request timeout) keeps the billed usage
-/// on the error.
+/// Issue #970 (CodeRabbit review, PR #967 round 10): a billed response
+/// followed by a DETERMINISTIC transport failure — the mock answers the
+/// first request, then the listener is gone, so the second request is
+/// refused with `connection refused` (no wall-clock deadline involved).
 #[tokio::test]
 async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
-    let server = wiremock::MockServer::start().await;
-    // First response: billed (tokens 100), but the answer is malformed JSON —
-    // the loop re-requests with a grown budget.
-    wiremock::Mock::given(wiremock::matchers::method("POST"))
-        .and(wiremock::matchers::path("/chat/completions"))
-        .and(wiremock::matchers::body_partial_json(
-            serde_json::json!({"max_tokens": 1_024}),
-        ))
-        .respond_with(
-            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "chatcmpl-billed",
-                "model": "glm-5.3-flash",
-                "choices": [{
-                    "message": {"role": "assistant", "content": "{not json"},
-                    "finish_reason": "stop"
-                }],
-                "usage": {"prompt_tokens": 100, "completion_tokens": 25}
-            })),
-        )
-        .expect(1)
-        .mount(&server)
-        .await;
-    // Second response: the provider never answers — the request times out
-    // (a transport failure, not an HTTP status).
-    wiremock::Mock::given(wiremock::matchers::method("POST"))
-        .and(wiremock::matchers::path("/chat/completions"))
-        .respond_with(wiremock::ResponseTemplate::new(200).set_delay(Duration::from_secs(10)))
-        .expect(1)
-        .mount(&server)
-        .await;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        // Answer the FIRST request with a valid billed body, then keep the
+        // stream open forever: the listener is consumed, so the client's
+        // second request is deterministically refused at the transport.
+        let Ok((mut stream, _)) = listener.accept().await else {
+            return;
+        };
+        let mut request = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        loop {
+            let read = stream.read(&mut chunk).await.unwrap_or(0);
+            request.extend_from_slice(&chunk[..read]);
+            if request.ends_with(b"}") || read == 0 {
+                break;
+            }
+        }
+        let body = serde_json::json!({
+            "id": "chatcmpl-billed",
+            "model": "glm-5.3-flash",
+            "choices": [{
+                "message": {"role": "assistant", "content": "{not json"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 25}
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
+        let _ = stream.flush().await;
+        // Hold the socket open (never read again): the response stays
+        // delivered, the listener is gone, the retry is refused.
+        let _ = std::future::pending::<()>().await;
+    });
 
     let mut client = OpenAiCompatibleChatClient::with_http(
         reqwest::Client::new(),
         LlmProvider::Neuralwatt,
         "test-key".to_owned(),
-        Duration::from_millis(500),
+        Duration::from_secs(5),
     )
     .expect("a with_http test client builds");
-    client.endpoint = format!("{}/chat/completions", server.uri());
+    client.endpoint = format!("http://{addr}/chat/completions");
 
     let error = client
         .chat_constrained(chat_request(1_024))
         .await
-        .expect_err("the timeout must fail the attempt");
+        .expect_err("the refused second request must fail the attempt");
     assert_eq!(
         error.billed_usage().map(|usage| usage.tokens_in),
         Some(100),
         "the billed response's usage survives the transport failure: {error}"
     );
-    server.verify().await;
+    server.abort();
+}
+
+/// CodeRabbit's PR #967 round-10 follow-up: "invalid" must not read as the
+/// positive token "valid" — an explicit unsupported-format statement that
+/// contains the word `invalid` still earns the fallback.
+#[test]
+fn invalid_is_not_the_positive_token_valid() {
+    assert!(super::names_unsupported_response_format(
+        "response_format has an invalid value and is not supported"
+    ));
+    // The round-9 exclusion keeps working at word boundaries.
+    assert!(!super::names_unsupported_response_format(
+        "response_format is valid but images are not supported"
+    ));
 }

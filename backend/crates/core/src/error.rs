@@ -87,6 +87,12 @@ pub enum DomainError {
     Validation {
         code: &'static ProblemCode,
         reason: String,
+        /// Usage already billed by the COMPLETED responses of the same
+        /// attempt (issue #970, CodeRabbit review PR #967 round 10): the
+        /// client's terminal decode failure arrives AFTER billed answers, and
+        /// the attempt's accounting must not lose them. `None` for every
+        /// non-provider source. `Arc` keeps the variant small.
+        usage: Option<std::sync::Arc<crate::ai::LlmCallUsage>>,
     },
 
     /// State conflict (409).
@@ -259,42 +265,52 @@ impl From<AiConfigError> for DomainError {
             AiConfigError::EmptyProvider => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_PROVIDER,
                 reason: "provider must not be empty".into(),
+                usage: None,
             },
             AiConfigError::EmptyModel => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_MODEL,
                 reason: "assistant model must not be empty".into(),
+                usage: None,
             },
             AiConfigError::EmptyPrompt => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_PROMPT,
                 reason: "prompt must not be empty".into(),
+                usage: None,
             },
             AiConfigError::EmptyVaultKey => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_VAULT_KEY,
                 reason: "vault key reference must not be empty".into(),
+                usage: None,
             },
             AiConfigError::DecisionProviderUnsupported => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_PROVIDER_UNSUPPORTED,
                 reason: "provider does not host decision models".into(),
+                usage: None,
             },
             AiConfigError::DecisionProviderRequired => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_INCOMPLETE,
                 reason: "decision model configuration is incomplete".into(),
+                usage: None,
             },
             AiConfigError::EmptyDecisionModel => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_MODEL_EMPTY,
                 reason: "decision model must not be empty".into(),
+                usage: None,
             },
             AiConfigError::DecisionModelUnknown => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_MODEL_UNKNOWN,
                 reason: "decision model is not curated for the provider".into(),
+                usage: None,
             },
             AiConfigError::EmptyDecisionVaultKey => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_VAULT_KEY_EMPTY,
                 reason: "decision vault key reference must not be empty".into(),
+                usage: None,
             },
             AiConfigError::ReasoningEffortUnsupported => DomainError::Validation {
                 code: &AI_CONFIG_REASONING_EFFORT_UNSUPPORTED,
                 reason: "model does not accept the requested reasoning effort".into(),
+                usage: None,
             },
         }
     }
@@ -306,6 +322,7 @@ impl From<SceneError> for DomainError {
             SceneError::ValidationError(msg) => DomainError::Validation {
                 code: &SCENE_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             SceneError::CharacterNotFound { id } => DomainError::NotFound {
                 code: &SCENE_CHARACTER_NOT_FOUND,
@@ -330,6 +347,7 @@ impl From<SceneError> for DomainError {
             SceneError::CharacterNotInScene { character_id } => DomainError::Validation {
                 code: &SCENE_CHARACTER_NOT_IN_SCENE,
                 reason: format!("character {character_id} is not assigned to this scene"),
+                usage: None,
             },
             SceneError::BeatNotFound {
                 character_id,
@@ -337,10 +355,12 @@ impl From<SceneError> for DomainError {
             } => DomainError::Validation {
                 code: &SCENE_BEAT_NOT_FOUND,
                 reason: format!("no outfit beat for character {character_id} at order {order}"),
+                usage: None,
             },
             SceneError::NoOutfitBeats { character_id } => DomainError::Validation {
                 code: &SCENE_BEAT_NOT_FOUND,
                 reason: format!("no outfit beats for character {character_id}"),
+                usage: None,
             },
             SceneError::AlreadyScheduled { shooting_day_id } => DomainError::AlreadyScheduled {
                 shooting_day_id: shooting_day_id.0,
@@ -362,6 +382,7 @@ impl From<CharacterError> for DomainError {
             CharacterError::ValidationError(msg) => DomainError::Validation {
                 code: &CHARACTER_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             CharacterError::NotFound { id } => DomainError::NotFound {
                 code: &CHARACTER_NOT_FOUND,
@@ -388,10 +409,12 @@ impl From<PieceError> for DomainError {
             PieceError::EmptyName => DomainError::Validation {
                 code: &PIECE_VALIDATION,
                 reason: "piece name must not be empty".into(),
+                usage: None,
             },
             PieceError::ValidationError(msg) => DomainError::Validation {
                 code: &PIECE_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             PieceError::NotFound { id } => DomainError::NotFound {
                 code: &PIECE_NOT_FOUND,
@@ -426,10 +449,12 @@ impl From<OutfitError> for DomainError {
             OutfitError::EmptyName => DomainError::Validation {
                 code: &OUTFIT_VALIDATION,
                 reason: "outfit name must not be empty".into(),
+                usage: None,
             },
             OutfitError::ValidationError(msg) => DomainError::Validation {
                 code: &OUTFIT_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             OutfitError::NotFound { id } => DomainError::NotFound {
                 code: &OUTFIT_NOT_FOUND,
@@ -456,6 +481,7 @@ impl From<ShootingDayError> for DomainError {
             ShootingDayError::ValidationError(msg) => DomainError::Validation {
                 code: &SHOOTING_DAY_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             ShootingDayError::NotFound { id } => DomainError::NotFound {
                 code: &SHOOTING_DAY_NOT_FOUND,
@@ -495,6 +521,7 @@ impl From<SeasonError> for DomainError {
             SeasonError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::SEASON_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             SeasonError::NotFound { id } => DomainError::NotFound {
                 code: &SEASON_NOT_FOUND,
@@ -519,6 +546,7 @@ impl From<BlockError> for DomainError {
             BlockError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::BLOCK_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             BlockError::NotFound { id } => DomainError::NotFound {
                 code: &BLOCK_NOT_FOUND,
@@ -539,6 +567,7 @@ impl From<CostumeCategoryError> for DomainError {
             CostumeCategoryError::ValidationError(msg) => DomainError::Validation {
                 code: &COSTUME_CATEGORY_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             CostumeCategoryError::ArchivedCannotBeMutated { .. } => DomainError::Conflict {
                 code: &COSTUME_CATEGORY_ARCHIVED,
@@ -560,6 +589,7 @@ impl From<EpisodeError> for DomainError {
             EpisodeError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::EPISODE_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             EpisodeError::NotFound { id } => DomainError::NotFound {
                 code: &EPISODE_NOT_FOUND,
@@ -586,6 +616,7 @@ impl From<MembershipError> for DomainError {
             MembershipError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::MEMBERSHIP_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             MembershipError::AlreadyInvited { user_id: _ } => DomainError::Conflict {
                 // S2 ban (ADR-031 D4): the invited identity (OIDC `sub`) is
@@ -604,6 +635,7 @@ impl From<MembershipError> for DomainError {
             MembershipError::MissingActor => DomainError::Validation {
                 code: &MEMBERSHIP_MISSING_ACTOR,
                 reason: "leave requires an authenticated actor".into(),
+                usage: None,
             },
             MembershipError::BootstrapNotAllowed { .. } => DomainError::Conflict {
                 code: &MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
@@ -624,6 +656,7 @@ impl From<SceneShootError> for DomainError {
             SceneShootError::ValidationError(msg) => DomainError::Validation {
                 code: &SCENE_SHOOT_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             SceneShootError::NotFound { id } => DomainError::NotFound {
                 code: &SCENE_SHOOT_NOT_FOUND,
@@ -676,10 +709,12 @@ impl From<SettingsError> for DomainError {
             SettingsError::EmptyProvider => DomainError::Validation {
                 code: &SETTINGS_EMPTY_PROVIDER,
                 reason: "credential provider must not be empty".into(),
+                usage: None,
             },
             SettingsError::EmptyVaultKey => DomainError::Validation {
                 code: &SETTINGS_EMPTY_VAULT_KEY,
                 reason: "vault key reference must not be empty".into(),
+                usage: None,
             },
             SettingsError::ProviderMismatch => DomainError::Conflict {
                 code: &SETTINGS_PROVIDER_MISMATCH,
@@ -708,6 +743,7 @@ impl From<PhotoError> for DomainError {
             PhotoError::ValidationError(msg) => DomainError::Validation {
                 code: &PHOTO_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             PhotoError::NotFound { id } => DomainError::NotFound {
                 code: &PHOTO_NOT_FOUND,
@@ -834,9 +870,12 @@ impl DomainError {
     /// before the failure" without restructuring how it built the error.
     #[must_use]
     pub fn with_billed_usage(mut self, usage: crate::ai::LlmCallUsage) -> Self {
-        if let DomainError::ServiceUnavailable { usage: slot, .. } = &mut self {
-            *slot = Some(std::sync::Arc::new(usage));
-        }
+        let slot = match &mut self {
+            DomainError::ServiceUnavailable { usage: slot, .. }
+            | DomainError::Validation { usage: slot, .. } => slot,
+            _ => return self,
+        };
+        *slot = Some(std::sync::Arc::new(usage));
         self
     }
 
@@ -848,6 +887,9 @@ impl DomainError {
     pub fn billed_usage(&self) -> Option<crate::ai::LlmCallUsage> {
         match self {
             DomainError::ServiceUnavailable {
+                usage: Some(usage), ..
+            }
+            | DomainError::Validation {
                 usage: Some(usage), ..
             } => Some(**usage),
             _ => None,
@@ -913,6 +955,7 @@ impl DomainError {
         DomainError::Validation {
             code: &DOMAIN_VALIDATION,
             reason: reason.into(),
+            usage: None,
         }
     }
 
