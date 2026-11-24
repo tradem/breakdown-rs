@@ -708,6 +708,28 @@ where
         // Issue #794: it keeps the per-call ledger too, because the provider
         // caps energy per request — the summed counters cannot be re-split.
         let mut extraction_usage = UsageAccumulator::default();
+        // Issue #970 (CodeRabbit review PR #967): usage persisted by PRIOR
+        // attempts' holds (an in-flight chunk's discarded earlier
+        // re-request answers) resumes the accounting — the completion-time
+        // telemetry overwrite covers every billed call, not only this
+        // attempt's. Stored chunks replay their OWN usage below; the two
+        // never overlap.
+        {
+            let prior_usage = match self.queue.recorded_usage(job.id).await {
+                Ok(usage) => usage,
+                Err(error) => {
+                    tracing::warn!(
+                        job_id = %job.id.as_uuid(),
+                        %error,
+                        "could not read prior attempt usage; accounting restarts at zero"
+                    );
+                    LlmCallUsage::default()
+                }
+            };
+            if prior_usage != LlmCallUsage::default() {
+                extraction_usage.record(prior_usage);
+            }
+        }
         let mut decision_usage = UsageAccumulator::default();
         // Globally unique scene counter across all chunks — the tail of
         // `stable_draft_ref`, which needs a stable identity per preview row
@@ -1263,7 +1285,7 @@ where
                         }
                     }
                 }
-                Err(failure) => {
+                Err(mut failure) => {
                     // Issue #871: the gate can refuse mid-attempt — from the top
                     // of `retry_bounded`, from the pre-sleep re-check, or from the
                     // client-internal guard. That is a HOLD, never a failure:
@@ -1274,6 +1296,17 @@ where
                         // Issue #942 W2: the hold persists the failure that fired
                         // — a client timeout, an HTTP status with its hint, or the
                         // bounded provider body — instead of a bare code.
+                        // Issue #970: the in-flight chunk's attempt may have
+                        // billed earlier responses before the refusal — the
+                        // chunk store cannot carry them (only completed chunks
+                        // are stored), so persist them on the row.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            failure.usage.take().map(|boxed| *boxed),
+                        )
+                        .await;
                         hold_job(
                             self.queue.as_ref(),
                             &self.bounds,
@@ -1940,7 +1973,18 @@ where
                     // `?` would leave the job `running` until its lease lapsed (900 s
                     // by default), because the outer handler treats `Conflict` as
                     // non-permanent and writes nothing.
-                    Err(failure) if is_breaker_open(&failure.error) => {
+                    //
+                    // Issue #970: the flat call's own attempt may have billed
+                    // earlier responses before the refusal — persist them
+                    // before parking.
+                    Err(mut failure) if is_breaker_open(&failure.error) => {
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            failure.usage.take().map(|boxed| *boxed),
+                        )
+                        .await;
                         hold_job(
                             self.queue.as_ref(),
                             &self.bounds,
@@ -2154,10 +2198,16 @@ where
                 Ok(outcome) => outcome,
                 Err(mut failure) => {
                     // Issue #970 (CodeRabbit review PR #967): the pages billed
-                    // BEFORE the failure travel with it, so the hold can
-                    // persist their usage and a re-drive resumes the
-                    // accounting instead of losing the paid calls.
-                    failure.usage = Some(Box::new(total_usage));
+                    // BEFORE the failure travel with it — plus, when the
+                    // failure is the client's mid-attempt breaker refusal, the
+                    // usage its own attempt had already billed — so the hold
+                    // can persist both and a re-drive resumes the accounting
+                    // instead of losing the paid calls.
+                    let mut carried = total_usage;
+                    if let Some(usage) = failure.usage.as_deref() {
+                        carried.accumulate(*usage);
+                    }
+                    failure.usage = Some(Box::new(carried));
                     return Err(failure);
                 }
             };
@@ -5149,6 +5199,14 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
 /// `evidence` is the bounded failure that parked the job (issue #942 W2). It is
 /// persisted on the attempt history — one row per hold *series* — because a hold
 /// that carried only a problem code left the operator with nothing to grep.
+/// The already-billed usage a breaker sentinel carries (issue #970); `None`
+/// for any other error.
+fn orphaned_usage(error: &AnyhowError) -> Option<LlmCallUsage> {
+    error
+        .downcast_ref::<DomainError>()
+        .and_then(super::provider_health::orphaned_usage)
+}
+
 /// Persist ONE attempt's partial usage on the running job row before a hold
 /// (issue #970, CodeRabbit review PR #967). Best-effort by contract: a failed
 /// write is logged and the hold proceeds — losing the accounting note must
@@ -5540,12 +5598,16 @@ where
                 if !is_transient(&error) || attempt >= max_retries {
                     // A real failure, not a hold: the caller fails the job with
                     // the provider narrative through `mark_failed`.
+                    let orphaned = orphaned_usage(&error);
                     return Err(CallFailure {
                         error: error
                             .downcast::<DomainError>()
                             .unwrap_or_else(|other| DomainError::validation(other.to_string())),
                         evidence: None,
-                        usage: None,
+                        // Issue #970: a breaker sentinel from the client's
+                        // mid-attempt refusal carries the usage of the
+                        // attempt's already-billed responses.
+                        usage: orphaned.map(Box::new),
                     });
                 }
                 attempt += 1;

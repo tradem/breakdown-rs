@@ -635,12 +635,38 @@ pub const BREAKER_OPEN_REASON: &str = "ai-import provider breaker is open";
 
 /// The sentinel a gated call returns when the breaker refuses it.
 pub fn breaker_open_error() -> DomainError {
-    DomainError::conflict(BREAKER_OPEN_REASON)
+    breaker_open_error_with_usage(breakdown_core::ai::LlmCallUsage::default())
+}
+
+/// The breaker sentinel carrying the usage the attempt ALREADY billed
+/// (issue #970, CodeRabbit review PR #967): completed responses of the same
+/// attempt whose answers were discarded by the refusal must reach the
+/// caller's accounting, so the sentinel transports them instead of dropping
+/// them at the client boundary.
+pub fn breaker_open_error_with_usage(usage: breakdown_core::ai::LlmCallUsage) -> DomainError {
+    DomainError::BreakerOpen {
+        code: &breakdown_core::error_registry::DOMAIN_CONFLICT,
+        reason: BREAKER_OPEN_REASON.to_owned(),
+        usage: std::sync::Arc::new(usage),
+    }
 }
 
 /// Whether an error is the breaker sentinel rather than a real failure.
 pub fn is_breaker_open(error: &DomainError) -> bool {
-    matches!(error, DomainError::Conflict { reason, .. } if reason == BREAKER_OPEN_REASON)
+    match error {
+        DomainError::BreakerOpen { .. } => true,
+        DomainError::Conflict { reason, .. } => reason == BREAKER_OPEN_REASON,
+        _ => false,
+    }
+}
+
+/// The already-billed usage a breaker sentinel carries (issue #970); `None`
+/// for any other error.
+pub(crate) fn orphaned_usage(error: &DomainError) -> Option<breakdown_core::ai::LlmCallUsage> {
+    match error {
+        DomainError::BreakerOpen { usage, .. } => Some(**usage),
+        _ => None,
+    }
 }
 
 /// How long one granted trial may take before the next one is considered
@@ -720,5 +746,50 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
         sqlx::Error::RowNotFound => DomainError::not_found("row not found"),
         sqlx::Error::PoolTimedOut => DomainError::service_unavailable("database pool timed out"),
         other => DomainError::service_unavailable(format!("database error: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod breaker_sentinel_tests {
+    use super::*;
+    use breakdown_core::ai::LlmCallUsage;
+
+    /// Issue #970 (CodeRabbit review, PR #967): the breaker sentinel carries
+    /// the usage the attempt already billed, so a hold persists it instead of
+    /// losing the completed responses' accounting.
+    #[test]
+    fn the_breaker_sentinel_carries_orphaned_usage_and_stays_the_sentinel() {
+        let usage = LlmCallUsage {
+            tokens_in: 500,
+            tokens_out: 120,
+            cached_tokens_in: 30,
+            energy_millijoules: 7,
+        };
+        let error = breaker_open_error_with_usage(usage);
+        assert!(
+            is_breaker_open(&error),
+            "the usage-carrying sentinel IS the breaker sentinel"
+        );
+        assert_eq!(
+            orphaned_usage(&error),
+            Some(LlmCallUsage {
+                tokens_in: 500,
+                tokens_out: 120,
+                cached_tokens_in: 30,
+                energy_millijoules: 7,
+            }),
+            "the completed responses' usage travels on the sentinel"
+        );
+        // The zero-usage constructor stays the sentinel too.
+        assert!(is_breaker_open(&breaker_open_error()));
+        assert_eq!(
+            orphaned_usage(&breaker_open_error()),
+            Some(LlmCallUsage::default())
+        );
+        // A real failure carries nothing and is not the sentinel.
+        assert_eq!(orphaned_usage(&DomainError::conflict("lost claim")), None);
+        assert!(!is_breaker_open(&DomainError::conflict("lost claim")));
+        // The legacy Conflict-reason sentinel shape stays recognized.
+        assert!(is_breaker_open(&DomainError::conflict(BREAKER_OPEN_REASON)));
     }
 }

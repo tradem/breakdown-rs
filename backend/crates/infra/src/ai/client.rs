@@ -241,7 +241,10 @@ impl OpenAiCompatibleChatClient {
             // Issue #871: BEFORE every billable request, truncation retries
             // included. An open breaker costs no request and no delay.
             if !self.admits_billable_request(&req.model).await {
-                return Err(super::provider_health::breaker_open_error());
+                // Issue #970 (CodeRabbit review PR #967): see the vision path.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    total_usage,
+                ));
             }
             let body = ChatCompletionRequest {
                 model: req.model.clone(),
@@ -411,7 +414,12 @@ impl OpenAiCompatibleChatClient {
         let mut total_usage = LlmCallUsage::default();
         loop {
             if !self.admits_billable_request(&req.model).await {
-                return Err(super::provider_health::breaker_open_error());
+                // Issue #970 (CodeRabbit review PR #967): the responses of
+                // this attempt billed SO FAR travel on the sentinel, so the
+                // hold persists them instead of dropping them here.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    total_usage,
+                ));
             }
             let body = VisionChatCompletionRequest {
                 model: req.model.clone(),

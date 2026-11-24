@@ -117,6 +117,23 @@ pub enum DomainError {
         retry_after: Option<std::time::Duration>,
     },
 
+    /// The AI-import provider breaker refused a billable request (issue #871).
+    ///
+    /// Internal sentinel: it never reaches a client response (the worker turns
+    /// it into a hold, never an HTTP error), so it reuses the registered
+    /// `domain.conflict` code instead of its own ADR-031 entry. `usage`
+    /// carries the tokens/energy already billed by the COMPLETED responses of
+    /// the same attempt (issue #970, CodeRabbit review PR #967) — zeros when
+    /// the refusal preceded every billable response — so the caller's
+    /// accounting never loses them. `Arc` keeps the variant no larger than
+    /// [`DomainError::ServiceUnavailable`].
+    #[error("provider breaker open: {reason}")]
+    BreakerOpen {
+        code: &'static ProblemCode,
+        reason: String,
+        usage: std::sync::Arc<crate::ai::LlmCallUsage>,
+    },
+
     /// The **LLM provider refuses to serve this account any more** because its
     /// quota is exhausted (issue #927): OpenAI `insufficient_quota` /
     /// `credit_balance_exhausted`, Gemini's per-day quota id, OpenRouter's
@@ -883,6 +900,7 @@ impl DomainError {
             | DomainError::Forbidden { code, .. }
             | DomainError::Validation { code, .. }
             | DomainError::Conflict { code, .. }
+            | DomainError::BreakerOpen { code, .. }
             | DomainError::ServiceUnavailable { code, .. }
             | DomainError::DependencyAuthFailed { code, .. } => code,
             // Issue #942 W3: its OWN registered entry, fixed by construction

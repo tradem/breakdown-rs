@@ -256,7 +256,11 @@ impl LlmClient for OllamaChatClient {
                     .map(|snapshot| snapshot.admits_claim())
                     .unwrap_or(true)
             {
-                return Err(super::provider_health::breaker_open_error());
+                // Issue #970 (CodeRabbit review PR #967): prior billed
+                // responses of this attempt travel on the sentinel.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    total_usage,
+                ));
             }
             let (content, usage) = self.request_once(&req).await?;
             total_usage.accumulate(usage);
@@ -295,7 +299,11 @@ impl LlmClient for OllamaChatClient {
                     .map(|snapshot| snapshot.admits_claim())
                     .unwrap_or(true)
             {
-                return Err(super::provider_health::breaker_open_error());
+                // Issue #970 (CodeRabbit review PR #967): prior billed
+                // responses of this attempt travel on the sentinel.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    total_usage,
+                ));
             }
             let (content, usage) = self.request_vision_once(req).await?;
             total_usage.accumulate(usage);
