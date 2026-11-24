@@ -417,22 +417,33 @@ fn the_default_attempt_window_is_28_minutes_for_ollama() {
 }
 
 #[test]
-fn the_default_vision_attempt_window_adds_one_fallback_request_hosted() {
-    // CodeRabbit PR #967: the hosted vision path can send ONE request beyond
-    // the truncation-retry count (the `response_format` fallback does not
-    // consume a truncation retry), so its permit-hold window is the shared
-    // bound plus exactly one request timeout: 22 min + 120 s = 1440 s.
+fn the_default_vision_attempt_window_counts_one_fallback_per_outer_attempt() {
+    // CodeRabbit PR #967 + follow-up: the hosted vision path can send ONE
+    // request beyond the truncation-retry count per OUTER attempt (the
+    // `response_format` fallback does not consume a truncation retry, and the
+    // flag resets per client invocation — a retryable error after a fallback
+    // leads to another fallback on the next outer call). So the vision window
+    // is (1 + max_attempt_retries) × (inner_retries + 2) × timeout + backoff:
+    // hosted = 3 × 4 × 120 s + 2 × 120 s = 1680 s = 28 min.
     let b = AiImportBounds::default();
     assert_eq!(
         b.vision_attempt_worst_case_secs(HOSTED_INNER_RETRIES),
-        22 * 60 + 120
+        28 * 60
     );
-    // The Ollama vision path has no format fallback: its window stays at the
-    // shared bound (28 min).
+    // The fallback term scales with the OUTER layer, never a single flat
+    // request: one outer attempt costs (inner + 2) request timeouts.
+    let b1 = AiImportBounds {
+        max_attempt_retries: 1,
+        ..AiImportBounds::default()
+    };
+    let per_outer = b1.request_timeout_secs * (HOSTED_INNER_RETRIES as u64 + 2);
     assert_eq!(
-        b.vision_attempt_worst_case_secs(OLLAMA_INNER_RETRIES) - b.request_timeout_secs,
-        b.attempt_worst_case_secs(OLLAMA_INNER_RETRIES)
+        b1.vision_attempt_worst_case_secs(HOSTED_INNER_RETRIES),
+        2 * per_outer + MAX_IN_ATTEMPT_HINT_SECS
     );
+    // The Ollama vision path has no format fallback: its permit-hold window
+    // stays at the shared bound (28 min), not the vision bound.
+    assert_eq!(b.attempt_worst_case_secs(OLLAMA_INNER_RETRIES), 28 * 60);
 }
 
 #[test]
