@@ -532,7 +532,8 @@ void main() {
           AiImportDefaults(
             (b) => b
               ..script = ''
-              ..schedule = '',
+              ..schedule = ''
+              ..scheduleFlat = '',
           ),
         ),
       ),
