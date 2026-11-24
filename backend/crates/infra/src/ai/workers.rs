@@ -1822,8 +1822,9 @@ where
         // attempts' holds resumes the accounting — the accumulator (and with
         // it the completion-time telemetry overwrite and the cost snapshot)
         // covers every billed call of the job, not only this attempt's. The
-        // prior total rides the ledger as ONE aggregate entry, which
-        // `priced_calls` prices exactly like the pre-#794 aggregate.
+        // prior total rides the ledger as ONE aggregate entry, which prices
+        // like the pre-#794 aggregate — a known limitation for the #794
+        // per-request energy cap across several prior requests (issue #971).
         // A FAILED read propagates BEFORE any paid work: continuing from zero
         // would let the completion-time overwrite erase the persisted total
         // (CodeRabbit review, PR #967 round 8) — the failed read is not
