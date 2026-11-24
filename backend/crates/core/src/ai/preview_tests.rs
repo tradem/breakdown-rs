@@ -6,6 +6,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use uuid::Uuid;
 
@@ -61,6 +62,7 @@ fn merge_returns_matched_and_both_unmatched_sets() {
                 ..Default::default()
             },
         ],
+        ..Default::default()
     };
     let merged = merge_schedule_to_scenes(
         &schedule,
@@ -739,6 +741,7 @@ fn merge_from_input_joins_schedule_to_scenes() {
                 scene_number: Some(1),
                 ..Default::default()
             }],
+            ..Default::default()
         },
         scenes: vec![scene(1), scene(2)],
         episode_numbers: std::collections::HashMap::new(),
@@ -1687,6 +1690,7 @@ fn merge_distributes_multiple_rows_to_same_scene_number() {
                 ..Default::default()
             },
         ],
+        ..Default::default()
     };
     let merged = merge_schedule_to_scenes(
         &schedule,
@@ -1715,6 +1719,7 @@ fn merge_rotates_rows_across_same_numbered_scenes() {
                 ..Default::default()
             },
         ],
+        ..Default::default()
     };
     // Two scene(1) entries: rows should distribute across both via modulo
     let merged = merge_schedule_to_scenes(
@@ -3272,19 +3277,34 @@ fn mood_is_additive_on_stored_previews() {
 #[test]
 fn parse_schedule_scene_ref_splits_dot_notation_as_integers() {
     // The trailing zero is a scene number, never a decimal digit.
-    assert_eq!(parse_schedule_scene_ref("294.10"), (Some(294), Some(10)));
-    assert_eq!(parse_schedule_scene_ref("03.05"), (Some(3), Some(5)));
+    assert_eq!(
+        parse_schedule_scene_ref("294.10"),
+        (Some(294), Some(10), None)
+    );
+    assert_eq!(parse_schedule_scene_ref("03.05"), (Some(3), Some(5), None));
+    assert_eq!(
+        parse_schedule_scene_ref("300.37N"),
+        (Some(300), Some(37), Some("N".to_owned()))
+    );
     // Plain references carry no episode.
-    assert_eq!(parse_schedule_scene_ref("10"), (None, Some(10)));
-    assert_eq!(parse_schedule_scene_ref("12A"), (None, Some(12)));
-    assert_eq!(parse_schedule_scene_ref(" 7 "), (None, Some(7)));
-    // Unparseable references degrade to unmatched, never half-match.
-    assert_eq!(parse_schedule_scene_ref(""), (None, None));
-    assert_eq!(parse_schedule_scene_ref("ABC"), (None, None));
-    assert_eq!(parse_schedule_scene_ref("294."), (None, None));
-    assert_eq!(parse_schedule_scene_ref(".10"), (None, None));
-    assert_eq!(parse_schedule_scene_ref("294.10.5"), (None, None));
-    assert_eq!(parse_schedule_scene_ref("99999999999.10"), (None, None));
+    assert_eq!(parse_schedule_scene_ref("10"), (None, Some(10), None));
+    assert_eq!(
+        parse_schedule_scene_ref("12A"),
+        (None, Some(12), Some("A".to_owned()))
+    );
+    assert_eq!(parse_schedule_scene_ref(" 7 "), (None, Some(7), None));
+    // Non-episode units ("SB7.2", "T3") and unparseable references degrade to unmatched.
+    assert_eq!(parse_schedule_scene_ref("SB7.2"), (None, None, None));
+    assert_eq!(parse_schedule_scene_ref("T3"), (None, None, None));
+    assert_eq!(parse_schedule_scene_ref(""), (None, None, None));
+    assert_eq!(parse_schedule_scene_ref("ABC"), (None, None, None));
+    assert_eq!(parse_schedule_scene_ref("294."), (None, None, None));
+    assert_eq!(parse_schedule_scene_ref(".10"), (None, None, None));
+    assert_eq!(parse_schedule_scene_ref("294.10.5"), (None, None, None));
+    assert_eq!(
+        parse_schedule_scene_ref("99999999999.10"),
+        (None, None, None)
+    );
 }
 
 // ===========================================================================
@@ -3312,6 +3332,7 @@ fn merge_attaches_row_to_the_matching_episodes_scene() {
             episode_number: Some(295),
             ..Default::default()
         }],
+        ..Default::default()
     };
     let merged = merge_schedule_to_scenes(
         &schedule,
@@ -3347,6 +3368,7 @@ fn merge_leaves_row_unmatched_when_episode_pair_misses() {
             episode_number: Some(295),
             ..Default::default()
         }],
+        ..Default::default()
     };
     // Only episode 294 carries a Scene 10 — the pair matches NOTHING and the
     // row must NOT fall back onto the wrong episode's scene.
@@ -3365,6 +3387,7 @@ fn merge_falls_back_to_scene_number_only_without_episode_context() {
             scene_number: Some(1),
             ..Default::default()
         }],
+        ..Default::default()
     };
     // Rows without an episode number (and rows when the map is absent) match
     // by scene number alone, as before #721.
@@ -3386,6 +3409,7 @@ fn merge_ignores_scenes_with_unknown_episode_for_episode_rows() {
             episode_number: Some(294),
             ..Default::default()
         }],
+        ..Default::default()
     };
     // The scene's episode is NOT in the map: it is invisible to the
     // episode-bearing row (a pair match against an unknown episode would be
@@ -4728,4 +4752,376 @@ fn neighbor_script_day_parity_uses_the_group_key_not_the_display_label() {
         previous.same_script_day,
         "both scenes are day 1 regardless of their display label: {previous:?}"
     );
+}
+
+// ===========================================================================
+// Issue #960 — [P4] Multimodal schedule carry-over, shot suffixes & cast legend
+// ===========================================================================
+
+#[test]
+fn shot_suffixed_schedule_row_merges_onto_owning_scene_and_non_episode_units_stay_unmatched() {
+    let ep300 = EpisodeId::new();
+    let episodes = std::collections::HashMap::from([(ep300, 300)]);
+
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![
+                SchedulePageRow {
+                    row_ref: "300.37".into(),
+                    scene_ref: Some("300.37".into()),
+                    shooting_day_label: Some("7. Drehtag: Mo. 25.10.2021".into()),
+                    date: None,
+                    location: Some("KLINIKUM / OP / OP".into()),
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "300.37N".into(),
+                    scene_ref: Some("300.37N".into()),
+                    shooting_day_label: Some("6. Drehtag: Sa. 23.10.2021".into()),
+                    date: None,
+                    location: Some("KLINIKUM / OP / OP".into()),
+                    order: Some(2),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "SB7.2".into(),
+                    scene_ref: Some("SB7.2".into()),
+                    shooting_day_label: Some("4. Drehtag: Do. 21.10.2021".into()),
+                    date: None,
+                    location: Some("KLINIKUM / OP / OP".into()),
+                    order: Some(3),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "T3".into(),
+                    scene_ref: Some("T3".into()),
+                    shooting_day_label: Some("4. Drehtag: Do. 21.10.2021".into()),
+                    date: None,
+                    location: Some("KLINIKUM / STATIONSCOUNTER".into()),
+                    order: Some(4),
+                    cast_codes: Vec::new(),
+                },
+            ],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[1].episode_number, Some(300));
+    assert_eq!(rows[1].scene_number, Some(37));
+    assert_eq!(rows[1].shot_suffix.as_deref(), Some("N"));
+    assert_eq!(rows[2].episode_number, None);
+    assert_eq!(rows[2].scene_number, None);
+    assert_eq!(rows[3].episode_number, None);
+    assert_eq!(rows[3].scene_number, None);
+
+    let schedule = ShootingSchedule {
+        block_id: None,
+        rows,
+        cast_legend: carry_over.cast_legend,
+    };
+    let merged = merge_schedule_to_scenes(&schedule, &[episode_scene(ep300, 37)], &episodes);
+    assert_eq!(
+        merged.scenes[0].schedule_rows.len(),
+        2,
+        "both 300.37 and 300.37N attach to Episode 300 Scene 37 without creating a phantom scene"
+    );
+    assert_eq!(merged.unmatched_schedule_rows.len(), 2);
+    let unmatched_refs: Vec<&str> = merged
+        .unmatched_schedule_rows
+        .iter()
+        .map(|row| row.row_ref.as_str())
+        .collect();
+    assert!(unmatched_refs.contains(&"SB7.2"));
+    assert!(unmatched_refs.contains(&"T3"));
+}
+
+#[test]
+fn schedule_carry_over_preserves_active_day_across_page_breaks_and_skips_drehfrei_banners() {
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+
+    // Page 2 ends under "3. Drehtag: Mi. 20.10.2021".
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![SchedulePageRow {
+                row_ref: "298.35".into(),
+                scene_ref: Some("298.35".into()),
+                shooting_day_label: Some("3. Drehtag: Mi. 20.10.2021 - Vorstopp: 9:05".into()),
+                date: None,
+                location: Some("WOHNUNG ELIAS".into()),
+                order: Some(1),
+                cast_codes: Vec::new(),
+            }],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+
+    // Page 3 begins with 3 rows BEFORE "4. Drehtag: Do. 21.10.2021" and
+    // includes a "Drehfrei: So. 24.10.2021" rest-day banner.
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![
+                SchedulePageRow {
+                    row_ref: "298.42".into(),
+                    scene_ref: Some("298.42".into()),
+                    shooting_day_label: None,
+                    date: None,
+                    location: Some("WOHNUNG ELIAS".into()),
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "298.21".into(),
+                    scene_ref: Some("298.21".into()),
+                    shooting_day_label: None,
+                    date: None,
+                    location: Some("WOHNUNG ELIAS".into()),
+                    order: Some(2),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "300.19".into(),
+                    scene_ref: Some("300.19".into()),
+                    shooting_day_label: None,
+                    date: None,
+                    location: Some("WOHNUNG LEYLA + BEN".into()),
+                    order: Some(3),
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "Drehfrei: So. 24.10.2021".into(),
+                    scene_ref: None,
+                    shooting_day_label: Some("Drehfrei: So. 24.10.2021".into()),
+                    date: Some("2021-10-24".into()),
+                    location: None,
+                    order: None,
+                    cast_codes: Vec::new(),
+                },
+                SchedulePageRow {
+                    row_ref: "300.42".into(),
+                    scene_ref: Some("300.42".into()),
+                    shooting_day_label: Some("4. Drehtag: Do. 21.10.2021".into()),
+                    date: None,
+                    location: Some("VOR KLINIKUM / BASKETBALLECKE".into()),
+                    order: Some(4),
+                    cast_codes: Vec::new(),
+                },
+            ],
+            end_of_page_shooting_day_label: Some("11. Drehtag: Fr. 29.10.2021".into()),
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+
+    // Page 4 starts with a row that inherits the trailing "11. Drehtag" banner
+    // from the bottom of the previous page.
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: Vec::new(),
+            rows: vec![SchedulePageRow {
+                row_ref: "298.22".into(),
+                scene_ref: Some("298.22".into()),
+                shooting_day_label: None,
+                date: None,
+                location: Some("VOR KLINIKUM / PARK".into()),
+                order: Some(1),
+                cast_codes: Vec::new(),
+            }],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+
+    assert_eq!(rows.len(), 6, "Drehfrei banner must never emit a row");
+    for inherited in &rows[0..4] {
+        assert_eq!(
+            inherited.shooting_day_label.as_deref(),
+            Some("3. Drehtag: Mi. 20.10.2021")
+        );
+        assert_eq!(inherited.date, Date::new(2021, 10, 20).ok());
+    }
+    assert_eq!(
+        rows[4].shooting_day_label.as_deref(),
+        Some("4. Drehtag: Do. 21.10.2021")
+    );
+    assert_eq!(rows[4].date, Date::new(2021, 10, 21).ok());
+    assert_eq!(
+        rows[5].shooting_day_label.as_deref(),
+        Some("11. Drehtag: Fr. 29.10.2021")
+    );
+    assert_eq!(rows[5].date, Date::new(2021, 10, 29).ok());
+}
+
+#[test]
+fn rollen_cast_legend_resolves_modifiers_and_drops_unknown_codes_silently() {
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    carry_over.apply_page(
+        SchedulePageExtraction {
+            legend_entries: vec![
+                ScheduleLegendEntry {
+                    code: "2".into(),
+                    character_name: "Ben Ahlbeck - Philipp Danne".into(),
+                    modifier: ScheduleRoleModifier::None,
+                },
+                ScheduleLegendEntry {
+                    code: "150".into(),
+                    character_name: "Zoe (Dummy".into(),
+                    modifier: ScheduleRoleModifier::None,
+                },
+                ScheduleLegendEntry {
+                    code: "1040".into(),
+                    character_name: "Rafael (Nur Stimme)".into(),
+                    modifier: ScheduleRoleModifier::None,
+                },
+                ScheduleLegendEntry {
+                    code: "33".into(),
+                    character_name: "Physiotherapeutin (Ot".into(),
+                    modifier: ScheduleRoleModifier::None,
+                },
+            ],
+            rows: vec![SchedulePageRow {
+                row_ref: "300.8".into(),
+                scene_ref: Some("300.8".into()),
+                shooting_day_label: Some("5. Drehtag: Fr. 22.10.2021".into()),
+                date: None,
+                location: Some("KLINIKUM / OP / KREISSSAAL".into()),
+                order: Some(1),
+                cast_codes: vec!["2, 150, 9999, 1040, 33".into()],
+            }],
+            end_of_page_shooting_day_label: None,
+            end_of_page_date: None,
+        },
+        &mut rows,
+    );
+
+    assert_eq!(carry_over.cast_legend.len(), 4);
+    assert_eq!(rows.len(), 1);
+    let cast_refs = &rows[0].cast_refs;
+    assert_eq!(
+        cast_refs,
+        &[
+            ScheduleCastMember {
+                code: "2".into(),
+                character_name: "Ben Ahlbeck".into(),
+                modifier: ScheduleRoleModifier::None,
+            },
+            ScheduleCastMember {
+                code: "150".into(),
+                character_name: "Zoe".into(),
+                modifier: ScheduleRoleModifier::Dummy,
+            },
+            ScheduleCastMember {
+                code: "1040".into(),
+                character_name: "Rafael".into(),
+                modifier: ScheduleRoleModifier::VoiceOnly,
+            },
+            ScheduleCastMember {
+                code: "33".into(),
+                character_name: "Physiotherapeutin".into(),
+                modifier: ScheduleRoleModifier::ExtraOt,
+            },
+        ]
+    );
+}
+
+#[test]
+fn stacked_multi_row_cells_preserve_episode_scene_and_unwrapped_location() {
+    let mut page = StructuredPage::new(4, 595.0, 842.0);
+    // Running header in header band (excluded).
+    page.push_block(
+        BlockKind::PageHeader,
+        NormalizedBBox::new(0.08, 0.03, 0.55, 0.05),
+        "Block 100 - In aller Freundschaft",
+    );
+    // Day banner (just below the header band — a real schedule banner sits at
+    // y ≈ 0.081–0.091 of the page, past HEADER_BAND_MAX_Y1).
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.27, 0.091, 0.56, 0.101),
+        "6. Drehtag: Sa. 23.10.2021 - Vorstopp: 7:40",
+    );
+    // Stacked Column 1: "300.33" on line 1, script day "2" directly below on line 2.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.08, 0.12, 0.13, 0.15),
+        "300.33\n2",
+    );
+    // Wrapped center set name + synopsis line.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.30, 0.12, 0.65, 0.16),
+        "KLINIKUM / ITS / BEOBACHTUNGSRAUM + ZIM-\nMER ZOE\nOP trotz Risiko!",
+    );
+    // Cast codes on the right.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.67, 0.12, 0.73, 0.13),
+        "2, 4, 50",
+    );
+    // Drehfrei rest-day banner below.
+    page.push_block(
+        BlockKind::Paragraph,
+        NormalizedBBox::new(0.40, 0.30, 0.60, 0.32),
+        "Drehfrei: So. 24.10.2021",
+    );
+
+    let extracted = extract_schedule_page_from_structured(&page);
+    assert_eq!(
+        extracted.rows.len(),
+        1,
+        "script day '2' and 'Drehfrei' must not become separate rows"
+    );
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    carry_over.apply_page(extracted, &mut rows);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].episode_number, Some(300));
+    assert_eq!(rows[0].scene_number, Some(33));
+    assert_eq!(
+        rows[0].location.as_deref(),
+        Some("KLINIKUM / ITS / BEOBACHTUNGSRAUM + ZIMMER ZOE")
+    );
+    assert_eq!(
+        rows[0].shooting_day_label.as_deref(),
+        Some("6. Drehtag: Sa. 23.10.2021")
+    );
+}
+
+#[test]
+fn pre_p4_stored_schedule_preview_deserializes_with_serde_defaults() {
+    let legacy_json = r#"{
+        "block_id": null,
+        "rows": [
+            {
+                "row_ref": "row-0",
+                "scene_number": 10,
+                "episode_number": 294,
+                "shooting_day_label": "1. Drehtag",
+                "date": "2021-10-18",
+                "location": "KLINIKUM",
+                "order": 1
+            }
+        ]
+    }"#;
+    let decoded: ShootingSchedule =
+        serde_json::from_str(legacy_json).expect("pre-P4 JSON schedule preview must deserialize");
+    assert!(decoded.cast_legend.is_empty());
+    assert_eq!(decoded.rows.len(), 1);
+    assert_eq!(decoded.rows[0].episode_number, Some(294));
+    assert_eq!(decoded.rows[0].scene_number, Some(10));
+    assert_eq!(decoded.rows[0].shot_suffix, None);
+    assert!(decoded.rows[0].cast_refs.is_empty());
 }

@@ -15,20 +15,22 @@ use breakdown_core::ai::{
     AiImportMappingRepository, AiImportProgress, AiImportQueue, AiImportStage,
     AiModelPricingRepository, AppliedEpisode, ApplyGateError, ApplyMapping, ApplyMappingDecision,
     ApplyProgress, ApplyRunId, ApplyStage, CategoryVocabularyEntry, CharacterApplyPlan,
-    ChunkSetState, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry, DocumentKind,
-    DocumentStructureExtractor, DraftScene, EpisodeGroupPlan, ExistingSeasonCharacter,
-    ExtractionFingerprint, HoldEvidence, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
-    PlannedShootingDay, ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold,
-    ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, SceneNeighbors, ScriptContext,
-    SegmentedScript, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry,
-    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
-    UncertaintyAcknowledgement, UncertaintyKind, UsageAccumulator, category_conflict_uncertainties,
-    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes_from_structured,
-    mapping_kind, merge_schedule_to_scenes, neighbor_brackets, normalize_kerning, parse_script_day,
-    plan_scene_apply, render_document_context, resolve_character_category, sanitize_meta_summary,
-    scene_beat_lanes, stable_draft_ref, verify_draft_outfits_with_normalized,
-    zero_dialogue_generic_roles,
+    ChunkSetState, CostBreakdown, DEFAULT_MAX_RENDER_BYTES, DecisionClient, DecisionOutcome,
+    DecisionTelemetry, DocumentKind, DocumentStructureExtractor, DraftScene, EpisodeGroupPlan,
+    ExistingSeasonCharacter, ExtractionFingerprint, HoldEvidence, LlmCallUsage, LlmChatRequest,
+    LlmClient, LlmProvider, LlmVisionPageInput, LlmVisionRequest, MergedPreview, OutfitApplyPlan,
+    PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot,
+    ProviderBreakerState, ProviderHold, RenderOptions, ReviewerDecisions, SceneApplyCommand,
+    SceneApplyPlan, SceneNeighbors, ScheduleCarryOver, ScriptContext, SegmentedScript,
+    ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry, TelemetryApplyState,
+    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
+    UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
+    draft_row_ref, ensure_merge_applyable, extract_scenes_from_structured, mapping_kind,
+    max_rendered_total_bytes_from_env, merge_schedule_to_scenes, neighbor_brackets,
+    normalize_kerning, parse_script_day, plan_scene_apply, render_document_context,
+    render_schedule_carry_over_context, render_schedule_page_spatial_hint,
+    resolve_character_category, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
+    verify_draft_outfits_with_normalized, zero_dialogue_generic_roles,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -1825,67 +1827,99 @@ where
                 .await?;
                 return Ok(String::new());
             }
-            let source_text = match job.source_format {
-                SourceFormat::Pdf => {
-                    // Issue #960 replaces this flattened view with per-page
-                    // rendering; today the schedule prompt still reads text, and
-                    // the flattened document is what the flat adapter always
-                    // produced.
-                    self.extractor
+            // Issue #960: a spatial PDF schedule streams PAGE BY PAGE through
+            // the multimodal vision seam with carry-over day state; the
+            // legacy-pdftotext rollback target (`AI_DOCUMENT_PARSER=legacy`)
+            // keeps the pre-#960 single flat-text request.
+            if job.source_format == SourceFormat::Pdf
+                && self.extractor.parser_fingerprint() != super::LEGACY_PARSER_FINGERPRINT
+            {
+                let (parsed, page_usage) = match self
+                    .extract_pdf_pages(job, worker_id, bytes, &gate, &mut progress)
+                    .await
+                {
+                    // Issue #871: a breaker refusal is a HOLD (same rationale as
+                    // the flat path below).
+                    Err(failure) if is_breaker_open(&failure.error) => {
+                        hold_job(
+                            self.queue.as_ref(),
+                            &self.bounds,
+                            job.id,
+                            worker_id,
+                            &gate,
+                            0,
+                            failure.evidence.as_ref(),
+                        )
+                        .await?;
+                        return Ok(String::new());
+                    }
+                    other => other.map_err(|failure| failure.error)?,
+                };
+                extraction_usage.record(page_usage);
+                parsed
+            } else {
+                let source_text = match job.source_format {
+                    // A legacy-pdftotext PDF cannot render pages: the flattened
+                    // document is what the flat adapter always produced (the
+                    // pre-#960 rollback path).
+                    SourceFormat::Pdf => self
+                        .extractor
                         .extract(bytes, breakdown_core::ai::ExtractionOptions::default())
                         .await?
-                        .flattened_text()
-                }
-                // `Csv` never reaches this branch (`native_csv` above), so the
-                // fallback is exactly `PlainText`.
-                _ => String::from_utf8(bytes.to_vec()).map_err(|error| {
-                    DomainError::validation(format!("schedule document is not UTF-8 text: {error}"))
-                })?,
-            };
-            let request = LlmChatRequest {
-                provider: self.provider,
-                model: self.model.clone(),
-                prompt: self.prompt.clone(),
-                source_text,
-                max_tokens: self.bounds.max_tokens_per_req,
-                response_schema: None,
-                // Same resolution as the script path above.
-                reasoning_effort: resolved_reasoning_effort(
-                    self.provider,
-                    &self.model,
-                    self.reasoning_effort,
-                )
-                .map(|effort| effort.as_str().to_owned()),
-            };
-            let (parsed, call_usage) = match retry_schedule(
-                self.client.as_ref(),
-                request,
-                self.bounds.max_attempt_retries as usize,
-                &gate,
-            )
-            .await
-            {
-                // Issue #871: a breaker refusal is a HOLD. Propagating it through
-                // `?` would leave the job `running` until its lease lapsed (900 s
-                // by default), because the outer handler treats `Conflict` as
-                // non-permanent and writes nothing.
-                Err(failure) if is_breaker_open(&failure.error) => {
-                    hold_job(
-                        self.queue.as_ref(),
-                        &self.bounds,
-                        job.id,
-                        worker_id,
-                        &gate,
-                        0,
-                        failure.evidence.as_ref(),
+                        .flattened_text(),
+                    // `Csv` never reaches this branch (`native_csv` above), so the
+                    // fallback is exactly `PlainText`.
+                    _ => String::from_utf8(bytes.to_vec()).map_err(|error| {
+                        DomainError::validation(format!(
+                            "schedule document is not UTF-8 text: {error}"
+                        ))
+                    })?,
+                };
+                let request = LlmChatRequest {
+                    provider: self.provider,
+                    model: self.model.clone(),
+                    prompt: self.prompt.clone(),
+                    source_text,
+                    max_tokens: self.bounds.max_tokens_per_req,
+                    response_schema: None,
+                    // Same resolution as the script path above.
+                    reasoning_effort: resolved_reasoning_effort(
+                        self.provider,
+                        &self.model,
+                        self.reasoning_effort,
                     )
-                    .await?;
-                    return Ok(String::new());
-                }
-                other => other.map_err(|failure| failure.error)?,
-            };
-            extraction_usage.record(call_usage);
-            parsed
+                    .map(|effort| effort.as_str().to_owned()),
+                };
+                let (parsed, call_usage) = match retry_schedule(
+                    self.client.as_ref(),
+                    request,
+                    self.bounds.max_attempt_retries as usize,
+                    &gate,
+                )
+                .await
+                {
+                    // Issue #871: a breaker refusal is a HOLD. Propagating it through
+                    // `?` would leave the job `running` until its lease lapsed (900 s
+                    // by default), because the outer handler treats `Conflict` as
+                    // non-permanent and writes nothing.
+                    Err(failure) if is_breaker_open(&failure.error) => {
+                        hold_job(
+                            self.queue.as_ref(),
+                            &self.bounds,
+                            job.id,
+                            worker_id,
+                            &gate,
+                            0,
+                            failure.evidence.as_ref(),
+                        )
+                        .await?;
+                        return Ok(String::new());
+                    }
+                    other => other.map_err(|failure| failure.error)?,
+                };
+                extraction_usage.record(call_usage);
+                parsed
+            }
         };
         // Best-effort Decision Model scoring pass for LLM-extracted
         // schedules (issue #722 §3.3): one single-pass request scores the
@@ -1980,6 +2014,118 @@ where
             .mark_succeeded(job.id, worker_id, &handle)
             .await?;
         Ok(handle)
+    }
+
+    /// Page-streaming multimodal extraction of a PDF shooting schedule
+    /// (issue #960, ADR-041 `D5`).
+    ///
+    /// Walks `1..=K` pages: render one page on demand, send it with the
+    /// carry-over context through `chat_vision_constrained`, drop the PNG,
+    /// merge the page into [`ScheduleCarryOver`]. Retained image memory is one
+    /// page, and the document-wide rendered-byte ceiling
+    /// ([`AI_IMPORT_MAX_RENDERED_TOTAL_BYTES`]) aborts the job as a validation
+    /// error instead of accumulating `K` images. Progress frames publish
+    /// `chunk = page_idx` / `chunks_total = page_count` (issue #664).
+    async fn extract_pdf_pages(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        bytes: &[u8],
+        gate: &ProviderGate<'_, impl AiImportQueue + ?Sized>,
+        progress: &mut AiImportProgress,
+    ) -> Result<(ShootingSchedule, LlmCallUsage), CallFailure> {
+        let document = self
+            .extractor
+            .extract(bytes, breakdown_core::ai::ExtractionOptions::default())
+            .await
+            .map_err(CallFailure::from)?;
+        let page_count = u32::try_from(document.page_count()).unwrap_or(u32::MAX);
+        let max_rendered_total = max_rendered_total_bytes_from_env();
+        let render_dpi = breakdown_core::ai::DEFAULT_TARGET_DPI;
+        let mut carry_over = ScheduleCarryOver::default();
+        let mut rows: Vec<breakdown_core::ai::ShootingScheduleRow> = Vec::new();
+        let mut rendered_total = 0_usize;
+        // Issue #675: usage accumulates across EVERY paid page call, so the
+        // cost snapshot of an 8-page schedule covers all 8 pages exactly.
+        let mut total_usage = LlmCallUsage::default();
+
+        for (index, page) in document.pages.iter().enumerate() {
+            let page_number = page.page_number;
+            // Publish the page boundary BEFORE the billable call so a stalled
+            // page is visible in the progress stream (issue #664).
+            progress.stage = AiImportStage::Extracting;
+            progress.chunk = Some(u32::try_from(index + 1).unwrap_or(u32::MAX));
+            progress.chunks_total = Some(page_count);
+            if let Err(error) =
+                super::workers::publish_progress(&*self.queue, job.id, worker_id, progress).await
+            {
+                return Err(CallFailure::from(error));
+            }
+            let rendered = self
+                .extractor
+                .render_page(
+                    bytes,
+                    page_number,
+                    RenderOptions::new(render_dpi, DEFAULT_MAX_RENDER_BYTES),
+                )
+                .await
+                .map_err(CallFailure::from)?;
+            rendered_total = rendered_total.saturating_add(rendered.png_bytes.len());
+            if rendered_total > max_rendered_total {
+                return Err(CallFailure::from(DomainError::validation(format!(
+                    "rendered schedule pages exceed the document-wide byte ceiling \
+                     ({rendered_total} > {max_rendered_total})"
+                ))));
+            }
+
+            let spatial_hint = render_schedule_page_spatial_hint(page);
+            let mut user_context =
+                render_schedule_carry_over_context(&carry_over, page_number, page_count);
+            if let Some(hint) = spatial_hint.as_deref() {
+                user_context.push_str("\n<spatial-text-hint>\n");
+                user_context.push_str(hint);
+                user_context.push_str("\n</spatial-text-hint>");
+            }
+            let vision_request = LlmVisionRequest {
+                provider: self.provider,
+                model: self.model.clone(),
+                prompt: self.prompt.clone(),
+                user_context,
+                page: LlmVisionPageInput {
+                    page_number,
+                    png_bytes: rendered.png_bytes,
+                    spatial_text_hint: None,
+                },
+                max_tokens: self.bounds.max_tokens_per_req,
+                response_schema: None,
+                reasoning_effort: resolved_reasoning_effort(
+                    self.provider,
+                    &self.model,
+                    self.reasoning_effort,
+                )
+                .map(|effort| effort.as_str().to_owned()),
+            };
+            let (extraction, usage) = retry_schedule_page(
+                self.client.as_ref(),
+                vision_request,
+                self.bounds.max_attempt_retries as usize,
+                gate,
+            )
+            .await?;
+            total_usage.accumulate(usage);
+            carry_over.apply_page(extraction, &mut rows);
+            // The RenderedPage is dropped here: the next iteration renders the
+            // next page into a fresh allocation.
+        }
+
+        Ok((
+            ShootingSchedule {
+                block_id: None,
+                rows,
+                cast_legend: carry_over.cast_legend,
+            },
+            total_usage,
+        ))
     }
 
     fn start_heartbeat(&self, id: AiImportJobId, worker_id: &str) -> Option<LeaseHeartbeat> {
@@ -5386,6 +5532,32 @@ where
         || async {
             client
                 .extract_schedule(request.clone())
+                .await
+                .map_err(AnyhowError::new)
+        },
+        max_retries,
+        gate,
+    )
+    .await
+    .map(|value| (value.output, value.usage))
+}
+
+/// One multimodal schedule-page call with the bounded in-attempt retry
+/// budget (issue #960). Mirrors [`retry_schedule`] for the vision seam.
+async fn retry_schedule_page<C, Q>(
+    client: &C,
+    request: LlmVisionRequest,
+    max_retries: usize,
+    gate: &ProviderGate<'_, Q>,
+) -> Result<(breakdown_core::ai::SchedulePageExtraction, LlmCallUsage), CallFailure>
+where
+    C: LlmClient + ?Sized,
+    Q: AiImportQueue + ?Sized,
+{
+    retry_bounded(
+        || async {
+            client
+                .chat_vision_constrained(request.clone())
                 .await
                 .map_err(AnyhowError::new)
         },

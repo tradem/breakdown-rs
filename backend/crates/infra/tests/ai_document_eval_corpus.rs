@@ -231,6 +231,11 @@ struct Expectation {
     /// (issue #961). The name may be a short scene cue; the deterministic
     /// resolver applies the documented given-name/surname rule.
     cast: Vec<CastAssertion>,
+    /// `sched=` assertions for a shooting schedule (issue #960): minimum row
+    /// count, distinct day labels, day-1 date, the pick-up suffix reference,
+    /// preserved non-episode units, resolved `ROLLEN` legend entries, and the
+    /// `Drehfrei` exclusion.
+    sched: Option<ScheduleExpectation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,6 +279,91 @@ impl CastAssertion {
     }
 }
 
+/// One `sched=` record: the deterministic schedule assertions the corpus owner
+/// states for a shooting schedule PDF (issue #960). Parsed from a
+/// comma-separated list whose list items separate with `|`:
+/// `sched=rows>=120,days=16,day1_date=2021-10-18,suffix=300.37N,units=SB7.2|T3,zero_drehfrei,legend=2:Ben Ahlbeck|150:Zoe:dummy`
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ScheduleExpectation {
+    min_rows: Option<usize>,
+    days: Option<usize>,
+    day1_date: Option<String>,
+    suffix_ref: Option<String>,
+    units: Vec<String>,
+    legend: Vec<(String, String, Option<String>)>,
+    zero_drehfrei: bool,
+}
+
+impl ScheduleExpectation {
+    fn parse(value: &str, path: &Path, line: usize) -> Option<Self> {
+        let value = value.trim();
+        if value.is_empty() || value == "-" {
+            return None;
+        }
+        let list = value.strip_prefix("sched=").unwrap_or_else(|| {
+            panic!(
+                "{}:{line}: expected `sched=…` or `-`, got {value:?}",
+                path.display()
+            )
+        });
+        let mut expectation = Self::default();
+        for item in list.split(',') {
+            let item = item.trim();
+            if item.is_empty() {
+                continue;
+            }
+            if item == "zero_drehfrei" {
+                expectation.zero_drehfrei = true;
+            } else if let Some(rest) = item.strip_prefix("rows>=") {
+                expectation.min_rows = Some(rest.trim().parse().unwrap_or_else(|error| {
+                    panic!("{}:{line}: rows>= {rest:?}: {error}", path.display())
+                }));
+            } else if let Some(rest) = item.strip_prefix("days=") {
+                expectation.days = Some(rest.trim().parse().unwrap_or_else(|error| {
+                    panic!("{}:{line}: days= {rest:?}: {error}", path.display())
+                }));
+            } else if let Some(rest) = item.strip_prefix("day1_date=") {
+                expectation.day1_date = Some(rest.trim().to_owned());
+            } else if let Some(rest) = item.strip_prefix("suffix=") {
+                expectation.suffix_ref = Some(rest.trim().to_owned());
+            } else if let Some(rest) = item.strip_prefix("units=") {
+                expectation.units = rest
+                    .split('|')
+                    .map(str::trim)
+                    .filter(|unit| !unit.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+            } else if let Some(rest) = item.strip_prefix("legend=") {
+                for entry in rest.split('|') {
+                    let parts: Vec<&str> = entry.trim().split(':').collect();
+                    match parts.len() {
+                        2 => expectation.legend.push((
+                            parts[0].to_owned(),
+                            parts[1].to_owned(),
+                            None,
+                        )),
+                        3 => expectation.legend.push((
+                            parts[0].to_owned(),
+                            parts[1].to_owned(),
+                            Some(parts[2].to_owned()),
+                        )),
+                        other => panic!(
+                            "{}:{line}: legend entry {entry:?} needs `code:name[:modifier]`, got {other} parts",
+                            path.display()
+                        ),
+                    }
+                }
+            } else {
+                panic!(
+                    "{}:{line}: unknown sched assertion {item:?}",
+                    path.display()
+                );
+            }
+        }
+        Some(expectation)
+    }
+}
+
 /// Resolve the manifest assertions through the SAME pure resolver the worker
 /// uses; a corpus that passes here proves the deterministic ladder, not a
 /// hand-written lookup in the harness.
@@ -302,6 +392,142 @@ fn cast_failures(directory: &CastDirectory, assertions: &[CastAssertion]) -> Vec
             }
         })
         .collect()
+}
+
+/// Evaluate one `sched=` expectation against the deterministic extraction
+/// (issue #960). Every failure names the violated assertion; a schedule that
+/// passes here carries its day banners, legend modifiers, shot suffix and
+/// rest-day exclusion through the real carry-over pipeline.
+fn check_schedule_expectation(
+    schedule: &breakdown_core::ai::ShootingSchedule,
+    expectation: &ScheduleExpectation,
+    failures: &mut Vec<String>,
+) {
+    if let Some(min_rows) = expectation.min_rows
+        && schedule.rows.len() < min_rows
+    {
+        failures.push(format!(
+            "sched rows>=: expected >= {min_rows}, got {}",
+            schedule.rows.len()
+        ));
+    }
+    let days = schedule
+        .rows
+        .iter()
+        .filter_map(|row| row.shooting_day_label.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    if let Some(expected_days) = expectation.days
+        && days.len() != expected_days
+    {
+        failures.push(format!(
+            "sched days=: expected {expected_days}, got {} ({days:?})",
+            days.len()
+        ));
+    }
+    if let Some(day1_date) = &expectation.day1_date {
+        let day1_rows = schedule.rows.iter().filter(|row| {
+            row.shooting_day_label
+                .as_deref()
+                .is_some_and(|label| label.starts_with("1."))
+        });
+        match day1_rows
+            .clone()
+            .find(|row| row.date.is_some())
+            .map(|row| row.date.unwrap().to_string())
+        {
+            Some(date) if &date == day1_date => {}
+            Some(date) => failures.push(format!(
+                "sched day1_date=: expected {day1_date}, got {date}"
+            )),
+            None => {
+                failures.push("sched day1_date=: no day-1 row carries a parsed date".to_owned())
+            }
+        }
+        if day1_rows.count() == 0 {
+            failures.push("sched day1_date=: no day-1 row found".to_owned());
+        }
+    }
+    if let Some(suffix_ref) = &expectation.suffix_ref {
+        match schedule.rows.iter().find(|row| &row.row_ref == suffix_ref) {
+            Some(row) => {
+                if row.shot_suffix.is_none() {
+                    failures.push(format!(
+                        "sched suffix=: {suffix_ref} parsed without a shot suffix"
+                    ));
+                }
+                if row.episode_number.is_none() || row.scene_number.is_none() {
+                    failures.push(format!(
+                        "sched suffix=: {suffix_ref} did not resolve to (episode, scene)"
+                    ));
+                }
+            }
+            None => failures.push(format!(
+                "sched suffix=: reference {suffix_ref} missing from the extracted rows"
+            )),
+        }
+    }
+    for unit in &expectation.units {
+        match schedule.rows.iter().find(|row| &row.row_ref == unit) {
+            Some(row) => {
+                if row.episode_number.is_some() || row.scene_number.is_some() {
+                    failures.push(format!(
+                        "sched units=: {unit} must stay non-episode (None/None), got episode={:?} scene={:?}",
+                        row.episode_number, row.scene_number
+                    ));
+                }
+            }
+            None => failures.push(format!(
+                "sched units=: unit {unit} missing from the extracted rows"
+            )),
+        }
+    }
+    for (code, name, modifier) in &expectation.legend {
+        match schedule.cast_legend.get(code) {
+            Some(entry) => {
+                if &entry.character_name != name {
+                    failures.push(format!(
+                        "sched legend=: {code} expected name {name:?}, got {:?}",
+                        entry.character_name
+                    ));
+                }
+                let expected_modifier = modifier
+                    .as_deref()
+                    .map(breakdown_core::ai::ScheduleRoleModifier::parse_tag)
+                    .unwrap_or_default();
+                if entry.modifier != expected_modifier {
+                    failures.push(format!(
+                        "sched legend=: {code} expected modifier {modifier:?}, got {:?}",
+                        entry.modifier
+                    ));
+                }
+            }
+            None => failures.push(format!(
+                "sched legend=: code {code} missing from the parsed legend"
+            )),
+        }
+    }
+    if expectation.zero_drehfrei {
+        let drehfrei = schedule
+            .rows
+            .iter()
+            .filter(|row| {
+                row.row_ref.to_lowercase().contains("drehfrei")
+                    || row
+                        .location
+                        .as_deref()
+                        .is_some_and(|location| location.to_lowercase().contains("drehfrei"))
+                    || row
+                        .shooting_day_label
+                        .as_deref()
+                        .is_some_and(|label| label.to_lowercase().contains("drehfrei"))
+            })
+            .count();
+        if drehfrei > 0 {
+            failures.push(format!(
+                "sched zero_drehfrei: {drehfrei} rest-day row(s) leaked into the schedule"
+            ));
+        }
+    }
 }
 
 /// What kind of document an expectation describes.
@@ -450,11 +676,31 @@ async fn evaluate(
             cast_failures,
         )
     } else {
+        // Issue #960: a schedule is evaluated through the SAME deterministic
+        // `extract_schedule_from_structured` the worker's page loop feeds
+        // (`ScheduleCarryOver` included) — the harness proves the pipeline, not
+        // a hand-rolled lookup.
+        let schedule = breakdown_core::ai::extract_schedule_from_structured(&document);
+        let mut sched_failures: Vec<String> = Vec::new();
+        if let Some(expectation) = expectation.as_ref().and_then(|entry| entry.sched.as_ref()) {
+            check_schedule_expectation(&schedule, expectation, &mut sched_failures);
+        }
+        let days = schedule
+            .rows
+            .iter()
+            .filter_map(|row| row.shooting_day_label.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
         (
             0,
-            "schedule (script segmentation not applied)".to_owned(),
+            format!(
+                "schedule rows={} legend={} days={}",
+                schedule.rows.len(),
+                schedule.cast_legend.len(),
+                days
+            ),
             Vec::new(),
-            Vec::new(),
+            sched_failures,
         )
     };
 
@@ -556,6 +802,11 @@ fn read_manifest(path: &Path) -> Vec<Expectation> {
                 .map(|note| note.trim().to_owned())
                 .unwrap_or_default(),
             cast: CastAssertion::parse(fields.get(4).copied().unwrap_or("-"), path, index + 1),
+            sched: ScheduleExpectation::parse(
+                fields.get(5).copied().unwrap_or("-"),
+                path,
+                index + 1,
+            ),
         });
     }
     expectations

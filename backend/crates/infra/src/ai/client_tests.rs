@@ -1548,3 +1548,85 @@ async fn a_refusal_costs_exactly_one_request() {
         "a refusal must be paid ONCE, not once per inner retry"
     );
 }
+
+// ===========================================================================
+// Issue #960 — multimodal vision seam: pre-egress provider-policy gate
+// (ADR-041 `D2`)
+// ===========================================================================
+
+/// The pre-egress gate must reject a non-compliant provider BEFORE any HTTP
+/// egress: the error surfaces without a reachable endpoint, which only the
+/// in-client policy check can guarantee.
+#[tokio::test]
+async fn chat_vision_rejects_a_non_compliant_provider_before_egress() {
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(30),
+    )
+    .expect("a with_http test client builds");
+    let request = LlmVisionRequest {
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let error = client
+        .chat_vision_constrained(request)
+        .await
+        .expect_err("a provider without ZDR + no-training + EU residency must be refused");
+    let detail = error.to_string();
+    assert!(
+        detail.contains("Zero Data Retention"),
+        "the refusal must name the missing policy guarantees: {detail}"
+    );
+}
+
+/// A compliant provider passes the gate and reaches the transport: an
+/// unreachable endpoint yields a transport error, NOT the policy refusal —
+/// proving the gate ran before the request without failing the call itself.
+#[tokio::test]
+async fn chat_vision_gate_passes_a_compliant_provider_through_to_the_transport() {
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_millis(1),
+    )
+    .expect("a with_http test client builds");
+    let request = LlmVisionRequest {
+        provider: LlmProvider::EURouter,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let error = client
+        .chat_vision_constrained(request)
+        .await
+        .expect_err("an unreachable endpoint must fail the call");
+    assert!(
+        !error.to_string().contains("Zero Data Retention"),
+        "the policy gate must not be the failure: {error}"
+    );
+}

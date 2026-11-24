@@ -964,6 +964,7 @@ async fn merge_worker_publishes_merging_and_storing_progress() {
                 scene_number: Some(1),
                 ..Default::default()
             }],
+            cast_legend: Default::default(),
         },
         scenes: vec![scene],
         episode_numbers: std::collections::HashMap::new(),

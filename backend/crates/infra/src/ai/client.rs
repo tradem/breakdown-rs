@@ -6,17 +6,20 @@
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 use breakdown_core::ai::{
     CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    ScriptContext, ShootingSchedule, ShootingScheduleRow, parse_schedule_scene_ref,
+    LlmVisionRequest, SchedulePageExtraction, ScriptContext, ShootingSchedule, ShootingScheduleRow,
+    parse_schedule_scene_ref, vision_egress_compliant, vision_egress_policy,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use reqwest::StatusCode;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -380,6 +383,171 @@ impl OpenAiCompatibleChatClient {
             }
         }
     }
+
+    /// Multimodal counterpart of [`Self::request_decoded`] (issue #960).
+    ///
+    /// Mirrors the text path's bounded retry semantics — breaker consult before
+    /// every billable request, usage accumulation across discarded retries,
+    /// bounded truncation-budget growth — but sends an `image_url` data-URI page
+    /// plus a text context part and decodes into `T`. A provider that rejects
+    /// the combined `image_url` + strict `json_schema` body gets ONE bounded
+    /// fallback re-request with plain JSON-object `response_format`.
+    async fn request_vision_decoded<T: DeserializeOwned>(
+        &self,
+        req: &LlmVisionRequest,
+        schema_name: &str,
+    ) -> Result<LlmCallOutcome<T>, DomainError> {
+        let schema = req
+            .response_schema
+            .clone()
+            .unwrap_or_else(strict_schema::<SchedulePageExtractionSchema>);
+        let data_uri = format!(
+            "data:image/png;base64,{}",
+            BASE64.encode(&req.page.png_bytes)
+        );
+        let mut plain_json_fallback = false;
+        let mut budget = req.max_tokens;
+        let mut truncation_retries = MAX_TRUNCATION_RETRIES;
+        let mut total_usage = LlmCallUsage::default();
+        loop {
+            if !self.admits_billable_request(&req.model).await {
+                return Err(super::provider_health::breaker_open_error());
+            }
+            let body = VisionChatCompletionRequest {
+                model: req.model.clone(),
+                messages: vec![
+                    VisionChatMessage {
+                        role: "system".to_owned(),
+                        content: vec![VisionContentPart::Text {
+                            text: req.prompt.clone(),
+                        }],
+                    },
+                    VisionChatMessage {
+                        role: "user".to_owned(),
+                        content: vec![
+                            VisionContentPart::ImageUrl {
+                                image_url: VisionImageUrl {
+                                    url: data_uri.clone(),
+                                },
+                            },
+                            VisionContentPart::Text {
+                                text: req.user_context.clone(),
+                            },
+                        ],
+                    },
+                ],
+                max_tokens: budget,
+                reasoning_effort: req.reasoning_effort.clone(),
+                response_format: Some(if plain_json_fallback {
+                    json!({ "type": "json_object" })
+                } else {
+                    json!({
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "schedule_page",
+                            "strict": true,
+                            "schema": schema,
+                        }
+                    })
+                }),
+            };
+            let mut response = self
+                .http
+                .post(self.endpoint())
+                .timeout(self.timeout)
+                .bearer_auth(self.api_key.as_str())
+                .json(&body)
+                .send()
+                .await
+                .map_err(classify_transport_error)?;
+            let status = response.status();
+            let hint = parse_retry_hint(response.headers(), status);
+            log_hint("hosted_vision_chat", &hint);
+            if !status.is_success() {
+                let body = read_error_body(&mut response, self.timeout).await;
+                // One bounded fallback: a provider that rejects the combined
+                // image + strict-schema body answers 4xx naming the response
+                // format; retry once with plain JSON-object mode.
+                if !plain_json_fallback
+                    && status.is_client_error()
+                    && body.text.to_ascii_lowercase().contains("response_format")
+                {
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        "vision provider rejected image_url + json_schema; re-requesting with plain json_object response_format"
+                    );
+                    plain_json_fallback = true;
+                    continue;
+                }
+                let verdict = body.verdict(self.provider);
+                return Err(classify_http_status_rich(
+                    status, &body.text, hint.wait, verdict,
+                ));
+            }
+            let meta = ResponseMeta::capture(response.headers());
+            let envelope = response
+                .json::<ChatCompletionResponse>()
+                .await
+                .map_err(|error| {
+                    DomainError::validation(format!("invalid LLM response: {error}"))
+                })?;
+            total_usage.accumulate(envelope.usage());
+            let (content, finish_reason) = match step_for_response(
+                &envelope,
+                &meta,
+                budget,
+                truncation_retries,
+            ) {
+                ResponseStep::Decode {
+                    content,
+                    finish_reason,
+                } => (content, finish_reason),
+                ResponseStep::RetryWithBudget {
+                    budget: grown,
+                    retries_left,
+                    reason,
+                } => {
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        %reason,
+                        grown_budget = grown,
+                        retries_left,
+                        "vision provider returned no usable content — re-requesting with a grown budget"
+                    );
+                    budget = grown;
+                    truncation_retries = retries_left;
+                    continue;
+                }
+                ResponseStep::Fail { error } => {
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        %error,
+                        "vision provider returned no usable content — failing the attempt"
+                    );
+                    return Err(error);
+                }
+            };
+            match serde_json::from_str(content) {
+                Ok(decoded) => return Ok(LlmCallOutcome::new(decoded, total_usage)),
+                Err(error) => {
+                    match next_truncation_budget(finish_reason, budget, truncation_retries) {
+                        Some(grown) => {
+                            budget = grown;
+                            truncation_retries -= 1;
+                        }
+                        None => {
+                            return Err(DomainError::validation(format!(
+                                "vision LLM JSON did not match {schema_name}: {error}"
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -414,6 +582,61 @@ impl LlmClient for OpenAiCompatibleChatClient {
             decoded.usage,
         ))
     }
+
+    async fn chat_vision_constrained(
+        &self,
+        req: LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
+        // Pre-egress provider-policy gate (ADR-041 `D2`): runs BEFORE any base64
+        // encoding or HTTP call, so a rejected call performs zero egress and
+        // cannot be retried into a leak by the circuit-breaker/retry loop.
+        if !vision_egress_compliant(vision_egress_policy(self.provider)) {
+            return Err(DomainError::validation(format!(
+                "provider {:?} does not declare Zero Data Retention, no training \
+                 on inputs, and EU data residency; multimodal page-image egress \
+                 is refused (ADR-041 D2)",
+                self.provider
+            )));
+        }
+        if req.provider != self.provider {
+            return Err(DomainError::validation(
+                "LLM request provider does not match configured client",
+            ));
+        }
+        self.request_vision_decoded(&req, "schedule_page").await
+    }
+}
+
+/// One multimodal content part: an `image_url` data URI or a text part.
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum VisionContentPart {
+    ImageUrl { image_url: VisionImageUrl },
+    Text { text: String },
+}
+
+#[derive(Debug, Serialize)]
+struct VisionImageUrl {
+    url: String,
+}
+
+/// Multimodal chat request. `content` is a JSON array of parts (unlike the
+/// text path's plain string) — the OpenAI vision wire shape.
+#[derive(Debug, Serialize)]
+struct VisionChatCompletionRequest {
+    model: String,
+    messages: Vec<VisionChatMessage>,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct VisionChatMessage {
+    role: String,
+    content: Vec<VisionContentPart>,
 }
 
 /// Make a schemars-derived schema valid for OpenAI strict Structured Outputs
@@ -526,6 +749,55 @@ enum ScheduleSceneRefSchema {
     Text(String),
 }
 
+/// Role modifier of one `"ROLLEN"` legend entry, as the model reports it
+/// (ADR-041 `D5`, issue #960). Accepted as a free string and normalized
+/// through [`ScheduleRoleModifier::parse_tag`] so truncated table cells
+/// (`"(Dummy"` without the closing parenthesis) still classify.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ScheduleModifierSchema(String);
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ScheduleLegendEntrySchema {
+    code: String,
+    character_name: String,
+    #[serde(default)]
+    modifier: Option<ScheduleModifierSchema>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ScheduleCastCodeSchema(String);
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct SchedulePageRowSchema {
+    row_ref: String,
+    #[serde(default)]
+    scene_ref: Option<String>,
+    #[serde(default)]
+    shooting_day_label: Option<String>,
+    #[serde(default)]
+    date: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
+    #[serde(default)]
+    order: Option<u32>,
+    #[serde(default)]
+    cast_codes: Vec<ScheduleCastCodeSchema>,
+}
+
+/// Provider-facing mirror of [`breakdown_core::ai::SchedulePageExtraction`]
+/// for the multimodal page-streaming schedule path (issue #960).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct SchedulePageExtractionSchema {
+    #[serde(default)]
+    legend_entries: Vec<ScheduleLegendEntrySchema>,
+    #[serde(default)]
+    rows: Vec<SchedulePageRowSchema>,
+    #[serde(default)]
+    end_of_page_shooting_day_label: Option<String>,
+    #[serde(default)]
+    end_of_page_date: Option<String>,
+}
+
 impl ShootingScheduleSchema {
     /// Map the provider-facing rows onto the core schedule rows, decoding
     /// every scene reference losslessly (plain number → scene only; text →
@@ -534,24 +806,27 @@ impl ShootingScheduleSchema {
     fn into_core(self) -> ShootingSchedule {
         ShootingSchedule {
             block_id: None,
+            cast_legend: Default::default(),
             rows: self
                 .rows
                 .into_iter()
                 .map(|row| {
-                    let (episode_number, scene_number) = match row.scene_number {
-                        Some(ScheduleSceneRefSchema::Number(number)) => (None, Some(number)),
+                    let (episode_number, scene_number, shot_suffix) = match row.scene_number {
+                        Some(ScheduleSceneRefSchema::Number(number)) => (None, Some(number), None),
                         Some(ScheduleSceneRefSchema::Text(text)) => parse_schedule_scene_ref(&text),
-                        None => (None, None),
+                        None => (None, None, None),
                     };
                     ShootingScheduleRow {
                         shooting_day_score: None,
                         row_ref: row.row_ref,
                         scene_number,
                         episode_number,
+                        shot_suffix,
                         shooting_day_label: row.shooting_day_label,
                         date: row.date.as_deref().and_then(|raw| raw.parse().ok()),
                         location: row.location,
                         order: row.order,
+                        cast_refs: Vec::new(),
                     }
                 })
                 .collect(),

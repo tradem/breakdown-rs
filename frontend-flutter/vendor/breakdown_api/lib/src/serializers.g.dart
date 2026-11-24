@@ -178,6 +178,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SceneSourceOneOf.serializer)
       ..add(SceneSourceOneOfAiExtracted.serializer)
       ..add(SceneView.serializer)
+      ..add(ScheduleCastMember.serializer)
+      ..add(ScheduleLegendEntry.serializer)
+      ..add(ScheduleRoleModifier.serializer)
       ..add(ScheduleSceneRequest.serializer)
       ..add(ScriptContext.serializer)
       ..add(SeasonMembershipDto.serializer)
@@ -351,9 +354,8 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(ReasoningEffort)]),
           () => ListBuilder<ReasoningEffort>())
       ..addBuilderFactory(
-          const FullType(
-              BuiltList, const [const FullType(ShootingScheduleRow)]),
-          () => ListBuilder<ShootingScheduleRow>())
+          const FullType(BuiltList, const [const FullType(ScheduleCastMember)]),
+          () => ListBuilder<ScheduleCastMember>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ShootingScheduleRow)]),
@@ -408,6 +410,16 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltMap,
               const [const FullType(String), const FullType(HealthEntry)]),
           () => MapBuilder<String, HealthEntry>())
+      ..addBuilderFactory(
+          const FullType(BuiltMap, const [
+            const FullType(String),
+            const FullType(ScheduleLegendEntry)
+          ]),
+          () => MapBuilder<String, ScheduleLegendEntry>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ShootingScheduleRow)]),
+          () => ListBuilder<ShootingScheduleRow>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

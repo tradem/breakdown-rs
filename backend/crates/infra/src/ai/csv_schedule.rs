@@ -59,9 +59,9 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
         };
-        let (episode_number, scene_number) = value("scene_number")
+        let (episode_number, scene_number, shot_suffix) = value("scene_number")
             .map(parse_schedule_scene_ref)
-            .unwrap_or((None, None));
+            .unwrap_or((None, None, None));
         let order = parse_optional_u32(value("order"), "order")?;
         let date = value("date")
             .map(|raw| {
@@ -75,17 +75,20 @@ pub fn parse_schedule_csv(bytes: &[u8]) -> Result<ShootingSchedule, DomainError>
             row_ref: format!("csv-{index}"),
             scene_number,
             episode_number,
+            shot_suffix,
             shooting_day_label: value("shooting_day_label")
                 .or_else(|| value("shooting_day"))
                 .map(str::to_owned),
             date,
             location: value("location").map(str::to_owned),
             order,
+            cast_refs: Vec::new(),
         });
     }
     Ok(ShootingSchedule {
         block_id: None,
         rows,
+        cast_legend: Default::default(),
     })
 }
 

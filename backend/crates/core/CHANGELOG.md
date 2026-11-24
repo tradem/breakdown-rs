@@ -9,6 +9,7 @@
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
+<!-- Co-authored-by: gemini-4-argon (opencode-go) -->
 
 # Changelog
 
@@ -16,6 +17,40 @@ All notable changes to the `core` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.79.0] - Unreleased
+### Added (issue #960)
+
+- `ai::ports` grew the multimodal vision seam: `LlmVisionPageInput` (one page
+  PNG plus an optional spatial text hint, consumed by value per page),
+  `LlmVisionRequest`, `LlmClient::chat_vision_constrained` /
+  `extract_schedule_page`, and the pre-egress provider-policy gate
+  (`VisionEgressPolicy`, `vision_egress_policy`, `vision_egress_compliant`) —
+  fail-closed for every provider that does not explicitly declare Zero Data
+  Retention, no training on inputs and EU data residency (ADR-041 `D2`).
+  Local `Ollama` is gate-exempt by design (zero external egress).
+- `ai::preview` grew the additive schedule metadata for the page-streaming
+  path: `ScheduleRoleModifier` (`none`/`dummy`/`voice_only`/`extra_ot`),
+  `ScheduleLegendEntry`, `ScheduleCastMember`, `cast_legend` on
+  `ShootingSchedule` and `shot_suffix` / `cast_refs` on `ShootingScheduleRow`
+  (all `#[serde(default)]`, so pre-`[P4]` S3 previews deserialize cleanly),
+  `SchedulePageExtraction` / `SchedulePageRow` / `ScheduleCarryOver`,
+  `extract_schedule_page_from_structured` /
+  `extract_schedule_from_structured` (deterministic spatial schedule
+  extraction incl. the page-schedule footer-band rule), legend normalization
+  (truncated `(Dummy` / `(Nur Stimme` / `(Ot` cells, actor-name stripping),
+  cast-code resolution that silently drops unknown codes, day-banner
+  carry-over with `"Drehfrei"` exclusion, `parse_schedule_date` /
+  `parse_date_from_day_banner`, and the reading-order
+  `render_schedule_page_spatial_hint`.
+- `parse_schedule_scene_ref` now returns the pick-up shot suffix
+  (`"300.37N"` → `(Some(300), Some(37), Some("N"))`) while `"SB7.2"` / `"T3"`
+  degrade to `(None, None, None)` honestly (ADR-041 `D5`).
+- `ai::document` grew the document-wide rendered-byte ceiling for the
+  page-streaming loop: `AI_IMPORT_MAX_RENDERED_TOTAL_BYTES_ENV`,
+  `DEFAULT_MAX_RENDERED_TOTAL_BYTES` (64 MiB, `const`-asserted ≥ the per-page
+  ceiling), `MAX_RENDERED_TOTAL_BYTES_LIMIT` and the bounded env parser
+  (deferred from task 1.4).
 
 ## [0.78.0] - Unreleased
 ### Added (issue #961)

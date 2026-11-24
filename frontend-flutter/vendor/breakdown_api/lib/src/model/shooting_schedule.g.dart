@@ -10,13 +10,16 @@ class _$ShootingSchedule extends ShootingSchedule {
   @override
   final String? blockId;
   @override
+  final BuiltMap<String, ScheduleLegendEntry>? castLegend;
+  @override
   final BuiltList<ShootingScheduleRow> rows;
 
   factory _$ShootingSchedule(
           [void Function(ShootingScheduleBuilder)? updates]) =>
       (ShootingScheduleBuilder()..update(updates))._build();
 
-  _$ShootingSchedule._({this.blockId, required this.rows}) : super._();
+  _$ShootingSchedule._({this.blockId, this.castLegend, required this.rows})
+      : super._();
   @override
   ShootingSchedule rebuild(void Function(ShootingScheduleBuilder) updates) =>
       (toBuilder()..update(updates)).build();
@@ -30,6 +33,7 @@ class _$ShootingSchedule extends ShootingSchedule {
     if (identical(other, this)) return true;
     return other is ShootingSchedule &&
         blockId == other.blockId &&
+        castLegend == other.castLegend &&
         rows == other.rows;
   }
 
@@ -37,6 +41,7 @@ class _$ShootingSchedule extends ShootingSchedule {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, blockId.hashCode);
+    _$hash = $jc(_$hash, castLegend.hashCode);
     _$hash = $jc(_$hash, rows.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -46,6 +51,7 @@ class _$ShootingSchedule extends ShootingSchedule {
   String toString() {
     return (newBuiltValueToStringHelper(r'ShootingSchedule')
           ..add('blockId', blockId)
+          ..add('castLegend', castLegend)
           ..add('rows', rows))
         .toString();
   }
@@ -58,6 +64,12 @@ class ShootingScheduleBuilder
   String? _blockId;
   String? get blockId => _$this._blockId;
   set blockId(String? blockId) => _$this._blockId = blockId;
+
+  MapBuilder<String, ScheduleLegendEntry>? _castLegend;
+  MapBuilder<String, ScheduleLegendEntry> get castLegend =>
+      _$this._castLegend ??= MapBuilder<String, ScheduleLegendEntry>();
+  set castLegend(MapBuilder<String, ScheduleLegendEntry>? castLegend) =>
+      _$this._castLegend = castLegend;
 
   ListBuilder<ShootingScheduleRow>? _rows;
   ListBuilder<ShootingScheduleRow> get rows =>
@@ -72,6 +84,7 @@ class ShootingScheduleBuilder
     final $v = _$v;
     if ($v != null) {
       _blockId = $v.blockId;
+      _castLegend = $v.castLegend?.toBuilder();
       _rows = $v.rows.toBuilder();
       _$v = null;
     }
@@ -97,11 +110,14 @@ class ShootingScheduleBuilder
       _$result = _$v ??
           _$ShootingSchedule._(
             blockId: blockId,
+            castLegend: _castLegend?.build(),
             rows: rows.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'castLegend';
+        _castLegend?.build();
         _$failedField = 'rows';
         rows.build();
       } catch (e) {

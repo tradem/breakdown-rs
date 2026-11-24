@@ -401,6 +401,7 @@ async fn merge_worker_success_records_telemetry() {
                 scene_number: Some(1),
                 ..Default::default()
             }],
+            cast_legend: Default::default(),
         },
         scenes: vec![scene(1)],
         episode_numbers: std::collections::HashMap::new(),
@@ -1022,7 +1023,10 @@ impl LlmClient for RecordingScheduleClient {
                     location: None,
                     order: None,
                     shooting_day_score: None,
+                    shot_suffix: None,
+                    cast_refs: Vec::new(),
                 }],
+                cast_legend: Default::default(),
             },
             LlmCallUsage::default(),
         ))
@@ -2325,6 +2329,7 @@ impl ScheduleApplyFixture {
                 shooting_day_label: Some("Day 1".to_owned()),
                 ..ShootingScheduleRow::default()
             }],
+            cast_legend: Default::default(),
         };
         Self {
             scene_commands: Arc::new(FakeSceneCommands::default()),
@@ -6652,7 +6657,10 @@ impl LlmClient for UnlabelledScheduleClient {
                     location: None,
                     order: None,
                     shooting_day_score: None,
+                    shot_suffix: None,
+                    cast_refs: Vec::new(),
                 }],
+                cast_legend: Default::default(),
             },
             LlmCallUsage::default(),
         ))
@@ -8431,6 +8439,7 @@ impl CachedScheduleFixture {
         let schedule = ShootingSchedule {
             block_id: None,
             rows,
+            cast_legend: Default::default(),
         };
         Self {
             scene_commands: Arc::new(FakeSceneCommands::default()),
@@ -8903,4 +8912,217 @@ async fn an_unprofiled_model_sends_no_reasoning_effort_field() {
     let requests = client.requests.lock().unwrap().clone();
     assert!(!requests.is_empty());
     assert_eq!(requests[0].reasoning_effort, None);
+}
+
+// ===========================================================================
+// Issue #960 — page-streaming multimodal PDF schedule extraction
+// ===========================================================================
+
+/// Vision client that records every multimodal page call and returns a fixed
+/// per-page extraction, so the worker's page loop can be driven without a
+/// network call.
+#[derive(Clone, Default)]
+struct RecordingVisionScheduleClient {
+    page_numbers: Arc<Mutex<Vec<u32>>>,
+    contexts: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl LlmClient for RecordingVisionScheduleClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "RecordingVisionScheduleClient only extracts schedule pages",
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        // The legacy rollback target exercises the flat-text path.
+        Ok(LlmCallOutcome::new(
+            ShootingSchedule {
+                block_id: None,
+                rows: vec![ShootingScheduleRow {
+                    row_ref: "flat-0".to_owned(),
+                    scene_number: Some(1),
+                    episode_number: None,
+                    shooting_day_label: Some("T1".to_owned()),
+                    date: None,
+                    location: None,
+                    order: None,
+                    shooting_day_score: None,
+                    shot_suffix: None,
+                    cast_refs: Vec::new(),
+                }],
+                cast_legend: Default::default(),
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        assert!(
+            request
+                .page
+                .png_bytes
+                .starts_with(&[0x89, b'P', b'N', b'G']),
+            "page {} must carry a PNG",
+            request.page.page_number
+        );
+        assert!(
+            request.user_context.contains("<carry-over"),
+            "page {} must carry the carry-over context",
+            request.page.page_number
+        );
+        self.page_numbers
+            .lock()
+            .unwrap()
+            .push(request.page.page_number);
+        self.contexts.lock().unwrap().push(request.user_context);
+        Ok(LlmCallOutcome::new(
+            breakdown_core::ai::SchedulePageExtraction {
+                legend_entries: Vec::new(),
+                rows: vec![breakdown_core::ai::SchedulePageRow {
+                    row_ref: format!("page-{}", request.page.page_number),
+                    scene_ref: Some(format!("294.{}", request.page.page_number)),
+                    shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".to_owned()),
+                    date: None,
+                    location: Some("KLINIKUM".to_owned()),
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                }],
+                end_of_page_shooting_day_label: None,
+                end_of_page_date: None,
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+}
+
+/// A spatial PDF schedule is extracted PAGE BY PAGE through the multimodal
+/// vision seam (issue #960): one `chat_vision_constrained` call per page, each
+/// carrying the carry-over context, with rows merged through `ScheduleCarryOver`.
+///
+/// Skipped silently when Poppler is unavailable (same contract as the spatial
+/// adapter tests).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn schedule_worker_streams_a_spatial_pdf_page_by_page_through_vision() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingVisionScheduleClient::default());
+    let previews_handle = Arc::clone(&previews);
+    let worker = ScheduleImportWorker {
+        queue,
+        client: client.clone(),
+        previews: previews_handle as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let handle = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("a spatial PDF schedule must stream through the vision seam");
+
+    let seen_pages = client.page_numbers.lock().unwrap().clone();
+    assert_eq!(
+        seen_pages,
+        vec![1],
+        "the one-page fixture must produce exactly one page call"
+    );
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.rows.len(), 1);
+    assert_eq!(preview.rows[0].row_ref, "page-1");
+    assert_eq!(preview.rows[0].episode_number, Some(294));
+    assert_eq!(preview.rows[0].scene_number, Some(1));
+    assert_eq!(
+        preview.rows[0].shooting_day_label.as_deref(),
+        Some("1. Drehtag: Mo. 18.10.2021")
+    );
+}
+
+/// A schedule PDF whose configured extractor cannot render pages
+/// (`AI_DOCUMENT_PARSER=legacy-pdftotext`, the rollback target) keeps the
+/// pre-#960 flat-text path: exactly ONE text call, never a vision call.
+#[tokio::test]
+async fn schedule_worker_keeps_the_flat_text_path_for_the_legacy_parser() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingVisionScheduleClient::default());
+    let previews_handle = Arc::clone(&previews);
+    let worker = ScheduleImportWorker {
+        queue,
+        client,
+        previews: previews_handle as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let handle = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("the legacy rollback path must still extract the PDF");
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.rows.len(), 1);
+}
+
+/// The Ollama vision transport refuses a non-Ollama request (the local-only
+/// transport has no provider-policy gate to hide behind — issue #960).
+#[tokio::test]
+async fn ollama_vision_rejects_non_ollama_provider() {
+    use super::OllamaChatClient;
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let client = OllamaChatClient::new(2, std::time::Duration::from_secs(30))
+        .expect("an Ollama client builds");
+    let request = LlmVisionRequest {
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: Vec::new(),
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let error = client
+        .chat_vision_constrained(request)
+        .await
+        .expect_err("a misrouted vision request must fail closed");
+    assert!(
+        error.to_string().contains("non-Ollama"),
+        "unexpected error: {error}"
+    );
 }

@@ -6,6 +6,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
@@ -1724,10 +1725,66 @@ pub struct UncertaintyAcknowledgement {
     pub field: String,
 }
 
+/// Role modifier declared on a shooting-schedule `"ROLLEN"` legend entry
+/// (ADR-041 `D5`/`D6`, issue #960).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduleRoleModifier {
+    #[default]
+    None,
+    Dummy,
+    VoiceOnly,
+    ExtraOt,
+}
+
+impl ScheduleRoleModifier {
+    /// Parse a raw modifier tag from model or legend output.
+    #[must_use]
+    pub fn parse_tag(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "dummy" => Self::Dummy,
+            "voice_only" | "voiceonly" | "voice only" | "nur stimme" | "stimme" | "off" => {
+                Self::VoiceOnly
+            }
+            "extra_ot" | "extraot" | "ot" | "o.t." | "o. t." | "off-text" | "komparse"
+            | "statist" => Self::ExtraOt,
+            _ => Self::None,
+        }
+    }
+}
+
+/// One entry from a shooting schedule's `"ROLLEN"` number legend (e.g.
+/// `2 = Ben Ahlbeck`, `150 = Zoe (Dummy)` — ADR-041 `D5`/`D6`, issue #960).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleLegendEntry {
+    pub code: String,
+    pub character_name: String,
+    #[serde(default)]
+    pub modifier: ScheduleRoleModifier,
+}
+
+/// One resolved cast member on a [`ShootingScheduleRow`], validated against
+/// [`ShootingSchedule::cast_legend`] (ADR-041 `D6`, issue #960).
+///
+/// Strictly additive read-only preview metadata: schedule apply never creates,
+/// renames, or reclassifies `Character` aggregates from these entries.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ScheduleCastMember {
+    pub code: String,
+    pub character_name: String,
+    #[serde(default)]
+    pub modifier: ScheduleRoleModifier,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ShootingSchedule {
     pub block_id: Option<BlockId>,
     pub rows: Vec<ShootingScheduleRow>,
+    /// Optional numeric cast legend (`"ROLLEN"`) keyed by cast code
+    /// (`"2"`, `"150"`, `"1040"`). Additive on the wire (`#[serde(default)]`)
+    /// so pre-`[P4]` S3 schedule previews deserialize cleanly (issue #960).
+    #[serde(default)]
+    pub cast_legend: std::collections::BTreeMap<String, ScheduleLegendEntry>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -1740,6 +1797,10 @@ pub struct ShootingScheduleRow {
     /// still deserialize.
     #[serde(default)]
     pub episode_number: Option<i32>,
+    /// Trailing alphabetic shot suffix on a pick-up/insert reference
+    /// (`"300.37N"` → `Some("N")`, `"294.10"` → `None` — issue #960).
+    #[serde(default)]
+    pub shot_suffix: Option<String>,
     pub shooting_day_label: Option<String>,
     pub date: Option<Date>,
     pub location: Option<String>,
@@ -1749,42 +1810,883 @@ pub struct ShootingScheduleRow {
     /// without a decision model / failed pass. Additive on the wire.
     #[serde(default)]
     pub shooting_day_score: Option<f32>,
+    /// Cast references on this row that matched an entry in
+    /// [`ShootingSchedule::cast_legend`] (ADR-041 `D6`, issue #960). Unknown
+    /// codes are dropped rather than guessed.
+    #[serde(default)]
+    pub cast_refs: Vec<ScheduleCastMember>,
 }
 
-/// The lossless `(episode_number, scene_number)` split of one schedule scene
-/// reference (issue #721). Production shooting schedules write scene
-/// references as `<Episode>.<Scene>` (`294.01`, `294.10`, `03.05`); the
-/// split runs on the DOT as two integer components — never a float coercion,
+/// The lossless `(episode_number, scene_number, shot_suffix)` split of one
+/// schedule scene reference (issues #721, #960).
+///
+/// Production shooting schedules write scene references as `<Episode>.<Scene>`
+/// (`"294.01"`, `"294.10"`, `"03.05"`) or `<Episode>.<Scene><Suffix>` for
+/// pick-up/insert shots (`"300.37N"` → `(Some(300), Some(37), Some("N"))`).
+/// The split runs on the DOT as integer components — never a float coercion,
 /// which read `294.10` as decimal `294.1` and silently turned scene 10 into
-/// scene 1. A plain number (`"10"`, `"12A"`) carries no episode. An
-/// unparseable reference yields `(None, None)` — the row stays unmatched for
-/// review, never matched by accident.
+/// scene 1. A plain number (`"10"`, `"12A"`) carries no episode. Non-episode
+/// production unit codes (`"SB7.2"`, `"T3"`) and unparseable references yield
+/// `(None, None, None)` so the row stays honestly in
+/// `unmatched_schedule_rows`.
 #[must_use]
-pub fn parse_schedule_scene_ref(raw: &str) -> (Option<i32>, Option<u32>) {
+pub fn parse_schedule_scene_ref(raw: &str) -> (Option<i32>, Option<u32>, Option<String>) {
     let raw = raw.trim();
     if raw.is_empty() {
-        return (None, None);
+        return (None, None, None);
     }
-    if let Some((episode, scene)) = raw.split_once('.') {
-        if !episode.is_empty()
-            && !scene.is_empty()
-            && episode.bytes().all(|b| b.is_ascii_digit())
-            && scene.bytes().all(|b| b.is_ascii_digit())
+    if let Some((episode, scene_part)) = raw.split_once('.') {
+        if episode.is_empty()
+            || scene_part.is_empty()
+            || !episode.bytes().all(|b| b.is_ascii_digit())
         {
-            return match (episode.parse::<i32>().ok(), scene.parse::<u32>().ok()) {
-                (Some(episode), Some(scene)) => (Some(episode), Some(scene)),
-                // An overflowing component would half-match a wrong scene —
-                // the whole reference degrades to unmatched instead.
-                _ => (None, None),
-            };
+            return (None, None, None);
         }
-        return (None, None);
+        let digit_len = scene_part
+            .bytes()
+            .take_while(|b| b.is_ascii_digit())
+            .count();
+        if digit_len == 0 {
+            return (None, None, None);
+        }
+        let (scene_digits, suffix) = scene_part.split_at(digit_len);
+        if !suffix.is_empty() && !suffix.bytes().all(|b| b.is_ascii_alphabetic()) {
+            return (None, None, None);
+        }
+        return match (
+            episode.parse::<i32>().ok(),
+            scene_digits.parse::<u32>().ok(),
+        ) {
+            (Some(episode), Some(scene)) => {
+                let shot_suffix = (!suffix.is_empty()).then(|| suffix.to_owned());
+                (Some(episode), Some(scene), shot_suffix)
+            }
+            // An overflowing component would half-match a wrong scene —
+            // the whole reference degrades to unmatched instead.
+            _ => (None, None, None),
+        };
     }
-    let digits: String = raw.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if digits.is_empty() {
-        return (None, None);
+    let digit_len = raw.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if digit_len == 0 {
+        return (None, None, None);
     }
-    (None, digits.parse().ok())
+    let (scene_digits, suffix) = raw.split_at(digit_len);
+    if !suffix.is_empty() && !suffix.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return (None, None, None);
+    }
+    let Some(scene) = scene_digits.parse::<u32>().ok() else {
+        return (None, None, None);
+    };
+    let shot_suffix = (!suffix.is_empty()).then(|| suffix.to_owned());
+    (None, Some(scene), shot_suffix)
+}
+
+/// Carry-over state maintained across sequential schedule pages
+/// (ADR-041 `D5`, issue #960).
+///
+/// Owned on the worker stack and passed by shared borrow `&ScheduleCarryOver`
+/// when formatting per-page context; `cast_legend` moves directly into
+/// [`ShootingSchedule::cast_legend`] at the end of the page loop with zero
+/// `Arc` or map cloning.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduleCarryOver {
+    pub active_shooting_day_label: Option<String>,
+    pub active_date: Option<Date>,
+    #[serde(default)]
+    pub cast_legend: std::collections::BTreeMap<String, ScheduleLegendEntry>,
+}
+
+/// One row extracted from a single schedule page before carry-over and
+/// cast-legend resolution (ADR-041 `D5`, issue #960).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchedulePageRow {
+    pub row_ref: String,
+    #[serde(default)]
+    pub scene_ref: Option<String>,
+    #[serde(default)]
+    pub shooting_day_label: Option<String>,
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub order: Option<u32>,
+    #[serde(default)]
+    pub cast_codes: Vec<String>,
+}
+
+/// Structured output of one multimodal schedule-page call
+/// ([`LlmClient::chat_vision_constrained`](super::ports::LlmClient::chat_vision_constrained)).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchedulePageExtraction {
+    #[serde(default)]
+    pub legend_entries: Vec<ScheduleLegendEntry>,
+    #[serde(default)]
+    pub rows: Vec<SchedulePageRow>,
+    /// Optional trailing shooting-day banner at the bottom of the page (after
+    /// the last row on this page) so the next page's leading rows inherit it.
+    #[serde(default)]
+    pub end_of_page_shooting_day_label: Option<String>,
+    #[serde(default)]
+    pub end_of_page_date: Option<String>,
+}
+
+/// Whether `text` is a `"Drehfrei"` rest-day banner (ADR-041 `D5`, issue #960).
+///
+/// Rest days must never emit schedule rows or create shooting days, and must
+/// never overwrite [`ScheduleCarryOver::active_shooting_day_label`].
+#[must_use]
+pub fn is_drehfrei_banner(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    trimmed.to_ascii_lowercase().contains("drehfrei")
+}
+
+/// Whether `text` is a shooting-day header banner (e.g.
+/// `"1. Drehtag: Mo. 18.10.2021 - Vorstopp: 9:15"`).
+#[must_use]
+pub fn is_shooting_day_banner(text: &str) -> bool {
+    let lower = text.trim().to_ascii_lowercase();
+    lower.contains("drehtag:") || lower.contains("shooting day")
+}
+
+/// Normalize a raw shooting-day banner by stripping trailing operational notes
+/// (`" - Vorstopp: ..."` / `"Komparsen: ..."`).
+#[must_use]
+pub fn normalize_day_banner_label(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || is_drehfrei_banner(trimmed) {
+        return None;
+    }
+    let without_vorstopp = trimmed
+        .split(" - Vorstopp")
+        .next()
+        .unwrap_or(trimmed)
+        .split("Komparsen:")
+        .next()
+        .unwrap_or(trimmed)
+        .trim();
+    (!without_vorstopp.is_empty()).then(|| without_vorstopp.to_owned())
+}
+
+/// Parse an ISO (`YYYY-MM-DD`) or German (`D.M.YYYY` / `DD.MM.YYYY`) schedule
+/// date string into a [`jiff::civil::Date`].
+#[must_use]
+pub fn parse_schedule_date(raw: &str) -> Option<Date> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(date) = trimmed.parse::<Date>() {
+        return Some(date);
+    }
+    parse_german_dot_date(trimmed)
+}
+
+fn parse_german_dot_date(token: &str) -> Option<Date> {
+    let cleaned = token.trim_matches(|c: char| !c.is_ascii_digit());
+    let mut parts = cleaned.split('.');
+    let day: i8 = parts.next()?.parse().ok()?;
+    let month: i8 = parts.next()?.parse().ok()?;
+    let year: i16 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(1900..=2200).contains(&year) {
+        return None;
+    }
+    Date::new(year, month, day).ok()
+}
+
+/// Extract a calendar date from a shooting-day banner such as
+/// `"1. Drehtag: Mo. 18.10.2021 - Vorstopp: 9:15"`.
+#[must_use]
+pub fn parse_date_from_day_banner(banner: &str) -> Option<Date> {
+    banner.split_whitespace().find_map(parse_schedule_date)
+}
+
+/// Normalize a raw `"ROLLEN"` legend entry, extracting trailing role modifiers
+/// (`(Dummy)`, `(Nur Stimme)`, `(Ot)` — including right-column-truncated
+/// parentheticals such as `"(Dummy"`, `"(Nur Stimme"`, `"(Ot"`) and stripping
+/// actor-name suffixes (`"Ben Ahlbeck - Philipp Danne"` → `"Ben Ahlbeck"`).
+#[must_use]
+pub fn normalize_schedule_legend_entry(entry: ScheduleLegendEntry) -> Option<ScheduleLegendEntry> {
+    let code = entry.code.trim().to_owned();
+    if code.is_empty() {
+        return None;
+    }
+    let (character_name, parsed_modifier) =
+        parse_legend_name_and_modifier(&entry.character_name, entry.modifier);
+    if character_name.is_empty() {
+        return None;
+    }
+    Some(ScheduleLegendEntry {
+        code,
+        character_name,
+        modifier: parsed_modifier,
+    })
+}
+
+fn parse_legend_name_and_modifier(
+    raw_name: &str,
+    declared: ScheduleRoleModifier,
+) -> (String, ScheduleRoleModifier) {
+    let mut working = raw_name.trim();
+    let mut modifier = declared;
+    if let Some((before, inside)) = working.rsplit_once('(') {
+        let tag = inside.trim_end_matches(')').trim();
+        let detected = ScheduleRoleModifier::parse_tag(tag);
+        if detected != ScheduleRoleModifier::None {
+            if modifier == ScheduleRoleModifier::None {
+                modifier = detected;
+            }
+            working = before.trim();
+        }
+    }
+    if let Some((character_only, _actor)) = working.split_once(" - ") {
+        let candidate = character_only.trim();
+        if !candidate.is_empty() {
+            working = candidate;
+        }
+    }
+    (working.trim().to_owned(), modifier)
+}
+
+/// Resolve per-row cast code strings against `cast_legend` (ADR-041 `D6`).
+///
+/// Only codes present in `cast_legend` are emitted; unknown codes are dropped
+/// silently so OCR/table noise never invents characters or blocks merging.
+#[must_use]
+pub fn resolve_schedule_cast_refs(
+    raw_codes: &[String],
+    cast_legend: &std::collections::BTreeMap<String, ScheduleLegendEntry>,
+) -> Vec<ScheduleCastMember> {
+    let mut resolved = Vec::new();
+    for raw in raw_codes {
+        for token in raw.split(|c: char| c == ',' || c.is_ascii_whitespace()) {
+            let code = token.trim();
+            if code.is_empty() {
+                continue;
+            }
+            let Some(entry) = cast_legend.get(code) else {
+                continue;
+            };
+            if resolved
+                .iter()
+                .any(|existing: &ScheduleCastMember| existing.code == entry.code)
+            {
+                continue;
+            }
+            resolved.push(ScheduleCastMember {
+                code: entry.code.clone(),
+                character_name: entry.character_name.clone(),
+                modifier: entry.modifier,
+            });
+        }
+    }
+    resolved
+}
+
+impl ScheduleCarryOver {
+    /// Merge one page's [`SchedulePageExtraction`] into `self` and append the
+    /// resolved [`ShootingScheduleRow`]s to `out_rows`.
+    ///
+    /// - `"ROLLEN"` legend entries normalize and insert into `self.cast_legend`.
+    /// - `"Drehfrei"` rest-day banners are skipped without emitting rows or
+    ///   mutating `active_shooting_day_label` / `active_date`.
+    /// - Leading rows on a page without a new day banner inherit
+    ///   `self.active_shooting_day_label` and `self.active_date`.
+    /// - Trailing day banners at the bottom of a page update `self` after the
+    ///   page's rows are processed so the next page's first rows inherit them.
+    pub fn apply_page(
+        &mut self,
+        page: SchedulePageExtraction,
+        out_rows: &mut Vec<ShootingScheduleRow>,
+    ) {
+        for entry in page.legend_entries {
+            if let Some(normalized) = normalize_schedule_legend_entry(entry) {
+                self.cast_legend.insert(normalized.code.clone(), normalized);
+            }
+        }
+
+        for raw_row in page.rows {
+            let raw_ref_trimmed = raw_row.row_ref.trim();
+            let raw_scene_trimmed = raw_row.scene_ref.as_deref().map(str::trim).unwrap_or("");
+            if is_drehfrei_banner(raw_ref_trimmed)
+                || is_drehfrei_banner(raw_scene_trimmed)
+                || (raw_scene_trimmed.is_empty()
+                    && raw_row
+                        .shooting_day_label
+                        .as_deref()
+                        .is_some_and(is_drehfrei_banner))
+                || (raw_scene_trimmed.is_empty()
+                    && raw_ref_trimmed.is_empty()
+                    && raw_row.location.as_deref().is_some_and(is_drehfrei_banner))
+            {
+                continue;
+            }
+
+            // If the model emitted a standalone shooting-day banner row with no
+            // scene reference and no location, advance the active day state
+            // without emitting a phantom scene row.
+            if raw_scene_trimmed.is_empty()
+                && raw_row
+                    .location
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .is_empty()
+                && (is_shooting_day_banner(raw_ref_trimmed)
+                    || raw_row
+                        .shooting_day_label
+                        .as_deref()
+                        .is_some_and(is_shooting_day_banner))
+            {
+                let banner_source = raw_row
+                    .shooting_day_label
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(raw_ref_trimmed);
+                if let Some(normalized_label) = normalize_day_banner_label(banner_source) {
+                    self.active_date = raw_row
+                        .date
+                        .as_deref()
+                        .and_then(parse_schedule_date)
+                        .or_else(|| parse_date_from_day_banner(&normalized_label))
+                        .or(self.active_date);
+                    self.active_shooting_day_label = Some(normalized_label);
+                }
+                continue;
+            }
+
+            if let Some(label) = raw_row
+                .shooting_day_label
+                .as_deref()
+                .and_then(normalize_day_banner_label)
+            {
+                let parsed_date = raw_row
+                    .date
+                    .as_deref()
+                    .and_then(parse_schedule_date)
+                    .or_else(|| parse_date_from_day_banner(&label));
+                // Update the date when the day CHANGED or when this banner
+                // states a fresh parseable date; identical bodies would trip
+                // `clippy::if_same_then_else`.
+                if self.active_shooting_day_label.as_deref() != Some(label.as_str())
+                    || parsed_date.is_some()
+                {
+                    self.active_date = parsed_date;
+                }
+                self.active_shooting_day_label = Some(label);
+            } else if let Some(parsed_date) = raw_row.date.as_deref().and_then(parse_schedule_date)
+            {
+                self.active_date = Some(parsed_date);
+            }
+
+            let effective_scene_token = if !raw_scene_trimmed.is_empty() {
+                raw_scene_trimmed
+            } else {
+                raw_ref_trimmed
+            };
+            let (episode_number, scene_number, shot_suffix) =
+                parse_schedule_scene_ref(effective_scene_token);
+            let row_ref = if !raw_ref_trimmed.is_empty() {
+                raw_ref_trimmed.to_owned()
+            } else if !raw_scene_trimmed.is_empty() {
+                raw_scene_trimmed.to_owned()
+            } else {
+                format!("row-{}", out_rows.len())
+            };
+            let date = raw_row
+                .date
+                .as_deref()
+                .and_then(parse_schedule_date)
+                .or(self.active_date);
+            let location = raw_row
+                .location
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            let cast_refs = resolve_schedule_cast_refs(&raw_row.cast_codes, &self.cast_legend);
+
+            out_rows.push(ShootingScheduleRow {
+                row_ref,
+                scene_number,
+                episode_number,
+                shot_suffix,
+                shooting_day_label: self.active_shooting_day_label.clone(),
+                date,
+                location,
+                order: raw_row.order,
+                shooting_day_score: None,
+                cast_refs,
+            });
+        }
+
+        if let Some(end_label) = page
+            .end_of_page_shooting_day_label
+            .as_deref()
+            .and_then(normalize_day_banner_label)
+        {
+            self.active_date = page
+                .end_of_page_date
+                .as_deref()
+                .and_then(parse_schedule_date)
+                .or_else(|| parse_date_from_day_banner(&end_label))
+                .or(self.active_date);
+            self.active_shooting_day_label = Some(end_label);
+        }
+    }
+}
+
+/// Format compact carry-over context for one multimodal schedule-page request.
+#[must_use]
+pub fn render_schedule_carry_over_context(
+    carry_over: &ScheduleCarryOver,
+    page_number: u32,
+    page_count: u32,
+) -> String {
+    let active_day = carry_over
+        .active_shooting_day_label
+        .as_deref()
+        .unwrap_or("none");
+    let active_date = carry_over
+        .active_date
+        .map(|d| d.to_string())
+        .unwrap_or_else(|| "none".to_owned());
+    format!(
+        "<carry-over page=\"{page_number}\" total_pages=\"{page_count}\">\n\
+         active_shooting_day_label: {active_day}\n\
+         active_date: {active_date}\n\
+         known_cast_codes: {}\n\
+         </carry-over>",
+        carry_over.cast_legend.len()
+    )
+}
+
+/// Deterministically extract a [`SchedulePageExtraction`] from a single
+/// [`StructuredPage`]'s spatial blocks (ADR-041 `D5`/`D6`, issue #960).
+///
+/// Used both to populate the structured `spatial_text_hint` for multimodal VLM
+/// calls and to evaluate out-of-tree Golden Corpus schedule PDFs (`Drehplan_1.pdf`)
+/// deterministically.
+#[must_use]
+pub fn extract_schedule_page_from_structured(page: &StructuredPage) -> SchedulePageExtraction {
+    // Schedule grids put REAL rows into the bottom band (an iText export's
+    // page number lives in the TOP band, unlike a screenplay's running footer),
+    // so only the header band is stripped here — a footer-band filter would
+    // silently drop the last rows of every page (found on the `Drehplan_1.pdf`
+    // corpus fixture: day-6/11 banners and scene `300.16` sit below `y=0.91`).
+    let content_blocks: Vec<&super::document::DocumentBlock> = page
+        .blocks
+        .iter()
+        .filter(|block| {
+            !block.is_blank() && block.kind != BlockKind::PageHeader && !block.bbox.is_header_band()
+        })
+        .collect();
+
+    let legend_entries = extract_spatial_legend_entries(&content_blocks);
+    let (rows, end_of_page_shooting_day_label, end_of_page_date) =
+        extract_spatial_schedule_rows(&content_blocks);
+
+    SchedulePageExtraction {
+        legend_entries,
+        rows,
+        end_of_page_shooting_day_label,
+        end_of_page_date,
+    }
+}
+
+/// Deterministically extract a complete [`ShootingSchedule`] from a
+/// [`StructuredDocument`] by streaming its pages through [`ScheduleCarryOver`].
+#[must_use]
+pub fn extract_schedule_from_structured(document: &StructuredDocument) -> ShootingSchedule {
+    let mut carry_over = ScheduleCarryOver::default();
+    let mut rows = Vec::new();
+    for page in &document.pages {
+        let extraction = extract_schedule_page_from_structured(page);
+        carry_over.apply_page(extraction, &mut rows);
+    }
+    ShootingSchedule {
+        block_id: None,
+        rows,
+        cast_legend: carry_over.cast_legend,
+    }
+}
+
+/// Render a reading-order spatial text hint for one [`StructuredPage`] to send
+/// alongside the page PNG in [`LlmVisionPageInput::spatial_text_hint`](super::ports::LlmVisionPageInput::spatial_text_hint).
+#[must_use]
+pub fn render_schedule_page_spatial_hint(page: &StructuredPage) -> Option<String> {
+    let mut ordered: Vec<&super::document::DocumentBlock> = page
+        .blocks
+        .iter()
+        .filter(|block| {
+            !block.is_blank() && block.kind != BlockKind::PageHeader && !block.bbox.is_header_band()
+        })
+        .collect();
+    if ordered.is_empty() {
+        return None;
+    }
+    ordered.sort_by_key(|block| {
+        (
+            (block.bbox.y0 * 1000.0).round() as i32,
+            (block.bbox.x0 * 1000.0).round() as i32,
+        )
+    });
+    let mut lines = Vec::with_capacity(ordered.len());
+    for block in ordered {
+        let collapsed = block
+            .text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join(" / ");
+        if !collapsed.is_empty() {
+            lines.push(format!(
+                "[x={:.2} y={:.2}] {collapsed}",
+                block.bbox.x0, block.bbox.y0
+            ));
+        }
+    }
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+fn extract_spatial_legend_entries(
+    blocks: &[&super::document::DocumentBlock],
+) -> Vec<ScheduleLegendEntry> {
+    let Some(rollen_block) = blocks.iter().find(|block| {
+        block
+            .text
+            .lines()
+            .any(|line| line.trim().eq_ignore_ascii_case("ROLLEN"))
+    }) else {
+        return Vec::new();
+    };
+    let rollen_y = rollen_block.bbox.y0;
+    let below: Vec<&&super::document::DocumentBlock> = blocks
+        .iter()
+        .filter(|block| block.bbox.y0 > rollen_y)
+        .collect();
+
+    let mut entries = Vec::new();
+    // 1. Pair vertical numeric-code column blocks with the adjacent character-name
+    //    column block to their right (iText two-column `"ROLLEN"` layout).
+    let code_blocks: Vec<&&super::document::DocumentBlock> = below
+        .iter()
+        .copied()
+        .filter(|block| {
+            let mut has_line = false;
+            block.text.lines().all(|line| {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    return true;
+                }
+                has_line = true;
+                trimmed.bytes().all(|b| b.is_ascii_digit())
+            }) && has_line
+        })
+        .collect();
+
+    for code_block in &code_blocks {
+        let companion = below
+            .iter()
+            .copied()
+            .filter(|candidate| {
+                candidate.bbox.x0 > code_block.bbox.x0
+                    && (candidate.bbox.y0 - code_block.bbox.y0).abs() <= 0.03
+                    && !code_blocks.iter().any(|cb| cb.id == candidate.id)
+            })
+            .min_by(|a, b| a.bbox.x0.total_cmp(&b.bbox.x0));
+        if let Some(name_block) = companion {
+            let codes: Vec<&str> = code_block
+                .text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .collect();
+            let names: Vec<&str> = name_block
+                .text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .collect();
+            for (code, raw_name) in codes.into_iter().zip(names) {
+                if let Some(normalized) = normalize_schedule_legend_entry(ScheduleLegendEntry {
+                    code: code.to_owned(),
+                    character_name: raw_name.to_owned(),
+                    modifier: ScheduleRoleModifier::None,
+                }) {
+                    entries.push(normalized);
+                }
+            }
+        }
+    }
+
+    // 2. Fallback for single-block or flat-line `"<code> = <name>"` /
+    //    `"<code> <name>"` legend layouts.
+    if entries.is_empty() {
+        for block in below {
+            for line in block.text.lines() {
+                if let Some(entry) = parse_inline_legend_line(line) {
+                    entries.push(entry);
+                }
+            }
+        }
+    }
+    entries
+}
+
+fn parse_inline_legend_line(line: &str) -> Option<ScheduleLegendEntry> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some((left, right)) = trimmed.split_once('=') {
+        let code = left.trim();
+        if !code.is_empty() && code.bytes().all(|b| b.is_ascii_digit()) {
+            return normalize_schedule_legend_entry(ScheduleLegendEntry {
+                code: code.to_owned(),
+                character_name: right.trim().to_owned(),
+                modifier: ScheduleRoleModifier::None,
+            });
+        }
+    }
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let code = parts.next()?.trim();
+    let rest = parts.next()?.trim();
+    if !code.is_empty() && code.bytes().all(|b| b.is_ascii_digit()) && !rest.is_empty() {
+        return normalize_schedule_legend_entry(ScheduleLegendEntry {
+            code: code.to_owned(),
+            character_name: rest.to_owned(),
+            modifier: ScheduleRoleModifier::None,
+        });
+    }
+    None
+}
+
+fn extract_spatial_schedule_rows(
+    blocks: &[&super::document::DocumentBlock],
+) -> (Vec<SchedulePageRow>, Option<String>, Option<String>) {
+    // If this page is a ROLLEN legend page with no table rows, return early.
+    if blocks.iter().any(|block| {
+        block
+            .text
+            .lines()
+            .any(|line| line.trim().eq_ignore_ascii_case("ROLLEN"))
+    }) {
+        return (Vec::new(), None, None);
+    }
+
+    // Collect shooting-day banners (excluding `"Drehfrei"` rest-day banners).
+    let mut day_banners: Vec<(f32, String, Option<String>)> = Vec::new();
+    for block in blocks {
+        for line in block.text.lines() {
+            let trimmed = line.trim();
+            if is_drehfrei_banner(trimmed) {
+                continue;
+            }
+            if is_shooting_day_banner(trimmed)
+                && let Some(label) = normalize_day_banner_label(trimmed)
+            {
+                let date = parse_date_from_day_banner(&label).map(|d| d.to_string());
+                day_banners.push((block.bbox.y0, label, date));
+            }
+        }
+    }
+    day_banners.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    // Left-column scene-reference blocks (`x0` in `0.03..=0.14`).
+    let mut ref_blocks: Vec<&super::document::DocumentBlock> = blocks
+        .iter()
+        .copied()
+        .filter(|block| {
+            (0.03..=0.14).contains(&block.bbox.x0)
+                && !block.text.lines().any(is_shooting_day_banner)
+                && !block.text.lines().any(is_drehfrei_banner)
+                && block
+                    .text
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().next())
+                    .is_some_and(looks_like_schedule_row_ref)
+        })
+        .collect();
+    ref_blocks.sort_by(|a, b| a.bbox.y0.total_cmp(&b.bbox.y0));
+
+    if ref_blocks.is_empty() {
+        let trailing = day_banners.last().cloned();
+        return (
+            Vec::new(),
+            trailing.as_ref().map(|(_, label, _)| label.clone()),
+            trailing.and_then(|(_, _, date)| date),
+        );
+    }
+
+    // Resolve center-column locations for each row (handling both 1-row blocks
+    // and Poppler-merged multi-row center blocks).
+    let locations = resolve_spatial_row_locations(blocks, &ref_blocks);
+
+    let mut rows = Vec::with_capacity(ref_blocks.len());
+    for (idx, ref_block) in ref_blocks.iter().enumerate() {
+        let Some(first_line) = ref_block.text.lines().find(|l| !l.trim().is_empty()) else {
+            continue;
+        };
+        let Some(scene_token) = first_line.split_whitespace().next() else {
+            continue;
+        };
+        let row_y = ref_block.bbox.y0;
+        let active_banner = day_banners
+            .iter()
+            .rfind(|(banner_y, _, _)| *banner_y <= row_y + 0.005);
+
+        let cast_codes = blocks
+            .iter()
+            .filter(|block| {
+                (0.60..=0.82).contains(&block.bbox.x0)
+                    && (block.bbox.y0 - row_y).abs() <= 0.015
+                    && !block.text.to_ascii_lowercase().contains("komparsen")
+            })
+            .flat_map(|block| {
+                block
+                    .text
+                    .split(|c: char| c == ',' || c.is_ascii_whitespace())
+                    .map(str::trim)
+                    .filter(|token| !token.is_empty() && token.bytes().all(|b| b.is_ascii_digit()))
+                    .map(str::to_owned)
+            })
+            .collect::<Vec<_>>();
+
+        rows.push(SchedulePageRow {
+            row_ref: scene_token.to_owned(),
+            scene_ref: Some(scene_token.to_owned()),
+            shooting_day_label: active_banner.map(|(_, label, _)| label.clone()),
+            date: active_banner.and_then(|(_, _, date)| date.clone()),
+            location: locations.get(idx).cloned().flatten(),
+            order: u32::try_from(idx + 1).ok(),
+            cast_codes,
+        });
+    }
+
+    let last_row_y = ref_blocks.last().map(|block| block.bbox.y0).unwrap_or(0.0);
+    let trailing_banner = day_banners
+        .iter()
+        .rfind(|(banner_y, _, _)| *banner_y > last_row_y + 0.005);
+
+    (
+        rows,
+        trailing_banner.map(|(_, label, _)| label.clone()),
+        trailing_banner.and_then(|(_, _, date)| date.clone()),
+    )
+}
+
+fn looks_like_schedule_row_ref(token: &str) -> bool {
+    let trimmed = token.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("Block") {
+        return false;
+    }
+    trimmed.bytes().any(|b| b.is_ascii_digit())
+}
+
+fn resolve_spatial_row_locations(
+    blocks: &[&super::document::DocumentBlock],
+    ref_blocks: &[&super::document::DocumentBlock],
+) -> Vec<Option<String>> {
+    let mut locations = vec![None; ref_blocks.len()];
+    let center_blocks: Vec<&super::document::DocumentBlock> = blocks
+        .iter()
+        .copied()
+        .filter(|block| {
+            (0.25..=0.45).contains(&block.bbox.x0)
+                && !block.text.lines().any(is_shooting_day_banner)
+                && !block.text.lines().any(is_drehfrei_banner)
+        })
+        .collect();
+
+    for center in center_blocks {
+        let covered_indices: Vec<usize> = ref_blocks
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, rb)| {
+                (rb.bbox.y0 >= center.bbox.y0 - 0.015 && rb.bbox.y0 <= center.bbox.y1 + 0.015)
+                    .then_some(idx)
+            })
+            .collect();
+        let lines: Vec<&str> = center
+            .text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect();
+        if covered_indices.len() == 1 {
+            locations[covered_indices[0]] = extract_cell_location(&lines);
+        } else if covered_indices.len() > 1 {
+            let groups = split_merged_center_lines(&lines, covered_indices.len());
+            for (idx, group) in covered_indices.into_iter().zip(groups) {
+                locations[idx] = extract_cell_location(&group);
+            }
+        }
+    }
+    locations
+}
+
+fn is_all_caps_location_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let has_upper = trimmed.chars().any(char::is_uppercase);
+    let has_lower = trimmed.chars().any(char::is_lowercase);
+    has_upper && !has_lower
+}
+
+fn extract_cell_location(lines: &[&str]) -> Option<String> {
+    let first = lines.first()?.trim();
+    if first.is_empty() {
+        return None;
+    }
+    if lines.len() >= 3
+        && let Some(second) = lines.get(1).copied()
+        && is_all_caps_location_line(second)
+    {
+        return Some(join_wrapped_location_lines(first, second));
+    }
+    Some(first.to_owned())
+}
+
+fn join_wrapped_location_lines(first: &str, second: &str) -> String {
+    let first = first.trim();
+    let second = second.trim();
+    if let Some(stem) = first.strip_suffix('-')
+        && !stem.ends_with(' ')
+    {
+        format!("{stem}{second}")
+    } else {
+        format!("{first} {second}")
+    }
+}
+
+fn split_merged_center_lines<'a>(lines: &[&'a str], expected_groups: usize) -> Vec<Vec<&'a str>> {
+    let mut groups: Vec<Vec<&'a str>> = Vec::with_capacity(expected_groups);
+    let mut current: Vec<&'a str> = Vec::new();
+    let mut saw_synopsis_in_current = false;
+
+    for &line in lines {
+        let is_caps = is_all_caps_location_line(line);
+        if is_caps && saw_synopsis_in_current && groups.len() + 1 < expected_groups {
+            groups.push(std::mem::take(&mut current));
+            saw_synopsis_in_current = false;
+        }
+        if !is_caps {
+            saw_synopsis_in_current = true;
+        }
+        current.push(line);
+    }
+    if !current.is_empty() {
+        groups.push(current);
+    }
+    groups
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]

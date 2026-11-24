@@ -777,6 +777,8 @@ mod tests {
                 location: None,
                 order: Some(1),
                 shooting_day_score: None,
+                shot_suffix: None,
+                cast_refs: Vec::new(),
             },
             breakdown_core::ai::ShootingScheduleRow {
                 row_ref: "r2".into(),
@@ -787,6 +789,8 @@ mod tests {
                 location: None,
                 order: Some(2),
                 shooting_day_score: None,
+                shot_suffix: None,
+                cast_refs: Vec::new(),
             },
         ];
         let mut usage = UsageAccumulator::default();
@@ -811,6 +815,8 @@ mod tests {
             location: None,
             order: Some(1),
             shooting_day_score: None,
+            shot_suffix: None,
+            cast_refs: Vec::new(),
         }
     }
 

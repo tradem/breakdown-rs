@@ -7,6 +7,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -27,7 +28,7 @@ use super::apply_run::{ApplyRunRequest, ClaimedApplyRun};
 
 use super::document::{ExtractionOptions, RenderOptions, RenderedPage, StructuredDocument};
 
-use super::preview::{ScriptContext, ShootingSchedule};
+use super::preview::{SchedulePageExtraction, ScriptContext, ShootingSchedule};
 
 use super::provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 
@@ -102,6 +103,59 @@ pub const CURATED_PROVIDERS: [LlmProvider; 8] = [
     LlmProvider::OpenCode,
     LlmProvider::Ollama,
 ];
+
+/// Pre-egress data-protection declarations required before any screenplay or
+/// shooting-schedule page image is serialized to an external OpenAI-compatible
+/// vision endpoint (ADR-041 `D2`, issue #960).
+///
+/// Unpublished screenplays and schedules are confidential production IP subject
+/// to NDAs and GDPR. Every provider starts undeclared (fail-closed) until all
+/// three guarantees are explicitly asserted here; local [`LlmProvider::Ollama`]
+/// performs zero external egress.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VisionEgressPolicy {
+    pub zero_data_retention: bool,
+    pub no_training_on_inputs: bool,
+    pub eu_data_residency: bool,
+}
+
+/// Look up the declared [`VisionEgressPolicy`] for `provider` (ADR-041 `D2`).
+///
+/// Fail-closed by construction: any provider without an explicit three-way
+/// declaration returns `false` on at least one guarantee and is rejected before
+/// any image part is serialized.
+#[must_use]
+pub const fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy {
+    match provider {
+        LlmProvider::EURouter => VisionEgressPolicy {
+            zero_data_retention: true,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        },
+        LlmProvider::Ollama => VisionEgressPolicy {
+            zero_data_retention: true,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        },
+        LlmProvider::OpenAI
+        | LlmProvider::Gemini
+        | LlmProvider::OpenRouter
+        | LlmProvider::Neuralwatt
+        | LlmProvider::OpenCodeGo
+        | LlmProvider::OpenCode => VisionEgressPolicy {
+            zero_data_retention: false,
+            no_training_on_inputs: false,
+            eu_data_residency: false,
+        },
+    }
+}
+
+/// Whether `policy` satisfies all three ADR-041 `D2` requirements for
+/// multimodal page-image egress.
+#[must_use]
+pub const fn vision_egress_compliant(policy: VisionEgressPolicy) -> bool {
+    policy.zero_data_retention && policy.no_training_on_inputs && policy.eu_data_residency
+}
 
 /// Infra supplies the hardcoded URL for a curated provider.
 pub trait CuratedLlmProvider: Send + Sync {
@@ -372,6 +426,32 @@ pub trait DocumentStructureExtractor: Send + Sync {
     ) -> impl std::future::Future<Output = Result<RenderedPage, DomainError>> + Send;
 }
 
+/// One rendered page image plus an optional spatial text hint from the digital
+/// PDF layer for a multimodal vision call (ADR-041 `D2`/`D5`, issue #960).
+///
+/// `png_bytes` is owned and consumed by value per page iteration — never
+/// wrapped in `Arc` and never retained across pages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmVisionPageInput {
+    pub page_number: u32,
+    pub png_bytes: Vec<u8>,
+    pub spatial_text_hint: Option<String>,
+}
+
+/// Multimodal vision extraction request for one shooting-schedule page
+/// (ADR-041 `D2`/`D5`, issue #960).
+#[derive(Debug, Clone)]
+pub struct LlmVisionRequest {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub prompt: String,
+    pub user_context: String,
+    pub page: LlmVisionPageInput,
+    pub max_tokens: u32,
+    pub response_schema: Option<serde_json::Value>,
+    pub reasoning_effort: Option<String>,
+}
+
 #[async_trait]
 pub trait LlmClient: Send + Sync {
     async fn chat_constrained(
@@ -387,6 +467,23 @@ pub trait LlmClient: Send + Sync {
         Err(DomainError::validation(
             "schedule extraction is not supported by this client",
         ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        req: LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
+        let _ = req;
+        Err(DomainError::validation(
+            "multimodal vision schedule extraction is not supported by this client",
+        ))
+    }
+
+    async fn extract_schedule_page(
+        &self,
+        req: LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
+        self.chat_vision_constrained(req).await
     }
 }
 
