@@ -10,13 +10,18 @@ class _$AiImportDefaults extends AiImportDefaults {
   @override
   final String schedule;
   @override
+  final String scheduleFlat;
+  @override
   final String script;
 
   factory _$AiImportDefaults(
           [void Function(AiImportDefaultsBuilder)? updates]) =>
       (AiImportDefaultsBuilder()..update(updates))._build();
 
-  _$AiImportDefaults._({required this.schedule, required this.script})
+  _$AiImportDefaults._(
+      {required this.schedule,
+      required this.scheduleFlat,
+      required this.script})
       : super._();
   @override
   AiImportDefaults rebuild(void Function(AiImportDefaultsBuilder) updates) =>
@@ -31,6 +36,7 @@ class _$AiImportDefaults extends AiImportDefaults {
     if (identical(other, this)) return true;
     return other is AiImportDefaults &&
         schedule == other.schedule &&
+        scheduleFlat == other.scheduleFlat &&
         script == other.script;
   }
 
@@ -38,6 +44,7 @@ class _$AiImportDefaults extends AiImportDefaults {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, schedule.hashCode);
+    _$hash = $jc(_$hash, scheduleFlat.hashCode);
     _$hash = $jc(_$hash, script.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -47,6 +54,7 @@ class _$AiImportDefaults extends AiImportDefaults {
   String toString() {
     return (newBuiltValueToStringHelper(r'AiImportDefaults')
           ..add('schedule', schedule)
+          ..add('scheduleFlat', scheduleFlat)
           ..add('script', script))
         .toString();
   }
@@ -60,6 +68,10 @@ class AiImportDefaultsBuilder
   String? get schedule => _$this._schedule;
   set schedule(String? schedule) => _$this._schedule = schedule;
 
+  String? _scheduleFlat;
+  String? get scheduleFlat => _$this._scheduleFlat;
+  set scheduleFlat(String? scheduleFlat) => _$this._scheduleFlat = scheduleFlat;
+
   String? _script;
   String? get script => _$this._script;
   set script(String? script) => _$this._script = script;
@@ -72,6 +84,7 @@ class AiImportDefaultsBuilder
     final $v = _$v;
     if ($v != null) {
       _schedule = $v.schedule;
+      _scheduleFlat = $v.scheduleFlat;
       _script = $v.script;
       _$v = null;
     }
@@ -96,6 +109,8 @@ class AiImportDefaultsBuilder
         _$AiImportDefaults._(
           schedule: BuiltValueNullFieldError.checkNotNull(
               schedule, r'AiImportDefaults', 'schedule'),
+          scheduleFlat: BuiltValueNullFieldError.checkNotNull(
+              scheduleFlat, r'AiImportDefaults', 'scheduleFlat'),
           script: BuiltValueNullFieldError.checkNotNull(
               script, r'AiImportDefaults', 'script'),
         );
