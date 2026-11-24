@@ -527,6 +527,24 @@ impl FakeQueue {
         self.state.lock().unwrap().partial_usage.clone()
     }
 
+    /// Append one paid request to the fake row's ledger, attributed to `pair`.
+    fn seed_billed_call(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        usage: breakdown_core::ai::LlmCallUsage,
+    ) {
+        self.state
+            .lock()
+            .unwrap()
+            .prior_calls
+            .push(breakdown_core::ai::BilledCall {
+                provider,
+                model: model.to_owned(),
+                usage,
+            });
+    }
+
     /// The holds this worker materialized, in order (issue #871, D-A4).
     fn holds(&self) -> Vec<breakdown_core::ai::ProviderHold> {
         self.state.lock().unwrap().holds.clone()
@@ -591,7 +609,7 @@ struct FakeQueueState {
     /// The per-request ledger the fake row already carries (issue #970): the
     /// worker seeds its accounting from it, so a test can assert a re-drive
     /// resumes instead of restarting.
-    prior_calls: Vec<breakdown_core::ai::LlmCallUsage>,
+    prior_calls: Vec<breakdown_core::ai::BilledCall>,
     failed: Vec<AiImportJobId>,
     /// The `mark_failed` payload per failed attempt — narrative, code,
     /// retryability and the provider's wait hint (issue #926). The production
@@ -609,6 +627,12 @@ struct FakeQueueState {
     /// CodeRabbit review PR #967), flattened in append order — one entry per
     /// paid request.
     partial_usage: Vec<breakdown_core::ai::LlmCallUsage>,
+    /// Fault injection for the ledger append: fail this many times before the
+    /// write lands (issue #970 round 14 — the bounded retry must survive a
+    /// transient error instead of dropping a paid request).
+    fail_appends: usize,
+    /// How often the append was ATTEMPTED (retries included).
+    append_attempts: usize,
     /// The evidence carried by each hold, index-aligned with `holds` (issue
     /// #942 W2: a hold must never arrive without a reason).
     hold_evidence: Vec<Option<breakdown_core::ai::HoldEvidence>>,
@@ -635,7 +659,7 @@ impl AiImportQueue for FakeQueue {
     async fn recorded_billed_calls(
         &self,
         _id: breakdown_core::ai::AiImportJobId,
-    ) -> Result<Vec<breakdown_core::ai::LlmCallUsage>, DomainError> {
+    ) -> Result<Vec<breakdown_core::ai::BilledCall>, DomainError> {
         if self.state.lock().unwrap().fail_recorded_usage {
             return Err(DomainError::service_unavailable(
                 "the usage read failed (test switch)",
@@ -648,14 +672,20 @@ impl AiImportQueue for FakeQueue {
         &self,
         _id: breakdown_core::ai::AiImportJobId,
         _worker_id: &str,
-        calls: &[breakdown_core::ai::LlmCallUsage],
+        calls: &[breakdown_core::ai::BilledCall],
         _key: Uuid,
     ) -> Result<(), DomainError> {
-        self.state
-            .lock()
-            .unwrap()
+        let mut state = self.state.lock().unwrap();
+        state.append_attempts += 1;
+        if state.fail_appends > 0 {
+            state.fail_appends -= 1;
+            return Err(DomainError::service_unavailable(
+                "the ledger append failed (test switch)",
+            ));
+        }
+        state
             .partial_usage
-            .extend_from_slice(calls);
+            .extend(calls.iter().map(|call| call.usage));
         Ok(())
     }
 
@@ -7899,16 +7929,12 @@ async fn a_resumed_script_job_pays_only_for_the_missing_chunks() {
     // paid for it AND appended its usage to the job row's ledger (the append is
     // the write that precedes the chunk-store write), so the resumed attempt
     // models that row state here.
-    queue.state.lock().unwrap().prior_calls = vec![
-        LlmCallUsage {
-            tokens_in: 100,
-            ..LlmCallUsage::default()
-        },
-        LlmCallUsage {
-            tokens_in: 100,
-            ..LlmCallUsage::default()
-        },
-    ];
+    let prior = LlmCallUsage {
+        tokens_in: 100,
+        ..LlmCallUsage::default()
+    };
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let store = Arc::new(InMemoryChunkStore::with_prefix(2));
     let worker = resume_worker(
@@ -9604,18 +9630,24 @@ async fn a_re_drive_prices_the_seeded_ledger_per_request() {
     // The billed-call ledger of the attempt that held: two PAID requests, the
     // first energy-light (its energy stays uncapped), the second token-light
     // (its energy is capped hard).
-    queue.state.lock().unwrap().prior_calls = vec![
+    queue.seed_billed_call(
+        LlmProvider::Neuralwatt,
+        "deepseek-v4-flash",
         LlmCallUsage {
             tokens_in: 1_000,
             energy_millijoules: 100,
             ..LlmCallUsage::default()
         },
+    );
+    queue.seed_billed_call(
+        LlmProvider::Neuralwatt,
+        "deepseek-v4-flash",
         LlmCallUsage {
             tokens_in: 10,
             energy_millijoules: 5_000,
             ..LlmCallUsage::default()
         },
-    ];
+    );
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let worker = ScriptImportWorker {
         chunks: None,
@@ -9673,6 +9705,158 @@ async fn a_re_drive_prices_the_seeded_ledger_per_request() {
     assert_eq!(token.total_nano, 1_010);
 }
 
+/// Issue #970 round-14 regression (CodeRabbit review, PR #967): the re-drive may
+/// run under a DIFFERENT `(provider, model)` than the attempt that billed the
+/// persisted requests, so the ledger carries the pair with every request and the
+/// completion snapshot prices each group with its own rate card.
+///
+/// CodeRabbit's example: 100 prior tokens at 1 nano/token plus 50 new tokens at
+/// 10 nano/token cost **600** nano. Pricing everything with the current card
+/// would report 1_500.
+///
+/// The detail blocks (rates) are withheld for a mixed job — one rate set cannot
+/// describe two cards — while the summed figure stays the component total.
+#[tokio::test]
+async fn a_re_drive_prices_each_billed_pair_with_its_own_rate_card() {
+    let queue = Arc::new(FakeQueue::default());
+    // The held attempt billed 100 tokens with EURouter `cheap-model`.
+    queue.seed_billed_call(
+        LlmProvider::EURouter,
+        "cheap-model",
+        LlmCallUsage {
+            tokens_in: 100,
+            ..LlmCallUsage::default()
+        },
+    );
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let pricing = Arc::new(
+        MapPricingRepo::default()
+            // 1 nano per token.
+            .with_row(
+                LlmProvider::EURouter,
+                "cheap-model",
+                pricing_at(
+                    1_000_000,
+                    1_000_000,
+                    3_600_000_000,
+                    breakdown_core::ai::PricingSource::CuratedSeed,
+                ),
+            )
+            // 10 nano per token — the pair this re-drive runs on.
+            .with_row(
+                LlmProvider::Neuralwatt,
+                "deepseek-v4-flash",
+                pricing_at(
+                    10_000_000,
+                    10_000_000,
+                    3_600_000_000,
+                    breakdown_core::ai::PricingSource::CuratedSeed,
+                ),
+            ),
+    );
+    let worker = ScriptImportWorker {
+        chunks: None,
+        queue: Arc::clone(&queue),
+        // `CountingScriptClient` answers every chunk with 50 tokens.
+        client: Arc::new(CountingScriptClient::default()),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: Some(pricing),
+        decision: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    assert_eq!(
+        telemetry.tokens_in, 150,
+        "both attempts' tokens are the job total"
+    );
+    let cost = telemetry.cost.expect("cost snapshot recorded");
+    assert_eq!(cost.status, breakdown_core::ai::CostStatus::Known);
+    assert_eq!(
+        cost.total.total_nano,
+        Some(600),
+        "100 x 1 nano (EURouter cheap-model) + 50 x 10 nano (Neuralwatt          deepseek-v4-flash): each group on its own card"
+    );
+    assert_eq!(
+        cost.token_cost, None,
+        "no single rate set describes two cards"
+    );
+    assert_eq!(cost.energy_cost, None);
+}
+
+/// Issue #970 round-14 regression (CodeRabbit review, PR #967): a transient
+/// database error on the successful call's ledger append must not drop a paid
+/// request. The append is retried with ONE stable key (so a commit whose
+/// acknowledgement was lost cannot double-add it), and only after the bound does
+/// the job fail.
+#[tokio::test]
+async fn a_transient_ledger_append_failure_is_retried_and_keeps_the_usage() {
+    let queue = Arc::new(FakeQueue::default());
+    // The first two attempts fail, the third lands.
+    queue.state.lock().unwrap().fail_appends = 2;
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = ScriptImportWorker {
+        chunks: None,
+        queue: Arc::clone(&queue),
+        // 50 billed tokens per call.
+        client: Arc::new(CountingScriptClient::default()),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .expect("a transient append failure is retried, not propagated");
+
+    let state = queue.state.lock().unwrap();
+    assert_eq!(
+        state.append_attempts, 3,
+        "two failures then the retry that lands"
+    );
+    assert_eq!(
+        state.partial_usage,
+        vec![LlmCallUsage {
+            tokens_in: 50,
+            ..LlmCallUsage::default()
+        }],
+        "the paid request reaches the ledger exactly once"
+    );
+    drop(state);
+    assert_eq!(the_only_telemetry(&queue).tokens_in, 50);
+}
+
 /// Script client that bills nothing: the seeded ledger is the only usage in the
 /// test above.
 #[derive(Clone, Default)]
@@ -9722,16 +9906,12 @@ async fn a_crashed_attempts_completion_total_is_not_counted_twice() {
     // The crashed attempt appended both paid requests to the row's ledger
     // before storing the chunks; its completion telemetry may or may not have
     // landed — the re-drive must not care either way.
-    queue.state.lock().unwrap().prior_calls = vec![
-        LlmCallUsage {
-            tokens_in: 100,
-            ..LlmCallUsage::default()
-        },
-        LlmCallUsage {
-            tokens_in: 100,
-            ..LlmCallUsage::default()
-        },
-    ];
+    let prior = LlmCallUsage {
+        tokens_in: 100,
+        ..LlmCallUsage::default()
+    };
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let store = Arc::new(InMemoryChunkStore::with_prefix(2));
     let worker = resume_worker(

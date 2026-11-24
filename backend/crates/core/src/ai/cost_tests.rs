@@ -6,9 +6,9 @@
 use jiff::Timestamp;
 
 use super::{
-    cached_input_cost_nano, cap_energy_by_token, cost_breakdown, cost_breakdown_unpriced,
-    decision_cost_breakdown, div_half_up_nonneg, energy_cost_raw_nano, token_cost_breakdown,
-    token_cost_nano,
+    ExtractionGroup, cached_input_cost_nano, cap_energy_by_token, cost_breakdown,
+    cost_breakdown_grouped, cost_breakdown_unpriced, decision_cost_breakdown, div_half_up_nonneg,
+    energy_cost_raw_nano, token_cost_breakdown, token_cost_nano,
 };
 use crate::ai::ports::{LlmCallUsage, LlmProvider};
 use crate::ai::views::{CostStatus, CostTotalStatus, Currency, ModelPricing, PricingSource};
@@ -578,4 +578,111 @@ fn llm_call_usage_split_stays_element_wise_saturating() {
     };
     maxed.accumulate(usage(1, 0, 0, 0));
     assert_eq!(maxed.tokens_in, u64::MAX);
+}
+
+// ---------------------------------------------------------------------------
+// Per-(provider, model) grouping (issue #970, CodeRabbit review PR #967)
+// ---------------------------------------------------------------------------
+
+/// One group is EXACTLY [`cost_breakdown`] — every single-pair job keeps its
+/// byte-identical snapshot, rates included.
+#[test]
+fn a_single_pricing_group_is_priced_exactly_like_one_rate_card() {
+    let pricing = usd_pricing();
+    let calls = one_call(10_000, 2_000, 0, 18_000);
+    let grouped = cost_breakdown_grouped(
+        &[ExtractionGroup {
+            pricing: Some(&pricing),
+            calls: &calls,
+        }],
+        None,
+    );
+    assert_eq!(grouped, cost_breakdown(&calls, Some(&pricing), None));
+}
+
+/// Several groups: each is priced with its OWN rate card, the energy cap stays
+/// inside the group, and the summed figure is the component total.
+#[test]
+fn several_pricing_groups_are_priced_separately_and_summed() {
+    let cheap = usd_pricing(); // 1_000_000_000 nano / 1M input, $10/kWh
+    let mut expensive = usd_pricing();
+    expensive.input_nano_per_million = 10_000_000_000;
+
+    let prior = one_call(100, 0, 0, 0);
+    let fresh = one_call(50, 0, 0, 0);
+    let grouped = cost_breakdown_grouped(
+        &[
+            ExtractionGroup {
+                pricing: Some(&cheap),
+                calls: &prior,
+            },
+            ExtractionGroup {
+                pricing: Some(&expensive),
+                calls: &fresh,
+            },
+        ],
+        None,
+    );
+
+    // The cheap card bills 1_450 nano/token (100 → 145_000), the expensive one
+    // 10_000 nano/token (50 → 500_000). Pricing everything with the CURRENT card
+    // — the defect this guards — would report 150 × 10_000 = 1_500_000 nano.
+    assert_eq!(grouped.status, CostStatus::Known);
+    assert_eq!(grouped.currency, Some(Currency::Usd));
+    assert_eq!(grouped.total.status, CostTotalStatus::Known);
+    assert_eq!(grouped.total.total_nano, Some(145_000 + 500_000));
+    // The rates of two cards have no single value, so the detail blocks are
+    // withheld instead of naming one of them.
+    assert_eq!(grouped.token_cost, None);
+    assert_eq!(grouped.energy_cost, None);
+    assert_eq!(grouped.price_as_of, None);
+    assert_eq!(grouped.pricing_source, None);
+}
+
+/// One unpriced group makes the component's figure unknown — never a partial
+/// sum presented as its cost.
+#[test]
+fn an_unpriced_group_makes_the_grouped_component_unknown() {
+    let pricing = usd_pricing();
+    let calls = one_call(100, 0, 0, 0);
+    let grouped = cost_breakdown_grouped(
+        &[
+            ExtractionGroup {
+                pricing: Some(&pricing),
+                calls: &calls,
+            },
+            ExtractionGroup {
+                pricing: None,
+                calls: &calls,
+            },
+        ],
+        None,
+    );
+    assert_eq!(grouped.status, CostStatus::Unknown);
+    assert_eq!(grouped.total.total_nano, None);
+}
+
+/// Different currencies cannot be summed (design D2), so the component is
+/// reported unpriced rather than converting.
+#[test]
+fn groups_in_different_currencies_have_no_figure() {
+    let usd = usd_pricing();
+    let mut eur = usd_pricing();
+    eur.currency = Currency::Eur;
+    let calls = one_call(100, 0, 0, 0);
+    let grouped = cost_breakdown_grouped(
+        &[
+            ExtractionGroup {
+                pricing: Some(&usd),
+                calls: &calls,
+            },
+            ExtractionGroup {
+                pricing: Some(&eur),
+                calls: &calls,
+            },
+        ],
+        None,
+    );
+    assert_eq!(grouped.status, CostStatus::Unknown);
+    assert_eq!(grouped.total.total_nano, None);
 }

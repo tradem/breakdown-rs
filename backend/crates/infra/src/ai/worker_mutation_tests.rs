@@ -21,7 +21,9 @@ use tokio::sync::Mutex;
 
 use crate::ai::pdf::LegacyPdfToTextAdapter;
 use crate::ai::preview_store::{AiDocumentSource, AiPreviewStore};
-use crate::ai::workers::{ScheduleImportWorker, ScriptImportWorker, claim_lost_error};
+use crate::ai::workers::{
+    ScheduleImportWorker, ScriptImportWorker, claim_lost_error, ensure_claim_holds,
+};
 
 // ===========================================================================
 // Mock queue for unit tests
@@ -1045,4 +1047,29 @@ async fn claim_resets_progress_from_a_prior_attempt() {
         claimed.progress, None,
         "stale progress from attempt 1 must not survive the reclaim"
     );
+}
+
+// ===========================================================================
+// Pre-call ownership guard (issue #970 round 14, CodeRabbit review PR #967)
+// ===========================================================================
+
+/// A worker whose lease lapsed must start NO paid call — the ledger fence would
+/// only reject the write *after* the request, i.e. after the money was spent.
+///
+/// The flag is normally set by the renewal task (covered by
+/// `heartbeat::tests::conflict_renewal_flags_the_claim_as_lost_and_stops`); this
+/// test drives the guard directly, so it needs no clock.
+#[tokio::test]
+async fn a_lost_claim_refuses_further_billable_work() {
+    let lost = crate::ai::heartbeat::LeaseHeartbeat::with_lost_claim();
+    let id = AiImportJobId::new();
+
+    let refused = ensure_claim_holds(Some(&lost), id, "worker-a");
+    assert!(
+        matches!(refused, Err(DomainError::Conflict { .. })),
+        "an orphaned worker must be refused before the paid call: {refused:?}"
+    );
+
+    // No heartbeat = no lease (in-memory queue): never a lost claim.
+    assert!(ensure_claim_holds(None, id, "worker-a").is_ok());
 }

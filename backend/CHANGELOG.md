@@ -118,7 +118,22 @@ generated notes are never used.
     Stored chunks now replay their payload only (their usage is already on the
     ledger), the appends are owner-fenced and idempotent per key, and a FAILED
     read propagates before any paid work — an unknown accounting state is never
-    treated as zero. The `Uuid` parameter of the append statement is cast to
+    treated as zero.
+  - **Every ledger entry carries the pair that billed it** (issue #970 round
+    14). The `(provider, model)` a worker calls comes from configuration, so a
+    re-drive can run under a different pair than the attempt that paid for a
+    request; the completion snapshot therefore prices each `(provider, model)`
+    group with **its own** rate card
+    (`core::ai::cost::cost_breakdown_grouped`, per-request energy caps inside
+    each group) instead of pricing old requests with the current card. A
+    mixed-pair job reports the summed figure and withholds the rate detail
+    blocks (one rate set cannot describe two cards); an unpriced group or a
+    currency mix makes the component unpriced. The ledger appends of the success
+    path are retried with one stable key (a transient error must not drop a paid
+    request), and both worker loops now re-check the claim right before every
+    paid call (`ensure_claim_holds`) — the page loop included, which previously
+    could pay for a page after `render_page` while another worker already owned
+    the job. The `Uuid` parameter of the append statement is cast to
     `text` on both sides of the idempotency comparison: without the cast the
     server inferred `TEXT` for a UUID-typed bind and every append failed with
     SQLSTATE 22P03 (`an_append_is_idempotent_per_key` in

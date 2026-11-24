@@ -30,6 +30,7 @@
 mod fixtures;
 
 use anyhow::Result;
+use breakdown_core::ai::BilledCall;
 use breakdown_core::ai::ports::{
     AiImportEnqueueRequest, AiImportEnqueueResult, AiImportQueue, LlmCallUsage,
 };
@@ -72,12 +73,17 @@ async fn claimed_job(queue: &PgAiImportQueue, dedup: &str, worker: &str) -> AiIm
     id
 }
 
-fn call(tokens_in: u64, energy_millijoules: u64) -> LlmCallUsage {
-    LlmCallUsage {
-        tokens_in,
-        tokens_out: 1,
-        cached_tokens_in: 0,
-        energy_millijoules,
+/// One ledger entry: a request billed by `PROVIDER`/`MODEL`.
+fn call(tokens_in: u64, energy_millijoules: u64) -> BilledCall {
+    BilledCall {
+        provider: PROVIDER,
+        model: MODEL.to_owned(),
+        usage: LlmCallUsage {
+            tokens_in,
+            tokens_out: 1,
+            cached_tokens_in: 0,
+            energy_millijoules,
+        },
     }
 }
 

@@ -312,6 +312,33 @@ impl LlmCallUsage {
     }
 }
 
+/// One paid provider request on a job's billed-call ledger (issue #970,
+/// CodeRabbit review PR #967 round 14).
+///
+/// The `(provider, model)` attribution travels **with** the request, not beside
+/// the job: the pair a worker calls comes from configuration, so a re-drive can
+/// run under a different pair than the attempt that paid for it (a changed
+/// `AI_IMPORT` model, a different `AI_DOCUMENT_PARSER` path). The completion-time
+/// cost snapshot must therefore price every persisted request with the rate card
+/// that actually billed it, and the #794 energy cap stays per request *within*
+/// each pair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilledCall {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub usage: LlmCallUsage,
+}
+
+impl BilledCall {
+    /// The usages of a ledger, in billing order — what a re-drive seeds its
+    /// accumulator from (the attribution stays on the ledger and is used by the
+    /// cost snapshot).
+    #[must_use]
+    pub fn usages(calls: &[Self]) -> Vec<LlmCallUsage> {
+        calls.iter().map(|call| call.usage).collect()
+    }
+}
+
 /// One cost component's accumulated usage **plus** how many billable calls
 /// produced it (issue #768) and the per-call usages themselves (issue #794).
 ///
@@ -738,7 +765,7 @@ pub trait AiImportQueue: Send + Sync {
     async fn recorded_billed_calls(
         &self,
         _id: AiImportJobId,
-    ) -> Result<Vec<LlmCallUsage>, DomainError> {
+    ) -> Result<Vec<BilledCall>, DomainError> {
         Ok(Vec::new())
     }
 
@@ -755,7 +782,7 @@ pub trait AiImportQueue: Send + Sync {
         &self,
         _id: AiImportJobId,
         _worker_id: &str,
-        _calls: &[LlmCallUsage],
+        _calls: &[BilledCall],
         // Idempotency key (issue #970, CodeRabbit review PR #967 round 12):
         // ONE key per append site, reused verbatim across write retries, so a
         // lost acknowledgement after commit can never add the same calls a

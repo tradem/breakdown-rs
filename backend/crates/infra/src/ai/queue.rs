@@ -2476,7 +2476,7 @@ impl AiImportQueue for PgAiImportQueue {
     async fn recorded_billed_calls(
         &self,
         id: AiImportJobId,
-    ) -> Result<Vec<breakdown_core::ai::LlmCallUsage>, DomainError> {
+    ) -> Result<Vec<breakdown_core::ai::BilledCall>, DomainError> {
         let row = sqlx::query(
             r#"
             SELECT billed_calls
@@ -2489,7 +2489,7 @@ impl AiImportQueue for PgAiImportQueue {
         .await
         .map_err(map_sqlx_error)?;
         let raw: serde_json::Value = row.try_get("billed_calls").map_err(map_sqlx_error)?;
-        serde_json::from_value::<Vec<breakdown_core::ai::LlmCallUsage>>(raw).map_err(|error| {
+        serde_json::from_value::<Vec<breakdown_core::ai::BilledCall>>(raw).map_err(|error| {
             DomainError::validation(format!("billed-call ledger is undecodable: {error}"))
         })
     }
@@ -2503,7 +2503,7 @@ impl AiImportQueue for PgAiImportQueue {
         &self,
         id: AiImportJobId,
         worker_id: &str,
-        calls: &[breakdown_core::ai::LlmCallUsage],
+        calls: &[breakdown_core::ai::BilledCall],
         key: Uuid,
     ) -> Result<(), DomainError> {
         if calls.is_empty() {

@@ -72,7 +72,7 @@ pub use ports::{
     AccountBudget, AccountProbeRequest, AccountProbeSnapshot, AccountProbeStatus, AiConfigCommands,
     AiConfigRepository, AiImportChunkStore, AiImportEnqueueRequest, AiImportEnqueueResult,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
-    CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider, DocumentStructureExtractor,
+    BilledCall, CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider, DocumentStructureExtractor,
     ExtractionFingerprint, HoldEvidence, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
     LlmModelCatalog, LlmVisionPageInput, LlmVisionRequest, ModelInfo, ModelPricingRow, OpenBreaker,
     PRIMARY_ORDINAL, ProbeCapability, ProbeLease, ProbeOutcome, ProviderAccountProbe,
