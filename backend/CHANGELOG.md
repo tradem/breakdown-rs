@@ -82,6 +82,14 @@ generated notes are never used.
 
 ## [api-v0.71.0] – Released 2026-11-21
 
+  - **Usage across breaker holds (issue #970).** The schedule page loop carries
+    the usage of the pages billed before a hold on the failure
+    (`CallFailure::usage`) and the worker persists it additively on the running
+    job row (`AiImportQueue::record_partial_usage`, owner-fenced) before
+    parking; a re-drive resumes the accounting from the persisted counters
+    (`AiImportQueue::recorded_usage`) and the completion-time telemetry
+    overwrite stays the full prior-plus-attempt total, so the cost snapshot
+    covers every billed call instead of only the last attempt's.
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.71.0` (immutable,
   SHA-pinned digest) plus the moving tags `api-v0.71` and `api-v0`.
 - Companion crate versions at this release: `core 0.75.0`,
