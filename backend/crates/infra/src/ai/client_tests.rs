@@ -2197,9 +2197,11 @@ async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
         // Answer the FIRST request with a valid billed body, then keep the
         // stream open forever: the listener is consumed, so the client's
         // second request is deterministically refused at the transport.
-        let Ok((mut stream, _)) = listener.accept().await else {
-            return;
-        };
+        let (stream, _) = listener.accept().await.unwrap();
+        // CLOSE the listener explicitly: the retry's connection is
+        // deterministically refused, not timed out.
+        drop(listener);
+        let mut stream = stream;
         let mut request = Vec::new();
         let mut chunk = [0_u8; 1024];
         loop {
@@ -2235,7 +2237,10 @@ async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
         reqwest::Client::new(),
         LlmProvider::Neuralwatt,
         "test-key".to_owned(),
-        Duration::from_secs(5),
+        // The deadline never fires: the first response is answered
+        // immediately and the second request is REFUSED (connection refused).
+        // A generous value keeps any runner-load latency off the failure path.
+        Duration::from_secs(60),
     )
     .expect("a with_http test client builds");
     client.endpoint = format!("http://{addr}/chat/completions");

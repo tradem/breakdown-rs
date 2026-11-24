@@ -281,9 +281,12 @@ impl LlmClient for OllamaChatClient {
         let detail = last_parse_error
             .map(|error| error.to_string())
             .unwrap_or_else(|| "unknown JSON parse error".to_owned());
+        // Issue #970 (CodeRabbit review PR #967 round 10): the responses of
+        // this attempt billed SO FAR travel on the terminal error.
         Err(DomainError::validation(format!(
             "Ollama returned invalid ScriptContext after bounded retries: {detail}"
-        )))
+        ))
+        .with_billed_usage(total_usage))
     }
 
     async fn chat_vision_constrained(
@@ -338,9 +341,11 @@ impl LlmClient for OllamaChatClient {
             }
         }
         let detail = last_parse_error.unwrap_or_else(|| "unknown JSON parse error".to_owned());
+        // Issue #970 (CodeRabbit review PR #967 round 10): see the text path.
         Err(DomainError::validation(format!(
             "Ollama returned invalid SchedulePageExtraction after bounded retries: {detail}"
-        )))
+        ))
+        .with_billed_usage(total_usage))
     }
 }
 

@@ -1311,6 +1311,17 @@ where
                         .await?;
                         return Ok(String::new());
                     }
+                    // Issue #970 (CodeRabbit review PR #967 round 10): the
+                    // terminal failure may carry the in-flight chunk's orphan
+                    // usage — persist it before failing the job (the row is
+                    // still 'running', the fence holds).
+                    record_attempt_usage(
+                        self.queue.as_ref(),
+                        job.id,
+                        worker_id,
+                        failure.usage.take().map(|boxed| *boxed),
+                    )
+                    .await;
                     self.fail(job.id, worker_id, &failure.error).await?;
                     return Err(failure.error);
                 }
@@ -1908,7 +1919,21 @@ where
                         .await?;
                         return Ok(String::new());
                     }
-                    other => other.map_err(|failure| failure.error)?,
+                    Err(mut failure) => {
+                        // Issue #970 (CodeRabbit review PR #967 round 10): a
+                        // terminal (non-breaker) failure may carry the pages'
+                        // billed usage — persist it while the row is still
+                        // 'running', before the failure path.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            failure.usage.take().map(|boxed| *boxed),
+                        )
+                        .await;
+                        return Err(failure.error);
+                    }
+                    Ok(outcome) => outcome,
                 };
                 extraction_usage.record(page_usage);
                 parsed
@@ -1984,7 +2009,19 @@ where
                         .await?;
                         return Ok(String::new());
                     }
-                    other => other.map_err(|failure| failure.error)?,
+                    Err(mut failure) => {
+                        // Issue #970 (CodeRabbit review PR #967 round 10): see
+                        // the page-loop arm above.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            failure.usage.take().map(|boxed| *boxed),
+                        )
+                        .await;
+                        return Err(failure.error);
+                    }
+                    Ok(outcome) => outcome,
                 };
                 extraction_usage.record(call_usage);
                 parsed

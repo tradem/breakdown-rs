@@ -9511,3 +9511,86 @@ impl LlmClient for BilledRetryThenHoldVisionClient {
         ))
     }
 }
+
+/// Issue #970 (CodeRabbit review, PR #967 round 10): a terminal
+/// (non-breaker) failure whose error carries billed usage persists it on the
+/// RUNNING job row BEFORE `mark_failed` — the dead-letter path keeps the
+/// accounting of the billed responses the attempt discarded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_terminal_failure_persists_its_carried_usage() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // Page 1: a terminal Validation failure that carries billed usage.
+    let client = Arc::new(TerminalBilledValidationClient::default());
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await;
+
+    assert!(result.is_err(), "the terminal failure surfaces");
+    // The usage is persisted on the RUNNING row before the failure propagates
+    // (the worker loop's handler performs the terminal `mark_failed`).
+    let recorded = queue.partial_usage();
+    assert_eq!(
+        recorded.len(),
+        1,
+        "the carried usage is persisted before the failure: {recorded:?}"
+    );
+    assert_eq!(recorded[0].tokens_in, 60);
+}
+
+/// Vision client: a TERMINAL (non-breaker, non-retryable) failure that
+/// carries the attempt's billed usage.
+#[derive(Clone, Default)]
+struct TerminalBilledValidationClient {
+    page_numbers: Arc<Mutex<Vec<u32>>>,
+}
+
+#[async_trait]
+impl LlmClient for TerminalBilledValidationClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "TerminalBilledValidationClient only extracts schedule pages",
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        self.page_numbers
+            .lock()
+            .unwrap()
+            .push(request.page.page_number);
+        Err(
+            DomainError::validation("unrecoverable decode failure").with_billed_usage(
+                breakdown_core::ai::LlmCallUsage {
+                    tokens_in: 60,
+                    tokens_out: 10,
+                    cached_tokens_in: 0,
+                    energy_millijoules: 0,
+                },
+            ),
+        )
+    }
+}
