@@ -906,74 +906,61 @@ impl ShootingScheduleSchema {
 }
 
 /// Evidence that a 4xx body actually reports the `response_format` as
-/// UNSUPPORTED (not merely an unrelated error that echoes the field name, and
-/// not an unrelated capability statement like "does not support images") —
-/// the only signal eligible for the one-shot vision fallback (CodeRabbit
-/// review, PR #967 follow-ups).
+/// UNSUPPORTED — the only signal eligible for the one-shot vision fallback
+/// (CodeRabbit review, PR #967, follow-ups rounds 2–6).
 ///
-/// Two guards keep the check honest (CodeRabbit's PR #967 round-4 follow-up):
-/// an occurrence of the field name in a JSON KEY position
-/// (`"response_format":`) — i.e. the provider echoing the request back — is
-/// NOT treated as a prose mention; and the unsupported claim must appear
-/// within 80 characters of such a prose mention. Window slicing is
-/// char-boundary safe, so multibyte characters cannot panic it.
+/// The unsupported claim and the field mention must be DIRECTLY connected:
+/// the text between them (in either order) is at most 80 characters and
+/// consists only of connector characters (letters, digits, whitespace,
+/// quotes/apostrophes, backtick, period, underscore, hyphen). Anything that
+/// carries JSON structure between them — braces, brackets, commas, colons —
+/// means the claim is about something else and the mention is merely echoed
+/// request data (`"message":"does not support images","param":
+/// "response_format"`, `"response_format":{...}`), which never qualifies.
 fn names_unsupported_response_format(body: &str) -> bool {
-    const PROXIMITY: usize = 80;
+    const MAX_GAP: usize = 80;
     let lower = body.to_ascii_lowercase();
+    const KEY: &str = "response_format";
     let markers = [
         "unsupport",
-        "not support", // covers "does not support", "provider does not support", …
+        "not support", // covers "does not support", "provider does not support", ...
         "doesn't support",
         "cannot support",
     ];
     for marker in markers {
         let mut from = 0;
         while let Some(found) = lower[from..].find(marker) {
-            let start = from + found;
-            let window_start = start.saturating_sub(PROXIMITY);
-            let window_end = (start + marker.len() + PROXIMITY).min(lower.len());
-            if window_contains_prose_response_format(&lower, window_start, window_end) {
-                return true;
+            let marker_start = from + found;
+            let marker_end = marker_start + marker.len();
+            let mut key_from = 0;
+            while let Some(key_found) = lower[key_from..].find(KEY) {
+                let key_start = key_from + key_found;
+                let key_end = key_start + KEY.len();
+                let gap = if key_end <= marker_start {
+                    &lower[key_end..marker_start]
+                } else if marker_end <= key_start {
+                    &lower[marker_end..key_start]
+                } else {
+                    // Overlapping matches cannot happen (`response_format`
+                    // contains no marker text), but stay total.
+                    key_from = key_start + KEY.len();
+                    continue;
+                };
+                if gap.len() <= MAX_GAP
+                    && gap.chars().all(|c| {
+                        c.is_alphanumeric()
+                            || c.is_whitespace()
+                            || matches!(c, '"' | '\'' | '`' | '.' | '_' | '-')
+                    })
+                {
+                    return true;
+                }
+                key_from = key_start + KEY.len();
             }
-            from = start + marker.len();
+            from = marker_start + marker.len();
         }
     }
     false
-}
-
-/// Whether the byte window `[start, end)` contains a PROSE mention of
-/// `response_format` — one not in a JSON key position (`"response_format":`)
-/// and not slicing through a multibyte character.
-fn window_contains_prose_response_format(lower: &str, start: usize, end: usize) -> bool {
-    // Widen to char boundaries: a raw byte offset can land inside a multibyte
-    // character and slicing would panic.
-    let ws = (0..=start)
-        .rev()
-        .find(|i| lower.is_char_boundary(*i))
-        .unwrap_or(0);
-    let we = (end..=lower.len())
-        .find(|i| lower.is_char_boundary(*i))
-        .unwrap_or(lower.len());
-    let window = &lower[ws..we];
-    const KEY: &str = "response_format";
-    window.match_indices(KEY).any(|(offset, _)| {
-        let before = &window[..offset];
-        let mut after = &window[offset + KEY.len()..];
-        // A JSON KEY position — the provider echoing the request back — is a
-        // QUOTED `"response_format"` whose closing quote is followed by
-        // optional whitespace and `:` (CodeRabbit's PR #967 round-5 follow-up:
-        // the colon may be separated by whitespace:
-        // `"response_format" : {"type": ...}`). Prose mentions ('response
-        // format' of type … is not supported / unsupported value for
-        // response_format) do not match that shape.
-        let quoted = before.ends_with('"') || before.ends_with('\'');
-        after = after.trim_start();
-        if let Some(rest) = after.strip_prefix('"').or_else(|| after.strip_prefix('\'')) {
-            after = rest;
-        }
-        // A JSON key is NOT a prose mention; every other occurrence counts.
-        !(quoted && after.trim_start().starts_with(':'))
-    })
 }
 
 #[derive(Debug, Serialize)]

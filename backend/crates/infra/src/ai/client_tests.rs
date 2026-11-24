@@ -2081,3 +2081,13 @@ fn a_json_key_with_whitespace_before_the_colon_is_not_fallback_evidence() {
     let body = r#"{"error":{"message":"Model does not support images"},"response_format" : {"type":"json_schema"}}"#;
     assert!(!super::names_unsupported_response_format(body));
 }
+
+/// CodeRabbit's PR #967 round-6 follow-up: a JSON VALUE echo next to an
+/// unrelated unsupported-image statement is not evidence either — the gap
+/// between the claim and the mention carries JSON structure (comma, colon,
+/// quotes-as-structure), which the connector rule rejects.
+#[test]
+fn a_json_value_echo_of_response_format_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images","param":"response_format"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}
