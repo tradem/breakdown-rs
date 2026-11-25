@@ -8,8 +8,11 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: ^3.13.1
+  sdk: ^3.14.0
 
 dependencies:
-  analysis_server_plugin: 0.3.18
-  analyzer: ^13.3.0
+  # Pinned in lockstep with the analyzer major: 0.3.26 pulls
+  # analyzer 14.7.0 + analyzer_plugin 0.14.20, the codegen stack's (freezed 4.0.3
+  # / build_runner 2.17 / build 5) requirement (issue #976).
+  analysis_server_plugin: 0.3.26
+  analyzer: ^14.7.0

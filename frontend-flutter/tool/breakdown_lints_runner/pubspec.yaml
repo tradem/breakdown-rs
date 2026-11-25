@@ -12,10 +12,12 @@ publish_to: 'none'
 version: 0.2.0+2
 
 environment:
-  sdk: ^3.13.1
+  sdk: ^3.14.0
 
 dependencies:
-  analyzer: ^13.3.0
+  # analyzer 14 is what the root lock resolves to (issue #976); the runner must
+  # see the same AST API as the codegen stack it lints.
+  analyzer: ^14.7.0
   path: ^1.9.0
 
 dev_dependencies:

@@ -26,6 +26,34 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 - **Version bump:** `0.4.0+155 → 0.5.0-alpha.1+156` (opens the 0.5.0 alpha
   line; the Play `versionCode` `+N` stays strictly monotonic).
 
+- **The analyzer-14 codegen stack: `freezed 4.0.1 → 4.0.3`,
+  `build_runner 2.16.1 → 2.17.1`, `build 4.0.11 → 5.0.0`,
+  `source_gen 4.2.4 → 4.3.1`, `analyzer 13.3.0 → 14.7.0`** (issue #976, risk
+  class 3 of 4). The pin lift unblocked it; the remaining gate was **ours**, not
+  upstream's: `packages/breakdown_lints` pinned
+  `analysis_server_plugin: 0.3.18` *exactly*, which pins `analyzer: 13.3.0`
+  exactly (via `analyzer_plugin: 0.14.12`). `0.3.26` pulls
+  `analyzer 14.7.0` + `analyzer_plugin 0.14.20`, and the whole stack moved in
+  one resolution: `_fe_analyzer_shared 103.0.0 → 111.0.0`,
+  `build_config 1.3.3 → 1.4.0`.
+  - **The two nested tool packages had to move with it** (they are the gate, so
+    they cannot lag the thing they lint): `analysis_server_plugin 0.3.18 →
+    0.3.26` + `analyzer ^13.3.0 → ^14.7.0` in `packages/breakdown_lints`, and
+    `analyzer ^13.3.0 → ^14.7.0` in `tool/breakdown_lints_runner` (the caret
+    excluded 14 outright). Both also move `environment: sdk ^3.13.1 → ^3.14.0`.
+  - **No API migration was needed, and that was proven, not assumed:** both
+    packages compile clean against analyzer 14 (`dart analyze` → *No issues
+    found* in each), the runner's own 15 rule tests pass, and the CI gate was
+    probed live — a planted `throw` in `lib/data/` was reported by
+    `dart run bin/run_lints.dart ../..` (then removed), so the runner still
+    resolves units and still fires under the new analyzer instead of quietly
+    reporting *no violations found*.
+  - **The generated output is byte-identical.**
+    `dart run build_runner build --delete-conflicting-outputs` rewrites 1079
+    outputs under the new stack and **not one tracked `.g.dart` / `.freezed.dart`
+    differs** — the regeneration was run and reviewed rather than waved through,
+    and the empty diff is the review result.
+
 - **`pdfrx 2.13.1 → 3.1.0`** (issue #976, risk class 2 of 4). The viewer major
   behind the in-app report preview is now on the 3.x line, which is the
   Flutter-3.50 / Dart-3.14 line the pin lift unblocked.
