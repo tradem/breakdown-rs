@@ -2735,6 +2735,121 @@ void main() {
       );
 
       testWidgets(
+        'edit: a deferred confirmation retires the draft once discovery serves '
+        'the acknowledged version, so a later revocation is not masked '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // Revocation submitted; the read-back is stuck on the pre-PATCH
+          // projection, so the draft stays pending.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: true));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+
+          // The projection catches up (version 3 carries the revocation) — the
+          // deferred confirmation must retire the draft, or a stale `false`
+          // would keep overriding whatever the server (or another client) says.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+
+          // …and another client re-attesting now reaches the form.
+          discovery.value = Right([_config(zdrAttested: true, version: 4)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+        },
+      );
+
+      testWidgets(
+        'create: an ambiguous create that reconciles as committed retires the '
+        'attestation draft (issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          // The POST times out, but the reconciliation finds the config.
+          repo.createResult = const Left(
+            ProblemError(code: 'transport.connectionTimeout'),
+          );
+          repo.listResult = Right([_config(zdrAttested: true, version: 2)]);
+          await pumpScreen(tester, height: 2400);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('ai-config-unresolved')), findsNothing);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+        },
+      );
+
+      testWidgets(
+        'create: the unresolved re-check carries the submitted attestation and '
+        'retires the draft when the config committed (issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          repo.createResult = const Left(
+            ProblemError(code: 'transport.connectionTimeout'),
+          );
+          // Reconciliation cannot read the list yet → state unknown.
+          repo.listResult = const Left(
+            ProblemError(code: 'server.down', status: 500),
+          );
+          discovery.value = const Right(<AiConfigView>[]);
+          await pumpScreen(tester, height: 2400);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('ai-config-unresolved')), findsOneWidget);
+          // The submitted attestation is part of the unresolved state, so the
+          // re-check can tell it from a later edit.
+          expect(
+            container.read(aiConfigDraftsProvider).unresolved!.zdrAttested,
+            isTrue,
+          );
+
+          repo.listResult = Right([_config(zdrAttested: true, version: 2)]);
+          discovery.value = Right([_config(zdrAttested: true, version: 2)]);
+          await tester.tap(
+            find.byKey(const Key('ai-config-unresolved-recheck')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('ai-config-unresolved')), findsNothing);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+        },
+      );
+
+      testWidgets(
         'edit: switching away from an attested provider resets the toggle, so '
         'the new account must be attested explicitly (issue #968 review)',
         (tester) async {
@@ -2976,6 +3091,10 @@ void main() {
       // columns), the second one sees the committed triple — exactly the
       // projector lag the client must reconcile with a bounded-retry refetch
       // (AGENTS.md §4) instead of reporting a false "not persisted".
+      // The SECOND view also carries the acknowledged aggregate version, so
+      // the read-back confirms the Decision Model AND the (unchanged, `false`)
+      // attestation there and stops retrying (issue #968: the loop now covers
+      // the attestation too).
       repo.getConfigScript = [
         Right(_config(provider: LlmProvider.neuralwatt)),
         Right(
@@ -2984,6 +3103,7 @@ void main() {
             decisionProvider: LlmProvider.neuralwatt,
             decisionModel: 'clef-flash',
             decisionVaultKeyId: 'vk-1',
+            version: 2,
           ),
         ),
       ];
@@ -3325,6 +3445,7 @@ void main() {
           imageModelId: null,
           scriptPrompt: '',
           schedulePrompt: '',
+          zdrAttested: false,
           error: const ProblemError(code: 'transport.connectionTimeout'),
         );
       });

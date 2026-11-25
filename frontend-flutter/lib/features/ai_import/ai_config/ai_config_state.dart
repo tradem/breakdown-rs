@@ -298,6 +298,7 @@ class AiConfigUnresolved {
     required this.imageModelId,
     required this.scriptPrompt,
     required this.schedulePrompt,
+    required this.zdrAttested,
     required this.error,
   });
 
@@ -309,6 +310,12 @@ class AiConfigUnresolved {
   final String? imageModelId;
   final String scriptPrompt;
   final String schedulePrompt;
+
+  /// The zero-data-retention attestation this dispatch submitted (issue #968
+  /// review). The re-check must carry it: without it the reconciliation cannot
+  /// tell the submitted value from a later edit, and a surviving draft would
+  /// mask a revocation.
+  final bool zdrAttested;
   final ProblemError error;
 }
 
