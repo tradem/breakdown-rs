@@ -1774,20 +1774,26 @@ append), while the schedule worker resolves its configuration from the read mode
 (`AiConfigRepositoryImpl::find_worker_config` → `ai_import.projection_ai_config`, which filters only
 on `revoked = FALSE` and applies **no** version filter). In the window between the acknowledgement
 and the `AiConfigProjector` write, a job that resolves its config can therefore still read the
-previous `zdr_attested`. The contract is: **no page-image egress once the projection carries the
-revocation** — not "no egress after the response".
+previous `zdr_attested`. The contract is therefore **per attempt, not per byte**: once the
+projection carries the revocation, every attempt that (re-)reads its configuration is refused —
+but an attempt that already resolved `true` before the write keeps sending the remaining pages of
+that attempt.
 
 The window is wider than one call, so state it precisely: `schedule_worker_tick` resolves the
 configuration **once per job attempt** (`worker_loop`) and copies `zdr_attested` into the worker,
 which then reuses that same value for **every page request of that attempt**
 (`workers::extract_pdf_pages`). A job that already read `true` therefore keeps sending the remaining
-pages of that attempt after the projection carries the revocation; the gate re-opens on the next
-attempt, which re-resolves the config. Bound of the exposure: one attempt, i.e. at most the
-analytic worst case of `AI_IMPORT_MAX_ATTEMPT_RETRIES` (≈22 min hosted / ≈28 min Ollama, see
-`backend/.github/instructions/ai-import.instructions.md`), and never across attempts. Stopping an
-in-flight attempt at the next page would need a per-page read of the config — deliberately not
-done: it turns a per-attempt snapshot into a per-page read-model query, and the value is already
-resolved from the CURRENT credential at that point.
+pages of that attempt after the projection carries the revocation; the next attempt re-reads the
+configuration and, if it reads the projected revocation, is refused.
+
+There is no fixed time bound to quote for the earlier attempt: the per-call figures in
+`backend/.github/instructions/ai-import.instructions.md` (≈22 min hosted / ≈28 min Ollama) describe
+one attempt's retry budget, not a multi-page job — a job with many pages runs longer, and if the
+projection lag outlasts the interval between two attempts, a second attempt can also read the old
+value. What the code guarantees is only that no attempt STARTED after the projector wrote sees the
+revoked attestation. Stopping an in-flight attempt at the next page would need a per-page read of
+the config — deliberately not done: it turns a per-attempt snapshot into a per-page read-model
+query.
 Confirm what the worker will see before concluding that a revocation did not take effect:
 
 ```sql

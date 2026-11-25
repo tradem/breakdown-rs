@@ -1124,20 +1124,17 @@ class AiConfigController extends _$AiConfigController {
           version: idVersion.version,
           zdrAttested: s.zdrAttested,
         );
-        // The created credential is what the draft now describes, so bind it
-        // before settling: an unbound first-run draft must not stay claimable
-        // for whatever credential discovery later serves (issue #968 review).
-        final createdCredentialIdentity =
-            '${provider.name}|${credential.vaultKeyId}';
-        _draftsNotifier.mutate(
-          (d) => d.zdrCredential = createdCredentialIdentity,
-        );
         // Settle the attestation FIRST (issue #968 review) — see the edit path.
+        // The created credential is what an UNTOUCHED draft now describes; the
+        // binding is ownership-guarded inside the settle, so a draft the
+        // operator re-attested for a credential discovery loaded meanwhile is
+        // left alone.
         _settleZdrAttestation(
           verdict.stored,
           idVersion.version,
           s.zdrAttested,
           zdrGeneration,
+          bindCredential: '${provider.name}|${credential.vaultKeyId}',
         );
         if (verdict.error != null) {
           // The authoritative view becomes the rendered configuration — the
@@ -1191,8 +1188,14 @@ class AiConfigController extends _$AiConfigController {
     AiConfigView? stored,
     int? version,
     bool submitted,
-    int generation,
-  ) {
+    int generation, {
+
+    /// The credential identity the dispatch established, to be recorded on the
+    /// draft — but only while the draft still belongs to THIS dispatch
+    /// (issue #968 review): a flip made while the create was in flight describes
+    /// the credential the operator was looking at then, not this one.
+    String? bindCredential,
+  }) {
     final confirmed =
         stored != null &&
         stored.zdrAttested == submitted &&
@@ -1202,6 +1205,9 @@ class AiConfigController extends _$AiConfigController {
       // LATER save recorded (issue #968 review): that marker is what retires the
       // later draft, and losing it — on either branch — would leave a stale
       // value able to be re-sent. So both branches check ownership first.
+      if (bindCredential != null && d.zdrEditGeneration == generation) {
+        d.zdrCredential = bindCredential;
+      }
       final existing = d.zdrConfirmation;
       final ownsMarker = existing == null || existing.generation <= generation;
       if (confirmed) {
@@ -1482,20 +1488,17 @@ class AiConfigController extends _$AiConfigController {
           );
         }
         if (!ref.mounted) return;
-        // Bind the draft to the credential the create established, then settle
-        // (issue #968 review) — an unbound draft must not survive into a
-        // configuration it never described.
-        final committedIdentity =
-            '${snapshot.selectedProviderKey}|${credential.vaultKeyId}';
-        _draftsNotifier.mutate((d) => d.zdrCredential = committedIdentity);
         // An unambiguous commit settles the attestation too (issue #968
-        // review): the committed view is authoritative, and a draft left over
-        // from the unresolved state would mask every later refresh.
+        // review): the committed view is authoritative, a draft left over from
+        // the unresolved state would mask every later refresh, and the binding
+        // is ownership-guarded inside the settle.
         _settleZdrAttestation(
           view,
           view.version,
           snapshot.zdrAttested,
           zdrGeneration,
+          bindCredential:
+              '${snapshot.selectedProviderKey}|${credential.vaultKeyId}',
         );
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(configuredAiNamingProvider);

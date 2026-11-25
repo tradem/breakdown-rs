@@ -2951,6 +2951,56 @@ void main() {
       );
 
       testWidgets(
+        'create: an in-flight create does not rebind a draft the operator '
+        're-attested for a credential discovery loaded meanwhile '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          // The first-run create for `vk-1` is held in its read-back.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          final gate = Completer<void>();
+          repo.getConfigGate = gate.future;
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+
+          // Discovery loads another credential (`vk-9`) and the operator
+          // attests THAT one: the draft now describes `openai|vk-9`.
+          discovery.value = Right([
+            _config(zdrAttested: false, version: 2, vaultKeyId: 'vk-9'),
+          ]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+          controller.setZdrAttested(true);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrCredential,
+            'openai|vk-9',
+          );
+
+          // The create settles now. It must NOT rebind the draft to the
+          // credential IT created — that would let a later save attest `vk-1`
+          // without the operator ever confirming it.
+          gate.complete();
+          await tester.pumpAndSettle();
+          expect(
+            container.read(aiConfigDraftsProvider).zdrCredential,
+            'openai|vk-9',
+          );
+        },
+      );
+
+      testWidgets(
         'edit: a CONFIRMED settle from an earlier dispatch does not clear a '
         'newer pending marker (issue #968 review)',
         (tester) async {
