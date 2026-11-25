@@ -49,6 +49,16 @@ pub struct CreateAiConfig {
     /// `400` on every import call.
     #[serde(default)]
     pub reasoning_effort: ReasoningEffortChoice,
+    /// Operator attestation that this provider ACCOUNT has zero data retention
+    /// enabled (issue #968). Only consulted for providers whose ZDR guarantee
+    /// is an account-level switch ([`LlmProvider`] `Nebius`); for every other
+    /// provider the declaration in `vision_egress_policy` decides alone.
+    ///
+    /// Additive with `#[serde(default)]`: a request that predates the field
+    /// attests nothing, and an unattested account keeps the vision gate
+    /// fail-closed.
+    #[serde(default)]
+    pub zdr_attested: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -82,6 +92,15 @@ pub struct UpdateAiConfig {
     /// never reach the server — "reset" would be unreachable from the app.
     #[serde(default)]
     pub reasoning_effort: Option<ReasoningEffortChoice>,
+    /// Operator attestation of the provider account's zero-data-retention
+    /// setting (issue #968). `None` (an omitted field) keeps the stored
+    /// attestation — an older client editing the prompts must not silently
+    /// revoke it — **unless this command also replaces `vault_key_id`**: the
+    /// attestation describes ONE account's `ZDR Mode`, so it does not carry
+    /// over to a different credential and resolves to `false` (re-attest with
+    /// `Some(true)` in the same request). `Some(false)` revokes it explicitly.
+    #[serde(default)]
+    pub zdr_attested: Option<bool>,
     pub version: AggregateVersion,
 }
 

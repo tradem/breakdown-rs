@@ -141,6 +141,13 @@ AiConfigView _config({
 
   /// The stored `reasoning_effort`; `auto` models the pre-field backend.
   ReasoningEffortChoice reasoningEffort = ReasoningEffortChoice.auto,
+
+  /// The stored zero-data-retention attestation (issue #968).
+  bool zdrAttested = false,
+
+  /// The stored credential reference (issue #968 review: a drafted attestation
+  /// is bound to the credential it describes).
+  String vaultKeyId = 'vk-1',
 }) {
   final base = AiConfigView(
     (b) => b
@@ -148,7 +155,7 @@ AiConfigView _config({
       ..userId = 'dev-user'
       ..assistantModel = assistantModel
       ..provider = provider
-      ..vaultKeyId = 'vk-1'
+      ..vaultKeyId = vaultKeyId
       ..imageModel = imageModel
       ..prompts.replace(prompts)
       ..promptKinds.replace(
@@ -156,6 +163,7 @@ AiConfigView _config({
       )
       ..revoked = false
       ..reasoningEffort = reasoningEffort
+      ..zdrAttested = zdrAttested
       ..version = version,
   );
   return storedPromptKinds == null
@@ -212,6 +220,10 @@ class FakeAiConfigRepository extends AiConfigRepository {
   /// verify an untouched edit echoes the stored prompts instead of an empty
   /// map).
   UpdateAiConfigRequest? lastUpdateRequest;
+
+  /// The aggregate version the last successful create/update ACKNOWLEDGED, which
+  /// [storedViewFor] echoes back (issue #968 review).
+  int? lastAcknowledgedVersion;
 
   /// The last [CreateAiConfigRequest] passed to [createConfig] (issue #675:
   /// verify the `cost_display_preference` the create carried).
@@ -279,9 +291,16 @@ class FakeAiConfigRepository extends AiConfigRepository {
   /// script falls back to [getConfigResult] / the echoed submitted view.
   List<Result<AiConfigView>>? getConfigScript;
 
+  /// A gate the read-back awaits, so a test can hold it in flight and edit the
+  /// draft meanwhile (issue #968 review: the generation must be captured at
+  /// dispatch, not at settlement).
+  Future<void>? getConfigGate;
+
   @override
   Future<Result<AiConfigView>> getConfig(String id) async {
     getConfigCalls++;
+    final gate = getConfigGate;
+    if (gate != null) await gate;
     final script = getConfigScript;
     if (script != null && script.isNotEmpty) return script.removeAt(0);
     final override = getConfigResult;
@@ -303,12 +322,18 @@ class FakeAiConfigRepository extends AiConfigRepository {
             update?.assistantModel ?? create?.assistantModel ?? 'gpt-5.6-luna'
         ..vaultKeyId = update?.vaultKeyId ?? create?.vaultKeyId ?? 'vk-1'
         ..revoked = false
-        ..version = 2
+        // The ACKNOWLEDGED version, echoed — a fake that acknowledges one
+        // version and echoes another cannot exercise the confirmation logic
+        // that compares them (issue #968 review).
+        ..version = lastAcknowledgedVersion ?? 2
         ..decisionProvider =
             update?.decisionProvider ?? create?.decisionProvider
         ..decisionModel = update?.decisionModel ?? create?.decisionModel
         ..decisionVaultKeyId =
-            update?.decisionVaultKeyId ?? create?.decisionVaultKeyId,
+            update?.decisionVaultKeyId ?? create?.decisionVaultKeyId
+        // The attestation is echoed like every other submitted field: the
+        // read-back confirms it, which is what retires the draft (issue #968).
+        ..zdrAttested = update?.zdrAttested ?? create?.zdrAttested ?? false,
     );
   }
 
@@ -353,7 +378,8 @@ class FakeAiConfigRepository extends AiConfigRepository {
   ) async {
     createCalls++;
     lastCreateRequest = request;
-    return createResult ??
+    final result =
+        createResult ??
         Right(
           IdVersionResponse(
             (b) => b
@@ -361,13 +387,19 @@ class FakeAiConfigRepository extends AiConfigRepository {
               ..version = 1,
           ),
         );
+    final acknowledged = result.getRight().toNullable();
+    if (acknowledged != null) lastAcknowledgedVersion = acknowledged.version;
+    return result;
   }
 
   @override
   Future<Result<int>> updateConfig(String id, UpdateAiConfigRequest request) {
     updateCalls++;
     lastUpdateRequest = request;
-    return Future.value(updateResult ?? Right(2));
+    final result = updateResult ?? Right(request.version + 1);
+    final acknowledged = result.getRight().toNullable();
+    if (acknowledged != null) lastAcknowledgedVersion = acknowledged;
+    return Future.value(result);
   }
 
   @override
@@ -2578,6 +2610,841 @@ void main() {
       expect(repo.lastUpdateRequest!.decisionVaultKeyId, isNull);
     });
 
+    // --- Zero-data-retention attestation (issue #968) ---
+
+    group('zero-data-retention attestation (issue #968)', () {
+      testWidgets(
+        'create: the ZDR attestation is OFF by default and travels on '
+        'the create request once enabled (issue #968)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          // Fail-closed default: an untouched form attests nothing.
+          final toggle = tester.widget<CheckboxListTile>(
+            find.byKey(const Key('ai-zdr-attested-toggle')),
+          );
+          expect(toggle.value, isFalse);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+
+          expect(repo.lastCreateRequest!.zdrAttested, isTrue);
+        },
+      );
+
+      testWidgets(
+        'edit: a stored attestation is seeded ON and an unrelated save '
+        'keeps it, while flipping it off revokes it explicitly (issue #968)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The stored attestation is the seeded baseline, so an unrelated save
+          // (the prompt is untouched) is not an unsaved change.
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isTrue);
+
+          // Revoking it is an explicit, dispatched change — never a silent side
+          // effect of another edit.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
+        },
+      );
+
+      testWidgets(
+        'edit: a successful save retires the attestation draft, so another '
+        "client's revocation is no longer masked by it (issue #968 review)",
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The operator attests the account and saves it.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isTrue);
+
+          // Another client now REVOKES the attestation. Its value reaches the
+          // app only through discovery, so the toggle must fall back to the
+          // stored configuration instead of rendering the retired draft —
+          // otherwise the revocation stays invisible and the next save would
+          // re-enable vision egress under a guarantee nobody attested.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+
+          // …and the next save therefore DISPATCHES the revocation.
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
+        },
+      );
+
+      testWidgets(
+        'edit: an UNCONFIRMED read-back keeps a revocation draft pending '
+        'instead of rendering the stale attestation (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The operator revokes the stored attestation.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+
+          // The PATCH is acknowledged at v2, but the read-back still carries
+          // the PREVIOUS value AT that version (`true`), which is the
+          // value-mismatch branch — not a supersession. Clearing the draft on
+          // that view would render `true` and hide the revocation the operator
+          // just submitted, so it must stay pending.
+          repo.getConfigResult = Right(_config(zdrAttested: true, version: 2));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+
+          expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a deferred confirmation retires the draft once discovery serves '
+        'the acknowledged version, so a later revocation is not masked '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // Revocation submitted; the read-back is stuck on the pre-PATCH
+          // projection, so the draft stays pending.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: true));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+
+          // The projection catches up — the ACKNOWLEDGED version 2 with the
+          // submitted value — and the deferred confirmation must retire the
+          // draft, or a stale `false` would keep overriding the server.
+          discovery.value = Right([_config(zdrAttested: false, version: 2)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+
+          // …and another client re-attesting now reaches the form.
+          discovery.value = Right([_config(zdrAttested: true, version: 4)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+        },
+      );
+
+      testWidgets(
+        'create: an ambiguous create that reconciles as committed retires the '
+        'attestation draft (issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          // The POST times out, but the reconciliation finds the config.
+          repo.createResult = const Left(
+            ProblemError(code: 'transport.connectionTimeout'),
+          );
+          repo.listResult = Right([_config(zdrAttested: true, version: 2)]);
+          await pumpScreen(tester, height: 2400);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('ai-config-unresolved')), findsNothing);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+        },
+      );
+
+      testWidgets(
+        'create: the unresolved re-check carries the submitted attestation and '
+        'retires the draft when the config committed (issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          repo.createResult = const Left(
+            ProblemError(code: 'transport.connectionTimeout'),
+          );
+          // Reconciliation cannot read the list yet → state unknown.
+          repo.listResult = const Left(
+            ProblemError(code: 'server.down', status: 500),
+          );
+          discovery.value = const Right(<AiConfigView>[]);
+          await pumpScreen(tester, height: 2400);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('ai-config-unresolved')), findsOneWidget);
+          // The submitted attestation is part of the unresolved state, so the
+          // re-check can tell it from a later edit.
+          expect(
+            container.read(aiConfigDraftsProvider).unresolved!.zdrAttested,
+            isTrue,
+          );
+
+          repo.listResult = Right([_config(zdrAttested: true, version: 2)]);
+          discovery.value = Right([_config(zdrAttested: true, version: 2)]);
+          await tester.tap(
+            find.byKey(const Key('ai-config-unresolved-recheck')),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('ai-config-unresolved')), findsNothing);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+        },
+      );
+
+      testWidgets(
+        'edit: a draft attested for one credential is ignored once discovery '
+        'loads a REPLACED credential (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The operator attests the account behind key `vk-1`.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // Another client replaces the credential with `vk-2` (same provider),
+          // so discovery loads a config the draft never described. The draft
+          // must NOT be re-asserted for it — the stored, fail-closed value
+          // governs until the operator attests the replacement.
+          discovery.value = Right([
+            _config(zdrAttested: false, version: 2, vaultKeyId: 'vk-2'),
+          ]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+          expect(
+            container.read(aiConfigControllerProvider).zdrAttested,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'create: an UNBOUND first-run draft does not apply to a configuration '
+        'discovery later loads (issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          // First run: the operator attests before any credential exists.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // Another client's configuration appears (its own credential, its own
+          // — fail-closed — attestation). The first-run draft never described
+          // it, so it must not be re-asserted for it.
+          discovery.value = Right([
+            _config(zdrAttested: false, version: 2, vaultKeyId: 'vk-9'),
+          ]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+          expect(
+            container.read(aiConfigControllerProvider).zdrAttested,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'create: an in-flight create does not rebind a draft the operator '
+        're-attested for a credential discovery loaded meanwhile '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          // The first-run create for `vk-1` is held in its read-back.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          final gate = Completer<void>();
+          repo.getConfigGate = gate.future;
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+
+          // Discovery loads another credential (`vk-9`) and the operator
+          // attests THAT one: the draft now describes `openai|vk-9`.
+          discovery.value = Right([
+            _config(zdrAttested: false, version: 2, vaultKeyId: 'vk-9'),
+          ]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+          controller.setZdrAttested(true);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrCredential,
+            'openai|vk-9',
+          );
+
+          // The create settles now. It must NOT rebind the draft to the
+          // credential IT created — that would let a later save attest `vk-1`
+          // without the operator ever confirming it.
+          gate.complete();
+          await tester.pumpAndSettle();
+          expect(
+            container.read(aiConfigDraftsProvider).zdrCredential,
+            'openai|vk-9',
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a CONFIRMED settle from an earlier dispatch does not clear a '
+        'newer pending marker (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+
+          Future<Result<int>> dispatch(bool attested) => controller.edit(
+            providerKey: 'openai',
+            assistantModelId: 'gpt-5.6-luna',
+            imageModelId: null,
+            costDisplayPreference: CostDisplayPreference.token,
+            reasoningEffort: ReasoningEffortChoice.auto,
+            zdrAttested: attested,
+            scriptPrompt: '',
+            schedulePrompt: '',
+            decisionProviderKey: null,
+            decisionModelId: null,
+          );
+
+          // Save A (attest true) is held in flight; save B (revoke) is
+          // dispatched afterwards and records a NEWER pending marker.
+          controller.setZdrAttested(true);
+          final gate = Completer<void>();
+          repo.getConfigGate = gate.future;
+          final saveA = dispatch(true);
+          await tester.pump();
+
+          repo.getConfigGate = null;
+          controller.setZdrAttested(false);
+          // Script order follows the read-back retries: B consumes the first
+          // three (a stale view every time, so it stays pending), A the next
+          // three once its gate opens (a confirming view, so it settles).
+          repo.getConfigScript = [
+            Right(_config(zdrAttested: true)),
+            Right(_config(zdrAttested: true)),
+            Right(_config(zdrAttested: true)),
+            Right(_config(zdrAttested: true, version: 2)),
+            Right(_config(zdrAttested: true, version: 2)),
+            Right(_config(zdrAttested: true, version: 2)),
+          ];
+          expect(await dispatch(false), isA<Right<ProblemError, int>>());
+          final newerMarker = container
+              .read(aiConfigDraftsProvider)
+              .zdrConfirmation;
+          expect(newerMarker, isNotNull);
+          expect(newerMarker!.generation, greaterThan(0));
+
+          // Completing A settles it CONFIRMED — it must not clear B's marker.
+          gate.complete();
+          expect(await saveA, isA<Right<ProblemError, int>>());
+          await tester.pumpAndSettle();
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNotNull,
+          );
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+        },
+      );
+
+      testWidgets(
+        'edit: a confirmed attestation is settled even when the Decision Model '
+        'read-back fails (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+
+          // Revocation submitted; the read-back carries it (so the attestation
+          // is confirmed) but NOT the Decision Model triple this dispatch
+          // submits, so the save itself must report an error.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: false, version: 2));
+          final result = await controller.edit(
+            providerKey: 'openai',
+            assistantModelId: 'gpt-5.6-luna',
+            imageModelId: null,
+            costDisplayPreference: CostDisplayPreference.token,
+            reasoningEffort: ReasoningEffortChoice.auto,
+            zdrAttested: false,
+            scriptPrompt: '',
+            schedulePrompt: '',
+            // Same provider → same-key reuse, so the PATCH really is
+            // dispatched; the read-back then lacks this Decision Model triple,
+            // which is what makes the save itself fail.
+            decisionProviderKey: 'openai',
+            decisionModelId: 'gpt-5.6-luna',
+          );
+          expect(repo.updateCalls, 1);
+          expect(result, isA<Left<ProblemError, int>>());
+
+          // The attestation was acknowledged and confirmed, so it must be
+          // retired despite the unrelated Decision Model error — otherwise a
+          // stale `true` draft could mask a later revocation.
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNull,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a NEWER projection with a different value supersedes a pending '
+        'confirmation (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The operator attests; the read-back is stuck on version 1, so the
+          // confirmation is pending at version 2 with `true`.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: false));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // Another client revokes it at version 3, so discovery NEVER serves
+          // the acknowledged version 2. A newer aggregate state wins over the
+          // stale draft — otherwise the pending `true` could be re-sent.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a flip made while the confirmation is pending is preserved when '
+        'a newer projection arrives (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // Attest + save: acknowledged at version 2 with `true`, read-back
+          // stale, so the confirmation is pending.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: false));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // The operator changes their mind twice while the confirmation is
+          // pending, ending on the SAME value the save submitted.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // A newer projection arrives with the OTHER value. The pending
+          // confirmation is settled, but the later local edit must survive —
+          // clearing it would render `false` over the operator's latest intent.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNull,
+          );
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: flips made while the read-back is IN FLIGHT are preserved — the '
+        'generation is captured at dispatch (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+
+          // Attest, then hold the read-back so both flips happen while the
+          // save is genuinely in flight.
+          controller.setZdrAttested(true);
+          repo.getConfigResult = Right(_config(zdrAttested: false));
+          final gate = Completer<void>();
+          repo.getConfigGate = gate.future;
+          final dispatch = controller.edit(
+            providerKey: 'openai',
+            assistantModelId: 'gpt-5.6-luna',
+            imageModelId: null,
+            costDisplayPreference: CostDisplayPreference.token,
+            reasoningEffort: ReasoningEffortChoice.auto,
+            zdrAttested: true,
+            scriptPrompt: '',
+            schedulePrompt: '',
+            decisionProviderKey: null,
+            decisionModelId: null,
+          );
+          await tester.pump();
+
+          // Flip off and back on while the read-back is held: the operator's
+          // latest intent is `true`, but it is NOT the generation this save
+          // submitted.
+          controller.setZdrAttested(false);
+          controller.setZdrAttested(true);
+          await tester.pump();
+
+          gate.complete();
+          expect(await dispatch, isA<Right<ProblemError, int>>());
+          await tester.pumpAndSettle();
+
+          // Settlement must not record the newer generation as the save's own:
+          // the draft survives, so a later projection cannot silently override
+          // the flips the operator made.
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+        },
+      );
+
+      testWidgets(
+        'edit: a pending confirmation survives a closed and reopened screen '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // Revocation acknowledged at version 2, read-back still stale → the
+          // confirmation is recorded in the keep-alive draft store.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: true));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNotNull,
+          );
+
+          // Closing the screen disposes the (auto-dispose) controller; the
+          // draft and its pending confirmation must outlive it.
+          await tester.pumpWidget(const SizedBox());
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+
+          await pumpScreen(tester, height: 2400);
+          discovery.value = Right([_config(zdrAttested: false, version: 2)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNull,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: switching away from an attested provider resets the toggle, so '
+        'the new account must be attested explicitly (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+            providersValue: Right([
+              _provider('openai', LlmProvider.openai),
+              _provider('nebius', LlmProvider.nebius),
+            ]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The stored configuration attests the OPENAI account.
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+
+          // Switching to Nebius hands over a NEW credential, so the stored
+          // attestation belongs to the wrong account: the toggle must fall back
+          // to the fail-closed default instead of re-asserting it.
+          await tester.tap(find.byKey(const Key('ai-provider-picker')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('nebius').last);
+          await tester.pumpAndSettle();
+
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+          expect(
+            container.read(aiConfigControllerProvider).zdrAttested,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'create: a successful create retires the attestation draft too '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          expect(repo.lastCreateRequest!.zdrAttested, isTrue);
+
+          // The create's own confirming read-back must retire the draft and its
+          // marker — assert that BEFORE any later discovery answer, which could
+          // otherwise mask a missing retirement (issue #968 review).
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNull,
+          );
+
+          // Same masking hazard as the edit path: the created config is now
+          // the stored one, so a revoked attestation must render.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a reconciled ambiguous timeout retires the attestation draft '
+        'only when its read-back confirms the submitted value (issue #968 '
+        'review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+
+          // The PATCH times out ambiguously; the read-back is the only
+          // evidence about whether it committed.
+          repo.updateResult = const Left(
+            ProblemError(code: 'transport.connectionTimeout'),
+          );
+          Future<Result<int>> dispatch() => controller.edit(
+            providerKey: 'neuralwatt',
+            assistantModelId: 'gpt-5.6-luna',
+            imageModelId: null,
+            costDisplayPreference: CostDisplayPreference.token,
+            reasoningEffort: ReasoningEffortChoice.auto,
+            zdrAttested: true,
+            scriptPrompt: '',
+            schedulePrompt: '',
+            replacementSecret: 'replacement-secret',
+            decisionProviderKey: null,
+            decisionModelId: null,
+          );
+
+          // The operator's flip lives in the draft store (this is what
+          // `build` prefers over the stored configuration).
+          controller.setZdrAttested(true);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // (a) The read-back does not show the submitted attestation → the
+          //     PATCH may not have stored it, so the draft stays PENDING
+          //     instead of being dropped on a hope.
+          repo.getConfigResult = Right(
+            _config(provider: LlmProvider.neuralwatt, version: 3),
+          );
+          expect(await dispatch(), isA<Right<ProblemError, int>>());
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // (b) The read-back confirms it → the draft is retired, so a later
+          //     revocation refreshes into the form.
+          controller.setZdrAttested(true);
+          repo.getConfigResult = Right(
+            _config(
+              provider: LlmProvider.neuralwatt,
+              version: 3,
+              zdrAttested: true,
+            ),
+          );
+          expect(await dispatch(), isA<Right<ProblemError, int>>());
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+        },
+      );
+    });
+
     // --- Round-trip verification of the Decision Model (issue #769) ---
 
     testWidgets('edit: the PATCH body carries the Decision Model triple AND '
@@ -2677,6 +3544,10 @@ void main() {
       // columns), the second one sees the committed triple — exactly the
       // projector lag the client must reconcile with a bounded-retry refetch
       // (AGENTS.md §4) instead of reporting a false "not persisted".
+      // The SECOND view also carries the acknowledged aggregate version, so
+      // the read-back confirms the Decision Model AND the (unchanged, `false`)
+      // attestation there and stops retrying (issue #968: the loop now covers
+      // the attestation too).
       repo.getConfigScript = [
         Right(_config(provider: LlmProvider.neuralwatt)),
         Right(
@@ -2685,6 +3556,7 @@ void main() {
             decisionProvider: LlmProvider.neuralwatt,
             decisionModel: 'clef-flash',
             decisionVaultKeyId: 'vk-1',
+            version: 2,
           ),
         ),
       ];
@@ -3006,6 +3878,20 @@ void main() {
       expect(repo.updateCalls, 0);
     });
 
+    test('discard ADVANCES the attestation edit generation instead of '
+        'restarting it (issue #968 review)', () async {
+      await setupContainer();
+      final drafts = container.read(aiConfigDraftsProvider.notifier);
+      // A draft created after a reset must not share the generation of one that
+      // predates it, or a re-check could retire the wrong draft.
+      drafts.reset();
+      final first = container.read(aiConfigDraftsProvider).zdrEditGeneration;
+      drafts.reset();
+      final second = container.read(aiConfigDraftsProvider).zdrEditGeneration;
+      expect(first, greaterThan(0));
+      expect(second, greaterThan(first));
+    });
+
     test('discard resets the form drafts but never the unresolved-create '
         'state', () async {
       await setupContainer();
@@ -3026,6 +3912,8 @@ void main() {
           imageModelId: null,
           scriptPrompt: '',
           schedulePrompt: '',
+          zdrAttested: false,
+          zdrGeneration: 0,
           error: const ProblemError(code: 'transport.connectionTimeout'),
         );
       });

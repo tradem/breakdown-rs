@@ -39,6 +39,7 @@ class AiConfigScreenState {
     this.useSameDecisionKey = true,
     this.costDisplayPreference = CostDisplayPreference.token,
     this.reasoningEffort = ReasoningEffortChoice.auto,
+    this.zdrAttested = false,
     this.decisionModels = const AsyncValue<List<ModelInfo>>.loading(),
     this.imageModels = const AsyncValue<List<ModelInfo>>.loading(),
     this.scriptPrompt = '',
@@ -91,6 +92,19 @@ class AiConfigScreenState {
   /// and is always choosable — even on a pair that declares no parameter at all,
   /// which is exactly what every pre-field configuration did.
   final ReasoningEffortChoice reasoningEffort;
+
+  /// The operator's zero-data-retention attestation for the selected provider
+  /// account (issue #968, ADR-041 `D2`). Some EU providers carry the ZDR
+  /// guarantee only as an ACCOUNT-level switch the backend cannot observe
+  /// (Nebius Token Factory: "ZDR Mode" in the organization settings), so the
+  /// backend keeps its vision egress gate fail-closed until the operator
+  /// attests the setting here. The attestation can lift ONLY the ZDR flag —
+  /// the no-training and EU-residency guarantees always come from the
+  /// provider declaration.
+  ///
+  /// Rendered as a switch next to the provider picker; a VALUE rather than a
+  /// nullable tri-state so an attestation can be revoked from the app.
+  final bool zdrAttested;
 
   /// The selected DECISION provider's model set (`GET /v1/ai-import/
   /// providers/{key}/models`, issue #723). Same honest degradation as
@@ -175,6 +189,7 @@ class AiConfigScreenState {
         (stored.reasoningEffort ?? ReasoningEffortChoice.auto)) {
       return true;
     }
+    if (zdrAttested != (stored.zdrAttested ?? false)) return true;
     if (scriptPrompt != _seededPrompt(DocumentKind.script)) return true;
     if (schedulePrompt != _seededPrompt(DocumentKind.schedule)) return true;
     if (selectedDecisionProviderKey != stored.decisionProvider?.name) {
@@ -211,6 +226,7 @@ class AiConfigScreenState {
     bool? useSameDecisionKey,
     CostDisplayPreference? costDisplayPreference,
     ReasoningEffortChoice? reasoningEffort,
+    bool? zdrAttested,
     AsyncValue<List<ModelInfo>>? decisionModels,
     AsyncValue<List<ModelInfo>>? imageModels,
     String? scriptPrompt,
@@ -241,6 +257,7 @@ class AiConfigScreenState {
     useSameDecisionKey: useSameDecisionKey ?? this.useSameDecisionKey,
     costDisplayPreference: costDisplayPreference ?? this.costDisplayPreference,
     reasoningEffort: reasoningEffort ?? this.reasoningEffort,
+    zdrAttested: zdrAttested ?? this.zdrAttested,
     decisionModels: decisionModels ?? this.decisionModels,
     imageModels: imageModels ?? this.imageModels,
     scriptPrompt: scriptPrompt ?? this.scriptPrompt,
@@ -281,6 +298,8 @@ class AiConfigUnresolved {
     required this.imageModelId,
     required this.scriptPrompt,
     required this.schedulePrompt,
+    required this.zdrAttested,
+    required this.zdrGeneration,
     required this.error,
   });
 
@@ -292,6 +311,18 @@ class AiConfigUnresolved {
   final String? imageModelId;
   final String scriptPrompt;
   final String schedulePrompt;
+
+  /// The zero-data-retention attestation this dispatch submitted (issue #968
+  /// review). The re-check must carry it: without it the reconciliation cannot
+  /// tell the submitted value from a later edit, and a surviving draft would
+  /// mask a revocation.
+  final bool zdrAttested;
+
+  /// The attestation draft's edit generation at the ORIGINAL dispatch
+  /// (issue #968 review): the re-check must settle that generation, not the
+  /// one the draft carries by the time it runs, so a flip made in between is
+  /// never mistaken for the create's own.
+  final int zdrGeneration;
   final ProblemError error;
 }
 

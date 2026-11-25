@@ -8285,6 +8285,13 @@ pub struct CreateAiConfigRequest {
     /// the mistake is still cheap.
     #[serde(default)]
     pub reasoning_effort: ReasoningEffortChoice,
+    /// Operator attestation that this provider ACCOUNT has zero data retention
+    /// enabled (issue #968, ADR-041 `D2`). Required to let a provider whose ZDR
+    /// guarantee is an account switch (Nebius) carry page images; every other
+    /// provider is unaffected by the flag. Defaults to `false` — an unattested
+    /// account keeps the vision egress gate fail-closed.
+    #[serde(default)]
+    pub zdr_attested: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -8315,6 +8322,19 @@ pub struct UpdateAiConfigRequest {
     /// unreachable from the app (2026-11-20 investigation).
     #[serde(default)]
     pub reasoning_effort: Option<ReasoningEffortChoice>,
+    /// See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored
+    /// attestation (an older client editing the prompts must not silently
+    /// revoke it), `false` revokes it explicitly.
+    ///
+    /// **Bound to the credential.** The attestation describes the `ZDR Mode`
+    /// switch of ONE provider account, and nothing server-side can observe that
+    /// switch. An update that changes `vault_key_id` (or the provider, which
+    /// always requires a fresh key) therefore CLEARS a stored `true` when this
+    /// field is omitted — a page image must never egress under a retention
+    /// guarantee inherited from a different account. Re-assert
+    /// `zdr_attested: true` in the same request to carry it over.
+    #[serde(default)]
+    pub zdr_attested: Option<bool>,
     pub version: AggregateVersion,
 }
 
@@ -8570,6 +8590,7 @@ pub async fn create_ai_config<P: Ports>(
                 decision_model: request.decision_model,
                 decision_vault_key_id: request.decision_vault_key_id,
                 reasoning_effort: request.reasoning_effort,
+                zdr_attested: request.zdr_attested,
             },
         )
         .await?;
@@ -8760,6 +8781,7 @@ pub async fn update_ai_config<P: Ports>(
                 decision_model: request.decision_model,
                 decision_vault_key_id: request.decision_vault_key_id,
                 reasoning_effort: request.reasoning_effort,
+                zdr_attested: request.zdr_attested,
                 version: request.version,
             },
         )

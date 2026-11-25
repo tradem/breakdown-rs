@@ -1061,9 +1061,16 @@ mod tests {
             probe_capability(LlmProvider::Ollama),
             ProbeCapability::LocalTags
         );
+        // Issue #968: the three EU vision fallbacks also expose no verified
+        // zero-token endpoint, so they take the time-gated trial — claiming a
+        // `/key` capability here would make the breaker open on a 404 that says
+        // nothing about the account.
         for provider in [
             LlmProvider::OpenAI,
             LlmProvider::Gemini,
+            LlmProvider::Scaleway,
+            LlmProvider::Ovhcloud,
+            LlmProvider::Nebius,
             LlmProvider::Neuralwatt,
             LlmProvider::OpenCode,
             LlmProvider::OpenCodeGo,

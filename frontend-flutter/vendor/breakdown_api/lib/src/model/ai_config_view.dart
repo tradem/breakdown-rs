@@ -34,6 +34,7 @@ part 'ai_config_view.g.dart';
 /// * [userId] - Opaque identifier for a user, wrapping the OIDC `sub` claim.  `UserId` references the authenticated principal without ever decoding, storing, or dereferencing identity attributes in `core`. The backend only trusts the IdP-issued `sub`; account lifecycle lives exclusively in the OIDC provider (ADR-010). Unlike the hierarchy ids, `UserId` is *not* a UUIDv7 — it is the raw string subject the IdP assigns.
 /// * [vaultKeyId]
 /// * [version] - Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
+/// * [zdrAttested] - The operator's zero-data-retention attestation for this provider account (issue #968). Additive with `serde(default)`: a view serialized before the field existed attests nothing. The client renders the toggle from this value, and the vision egress gate resolves `vision_egress_policy_for_config(provider, zdr_attested)` from it.
 @BuiltValue()
 abstract class AiConfigView
     implements Built<AiConfigView, AiConfigViewBuilder> {
@@ -51,7 +52,7 @@ abstract class AiConfigView
   /// Optional Decision Model configuration (issue #722). Additive with `serde(default)`: views serialized before the fields existed deserialize with no decision model configured.
   @BuiltValueField(wireName: r'decision_provider')
   LlmProvider? get decisionProvider;
-  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   @BuiltValueField(wireName: r'decision_vault_key_id')
   String? get decisionVaultKeyId;
@@ -71,7 +72,7 @@ abstract class AiConfigView
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// The configured `reasoning_effort` for the assistant model (2026-11-20 investigation). `Auto` = no explicit level. Additive with `serde(default)`: a view serialized before the field existed deserializes as `Auto`.
   @BuiltValueField(wireName: r'reasoning_effort')
@@ -95,6 +96,10 @@ abstract class AiConfigView
   /// Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
   @BuiltValueField(wireName: r'version')
   int get version;
+
+  /// The operator's zero-data-retention attestation for this provider account (issue #968). Additive with `serde(default)`: a view serialized before the field existed attests nothing. The client renders the toggle from this value, and the vision egress gate resolves `vision_egress_policy_for_config(provider, zdr_attested)` from it.
+  @BuiltValueField(wireName: r'zdr_attested')
+  bool? get zdrAttested;
 
   AiConfigView._();
 
@@ -214,6 +219,13 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
       object.version,
       specifiedType: const FullType(int),
     );
+    if (object.zdrAttested != null) {
+      yield r'zdr_attested';
+      yield serializers.serialize(
+        object.zdrAttested,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -359,6 +371,14 @@ class _$AiConfigViewSerializer implements PrimitiveSerializer<AiConfigView> {
             specifiedType: const FullType(int),
           ) as int;
           result.version = valueDes;
+          break;
+        case r'zdr_attested':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.zdrAttested = valueDes;
           break;
         default:
           unhandled.add(key);

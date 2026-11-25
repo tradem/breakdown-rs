@@ -427,6 +427,9 @@ fn base_url_for_each_provider_is_unique() {
         LlmProvider::OpenAI,
         LlmProvider::OpenRouter,
         LlmProvider::EURouter,
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Nebius,
         LlmProvider::Neuralwatt,
         LlmProvider::OpenCodeGo,
         LlmProvider::OpenCode,
@@ -454,8 +457,9 @@ fn base_url_for_each_provider_is_unique() {
 
 #[test]
 fn list_providers_returns_all_curated_providers() {
+    // Issue #968 grew the curated set to 11 (three EU vision fallbacks).
     let providers = super::provider_registry::list_providers();
-    assert_eq!(providers.len(), 8, "should have 8 curated providers");
+    assert_eq!(providers.len(), 11, "should have 11 curated providers");
 }
 
 #[test]

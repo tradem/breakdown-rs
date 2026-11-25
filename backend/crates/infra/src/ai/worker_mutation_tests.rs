@@ -369,6 +369,7 @@ async fn schedule_worker_returns_false_when_no_jobs() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
 
     let result = worker
@@ -866,6 +867,7 @@ async fn schedule_worker_publishes_extraction_and_storing_progress() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     // The mock source returns plain text; the job fixture is CSV, so the
     // worker parses it natively (see MockSource/MockQueue fixtures).

@@ -264,6 +264,16 @@ fn default_allowlist() -> HashSet<String> {
         "gemini-3.1-pro-preview",
         "gemini-2.5-flash",
         "gemini-2.5-pro",
+        // --- EU vision fallbacks (issue #968, ADR-041 `D2`) ---
+        // The curated catalogue gate is a separate list from
+        // `curated_model_ids` on purpose; a curated provider model that is
+        // missing here is refused at the catalog boundary.
+        "qwen3.5-397b-a17b",
+        "mistral-small-3.2-24b-instruct-2506",
+        "qwen3-vl-30b-a3b",
+        "Mistral-Small-3.2-24B-Instruct-2506",
+        "Qwen/Qwen3.8-27B",
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017",
         // --- curated image models (#673 preparation, issue #675) ---
         "gemini-3.1-flash-image",
         "gemini-3.1-flash-lite-image",

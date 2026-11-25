@@ -50,6 +50,22 @@ pub const PROVIDER_REGISTRY: &[ProviderEntry] = &[
         key: "eurouter",
         aliases: &["openrouter_eu", "openrouter-eu"],
     },
+    // Issue #968: the EU pay-as-you-go vision fallbacks of ADR-041 `D2`.
+    ProviderEntry {
+        variant: LlmProvider::Scaleway,
+        key: "scaleway",
+        aliases: &[],
+    },
+    ProviderEntry {
+        variant: LlmProvider::Ovhcloud,
+        key: "ovhcloud",
+        aliases: &["ovh"],
+    },
+    ProviderEntry {
+        variant: LlmProvider::Nebius,
+        key: "nebius",
+        aliases: &["token-factory", "token_factory"],
+    },
     ProviderEntry {
         variant: LlmProvider::Neuralwatt,
         key: "neuralwatt",
@@ -142,6 +158,28 @@ pub fn curated_model_ids(provider: LlmProvider) -> &'static [&'static str] {
             "deepseek-v4-pro",
             "mistral-medium-3.5",
         ],
+        // Issue #968, verified 2026-11-25. Both IDs are documented as
+        // VISION-capable by Scaleway itself (`mistral-small-3.2-24b-instruct-2506`
+        // is the model of the vision how-to example; `qwen3.5-397b-a17b` is the
+        // documented video/vision model) and both carry Apache-2.0 weights.
+        // Catalogue: .../reference-content/supported-models/, vision example:
+        // .../how-to/query-vision-models/.
+        LlmProvider::Scaleway => &["qwen3.5-397b-a17b", "mistral-small-3.2-24b-instruct-2506"],
+        // Issue #968, verified 2026-11-25 against the LIVE
+        // `GET https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/models`
+        // response (anonymous) and the AI Endpoints catalogue page: both are
+        // listed with the `Vision` capability tag and their USD rates.
+        // `Qwen2.5-VL-72B-Instruct` is deliberately NOT curated — the catalogue
+        // marks it "Being retired".
+        LlmProvider::Ovhcloud => &["qwen3-vl-30b-a3b", "Mistral-Small-3.2-24B-Instruct-2506"],
+        // Issue #968, verified 2026-11-25 against models.dev's `nebius` feed
+        // (the same public catalogue this workspace already consumes as its
+        // pricing fallback): both IDs are listed there with multimodal
+        // (`attachment: true`) input. Token Factory's own `/v1/models` requires
+        // a paid key, so the live-catalog check is a deployment-time task (see
+        // `.github/instructions/ai-import.instructions.md`). The Qwen family is
+        // Apache-2.0; the DeepSeek release is MIT.
+        LlmProvider::Nebius => &["Qwen/Qwen3.8-27B", "deepseek-ai/DeepSeek-V4.1-Flash-1017"],
         LlmProvider::Neuralwatt => &[
             "deepseek-v4.1-flash",
             "deepseek-v4-flash",
@@ -205,6 +243,16 @@ pub fn recommended_model(provider: LlmProvider) -> Option<&'static str> {
         // Issue #950: the recommendation must be the model that declares
         // `reasoning_effort` (see `the_eurouter_recommendation_publishes_an_effort`).
         LlmProvider::EURouter => Some("mistral-large-4"),
+        // Issue #968: the vision-capable flagship of each fallback, because the
+        // reason these providers exist is page-image schedule extraction
+        // (ADR-041 `D2`); a text-only recommendation would leave the very
+        // fallback path that a flapping EURouter needs unusable.
+        LlmProvider::Scaleway => Some("qwen3.5-397b-a17b"),
+        LlmProvider::Ovhcloud => Some("qwen3-vl-30b-a3b"),
+        // `zdr_attested` still has to be set on the AI config before this
+        // provider may carry page images — the gate reads the attestation, not
+        // this recommendation.
+        LlmProvider::Nebius => Some("Qwen/Qwen3.8-27B"),
         LlmProvider::Neuralwatt => Some("glm-5.3"),
         LlmProvider::OpenCodeGo | LlmProvider::OpenCode => Some("glm-5.3"),
         LlmProvider::Ollama => Some("qwen3:8b"),
@@ -462,6 +510,44 @@ mod tests {
             default_reasoning_effort(LlmProvider::EURouter, "mistral-small-4"),
             None
         );
+    }
+
+    /// Issue #968: every new provider resolves from its canonical key AND its
+    /// documented alias, and each one curates at least one model whose id is
+    /// also on the catalog allowlist — a curated model outside the allowlist is
+    /// refused at the catalog boundary, so the pair must agree.
+    #[test]
+    fn the_eu_vision_fallbacks_resolve_and_stay_inside_the_allowlist() {
+        use crate::ai::catalog::OpenAiCompatibleModelCatalog;
+
+        assert_eq!(resolve_provider("scaleway"), Some(LlmProvider::Scaleway));
+        assert_eq!(resolve_provider("ovhcloud"), Some(LlmProvider::Ovhcloud));
+        assert_eq!(resolve_provider("ovh"), Some(LlmProvider::Ovhcloud));
+        assert_eq!(resolve_provider("nebius"), Some(LlmProvider::Nebius));
+        assert_eq!(resolve_provider("token-factory"), Some(LlmProvider::Nebius));
+
+        let catalog = OpenAiCompatibleModelCatalog::new()
+            .unwrap_or_else(|error| panic!("catalog client must build: {error}"));
+        for provider in [
+            LlmProvider::Scaleway,
+            LlmProvider::Ovhcloud,
+            LlmProvider::Nebius,
+        ] {
+            let models = curated_model_ids(provider);
+            assert!(
+                !models.is_empty(),
+                "{provider:?} must curate at least one vision model"
+            );
+            for model in models {
+                assert!(
+                    catalog.is_allowed(model),
+                    "{provider:?}/{model} is curated but missing from the catalog allowlist"
+                );
+            }
+            let recommended =
+                recommended_model(provider).expect("the fallback designates a recommendation");
+            assert!(models.contains(&recommended));
+        }
     }
 
     #[test]

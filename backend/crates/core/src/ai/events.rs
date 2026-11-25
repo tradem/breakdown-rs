@@ -48,6 +48,12 @@ pub enum AiConfigEvent {
         /// to `Auto`, i.e. the behaviour those configurations ran with.
         #[serde(default)]
         reasoning_effort: ReasoningEffortChoice,
+        /// Operator attestation that the provider account has zero data
+        /// retention enabled (issue #968). `#[serde(default)]` keeps older
+        /// events replayable: they deserialize to `false`, i.e. an unattested
+        /// account, which is exactly how those configurations behaved.
+        #[serde(default)]
+        zdr_attested: bool,
         version: AggregateVersion,
     },
     Updated {
@@ -77,6 +83,11 @@ pub enum AiConfigEvent {
         /// simply assign it.
         #[serde(default)]
         reasoning_effort: ReasoningEffortChoice,
+        /// The RESOLVED attestation after the update (issue #968): `None` = the
+        /// update did not touch it (replayed older events deserialize to `None`
+        /// and leave the current value in place), `Some(false)` revokes it.
+        #[serde(default)]
+        zdr_attested: Option<bool>,
         version: AggregateVersion,
     },
     Revoked {

@@ -51,7 +51,7 @@ abstract class JobTelemetrySummary
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider? get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// Scene headings the deterministic scan detected (issue #758): the count the *document* states, as opposed to the preview rows the model produced. Additive with `serde(default)`; `0` for schedule jobs.
   @BuiltValueField(wireName: r'scenes_detected')

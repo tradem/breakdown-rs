@@ -75,7 +75,7 @@ abstract class DecisionCostBreakdown
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// `Known` when the component's `(provider, model)` had a pricing row at completion; `Unknown` otherwise. `NotApplicable` never occurs: the component exists only for a job that issued a Decision-Model call.
   @BuiltValueField(wireName: r'status')

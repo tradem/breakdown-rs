@@ -25,6 +25,9 @@ fn llm_provider_as_str_matches_variant_name() {
     assert_eq!(LlmProvider::Gemini.as_str(), "gemini");
     assert_eq!(LlmProvider::OpenRouter.as_str(), "openrouter");
     assert_eq!(LlmProvider::EURouter.as_str(), "eurouter");
+    assert_eq!(LlmProvider::Scaleway.as_str(), "scaleway");
+    assert_eq!(LlmProvider::Ovhcloud.as_str(), "ovhcloud");
+    assert_eq!(LlmProvider::Nebius.as_str(), "nebius");
     assert_eq!(LlmProvider::Neuralwatt.as_str(), "neuralwatt");
     assert_eq!(LlmProvider::OpenCodeGo.as_str(), "opencode-go");
     assert_eq!(LlmProvider::OpenCode.as_str(), "opencode");
@@ -199,8 +202,10 @@ fn mapping_kinds_are_the_discriminators_of_one_rows_mapping_key() {
 // --- CURATED_PROVIDERS constant -------------------------------------------
 
 #[test]
-fn curated_providers_has_eight_entries() {
-    assert_eq!(CURATED_PROVIDERS.len(), 8);
+fn curated_providers_has_eleven_entries() {
+    // Issue #968 added the three EU pay-as-you-go vision fallbacks of ADR-041
+    // `D2`; the const length makes a forgotten insertion a compile error.
+    assert_eq!(CURATED_PROVIDERS.len(), 11);
 }
 
 #[test]
@@ -209,6 +214,9 @@ fn curated_providers_contains_all_variants() {
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::Gemini));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::OpenRouter));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::EURouter));
+    assert!(CURATED_PROVIDERS.contains(&LlmProvider::Scaleway));
+    assert!(CURATED_PROVIDERS.contains(&LlmProvider::Ovhcloud));
+    assert!(CURATED_PROVIDERS.contains(&LlmProvider::Nebius));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::Neuralwatt));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::OpenCodeGo));
     assert!(CURATED_PROVIDERS.contains(&LlmProvider::OpenCode));
@@ -687,6 +695,18 @@ fn vision_egress_policy_is_fail_closed_for_non_eu_or_undeclared_providers() {
     assert!(vision_egress_compliant(vision_egress_policy(
         LlmProvider::Ollama
     )));
+    // Issue #968: Scaleway and OVHcloud declare all three guarantees.
+    assert!(vision_egress_compliant(vision_egress_policy(
+        LlmProvider::Scaleway
+    )));
+    assert!(vision_egress_compliant(vision_egress_policy(
+        LlmProvider::Ovhcloud
+    )));
+    // Nebius declares no-training and EU residency, but its ZDR guarantee is an
+    // ACCOUNT switch: without the operator's attestation the gate stays closed.
+    assert!(!vision_egress_compliant(vision_egress_policy(
+        LlmProvider::Nebius
+    )));
     for non_compliant in [
         LlmProvider::OpenAI,
         LlmProvider::Gemini,
@@ -700,4 +720,72 @@ fn vision_egress_policy_is_fail_closed_for_non_eu_or_undeclared_providers() {
             "{non_compliant:?} must not pass the vision egress gate without ZDR + no-training + EU residency"
         );
     }
+}
+
+/// Issue #968: the operator's ZDR attestation lifts EXACTLY the one flag it can
+/// observe — the account-level retention switch — and nothing else.
+#[test]
+fn the_zdr_attestation_lifts_only_the_account_level_flag() {
+    use super::{
+        VisionEgressPolicy, vision_egress_compliant, vision_egress_policy_for_config,
+        vision_zdr_requires_attestation,
+    };
+
+    // Nebius is the one provider whose ZDR guarantee is an account switch.
+    assert!(vision_zdr_requires_attestation(LlmProvider::Nebius));
+    for provider in [
+        LlmProvider::EURouter,
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Ollama,
+    ] {
+        assert!(
+            !vision_zdr_requires_attestation(provider),
+            "{provider:?} declares ZDR itself and needs no attestation"
+        );
+    }
+
+    // Unattested stays closed; attested opens — and only the ZDR flag moves.
+    let closed = vision_egress_policy_for_config(LlmProvider::Nebius, false);
+    assert!(!vision_egress_compliant(closed));
+    let open = vision_egress_policy_for_config(LlmProvider::Nebius, true);
+    assert!(vision_egress_compliant(open));
+    assert!(open.no_training_on_inputs);
+    assert!(open.eu_data_residency);
+
+    // The attestation can NEVER invent a guarantee for an undeclared provider:
+    // OpenAI/Gemini/OpenRouter/Neuralwatt/OpenCode* stay fail-closed even when a
+    // hand-edited config attests ZDR.
+    for non_compliant in [
+        LlmProvider::OpenAI,
+        LlmProvider::Gemini,
+        LlmProvider::OpenRouter,
+        LlmProvider::Neuralwatt,
+        LlmProvider::OpenCodeGo,
+        LlmProvider::OpenCode,
+    ] {
+        assert_eq!(
+            vision_egress_policy_for_config(non_compliant, true),
+            vision_egress_policy_for_config(non_compliant, false),
+            "{non_compliant:?} must be unaffected by an attestation"
+        );
+        assert!(!vision_egress_compliant(vision_egress_policy_for_config(
+            non_compliant,
+            true
+        )));
+    }
+
+    // An attestation cannot revoke a guarantee a provider declares itself.
+    assert_eq!(
+        vision_egress_policy_for_config(LlmProvider::Scaleway, false),
+        vision_egress_policy_for_config(LlmProvider::Scaleway, true)
+    );
+    assert_eq!(
+        vision_egress_policy_for_config(LlmProvider::Ovhcloud, false),
+        VisionEgressPolicy {
+            zero_data_retention: true,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        }
+    );
 }

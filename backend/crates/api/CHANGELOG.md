@@ -18,6 +18,24 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.73.0] - Unreleased
+### Added (issue #968)
+
+- `CreateAiConfigRequest.zdr_attested` (`#[serde(default)]`, `false` =
+  unattested) and `UpdateAiConfigRequest.zdr_attested` (`Option<bool>`: omitted
+  keeps the stored attestation, `false` revokes it explicitly) carry the
+  operator's zero-data-retention confirmation of the provider account.
+- `openapi.yaml` regenerated: `LlmProvider` gained `scaleway`/`ovhcloud`/
+  `nebius`, `AiConfigView` and both AI-config request DTOs gained
+  `zdr_attested` (additive; the Dart client is regenerated at `1.11.0`).
+
+### Changed (issue #968 review)
+
+- `UpdateAiConfigRequest.zdr_attested` is bound to the credential: an update that
+  changes `vault_key_id` (or the provider) CLEARS a stored `true` unless the same
+  request re-asserts it. The description in `openapi.yaml` states the rule, so
+  the contract no longer reads as "omitted always keeps it".
+
 ## [0.72.0] - Unreleased
 ### Changed (issue #960)
 

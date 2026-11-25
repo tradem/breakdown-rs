@@ -21,6 +21,12 @@ class LlmProvider extends EnumClass {
   static const LlmProvider openrouter = _$openrouter;
   @BuiltValueEnumConst(wireName: r'eurouter')
   static const LlmProvider eurouter = _$eurouter;
+  @BuiltValueEnumConst(wireName: r'scaleway')
+  static const LlmProvider scaleway = _$scaleway;
+  @BuiltValueEnumConst(wireName: r'ovhcloud')
+  static const LlmProvider ovhcloud = _$ovhcloud;
+  @BuiltValueEnumConst(wireName: r'nebius')
+  static const LlmProvider nebius = _$nebius;
   @BuiltValueEnumConst(wireName: r'neuralwatt')
   static const LlmProvider neuralwatt = _$neuralwatt;
   @BuiltValueEnumConst(wireName: r'opencode-go')

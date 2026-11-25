@@ -95,6 +95,7 @@ fn ai_config(sub: &str, vault_key_id: &str) -> AiConfigView {
         decision_model: None,
         decision_vault_key_id: None,
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        zdr_attested: false,
         version: AggregateVersion::INITIAL,
         revoked: false,
     }

@@ -50,6 +50,36 @@ fn eurouter_base_url_is_https() {
     );
 }
 
+/// Issue #968: the three EU vision fallbacks must carry the OpenAI-compatible
+/// chat-completions base of THEIR documented host — a copy/paste of a sibling
+/// arm would silently route page images to the wrong provider.
+#[test]
+fn eu_fallback_base_urls_are_the_documented_ones() {
+    assert_eq!(
+        CuratedProviderUrls::base_url(LlmProvider::Scaleway),
+        "https://api.scaleway.ai/v1"
+    );
+    assert_eq!(
+        CuratedProviderUrls::base_url(LlmProvider::Ovhcloud),
+        "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"
+    );
+    assert_eq!(
+        CuratedProviderUrls::base_url(LlmProvider::Nebius),
+        "https://api.tokenfactory.nebius.com/v1"
+    );
+    for provider in [
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Nebius,
+    ] {
+        let url = CuratedProviderUrls::base_url(provider);
+        assert!(
+            url.starts_with("https://") && url.ends_with("/v1"),
+            "{provider:?} must be an HTTPS `…/v1` base: {url}"
+        );
+    }
+}
+
 #[test]
 fn neuralwatt_base_url_is_https() {
     let url = CuratedProviderUrls::base_url(LlmProvider::Neuralwatt);
@@ -100,6 +130,9 @@ fn all_providers_have_non_empty_urls() {
         LlmProvider::OpenAI,
         LlmProvider::OpenRouter,
         LlmProvider::EURouter,
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Nebius,
         LlmProvider::Neuralwatt,
         LlmProvider::OpenCodeGo,
         LlmProvider::OpenCode,
@@ -119,6 +152,9 @@ fn all_hosted_providers_are_https() {
         LlmProvider::OpenAI,
         LlmProvider::OpenRouter,
         LlmProvider::EURouter,
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Nebius,
         LlmProvider::Neuralwatt,
         LlmProvider::OpenCodeGo,
         LlmProvider::OpenCode,
@@ -152,6 +188,9 @@ fn all_urls_are_valid() {
         LlmProvider::OpenAI,
         LlmProvider::OpenRouter,
         LlmProvider::EURouter,
+        LlmProvider::Scaleway,
+        LlmProvider::Ovhcloud,
+        LlmProvider::Nebius,
         LlmProvider::Neuralwatt,
         LlmProvider::OpenCodeGo,
         LlmProvider::OpenCode,

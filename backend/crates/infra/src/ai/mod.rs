@@ -177,6 +177,22 @@ impl CuratedLlmProvider for CuratedProviderUrls {
             LlmProvider::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
             LlmProvider::OpenRouter => "https://openrouter.ai/api/v1",
             LlmProvider::EURouter => "https://api.eurouter.ai/api/v1",
+            // Issue #968 — the EU pay-as-you-go vision fallbacks. Re-pinned
+            // 2026-11-25 from the provider's own documentation; user input is
+            // never accepted for these values, and the issue-#170 HTTPS-only +
+            // same-origin-redirect + DNS-pinning policy covers them
+            // automatically because `hosted_origin_host` derives from here.
+            // Scaleway Generative APIs (Paris): the OpenAI-compatible base the
+            // vision how-to page documents.
+            // https://www.scaleway.com/en/docs/generative-apis/how-to/query-vision-models/
+            LlmProvider::Scaleway => "https://api.scaleway.ai/v1",
+            // OVHcloud AI Endpoints: the OpenAI-compatible base of the
+            // `oai.endpoints.kepler.ai.cloud.ovh.net` cluster (EU-only).
+            // https://www.ovhcloud.com/en/public-cloud/ai-endpoints/
+            LlmProvider::Ovhcloud => "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+            // Nebius Token Factory: the base URL its own API reference uses.
+            // https://docs.tokenfactory.nebius.com/api-reference/examples/vision-capabilities.md
+            LlmProvider::Nebius => "https://api.tokenfactory.nebius.com/v1",
             LlmProvider::Neuralwatt => "https://api.neuralwatt.com/v1",
             LlmProvider::OpenCodeGo => "https://opencode.ai/zen/go/v1",
             LlmProvider::OpenCode => "https://opencode.ai/zen/v1",

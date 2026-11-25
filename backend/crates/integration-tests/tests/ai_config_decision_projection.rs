@@ -128,6 +128,109 @@ async fn await_projected_reasoning_effort(pool: &PgPool, id: Uuid) -> Result<Opt
     }
 }
 
+/// Poll the projected row until it carries at least `expected`, the aggregate
+/// version the command returned.
+///
+/// The VERSION, not the attestation value, is the catch-up signal: "keeps the
+/// stored value" produces the same `true` the previous event already wrote, so a
+/// value-only wait returns on the PREVIOUS step's projection and hides a dropped
+/// update (review finding). `WHERE version < $N` makes the projector's write
+/// monotonic, so the version reaching `expected` is proof that this event landed.
+async fn await_projected_version(
+    pool: &PgPool,
+    id: Uuid,
+    expected: AggregateVersion,
+) -> Result<()> {
+    let expected_column = i64::try_from(expected.0)
+        .map_err(|e| anyhow!("aggregate version {expected:?} exceeds the DB range: {e}"))?;
+    let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
+    loop {
+        let projected: Option<i64> =
+            sqlx::query_scalar("SELECT version FROM ai_import.projection_ai_config WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| anyhow!("projection version read failed: {e}"))?;
+
+        if projected.is_some_and(|version| version >= expected_column) {
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!(
+                "projection_ai_config.version never reached {expected_column} (issue #968: the \
+                 attestation must reach the read model, and a credential change must clear it)"
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+/// Assert the attestation on all three surfaces the page call depends on at
+/// `expected_version`: the projection column, the `AiConfigView` the client
+/// renders, and the worker configuration the egress gate resolves.
+async fn assert_zdr_everywhere(
+    pool: &PgPool,
+    config_id: Uuid,
+    expected_version: AggregateVersion,
+    expected: bool,
+) -> Result<()> {
+    await_projected_version(pool, config_id, expected_version).await?;
+    let projected: Option<bool> =
+        sqlx::query_scalar("SELECT zdr_attested FROM ai_import.projection_ai_config WHERE id = $1")
+            .bind(config_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| anyhow!("zdr_attested read failed: {e}"))?;
+    assert_eq!(
+        projected,
+        Some(expected),
+        "projected zdr_attested at aggregate version {expected_version:?}"
+    );
+    let read_view = AiConfigRepositoryImpl::new(pool.clone())
+        .find_by_id(config_id)
+        .await
+        .expect("the read model must serve the config");
+    assert_eq!(
+        read_view.zdr_attested, expected,
+        "AiConfigView.zdr_attested (the client renders the toggle from it)"
+    );
+    let worker_config = AiConfigRepositoryImpl::new(pool.clone())
+        .find_worker_config(&test_user(), DocumentKind::Script)
+        .await
+        .expect("worker config resolution must succeed")
+        .expect("the caller has one active config");
+    assert_eq!(
+        worker_config.zdr_attested, expected,
+        "the worker configuration the vision egress gate resolves"
+    );
+    Ok(())
+}
+
+/// A PATCH carrying nothing but what the case under test varies, so each step
+/// differs from the previous one in exactly the credential or the attestation.
+fn update_cmd(
+    id: Uuid,
+    version: AggregateVersion,
+    vault_key_id: &str,
+    zdr_attested: Option<bool>,
+) -> UpdateAiConfig {
+    UpdateAiConfig {
+        id,
+        provider: LlmProvider::EURouter,
+        assistant_model: EXTRACTION_MODEL.to_owned(),
+        image_model: None,
+        prompts: HashMap::from([(DocumentKind::Script, "script-prompt".to_owned())]),
+        vault_key_id: vault_key_id.to_owned(),
+        cost_display_preference: None,
+        decision_provider: None,
+        decision_model: None,
+        decision_vault_key_id: None,
+        reasoning_effort: None,
+        zdr_attested,
+        version,
+    }
+}
+
 #[tokio::test]
 async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
     let (pool, _pg_guard) = fixtures::spawn_postgres().await?;
@@ -164,6 +267,7 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 // An EXPLICIT level, not `Auto`: the user-chosen value is what
                 // has to survive command -> event -> projection -> worker.
                 reasoning_effort: ReasoningEffortChoice::Low,
+                zdr_attested: false,
             },
         )
         .await
@@ -190,6 +294,7 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 decision_vault_key_id: Some(Some("extraction-key".to_owned())),
                 reasoning_effort: None,
                 version: created.1,
+                zdr_attested: None,
             },
         )
         .await
@@ -242,6 +347,107 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
         .expect("the read model must serve the config");
     assert_eq!(read_view.reasoning_effort, ReasoningEffortChoice::Low);
     assert_eq!(worker_config.reasoning_effort, ReasoningEffortChoice::Low);
+
+    Ok(())
+}
+
+/// Contract: the zero-data-retention attestation (issue #968) survives the whole
+/// `command -> event -> event-store -> projector -> projection -> worker config`
+/// chain, and stops applying when the CREDENTIAL it was given for is replaced.
+///
+/// The attestation asserts one organization's `ZDR Mode` switch, which nothing in
+/// this workspace can observe. A dropped projection write, a projector that
+/// maps the field for `Created` but not for `Updated`, or an aggregate that
+/// inherits a stored `true` onto a replacement key would each let a page image
+/// egress under a retention guarantee the account does not provide — and the
+/// fixture in the #769 test cannot see any of it, because it supplies `false`
+/// (indistinguishable from "never projected").
+#[tokio::test]
+async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<()> {
+    let (pool, _pg_guard) = fixtures::spawn_postgres().await?;
+    let (redis_client, _sierra_conn, _sierra_guard) = fixtures::spawn_sierradb().await?;
+
+    let _projector = spawn_ai_config_projector(
+        pool.clone(),
+        std::sync::Arc::clone(&redis_client),
+        ProjectorFlushConfig::test_profile(),
+    )
+    .await?;
+
+    let conn = redis_client.get_multiplexed_async_connection().await?;
+    let commands = AiConfigCommandsImpl::new(CommandService::new(conn));
+
+    // 1) Create with the attestation SET.
+    let config_id = Uuid::now_v7();
+    let created = commands
+        .create(
+            test_user(),
+            CreateAiConfig {
+                id: config_id,
+                user_id: test_user(),
+                provider: LlmProvider::EURouter,
+                assistant_model: EXTRACTION_MODEL.to_owned(),
+                image_model: None,
+                prompts: HashMap::from([(DocumentKind::Script, "script-prompt".to_owned())]),
+                vault_key_id: "attested-key".to_owned(),
+                cost_display_preference: CostDisplayPreference::Token,
+                decision_provider: None,
+                decision_model: None,
+                decision_vault_key_id: None,
+                reasoning_effort: ReasoningEffortChoice::Low,
+                zdr_attested: true,
+            },
+        )
+        .await
+        .expect("create must append AiConfigCreated");
+    assert_eq!(created.1, AggregateVersion::INITIAL);
+    assert_zdr_everywhere(&pool, config_id, created.1, true).await?;
+
+    // 2) A prompt-only edit that OMITS the field keeps it — the credential did
+    //    not change, so the attestation still describes this account.
+    let preserved = commands
+        .update(
+            test_user(),
+            update_cmd(config_id, created.1, "attested-key", None),
+        )
+        .await
+        .expect("an omitted attestation must not be rejected");
+    assert_eq!(preserved, AggregateVersion(created.1.0 + 1));
+    assert_zdr_everywhere(&pool, config_id, preserved, true).await?;
+
+    // 3) Replacing the CREDENTIAL clears it: the new account's `ZDR Mode` is not
+    //    observable, so the inherited `true` would be an unverified claim.
+    let replaced = commands
+        .update(
+            test_user(),
+            update_cmd(config_id, preserved, "replacement-key", None),
+        )
+        .await
+        .expect("a key change without an attestation must still be accepted");
+    assert_eq!(replaced, AggregateVersion(preserved.0 + 1));
+    assert_zdr_everywhere(&pool, config_id, replaced, false).await?;
+
+    // 4) Re-attesting the replacement account in the SAME request carries it.
+    let reattested = commands
+        .update(
+            test_user(),
+            update_cmd(config_id, replaced, "replacement-key", Some(true)),
+        )
+        .await
+        .expect("an explicit attestation must be stored");
+    assert_eq!(reattested, AggregateVersion(replaced.0 + 1));
+    assert_zdr_everywhere(&pool, config_id, reattested, true).await?;
+
+    // 5) An explicit revocation still reaches every reader.
+    let revoked = commands
+        .update(
+            test_user(),
+            update_cmd(config_id, reattested, "replacement-key", Some(false)),
+        )
+        .await
+        .expect("an explicit revocation must be stored");
+    assert_eq!(revoked, AggregateVersion(reattested.0 + 1));
+    assert_zdr_everywhere(&pool, config_id, revoked, false).await?;
 
     Ok(())
 }

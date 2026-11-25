@@ -56,6 +56,20 @@ pub enum LlmProvider {
     OpenRouter,
     #[serde(rename = "eurouter", alias = "openrouter_eu")]
     EURouter,
+    /// Scaleway Generative APIs (Paris, France) — OpenAI-compatible, ADR-041
+    /// `D2` production candidate (issue #968).
+    #[serde(rename = "scaleway")]
+    Scaleway,
+    /// OVHcloud AI Endpoints (EU) — OpenAI-compatible, ADR-041 `D2`
+    /// production candidate (issue #968).
+    #[serde(rename = "ovhcloud")]
+    Ovhcloud,
+    /// Nebius Token Factory (EU) — OpenAI-compatible, ADR-041 `D2`
+    /// production candidate (issue #968). Its ZDR guarantee is an
+    /// ORGANIZATION-level account switch, so it is only satisfied with the
+    /// operator's attestation (see [`vision_zdr_requires_attestation`]).
+    #[serde(rename = "nebius")]
+    Nebius,
     #[serde(rename = "neuralwatt")]
     Neuralwatt,
     #[serde(rename = "opencode-go")]
@@ -72,6 +86,9 @@ impl LlmProvider {
             Self::Gemini => "gemini",
             Self::OpenRouter => "openrouter",
             Self::EURouter => "eurouter",
+            Self::Scaleway => "scaleway",
+            Self::Ovhcloud => "ovhcloud",
+            Self::Nebius => "nebius",
             Self::Neuralwatt => "neuralwatt",
             Self::OpenCodeGo => "opencode-go",
             Self::OpenCode => "opencode",
@@ -93,11 +110,14 @@ impl LlmProvider {
 /// The curated provider set in display order. Single source for the providers
 /// and models endpoints; a new `LlmProvider` variant must be added to the
 /// exhaustive `as_str` match above (compile-time) and to this list (curation).
-pub const CURATED_PROVIDERS: [LlmProvider; 8] = [
+pub const CURATED_PROVIDERS: [LlmProvider; 11] = [
     LlmProvider::OpenAI,
     LlmProvider::Gemini,
     LlmProvider::OpenRouter,
     LlmProvider::EURouter,
+    LlmProvider::Scaleway,
+    LlmProvider::Ovhcloud,
+    LlmProvider::Nebius,
     LlmProvider::Neuralwatt,
     LlmProvider::OpenCodeGo,
     LlmProvider::OpenCode,
@@ -137,6 +157,72 @@ pub const fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy {
             no_training_on_inputs: true,
             eu_data_residency: true,
         },
+        // --- Issue #968: EU pay-as-you-go vision fallbacks (ADR-041 `D2`) ---
+        // Verified 2026-11-25 against the provider's own published policy.
+        // Scaleway, "Data privacy" (reviewed 2025-10-03): "By default we apply
+        // a Zero Data Retention Policy", inputs are not used for training and
+        // "Your personal data may be stored in the following region: Paris,
+        // France".
+        //
+        // `zero_data_retention: true` here is NOT the unqualified claim it looks
+        // like: the same policy documents an exception that our calls are
+        // subject to. "For Serverless ... only in the event of misuse ... such
+        // as a request triggering a 500 HTTP error (1 out of a million
+        // requests) ... Data is stored for up to two weeks ... This temporary
+        // data storage does not apply to Dedicated Deployments." Serverless is
+        // exactly what we call, so a synchronous request does NOT escape it —
+        // an earlier revision of this comment claimed otherwise and was wrong.
+        // The exception is ACCEPTED under `D2` with that scope (misuse/error
+        // path — the provider's example is a `500`, quoted as ~1 in 10^6, and
+        // it names no closed list of triggers, so a successful call is not
+        // claimed to be exempt; ≤2 weeks, triage-only); the acceptance, its
+        // scope and the Batch API's separate
+        // 24 h input retention (we never use Batch) are recorded in ADR-041
+        // `D2.1` → "Accepted exceptions". Changing either side means changing
+        // both: this flag and the ADR paragraph.
+        // https://www.scaleway.com/en/docs/generative-apis/reference-content/data-privacy/
+        LlmProvider::Scaleway => VisionEgressPolicy {
+            zero_data_retention: true,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        },
+        // OVHcloud, "AI Endpoints" product page: "Zero data retention: We keep
+        // only the data required for billing purposes", "Service hosted at
+        // OVHcloud in the European Union" and "Your data is never used to
+        // train our models".
+        // https://www.ovhcloud.com/en/public-cloud/ai-endpoints/
+        LlmProvider::Ovhcloud => VisionEgressPolicy {
+            zero_data_retention: true,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        },
+        // Nebius Token Factory: no training on prompts/inputs/outputs and EU
+        // residency are declared by the provider, but ZERO DATA RETENTION is
+        // an ORGANIZATION-level switch (`ZDR Mode` in the account settings,
+        // admin-only, off by default). Nothing in this workspace can observe
+        // it, so the ZDR requirement stays FALSE here — fail-closed, the state
+        // the ADR calls "a correct `false`" rather than a TODO-shaped `true`.
+        // `vision_egress_policy_for_config` lifts exactly this one flag when the
+        // operator attests the setting on the AI config (`zdr_attested`); the
+        // deployment prerequisite is documented in
+        // `docs/operations/runbooks.md` → "AI import vision egress".
+        //
+        // `eu_data_residency: true` carries a documented caveat, also recorded
+        // in ADR-041 `D2.1`: Nebius's legal guide states that PUBLIC endpoints
+        // show `Region: Global` and that "the processing location is decided
+        // dynamically, is not tied to any single data center, and can change at
+        // any time without prior notice" — only a Dedicated Endpoint in a chosen
+        // region is a contractual region commitment. What this flag therefore
+        // asserts is the DATA-residency half: any retained copy lives in Finland
+        // (EU) and the DPA/SCCs govern processing wherever it runs, while the
+        // per-request processing region is NOT guaranteed. The owner accepted
+        // that caveat for the vision path, where ZDR means no retained copy at
+        // all; do not read this flag as "processing stays in the EU".
+        LlmProvider::Nebius => VisionEgressPolicy {
+            zero_data_retention: false,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        },
         LlmProvider::OpenAI
         | LlmProvider::Gemini
         | LlmProvider::OpenRouter
@@ -147,6 +233,42 @@ pub const fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy {
             no_training_on_inputs: false,
             eu_data_residency: false,
         },
+    }
+}
+
+/// Whether `provider`'s zero-data-retention guarantee is an ACCOUNT-level
+/// switch that this workspace cannot observe (issue #968).
+///
+/// For such a provider [`vision_egress_policy`] deliberately reports
+/// `zero_data_retention: false`: a boolean the code cannot verify must never be
+/// asserted as `true`. The operator attests the account setting per AI config
+/// instead, and [`vision_egress_policy_for_config`] is the only place that
+/// turns that attestation into an effective policy.
+#[must_use]
+pub const fn vision_zdr_requires_attestation(provider: LlmProvider) -> bool {
+    matches!(provider, LlmProvider::Nebius)
+}
+
+/// The effective [`VisionEgressPolicy`] for ONE AI configuration (issue #968).
+///
+/// Identical to [`vision_egress_policy`] except for the single flag an operator
+/// can attest: a provider whose ZDR is an account switch
+/// ([`vision_zdr_requires_attestation`]) satisfies the ZDR requirement when
+/// `zdr_attested` is set. The other two guarantees are ALWAYS taken from the
+/// provider declaration — an attestation can never invent a no-training or
+/// EU-residency promise, and it can never lift a provider the table does not
+/// declare (a non-owner stays non-compliant whatever the config says).
+#[must_use]
+pub const fn vision_egress_policy_for_config(
+    provider: LlmProvider,
+    zdr_attested: bool,
+) -> VisionEgressPolicy {
+    let declared = vision_egress_policy(provider);
+    VisionEgressPolicy {
+        zero_data_retention: declared.zero_data_retention
+            || (zdr_attested && vision_zdr_requires_attestation(provider)),
+        no_training_on_inputs: declared.no_training_on_inputs,
+        eu_data_residency: declared.eu_data_residency,
     }
 }
 
@@ -530,6 +652,12 @@ pub struct LlmVisionRequest {
     pub max_tokens: u32,
     pub response_schema: Option<serde_json::Value>,
     pub reasoning_effort: Option<String>,
+    /// The AI config's operator attestation that the provider ACCOUNT has
+    /// zero data retention enabled (issue #968). Only consulted for providers
+    /// whose ZDR is an account switch — see
+    /// [`vision_egress_policy_for_config`], which is what the transport gate
+    /// resolves before any page image is serialized.
+    pub zdr_attested: bool,
 }
 
 #[async_trait]
@@ -1953,8 +2081,14 @@ pub const fn probe_capability(provider: LlmProvider) -> ProbeCapability {
     match provider {
         LlmProvider::EURouter | LlmProvider::OpenRouter => ProbeCapability::KeyEndpoint,
         LlmProvider::Ollama => ProbeCapability::LocalTags,
+        // Issue #968: the three EU fallbacks expose no zero-token `/key`
+        // endpoint this workspace has verified against a live response, so
+        // they take the time-gated trial like the other unproven providers.
         LlmProvider::OpenAI
         | LlmProvider::Gemini
+        | LlmProvider::Scaleway
+        | LlmProvider::Ovhcloud
+        | LlmProvider::Nebius
         | LlmProvider::Neuralwatt
         | LlmProvider::OpenCode
         | LlmProvider::OpenCodeGo => ProbeCapability::NoPreflight,

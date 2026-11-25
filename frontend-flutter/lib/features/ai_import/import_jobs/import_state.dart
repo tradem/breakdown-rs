@@ -237,6 +237,13 @@ String aiProviderWireKey(LlmProvider provider) {
   if (provider == LlmProvider.gemini) return 'gemini';
   if (provider == LlmProvider.openrouter) return 'openrouter';
   if (provider == LlmProvider.eurouter) return 'eurouter';
+  // Issue #968: the EU vision fallbacks. Their wire keys are the single-word
+  // provider keys, so the fallback below would render the same text — but an
+  // explicit arm is what keeps the banner vocabulary spelled out in one place
+  // and makes a future wire-key change a compile-visible edit here.
+  if (provider == LlmProvider.scaleway) return 'scaleway';
+  if (provider == LlmProvider.ovhcloud) return 'ovhcloud';
+  if (provider == LlmProvider.nebius) return 'nebius';
   if (provider == LlmProvider.neuralwatt) return 'neuralwatt';
   if (provider == LlmProvider.opencodeGo) return 'opencode-go';
   if (provider == LlmProvider.opencode) return 'opencode';

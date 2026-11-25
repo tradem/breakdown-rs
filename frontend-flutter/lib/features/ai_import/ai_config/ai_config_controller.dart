@@ -160,6 +160,10 @@ class AiConfigDraftData {
     this.useSameDecisionKeyTouched = false,
     this.costDisplayPreference,
     this.reasoningEffort,
+    this.zdrAttested,
+    this.zdrCredential,
+    this.zdrEditGeneration = 0,
+    this.zdrConfirmation,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.scriptPromptTouched = false,
@@ -225,6 +229,38 @@ class AiConfigDraftData {
   /// OUTSIDE the selected model's declared set is normalised to `auto` when
   /// the model changes, so an invalid pair is never dispatched.
   ReasoningEffortChoice? reasoningEffort;
+
+  /// The drafted zero-data-retention attestation (issue #968). `null` =
+  /// untouched — the configured view's value (or `false`) applies. A VALUE
+  /// rather than a tri-state on the wire: revoking an attestation must be
+  /// expressible from the app, and the generated client omits nulls.
+  bool? zdrAttested;
+
+  /// The credential identity (`<provider>|<vault_key_id>`) this drafted
+  /// attestation was given for, or `null` when it was drafted before any
+  /// credential existed (issue #968 review). A draft is only ever used for the
+  /// credential it describes: when discovery loads a credential another client
+  /// replaced, the draft no longer applies and the stored (fail-closed) value
+  /// governs until the operator attests the replacement.
+  String? zdrCredential;
+
+  /// Bumped on every attestation EDIT (a flip of the toggle, or the reset a
+  /// provider change performs), so a save can tell "nobody touched it since"
+  /// from "the operator changed their mind while the request was in flight".
+  /// `reset()` ADVANCES it rather than restarting it, so a later draft is never
+  /// indistinguishable from an earlier one.
+  int zdrEditGeneration;
+
+  /// A saved attestation whose read-back had not caught up when the save was
+  /// acknowledged, recorded as `(aggregate version, submitted value, edit
+  /// generation at dispatch)` (issue #968 review). It lives in this KEEP-ALIVE
+  /// store rather than on the auto-disposed controller, so the confirmation
+  /// still retires the draft after the screen was closed and reopened.
+  /// `version` is the aggregate version the dispatch was ACKNOWLEDGED at, or
+  /// `null` when the outcome is unknown (an ambiguous timeout that the read-back
+  /// could not settle) — then the next discovery answer settles it, whatever it
+  /// says.
+  ({int? version, bool value, int generation})? zdrConfirmation;
   AiConfigUnresolved? unresolved;
 }
 
@@ -268,6 +304,10 @@ class AiConfigDrafts extends _$AiConfigDrafts {
       useSameDecisionKeyTouched: state.useSameDecisionKeyTouched,
       costDisplayPreference: state.costDisplayPreference,
       reasoningEffort: state.reasoningEffort,
+      zdrAttested: state.zdrAttested,
+      zdrCredential: state.zdrCredential,
+      zdrEditGeneration: state.zdrEditGeneration,
+      zdrConfirmation: state.zdrConfirmation,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
       scriptPromptTouched: state.scriptPromptTouched,
@@ -291,7 +331,13 @@ class AiConfigDrafts extends _$AiConfigDrafts {
   /// resolve (CodeRabbit review, PR #807). The two states can coexist: a
   /// discovery that later finds the config renders the configured form while
   /// the create stays unconfirmed.
-  void reset() => state = AiConfigDraftData(unresolved: state.unresolved);
+  void reset() => state = AiConfigDraftData(
+    // ADVANCED, never restarted (issue #968 review): a draft created after a
+    // reset must not share the generation of one that predates it, or a
+    // settle could mistake it for the draft it was given for.
+    zdrEditGeneration: state.zdrEditGeneration + 1,
+    unresolved: state.unresolved,
+  );
 }
 
 /// The bounded read-back's verdict (issue #769): [error] is `null` exactly
@@ -302,6 +348,13 @@ class AiConfigDrafts extends _$AiConfigDrafts {
 typedef DecisionRoundTripVerdict = ({
   ProblemError? error,
   AiConfigView? stored,
+
+  /// Whether a read-back also confirmed the attestation the dispatch
+  /// submitted at the acknowledged version (issue #968 review). Independent of
+  /// [error]: the save can be fully confirmed for the Decision Model while the
+  /// projection has not caught up for the attestation, and that is NOT a
+  /// failure — only an unconfirmed draft retirement.
+  bool attestationConfirmed,
 });
 
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
@@ -348,6 +401,34 @@ class AiConfigController extends _$AiConfigController {
       unawaited(_loadRememberedConfigFallback());
     }
 
+    // Deferred attestation confirmation (issue #968 review): a save whose
+    // bounded read-back had not caught up left its draft pending, and the
+    // discovery answer that carries the acknowledged version + submitted value
+    // is what retires it. Scheduled as a microtask on purpose — the draft store
+    // must never be mutated DURING a build of this controller, which would
+    // rebuild it while it is building.
+    final pendingAttestation = drafts.zdrConfirmation;
+    final servedConfig = config;
+    if (pendingAttestation != null &&
+        servedConfig != null &&
+        _settlesZdrConfirmation(servedConfig, pendingAttestation)) {
+      final submitted = pendingAttestation.value;
+      final generation = pendingAttestation.generation;
+      unawaited(
+        Future.microtask(() {
+          _draftsNotifier.mutate((d) {
+            d.zdrConfirmation = null;
+            // A flip made AFTER the save stays pending — only the value this
+            // save submitted, still untouched since the dispatch, is retired.
+            if (d.zdrAttested == submitted &&
+                d.zdrEditGeneration == generation) {
+              d.zdrAttested = null;
+            }
+          });
+        }),
+      );
+    }
+
     // "Resolved first-run" — only a discovery that has GENUINELY resolved to
     // "no active config" may feed the prefill/preselect (issue #471).
     // Loading is NOT first-run (an active config may still appear), and a
@@ -373,6 +454,28 @@ class AiConfigController extends _$AiConfigController {
         drafts.selectedProviderKey ??
         suggestedProviderKey ??
         config?.provider.name;
+
+    // The credential the CURRENT form selection describes: the stored
+    // credential while the selection is the stored provider, otherwise
+    // `<provider>|` for the one the hand-off will create (not yet known).
+    final String? draftCredentialIdentity;
+    final selectedConfig = config;
+    if (selectedProviderKey == null) {
+      draftCredentialIdentity = null;
+    } else if (selectedConfig != null &&
+        selectedProviderKey == selectedConfig.provider.name) {
+      draftCredentialIdentity = _credentialIdentityOf(selectedConfig);
+    } else {
+      draftCredentialIdentity = '$selectedProviderKey|';
+    }
+    // A drafted attestation applies only to the credential it was drafted for
+    // (issue #968 review): once discovery loads a configuration — or a
+    // replacement credential — the draft never described, the stored
+    // (fail-closed) value governs and the operator must re-attest.
+    final draftedZdrApplies =
+        drafts.zdrAttested != null &&
+        drafts.zdrCredential != null &&
+        drafts.zdrCredential == draftCredentialIdentity;
 
     final models = switch (selectedProviderKey == null
         ? const AsyncValue<Result<List<ModelInfo>>>.loading()
@@ -554,6 +657,15 @@ class AiConfigController extends _$AiConfigController {
           drafts.costDisplayPreference ??
           config?.costDisplayPreference ??
           CostDisplayPreference.token,
+      // Zero-data-retention attestation (issue #968): an explicit draft flip
+      // wins, then the configured attestation, then the fail-closed default —
+      // but only for the CREDENTIAL the draft describes. When discovery loads a
+      // credential another client replaced, the draft is ignored and the stored
+      // value governs (a `true` attested for one account must never be sent for
+      // its replacement).
+      zdrAttested: draftedZdrApplies
+          ? drafts.zdrAttested!
+          : (config?.zdrAttested ?? false),
       scriptPrompt: drafts.scriptPromptTouched
           ? drafts.scriptPrompt
           : promptSeed('script', scriptDefault),
@@ -566,6 +678,10 @@ class AiConfigController extends _$AiConfigController {
 
   /// Selects a provider and loads its model set.
   void selectProvider(String key) {
+    // Read from the BUILT state, not the draft: on a configured screen the
+    // effective provider falls back to the stored config, so a draft-only
+    // comparison would miss the first change away from it.
+    final providerChanged = state.selectedProviderKey != key;
     _draftsNotifier.mutate((d) {
       d.selectedProviderKey = key;
       d.selectedAssistantModelId = null;
@@ -574,6 +690,22 @@ class AiConfigController extends _$AiConfigController {
       // The old provider's image model is invalid for the new catalog. Mark
       // the clear as intentional so build() does not restore it from config.
       d.imageModelTouched = true;
+      // A ZDR attestation describes ONE provider ACCOUNT (issue #968 review):
+      // a provider change always arrives with a fresh credential (the backend
+      // answers `422 ai-config.provider-mismatch` otherwise), so carrying the
+      // old attestation would re-assert a `ZDR Mode` switch nobody checked for
+      // the new account — exactly what the aggregate now refuses to inherit.
+      // Reset to the fail-closed `false` rather than to `null`: `null` would
+      // fall back to the STORED config's attestation, i.e. the previous
+      // account's. Re-picking the same provider leaves it alone.
+      if (providerChanged) {
+        d.zdrAttested = false;
+        // The hand-off credential does not exist yet, so the draft describes
+        // `provider|` — exactly the identity `build` derives for that
+        // selection, which keeps the fail-closed `false` in force.
+        d.zdrCredential = '$key|';
+        d.zdrEditGeneration++;
+      }
     });
     state = state.copyWith(clearCommandError: true);
   }
@@ -699,6 +831,21 @@ class AiConfigController extends _$AiConfigController {
     state = state.copyWith(clearCommandError: true);
   }
 
+  /// Sets the zero-data-retention attestation (issue #968). The operator
+  /// confirms the provider ACCOUNT has ZDR enabled; the backend turns the
+  /// attestation into an effective `VisionEgressPolicy` before any page image
+  /// leaves the process. Turning it OFF is a real, dispatched change — an
+  /// unrelated edit never revokes it (the aggregate keeps the stored value when
+  /// the field is omitted) and the app must be able to revoke it explicitly.
+  void setZdrAttested(bool value) {
+    _draftsNotifier.mutate((d) {
+      d.zdrAttested = value;
+      d.zdrCredential = _selectionCredentialIdentity();
+      d.zdrEditGeneration++;
+    });
+    state = state.copyWith(zdrAttested: value, clearCommandError: true);
+  }
+
   void setScriptPrompt(String value) {
     _draftsNotifier.mutate((d) {
       d.scriptPrompt = value;
@@ -767,6 +914,9 @@ class AiConfigController extends _$AiConfigController {
     String? decisionSecret,
   }) async {
     final s = state;
+    // Captured at DISPATCH, before any await (issue #968 review): the
+    // attestation edit generation this create speaks for.
+    final zdrGeneration = _draftsNotifier.state.zdrEditGeneration;
     final providerKey = s.selectedProviderKey;
     final assistantModelId = s.selectedAssistantModelId;
     final provider = _resolveProvider(providerKey);
@@ -891,6 +1041,7 @@ class AiConfigController extends _$AiConfigController {
           ..vaultKeyId = credential.vaultKeyId
           ..imageModel = s.selectedImageModelId
           ..costDisplayPreference = s.costDisplayPreference
+          ..zdrAttested = s.zdrAttested
           // Always sent, and always a value: `auto` is how the app expresses
           // "no explicit level", which a nullable field could never do (the
           // generated client omits nulls).
@@ -916,6 +1067,7 @@ class AiConfigController extends _$AiConfigController {
               s,
               decisionProviderKey: decisionProviderKey,
               decisionCredential: createdDecisionCredential,
+              zdrGeneration: zdrGeneration,
             ),
           );
           return Left<ProblemError, IdVersionResponse>(error);
@@ -972,6 +1124,20 @@ class AiConfigController extends _$AiConfigController {
             modelId: decisionProviderKey == null ? null : decisionModelId,
             vaultKeyId: decisionVaultKeyId,
           ),
+          version: idVersion.version,
+          zdrAttested: s.zdrAttested,
+        );
+        // Settle the attestation FIRST (issue #968 review) — see the edit path.
+        // The created credential is what an UNTOUCHED draft now describes; the
+        // binding is ownership-guarded inside the settle, so a draft the
+        // operator re-attested for a credential discovery loaded meanwhile is
+        // left alone.
+        _settleZdrAttestation(
+          verdict.stored,
+          idVersion.version,
+          s.zdrAttested,
+          zdrGeneration,
+          bindCredential: '${provider.name}|${credential.vaultKeyId}',
         );
         if (verdict.error != null) {
           // The authoritative view becomes the rendered configuration — the
@@ -1006,6 +1172,122 @@ class AiConfigController extends _$AiConfigController {
       },
     );
   }
+
+  /// Retires a confirmed attestation draft, or DEFERS the confirmation to the
+  /// next discovery answer (issue #968 review).
+  ///
+  /// [generation] is the draft's edit generation captured at DISPATCH, never at
+  /// settlement: a flip made while the request or its read-back was in flight
+  /// is the operator's newer intent and must not be recorded as the save's own,
+  /// or the settle would retire it together with the acknowledged value.
+  ///
+  /// A read-back that has not caught up must not clear the draft (the form
+  /// would render the pre-save value as if it had just been saved), and must
+  /// not keep it forever either (a stale `true` could be re-sent after another
+  /// client's revocation). So an unconfirmed draft is remembered here and
+  /// retired by [build]'s discovery listener as soon as the projection serves
+  /// the acknowledged version with the submitted value.
+  void _settleZdrAttestation(
+    AiConfigView? stored,
+    int? version,
+    bool submitted,
+    int generation, {
+
+    /// The credential identity the dispatch established, to be recorded on the
+    /// draft — but only while the draft still belongs to THIS dispatch
+    /// (issue #968 review): a flip made while the create was in flight describes
+    /// the credential the operator was looking at then, not this one.
+    String? bindCredential,
+  }) {
+    final confirmed =
+        stored != null &&
+        stored.zdrAttested == submitted &&
+        (version == null || stored.version >= version);
+    _draftsNotifier.mutate((d) {
+      // A settle dispatched EARLIER must neither replace NOR CLEAR a marker a
+      // LATER save recorded (issue #968 review): that marker is what retires the
+      // later draft, and losing it — on either branch — would leave a stale
+      // value able to be re-sent. So both branches check ownership first.
+      if (bindCredential != null && d.zdrEditGeneration == generation) {
+        d.zdrCredential = bindCredential;
+      }
+      final existing = d.zdrConfirmation;
+      final ownsMarker = existing == null || existing.generation <= generation;
+      if (confirmed) {
+        if (ownsMarker) d.zdrConfirmation = null;
+      } else if (ownsMarker) {
+        d.zdrConfirmation = (
+          version: version,
+          value: submitted,
+          generation: generation,
+        );
+      }
+      // Only a draft nobody has touched since the dispatch is retired — a flip
+      // made while the request was in flight is the newer intent and stays.
+      if (confirmed &&
+          d.zdrAttested == submitted &&
+          d.zdrEditGeneration == generation) {
+        d.zdrAttested = null;
+      }
+    });
+  }
+
+  /// Whether an authoritative read-back CONFIRMS the attestation a save
+  /// submitted (issue #968 review): the view must be at least as new as the
+  /// acknowledgement AND carry the submitted value.
+  ///
+  /// A 2xx only proves the command was accepted; the read model catches up
+  /// asynchronously, and the bounded-retry read-back can legitimately serve the
+  /// PREVIOUS version (its retries stop at the first decision-triple match).
+  /// Retiring a revocation draft on such a view makes `build` fall back to the
+  /// stored `true` and the form then shows a revocation that was in fact
+  /// submitted — so an unconfirmed read-back keeps the draft pending instead.
+  /// The credential identity a drafted attestation describes:
+  /// `<provider>|<vault_key_id>` of the stored configuration, or `null` before
+  /// any credential exists (first run).
+  static String? _credentialIdentityOf(AiConfigView? config) =>
+      config == null ? null : '${config.provider.name}|${config.vaultKeyId}';
+
+  /// The credential identity of the CURRENT form selection, captured when the
+  /// operator flips the toggle: the stored credential while the selection is the
+  /// stored provider, otherwise `provider|` for the credential the hand-off will
+  /// create (issue #968 review).
+  String? _selectionCredentialIdentity() {
+    final current = state;
+    final providerKey = current.selectedProviderKey;
+    if (providerKey == null) return null;
+    final config = current.config;
+    if (config != null && providerKey == config.provider.name) {
+      return _credentialIdentityOf(config);
+    }
+    return '$providerKey|';
+  }
+
+  /// Whether a discovered [stored] view SETTLES a pending confirmation: it
+  /// carries the acknowledged version with the submitted value (confirmed), or
+  /// it is NEWER than that version — a superseding update wins over a draft
+  /// whose intent was written against the older aggregate state (issue #968
+  /// review).
+  static bool _settlesZdrConfirmation(
+    AiConfigView stored,
+    ({int? version, bool value, int generation}) pending,
+  ) {
+    final acknowledged = pending.version;
+    // No acknowledged version = an unresolved save: the first authoritative
+    // answer settles it, whatever it says.
+    if (acknowledged == null) return true;
+    return stored.version > acknowledged ||
+        (stored.version == acknowledged && stored.zdrAttested == pending.value);
+  }
+
+  static bool _attestationConfirmed(
+    AiConfigView? stored,
+    int version,
+    bool submitted,
+  ) =>
+      stored != null &&
+      stored.version >= version &&
+      stored.zdrAttested == submitted;
 
   Future<void> _rememberConfigId(String configId) async {
     final session = await ref.read(authSessionControllerProvider.future);
@@ -1049,20 +1331,28 @@ class AiConfigController extends _$AiConfigController {
   /// the screen localizes its copy from `code`, AGENTS.md §5).
   Future<DecisionRoundTripVerdict> _verifyDecisionRoundTrip(
     String configId,
-    DecisionTriple submitted,
-  ) async {
+    DecisionTriple submitted, {
+    required int version,
+    required bool zdrAttested,
+  }) async {
     final repo = ref.read(aiConfigRepositoryProvider);
     final scheduler = ref.read(reconciliationSchedulerProvider);
     ProblemError? lastError;
     AiConfigView? lastStored;
+    var attestationConfirmed = false;
+    // Whether a read already verified the Decision Model triple. Once it has,
+    // later reads only serve the attestation confirmation, so their failure must
+    // never turn an acknowledged PATCH into an error (issue #968 review).
+    var decisionVerified = false;
     for (var attempt = 0; attempt < kMaxReconcileAttempts; attempt++) {
       if (attempt > 0) await scheduler.tick(attempt);
       final res = await repo.getConfig(configId);
       final stored = res.getRight().toNullable();
       if (stored == null) {
         // A read that failed is not a verdict either — keep the transport
-        // error as the fallback verdict and try again.
-        lastError = res.getLeft().toNullable();
+        // error as the fallback verdict and try again. After a verified read it
+        // is not a verdict at all.
+        if (!decisionVerified) lastError = res.getLeft().toNullable();
         continue;
       }
       lastStored = stored;
@@ -1071,13 +1361,35 @@ class AiConfigController extends _$AiConfigController {
         submitted: submitted,
         stored: stored,
       );
-      if (mismatch == null) return (error: null, stored: stored);
+      // The attestation is confirmed on the SAME bounded-retry schedule
+      // (issue #968 review): the first read can legitimately serve the
+      // pre-dispatch projection, and a single read would then leave the draft
+      // pending forever. A late confirmation is NOT an error — the command did
+      // commit — so it is tracked separately from the Decision Model verdict.
+      attestationConfirmed = _attestationConfirmed(
+        stored,
+        version,
+        zdrAttested,
+      );
+      if (mismatch == null && attestationConfirmed) {
+        return (error: null, stored: stored, attestationConfirmed: true);
+      }
+      if (mismatch == null) {
+        decisionVerified = true;
+        lastError = null;
+        continue;
+      }
+      decisionVerified = false;
       lastError = ProblemError(
         code: decisionNotPersistedCode,
         detail: '$mismatch',
       );
     }
-    return (error: lastError, stored: lastStored);
+    return (
+      error: decisionVerified ? null : lastError,
+      stored: lastStored,
+      attestationConfirmed: attestationConfirmed,
+    );
   }
 
   Future<void> _rememberCredential(
@@ -1140,6 +1452,10 @@ class AiConfigController extends _$AiConfigController {
     AiConfigScreenState snapshot, {
     String? decisionProviderKey,
     CredentialHandoff? decisionCredential,
+
+    /// The attestation edit generation captured at the ORIGINAL dispatch, so a
+    /// later flip is never mistaken for the create's own (issue #968 review).
+    int zdrGeneration = 0,
   }) async {
     final repo = ref.read(aiConfigRepositoryProvider);
     final scheduler = ref.read(reconciliationSchedulerProvider);
@@ -1175,6 +1491,18 @@ class AiConfigController extends _$AiConfigController {
           );
         }
         if (!ref.mounted) return;
+        // An unambiguous commit settles the attestation too (issue #968
+        // review): the committed view is authoritative, a draft left over from
+        // the unresolved state would mask every later refresh, and the binding
+        // is ownership-guarded inside the settle.
+        _settleZdrAttestation(
+          view,
+          view.version,
+          snapshot.zdrAttested,
+          zdrGeneration,
+          bindCredential:
+              '${snapshot.selectedProviderKey}|${credential.vaultKeyId}',
+        );
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(configuredAiNamingProvider);
         ref.invalidate(aiImportHandoffProvider);
@@ -1216,6 +1544,11 @@ class AiConfigController extends _$AiConfigController {
             imageModelId: snapshot.selectedImageModelId,
             scriptPrompt: snapshot.scriptPrompt,
             schedulePrompt: snapshot.schedulePrompt,
+            // The attestation belongs to the unresolved dispatch (issue #968
+            // review): the re-check needs it to tell the submitted value from a
+            // later edit before it retires or keeps the draft.
+            zdrAttested: snapshot.zdrAttested,
+            zdrGeneration: zdrGeneration,
             error: error,
           ),
         );
@@ -1245,7 +1578,9 @@ class AiConfigController extends _$AiConfigController {
         selectedImageModelId: unresolved.imageModelId,
         scriptPrompt: unresolved.scriptPrompt,
         schedulePrompt: unresolved.schedulePrompt,
+        zdrAttested: unresolved.zdrAttested,
       ),
+      zdrGeneration: unresolved.zdrGeneration,
     );
   }
 
@@ -1276,6 +1611,12 @@ class AiConfigController extends _$AiConfigController {
     required String? imageModelId,
     required CostDisplayPreference costDisplayPreference,
     required ReasoningEffortChoice reasoningEffort,
+
+    /// The zero-data-retention attestation of the edit (issue #968). Always
+    /// sent as a value: `false` is an explicit revocation, and the aggregate
+    /// only keeps the stored value when the field is OMITTED (which the
+    /// generated client never does for a non-null Dart field).
+    bool zdrAttested = false,
     required String scriptPrompt,
     required String schedulePrompt,
     String? replacementSecret,
@@ -1288,6 +1629,11 @@ class AiConfigController extends _$AiConfigController {
     if (config == null) {
       return const Left(ProblemError(code: 'ai_config.not-found'));
     }
+    // Captured at DISPATCH, before the credential hand-off and the PATCH
+    // (issue #968 review): the attestation edit generation this save speaks
+    // for. Reading it at settlement would let a flip made while the request was
+    // in flight masquerade as the save's own edit.
+    final zdrGeneration = _draftsNotifier.state.zdrEditGeneration;
     final provider =
         _resolveProvider(providerKey) ??
         (providerKey == config.provider.name ? config.provider : null);
@@ -1432,6 +1778,7 @@ class AiConfigController extends _$AiConfigController {
           ..imageModel = imageModelId
           ..costDisplayPreference = costDisplayPreference
           ..reasoningEffort = reasoningEffort
+          ..zdrAttested = zdrAttested
           ..decisionProvider = decisionProvider
           ..decisionModel = decisionProviderKey == null ? null : decisionModelId
           ..decisionVaultKeyId = decisionVaultKeyId
@@ -1484,6 +1831,19 @@ class AiConfigController extends _$AiConfigController {
             // keep rendering the previous key's configured state, probe verdict
             // and budget until a manual retry.
             ref.invalidate(aiProviderHealthProvider);
+            // The read-back is the only evidence that an AMBIGUOUS timeout
+            // committed, so the attestation draft is settled from that same
+            // view (issue #968 review): cleared when it carries the submitted
+            // value at the acknowledged version, deferred to the next discovery
+            // answer otherwise. Clearing it on the provider/key match alone
+            // would drop a flip the server may not have stored; keeping it on a
+            // confirmed write would mask a later revocation.
+            // An ambiguous PATCH has NO acknowledged version, and the
+            // read-back's version belongs to whatever the projection had
+            // applied — not to this dispatch. Passing it would record a marker
+            // that never settles (issue #968 review), so the outcome stays
+            // explicitly unresolved: the next discovery answer decides.
+            _settleZdrAttestation(view, null, zdrAttested, zdrGeneration);
             if (ref.mounted) state = state.copyWith(clearCommandError: true);
             return Right<ProblemError, int>(view.version);
           }
@@ -1525,6 +1885,18 @@ class AiConfigController extends _$AiConfigController {
             modelId: decisionProviderKey == null ? null : decisionModelId,
             vaultKeyId: decisionVaultKeyId,
           ),
+          version: version,
+          zdrAttested: zdrAttested,
+        );
+        // Settle the attestation FIRST (issue #968 review): a Decision Model
+        // mismatch returns early below, and the attestation this PATCH committed
+        // must not be left un-settled by an unrelated error — a surviving `true`
+        // draft could then mask a later revocation.
+        _settleZdrAttestation(
+          verdict.stored,
+          version,
+          zdrAttested,
+          zdrGeneration,
         );
         if (verdict.error != null) {
           // CodeRabbit review (issue #769): the PATCH DID commit (only its

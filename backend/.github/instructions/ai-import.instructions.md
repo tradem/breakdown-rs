@@ -39,6 +39,43 @@ applyTo:
 - `AI_EVAL_CORPUS_MANIFEST` – **test-only** override for the expectation manifest, default `backend/config/ai_eval_corpus.tsv`. The manifest is the ONE definition of the corpus (file, kind `script|schedule`, expected scene count, note, `cast=<name>:<category>,…`), so a local run and a CI run assert exactly the same numbers and cast verdicts: only the PDFs are out of tree, the expectations are not. The `cast` column is resolved through the production `resolve_character_category` against that document's parsed `CastDirectory`; a missing name, a wrong category or an emitted uncertainty fails the sweep. Verified against the GDrive fixture folder (issue #961): `292.pdf` 40, `293.pdf` 42, `294.pdf` 43, `Drehbuch_1.pdf` 42, `Drehbuch_2.pdf` 42, `Drehplan_1.pdf` schedule — 20/20 cast assertions.
 - **Local corpus run** (from `backend/`, needs `poppler-utils`): `AI_EVAL_CORPUS_DIR=~/Downloads/drive-download cargo test -p infra --test ai_document_eval_corpus -- --nocapture`. The CI runs the **identical** command; only the PDFs come from somewhere else: `crates/integration-tests/tests/ai_gdrive_corpus_materialize.rs` copies `GDRIVE_ROOT` into `AI_EVAL_CORPUS_DIR` (skips without `GDRIVE_CLIENT_ID`, default target `target/eval-corpus`), and the `integration-tests` workflow step "Golden Corpus (GDrive materialise + zone-aware sweep)" runs materialise + sweep together under the same trust gate as the GDrive smoke. Locally the same two commands work with `GDRIVE_*` in the environment, so a developer reproduces CI byte-for-byte.
 
+#### EU vision fallbacks (ADR-041 `D2`, issue #968)
+
+Multimodal schedule extraction may only send page images to a provider whose policy declares
+Zero Data Retention, no training on inputs and EU data residency; the gate
+(`vision_egress_policy_for_config`) runs before any base64 encoding. Declared providers and their
+curated vision models:
+
+| Provider key | Base URL (curated, static) | `/models` catalogue | Policy |
+|---|---|---|---|
+| `eurouter` | `https://api.eurouter.ai/api/v1` | live feed (`CatalogSource::Eurouter`) | compliant |
+| `scaleway` | `https://api.scaleway.ai/v1` | docs-verified (`qwen3.5-397b-a17b`, `mistral-small-3.2-24b-instruct-2506`) | compliant, one accepted exception (ADR-041 `D2.1`) |
+| `ovhcloud` | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` | live-verified (`qwen3-vl-30b-a3b`, `Mistral-Small-3.2-24B-Instruct-2506`) | compliant |
+| `nebius` | `https://api.tokenfactory.nebius.com/v1` | models.dev feed (`Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash-1017`) | **fail-closed until `zdr_attested`** (residency caveat: EU retained copy, Global processing region) |
+| `ollama` | local | local tags | compliant (zero egress) |
+
+- **Credentials.** There is no provider-specific env var and no per-provider vault path: the API
+  key is a SETTINGS credential (`ADR-027`) supplied by the client, and the AI config stores only the
+  opaque `vault_key_id`. A blank or malformed reference fails at the vault read
+  (`fetch_key`/`settings_id_from_binding_key`), i.e. before the first provider request — never on
+  the first page of a paid import.
+- **The ZDR attestation.** `AiConfig.zdr_attested` is the operator's confirmation that the provider
+  ACCOUNT keeps no data. It is collected in the client's AI-config screen and persisted with the
+  config together with the key reference (never inside the vault: the vault holds secrets only).
+  It lifts exactly the retention flag of a provider whose ZDR is an account switch (`nebius`); it
+  can never lift the no-training/EU-residency requirements. **It is bound to the credential it was
+  given for:** an update that changes `vault_key_id` (or the provider) clears a stored `true`
+  unless the same request re-asserts it, because the replacement account's `ZDR Mode` is not
+  observable. Runbook: `docs/operations/runbooks.md` §"AI import vision egress"; the accepted
+  provider caveats: ADR-041 `D2.1` → "Accepted exceptions under D2".
+- **Pricing.** `ai_model_pricing` carries `curated_seed` rows for every curated fallback model
+  (migration `20261125000002`), so `#675`/`#794` cost snapshots price the page calls. A model
+  without a row stays honest absence (`CostStatus` unknown), never a zero-cost snapshot.
+- **Re-verification.** The policy and the catalogue are live data: a new provider or model needs
+  the verification date plus its source link in ADR-041 `D2.1`, and only IDs that appear in the
+  provider's own catalogue may be curated. `nebius` `/v1/models` requires a paid key, so that check
+  is a deployment task in the runbook.
+
 > **Descriptive `User-Agent` (issue #521).** The curated opencode / OpenCode-Go
 > gateways triage requests on `User-Agent`; a blank, generic or reqwest-default
 > agent (`reqwest/<version>`) is answered with `403`. Every provider client

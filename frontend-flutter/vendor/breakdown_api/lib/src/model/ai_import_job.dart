@@ -145,7 +145,7 @@ abstract class AiImportJob implements Built<AiImportJob, AiImportJobBuilder> {
   /// The provider this job is bound to, snapshotted at **enqueue** time (issue #871, D-A2b). `None` for every pre-#871 row and for an upload whose AI config could not be resolved at the API edge.  The claim predicate filters on this pair, and the predicate runs *before* `resolve_config` — which is why the snapshot is refreshed at the config-change edge and re-checked (authoritatively) after the config is resolved. A `None` pair is never breaker-filtered: the honest degradation, because there is nothing to compare a breaker against.
   @BuiltValueField(wireName: r'provider')
   LlmProvider? get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// Why this job is waiting on its provider, when it is (issue #871).  `Some` while the job is **held** for a degraded `(provider, model)` pair: `retries` was deliberately not charged, no attempt row was appended, and `next_attempt_at` mirrors the breaker's probe time. A job that never reached the provider therefore never burns its retry budget.  Cleared by every other lifecycle write, except the hold-expiry write — which keeps it with `state = expired` (see [`ProviderHold`]). Additive with `serde(default)`: older clients ignore the field entirely and keep rendering `#822`'s banner from `last_error`.
   @BuiltValueField(wireName: r'provider_hold')

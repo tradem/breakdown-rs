@@ -1582,6 +1582,7 @@ async fn chat_vision_rejects_a_non_compliant_provider_before_egress() {
         max_tokens: 1024,
         response_schema: None,
         reasoning_effort: None,
+        zdr_attested: false,
     };
     let error = client
         .chat_vision_constrained(&request)
@@ -1656,6 +1657,7 @@ async fn chat_vision_gate_passes_a_compliant_provider_through_to_the_transport()
         max_tokens: 1024,
         response_schema: None,
         reasoning_effort: None,
+        zdr_attested: false,
     };
     let outcome = client
         .chat_vision_constrained(&request)
@@ -1703,6 +1705,7 @@ async fn chat_vision_gate_refusal_performs_zero_requests() {
         max_tokens: 1024,
         response_schema: None,
         reasoning_effort: None,
+        zdr_attested: false,
     };
     let error = client
         .chat_vision_constrained(&request)
@@ -1731,6 +1734,7 @@ fn vision_request_fixture() -> breakdown_core::ai::LlmVisionRequest {
         max_tokens: 1024,
         response_schema: None,
         reasoning_effort: None,
+        zdr_attested: false,
     }
 }
 
