@@ -49,9 +49,9 @@ curated vision models:
 | Provider key | Base URL (curated, static) | `/models` catalogue | Policy |
 |---|---|---|---|
 | `eurouter` | `https://api.eurouter.ai/api/v1` | live feed (`CatalogSource::Eurouter`) | compliant |
-| `scaleway` | `https://api.scaleway.ai/v1` | docs-verified (`qwen3.5-397b-a17b`, `mistral-small-3.2-24b-instruct-2506`) | compliant |
+| `scaleway` | `https://api.scaleway.ai/v1` | docs-verified (`qwen3.5-397b-a17b`, `mistral-small-3.2-24b-instruct-2506`) | compliant, one accepted exception (ADR-041 `D2.1`) |
 | `ovhcloud` | `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1` | live-verified (`qwen3-vl-30b-a3b`, `Mistral-Small-3.2-24B-Instruct-2506`) | compliant |
-| `nebius` | `https://api.tokenfactory.nebius.com/v1` | models.dev feed (`Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash-1017`) | **fail-closed until `zdr_attested`** |
+| `nebius` | `https://api.tokenfactory.nebius.com/v1` | models.dev feed (`Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash-1017`) | **fail-closed until `zdr_attested`** (residency caveat: EU retained copy, Global processing region) |
 | `ollama` | local | local tags | compliant (zero egress) |
 
 - **Credentials.** There is no provider-specific env var and no per-provider vault path: the API
@@ -63,8 +63,11 @@ curated vision models:
   ACCOUNT keeps no data. It is collected in the client's AI-config screen and persisted with the
   config together with the key reference (never inside the vault: the vault holds secrets only).
   It lifts exactly the retention flag of a provider whose ZDR is an account switch (`nebius`); it
-  can never lift the no-training/EU-residency requirements. Runbook:
-  `docs/operations/runbooks.md` §"AI import vision egress".
+  can never lift the no-training/EU-residency requirements. **It is bound to the credential it was
+  given for:** an update that changes `vault_key_id` (or the provider) clears a stored `true`
+  unless the same request re-asserts it, because the replacement account's `ZDR Mode` is not
+  observable. Runbook: `docs/operations/runbooks.md` §"AI import vision egress"; the accepted
+  provider caveats: ADR-041 `D2.1` → "Accepted exceptions under D2".
 - **Pricing.** `ai_model_pricing` carries `curated_seed` rows for every curated fallback model
   (migration `20261125000002`), so `#675`/`#794` cost snapshots price the page calls. A model
   without a row stays honest absence (`CostStatus` unknown), never a zero-cost snapshot.

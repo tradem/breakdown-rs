@@ -95,7 +95,10 @@ pub struct UpdateAiConfig {
     /// Operator attestation of the provider account's zero-data-retention
     /// setting (issue #968). `None` (an omitted field) keeps the stored
     /// attestation — an older client editing the prompts must not silently
-    /// revoke it; `Some(false)` revokes it explicitly.
+    /// revoke it — **unless this command also replaces `vault_key_id`**: the
+    /// attestation describes ONE account's `ZDR Mode`, so it does not carry
+    /// over to a different credential and resolves to `false` (re-attest with
+    /// `Some(true)` in the same request). `Some(false)` revokes it explicitly.
     #[serde(default)]
     pub zdr_attested: Option<bool>,
     pub version: AggregateVersion,

@@ -1718,9 +1718,9 @@ residency. The gate is fail-closed — an undeclared provider is rejected, never
 | Provider key | Policy | Notes |
 |---|---|---|
 | `eurouter` | compliant | The original endpoint; historically unstable, which is why the alternatives exist. |
-| `scaleway` | compliant | Paris/France; ZDR is the default for synchronous calls. |
+| `scaleway` | compliant, **one accepted exception** | Paris/France; ZDR is the policy default. Documented exception (accepted under ADR-041 `D2.1` → "Accepted exceptions"): on Serverless — i.e. our tier, synchronous calls included — a request that triggers a `500` may have its full content held up to two weeks for `~1e-6` of requests, triage only. No content is captured on a successful call. |
 | `ovhcloud` | compliant | EU-only infrastructure; retention limited to billing/ops metadata. |
-| `nebius` | **fail-closed until attested** | ZDR is the organization-level `ZDR Mode` switch — see below. |
+| `nebius` | **fail-closed until attested** | ZDR is the organization-level `ZDR Mode` switch — see below. Residency caveat (same ADR section): any retained copy is EU (`Finland`), but public endpoints show `Region: Global` and the processing location can change without notice — a guaranteed processing region needs a Dedicated Endpoint (not wired). |
 | `openai`, `gemini`, `openrouter`, `neuralwatt`, `opencode`, `opencode-go` | rejected | Text-only providers from the vision path's point of view. |
 | `ollama` | compliant | Local, zero egress. |
 
@@ -1732,9 +1732,20 @@ residency. The gate is fail-closed — an undeclared provider is rejected, never
    fresh key reference for that provider (`422 ai-config.provider-mismatch` otherwise).
 2. Pick a curated model of that provider (`GET /v1/ai-import/providers/{key}/models`), e.g.
    `qwen3.5-397b-a17b` (Scaleway), `qwen3-vl-30b-a3b` (OVHcloud), `Qwen/Qwen3.8-27B` (Nebius).
-3. Nothing else changes: the `#871` breaker, the provider watch, the pricing snapshot and the
-   page-streaming loop are keyed on `(provider, model)`, so a job held under a flapping endpoint is
-   re-runnable on the new configuration as soon as it is saved.
+3. The `#871` breaker, the provider watch, the pricing snapshot and the page-streaming loop are
+   keyed on `(provider, model)`, so saving the new configuration re-points the **breaker pair** of
+   every `pending`/`failed` job (`restamp_user_breaker_pair`) and the next claim of that job uses
+   the new pair.
+4. **Saving does NOT bring the retry forward.** `restamp_user_breaker_pair` updates
+   `breaker_provider`/`breaker_model` only — it never touches `next_attempt_at`. A held job keeps
+   the instant written when it was held, which is the OLD pair's breaker probe time
+   (`(provider_hold ->> 'until')`, bounded by the breaker's 30-minute escalation cap, section 16),
+   and the claim predicate refuses it until then. So a job saved at `10:00` whose old probe was
+   `10:25` is claimable at `10:25`, not at `10:00`. There is **no** documented "run now" action, and
+   re-uploading the same document is not one either: `dedup_key` is `(user, kind, format, digest)`,
+   so the same file returns the same held row. Read the instant with the section-16 query
+   (`min(next_attempt_at)` per pair) and wait it out — the hold vanishes at the claim, not at the
+   save.
 
 ### Nebius: the one deployment prerequisite
 
@@ -1747,6 +1758,11 @@ admin:
 2. In the Breakdown client's AI config screen, enable **"Zero Data Retention is enabled for this
    account"** (`AiConfig.zdr_attested`, persisted with the config; the vault holds only key
    material). Only then does `vision_egress_policy_for_config` report the ZDR guarantee.
+   The attestation describes **one account**, so it is bound to the credential it was given for:
+   replacing the config's `vault_key_id` (or the provider, which always needs a fresh key) clears
+   the stored attestation unless that same save re-asserts `true`. That is deliberate — the new
+   account's `ZDR Mode` is not observable, and an inherited `true` would let page images egress
+   under a retention guarantee the account does not provide. A prompt-only edit keeps it.
 3. Verify the live catalogue while you are there (Token Factory's `/v1/models` needs the paid key):
    `curl -s https://api.tokenfactory.nebius.com/v1/models -H "Authorization: Bearer $KEY"` must
    list the curated IDs (`Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash-1017`). If an ID is
@@ -1761,5 +1777,5 @@ that the policy table rejects (no-training and EU residency are not attestable).
 | Symptom | Meaning | Action |
 |---|---|---|
 | `provider … does not declare Zero Data Retention, no training on inputs, and EU data residency (or is missing the AI config's ZDR attestation)` | The gate refused the call; **zero bytes left the process**. | Check the provider key against the table above; for `nebius`, enable `ZDR Mode` AND the config's attestation. |
-| Import holds for hours on one provider | `#871` breaker open (see section 16). | Create/point an AI config at another declared provider from the table; the held job is re-runnable. |
+| Import holds for hours on one provider | `#871` breaker open (see section 16). | Create/point an AI config at another declared provider from the table; the held job is claimable on the new pair once its existing `next_attempt_at` is due (step 4 above) — the save does not bring it forward. |
 | `cost.status = unknown` for a job | No `ai_model_pricing` row for that `(provider, model)`. | Honest absence, not a zero-cost snapshot; the seed covers the curated IDs, a custom model has no price. |

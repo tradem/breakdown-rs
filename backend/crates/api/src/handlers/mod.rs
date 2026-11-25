@@ -8325,6 +8325,14 @@ pub struct UpdateAiConfigRequest {
     /// See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored
     /// attestation (an older client editing the prompts must not silently
     /// revoke it), `false` revokes it explicitly.
+    ///
+    /// **Bound to the credential.** The attestation describes the `ZDR Mode`
+    /// switch of ONE provider account, and nothing server-side can observe that
+    /// switch. An update that changes `vault_key_id` (or the provider, which
+    /// always requires a fresh key) therefore CLEARS a stored `true` when this
+    /// field is omitted — a page image must never egress under a retention
+    /// guarantee inherited from a different account. Re-assert
+    /// `zdr_attested: true` in the same request to carry it over.
     #[serde(default)]
     pub zdr_attested: Option<bool>,
     pub version: AggregateVersion,

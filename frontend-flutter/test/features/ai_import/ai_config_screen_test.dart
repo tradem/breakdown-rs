@@ -2655,6 +2655,46 @@ void main() {
           expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
         },
       );
+
+      testWidgets(
+        'edit: a successful save retires the attestation draft, so another '
+        "client's revocation is no longer masked by it (issue #968 review)",
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The operator attests the account and saves it.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isTrue);
+
+          // Another client now REVOKES the attestation. Its value reaches the
+          // app only through discovery, so the toggle must fall back to the
+          // stored configuration instead of rendering the retired draft —
+          // otherwise the revocation stays invisible and the next save would
+          // re-enable vision egress under a guarantee nobody attested.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+
+          // …and the next save therefore DISPATCHES the revocation.
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
+        },
+      );
     });
 
     // --- Round-trip verification of the Decision Model (issue #769) ---

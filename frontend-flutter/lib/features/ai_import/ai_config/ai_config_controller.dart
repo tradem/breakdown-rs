@@ -1581,6 +1581,18 @@ class AiConfigController extends _$AiConfigController {
         // reconciled-timeout branch above). A bare family invalidate drops every
         // parameter entry — the extraction and the decision key alike.
         ref.invalidate(aiProviderHealthProvider);
+        // Retire the attestation draft once the save that carried it was
+        // accepted (issue #968 review). `build` prefers a non-null draft over
+        // the stored configuration, so a surviving draft would MASK every
+        // later discovery refresh: another client's revocation would stay
+        // invisible and the next save would re-enable vision egress the
+        // operator had revoked. Only THIS field is cleared (`reset()` would
+        // discard every unrelated draft), and only while it still equals the
+        // value this save submitted — a toggle made while the PATCH was in
+        // flight must stay pending.
+        if (_draftsNotifier.state.zdrAttested == zdrAttested) {
+          _draftsNotifier.mutate((d) => d.zdrAttested = null);
+        }
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);
         }

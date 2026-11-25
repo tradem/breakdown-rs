@@ -29,6 +29,13 @@ commits (ADR-020 D5).
   `nebius`, `AiConfigView` and both AI-config request DTOs gained
   `zdr_attested` (additive; the Dart client is regenerated at `1.11.0`).
 
+### Changed (issue #968 review)
+
+- `UpdateAiConfigRequest.zdr_attested` is bound to the credential: an update that
+  changes `vault_key_id` (or the provider) CLEARS a stored `true` unless the same
+  request re-asserts it. The description in `openapi.yaml` states the rule, so
+  the contract no longer reads as "omitted always keeps it".
+
 ## [0.72.0] - Unreleased
 ### Changed (issue #960)
 

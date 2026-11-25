@@ -284,7 +284,21 @@ impl Command<UpdateAiConfig> for AiConfig {
         // An omitted attestation keeps the stored one (issue #968): revoking a
         // ZDR attestation must be an explicit act, never a side effect of an
         // unrelated prompt edit.
-        let zdr_attested = cmd.zdr_attested.unwrap_or(self.zdr_attested);
+        //
+        // …but only while the CREDENTIAL it described is unchanged (review
+        // finding). `zdr_attested` asserts one organization's `ZDR Mode` switch,
+        // and nothing in this workspace can observe the switch of a different
+        // account. The worker resolves the CURRENT `vault_key_id` on every call
+        // (`worker_loop`), so an inherited `true` would let page images egress
+        // under a retention guarantee the replacement account does not provide.
+        // A provider change always carries a fresh key (the
+        // `ProviderMismatch` guard above), so the key comparison covers both.
+        let credential_unchanged = cmd.vault_key_id == self.vault_key_id;
+        let zdr_attested = match cmd.zdr_attested {
+            Some(attested) => attested,
+            None if credential_unchanged => self.zdr_attested,
+            None => false,
+        };
         let effort_unchanged = current_provider == cmd.provider
             && reasoning_effort == self.reasoning_effort
             && cmd.assistant_model == self.assistant_model;

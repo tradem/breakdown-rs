@@ -41,6 +41,22 @@ commits (ADR-020 D5).
 - `LlmVisionRequest` gained `zdr_attested`, so the pre-egress gate resolves the
   policy of the CONFIGURED provider account rather than a compile-time default.
 
+### Changed (issue #968 review)
+
+- `UpdateAiConfig` binds the attestation to the CREDENTIAL it was given for: an
+  omitted `zdr_attested` keeps the stored value only while `vault_key_id` is
+  unchanged, and resolves to `false` when the same update replaces the key (a
+  provider change always does — the `ProviderMismatch` guard requires a fresh
+  key). The attestation asserts ONE account's `ZDR Mode`, which nothing in this
+  workspace can observe, so an inherited `true` would let page images egress
+  under a retention guarantee the replacement account does not provide.
+- The `Scaleway` and `Nebius` declarations now carry their documented caveats in
+  the code comment and in ADR-041 `D2.1` → "Accepted exceptions under D2"
+  (Scaleway: the Serverless HTTP-500/misuse triage exception, ≤2 weeks, applies
+  to our synchronous calls and is accepted with that scope; Nebius: `Region:
+  Global`, the processing location can change, and `eu_data_residency` asserts
+  the retained-copy/GDPR half only).
+
 ## [0.79.0] - Unreleased
 ### Added (issue #960)
 

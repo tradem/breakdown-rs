@@ -162,10 +162,22 @@ pub const fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy {
         // Scaleway, "Data privacy" (reviewed 2025-10-03): "By default we apply
         // a Zero Data Retention Policy", inputs are not used for training and
         // "Your personal data may be stored in the following region: Paris,
-        // France". Documented exception: request content of abusive/500-error
-        // traffic may be held up to two weeks for root-cause triage; the Batch
-        // API (not used here) retains inputs up to 24 h. Our page calls are
-        // synchronous, so the synchronous ZDR default applies verbatim.
+        // France".
+        //
+        // `zero_data_retention: true` here is NOT the unqualified claim it looks
+        // like: the same policy documents an exception that our calls are
+        // subject to. "For Serverless ... only in the event of misuse ... such
+        // as a request triggering a 500 HTTP error (1 out of a million
+        // requests) ... Data is stored for up to two weeks ... This temporary
+        // data storage does not apply to Dedicated Deployments." Serverless is
+        // exactly what we call, so a synchronous request does NOT escape it —
+        // an earlier revision of this comment claimed otherwise and was wrong.
+        // The exception is ACCEPTED under `D2` with that scope (error path only,
+        // no content capture on a successful call, ~1e-6 of requests, ≤2 weeks,
+        // triage-only); the acceptance, its scope and the Batch API's separate
+        // 24 h input retention (we never use Batch) are recorded in ADR-041
+        // `D2.1` → "Accepted exceptions". Changing either side means changing
+        // both: this flag and the ADR paragraph.
         // https://www.scaleway.com/en/docs/generative-apis/reference-content/data-privacy/
         LlmProvider::Scaleway => VisionEgressPolicy {
             zero_data_retention: true,
@@ -192,6 +204,18 @@ pub const fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy {
         // operator attests the setting on the AI config (`zdr_attested`); the
         // deployment prerequisite is documented in
         // `docs/operations/runbooks.md` → "AI import vision egress".
+        //
+        // `eu_data_residency: true` carries a documented caveat, also recorded
+        // in ADR-041 `D2.1`: Nebius's legal guide states that PUBLIC endpoints
+        // show `Region: Global` and that "the processing location is decided
+        // dynamically, is not tied to any single data center, and can change at
+        // any time without prior notice" — only a Dedicated Endpoint in a chosen
+        // region is a contractual region commitment. What this flag therefore
+        // asserts is the DATA-residency half: any retained copy lives in Finland
+        // (EU) and the DPA/SCCs govern processing wherever it runs, while the
+        // per-request processing region is NOT guaranteed. The owner accepted
+        // that caveat for the vision path, where ZDR means no retained copy at
+        // all; do not read this flag as "processing stays in the EU".
         LlmProvider::Nebius => VisionEgressPolicy {
             zero_data_retention: false,
             no_training_on_inputs: true,

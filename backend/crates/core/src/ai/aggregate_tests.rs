@@ -888,9 +888,11 @@ fn update_keeps_the_stored_choice_when_the_field_is_omitted() {
 fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
     let mut create_cmd = make_create_cmd();
     create_cmd.zdr_attested = true;
-    // Omitted (`None`) keeps the stored attestation.
+    // Omitted (`None`) keeps the stored attestation — while the CREDENTIAL it
+    // was given for is unchanged, so this update reuses `key-123`.
     AiConfig::given(vec![created_event(&create_cmd)])
         .when(UpdateAiConfig {
+            vault_key_id: "key-123".into(),
             zdr_attested: None,
             ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
         })
@@ -900,7 +902,7 @@ fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
             assistant_model: "gpt-4o-mini".into(),
             image_model: None,
             prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
-            vault_key_id: "key-456".into(),
+            vault_key_id: "key-123".into(),
             decision_provider: None,
             decision_model: None,
             decision_vault_key_id: None,
@@ -929,6 +931,64 @@ fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: Some(CostDisplayPreference::Energy),
             zdr_attested: Some(false),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+}
+
+/// The attestation is bound to the CREDENTIAL it was given for (review
+/// finding on issue #968). `zdr_attested` describes one organization's `ZDR
+/// Mode` switch, which nothing in this workspace can observe — so it must not
+/// survive a `vault_key_id` change. An omitted field on a key-changing update
+/// resolves to `false` (fail-closed) instead of being inherited, and the same
+/// request can carry it over with an explicit `Some(true)`.
+#[test]
+fn the_zdr_attestation_does_not_survive_a_credential_change() {
+    let mut create_cmd = make_create_cmd();
+    create_cmd.zdr_attested = true;
+    // Omitted (`None`) + a NEW vault key: the old account's attestation is
+    // dropped, and the field still travels as a resolved value.
+    AiConfig::given(vec![created_event(&create_cmd)])
+        .when(UpdateAiConfig {
+            vault_key_id: "key-456".into(),
+            zdr_attested: None,
+            ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
+        })
+        .then(vec![AiConfigEvent::Updated {
+            id: create_cmd.id,
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-456".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
+            cost_display_preference: Some(CostDisplayPreference::Energy),
+            zdr_attested: Some(false),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+
+    // Re-attesting the replacement account in the SAME request keeps `true`.
+    AiConfig::given(vec![created_event(&create_cmd)])
+        .when(UpdateAiConfig {
+            vault_key_id: "key-456".into(),
+            zdr_attested: Some(true),
+            ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
+        })
+        .then(vec![AiConfigEvent::Updated {
+            id: create_cmd.id,
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-456".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
+            cost_display_preference: Some(CostDisplayPreference::Energy),
+            zdr_attested: Some(true),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
