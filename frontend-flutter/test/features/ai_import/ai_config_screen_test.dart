@@ -2850,6 +2850,84 @@ void main() {
       );
 
       testWidgets(
+        'edit: a NEWER projection with a different value supersedes a pending '
+        'confirmation (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The operator attests; the read-back is stuck on version 1, so the
+          // confirmation is pending at version 2 with `true`.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: false));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // Another client revokes it at version 3, so discovery NEVER serves
+          // the acknowledged version 2. A newer aggregate state wins over the
+          // stale draft — otherwise the pending `true` could be re-sent.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a pending confirmation survives a closed and reopened screen '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // Revocation acknowledged at version 2, read-back still stale → the
+          // confirmation is recorded in the keep-alive draft store.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: true));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNotNull,
+          );
+
+          // Closing the screen disposes the (auto-dispose) controller; the
+          // draft and its pending confirmation must outlive it.
+          await tester.pumpWidget(const SizedBox());
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+
+          await pumpScreen(tester, height: 2400);
+          discovery.value = Right([_config(zdrAttested: false, version: 2)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNull,
+          );
+        },
+      );
+
+      testWidgets(
         'edit: switching away from an attested provider resets the toggle, so '
         'the new account must be attested explicitly (issue #968 review)',
         (tester) async {

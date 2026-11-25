@@ -161,6 +161,7 @@ class AiConfigDraftData {
     this.costDisplayPreference,
     this.reasoningEffort,
     this.zdrAttested,
+    this.zdrConfirmation,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.scriptPromptTouched = false,
@@ -232,6 +233,13 @@ class AiConfigDraftData {
   /// rather than a tri-state on the wire: revoking an attestation must be
   /// expressible from the app, and the generated client omits nulls.
   bool? zdrAttested;
+
+  /// A saved attestation whose read-back had not caught up when the save was
+  /// acknowledged, recorded as `(aggregate version, submitted value)`
+  /// (issue #968 review). It lives in this KEEP-ALIVE store rather than on the
+  /// auto-disposed controller, so the confirmation still retires the draft
+  /// after the screen was closed and reopened.
+  ({int version, bool value})? zdrConfirmation;
   AiConfigUnresolved? unresolved;
 }
 
@@ -276,6 +284,7 @@ class AiConfigDrafts extends _$AiConfigDrafts {
       costDisplayPreference: state.costDisplayPreference,
       reasoningEffort: state.reasoningEffort,
       zdrAttested: state.zdrAttested,
+      zdrConfirmation: state.zdrConfirmation,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
       scriptPromptTouched: state.scriptPromptTouched,
@@ -332,12 +341,6 @@ class AiConfigController extends _$AiConfigController {
   AiConfigDrafts get _draftsNotifier =>
       ref.read(aiConfigDraftsProvider.notifier);
 
-  /// A draft retirement awaiting its projection confirmation: the aggregate
-  /// version and the attestation value the save submitted (issue #968 review).
-  /// Cleared by [build]'s discovery listener, by a confirmed save, or by
-  /// `discardDrafts`.
-  ({int version, bool value})? _pendingZdrConfirmation;
-
   @override
   AiConfigScreenState build() {
     final discovery = ref.watch(aiConfigDiscoveryProvider);
@@ -375,17 +378,20 @@ class AiConfigController extends _$AiConfigController {
     // is what retires it. Scheduled as a microtask on purpose — the draft store
     // must never be mutated DURING a build of this controller, which would
     // rebuild it while it is building.
-    final pendingAttestation = _pendingZdrConfirmation;
+    final pendingAttestation = drafts.zdrConfirmation;
+    final servedConfig = config;
     if (pendingAttestation != null &&
-        config != null &&
-        _attestationConfirmed(
-          config,
-          pendingAttestation.version,
-          pendingAttestation.value,
-        )) {
-      _pendingZdrConfirmation = null;
+        servedConfig != null &&
+        _settlesZdrConfirmation(servedConfig, pendingAttestation)) {
       final submitted = pendingAttestation.value;
-      Future.microtask(() => _retireZdrAttestedDraft(submitted));
+      Future.microtask(() {
+        _draftsNotifier.mutate((d) {
+          d.zdrConfirmation = null;
+          // A flip made AFTER the save stays pending — only the value this
+          // save submitted is retired.
+          if (d.zdrAttested == submitted) d.zdrAttested = null;
+        });
+      });
     }
 
     // "Resolved first-run" — only a discovery that has GENUINELY resolved to
@@ -790,7 +796,6 @@ class AiConfigController extends _$AiConfigController {
   /// the controller watches the draft store, so the next build renders the
   /// stored values again.
   void discardDrafts() {
-    _pendingZdrConfirmation = null;
     _draftsNotifier.reset();
     state = state.copyWith(clearCommandError: true);
   }
@@ -1084,22 +1089,6 @@ class AiConfigController extends _$AiConfigController {
     );
   }
 
-  /// Retires the `zdrAttested` draft after a save that is known to have LANDED
-  /// (issue #968 review).
-  ///
-  /// `build` prefers a non-null draft over the stored configuration, so a draft
-  /// outliving its save MASKS every later discovery refresh: another client's
-  /// revocation would stay invisible and the next save would re-enable vision
-  /// egress the operator had revoked. Only THIS field is cleared — `reset()`
-  /// would discard every unrelated draft — and only while it still equals the
-  /// value the save submitted, so a flip made while the request was in flight
-  /// stays pending.
-  void _retireZdrAttestedDraft(bool submitted) {
-    if (_draftsNotifier.state.zdrAttested == submitted) {
-      _draftsNotifier.mutate((d) => d.zdrAttested = null);
-    }
-  }
-
   /// Retires a confirmed attestation draft, or DEFERS the confirmation to the
   /// next discovery answer (issue #968 review).
   ///
@@ -1114,11 +1103,13 @@ class AiConfigController extends _$AiConfigController {
     int version,
     bool submitted,
   ) {
-    if (_attestationConfirmed(stored, version, submitted)) {
-      _retireZdrAttestedDraft(submitted);
-    } else {
-      _pendingZdrConfirmation = (version: version, value: submitted);
-    }
+    final confirmed = _attestationConfirmed(stored, version, submitted);
+    _draftsNotifier.mutate((d) {
+      d.zdrConfirmation = confirmed
+          ? null
+          : (version: version, value: submitted);
+      if (confirmed && d.zdrAttested == submitted) d.zdrAttested = null;
+    });
   }
 
   /// Whether an authoritative read-back CONFIRMS the attestation a save
@@ -1131,6 +1122,19 @@ class AiConfigController extends _$AiConfigController {
   /// Retiring a revocation draft on such a view makes `build` fall back to the
   /// stored `true` and the form then shows a revocation that was in fact
   /// submitted — so an unconfirmed read-back keeps the draft pending instead.
+  /// Whether a discovered [stored] view SETTLES a pending confirmation: it
+  /// carries the acknowledged version with the submitted value (confirmed), or
+  /// it is NEWER than that version — a superseding update wins over a draft
+  /// whose intent was written against the older aggregate state (issue #968
+  /// review).
+  static bool _settlesZdrConfirmation(
+    AiConfigView stored,
+    ({int version, bool value}) pending,
+  ) =>
+      stored.version > pending.version ||
+      (stored.version == pending.version &&
+          stored.zdrAttested == pending.value);
+
   static bool _attestationConfirmed(
     AiConfigView? stored,
     int version,
