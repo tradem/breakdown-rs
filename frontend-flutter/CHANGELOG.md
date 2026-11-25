@@ -26,6 +26,38 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 - **Version bump:** `0.4.0+155 → 0.5.0-alpha.1+156` (opens the 0.5.0 alpha
   line; the Play `versionCode` `+N` stays strictly monotonic).
 
+- **Reachable patch/minor dependency bumps** (issue #976, risk class 1 of 4).
+  Taken with the pinned toolchain — `flutter pub upgrade` under Flutter 3.50.1 /
+  Dart 3.14.0 — so `pubspec.lock` stays resolved by the same SDK the gates and
+  the release build use: `pdfium_dart 0.4.3 → 0.4.4`,
+  `pdfium_flutter 0.4.3 → 0.4.4`, `pdfrx_engine 0.9.3 → 0.9.6`,
+  `sqlite3 3.9.1 → 3.9.2`, `vector_graphics_compiler 1.3.6 → 1.3.7`,
+  `coverage 1.16.1 → 1.16.2`, and `package_config 2.2.0 → 3.0.0` — a major, but
+  a transitive one that `pub upgrade` resolves without touching a constraint
+  (`package_config` only needs `meta`).
+  - **`environment: sdk` moves `^3.13.1 → ^3.14.0`.** The new resolved set
+    *requires* Dart 3.14 (`pdfium_dart`, `pdfium_flutter` and `pdfrx_engine`
+    all declare `sdk: ^3.14.0`; the lock's sdks block now says
+    `dart: ">=3.14.0 <4.0.0"`). Leaving the declared floor at 3.13 would let a
+    3.13 SDK re-resolve the lock silently — exactly the drift the pin lift
+    above just cleaned up.
+  - **Two `.g.dart` files were stale and are regenerated here:**
+    `ai_config_controller.g.dart` (two provider hashes) and
+    `apply_controller.g.dart` (83 lines of carried-over doc comments). Both are
+    pure `build_runner` output drift that predates this bump — the sources
+    already carried the comments — and the generated diff was reviewed, not
+    waved through.
+  - **Still not taken, and why:** the remaining majors are the other three risk
+    classes of #976 (`pdfrx 3.x`; the analyzer-14 codegen stack `freezed 4.0.3`
+    / `build_runner 2.17` / `build 5`, which is gated by `breakdown_lints`'
+    pinned `analysis_server_plugin: 0.3.18` → `analyzer: 13.3.0` exact;
+    `gherkin 3.x`, gated by `flutter_gherkin`), plus three ids no pubspec edit
+    here can lift: `xml` stays `7.0.1` because `vector_graphics_compiler 1.3.7`
+    declares `xml: ">=6.3.0 <=7.0.1"`; `equatable` stays `2.1.0` because
+    `flutter_code_editor 0.3.5` declares `equatable: ^2.0.5`; and
+    `material_color_utilities` / `test` / `test_api` / `test_core` move only
+    when the SDK ships a new pin.
+
 - **Toolchain pin lifted: Flutter `3.47.6` → `3.50.1` (Dart `3.13.x` →
   `3.14.0`)** (issue #966). The v0.4.0 blocker was Dart 3.14.0's AOT register
   allocator aborting on one source shape
