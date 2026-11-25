@@ -26,6 +26,29 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 - **Version bump:** `0.4.0+155 → 0.5.0-alpha.1+156` (opens the 0.5.0 alpha
   line; the Play `versionCode` `+N` stays strictly monotonic).
 
+- **`pdfrx 2.13.1 → 3.1.0`** (issue #976, risk class 2 of 4). The viewer major
+  behind the in-app report preview is now on the 3.x line, which is the
+  Flutter-3.50 / Dart-3.14 line the pin lift unblocked.
+  - **No migration was needed — and that was checked, not assumed.** The
+    preview (`lib/features/reports/reports_screen.dart`) uses only
+    `PdfViewer.file(path, params: PdfViewerParams(backgroundColor: …))`. pdfrx
+    3.0's breaking surface is `PdfViewerParams.layoutPages` / `.margin` /
+    `PdfPageLayoutFunction`, the removed 2.x knobs
+    (`maxScale`/`minScale`/`calculateInitialZoom`/…) and
+    `PdfDocumentRef.sourceName` — none of them occur in this tree, and the
+    default `SequentialPagesLayout` keeps the 2.x geometry.
+  - **New engine guard:**
+    `test/features/reports/pdfrx_multi_page_engine_test.dart` drives the real
+    pdfium engine headlessly — it builds a deterministic three-page PDF, opens
+    it with `PdfDocument.openFile`, rasterizes page 1 to pixels and reads every
+    page's text back. A widget test cannot prove that (the engine is stubbed
+    there), so the major bump carries a regression guard that runs on the host
+    and in CI instead of only on a device.
+  - **Verified at build level too:** `flutter build apk --flavor dev --debug`
+    succeeds and bundles `libpdfium.so` for `arm64-v8a`, `armeabi-v7a` and
+    `x86_64`. The on-device visual proof of the preview against a real
+    multi-page schedule PDF still needs a device/emulator (see issue #976).
+
 - **Reachable patch/minor dependency bumps** (issue #976, risk class 1 of 4).
   Taken with the pinned toolchain — `flutter pub upgrade` under Flutter 3.50.1 /
   Dart 3.14.0 — so `pubspec.lock` stays resolved by the same SDK the gates and
