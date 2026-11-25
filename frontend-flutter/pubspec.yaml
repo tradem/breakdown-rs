@@ -173,6 +173,17 @@ dev_dependencies:
   # `package:gherkin/gherkin.dart`. flutter_gherkin depends on it transitively
   # but does not re-export it, so it is declared directly to satisfy the
   # analyzer's depend_on_referenced_packages rule.
+  #
+  # STAYS ON 2.x — attempted and blocked, twice over (issue #976, class 4):
+  #   1. `gherkin >=3.0.0` depends on `uuid ^3.0.6`, and this app requires
+  #      `uuid ^4.6.0` (UUIDv7 wire ids, issue #472). `flutter pub upgrade`
+  #      with `gherkin: ^3.1.0` fails on exactly that pair — no flutter_gherkin
+  #      version can rescue it, because the conflict is gherkin's own.
+  #   2. The only flutter_gherkin release that accepts `gherkin: ^3` is the
+  #      unmaintained 2022 line (3.0.0-rc.17, published 2022-07-25); stable is
+  #      still 2.0.0 (2021). The on-device runner here is built on 2.0.0 plus
+  #      the tracked VM-service patch (tool/patch_gherkin.sh,
+  #      tool/check_gherkin.sh) and cannot be device-verified on an RC.
   gherkin: ^2.0.2
   flutter_secure_storage_platform_interface: ^2.0.3
   test: ^1.27.1
