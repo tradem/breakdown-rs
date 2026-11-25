@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 # Copyright (C) 2024-2026 Breakdown RS Contributors
 # Co-authored-by: omen-alpha (opencode-go)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 #
 # Flutter Release — tag-triggered Android release pipeline
@@ -34,17 +35,17 @@
 #   frontend-flutter/scripts/release/verify-signatures.sh
 #   frontend-flutter/scripts/release/publish-release.sh      (--dry-run capable)
 #
-# Toolchain pin (do not float): `flutter-version` is pinned to 3.47.6 — the
-# SDK that built the green v0.3.0 release — because Flutter 3.50.x ships Dart
-# 3.14.0, whose AOT compiler aborts (`linearscan.cc: 3013: error: unreachable
-# code`, exit -6) on a known pattern: a deferred `final` assigned in a pattern
-# `switch` case and captured by a closure (dart-lang/sdk#64917; fixed upstream,
-# not shipped in 3.50.1). The failure only shows up in a release AOT build, so
-# no JIT gate caught it and the v0.4.0 pipeline died in `gen_snapshot` for all
-# three ABIs. `flutter-ci.yml` carries the SAME pin (gates and build must see
-# one SDK). Lift both together when `flutter-aot-canary.yml` — or a local run
-# of `frontend-flutter/scripts/release/check-flutter-aot-regression.sh` —
-# reports the regression probe compiles.
+# Toolchain pin (one SDK for the gates AND the build): `flutter-version` is
+# pinned to 3.50.1 (Dart 3.14.0), identical to `flutter-ci.yml` — the gates and
+# this build must see the same SDK, so bump BOTH workflows in one PR. The pin
+# replaces a floating `channel: stable`, which once carried a release-only AOT
+# miscompile (dart-lang/sdk#64917: a deferred `final` assigned in a pattern
+# `switch` case and captured by a closure) into the v0.4.0 pipeline: the build
+# died in `gen_snapshot` (`linearscan.cc: 3013: error: unreachable code`, exit
+# -6) for all three ABIs while every JIT/debug gate was green. That source
+# shape stays guarded by the AOT smoke gate in `flutter-ci.yml`
+# (`frontend-flutter/scripts/release/check-flutter-aot-regression.sh`), which
+# runs before a pinned bump can reach a tag.
 #
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
@@ -154,7 +155,7 @@ jobs:
       - name: Set up Flutter SDK (same pin as CI)
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
+          flutter-version: 3.50.1 # pinned — same SDK as flutter-ci.yml
           cache: true
 
       - name: Guard prod OIDC build configuration
