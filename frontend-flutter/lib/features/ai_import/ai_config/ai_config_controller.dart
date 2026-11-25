@@ -1299,6 +1299,7 @@ class AiConfigController extends _$AiConfigController {
     required String? imageModelId,
     required CostDisplayPreference costDisplayPreference,
     required ReasoningEffortChoice reasoningEffort,
+
     /// The zero-data-retention attestation of the edit (issue #968). Always
     /// sent as a value: `false` is an explicit revocation, and the aggregate
     /// only keeps the stored value when the field is OMITTED (which the
