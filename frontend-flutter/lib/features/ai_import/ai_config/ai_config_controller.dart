@@ -856,6 +856,9 @@ class AiConfigController extends _$AiConfigController {
     String? decisionSecret,
   }) async {
     final s = state;
+    // Captured at DISPATCH, before any await (issue #968 review): the
+    // attestation edit generation this create speaks for.
+    final zdrGeneration = _draftsNotifier.state.zdrEditGeneration;
     final providerKey = s.selectedProviderKey;
     final assistantModelId = s.selectedAssistantModelId;
     final provider = _resolveProvider(providerKey);
@@ -1006,6 +1009,7 @@ class AiConfigController extends _$AiConfigController {
               s,
               decisionProviderKey: decisionProviderKey,
               decisionCredential: createdDecisionCredential,
+              zdrGeneration: zdrGeneration,
             ),
           );
           return Left<ProblemError, IdVersionResponse>(error);
@@ -1090,7 +1094,12 @@ class AiConfigController extends _$AiConfigController {
         // The create landed, so its attestation draft is retired like an
         // edit's (issue #968 review) — from the read-back's confirmation, with
         // a deferred confirmation when the projection has not caught up.
-        _settleZdrAttestation(verdict.stored, idVersion.version, s.zdrAttested);
+        _settleZdrAttestation(
+          verdict.stored,
+          idVersion.version,
+          s.zdrAttested,
+          zdrGeneration,
+        );
         if (!ref.mounted) {
           return Right<ProblemError, IdVersionResponse>(idVersion);
         }
@@ -1106,6 +1115,11 @@ class AiConfigController extends _$AiConfigController {
   /// Retires a confirmed attestation draft, or DEFERS the confirmation to the
   /// next discovery answer (issue #968 review).
   ///
+  /// [generation] is the draft's edit generation captured at DISPATCH, never at
+  /// settlement: a flip made while the request or its read-back was in flight
+  /// is the operator's newer intent and must not be recorded as the save's own,
+  /// or the settle would retire it together with the acknowledged value.
+  ///
   /// A read-back that has not caught up must not clear the draft (the form
   /// would render the pre-save value as if it had just been saved), and must
   /// not keep it forever either (a stale `true` could be re-sent after another
@@ -1116,9 +1130,9 @@ class AiConfigController extends _$AiConfigController {
     AiConfigView? stored,
     int version,
     bool submitted,
+    int generation,
   ) {
     final confirmed = _attestationConfirmed(stored, version, submitted);
-    final generation = _draftsNotifier.state.zdrEditGeneration;
     _draftsNotifier.mutate((d) {
       d.zdrConfirmation = confirmed
           ? null
@@ -1321,6 +1335,10 @@ class AiConfigController extends _$AiConfigController {
     AiConfigScreenState snapshot, {
     String? decisionProviderKey,
     CredentialHandoff? decisionCredential,
+
+    /// The attestation edit generation captured at the ORIGINAL dispatch, so a
+    /// later flip is never mistaken for the create's own (issue #968 review).
+    int zdrGeneration = 0,
   }) async {
     final repo = ref.read(aiConfigRepositoryProvider);
     final scheduler = ref.read(reconciliationSchedulerProvider);
@@ -1359,7 +1377,12 @@ class AiConfigController extends _$AiConfigController {
         // An unambiguous commit settles the attestation too (issue #968
         // review): the committed view is authoritative, and a draft left over
         // from the unresolved state would mask every later refresh.
-        _settleZdrAttestation(view, view.version, snapshot.zdrAttested);
+        _settleZdrAttestation(
+          view,
+          view.version,
+          snapshot.zdrAttested,
+          zdrGeneration,
+        );
         ref.invalidate(aiConfigDiscoveryProvider);
         ref.invalidate(configuredAiNamingProvider);
         ref.invalidate(aiImportHandoffProvider);
@@ -1405,6 +1428,7 @@ class AiConfigController extends _$AiConfigController {
             // review): the re-check needs it to tell the submitted value from a
             // later edit before it retires or keeps the draft.
             zdrAttested: snapshot.zdrAttested,
+            zdrGeneration: zdrGeneration,
             error: error,
           ),
         );
@@ -1436,6 +1460,7 @@ class AiConfigController extends _$AiConfigController {
         schedulePrompt: unresolved.schedulePrompt,
         zdrAttested: unresolved.zdrAttested,
       ),
+      zdrGeneration: unresolved.zdrGeneration,
     );
   }
 
@@ -1484,6 +1509,11 @@ class AiConfigController extends _$AiConfigController {
     if (config == null) {
       return const Left(ProblemError(code: 'ai_config.not-found'));
     }
+    // Captured at DISPATCH, before the credential hand-off and the PATCH
+    // (issue #968 review): the attestation edit generation this save speaks
+    // for. Reading it at settlement would let a flip made while the request was
+    // in flight masquerade as the save's own edit.
+    final zdrGeneration = _draftsNotifier.state.zdrEditGeneration;
     final provider =
         _resolveProvider(providerKey) ??
         (providerKey == config.provider.name ? config.provider : null);
@@ -1688,7 +1718,12 @@ class AiConfigController extends _$AiConfigController {
             // answer otherwise. Clearing it on the provider/key match alone
             // would drop a flip the server may not have stored; keeping it on a
             // confirmed write would mask a later revocation.
-            _settleZdrAttestation(view, view.version, zdrAttested);
+            _settleZdrAttestation(
+              view,
+              view.version,
+              zdrAttested,
+              zdrGeneration,
+            );
             if (ref.mounted) state = state.copyWith(clearCommandError: true);
             return Right<ProblemError, int>(view.version);
           }
@@ -1761,7 +1796,12 @@ class AiConfigController extends _$AiConfigController {
         // Retire the attestation draft once a read-back has CONFIRMED it at the
         // acknowledged version, or defer the confirmation to the next
         // discovery answer (issue #968 review) — see `_settleZdrAttestation`.
-        _settleZdrAttestation(verdict.stored, version, zdrAttested);
+        _settleZdrAttestation(
+          verdict.stored,
+          version,
+          zdrAttested,
+          zdrGeneration,
+        );
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);
         }

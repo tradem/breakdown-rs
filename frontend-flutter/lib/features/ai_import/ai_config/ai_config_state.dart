@@ -299,6 +299,7 @@ class AiConfigUnresolved {
     required this.scriptPrompt,
     required this.schedulePrompt,
     required this.zdrAttested,
+    required this.zdrGeneration,
     required this.error,
   });
 
@@ -316,6 +317,12 @@ class AiConfigUnresolved {
   /// tell the submitted value from a later edit, and a surviving draft would
   /// mask a revocation.
   final bool zdrAttested;
+
+  /// The attestation draft's edit generation at the ORIGINAL dispatch
+  /// (issue #968 review): the re-check must settle that generation, not the
+  /// one the draft carries by the time it runs, so a flip made in between is
+  /// never mistaken for the create's own.
+  final int zdrGeneration;
   final ProblemError error;
 }
 

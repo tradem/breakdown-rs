@@ -283,9 +283,16 @@ class FakeAiConfigRepository extends AiConfigRepository {
   /// script falls back to [getConfigResult] / the echoed submitted view.
   List<Result<AiConfigView>>? getConfigScript;
 
+  /// A gate the read-back awaits, so a test can hold it in flight and edit the
+  /// draft meanwhile (issue #968 review: the generation must be captured at
+  /// dispatch, not at settlement).
+  Future<void>? getConfigGate;
+
   @override
   Future<Result<AiConfigView>> getConfig(String id) async {
     getConfigCalls++;
+    final gate = getConfigGate;
+    if (gate != null) await gate;
     final script = getConfigScript;
     if (script != null && script.isNotEmpty) return script.removeAt(0);
     final override = getConfigResult;
@@ -2936,6 +2943,60 @@ void main() {
       );
 
       testWidgets(
+        'edit: flips made while the read-back is IN FLIGHT are preserved — the '
+        'generation is captured at dispatch (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+
+          // Attest, then hold the read-back so both flips happen while the
+          // save is genuinely in flight.
+          controller.setZdrAttested(true);
+          repo.getConfigResult = Right(_config(zdrAttested: false));
+          final gate = Completer<void>();
+          repo.getConfigGate = gate.future;
+          final dispatch = controller.edit(
+            providerKey: 'openai',
+            assistantModelId: 'gpt-5.6-luna',
+            imageModelId: null,
+            costDisplayPreference: CostDisplayPreference.token,
+            reasoningEffort: ReasoningEffortChoice.auto,
+            zdrAttested: true,
+            scriptPrompt: '',
+            schedulePrompt: '',
+            decisionProviderKey: null,
+            decisionModelId: null,
+          );
+          await tester.pump();
+
+          // Flip off and back on while the read-back is held: the operator's
+          // latest intent is `true`, but it is NOT the generation this save
+          // submitted.
+          controller.setZdrAttested(false);
+          controller.setZdrAttested(true);
+          await tester.pump();
+
+          gate.complete();
+          expect(await dispatch, isA<Right<ProblemError, int>>());
+          await tester.pumpAndSettle();
+
+          // Settlement must not record the newer generation as the save's own:
+          // the draft survives, so a later projection cannot silently override
+          // the flips the operator made.
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+        },
+      );
+
+      testWidgets(
         'edit: a pending confirmation survives a closed and reopened screen '
         '(issue #968 review)',
         (tester) async {
@@ -3573,6 +3634,7 @@ void main() {
           scriptPrompt: '',
           schedulePrompt: '',
           zdrAttested: false,
+          zdrGeneration: 0,
           error: const ProblemError(code: 'transport.connectionTimeout'),
         );
       });
