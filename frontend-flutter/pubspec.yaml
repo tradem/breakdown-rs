@@ -103,7 +103,11 @@ dependencies:
   # "Open settings" affordance for denied camera/photo-library permission
   # (real Android+iOS handlers; FOSS).
   app_settings: ^9.0.1
-  pdfrx: ^2.13.1
+  # In-app PDF preview (`lib/features/reports/reports_screen.dart`): 3.x is the
+  # Flutter-3.50 / Dart-3.14 line and needs no migration here — that viewer uses
+  # neither `PdfViewerParams.layoutPages`/`.margin` nor any removed 2.x API, and
+  # the default `SequentialPagesLayout` keeps 2.x geometry (issue #976).
+  pdfrx: ^3.1.0
   share_plus: ^13.3.1
   path_provider: ^2.1.6
   file_picker: ^13.4.1
