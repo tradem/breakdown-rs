@@ -16,8 +16,8 @@ use breakdown_core::ai::{
     AiImportMapping, AiImportMappingRepository, AiImportQueue, ApplyMapping, DecisionAnswer,
     DecisionCallOutcome, DecisionClient, DecisionRequest, DocumentKind, DraftCharacter,
     DraftEpisode, DraftOutfit, DraftScene, DraftShootingDay, EpisodeGroupPlan, EpisodeTarget,
-    JobStatus, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    OutfitDecision, PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule,
+    JobStatus, JobTelemetrySummary, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
+    LlmProvider, OutfitDecision, PRIMARY_ORDINAL, ScriptContext, ShootingDayPlan, ShootingSchedule,
     ShootingScheduleRow, SourceFormat, Telemetry, TelemetryApplyState,
     UNCERTAINTY_FIELD_CHARACTERS, UnappliedOutfitReason, UncertaintyKind, character_identity,
     character_mapping_ref, mapping_kind, merge_schedule_to_scenes, question_keys,
@@ -9957,6 +9957,12 @@ async fn a_crashed_attempts_completion_total_is_not_counted_twice() {
 /// completion counters are never read back, so the window between the two
 /// writes cannot double anything (Option A of the issue; shipped with #970's
 /// `billed_calls` column, so Option B's atomic write is not needed).
+///
+/// The fixture models BOTH halves of the crashed row — the ledger (4 × 25) and
+/// the landed completion total (`job.telemetry.tokens_in = 100`) — because a
+/// regression that starts reading the counters back is only visible when the
+/// job carries one (CodeRabbit review, PR #972): with `telemetry: None` the
+/// test would report 100 either way.
 #[tokio::test]
 async fn a_completion_total_from_before_the_crash_is_reported_once() {
     let queue = Arc::new(FakeQueue::default());
@@ -9969,6 +9975,14 @@ async fn a_completion_total_from_before_the_crash_is_reported_once() {
     for _ in 0..4 {
         queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
     }
+    // The completion write of that attempt DID land, so the reclaimed row still
+    // carries its total. Reading it back on top of the ledger is the regression
+    // this test has to catch: it would answer 200.
+    let mut job = script_job(AiImportJobId::new());
+    job.telemetry = Some(JobTelemetrySummary {
+        tokens_in: 100,
+        ..JobTelemetrySummary::default()
+    });
     let previews = Arc::new(MemoryAiPreviewStore::default());
     // The COMPLETE chunk set — the crashed attempt stored all four, so the
     // re-drive has no paid work left (issue #871 D-B6).
@@ -9978,7 +9992,6 @@ async fn a_completion_total_from_before_the_crash_is_reported_once() {
         Arc::clone(&previews),
         Arc::clone(&store),
     );
-    let job = script_job(AiImportJobId::new());
     let handle = worker
         .process_text(&job, "test-worker", FOUR_SCENE_SCRIPT)
         .await
@@ -10002,7 +10015,8 @@ async fn a_completion_total_from_before_the_crash_is_reported_once() {
     let telemetry = the_only_telemetry(&queue);
     assert_eq!(
         telemetry.tokens_in, 100,
-        "the crashed attempt's 100 tokens are reported ONCE, never 200 (issue #971)"
+        "the crashed attempt's 100 tokens are reported ONCE, never 200 (issue #971) — \
+         the job row's own `telemetry.tokens_in` is not read back"
     );
     assert_eq!(
         telemetry.energy_millijoules, 0,
