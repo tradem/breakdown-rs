@@ -312,7 +312,10 @@ class FakeAiConfigRepository extends AiConfigRepository {
             update?.decisionProvider ?? create?.decisionProvider
         ..decisionModel = update?.decisionModel ?? create?.decisionModel
         ..decisionVaultKeyId =
-            update?.decisionVaultKeyId ?? create?.decisionVaultKeyId,
+            update?.decisionVaultKeyId ?? create?.decisionVaultKeyId
+        // The attestation is echoed like every other submitted field: the
+        // read-back confirms it, which is what retires the draft (issue #968).
+        ..zdrAttested = update?.zdrAttested ?? create?.zdrAttested ?? false,
     );
   }
 
@@ -2693,6 +2696,41 @@ void main() {
           await tester.tap(find.byKey(const Key('ai-config-edit-save')));
           await tester.pumpAndSettle();
           expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
+        },
+      );
+
+      testWidgets(
+        'edit: an UNCONFIRMED read-back keeps a revocation draft pending '
+        'instead of rendering the stale attestation (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The operator revokes the stored attestation.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+
+          // The PATCH is acknowledged, but the read-back still serves the
+          // PREVIOUS projection (version 1, attestation still true). Clearing
+          // the draft on that view would render `true` and hide the revocation
+          // the operator just submitted, so it must stay pending.
+          repo.getConfigResult = Right(_config(zdrAttested: true));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+
+          expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
         },
       );
 

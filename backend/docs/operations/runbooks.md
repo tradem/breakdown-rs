@@ -1718,7 +1718,7 @@ residency. The gate is fail-closed — an undeclared provider is rejected, never
 | Provider key | Policy | Notes |
 |---|---|---|
 | `eurouter` | compliant | The original endpoint; historically unstable, which is why the alternatives exist. |
-| `scaleway` | compliant, **one accepted exception** | Paris/France; ZDR is the policy default. Documented exception (accepted under ADR-041 `D2.1` → "Accepted exceptions"): on Serverless — i.e. our tier, synchronous calls included — a request that triggers a `500` may have its full content held up to two weeks for `~1e-6` of requests, triage only. No content is captured on a successful call. |
+| `scaleway` | compliant, **one accepted exception** | Paris/France; ZDR is the policy default. Documented exception (accepted under ADR-041 `D2.1` → "Accepted exceptions"): on Serverless — i.e. our tier, synchronous calls included — requests on the misuse/error path (the provider's example is a `500`, quoted as `~1 in 10^6`) may have their full content held up to two weeks for triage. The policy names no closed list of triggers, so nothing here is exempt from it either. |
 | `ovhcloud` | compliant | EU-only infrastructure; retention limited to billing/ops metadata. |
 | `nebius` | **fail-closed until attested** | ZDR is the organization-level `ZDR Mode` switch — see below. Residency caveat (same ADR section): any retained copy is EU (`Finland`), but public endpoints show `Region: Global` and the processing location can change without notice — a guaranteed processing region needs a Dedicated Endpoint (not wired). |
 | `openai`, `gemini`, `openrouter`, `neuralwatt`, `opencode`, `opencode-go` | rejected | Text-only providers from the vision path's point of view. |

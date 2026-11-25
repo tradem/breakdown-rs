@@ -172,9 +172,11 @@ pub const fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy {
         // data storage does not apply to Dedicated Deployments." Serverless is
         // exactly what we call, so a synchronous request does NOT escape it —
         // an earlier revision of this comment claimed otherwise and was wrong.
-        // The exception is ACCEPTED under `D2` with that scope (error path only,
-        // no content capture on a successful call, ~1e-6 of requests, ≤2 weeks,
-        // triage-only); the acceptance, its scope and the Batch API's separate
+        // The exception is ACCEPTED under `D2` with that scope (misuse/error
+        // path — the provider's example is a `500`, quoted as ~1 in 10^6, and
+        // it names no closed list of triggers, so a successful call is not
+        // claimed to be exempt; ≤2 weeks, triage-only); the acceptance, its
+        // scope and the Batch API's separate
         // 24 h input retention (we never use Batch) are recorded in ADR-041
         // `D2.1` → "Accepted exceptions". Changing either side means changing
         // both: this flag and the ADR paragraph.

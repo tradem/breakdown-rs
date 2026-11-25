@@ -1034,9 +1034,17 @@ class AiConfigController extends _$AiConfigController {
           return Left<ProblemError, IdVersionResponse>(verdict.error!);
         }
         // The create landed, so its attestation draft is retired like an
-        // edit's (issue #968 review): a surviving draft would mask a later
-        // revocation on every discovery refresh.
-        _retireZdrAttestedDraft(s.zdrAttested);
+        // edit's (issue #968 review) — but only on a read-back that confirms
+        // it: a surviving draft would mask a later revocation on every
+        // discovery refresh, while retiring it on an unconfirmed view would
+        // render the previous value as if the operator had just saved it.
+        if (_attestationConfirmed(
+          verdict.stored,
+          idVersion.version,
+          s.zdrAttested,
+        )) {
+          _retireZdrAttestedDraft(s.zdrAttested);
+        }
         if (!ref.mounted) {
           return Right<ProblemError, IdVersionResponse>(idVersion);
         }
@@ -1064,6 +1072,25 @@ class AiConfigController extends _$AiConfigController {
       _draftsNotifier.mutate((d) => d.zdrAttested = null);
     }
   }
+
+  /// Whether an authoritative read-back CONFIRMS the attestation a save
+  /// submitted (issue #968 review): the view must be at least as new as the
+  /// acknowledgement AND carry the submitted value.
+  ///
+  /// A 2xx only proves the command was accepted; the read model catches up
+  /// asynchronously, and the bounded-retry read-back can legitimately serve the
+  /// PREVIOUS version (its retries stop at the first decision-triple match).
+  /// Retiring a revocation draft on such a view makes `build` fall back to the
+  /// stored `true` and the form then shows a revocation that was in fact
+  /// submitted — so an unconfirmed read-back keeps the draft pending instead.
+  static bool _attestationConfirmed(
+    AiConfigView? stored,
+    int version,
+    bool submitted,
+  ) =>
+      stored != null &&
+      stored.version >= version &&
+      stored.zdrAttested == submitted;
 
   Future<void> _rememberConfigId(String configId) async {
     final session = await ref.read(authSessionControllerProvider.future);
@@ -1625,9 +1652,12 @@ class AiConfigController extends _$AiConfigController {
         // reconciled-timeout branch above). A bare family invalidate drops every
         // parameter entry — the extraction and the decision key alike.
         ref.invalidate(aiProviderHealthProvider);
-        // Retire the attestation draft once the save that carried it was
-        // accepted (issue #968 review).
-        _retireZdrAttestedDraft(zdrAttested);
+        // Retire the attestation draft once a read-back has CONFIRMED it at the
+        // acknowledged version (issue #968 review) — see
+        // `_attestationConfirmed` for why an unconfirmed view keeps it.
+        if (_attestationConfirmed(verdict.stored, version, zdrAttested)) {
+          _retireZdrAttestedDraft(zdrAttested);
+        }
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);
         }
