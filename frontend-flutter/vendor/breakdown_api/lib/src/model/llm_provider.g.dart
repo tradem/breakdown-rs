@@ -10,6 +10,9 @@ const LlmProvider _$openai = const LlmProvider._('openai');
 const LlmProvider _$gemini = const LlmProvider._('gemini');
 const LlmProvider _$openrouter = const LlmProvider._('openrouter');
 const LlmProvider _$eurouter = const LlmProvider._('eurouter');
+const LlmProvider _$scaleway = const LlmProvider._('scaleway');
+const LlmProvider _$ovhcloud = const LlmProvider._('ovhcloud');
+const LlmProvider _$nebius = const LlmProvider._('nebius');
 const LlmProvider _$neuralwatt = const LlmProvider._('neuralwatt');
 const LlmProvider _$opencodeGo = const LlmProvider._('opencodeGo');
 const LlmProvider _$opencode = const LlmProvider._('opencode');
@@ -25,6 +28,12 @@ LlmProvider _$valueOf(String name) {
       return _$openrouter;
     case 'eurouter':
       return _$eurouter;
+    case 'scaleway':
+      return _$scaleway;
+    case 'ovhcloud':
+      return _$ovhcloud;
+    case 'nebius':
+      return _$nebius;
     case 'neuralwatt':
       return _$neuralwatt;
     case 'opencodeGo':
@@ -44,6 +53,9 @@ final BuiltSet<LlmProvider> _$values =
   _$gemini,
   _$openrouter,
   _$eurouter,
+  _$scaleway,
+  _$ovhcloud,
+  _$nebius,
   _$neuralwatt,
   _$opencodeGo,
   _$opencode,
@@ -56,6 +68,9 @@ class _$LlmProviderMeta {
   LlmProvider get gemini => _$gemini;
   LlmProvider get openrouter => _$openrouter;
   LlmProvider get eurouter => _$eurouter;
+  LlmProvider get scaleway => _$scaleway;
+  LlmProvider get ovhcloud => _$ovhcloud;
+  LlmProvider get nebius => _$nebius;
   LlmProvider get neuralwatt => _$neuralwatt;
   LlmProvider get opencodeGo => _$opencodeGo;
   LlmProvider get opencode => _$opencode;
@@ -77,6 +92,9 @@ class _$LlmProviderSerializer implements PrimitiveSerializer<LlmProvider> {
     'gemini': 'gemini',
     'openrouter': 'openrouter',
     'eurouter': 'eurouter',
+    'scaleway': 'scaleway',
+    'ovhcloud': 'ovhcloud',
+    'nebius': 'nebius',
     'neuralwatt': 'neuralwatt',
     'opencodeGo': 'opencode-go',
     'opencode': 'opencode',
@@ -87,6 +105,9 @@ class _$LlmProviderSerializer implements PrimitiveSerializer<LlmProvider> {
     'gemini': 'gemini',
     'openrouter': 'openrouter',
     'eurouter': 'eurouter',
+    'scaleway': 'scaleway',
+    'ovhcloud': 'ovhcloud',
+    'nebius': 'nebius',
     'neuralwatt': 'neuralwatt',
     'opencode-go': 'opencodeGo',
     'opencode': 'opencode',

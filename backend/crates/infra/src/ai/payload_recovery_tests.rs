@@ -281,6 +281,7 @@ fn schedule_worker(
         // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
         flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        zdr_attested: false,
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,

@@ -28,6 +28,7 @@ part 'update_ai_config_request.g.dart';
 /// * [reasoningEffort] - Omitted keeps the stored choice (an older client), `auto` resets it to the system default, a level replaces it. Deliberately not `Option<Option<..>>`: the generated Dart client omits `null` fields, so a reset would be unreachable from the app (2026-11-20 investigation).
 /// * [vaultKeyId]
 /// * [version] - Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
+/// * [zdrAttested] - See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.
 @BuiltValue()
 abstract class UpdateAiConfigRequest
     implements Built<UpdateAiConfigRequest, UpdateAiConfigRequestBuilder> {
@@ -45,7 +46,7 @@ abstract class UpdateAiConfigRequest
   /// Decision Model slot (issue #722), tri-state: an omitted field keeps the stored configuration, `null` clears it, a value replaces it. `deserialize_optional_nullable` is what makes the outer `Some` an EXPLICIT signal — plain `#[serde(default)]` would fold `null` and \"absent\" together and the clear path would be unreachable.
   @BuiltValueField(wireName: r'decision_provider')
   LlmProvider? get decisionProvider;
-  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   @BuiltValueField(wireName: r'decision_vault_key_id')
   String? get decisionVaultKeyId;
@@ -58,7 +59,7 @@ abstract class UpdateAiConfigRequest
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// Omitted keeps the stored choice (an older client), `auto` resets it to the system default, a level replaces it. Deliberately not `Option<Option<..>>`: the generated Dart client omits `null` fields, so a reset would be unreachable from the app (2026-11-20 investigation).
   @BuiltValueField(wireName: r'reasoning_effort')
@@ -71,6 +72,10 @@ abstract class UpdateAiConfigRequest
   /// Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
   @BuiltValueField(wireName: r'version')
   int get version;
+
+  /// See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.
+  @BuiltValueField(wireName: r'zdr_attested')
+  bool? get zdrAttested;
 
   UpdateAiConfigRequest._();
 
@@ -175,6 +180,13 @@ class _$UpdateAiConfigRequestSerializer
       object.version,
       specifiedType: const FullType(int),
     );
+    if (object.zdrAttested != null) {
+      yield r'zdr_attested';
+      yield serializers.serialize(
+        object.zdrAttested,
+        specifiedType: const FullType.nullable(bool),
+      );
+    }
   }
 
   @override
@@ -283,6 +295,14 @@ class _$UpdateAiConfigRequestSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.version = valueDes;
+          break;
+        case r'zdr_attested':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.zdrAttested = valueDes;
           break;
         default:
           unhandled.add(key);

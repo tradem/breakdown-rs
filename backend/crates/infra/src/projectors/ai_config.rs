@@ -43,6 +43,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 decision_model,
                 decision_vault_key_id,
                 reasoning_effort,
+                zdr_attested,
                 version,
             } => {
                 let prompts = serde_json::to_value(prompts).map_err(|error| {
@@ -54,9 +55,9 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         (id, user_id, provider, assistant_model, image_model,
                          prompts, vault_key_id, cost_display_preference,
                          decision_provider, decision_model, decision_vault_key_id,
-                         reasoning_effort,
+                         reasoning_effort, zdr_attested,
                          revoked, version, projector_version, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE, $13, $14, $15)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE, $14, $15, $16)
                     ON CONFLICT (id) DO UPDATE SET
                         user_id = EXCLUDED.user_id,
                         provider = EXCLUDED.provider,
@@ -69,6 +70,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         decision_model = EXCLUDED.decision_model,
                         decision_vault_key_id = EXCLUDED.decision_vault_key_id,
                         reasoning_effort = EXCLUDED.reasoning_effort,
+                        zdr_attested = EXCLUDED.zdr_attested,
                         revoked = EXCLUDED.revoked,
                         version = EXCLUDED.version,
                         projector_version = EXCLUDED.projector_version,
@@ -95,6 +97,9 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         .effort()
                         .map(breakdown_core::ai::ReasoningEffort::as_str),
                 )
+                // Issue #968: the operator's ZDR attestation is plain config
+                // state (not a secret) — the vault holds only key material.
+                .bind(zdr_attested)
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"
@@ -117,6 +122,7 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                 decision_model,
                 decision_vault_key_id,
                 reasoning_effort,
+                zdr_attested,
                 version,
             } => {
                 let prompts = serde_json::to_value(prompts).map_err(|error| {
@@ -131,9 +137,10 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         decision_provider = $8, decision_model = $9,
                         decision_vault_key_id = $10,
                         reasoning_effort = $11,
+                        zdr_attested = COALESCE($12, zdr_attested),
                         revoked = FALSE,
-                        version = $12, updated_at = $13
-                    WHERE id = $1 AND version < $12
+                        version = $13, updated_at = $14
+                    WHERE id = $1 AND version < $13
                     "#,
                 )
                 .bind(id)
@@ -162,6 +169,9 @@ impl<'a> EntityEventHandler<AiConfig, Transaction<'a, Postgres>> for AiConfigPro
                         .effort()
                         .map(breakdown_core::ai::ReasoningEffort::as_str),
                 )
+                // `None` = the update did not touch the attestation — keep the
+                // projected value (issue #968).
+                .bind(zdr_attested)
                 .bind(i64::try_from(version.0).map_err(|error| {
                     sqlx::Error::Protocol(format!(
                         "AI config aggregate version exceeds database range: {error}"

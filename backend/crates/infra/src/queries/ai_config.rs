@@ -37,6 +37,11 @@ pub struct AiWorkerConfig {
     pub reasoning_effort: ReasoningEffortChoice,
     /// Optional Decision Model slot (issue #722). `None` = no scoring pass.
     pub decision: Option<AiWorkerDecisionConfig>,
+    /// The operator's zero-data-retention attestation for this provider
+    /// account (issue #968). Travels into every vision request so the
+    /// pre-egress gate resolves `vision_egress_policy_for_config` from the
+    /// CONFIGURED state, not from a compile-time default.
+    pub zdr_attested: bool,
 }
 
 /// The resolved Decision Model configuration for one claimed job (issue
@@ -77,7 +82,8 @@ impl AiConfigRepositoryImpl {
             r#"
             SELECT id, provider, assistant_model, prompts, vault_key_id,
                    reasoning_effort,
-                   decision_provider, decision_model, decision_vault_key_id
+                   decision_provider, decision_model, decision_vault_key_id,
+                   zdr_attested
             FROM ai_import.projection_ai_config
             WHERE user_id = $1 AND revoked = FALSE
             ORDER BY updated_at DESC
@@ -155,6 +161,9 @@ impl AiConfigRepositoryImpl {
                     .map_err(map_sqlx_error)?,
             ),
             decision,
+            zdr_attested: row
+                .try_get::<bool, _>("zdr_attested")
+                .map_err(map_sqlx_error)?,
         }))
     }
 }
@@ -167,7 +176,7 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             SELECT id, user_id, provider, assistant_model, image_model,
                    prompts, vault_key_id, cost_display_preference,
                    decision_provider, decision_model, decision_vault_key_id,
-                   reasoning_effort,
+                   reasoning_effort, zdr_attested,
                    revoked, version
             FROM ai_import.projection_ai_config
             WHERE id = $1
@@ -205,7 +214,7 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
             SELECT id, user_id, provider, assistant_model, image_model,
                    prompts, vault_key_id, cost_display_preference,
                    decision_provider, decision_model, decision_vault_key_id,
-                   reasoning_effort,
+                   reasoning_effort, zdr_attested,
                    revoked, version
             FROM ai_import.projection_ai_config
             WHERE user_id = $1
@@ -275,6 +284,9 @@ fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
             row.try_get::<Option<String>, _>("reasoning_effort")
                 .map_err(map_sqlx_error)?,
         ),
+        zdr_attested: row
+            .try_get::<bool, _>("zdr_attested")
+            .map_err(map_sqlx_error)?,
         version: {
             let raw: i64 = row.try_get("version").map_err(map_sqlx_error)?;
             if raw < 0 {
@@ -315,6 +327,12 @@ fn parse_provider(value: String) -> Result<LlmProvider, DomainError> {
         "gemini" | "google" => Ok(LlmProvider::Gemini),
         "openrouter" => Ok(LlmProvider::OpenRouter),
         "eurouter" | "openrouter_eu" => Ok(LlmProvider::EURouter),
+        // Issue #968 — EU vision fallbacks. The infra `PROVIDER_REGISTRY` keeps
+        // the alias list; this projection parser accepts the canonical keys and
+        // the `ovh` shorthand.
+        "scaleway" => Ok(LlmProvider::Scaleway),
+        "ovhcloud" | "ovh" => Ok(LlmProvider::Ovhcloud),
+        "nebius" => Ok(LlmProvider::Nebius),
         "neuralwatt" => Ok(LlmProvider::Neuralwatt),
         "opencode-go" => Ok(LlmProvider::OpenCodeGo),
         "opencode" => Ok(LlmProvider::OpenCode),

@@ -141,6 +141,9 @@ AiConfigView _config({
 
   /// The stored `reasoning_effort`; `auto` models the pre-field backend.
   ReasoningEffortChoice reasoningEffort = ReasoningEffortChoice.auto,
+
+  /// The stored zero-data-retention attestation (issue #968).
+  bool zdrAttested = false,
 }) {
   final base = AiConfigView(
     (b) => b
@@ -156,6 +159,7 @@ AiConfigView _config({
       )
       ..revoked = false
       ..reasoningEffort = reasoningEffort
+      ..zdrAttested = zdrAttested
       ..version = version,
   );
   return storedPromptKinds == null
@@ -2576,6 +2580,81 @@ void main() {
       expect(repo.lastUpdateRequest!.decisionProvider, isNull);
       expect(repo.lastUpdateRequest!.decisionModel, isNull);
       expect(repo.lastUpdateRequest!.decisionVaultKeyId, isNull);
+    });
+
+    // --- Zero-data-retention attestation (issue #968) ---
+
+    group('zero-data-retention attestation (issue #968)', () {
+      testWidgets(
+        'create: the ZDR attestation is OFF by default and travels on '
+        'the create request once enabled (issue #968)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          // Fail-closed default: an untouched form attests nothing.
+          final toggle = tester.widget<CheckboxListTile>(
+            find.byKey(const Key('ai-zdr-attested-toggle')),
+          );
+          expect(toggle.value, isFalse);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+
+          expect(repo.lastCreateRequest!.zdrAttested, isTrue);
+        },
+      );
+
+      testWidgets(
+        'edit: a stored attestation is seeded ON and an unrelated save '
+        'keeps it, while flipping it off revokes it explicitly (issue #968)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The stored attestation is the seeded baseline, so an unrelated save
+          // (the prompt is untouched) is not an unsaved change.
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isTrue);
+
+          // Revoking it is an explicit, dispatched change — never a silent side
+          // effect of another edit.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
+        },
+      );
     });
 
     // --- Round-trip verification of the Decision Model (issue #769) ---

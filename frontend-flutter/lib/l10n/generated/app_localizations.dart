@@ -6546,6 +6546,18 @@ abstract class AppLocalizations {
   /// **'Gleichen API-Schlüssel wie Extraktion verwenden'**
   String get aiConfigDecisionSameKey;
 
+  /// No description provided for @aiConfigZdrAttestedLabel.
+  ///
+  /// In de, this message translates to:
+  /// **'Zero Data Retention ist für dieses Konto aktiviert'**
+  String get aiConfigZdrAttestedLabel;
+
+  /// No description provided for @aiConfigZdrAttestedHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Unveröffentlichte Drehbücher und Drehpläne dürfen nur als Seitenbilder an Anbieter gehen, die keine Daten speichern, nicht mit Eingaben trainieren und innerhalb der EU verarbeiten. Manche Anbieter (z. B. Nebius) erlauben die speicherfreie Verarbeitung nur über eine Kontoeinstellung — bestätige sie im Anbieter-Portal, bevor du das hier aktivierst. Anbieter, die das selbst garantieren, sind davon nicht betroffen.'**
+  String get aiConfigZdrAttestedHint;
+
   /// No description provided for @aiConfigDecisionApiKeyLabel.
   ///
   /// In de, this message translates to:

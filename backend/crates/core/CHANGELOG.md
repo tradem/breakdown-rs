@@ -18,6 +18,29 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.80.0] - Unreleased
+### Added (issue #968)
+
+- `ai::ports::LlmProvider` grew the three EU pay-as-you-go vision endpoints of
+  ADR-041 `D2`: `Scaleway`, `Ovhcloud`, `Nebius` (wire keys `scaleway`,
+  `ovhcloud`, `nebius`). `CURATED_PROVIDERS` is now `[LlmProvider; 11]`, so a
+  forgotten insertion is a compile error; `as_str`, `curated_base_url_key` and
+  `probe_capability` stay exhaustive.
+- `vision_egress_policy` declares all three guarantees for `Scaleway` and
+  `Ovhcloud` (verified 2026-11-25 against each provider's published policy) and
+  deliberately declares `zero_data_retention: false` for `Nebius`, whose ZDR
+  guarantee is an organization-level account switch this workspace cannot
+  observe. New: `vision_zdr_requires_attestation(provider)` and
+  `vision_egress_policy_for_config(provider, zdr_attested)` — the attestation
+  lifts exactly the retention flag and can never invent a no-training or
+  EU-residency promise. `vision_egress_compliant` is unchanged.
+- `AiConfig` carries the operator's attestation: `zdr_attested` on
+  `CreateAiConfig` / `UpdateAiConfig` (tri-state: omitted keeps the stored
+  value), on `AiConfigEvent::{Created,Updated}` (`#[serde(default)]`, so every
+  pre-#968 event replays as "unattested") and on `AiConfigView`.
+- `LlmVisionRequest` gained `zdr_attested`, so the pre-egress gate resolves the
+  policy of the CONFIGURED provider account rather than a compile-time default.
+
 ## [0.79.0] - Unreleased
 ### Added (issue #960)
 

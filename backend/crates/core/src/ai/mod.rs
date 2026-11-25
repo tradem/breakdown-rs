@@ -78,7 +78,7 @@ pub use ports::{
     PRIMARY_ORDINAL, ProbeCapability, ProbeLease, ProbeOutcome, ProviderAccountProbe,
     ProviderBreakerSnapshot, ProviderHealth, StoredChunk, TargetAttachOutcome, UsageAccumulator,
     VisionEgressPolicy, mapping_kind, probe_capability, resume_cursor, vision_egress_compliant,
-    vision_egress_policy,
+    vision_egress_policy, vision_egress_policy_for_config, vision_zdr_requires_attestation,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,

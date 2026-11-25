@@ -17,6 +17,34 @@ follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
 
+## [0.91.0] - Unreleased
+### Added (issue #968)
+
+- `CuratedProviderUrls::base_url` serves the three EU vision fallbacks of
+  ADR-041 `D2` — `https://api.scaleway.ai/v1`,
+  `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`,
+  `https://api.tokenfactory.nebius.com/v1` (re-pinned 2026-11-25 from the
+  providers' own documentation). The issue-#170 HTTPS-only + same-origin
+  redirect + DNS-pinning policy covers them automatically, because
+  `hosted_origin_host` derives from these values.
+- `PROVIDER_REGISTRY` gained the matching entries (`scaleway`,
+  `ovhcloud` + alias `ovh`, `nebius` + aliases `token-factory`/`token_factory`),
+  `curated_model_ids` the verified vision models of each provider,
+  `recommended_model` the vision-capable flagship of each, and
+  `default_allowlist` every new curated id.
+- `projection_ai_config.zdr_attested` (migration `20261125000001`) plus the
+  projector/read-model plumbing, and `AiWorkerConfig.zdr_attested` feeding
+  `LlmVisionRequest.zdr_attested` into the pre-egress gate.
+- `ai_model_pricing` `curated_seed` rows for the six curated fallback models, so
+  `compute_cost_snapshot` prices their page calls instead of reporting honest
+  absence (migration `20261125000002`).
+
+### Changed (issue #968)
+
+- The vision egress gate resolves `vision_egress_policy_for_config(provider,
+  req.zdr_attested)`: a provider whose ZDR is an account switch is refused
+  until the AI configuration attests it.
+
 ## [0.90.0] - Unreleased
 ### Added (issue #960)
 

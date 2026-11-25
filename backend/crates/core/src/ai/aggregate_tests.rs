@@ -43,6 +43,7 @@ fn make_create_cmd() -> CreateAiConfig {
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::Auto,
         cost_display_preference: CostDisplayPreference::Token,
+        zdr_attested: false,
     }
 }
 
@@ -59,6 +60,7 @@ fn make_update_cmd(id: Uuid, version: AggregateVersion) -> UpdateAiConfig {
         decision_vault_key_id: None,
         reasoning_effort: None,
         cost_display_preference: Some(CostDisplayPreference::Energy),
+        zdr_attested: None,
         version,
     }
 }
@@ -76,6 +78,7 @@ fn created_event(cmd: &CreateAiConfig) -> AiConfigEvent {
         decision_model: cmd.decision_model.clone(),
         decision_vault_key_id: cmd.decision_vault_key_id.clone(),
         reasoning_effort: cmd.reasoning_effort,
+        zdr_attested: cmd.zdr_attested,
         cost_display_preference: cmd.cost_display_preference,
         version: AggregateVersion::INITIAL,
     }
@@ -148,6 +151,7 @@ fn update_config_emits_single_updated_event() {
             decision_model: None,
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -205,6 +209,7 @@ fn update_config_accepts_provider_replacement_with_new_vault_key() {
             decision_model: None,
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
             cost_display_preference: Some(CostDisplayPreference::Energy),
             version: AggregateVersion::INITIAL.next(),
         }]);
@@ -376,6 +381,7 @@ fn update_with_omitted_preference_keeps_the_current_value() {
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: None,
+            zdr_attested: Some(false),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -404,6 +410,7 @@ fn applying_updated_without_preference_keeps_energy() {
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
             cost_display_preference: None,
+            zdr_attested: Some(false),
             version: AggregateVersion::INITIAL.next(),
         },
         Metadata::default(),
@@ -583,6 +590,7 @@ fn update_config_resolves_tri_state_decision_slot() {
             decision_model: Some("clef-flash".into()),
             decision_vault_key_id: Some("settings-abc:decision-key".into()),
             reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
             version: AggregateVersion::INITIAL.next(),
         }]);
     // `Some(None)` on all three fields clears the resolved slot.
@@ -607,6 +615,7 @@ fn update_config_resolves_tri_state_decision_slot() {
             decision_model: None,
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -743,6 +752,7 @@ fn update_with_an_unchanged_rotated_model_is_accepted() {
             decision_model: Some("clef".into()),
             decision_vault_key_id: Some("settings-abc:decision-key".into()),
             reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -783,6 +793,7 @@ fn expected_updated(id: Uuid, effort: ReasoningEffortChoice) -> AiConfigEvent {
         decision_model: None,
         decision_vault_key_id: None,
         reasoning_effort: effort,
+        zdr_attested: Some(false),
         version: AggregateVersion::INITIAL.next(),
     }
 }
@@ -868,6 +879,60 @@ fn update_keeps_the_stored_choice_when_the_field_is_omitted() {
         .then(vec![expected_updated(id, ReasoningEffortChoice::Auto)]);
 }
 
+/// Issue #968: the zero-data-retention attestation is sticky unless the update
+/// says otherwise. An omitted field keeps the stored attestation (an older
+/// client editing the prompts must not silently re-close the vision egress
+/// gate), while an explicit `Some(false)` revokes it — and the RESOLVED value
+/// travels on the event so replay needs no logic.
+#[test]
+fn the_zdr_attestation_is_sticky_and_explicitly_revocable() {
+    let mut create_cmd = make_create_cmd();
+    create_cmd.zdr_attested = true;
+    // Omitted (`None`) keeps the stored attestation.
+    AiConfig::given(vec![created_event(&create_cmd)])
+        .when(UpdateAiConfig {
+            zdr_attested: None,
+            ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
+        })
+        .then(vec![AiConfigEvent::Updated {
+            id: create_cmd.id,
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-456".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
+            cost_display_preference: Some(CostDisplayPreference::Energy),
+            zdr_attested: Some(true),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+
+    // An explicit `Some(false)` revokes it — the only way it can be lost.
+    AiConfig::given(vec![created_event(&create_cmd)])
+        .when(UpdateAiConfig {
+            zdr_attested: Some(false),
+            ..make_update_cmd(create_cmd.id, AggregateVersion::INITIAL)
+        })
+        .then(vec![AiConfigEvent::Updated {
+            id: create_cmd.id,
+            provider: LlmProvider::OpenAI,
+            assistant_model: "gpt-4o-mini".into(),
+            image_model: None,
+            prompts: HashMap::from([(DocumentKind::Script, "New prompt".into())]),
+            vault_key_id: "key-456".into(),
+            decision_provider: None,
+            decision_model: None,
+            decision_vault_key_id: None,
+            reasoning_effort: ReasoningEffortChoice::Auto,
+            cost_display_preference: Some(CostDisplayPreference::Energy),
+            zdr_attested: Some(false),
+            version: AggregateVersion::INITIAL.next(),
+        }]);
+}
+
 /// `Auto` RESETS a stored level, and the reset must reach the event so the
 /// projector can null the column — the direction a `null` field could never
 /// express from the app.
@@ -886,6 +951,7 @@ fn update_resets_the_level_with_an_explicit_auto() {
         decision_model: None,
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::High,
+        zdr_attested: false,
         version: AggregateVersion::INITIAL,
     };
     let update = UpdateAiConfig {
@@ -908,6 +974,7 @@ fn update_resets_the_level_with_an_explicit_auto() {
             decision_model: None,
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Auto,
+            zdr_attested: Some(false),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -933,6 +1000,7 @@ fn an_unchanged_stored_level_is_not_revalidated() {
         decision_model: None,
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::Low,
+        zdr_attested: false,
         version: AggregateVersion::INITIAL,
     };
     let update = UpdateAiConfig {
@@ -956,6 +1024,7 @@ fn an_unchanged_stored_level_is_not_revalidated() {
             decision_model: None,
             decision_vault_key_id: None,
             reasoning_effort: ReasoningEffortChoice::Low,
+            zdr_attested: Some(false),
             version: AggregateVersion::INITIAL.next(),
         }]);
 }
@@ -981,6 +1050,7 @@ fn a_provider_change_revalidates_an_unchanged_level() {
         decision_model: None,
         decision_vault_key_id: None,
         reasoning_effort: ReasoningEffortChoice::Minimal,
+        zdr_attested: false,
         version: AggregateVersion::INITIAL,
     };
     // Same model id, same level (omitted), but a different provider — a

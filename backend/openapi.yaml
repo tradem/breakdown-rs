@@ -296,6 +296,14 @@ components:
           type: string
         version:
           $ref: '#/components/schemas/AggregateVersion'
+        zdr_attested:
+          description: |-
+            The operator's zero-data-retention attestation for this provider
+            account (issue #968). Additive with `serde(default)`: a view serialized
+            before the field existed attests nothing. The client renders the
+            toggle from this value, and the vision egress gate resolves
+            `vision_egress_policy_for_config(provider, zdr_attested)` from it.
+          type: boolean
       required:
       - id
       - user_id
@@ -2138,6 +2146,14 @@ components:
             the mistake is still cheap.
         vault_key_id:
           type: string
+        zdr_attested:
+          description: |-
+            Operator attestation that this provider ACCOUNT has zero data retention
+            enabled (issue #968, ADR-041 `D2`). Required to let a provider whose ZDR
+            guarantee is an account switch (Nebius) carry page images; every other
+            provider is unaffected by the flag. Defaults to `false` — an unattested
+            account keeps the vision egress gate fail-closed.
+          type: boolean
       required:
       - provider
       - assistant_model
@@ -3429,6 +3445,9 @@ components:
       - gemini
       - openrouter
       - eurouter
+      - scaleway
+      - ovhcloud
+      - nebius
       - neuralwatt
       - opencode-go
       - opencode
@@ -5675,6 +5694,14 @@ components:
           type: string
         version:
           $ref: '#/components/schemas/AggregateVersion'
+        zdr_attested:
+          description: |-
+            See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored
+            attestation (an older client editing the prompts must not silently
+            revoke it), `false` revokes it explicitly.
+          type:
+          - boolean
+          - 'null'
       required:
       - provider
       - assistant_model

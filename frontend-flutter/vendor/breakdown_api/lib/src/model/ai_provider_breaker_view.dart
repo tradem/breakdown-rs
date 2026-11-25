@@ -39,7 +39,7 @@ abstract class AiProviderBreakerView
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// The next scheduled probe (`null` while `closed`).
   @BuiltValueField(wireName: r'retry_at')

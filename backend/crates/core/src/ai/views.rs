@@ -519,6 +519,13 @@ pub struct AiConfigView {
     /// a view serialized before the field existed deserializes as `Auto`.
     #[serde(default)]
     pub reasoning_effort: ReasoningEffortChoice,
+    /// The operator's zero-data-retention attestation for this provider
+    /// account (issue #968). Additive with `serde(default)`: a view serialized
+    /// before the field existed attests nothing. The client renders the
+    /// toggle from this value, and the vision egress gate resolves
+    /// `vision_egress_policy_for_config(provider, zdr_attested)` from it.
+    #[serde(default)]
+    pub zdr_attested: bool,
     pub version: AggregateVersion,
     pub revoked: bool,
 }

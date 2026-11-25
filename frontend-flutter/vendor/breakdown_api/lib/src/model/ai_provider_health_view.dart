@@ -46,7 +46,7 @@ abstract class AiProviderHealthView
   /// The provider this answer is about, echoed as the canonical wire key.
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   AiProviderHealthView._();
 

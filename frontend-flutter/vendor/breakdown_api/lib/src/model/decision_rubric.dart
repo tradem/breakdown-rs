@@ -30,7 +30,7 @@ abstract class DecisionRubric
   /// Decision provider that produced the sub-scores.
   @BuiltValueField(wireName: r'decision_provider')
   LlmProvider? get decisionProvider;
-  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// The deterministic grounding signals blended into the scores.
   @BuiltValueField(wireName: r'grounding_factor')

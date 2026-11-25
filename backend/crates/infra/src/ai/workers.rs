@@ -1783,6 +1783,10 @@ pub struct ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter> {
     pub flat_prompt: String,
     /// See [`ScriptImportWorker::reasoning_effort`].
     pub reasoning_effort: breakdown_core::ai::ReasoningEffortChoice,
+    /// The AI config's zero-data-retention attestation (issue #968). Carried
+    /// into every vision request so the pre-egress gate can resolve the
+    /// effective provider policy for THIS configuration.
+    pub zdr_attested: bool,
     pub bounds: AiImportBounds,
     /// See [`ScriptImportWorker::pricing`] (issue #675).
     pub pricing: Option<Arc<dyn AiModelPricingRepository>>,
@@ -2370,6 +2374,9 @@ where
                     self.reasoning_effort,
                 )
                 .map(|effort| effort.as_str().to_owned()),
+                // Issue #968: the config's ZDR attestation travels with the
+                // request so the pre-egress gate resolves the effective policy.
+                zdr_attested: self.zdr_attested,
             };
             let (extraction, call_calls) = match retry_schedule_page(
                 self.client.as_ref(),

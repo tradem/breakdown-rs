@@ -160,6 +160,7 @@ class AiConfigDraftData {
     this.useSameDecisionKeyTouched = false,
     this.costDisplayPreference,
     this.reasoningEffort,
+    this.zdrAttested,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
     this.scriptPromptTouched = false,
@@ -225,6 +226,12 @@ class AiConfigDraftData {
   /// OUTSIDE the selected model's declared set is normalised to `auto` when
   /// the model changes, so an invalid pair is never dispatched.
   ReasoningEffortChoice? reasoningEffort;
+
+  /// The drafted zero-data-retention attestation (issue #968). `null` =
+  /// untouched — the configured view's value (or `false`) applies. A VALUE
+  /// rather than a tri-state on the wire: revoking an attestation must be
+  /// expressible from the app, and the generated client omits nulls.
+  bool? zdrAttested;
   AiConfigUnresolved? unresolved;
 }
 
@@ -268,6 +275,7 @@ class AiConfigDrafts extends _$AiConfigDrafts {
       useSameDecisionKeyTouched: state.useSameDecisionKeyTouched,
       costDisplayPreference: state.costDisplayPreference,
       reasoningEffort: state.reasoningEffort,
+      zdrAttested: state.zdrAttested,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
       scriptPromptTouched: state.scriptPromptTouched,
@@ -554,6 +562,9 @@ class AiConfigController extends _$AiConfigController {
           drafts.costDisplayPreference ??
           config?.costDisplayPreference ??
           CostDisplayPreference.token,
+      // Zero-data-retention attestation (issue #968): an explicit draft flip
+      // wins, then the configured attestation, then the fail-closed default.
+      zdrAttested: drafts.zdrAttested ?? config?.zdrAttested ?? false,
       scriptPrompt: drafts.scriptPromptTouched
           ? drafts.scriptPrompt
           : promptSeed('script', scriptDefault),
@@ -697,6 +708,17 @@ class AiConfigController extends _$AiConfigController {
   void selectReasoningEffort(ReasoningEffortChoice choice) {
     _draftsNotifier.mutate((d) => d.reasoningEffort = choice);
     state = state.copyWith(clearCommandError: true);
+  }
+
+  /// Sets the zero-data-retention attestation (issue #968). The operator
+  /// confirms the provider ACCOUNT has ZDR enabled; the backend turns the
+  /// attestation into an effective `VisionEgressPolicy` before any page image
+  /// leaves the process. Turning it OFF is a real, dispatched change — an
+  /// unrelated edit never revokes it (the aggregate keeps the stored value when
+  /// the field is omitted) and the app must be able to revoke it explicitly.
+  void setZdrAttested(bool value) {
+    _draftsNotifier.mutate((d) => d.zdrAttested = value);
+    state = state.copyWith(zdrAttested: value, clearCommandError: true);
   }
 
   void setScriptPrompt(String value) {
@@ -891,6 +913,7 @@ class AiConfigController extends _$AiConfigController {
           ..vaultKeyId = credential.vaultKeyId
           ..imageModel = s.selectedImageModelId
           ..costDisplayPreference = s.costDisplayPreference
+          ..zdrAttested = s.zdrAttested
           // Always sent, and always a value: `auto` is how the app expresses
           // "no explicit level", which a nullable field could never do (the
           // generated client omits nulls).
@@ -1276,6 +1299,11 @@ class AiConfigController extends _$AiConfigController {
     required String? imageModelId,
     required CostDisplayPreference costDisplayPreference,
     required ReasoningEffortChoice reasoningEffort,
+    /// The zero-data-retention attestation of the edit (issue #968). Always
+    /// sent as a value: `false` is an explicit revocation, and the aggregate
+    /// only keeps the stored value when the field is OMITTED (which the
+    /// generated client never does for a non-null Dart field).
+    bool zdrAttested = false,
     required String scriptPrompt,
     required String schedulePrompt,
     String? replacementSecret,
@@ -1432,6 +1460,7 @@ class AiConfigController extends _$AiConfigController {
           ..imageModel = imageModelId
           ..costDisplayPreference = costDisplayPreference
           ..reasoningEffort = reasoningEffort
+          ..zdrAttested = zdrAttested
           ..decisionProvider = decisionProvider
           ..decisionModel = decisionProviderKey == null ? null : decisionModelId
           ..decisionVaultKeyId = decisionVaultKeyId

@@ -4010,6 +4010,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiConfigDecisionSameKey => 'Use the same API key as extraction';
 
   @override
+  String get aiConfigZdrAttestedLabel =>
+      'Zero data retention is enabled for this account';
+
+  @override
+  String get aiConfigZdrAttestedHint =>
+      'Unpublished scripts and schedules may only be sent as page images to providers that keep no data, never train on inputs, and process inside the EU. Some providers (e.g. Nebius) enable retention-free processing only through an account setting — confirm it in your provider console before enabling this. Providers that guarantee it themselves are unaffected.';
+
+  @override
   String get aiConfigDecisionApiKeyLabel => 'API key for the decision model';
 
   @override

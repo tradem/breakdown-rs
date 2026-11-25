@@ -115,6 +115,9 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
         imageModelId: state.selectedImageModelId,
         costDisplayPreference: state.costDisplayPreference,
         reasoningEffort: state.reasoningEffort,
+        // Zero-data-retention attestation (issue #968): always sent as a
+        // VALUE, so revoking it is expressible from the app.
+        zdrAttested: state.zdrAttested,
         scriptPrompt: state.scriptPrompt,
         schedulePrompt: state.schedulePrompt,
         replacementSecret: _showsReplacementKey(state, handoff)
@@ -594,6 +597,8 @@ class _FirstRunFormState extends ConsumerState<_FirstRunForm> {
         const SizedBox(height: 16),
         const _ProviderPicker(),
         const SizedBox(height: 16),
+        const _ZdrAttestationSwitch(),
+        const SizedBox(height: 16),
         const _ModelPickers(),
         const SizedBox(height: 16),
         const _DecisionSection(),
@@ -999,6 +1004,53 @@ class _CostDisplayPreferenceSelector extends ConsumerWidget {
             final preference = selection.first;
             controller.selectCostDisplayPreference(preference);
           },
+        ),
+      ],
+    );
+  }
+}
+
+/// The zero-data-retention attestation switch (issue #968, ADR-041 `D2`).
+///
+/// Some EU vision providers carry their ZDR guarantee only as an ACCOUNT-level
+/// switch the backend cannot observe (Nebius Token Factory's "ZDR Mode" in the
+/// organization settings). The backend therefore keeps the vision egress gate
+/// fail-closed for such a provider — a boolean the code cannot verify must
+/// never be asserted `true` — and this switch is where the operator attests it
+/// instead. Enabling it never unlocks a provider the backend policy table does
+/// not declare: the attestation can lift ONLY the retention flag, never the
+/// no-training or EU-residency requirement.
+///
+/// Rendered unconditionally (not only for the providers that need it today):
+/// the switch states a fact about the operator's ACCOUNT, which is exactly as
+/// true — and exactly as revocable — for a provider that declares ZDR itself.
+class _ZdrAttestationSwitch extends ConsumerWidget {
+  const _ZdrAttestationSwitch();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(aiConfigControllerProvider);
+    final controller = ref.read(aiConfigControllerProvider.notifier);
+    final l10n = l10nOf(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          key: const Key('ai-zdr-attested-toggle'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+          value: state.zdrAttested,
+          onChanged: (checked) => controller.setZdrAttested(checked ?? false),
+          title: Text(l10n.aiConfigZdrAttestedLabel),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: AppSpacing.space4),
+          child: Text(
+            key: const Key('ai-zdr-attested-hint'),
+            l10n.aiConfigZdrAttestedHint,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ),
       ],
     );
@@ -1571,6 +1623,8 @@ class _ConfiguredForm extends StatelessWidget {
           ),
         ],
         const SizedBox(height: AppSpacing.space12),
+        const _ZdrAttestationSwitch(),
+        const SizedBox(height: AppSpacing.space8),
         const _ModelPickers(),
         const SizedBox(height: AppSpacing.space8),
         const _DecisionSection(),

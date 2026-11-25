@@ -1704,3 +1704,62 @@ step depends on whether the throwaway database still exists:
   `ai-import/<job_id>/source` and `ai-import/<job_id>/preview`, with the job id the run
   printed right after seeding (`fixture job <uuid>`) — `discard_seeded_job` repeats it on
   failure, together with those two keys. That is the only path that still reaches them.
+
+## 18. AI import vision egress: switching providers & the ZDR attestation (ADR-041 `D2`, issue #968)
+
+Multimodal shooting-schedule extraction renders each PDF page to a PNG and sends it to ONE
+configured provider. Because an unpublished schedule is confidential production IP, the call is
+gated by `vision_egress_policy` **before any image is serialized** (ADR-041 `D2`): a provider may
+only receive page images when it declares Zero Data Retention, no training on inputs, and EU data
+residency. The gate is fail-closed — an undeclared provider is rejected, never "tried once".
+
+### Declared providers (verified 2026-11-25)
+
+| Provider key | Policy | Notes |
+|---|---|---|
+| `eurouter` | compliant | The original endpoint; historically unstable, which is why the alternatives exist. |
+| `scaleway` | compliant | Paris/France; ZDR is the default for synchronous calls. |
+| `ovhcloud` | compliant | EU-only infrastructure; retention limited to billing/ops metadata. |
+| `nebius` | **fail-closed until attested** | ZDR is the organization-level `ZDR Mode` switch — see below. |
+| `openai`, `gemini`, `openrouter`, `neuralwatt`, `opencode`, `opencode-go` | rejected | Text-only providers from the vision path's point of view. |
+| `ollama` | compliant | Local, zero egress. |
+
+### Switching the schedule import to another provider (no deploy)
+
+1. The key belongs to the SETTINGS credential of the caller (`ADR-027`); the AI config stores only
+   the opaque `vault_key_id`. Create a new AI configuration with the target `provider` + `model`
+   through the client (AI config screen) — or update the existing one: a provider change requires a
+   fresh key reference for that provider (`422 ai-config.provider-mismatch` otherwise).
+2. Pick a curated model of that provider (`GET /v1/ai-import/providers/{key}/models`), e.g.
+   `qwen3.5-397b-a17b` (Scaleway), `qwen3-vl-30b-a3b` (OVHcloud), `Qwen/Qwen3.8-27B` (Nebius).
+3. Nothing else changes: the `#871` breaker, the provider watch, the pricing snapshot and the
+   page-streaming loop are keyed on `(provider, model)`, so a job held under a flapping endpoint is
+   re-runnable on the new configuration as soon as it is saved.
+
+### Nebius: the one deployment prerequisite
+
+Nebius Token Factory's no-training and EU-residency guarantees hold for every account, but **ZDR
+is an organization-wide switch that is OFF by default** and is only settable by an organization
+admin:
+
+1. In the Nebius console: organization settings → **`ZDR Mode`** → enable. It applies to all
+   projects of the organization; billing/admin metadata is unaffected.
+2. In the Breakdown client's AI config screen, enable **"Zero Data Retention is enabled for this
+   account"** (`AiConfig.zdr_attested`, persisted with the config; the vault holds only key
+   material). Only then does `vision_egress_policy_for_config` report the ZDR guarantee.
+3. Verify the live catalogue while you are there (Token Factory's `/v1/models` needs the paid key):
+   `curl -s https://api.tokenfactory.nebius.com/v1/models -H "Authorization: Bearer $KEY"` must
+   list the curated IDs (`Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash-1017`). If an ID is
+   gone, rotate the curated list (config change) — never point the config at an unlisted model.
+
+Revoking the attestation immediately re-closes the gate: the next schedule job's first page call is
+refused with a validation error and no egress happens. The attestation can never open a provider
+that the policy table rejects (no-training and EU residency are not attestable).
+
+### Symptoms
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| `provider … does not declare Zero Data Retention, no training on inputs, and EU data residency (or is missing the AI config's ZDR attestation)` | The gate refused the call; **zero bytes left the process**. | Check the provider key against the table above; for `nebius`, enable `ZDR Mode` AND the config's attestation. |
+| Import holds for hours on one provider | `#871` breaker open (see section 16). | Create/point an AI config at another declared provider from the table; the held job is re-runnable. |
+| `cost.status = unknown` for a job | No `ai_model_pricing` row for that `(provider, model)`. | Honest absence, not a zero-cost snapshot; the seed covers the curated IDs, a custom model has no price. |

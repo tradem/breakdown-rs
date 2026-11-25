@@ -27,6 +27,7 @@ part 'create_ai_config_request.g.dart';
 /// * [provider]
 /// * [reasoningEffort] - Requested `reasoning_effort` for the assistant model (2026-11-20 investigation). `auto` = no explicit level. Only a pair that DECLARES the parameter may name a level — the aggregate answers `422` otherwise, while the mistake is still cheap.
 /// * [vaultKeyId]
+/// * [zdrAttested] - Operator attestation that this provider ACCOUNT has zero data retention enabled (issue #968, ADR-041 `D2`). Required to let a provider whose ZDR guarantee is an account switch (Nebius) carry page images; every other provider is unaffected by the flag. Defaults to `false` — an unattested account keeps the vision egress gate fail-closed.
 @BuiltValue()
 abstract class CreateAiConfigRequest
     implements Built<CreateAiConfigRequest, CreateAiConfigRequestBuilder> {
@@ -44,7 +45,7 @@ abstract class CreateAiConfigRequest
   /// Optional Decision Model slot (issue #722). `decision_vault_key_id` MAY equal `vault_key_id` when `decision_provider == provider` (same-key reuse) or reference a distinct active credential of the decision provider owned by the caller (split billing).
   @BuiltValueField(wireName: r'decision_provider')
   LlmProvider? get decisionProvider;
-  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum decisionProviderEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   @BuiltValueField(wireName: r'decision_vault_key_id')
   String? get decisionVaultKeyId;
@@ -57,7 +58,7 @@ abstract class CreateAiConfigRequest
 
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// Requested `reasoning_effort` for the assistant model (2026-11-20 investigation). `auto` = no explicit level. Only a pair that DECLARES the parameter may name a level — the aggregate answers `422` otherwise, while the mistake is still cheap.
   @BuiltValueField(wireName: r'reasoning_effort')
@@ -66,6 +67,10 @@ abstract class CreateAiConfigRequest
 
   @BuiltValueField(wireName: r'vault_key_id')
   String get vaultKeyId;
+
+  /// Operator attestation that this provider ACCOUNT has zero data retention enabled (issue #968, ADR-041 `D2`). Required to let a provider whose ZDR guarantee is an account switch (Nebius) carry page images; every other provider is unaffected by the flag. Defaults to `false` — an unattested account keeps the vision egress gate fail-closed.
+  @BuiltValueField(wireName: r'zdr_attested')
+  bool? get zdrAttested;
 
   CreateAiConfigRequest._();
 
@@ -159,6 +164,13 @@ class _$CreateAiConfigRequestSerializer
       object.vaultKeyId,
       specifiedType: const FullType(String),
     );
+    if (object.zdrAttested != null) {
+      yield r'zdr_attested';
+      yield serializers.serialize(
+        object.zdrAttested,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -260,6 +272,14 @@ class _$CreateAiConfigRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.vaultKeyId = valueDes;
+          break;
+        case r'zdr_attested':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(bool),
+          ) as bool?;
+          if (valueDes == null) continue;
+          result.zdrAttested = valueDes;
           break;
         default:
           unhandled.add(key);

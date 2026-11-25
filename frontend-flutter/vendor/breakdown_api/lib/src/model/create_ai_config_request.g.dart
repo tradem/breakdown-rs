@@ -27,6 +27,8 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
   final ReasoningEffortChoice? reasoningEffort;
   @override
   final String vaultKeyId;
+  @override
+  final bool? zdrAttested;
 
   factory _$CreateAiConfigRequest(
           [void Function(CreateAiConfigRequestBuilder)? updates]) =>
@@ -42,7 +44,8 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
       required this.prompts,
       required this.provider,
       this.reasoningEffort,
-      required this.vaultKeyId})
+      required this.vaultKeyId,
+      this.zdrAttested})
       : super._();
   @override
   CreateAiConfigRequest rebuild(
@@ -66,7 +69,8 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
         prompts == other.prompts &&
         provider == other.provider &&
         reasoningEffort == other.reasoningEffort &&
-        vaultKeyId == other.vaultKeyId;
+        vaultKeyId == other.vaultKeyId &&
+        zdrAttested == other.zdrAttested;
   }
 
   @override
@@ -82,6 +86,7 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
     _$hash = $jc(_$hash, provider.hashCode);
     _$hash = $jc(_$hash, reasoningEffort.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
+    _$hash = $jc(_$hash, zdrAttested.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -98,7 +103,8 @@ class _$CreateAiConfigRequest extends CreateAiConfigRequest {
           ..add('prompts', prompts)
           ..add('provider', provider)
           ..add('reasoningEffort', reasoningEffort)
-          ..add('vaultKeyId', vaultKeyId))
+          ..add('vaultKeyId', vaultKeyId)
+          ..add('zdrAttested', zdrAttested))
         .toString();
   }
 }
@@ -155,6 +161,10 @@ class CreateAiConfigRequestBuilder
   String? get vaultKeyId => _$this._vaultKeyId;
   set vaultKeyId(String? vaultKeyId) => _$this._vaultKeyId = vaultKeyId;
 
+  bool? _zdrAttested;
+  bool? get zdrAttested => _$this._zdrAttested;
+  set zdrAttested(bool? zdrAttested) => _$this._zdrAttested = zdrAttested;
+
   CreateAiConfigRequestBuilder() {
     CreateAiConfigRequest._defaults(this);
   }
@@ -172,6 +182,7 @@ class CreateAiConfigRequestBuilder
       _provider = $v.provider;
       _reasoningEffort = $v.reasoningEffort;
       _vaultKeyId = $v.vaultKeyId;
+      _zdrAttested = $v.zdrAttested;
       _$v = null;
     }
     return this;
@@ -208,6 +219,7 @@ class CreateAiConfigRequestBuilder
             reasoningEffort: reasoningEffort,
             vaultKeyId: BuiltValueNullFieldError.checkNotNull(
                 vaultKeyId, r'CreateAiConfigRequest', 'vaultKeyId'),
+            zdrAttested: zdrAttested,
           );
     } catch (_) {
       late String _$failedField;

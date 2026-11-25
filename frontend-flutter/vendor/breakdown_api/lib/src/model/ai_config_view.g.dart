@@ -39,6 +39,8 @@ class _$AiConfigView extends AiConfigView {
   final String vaultKeyId;
   @override
   final int version;
+  @override
+  final bool? zdrAttested;
 
   factory _$AiConfigView([void Function(AiConfigViewBuilder)? updates]) =>
       (AiConfigViewBuilder()..update(updates))._build();
@@ -59,7 +61,8 @@ class _$AiConfigView extends AiConfigView {
       this.storedPromptKinds,
       required this.userId,
       required this.vaultKeyId,
-      required this.version})
+      required this.version,
+      this.zdrAttested})
       : super._();
   @override
   AiConfigView rebuild(void Function(AiConfigViewBuilder) updates) =>
@@ -87,7 +90,8 @@ class _$AiConfigView extends AiConfigView {
         storedPromptKinds == other.storedPromptKinds &&
         userId == other.userId &&
         vaultKeyId == other.vaultKeyId &&
-        version == other.version;
+        version == other.version &&
+        zdrAttested == other.zdrAttested;
   }
 
   @override
@@ -109,6 +113,7 @@ class _$AiConfigView extends AiConfigView {
     _$hash = $jc(_$hash, userId.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
+    _$hash = $jc(_$hash, zdrAttested.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -131,7 +136,8 @@ class _$AiConfigView extends AiConfigView {
           ..add('storedPromptKinds', storedPromptKinds)
           ..add('userId', userId)
           ..add('vaultKeyId', vaultKeyId)
-          ..add('version', version))
+          ..add('version', version)
+          ..add('zdrAttested', zdrAttested))
         .toString();
   }
 }
@@ -216,6 +222,10 @@ class AiConfigViewBuilder
   int? get version => _$this._version;
   set version(int? version) => _$this._version = version;
 
+  bool? _zdrAttested;
+  bool? get zdrAttested => _$this._zdrAttested;
+  set zdrAttested(bool? zdrAttested) => _$this._zdrAttested = zdrAttested;
+
   AiConfigViewBuilder() {
     AiConfigView._defaults(this);
   }
@@ -239,6 +249,7 @@ class AiConfigViewBuilder
       _userId = $v.userId;
       _vaultKeyId = $v.vaultKeyId;
       _version = $v.version;
+      _zdrAttested = $v.zdrAttested;
       _$v = null;
     }
     return this;
@@ -285,6 +296,7 @@ class AiConfigViewBuilder
                 vaultKeyId, r'AiConfigView', 'vaultKeyId'),
             version: BuiltValueNullFieldError.checkNotNull(
                 version, r'AiConfigView', 'version'),
+            zdrAttested: zdrAttested,
           );
     } catch (_) {
       late String _$failedField;

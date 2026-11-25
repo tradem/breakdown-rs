@@ -37,7 +37,7 @@ abstract class DecisionTelemetry
   /// The provider the job *resolved* for scoring. `Some` for every outcome except [`DecisionOutcome::SkippedNoConfig`] and [`DecisionOutcome::SkippedNotApplicable`] — a job whose configuration named a provider names it here even when the client could not be built, so \"did my config reach the worker?\" is answerable after the fact.
   @BuiltValueField(wireName: r'provider')
   LlmProvider? get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   DecisionTelemetry._();
 

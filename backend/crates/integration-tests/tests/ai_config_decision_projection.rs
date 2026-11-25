@@ -164,6 +164,7 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 // An EXPLICIT level, not `Auto`: the user-chosen value is what
                 // has to survive command -> event -> projection -> worker.
                 reasoning_effort: ReasoningEffortChoice::Low,
+                zdr_attested: false,
             },
         )
         .await
@@ -190,6 +191,7 @@ async fn decision_model_reaches_projection_and_worker_config() -> Result<()> {
                 decision_vault_key_id: Some(Some("extraction-key".to_owned())),
                 reasoning_effort: None,
                 version: created.1,
+                zdr_attested: None,
             },
         )
         .await

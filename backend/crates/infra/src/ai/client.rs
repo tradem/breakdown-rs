@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use breakdown_core::ai::{
     CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
     LlmVisionRequest, SchedulePageExtraction, ScriptContext, ShootingSchedule, ShootingScheduleRow,
-    parse_schedule_scene_ref, vision_egress_compliant, vision_egress_policy,
+    parse_schedule_scene_ref, vision_egress_compliant, vision_egress_policy_for_config,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
@@ -641,11 +641,21 @@ impl LlmClient for OpenAiCompatibleChatClient {
         // Pre-egress provider-policy gate (ADR-041 `D2`): runs BEFORE any base64
         // encoding or HTTP call, so a rejected call performs zero egress and
         // cannot be retried into a leak by the circuit-breaker/retry loop.
-        if !vision_egress_compliant(vision_egress_policy(self.provider)) {
+        //
+        // Issue #968: the policy is resolved from the AI CONFIG's attestation,
+        // not from the provider alone — a provider whose zero-data-retention
+        // guarantee is an account switch (Nebius) is only compliant once the
+        // operator attests that switch, and the attestation can never lift the
+        // no-training/EU-residency requirements.
+        if !vision_egress_compliant(vision_egress_policy_for_config(
+            self.provider,
+            req.zdr_attested,
+        )) {
             return Err(DomainError::validation(format!(
                 "provider {:?} does not declare Zero Data Retention, no training \
-                 on inputs, and EU data residency; multimodal page-image egress \
-                 is refused (ADR-041 D2)",
+                 on inputs, and EU data residency (or is missing the AI config's \
+                 ZDR attestation); multimodal page-image egress is refused \
+                 (ADR-041 D2)",
                 self.provider
             )));
         }

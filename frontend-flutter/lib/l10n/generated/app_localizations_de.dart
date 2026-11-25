@@ -4051,6 +4051,14 @@ class AppLocalizationsDe extends AppLocalizations {
       'Gleichen API-Schlüssel wie Extraktion verwenden';
 
   @override
+  String get aiConfigZdrAttestedLabel =>
+      'Zero Data Retention ist für dieses Konto aktiviert';
+
+  @override
+  String get aiConfigZdrAttestedHint =>
+      'Unveröffentlichte Drehbücher und Drehpläne dürfen nur als Seitenbilder an Anbieter gehen, die keine Daten speichern, nicht mit Eingaben trainieren und innerhalb der EU verarbeiten. Manche Anbieter (z. B. Nebius) erlauben die speicherfreie Verarbeitung nur über eine Kontoeinstellung — bestätige sie im Anbieter-Portal, bevor du das hier aktivierst. Anbieter, die das selbst garantieren, sind davon nicht betroffen.';
+
+  @override
   String get aiConfigDecisionApiKeyLabel => 'API-Schlüssel für Decision-Modell';
 
   @override

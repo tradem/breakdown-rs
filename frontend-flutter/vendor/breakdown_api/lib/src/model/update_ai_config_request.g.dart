@@ -29,6 +29,8 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
   final String vaultKeyId;
   @override
   final int version;
+  @override
+  final bool? zdrAttested;
 
   factory _$UpdateAiConfigRequest(
           [void Function(UpdateAiConfigRequestBuilder)? updates]) =>
@@ -45,7 +47,8 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
       required this.provider,
       this.reasoningEffort,
       required this.vaultKeyId,
-      required this.version})
+      required this.version,
+      this.zdrAttested})
       : super._();
   @override
   UpdateAiConfigRequest rebuild(
@@ -70,7 +73,8 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
         provider == other.provider &&
         reasoningEffort == other.reasoningEffort &&
         vaultKeyId == other.vaultKeyId &&
-        version == other.version;
+        version == other.version &&
+        zdrAttested == other.zdrAttested;
   }
 
   @override
@@ -87,6 +91,7 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
     _$hash = $jc(_$hash, reasoningEffort.hashCode);
     _$hash = $jc(_$hash, vaultKeyId.hashCode);
     _$hash = $jc(_$hash, version.hashCode);
+    _$hash = $jc(_$hash, zdrAttested.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -104,7 +109,8 @@ class _$UpdateAiConfigRequest extends UpdateAiConfigRequest {
           ..add('provider', provider)
           ..add('reasoningEffort', reasoningEffort)
           ..add('vaultKeyId', vaultKeyId)
-          ..add('version', version))
+          ..add('version', version)
+          ..add('zdrAttested', zdrAttested))
         .toString();
   }
 }
@@ -165,6 +171,10 @@ class UpdateAiConfigRequestBuilder
   int? get version => _$this._version;
   set version(int? version) => _$this._version = version;
 
+  bool? _zdrAttested;
+  bool? get zdrAttested => _$this._zdrAttested;
+  set zdrAttested(bool? zdrAttested) => _$this._zdrAttested = zdrAttested;
+
   UpdateAiConfigRequestBuilder() {
     UpdateAiConfigRequest._defaults(this);
   }
@@ -183,6 +193,7 @@ class UpdateAiConfigRequestBuilder
       _reasoningEffort = $v.reasoningEffort;
       _vaultKeyId = $v.vaultKeyId;
       _version = $v.version;
+      _zdrAttested = $v.zdrAttested;
       _$v = null;
     }
     return this;
@@ -221,6 +232,7 @@ class UpdateAiConfigRequestBuilder
                 vaultKeyId, r'UpdateAiConfigRequest', 'vaultKeyId'),
             version: BuiltValueNullFieldError.checkNotNull(
                 version, r'UpdateAiConfigRequest', 'version'),
+            zdrAttested: zdrAttested,
           );
     } catch (_) {
       late String _$failedField;

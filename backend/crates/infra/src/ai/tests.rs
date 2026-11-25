@@ -1170,6 +1170,7 @@ fn schedule_worker(
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     }
 }
 
@@ -6507,6 +6508,7 @@ fn worker_decision_config(
         vault_key_id: format!("settings-{}", uuid::Uuid::now_v7()),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         decision,
+        zdr_attested: false,
     }
 }
 
@@ -6824,6 +6826,7 @@ async fn a_failed_schedule_scoring_request_without_labelled_rows_records_scoring
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     worker.decision = Some(super::DecisionResolution::Available(Arc::new(
         super::DecisionPass {
@@ -9141,6 +9144,7 @@ async fn schedule_worker_streams_a_spatial_pdf_page_by_page_through_vision() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
 
@@ -9197,6 +9201,7 @@ async fn a_breaker_hold_persists_the_billed_pages_usage() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
 
@@ -9356,6 +9361,7 @@ async fn schedule_worker_keeps_the_flat_text_path_for_the_legacy_parser() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
 
@@ -9390,6 +9396,7 @@ async fn ollama_vision_rejects_non_ollama_provider() {
         max_tokens: 1024,
         response_schema: None,
         reasoning_effort: None,
+        zdr_attested: false,
     };
     let error = client
         .chat_vision_constrained(&request)
@@ -9426,6 +9433,7 @@ async fn a_failed_usage_read_fails_the_job_before_any_paid_call() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
 
@@ -9474,6 +9482,7 @@ async fn a_successful_retry_after_a_billed_failure_counts_usage_once() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
 
@@ -9604,6 +9613,7 @@ async fn a_terminal_failure_persists_its_carried_usage() {
         bounds: AiImportBounds::default(),
         pricing: None,
         decision: None,
+        zdr_attested: false,
     };
     let job = schedule_job(SourceFormat::Pdf);
 

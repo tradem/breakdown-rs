@@ -40,7 +40,7 @@ abstract class ProviderHold
   /// The provider whose endpoint is degraded.
   @BuiltValueField(wireName: r'provider')
   LlmProvider get provider;
-  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  neuralwatt,  opencode-go,  opencode,  ollama,  };
+  // enum providerEnum {  openai,  gemini,  openrouter,  eurouter,  scaleway,  ovhcloud,  nebius,  neuralwatt,  opencode-go,  opencode,  ollama,  };
 
   /// The registered problem code that opened the hold — today always `ai-import.llm-provider-unavailable` (no new code, D-X1). The client keeps rendering its existing per-code narrative.
   @BuiltValueField(wireName: r'reason_code')
