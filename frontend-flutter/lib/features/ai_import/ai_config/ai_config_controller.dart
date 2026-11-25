@@ -414,16 +414,19 @@ class AiConfigController extends _$AiConfigController {
         _settlesZdrConfirmation(servedConfig, pendingAttestation)) {
       final submitted = pendingAttestation.value;
       final generation = pendingAttestation.generation;
-      Future.microtask(() {
-        _draftsNotifier.mutate((d) {
-          d.zdrConfirmation = null;
-          // A flip made AFTER the save stays pending — only the value this
-          // save submitted, still untouched since the dispatch, is retired.
-          if (d.zdrAttested == submitted && d.zdrEditGeneration == generation) {
-            d.zdrAttested = null;
-          }
-        });
-      });
+      unawaited(
+        Future.microtask(() {
+          _draftsNotifier.mutate((d) {
+            d.zdrConfirmation = null;
+            // A flip made AFTER the save stays pending — only the value this
+            // save submitted, still untouched since the dispatch, is retired.
+            if (d.zdrAttested == submitted &&
+                d.zdrEditGeneration == generation) {
+              d.zdrAttested = null;
+            }
+          });
+        }),
+      );
     }
 
     // "Resolved first-run" — only a discovery that has GENUINELY resolved to

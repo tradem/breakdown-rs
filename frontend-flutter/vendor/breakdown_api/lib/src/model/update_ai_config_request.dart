@@ -28,7 +28,7 @@ part 'update_ai_config_request.g.dart';
 /// * [reasoningEffort] - Omitted keeps the stored choice (an older client), `auto` resets it to the system default, a level replaces it. Deliberately not `Option<Option<..>>`: the generated Dart client omits `null` fields, so a reset would be unreachable from the app (2026-11-20 investigation).
 /// * [vaultKeyId]
 /// * [version] - Aggregate version for optimistic locking.  The canonical version contract is **1-based**: `AggregateVersion::INITIAL = 1`, and every mutation increments the version by one.  The SierraDB stream version (0-based) is an infrastructure-internal detail. The translation rule is: `domain_version = stream_version + 1` (and inversely `stream_version = domain_version - 1`) which is performed exclusively inside `crates::infra` at the `*Commands` adapter boundary. `core` does not reference `stream_version`, `ExpectedVersion`, or `CurrentVersion`.
-/// * [zdrAttested] - See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.
+/// * [zdrAttested] - See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.  **Bound to the credential.** The attestation describes the `ZDR Mode` switch of ONE provider account, and nothing server-side can observe that switch. An update that changes `vault_key_id` (or the provider, which always requires a fresh key) therefore CLEARS a stored `true` when this field is omitted — a page image must never egress under a retention guarantee inherited from a different account. Re-assert `zdr_attested: true` in the same request to carry it over.
 @BuiltValue()
 abstract class UpdateAiConfigRequest
     implements Built<UpdateAiConfigRequest, UpdateAiConfigRequestBuilder> {
@@ -73,7 +73,7 @@ abstract class UpdateAiConfigRequest
   @BuiltValueField(wireName: r'version')
   int get version;
 
-  /// See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.
+  /// See [`CreateAiConfigRequest::zdr_attested`]. Omitted keeps the stored attestation (an older client editing the prompts must not silently revoke it), `false` revokes it explicitly.  **Bound to the credential.** The attestation describes the `ZDR Mode` switch of ONE provider account, and nothing server-side can observe that switch. An update that changes `vault_key_id` (or the provider, which always requires a fresh key) therefore CLEARS a stored `true` when this field is omitted — a page image must never egress under a retention guarantee inherited from a different account. Re-assert `zdr_attested: true` in the same request to carry it over.
   @BuiltValueField(wireName: r'zdr_attested')
   bool? get zdrAttested;
 
