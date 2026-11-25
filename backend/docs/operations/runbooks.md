@@ -1768,9 +1768,25 @@ admin:
    list the curated IDs (`Qwen/Qwen3.8-27B`, `deepseek-ai/DeepSeek-V4.1-Flash-1017`). If an ID is
    gone, rotate the curated list (config change) — never point the config at an unlisted model.
 
-Revoking the attestation immediately re-closes the gate: the next schedule job's first page call is
-refused with a validation error and no egress happens. The attestation can never open a provider
-that the policy table rejects (no-training and EU residency are not attestable).
+**Revoking the attestation re-closes the gate — after projection catch-up, not at the 2xx.** The
+PATCH is acknowledged when the COMMAND completes (`AiConfigCommandsImpl::update` → one event-store
+append), while the schedule worker resolves its configuration from the read model
+(`AiConfigRepositoryImpl::find_worker_config` → `ai_import.projection_ai_config`, which filters only
+on `revoked = FALSE` and applies **no** version filter). In the window between the acknowledgement
+and the `AiConfigProjector` write, a job that resolves its config can therefore still read the
+previous `zdr_attested`. The contract is: **no page-image egress once the projection carries the
+revocation** — not "no egress after the response". A job already inside its first page call is not
+interrupted either way (the policy is resolved per call, and the call in flight holds its verdict).
+Confirm what the worker will see before concluding that a revocation did not take effect:
+
+```sql
+SELECT zdr_attested, version, updated_at
+  FROM ai_import.projection_ai_config
+ WHERE id = '<config_id>';
+```
+
+The attestation can never open a provider that the policy table rejects (no-training and EU
+residency are not attestable).
 
 ### Symptoms
 
