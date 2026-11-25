@@ -128,40 +128,64 @@ async fn await_projected_reasoning_effort(pool: &PgPool, id: Uuid) -> Result<Opt
     }
 }
 
-/// Poll the projected `zdr_attested` column until it carries `expected`.
+/// Poll the projected row until it carries at least `expected`, the aggregate
+/// version the command returned.
 ///
-/// Polling the VALUE is the point: `false` is the fail-closed default the create
-/// already writes, so a row-existence (or "is false") wait would pass before the
-/// projector ever processed the update.
-async fn await_projected_zdr(pool: &PgPool, id: Uuid, expected: bool) -> Result<()> {
+/// The VERSION, not the attestation value, is the catch-up signal: "keeps the
+/// stored value" produces the same `true` the previous event already wrote, so a
+/// value-only wait returns on the PREVIOUS step's projection and hides a dropped
+/// update (review finding). `WHERE version < $N` makes the projector's write
+/// monotonic, so the version reaching `expected` is proof that this event landed.
+async fn await_projected_version(
+    pool: &PgPool,
+    id: Uuid,
+    expected: AggregateVersion,
+) -> Result<()> {
+    let expected_column = i64::try_from(expected.0)
+        .map_err(|e| anyhow!("aggregate version {expected:?} exceeds the DB range: {e}"))?;
     let deadline = std::time::Instant::now() + PROJECTION_DEADLINE;
     loop {
-        let projected: Option<bool> = sqlx::query_scalar(
-            "SELECT zdr_attested FROM ai_import.projection_ai_config WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| anyhow!("zdr_attested read failed: {e}"))?;
+        let projected: Option<i64> =
+            sqlx::query_scalar("SELECT version FROM ai_import.projection_ai_config WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| anyhow!("projection version read failed: {e}"))?;
 
-        if projected == Some(expected) {
+        if projected.is_some_and(|version| version >= expected_column) {
             return Ok(());
         }
         if std::time::Instant::now() > deadline {
             anyhow::bail!(
-                "projected zdr_attested never reached {expected} (issue #968: the attestation must \
-                 reach the read model, and a credential change must clear it)"
+                "projection_ai_config.version never reached {expected_column} (issue #968: the \
+                 attestation must reach the read model, and a credential change must clear it)"
             );
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
 }
 
-/// Assert the attestation on all three surfaces the page call depends on: the
-/// projection column, the `AiConfigView` the client renders, and the worker
-/// configuration the egress gate resolves.
-async fn assert_zdr_everywhere(pool: &PgPool, config_id: Uuid, expected: bool) -> Result<()> {
-    await_projected_zdr(pool, config_id, expected).await?;
+/// Assert the attestation on all three surfaces the page call depends on at
+/// `expected_version`: the projection column, the `AiConfigView` the client
+/// renders, and the worker configuration the egress gate resolves.
+async fn assert_zdr_everywhere(
+    pool: &PgPool,
+    config_id: Uuid,
+    expected_version: AggregateVersion,
+    expected: bool,
+) -> Result<()> {
+    await_projected_version(pool, config_id, expected_version).await?;
+    let projected: Option<bool> =
+        sqlx::query_scalar("SELECT zdr_attested FROM ai_import.projection_ai_config WHERE id = $1")
+            .bind(config_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| anyhow!("zdr_attested read failed: {e}"))?;
+    assert_eq!(
+        projected,
+        Some(expected),
+        "projected zdr_attested at aggregate version {expected_version:?}"
+    );
     let read_view = AiConfigRepositoryImpl::new(pool.clone())
         .find_by_id(config_id)
         .await
@@ -377,7 +401,7 @@ async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<
         .await
         .expect("create must append AiConfigCreated");
     assert_eq!(created.1, AggregateVersion::INITIAL);
-    assert_zdr_everywhere(&pool, config_id, true).await?;
+    assert_zdr_everywhere(&pool, config_id, created.1, true).await?;
 
     // 2) A prompt-only edit that OMITS the field keeps it — the credential did
     //    not change, so the attestation still describes this account.
@@ -389,7 +413,7 @@ async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<
         .await
         .expect("an omitted attestation must not be rejected");
     assert_eq!(preserved, AggregateVersion(created.1.0 + 1));
-    assert_zdr_everywhere(&pool, config_id, true).await?;
+    assert_zdr_everywhere(&pool, config_id, preserved, true).await?;
 
     // 3) Replacing the CREDENTIAL clears it: the new account's `ZDR Mode` is not
     //    observable, so the inherited `true` would be an unverified claim.
@@ -401,7 +425,7 @@ async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<
         .await
         .expect("a key change without an attestation must still be accepted");
     assert_eq!(replaced, AggregateVersion(preserved.0 + 1));
-    assert_zdr_everywhere(&pool, config_id, false).await?;
+    assert_zdr_everywhere(&pool, config_id, replaced, false).await?;
 
     // 4) Re-attesting the replacement account in the SAME request carries it.
     let reattested = commands
@@ -412,7 +436,7 @@ async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<
         .await
         .expect("an explicit attestation must be stored");
     assert_eq!(reattested, AggregateVersion(replaced.0 + 1));
-    assert_zdr_everywhere(&pool, config_id, true).await?;
+    assert_zdr_everywhere(&pool, config_id, reattested, true).await?;
 
     // 5) An explicit revocation still reaches every reader.
     let revoked = commands
@@ -423,7 +447,7 @@ async fn zdr_attestation_round_trips_and_is_bound_to_its_credential() -> Result<
         .await
         .expect("an explicit revocation must be stored");
     assert_eq!(revoked, AggregateVersion(reattested.0 + 1));
-    assert_zdr_everywhere(&pool, config_id, false).await?;
+    assert_zdr_everywhere(&pool, config_id, revoked, false).await?;
 
     Ok(())
 }

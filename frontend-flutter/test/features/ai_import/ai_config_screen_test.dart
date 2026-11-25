@@ -2695,6 +2695,102 @@ void main() {
           expect(repo.lastUpdateRequest!.zdrAttested, isFalse);
         },
       );
+
+      testWidgets(
+        'create: a successful create retires the attestation draft too '
+        '(issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('ai-api-key-field')),
+            'extraction-secret',
+          );
+          await tester.ensureVisible(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-config-create')));
+          await tester.pumpAndSettle();
+          expect(repo.lastCreateRequest!.zdrAttested, isTrue);
+
+          // Same masking hazard as the edit path: the created config is now
+          // the stored one, so a revoked attestation must render.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a reconciled ambiguous timeout retires the attestation draft '
+        'only when its read-back confirms the submitted value (issue #968 '
+        'review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+
+          // The PATCH times out ambiguously; the read-back is the only
+          // evidence about whether it committed.
+          repo.updateResult = const Left(
+            ProblemError(code: 'transport.connectionTimeout'),
+          );
+          Future<Result<int>> dispatch() => controller.edit(
+            providerKey: 'neuralwatt',
+            assistantModelId: 'gpt-5.6-luna',
+            imageModelId: null,
+            costDisplayPreference: CostDisplayPreference.token,
+            reasoningEffort: ReasoningEffortChoice.auto,
+            zdrAttested: true,
+            scriptPrompt: '',
+            schedulePrompt: '',
+            replacementSecret: 'replacement-secret',
+            decisionProviderKey: null,
+            decisionModelId: null,
+          );
+
+          // The operator's flip lives in the draft store (this is what
+          // `build` prefers over the stored configuration).
+          controller.setZdrAttested(true);
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // (a) The read-back does not show the submitted attestation → the
+          //     PATCH may not have stored it, so the draft stays PENDING
+          //     instead of being dropped on a hope.
+          repo.getConfigResult = Right(
+            _config(provider: LlmProvider.neuralwatt, version: 3),
+          );
+          expect(await dispatch(), isA<Right<ProblemError, int>>());
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // (b) The read-back confirms it → the draft is retired, so a later
+          //     revocation refreshes into the form.
+          controller.setZdrAttested(true);
+          repo.getConfigResult = Right(
+            _config(
+              provider: LlmProvider.neuralwatt,
+              version: 3,
+              zdrAttested: true,
+            ),
+          );
+          expect(await dispatch(), isA<Right<ProblemError, int>>());
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
+        },
+      );
     });
 
     // --- Round-trip verification of the Decision Model (issue #769) ---

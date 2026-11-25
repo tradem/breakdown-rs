@@ -1018,6 +1018,10 @@ class AiConfigController extends _$AiConfigController {
           ref.invalidate(aiImportHandoffProvider);
           return Left<ProblemError, IdVersionResponse>(verdict.error!);
         }
+        // The create landed, so its attestation draft is retired like an
+        // edit's (issue #968 review): a surviving draft would mask a later
+        // revocation on every discovery refresh.
+        _retireZdrAttestedDraft(s.zdrAttested);
         if (!ref.mounted) {
           return Right<ProblemError, IdVersionResponse>(idVersion);
         }
@@ -1028,6 +1032,22 @@ class AiConfigController extends _$AiConfigController {
         return Right<ProblemError, IdVersionResponse>(idVersion);
       },
     );
+  }
+
+  /// Retires the `zdrAttested` draft after a save that is known to have LANDED
+  /// (issue #968 review).
+  ///
+  /// `build` prefers a non-null draft over the stored configuration, so a draft
+  /// outliving its save MASKS every later discovery refresh: another client's
+  /// revocation would stay invisible and the next save would re-enable vision
+  /// egress the operator had revoked. Only THIS field is cleared — `reset()`
+  /// would discard every unrelated draft — and only while it still equals the
+  /// value the save submitted, so a flip made while the request was in flight
+  /// stays pending.
+  void _retireZdrAttestedDraft(bool submitted) {
+    if (_draftsNotifier.state.zdrAttested == submitted) {
+      _draftsNotifier.mutate((d) => d.zdrAttested = null);
+    }
   }
 
   Future<void> _rememberConfigId(String configId) async {
@@ -1514,6 +1534,15 @@ class AiConfigController extends _$AiConfigController {
             // keep rendering the previous key's configured state, probe verdict
             // and budget until a manual retry.
             ref.invalidate(aiProviderHealthProvider);
+            // The read-back is the only evidence that an AMBIGUOUS timeout
+            // committed, so the attestation draft is retired only when that
+            // same read-back confirms the value this dispatch submitted
+            // (issue #968 review). Clearing it on the provider/key match alone
+            // would drop a flip the server may not have stored; keeping it on a
+            // confirmed write would mask a later revocation.
+            if (view.zdrAttested == zdrAttested) {
+              _retireZdrAttestedDraft(zdrAttested);
+            }
             if (ref.mounted) state = state.copyWith(clearCommandError: true);
             return Right<ProblemError, int>(view.version);
           }
@@ -1582,17 +1611,8 @@ class AiConfigController extends _$AiConfigController {
         // parameter entry — the extraction and the decision key alike.
         ref.invalidate(aiProviderHealthProvider);
         // Retire the attestation draft once the save that carried it was
-        // accepted (issue #968 review). `build` prefers a non-null draft over
-        // the stored configuration, so a surviving draft would MASK every
-        // later discovery refresh: another client's revocation would stay
-        // invisible and the next save would re-enable vision egress the
-        // operator had revoked. Only THIS field is cleared (`reset()` would
-        // discard every unrelated draft), and only while it still equals the
-        // value this save submitted — a toggle made while the PATCH was in
-        // flight must stay pending.
-        if (_draftsNotifier.state.zdrAttested == zdrAttested) {
-          _draftsNotifier.mutate((d) => d.zdrAttested = null);
-        }
+        // accepted (issue #968 review).
+        _retireZdrAttestedDraft(zdrAttested);
         if (!ref.mounted) {
           return Right<ProblemError, int>(version);
         }
