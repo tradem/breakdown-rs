@@ -35,8 +35,13 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # of the product and file versions while build-number is used as the build suffix.
 version: 0.5.0-alpha.1+156
 
+# Bumped 3.13.1 -> 3.14.0 with the Flutter 3.50.1 pin (issue #976): the resolved
+# dependency set now REQUIRES Dart 3.14 (pdfium_dart / pdfium_flutter 0.4.4 and
+# pdfrx_engine 0.9.6 all declare `sdk: ^3.14.0`, and pubspec.lock's own sdks
+# block says `dart: ">=3.14.0 <4.0.0"`). Leaving the declared floor at 3.13 would
+# let an older SDK re-resolve the lock silently.
 environment:
-  sdk: ^3.13.1
+  sdk: ^3.14.0
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions

@@ -780,7 +780,7 @@ final class AiConfigDraftsProvider
   }
 }
 
-String _$aiConfigDraftsHash() => r'e3886550c2a10ce51e9c20f7700d4260716d0585';
+String _$aiConfigDraftsHash() => r'2de5020924de155c0b439f50bb8cd92f67b8e44e';
 
 /// Ephemeral draft store: mutations go through [mutate] so watchers (the
 /// controller's build) rebuild on every draft change.
@@ -861,7 +861,7 @@ final class AiConfigControllerProvider
 }
 
 String _$aiConfigControllerHash() =>
-    r'5bf0d262513f513a99ba37490feee60cfbef2237';
+    r'392533cce97dbd1875735cb5486d86412f61bca9';
 
 /// The AI-import configuration controller (`flutter-ai-config` task 2.1).
 ///
