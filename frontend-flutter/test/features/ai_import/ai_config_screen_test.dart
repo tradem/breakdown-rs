@@ -2887,6 +2887,55 @@ void main() {
       );
 
       testWidgets(
+        'edit: a flip made while the confirmation is pending is preserved when '
+        'a newer projection arrives (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // Attest + save: acknowledged at version 2 with `true`, read-back
+          // stale, so the confirmation is pending.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          repo.getConfigResult = Right(_config(zdrAttested: false));
+          await tester.tap(find.byKey(const Key('ai-config-edit-save')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // The operator changes their mind twice while the confirmation is
+          // pending, ending on the SAME value the save submitted.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // A newer projection arrives with the OTHER value. The pending
+          // confirmation is settled, but the later local edit must survive —
+          // clearing it would render `false` over the operator's latest intent.
+          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNull,
+          );
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+        },
+      );
+
+      testWidgets(
         'edit: a pending confirmation survives a closed and reopened screen '
         '(issue #968 review)',
         (tester) async {

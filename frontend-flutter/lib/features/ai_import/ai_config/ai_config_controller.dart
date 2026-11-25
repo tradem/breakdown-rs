@@ -161,6 +161,7 @@ class AiConfigDraftData {
     this.costDisplayPreference,
     this.reasoningEffort,
     this.zdrAttested,
+    this.zdrEditGeneration = 0,
     this.zdrConfirmation,
     this.scriptPrompt = '',
     this.schedulePrompt = '',
@@ -234,12 +235,17 @@ class AiConfigDraftData {
   /// expressible from the app, and the generated client omits nulls.
   bool? zdrAttested;
 
+  /// Bumped on every attestation EDIT (a flip of the toggle, or the reset a
+  /// provider change performs), so a save can tell "nobody touched it since"
+  /// from "the operator changed their mind while the request was in flight".
+  int zdrEditGeneration;
+
   /// A saved attestation whose read-back had not caught up when the save was
-  /// acknowledged, recorded as `(aggregate version, submitted value)`
-  /// (issue #968 review). It lives in this KEEP-ALIVE store rather than on the
-  /// auto-disposed controller, so the confirmation still retires the draft
-  /// after the screen was closed and reopened.
-  ({int version, bool value})? zdrConfirmation;
+  /// acknowledged, recorded as `(aggregate version, submitted value, edit
+  /// generation at dispatch)` (issue #968 review). It lives in this KEEP-ALIVE
+  /// store rather than on the auto-disposed controller, so the confirmation
+  /// still retires the draft after the screen was closed and reopened.
+  ({int version, bool value, int generation})? zdrConfirmation;
   AiConfigUnresolved? unresolved;
 }
 
@@ -284,6 +290,7 @@ class AiConfigDrafts extends _$AiConfigDrafts {
       costDisplayPreference: state.costDisplayPreference,
       reasoningEffort: state.reasoningEffort,
       zdrAttested: state.zdrAttested,
+      zdrEditGeneration: state.zdrEditGeneration,
       zdrConfirmation: state.zdrConfirmation,
       scriptPrompt: state.scriptPrompt,
       schedulePrompt: state.schedulePrompt,
@@ -384,12 +391,15 @@ class AiConfigController extends _$AiConfigController {
         servedConfig != null &&
         _settlesZdrConfirmation(servedConfig, pendingAttestation)) {
       final submitted = pendingAttestation.value;
+      final generation = pendingAttestation.generation;
       Future.microtask(() {
         _draftsNotifier.mutate((d) {
           d.zdrConfirmation = null;
           // A flip made AFTER the save stays pending — only the value this
-          // save submitted is retired.
-          if (d.zdrAttested == submitted) d.zdrAttested = null;
+          // save submitted, still untouched since the dispatch, is retired.
+          if (d.zdrAttested == submitted && d.zdrEditGeneration == generation) {
+            d.zdrAttested = null;
+          }
         });
       });
     }
@@ -637,6 +647,7 @@ class AiConfigController extends _$AiConfigController {
       // account's. Re-picking the same provider leaves it alone.
       if (providerChanged) {
         d.zdrAttested = false;
+        d.zdrEditGeneration++;
       }
     });
     state = state.copyWith(clearCommandError: true);
@@ -770,7 +781,10 @@ class AiConfigController extends _$AiConfigController {
   /// unrelated edit never revokes it (the aggregate keeps the stored value when
   /// the field is omitted) and the app must be able to revoke it explicitly.
   void setZdrAttested(bool value) {
-    _draftsNotifier.mutate((d) => d.zdrAttested = value);
+    _draftsNotifier.mutate((d) {
+      d.zdrAttested = value;
+      d.zdrEditGeneration++;
+    });
     state = state.copyWith(zdrAttested: value, clearCommandError: true);
   }
 
@@ -1104,11 +1118,18 @@ class AiConfigController extends _$AiConfigController {
     bool submitted,
   ) {
     final confirmed = _attestationConfirmed(stored, version, submitted);
+    final generation = _draftsNotifier.state.zdrEditGeneration;
     _draftsNotifier.mutate((d) {
       d.zdrConfirmation = confirmed
           ? null
-          : (version: version, value: submitted);
-      if (confirmed && d.zdrAttested == submitted) d.zdrAttested = null;
+          : (version: version, value: submitted, generation: generation);
+      // Only a draft nobody has touched since the dispatch is retired — a flip
+      // made while the request was in flight is the newer intent and stays.
+      if (confirmed &&
+          d.zdrAttested == submitted &&
+          d.zdrEditGeneration == generation) {
+        d.zdrAttested = null;
+      }
     });
   }
 
@@ -1129,7 +1150,7 @@ class AiConfigController extends _$AiConfigController {
   /// review).
   static bool _settlesZdrConfirmation(
     AiConfigView stored,
-    ({int version, bool value}) pending,
+    ({int version, bool value, int generation}) pending,
   ) =>
       stored.version > pending.version ||
       (stored.version == pending.version &&
