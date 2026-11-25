@@ -260,6 +260,17 @@ final class AiApplyRunFamily extends $Family
 /// means the scope could not be resolved (no block on the job, or the block is
 /// neither cached nor readable) — the gate then stays PENDING, which disables
 /// the watch instead of denying it.
+///
+/// **Totality is part of that contract.** The function used to spell the
+/// pending answer only for a `Left` Result, while the two reads above it
+/// (`aiJobBlockInfoProvider`'s cached-row read and the Drift `readById`) can
+/// throw: an unreadable cache then escaped this provider as an ERROR, and every
+/// consumer of the gate reads a `.future` — `apply()` awaits it before the
+/// first network call. A throw there is swallowed by the button's async
+/// callback in a single turn (both `setState`s land before the next frame), so
+/// the reviewer saw an ENABLED submit button that provably did nothing: no
+/// spinner, no error, no navigation. An unreadable scope is `null` (pending),
+/// exactly as documented — never an exception.
 
 @ProviderFor(aiApplyJobSeasonId)
 final aiApplyJobSeasonIdProvider = AiApplyJobSeasonIdFamily._();
@@ -272,6 +283,17 @@ final aiApplyJobSeasonIdProvider = AiApplyJobSeasonIdFamily._();
 /// means the scope could not be resolved (no block on the job, or the block is
 /// neither cached nor readable) — the gate then stays PENDING, which disables
 /// the watch instead of denying it.
+///
+/// **Totality is part of that contract.** The function used to spell the
+/// pending answer only for a `Left` Result, while the two reads above it
+/// (`aiJobBlockInfoProvider`'s cached-row read and the Drift `readById`) can
+/// throw: an unreadable cache then escaped this provider as an ERROR, and every
+/// consumer of the gate reads a `.future` — `apply()` awaits it before the
+/// first network call. A throw there is swallowed by the button's async
+/// callback in a single turn (both `setState`s land before the next frame), so
+/// the reviewer saw an ENABLED submit button that provably did nothing: no
+/// spinner, no error, no navigation. An unreadable scope is `null` (pending),
+/// exactly as documented — never an exception.
 
 final class AiApplyJobSeasonIdProvider
     extends $FunctionalProvider<AsyncValue<String?>, String?, FutureOr<String?>>
@@ -284,6 +306,17 @@ final class AiApplyJobSeasonIdProvider
   /// means the scope could not be resolved (no block on the job, or the block is
   /// neither cached nor readable) — the gate then stays PENDING, which disables
   /// the watch instead of denying it.
+  ///
+  /// **Totality is part of that contract.** The function used to spell the
+  /// pending answer only for a `Left` Result, while the two reads above it
+  /// (`aiJobBlockInfoProvider`'s cached-row read and the Drift `readById`) can
+  /// throw: an unreadable cache then escaped this provider as an ERROR, and every
+  /// consumer of the gate reads a `.future` — `apply()` awaits it before the
+  /// first network call. A throw there is swallowed by the button's async
+  /// callback in a single turn (both `setState`s land before the next frame), so
+  /// the reviewer saw an ENABLED submit button that provably did nothing: no
+  /// spinner, no error, no navigation. An unreadable scope is `null` (pending),
+  /// exactly as documented — never an exception.
   AiApplyJobSeasonIdProvider._({
     required AiApplyJobSeasonIdFamily super.from,
     required String super.argument,
@@ -328,7 +361,7 @@ final class AiApplyJobSeasonIdProvider
 }
 
 String _$aiApplyJobSeasonIdHash() =>
-    r'9ee64fd42ef12ffba10f4cd21d19ce646bb1a965';
+    r'2cede92736e0a1324d528fba505a1e1572ab5112';
 
 /// The season a job belongs to — the authorization scope of the apply stream.
 ///
@@ -338,6 +371,17 @@ String _$aiApplyJobSeasonIdHash() =>
 /// means the scope could not be resolved (no block on the job, or the block is
 /// neither cached nor readable) — the gate then stays PENDING, which disables
 /// the watch instead of denying it.
+///
+/// **Totality is part of that contract.** The function used to spell the
+/// pending answer only for a `Left` Result, while the two reads above it
+/// (`aiJobBlockInfoProvider`'s cached-row read and the Drift `readById`) can
+/// throw: an unreadable cache then escaped this provider as an ERROR, and every
+/// consumer of the gate reads a `.future` — `apply()` awaits it before the
+/// first network call. A throw there is swallowed by the button's async
+/// callback in a single turn (both `setState`s land before the next frame), so
+/// the reviewer saw an ENABLED submit button that provably did nothing: no
+/// spinner, no error, no navigation. An unreadable scope is `null` (pending),
+/// exactly as documented — never an exception.
 
 final class AiApplyJobSeasonIdFamily extends $Family
     with $FunctionalFamilyOverride<FutureOr<String?>, String> {
@@ -358,6 +402,17 @@ final class AiApplyJobSeasonIdFamily extends $Family
   /// means the scope could not be resolved (no block on the job, or the block is
   /// neither cached nor readable) — the gate then stays PENDING, which disables
   /// the watch instead of denying it.
+  ///
+  /// **Totality is part of that contract.** The function used to spell the
+  /// pending answer only for a `Left` Result, while the two reads above it
+  /// (`aiJobBlockInfoProvider`'s cached-row read and the Drift `readById`) can
+  /// throw: an unreadable cache then escaped this provider as an ERROR, and every
+  /// consumer of the gate reads a `.future` — `apply()` awaits it before the
+  /// first network call. A throw there is swallowed by the button's async
+  /// callback in a single turn (both `setState`s land before the next frame), so
+  /// the reviewer saw an ENABLED submit button that provably did nothing: no
+  /// spinner, no error, no navigation. An unreadable scope is `null` (pending),
+  /// exactly as documented — never an exception.
 
   AiApplyJobSeasonIdProvider call(String jobId) =>
       AiApplyJobSeasonIdProvider._(argument: jobId, from: this);
@@ -374,6 +429,11 @@ final class AiApplyJobSeasonIdFamily extends $Family
 /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
 /// uses. A failed or still-pending membership read stays `membership.pending`
 /// (disabled with the waiting line, never the 403 narrative — D3).
+///
+/// **The gate never throws**, for the same reason [aiApplyJobSeasonId] never
+/// does: it is awaited on the dispatch path (`apply()`, the reconciliation's
+/// `gate:` callback and the progress stream), and an escaping error there is
+/// invisible to the reviewer (see that provider's doc comment).
 
 @ProviderFor(aiApplyStreamGate)
 final aiApplyStreamGateProvider = AiApplyStreamGateFamily._();
@@ -386,6 +446,11 @@ final aiApplyStreamGateProvider = AiApplyStreamGateFamily._();
 /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
 /// uses. A failed or still-pending membership read stays `membership.pending`
 /// (disabled with the waiting line, never the 403 narrative — D3).
+///
+/// **The gate never throws**, for the same reason [aiApplyJobSeasonId] never
+/// does: it is awaited on the dispatch path (`apply()`, the reconciliation's
+/// `gate:` callback and the progress stream), and an escaping error there is
+/// invisible to the reviewer (see that provider's doc comment).
 
 final class AiApplyStreamGateProvider
     extends
@@ -403,6 +468,11 @@ final class AiApplyStreamGateProvider
   /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
   /// uses. A failed or still-pending membership read stays `membership.pending`
   /// (disabled with the waiting line, never the 403 narrative — D3).
+  ///
+  /// **The gate never throws**, for the same reason [aiApplyJobSeasonId] never
+  /// does: it is awaited on the dispatch path (`apply()`, the reconciliation's
+  /// `gate:` callback and the progress stream), and an escaping error there is
+  /// invisible to the reviewer (see that provider's doc comment).
   AiApplyStreamGateProvider._({
     required AiApplyStreamGateFamily super.from,
     required String super.argument,
@@ -447,7 +517,7 @@ final class AiApplyStreamGateProvider
   }
 }
 
-String _$aiApplyStreamGateHash() => r'6d306e49940c6ed09affeae99bdc7711a9e9b20f';
+String _$aiApplyStreamGateHash() => r'7d17d71971310d6381ed0bc8f2d91caa4d33da7e';
 
 /// The client-side mirror of the backend's AUTHZ-GATE on the apply-events route
 /// (D6): `null` = the watch may open, otherwise the stable problem `code` the
@@ -457,6 +527,11 @@ String _$aiApplyStreamGateHash() => r'6d306e49940c6ed09affeae99bdc7711a9e9b20f';
 /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
 /// uses. A failed or still-pending membership read stays `membership.pending`
 /// (disabled with the waiting line, never the 403 narrative — D3).
+///
+/// **The gate never throws**, for the same reason [aiApplyJobSeasonId] never
+/// does: it is awaited on the dispatch path (`apply()`, the reconciliation's
+/// `gate:` callback and the progress stream), and an escaping error there is
+/// invisible to the reviewer (see that provider's doc comment).
 
 final class AiApplyStreamGateFamily extends $Family
     with $FunctionalFamilyOverride<FutureOr<ProblemError?>, String> {
@@ -477,6 +552,11 @@ final class AiApplyStreamGateFamily extends $Family
   /// [checkAiImportCapability] — the same gate the AI-import upload/apply dispatch
   /// uses. A failed or still-pending membership read stays `membership.pending`
   /// (disabled with the waiting line, never the 403 narrative — D3).
+  ///
+  /// **The gate never throws**, for the same reason [aiApplyJobSeasonId] never
+  /// does: it is awaited on the dispatch path (`apply()`, the reconciliation's
+  /// `gate:` callback and the progress stream), and an escaping error there is
+  /// invisible to the reviewer (see that provider's doc comment).
 
   AiApplyStreamGateProvider call(String jobId) =>
       AiApplyStreamGateProvider._(argument: jobId, from: this);
@@ -538,7 +618,7 @@ final class AiApplyControllerProvider
   }
 }
 
-String _$aiApplyControllerHash() => r'9fa7b5340e228c58a97ad4d839fb979d637b8a3f';
+String _$aiApplyControllerHash() => r'c8385366aea442af9d7e7134dc5828b3d23af992';
 
 /// The apply controller (task 4.2): builds + submits the mappings.
 
