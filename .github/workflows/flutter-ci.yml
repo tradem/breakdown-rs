@@ -4,6 +4,7 @@
 # Co-authored-by: qwen3.8-flash (opencode-go)
 # Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 # Co-authored-by: deepseek-v4-flash (neuralwatt)
+# Co-authored-by: deepseek-v4.1-flash (opencode-go)
 # Co-authored-by: space-bunny-free (opencode-go)
 # Co-authored-by: space-bunny-free (opencode)
 
@@ -36,19 +37,18 @@
 #    practices are coverage / golden tests / explicit Err-branch assertions /
 #    semantic-finder widget tests (see the `coverage` job comment).
 #
-# Toolchain pin:
-#  - `flutter-version` is PINNED to 3.47.6 (Dart 3.13.x), identical to
-#    `flutter-release.yml`, instead of floating on `channel: stable`.
-#    Flutter 3.50.x ships Dart 3.14.0, whose AOT compiler aborts on a known
-#    pattern (a deferred `final` assigned in a pattern `switch` case and
-#    captured by a closure) — dart-lang/sdk#64917, fixed upstream but not
-#    shipped in 3.50.1. v0.4.0's release build died in `gen_snapshot`
-#    (`linearscan.cc: 3013: error: unreachable code`, exit -6) on all three
-#    ABIs while every JIT/debug gate stayed green. The pin is lifted in BOTH
-#    workflows at once, driven by `flutter-aot-canary.yml` (weekly: does the
-#    regression probe in `frontend-flutter/tool/aot-regressions/` still
-#    crash?) and runnable by hand via
-#    `frontend-flutter/scripts/release/check-flutter-aot-regression.sh`.
+# Toolchain pin (one SDK for the gates AND the release build):
+#  - `flutter-version` is PINNED to 3.50.1 (Dart 3.14.0), identical to
+#    `flutter-release.yml`; bump BOTH in the same PR. The pin exists because a
+#    floating `channel: stable` once carried a release-only AOT miscompile into
+#    the v0.4.0 pipeline (dart-lang/sdk#64917: a deferred `final` assigned in a
+#    pattern `switch` case and captured by a closure → `gen_snapshot` aborted
+#    with `linearscan.cc: 3013: error: unreachable code`) while every JIT/debug
+#    gate stayed green.
+#  - That source shape is kept as a probe in `frontend-flutter/tool/aot-regressions/`
+#    and AOT-compiled against the pinned SDK in the `format-and-analyze` job
+#    (`frontend-flutter/scripts/release/check-flutter-aot-regression.sh`), so the
+#    next bump onto a broken snapshotter fails a PR gate instead of a release.
 #
 # CI hardening:
 #  - Every third-party action is SHA-pinned (40-char SHA + `# vX` comment),
@@ -119,7 +119,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
+          flutter-version: 3.50.1 # pinned — same SDK as flutter-release.yml
           cache: true
 
       # The two nested Dart tool packages (`packages/breakdown_lints` — the
@@ -139,6 +139,17 @@ jobs:
           fi
           (cd packages/breakdown_lints && dart pub get)
           (cd tool/breakdown_lints_runner && dart pub get)
+
+      # AOT smoke gate — the gate that would have caught the v0.4.0 release
+      # failure. `dart compile aot-snapshot` uses the SAME `gen_snapshot` a
+      # release build does, so compiling the guard shape in
+      # `tool/aot-regressions/` with the PINNED SDK takes seconds (no Gradle, no
+      # Android SDK, no keystore) and fails here instead of in a release
+      # pipeline. Exit codes: 0 compiled / 3 the known AOT crash / 1 cannot
+      # judge (SDK predates the regression, or a different compile failure).
+      # The probe is self-contained, so it needs neither `pub get` nor the app.
+      - name: AOT smoke gate — compile the release-regression probe
+        run: bash scripts/release/check-flutter-aot-regression.sh
 
       # `dart format --set-exit-if-changed` — fails if any tracked Dart
       # source is not formatted. Until the scaffold lands there are no .dart
@@ -345,7 +356,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
+          flutter-version: 3.50.1 # pinned — same SDK as flutter-release.yml
           cache: true
 
       - name: Generate and validate localization catalog
@@ -414,7 +425,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
+          flutter-version: 3.50.1 # pinned — same SDK as flutter-release.yml
           cache: true
 
       - name: Install OpenAPI generator
@@ -527,15 +538,11 @@ jobs:
       - name: Guard the release-body resolution (curated notes, not generated)
         run: bash frontend-flutter/scripts/release/tests/publish-release-notes-test.sh
 
-      # The `flutter-version` pin above (3.47.6 instead of floating on
-      # `channel: stable`) exists because Dart 3.14.0 AOT-crashes on
-      # dart-lang/sdk#64917 — the shape the v0.4.0 release build died on while
-      # every JIT gate stayed green. That pin is only honest if its exit
-      # condition is mechanical, so the probe script's verdict contract
-      # (0 fixed / 3 broken / 1 unjudgeable, plus the `state` output the
-      # `flutter-aot-canary.yml` weekly workflow branches on) is guarded here:
-      # daemon-free — bash + a fake `dart` on PATH, no toolchain, no network.
-      - name: Guard the AOT-regression pin probe (dart-lang/sdk#64917)
+      # AOT smoke gate lives in `format-and-analyze` (only that job has the
+      # toolchain); it is only trustworthy if the probe script's verdict
+      # contract holds, so the contract is guarded here too — daemon-free: bash
+      # + a fake `dart` on PATH, no toolchain, no network.
+      - name: Guard the AOT smoke gate's verdict contract
         run: bash frontend-flutter/scripts/release/tests/check-flutter-aot-regression-test.sh
 
   # Coverage gate — the enforced SUBSTITUTE for the mutation-testing gate that
@@ -584,7 +591,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
+          flutter-version: 3.50.1 # pinned — same SDK as flutter-release.yml
           cache: true
 
       - name: Install coverde
@@ -668,7 +675,7 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          flutter-version: 3.47.6 # pinned: dart-lang/sdk#64917 (see flutter-aot-canary.yml)
+          flutter-version: 3.50.1 # pinned — same SDK as flutter-release.yml
           cache: true
 
       - name: Resolve packages

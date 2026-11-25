@@ -26,6 +26,33 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 - **Version bump:** `0.4.0+155 → 0.5.0-alpha.1+156` (opens the 0.5.0 alpha
   line; the Play `versionCode` `+N` stays strictly monotonic).
 
+- **Toolchain pin lifted: Flutter `3.47.6` → `3.50.1` (Dart `3.13.x` →
+  `3.14.0`)** (issue #966). The v0.4.0 blocker was Dart 3.14.0's AOT register
+  allocator aborting on one source shape
+  ([dart-lang/sdk#64917](https://github.com/dart-lang/sdk/issues/64917)); the
+  fix has shipped, and the probe in `tool/aot-regressions/` AOT-compiles with
+  3.50.1's own `gen_snapshot` — verified locally, now also by a PR gate. Both
+  workflows carry `flutter-version: 3.50.1` again (gates and build must see one
+  SDK; bump them in one PR).
+  - **`flutter-aot-canary.yml` and its issue template are retired.** The canary
+    existed to answer "may the pin be lifted yet?" — a question a *pinned*
+    toolchain never asks. Left in place it would have re-opened the same issue
+    every week (its dedup only suppresses while one is open).
+  - **The hazard shape is guarded per PR instead of per week:** the
+    `format-and-analyze` job AOT-compiles `tool/aot-regressions/` with the
+    pinned SDK (`scripts/release/check-flutter-aot-regression.sh`, exit `0`
+    compiled / `3` the known crash / `1` cannot judge). The class of bug that
+    only shows up in a release AOT build now fails before a release tag.
+  - **`pubspec.lock` re-resolved with 3.50.1:** `test 1.31.1 → 1.32.0`,
+    `test_api 0.7.12 → 0.7.14`, `test_core 0.6.18 → 0.6.20` — the trio that had
+    been re-resolving silently on every `pub get` since the pin dropped the
+    toolchain below what the lock had been resolved with.
+  - **Deferred, not done here:** the 196 info-level `deprecated_member_use`
+    hints the newer SDK adds for `package:flutter/material.dart`
+    (→ `package:material_ui/material_ui.dart`; non-fatal under
+    `flutter analyze --no-fatal-infos`) and the dependency majors the pin had
+    blocked (`pdfrx 3.x`, `freezed 4` / `build_runner 2.17`, `gherkin 3.x`).
+
 - **The Android build compiles Kotlin through AGP's built-in Kotlin support.**
   `android/gradle.properties` now sets `android.builtInKotlin=true`, and
   `android/app/build.gradle.kts` no longer applies
@@ -51,14 +78,17 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     resolved by the v0.4.0 release build (Flutter 3.50.1) and still carried
     `test 1.32.0` / `test_api 0.7.14`, which Flutter 3.47.6 cannot satisfy
     (`flutter_test` pins `test_api 0.7.12`) — so every `pub get` since the pin
-    silently re-resolved the lock. It is now consistent with 3.47.6 again.
-  - **The remaining majors are blocked by the Flutter pin, not by the
+    silently re-resolved the lock. It was consistent with 3.47.6 again at that
+    point; the pin lift above re-resolved it to the 3.50.1 triple
+    (`test 1.32.0` / `test_api 0.7.14` / `test_core 0.6.20`), which is where it
+    belongs now.
+  - **The remaining majors were blocked by the Flutter pin, not by the
     dependency tree** (dart-lang/sdk#64917 → 3.47.6): `pdfrx 3.x` requires
     Flutter 3.50 / Dart 3.14; the analyzer-14 codegen stack (`freezed 4.0.3`,
     `build_runner 2.17` / `build 5`) is pinned out by `flutter_test` →
     `test_api 0.7.12` → `test 1.31.1` → `analyzer <14`; `gherkin 3.x` is
-    pinned out by `flutter_gherkin 2.0.0` (`gherkin: ^2.0.2`). Bump them
-    together with the Flutter version, not before.
+    pinned out by `flutter_gherkin 2.0.0` (`gherkin: ^2.0.2`). The pin lift
+    above unblocks them, one reviewed bump at a time — not in the same change.
 
 ## [0.4.0] – Released 2026-11-21
 

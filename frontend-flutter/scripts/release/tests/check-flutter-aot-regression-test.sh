@@ -5,25 +5,26 @@
 
 #
 # Guard test for `scripts/release/check-flutter-aot-regression.sh` — the
-# exit-code/state contract that `.github/workflows/flutter-aot-canary.yml`
-# branches on (and that decides whether the `flutter-version` pin in
-# `flutter-ci.yml` / `flutter-release.yml` may be lifted).
+# exit-code/state contract that the `format-and-analyze` AOT smoke gate in
+# `.github/workflows/flutter-ci.yml` relies on when it compiles the probe
+# against the pinned SDK.
 #
 # The four promises:
 #   1. **SDK older than 3.14.0 is `prereq`, never `fixed`.** An SDK that
 #      predates dart-lang/sdk#64917 compiles the probe fine — reporting that as
-#      "fixed" would lift the pin onto a still-broken toolchain.
-#   2. **`linearscan.cc` in the failure → `broken` (exit 3).** The known
-#      crash, and only the known crash, keeps the pin.
+#      "fixed" would read a green verdict off a toolchain that never had the
+#      bug, i.e. a pass that proves nothing.
+#   2. **`linearscan.cc` in the failure → `broken` (exit 3).** The known crash,
+#      and only the known crash, rejects the SDK (a release build would die).
 #   3. **Any other compile failure → `unknown` (exit 1).** Not a fix, not the
-#      known regression: a human must look, and the canary must fail loudly
+#      known regression: a human must look, and the gate must fail loudly
 #      instead of silently reporting nothing.
 #   4. **A clean compile → `fixed` (exit 0)**, and `state` / `dart_version` are
 #      published through `$GITHUB_OUTPUT` whenever that is set.
 #
 # Daemon-free and toolchain-free: bash + coreutils, a `mktemp -d` fixture and a
 # fake `dart` on PATH. No Flutter, no network, no AOT compile of the real probe
-# (that is what the canary workflow is for).
+# (that is what the smoke gate itself does).
 #
 # Usage: bash scripts/release/tests/check-flutter-aot-regression-test.sh
 
@@ -113,8 +114,8 @@ check "3.13.2 publishes the SDK version" "3.13.2" "$out_version"
 check "3.13.2 explains why it cannot judge" "1" \
   "$(grep -c 'predates the dart-lang/sdk#64917 regression' "$WORK/stdout.txt")"
 
-# 2. The known crash keeps the pin: exit 3, state=broken, and the compiler log
-#    is surfaced (not swallowed).
+# 2. The known crash rejects the SDK: exit 3, state=broken, and the compiler
+#    log is surfaced (not swallowed).
 run_case "3.14.0" "linearscan"
 check "3.14.0 + linearscan exit 3" 3 "$rc"
 check "3.14.0 + linearscan reports broken" "broken" "$state"
@@ -130,7 +131,7 @@ check "3.14.0 + unrelated failure reports unknown" "unknown" "$state"
 check "3.14.0 + unrelated failure is an error annotation" "1" \
   "$(grep -c '::error::' "$WORK/stdout.txt")"
 
-# 4. A clean compile means the pin can be lifted.
+# 4. A clean compile means the SDK is safe to pin.
 run_case "3.14.7" "ok"
 check "3.14.7 + clean compile exits 0" 0 "$rc"
 check "3.14.7 + clean compile reports fixed" "fixed" "$state"

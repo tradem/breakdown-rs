@@ -13,16 +13,17 @@
 ///
 /// (the `UNREACHABLE()` in `FlowGraphAllocator::FindCover`), exit -6. That is
 /// what killed the v0.4.0 release build on all three ABIs while every JIT
-/// gate stayed green, and it is why `flutter-version` is pinned to 3.47.6
-/// (Dart 3.13.x) in `.github/workflows/flutter-ci.yml` and
-/// `flutter-release.yml`.
+/// gate stayed green — which is why the release pipeline no longer floats on
+/// `channel: stable` and `flutter-version` is pinned in
+/// `.github/workflows/flutter-ci.yml` and `flutter-release.yml`.
 ///
-/// This file exists so the pin has a measurable exit condition:
-/// `scripts/release/check-flutter-aot-regression.sh` compiles it with
-/// `dart compile aot-snapshot` (same compiler, seconds instead of a Gradle
-/// build) and reports whether the regression is gone;
-/// `.github/workflows/flutter-aot-canary.yml` runs that weekly against the
-/// latest stable Flutter and opens an issue the day the pin can be lifted.
+/// This file exists so that class of failure is caught by a PR gate instead of
+/// a release pipeline: `scripts/release/check-flutter-aot-regression.sh`
+/// compiles it with `dart compile aot-snapshot` (same `gen_snapshot` a release
+/// build uses, seconds instead of a Gradle build), and the
+/// `format-and-analyze` job of `.github/workflows/flutter-ci.yml` runs that
+/// against the pinned SDK. Run it by hand before bumping the pin; a
+/// reintroduced regression then fails the PR that bumps.
 ///
 /// Do not "clean up" the shape below and do not delete the closure: every
 /// element is load-bearing for the repro (drop the capture, the deferred
