@@ -26,6 +26,29 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 - **Version bump:** `0.4.0+155 → 0.5.0-alpha.1+156` (opens the 0.5.0 alpha
   line; the Play `versionCode` `+N` stays strictly monotonic).
 
+- **`gherkin 3.x` is BLOCKED upstream — attempted, recorded, not taken**
+  (issue #976, risk class 4 of 4). The class was opened on the assumption that
+  only `flutter_gherkin` stood in the way; the attempt found two independent
+  blockers, and the first one is `gherkin`'s own:
+  - **`gherkin ≥3.0.0` depends on `uuid ^3.0.6`, and this app requires
+    `uuid ^4.6.0`** (UUIDv7 wire ids at the API edge, issue #472 — `uuid` 3.x
+    has no `v7()`). Both attempts fail in the resolver, not in review:
+    `flutter pub upgrade` with `gherkin: ^3.1.0` → *"Because gherkin >=3.0.0
+    depends on uuid ^3.0.6 and frontend_flutter depends on uuid ^4.6.0,
+    gherkin >=3.0.0 is forbidden."* Pinning `flutter_gherkin 3.0.0-rc.17` and
+    `gherkin ^3.1.0` together fails on the identical constraint pair, so no
+    `flutter_gherkin` release can rescue this class.
+  - **The only `flutter_gherkin` release accepting `gherkin: ^3` is
+    unmaintained:** `3.0.0-rc.17` (published 2022-07-25, `sdk: >=2.17.0
+    <3.0.0`), while stable is still `2.0.0` (2021-05-25, `gherkin: ^2.0.2`). The
+    on-device runner here is built on 2.0.0 **plus** the tracked VM-service
+    patch (`tool/patch_gherkin.sh`, `tool/check_gherkin.sh`, issue #440), and a
+    four-year-old RC cannot be device-verified in this change.
+  - **Recorded so it cannot be re-discovered as a good idea:** the reason lives
+    in `pubspec.yaml` next to the pin, and the verdict is on issue #976. The
+    class re-opens when `gherkin` publishes a `uuid ^4` compatible major (or
+    `uuid` is unbundled from it) **and** a `flutter_gherkin` release accepts it.
+
 - **The analyzer-14 codegen stack: `freezed 4.0.1 → 4.0.3`,
   `build_runner 2.16.1 → 2.17.1`, `build 4.0.11 → 5.0.0`,
   `source_gen 4.2.4 → 4.3.1`, `analyzer 13.3.0 → 14.7.0`** (issue #976, risk
