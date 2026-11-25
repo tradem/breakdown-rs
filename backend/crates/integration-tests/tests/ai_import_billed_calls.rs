@@ -17,7 +17,9 @@
 //! 4. the ledger is **independent of the completion counters**: a
 //!    `record_worker_telemetry` write stores the totals and leaves the ledger
 //!    untouched — that separation is what stops a crashed attempt's completion
-//!    total from being counted again by the re-drive;
+//!    total from being counted again by the re-drive (issue #971: the worker-side
+//!    arithmetic lives in `infra/src/ai/tests.rs`,
+//!    `a_completion_total_from_before_the_crash_is_reported_once`);
 //! 5. the write is **owner-fenced** and only applies to a `running` claim.
 //!
 //! Every assertion goes through the public `AiImportQueue` API; the raw SQL is
