@@ -87,6 +87,12 @@ pub enum DomainError {
     Validation {
         code: &'static ProblemCode,
         reason: String,
+        /// Usage already billed by the COMPLETED responses of the same
+        /// attempt (issue #970, CodeRabbit review PR #967 round 10): the
+        /// client's terminal decode failure arrives AFTER billed answers, and
+        /// the attempt's accounting must not lose them. `None` for every
+        /// non-provider source. `Arc` keeps the variant small.
+        usage: Option<std::sync::Arc<Vec<crate::ai::LlmCallUsage>>>,
     },
 
     /// State conflict (409).
@@ -115,6 +121,30 @@ pub enum DomainError {
         code: &'static ProblemCode,
         reason: String,
         retry_after: Option<std::time::Duration>,
+        /// Usage already billed by the COMPLETED responses of the same
+        /// attempt (issue #970, CodeRabbit review PR #967): a provider
+        /// failure that arrives AFTER billed answers must not drop their
+        /// accounting when the failure itself cannot carry an output.
+        /// `None`/zero for every non-provider source of this variant.
+        /// `Arc` keeps the variant no larger than before the field.
+        usage: Option<std::sync::Arc<Vec<crate::ai::LlmCallUsage>>>,
+    },
+
+    /// The AI-import provider breaker refused a billable request (issue #871).
+    ///
+    /// Internal sentinel: it never reaches a client response (the worker turns
+    /// it into a hold, never an HTTP error), so it reuses the registered
+    /// `domain.conflict` code instead of its own ADR-031 entry. `usage`
+    /// carries the tokens/energy already billed by the COMPLETED responses of
+    /// the same attempt (issue #970, CodeRabbit review PR #967) — zeros when
+    /// the refusal preceded every billable response — so the caller's
+    /// accounting never loses them. `Arc` keeps the variant no larger than
+    /// [`DomainError::ServiceUnavailable`].
+    #[error("provider breaker open: {reason}")]
+    BreakerOpen {
+        code: &'static ProblemCode,
+        reason: String,
+        usage: std::sync::Arc<Vec<crate::ai::LlmCallUsage>>,
     },
 
     /// The **LLM provider refuses to serve this account any more** because its
@@ -141,7 +171,14 @@ pub enum DomainError {
     /// stays `false` and the breaker invariant of #927 is untouched. No
     /// `retry_after`: there is nothing left to schedule.
     #[error("LLM provider quota exhausted: {reason}")]
-    LlmProviderQuotaExhausted { reason: String },
+    LlmProviderQuotaExhausted {
+        reason: String,
+        /// Usage already billed by the COMPLETED responses of the same
+        /// attempt (issue #970, CodeRabbit review PR #967 round 12): a quota
+        /// refusal after billed answers must not drop their accounting.
+        /// `Arc` keeps the variant small.
+        usage: Option<std::sync::Arc<Vec<crate::ai::LlmCallUsage>>>,
+    },
 
     /// Upstream dependency rejected our credential (401/403, invalid or
     /// expired token). Distinct from [`DomainError::ServiceUnavailable`] so
@@ -235,42 +272,52 @@ impl From<AiConfigError> for DomainError {
             AiConfigError::EmptyProvider => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_PROVIDER,
                 reason: "provider must not be empty".into(),
+                usage: None,
             },
             AiConfigError::EmptyModel => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_MODEL,
                 reason: "assistant model must not be empty".into(),
+                usage: None,
             },
             AiConfigError::EmptyPrompt => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_PROMPT,
                 reason: "prompt must not be empty".into(),
+                usage: None,
             },
             AiConfigError::EmptyVaultKey => DomainError::Validation {
                 code: &AI_CONFIG_EMPTY_VAULT_KEY,
                 reason: "vault key reference must not be empty".into(),
+                usage: None,
             },
             AiConfigError::DecisionProviderUnsupported => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_PROVIDER_UNSUPPORTED,
                 reason: "provider does not host decision models".into(),
+                usage: None,
             },
             AiConfigError::DecisionProviderRequired => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_INCOMPLETE,
                 reason: "decision model configuration is incomplete".into(),
+                usage: None,
             },
             AiConfigError::EmptyDecisionModel => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_MODEL_EMPTY,
                 reason: "decision model must not be empty".into(),
+                usage: None,
             },
             AiConfigError::DecisionModelUnknown => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_MODEL_UNKNOWN,
                 reason: "decision model is not curated for the provider".into(),
+                usage: None,
             },
             AiConfigError::EmptyDecisionVaultKey => DomainError::Validation {
                 code: &AI_CONFIG_DECISION_VAULT_KEY_EMPTY,
                 reason: "decision vault key reference must not be empty".into(),
+                usage: None,
             },
             AiConfigError::ReasoningEffortUnsupported => DomainError::Validation {
                 code: &AI_CONFIG_REASONING_EFFORT_UNSUPPORTED,
                 reason: "model does not accept the requested reasoning effort".into(),
+                usage: None,
             },
         }
     }
@@ -282,6 +329,7 @@ impl From<SceneError> for DomainError {
             SceneError::ValidationError(msg) => DomainError::Validation {
                 code: &SCENE_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             SceneError::CharacterNotFound { id } => DomainError::NotFound {
                 code: &SCENE_CHARACTER_NOT_FOUND,
@@ -306,6 +354,7 @@ impl From<SceneError> for DomainError {
             SceneError::CharacterNotInScene { character_id } => DomainError::Validation {
                 code: &SCENE_CHARACTER_NOT_IN_SCENE,
                 reason: format!("character {character_id} is not assigned to this scene"),
+                usage: None,
             },
             SceneError::BeatNotFound {
                 character_id,
@@ -313,10 +362,12 @@ impl From<SceneError> for DomainError {
             } => DomainError::Validation {
                 code: &SCENE_BEAT_NOT_FOUND,
                 reason: format!("no outfit beat for character {character_id} at order {order}"),
+                usage: None,
             },
             SceneError::NoOutfitBeats { character_id } => DomainError::Validation {
                 code: &SCENE_BEAT_NOT_FOUND,
                 reason: format!("no outfit beats for character {character_id}"),
+                usage: None,
             },
             SceneError::AlreadyScheduled { shooting_day_id } => DomainError::AlreadyScheduled {
                 shooting_day_id: shooting_day_id.0,
@@ -338,6 +389,7 @@ impl From<CharacterError> for DomainError {
             CharacterError::ValidationError(msg) => DomainError::Validation {
                 code: &CHARACTER_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             CharacterError::NotFound { id } => DomainError::NotFound {
                 code: &CHARACTER_NOT_FOUND,
@@ -364,10 +416,12 @@ impl From<PieceError> for DomainError {
             PieceError::EmptyName => DomainError::Validation {
                 code: &PIECE_VALIDATION,
                 reason: "piece name must not be empty".into(),
+                usage: None,
             },
             PieceError::ValidationError(msg) => DomainError::Validation {
                 code: &PIECE_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             PieceError::NotFound { id } => DomainError::NotFound {
                 code: &PIECE_NOT_FOUND,
@@ -402,10 +456,12 @@ impl From<OutfitError> for DomainError {
             OutfitError::EmptyName => DomainError::Validation {
                 code: &OUTFIT_VALIDATION,
                 reason: "outfit name must not be empty".into(),
+                usage: None,
             },
             OutfitError::ValidationError(msg) => DomainError::Validation {
                 code: &OUTFIT_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             OutfitError::NotFound { id } => DomainError::NotFound {
                 code: &OUTFIT_NOT_FOUND,
@@ -432,6 +488,7 @@ impl From<ShootingDayError> for DomainError {
             ShootingDayError::ValidationError(msg) => DomainError::Validation {
                 code: &SHOOTING_DAY_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             ShootingDayError::NotFound { id } => DomainError::NotFound {
                 code: &SHOOTING_DAY_NOT_FOUND,
@@ -471,6 +528,7 @@ impl From<SeasonError> for DomainError {
             SeasonError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::SEASON_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             SeasonError::NotFound { id } => DomainError::NotFound {
                 code: &SEASON_NOT_FOUND,
@@ -495,6 +553,7 @@ impl From<BlockError> for DomainError {
             BlockError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::BLOCK_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             BlockError::NotFound { id } => DomainError::NotFound {
                 code: &BLOCK_NOT_FOUND,
@@ -515,6 +574,7 @@ impl From<CostumeCategoryError> for DomainError {
             CostumeCategoryError::ValidationError(msg) => DomainError::Validation {
                 code: &COSTUME_CATEGORY_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             CostumeCategoryError::ArchivedCannotBeMutated { .. } => DomainError::Conflict {
                 code: &COSTUME_CATEGORY_ARCHIVED,
@@ -536,6 +596,7 @@ impl From<EpisodeError> for DomainError {
             EpisodeError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::EPISODE_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             EpisodeError::NotFound { id } => DomainError::NotFound {
                 code: &EPISODE_NOT_FOUND,
@@ -562,6 +623,7 @@ impl From<MembershipError> for DomainError {
             MembershipError::ValidationError(msg) => DomainError::Validation {
                 code: &crate::error_registry::MEMBERSHIP_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             MembershipError::AlreadyInvited { user_id: _ } => DomainError::Conflict {
                 // S2 ban (ADR-031 D4): the invited identity (OIDC `sub`) is
@@ -580,6 +642,7 @@ impl From<MembershipError> for DomainError {
             MembershipError::MissingActor => DomainError::Validation {
                 code: &MEMBERSHIP_MISSING_ACTOR,
                 reason: "leave requires an authenticated actor".into(),
+                usage: None,
             },
             MembershipError::BootstrapNotAllowed { .. } => DomainError::Conflict {
                 code: &MEMBERSHIP_BOOTSTRAP_NOT_ALLOWED,
@@ -600,6 +663,7 @@ impl From<SceneShootError> for DomainError {
             SceneShootError::ValidationError(msg) => DomainError::Validation {
                 code: &SCENE_SHOOT_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             SceneShootError::NotFound { id } => DomainError::NotFound {
                 code: &SCENE_SHOOT_NOT_FOUND,
@@ -652,10 +716,12 @@ impl From<SettingsError> for DomainError {
             SettingsError::EmptyProvider => DomainError::Validation {
                 code: &SETTINGS_EMPTY_PROVIDER,
                 reason: "credential provider must not be empty".into(),
+                usage: None,
             },
             SettingsError::EmptyVaultKey => DomainError::Validation {
                 code: &SETTINGS_EMPTY_VAULT_KEY,
                 reason: "vault key reference must not be empty".into(),
+                usage: None,
             },
             SettingsError::ProviderMismatch => DomainError::Conflict {
                 code: &SETTINGS_PROVIDER_MISMATCH,
@@ -684,6 +750,7 @@ impl From<PhotoError> for DomainError {
             PhotoError::ValidationError(msg) => DomainError::Validation {
                 code: &PHOTO_VALIDATION,
                 reason: msg,
+                usage: None,
             },
             PhotoError::NotFound { id } => DomainError::NotFound {
                 code: &PHOTO_NOT_FOUND,
@@ -731,6 +798,7 @@ impl DomainError {
             code: &DOMAIN_SERVICE_UNAVAILABLE,
             reason: reason.into(),
             retry_after: None,
+            usage: None,
         }
     }
 
@@ -754,6 +822,7 @@ impl DomainError {
             code: &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
             reason: reason.into(),
             retry_after: None,
+            usage: None,
         }
     }
 
@@ -779,6 +848,7 @@ impl DomainError {
             code: &AI_IMPORT_LLM_PROVIDER_UNAVAILABLE,
             reason: reason.into(),
             retry_after,
+            usage: None,
         }
     }
 
@@ -798,6 +868,49 @@ impl DomainError {
             *slot = retry_after;
         }
         self
+    }
+
+    /// Attach the usage the attempt already billed (issue #970, CodeRabbit
+    /// review PR #967). A no-op on every variant other than
+    /// [`DomainError::ServiceUnavailable`] — the only one a provider failure
+    /// travels on — so a call site can express "these tokens were billed
+    /// before the failure" without restructuring how it built the error.
+    ///
+    /// `calls` is the **per-request ledger** of the billed responses, one entry
+    /// per paid request (CodeRabbit review, PR #967 round 13): the energy cap
+    /// of issue #794 applies per request, so a summed payload could not price
+    /// them honestly once persisted.
+    #[must_use]
+    pub fn with_billed_usage(mut self, calls: Vec<crate::ai::LlmCallUsage>) -> Self {
+        let slot = match &mut self {
+            DomainError::ServiceUnavailable { usage: slot, .. }
+            | DomainError::Validation { usage: slot, .. }
+            | DomainError::LlmProviderQuotaExhausted { usage: slot, .. } => slot,
+            _ => return self,
+        };
+        *slot = Some(std::sync::Arc::new(calls));
+        self
+    }
+
+    /// The requests billed by the completed responses of the same attempt, when
+    /// the error carries them (issue #970). One entry per paid request — never
+    /// an aggregate — so the caller can persist and price each on its own
+    /// (issue #794). `None` for every variant that cannot, so a caller that
+    /// only wants to persist the accounting needs no `match` over the taxonomy.
+    #[must_use]
+    pub fn billed_usage(&self) -> Option<&[crate::ai::LlmCallUsage]> {
+        match self {
+            DomainError::ServiceUnavailable {
+                usage: Some(usage), ..
+            }
+            | DomainError::Validation {
+                usage: Some(usage), ..
+            }
+            | DomainError::LlmProviderQuotaExhausted {
+                usage: Some(usage), ..
+            } => Some(usage.as_slice()),
+            _ => None,
+        }
     }
 
     /// The wait the failing dependency asked for, when it said so (issue #926).
@@ -830,6 +943,7 @@ impl DomainError {
     pub fn llm_provider_quota_exhausted(reason: impl Into<String>) -> Self {
         DomainError::LlmProviderQuotaExhausted {
             reason: reason.into(),
+            usage: None,
         }
     }
 
@@ -859,6 +973,7 @@ impl DomainError {
         DomainError::Validation {
             code: &DOMAIN_VALIDATION,
             reason: reason.into(),
+            usage: None,
         }
     }
 
@@ -883,6 +998,7 @@ impl DomainError {
             | DomainError::Forbidden { code, .. }
             | DomainError::Validation { code, .. }
             | DomainError::Conflict { code, .. }
+            | DomainError::BreakerOpen { code, .. }
             | DomainError::ServiceUnavailable { code, .. }
             | DomainError::DependencyAuthFailed { code, .. } => code,
             // Issue #942 W3: its OWN registered entry, fixed by construction

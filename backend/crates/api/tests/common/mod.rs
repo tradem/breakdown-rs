@@ -3192,6 +3192,7 @@ impl AiImportQueue for FakeAiImportQueue {
                 code: &breakdown_core::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
                 reason: "the telemetry write failed (test switch)".to_owned(),
                 retry_after: None,
+                usage: None,
             });
         }
         let owns = self

@@ -6,17 +6,20 @@
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 use breakdown_core::ai::{
     CuratedLlmProvider, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    ScriptContext, ShootingSchedule, ShootingScheduleRow, parse_schedule_scene_ref,
+    LlmVisionRequest, SchedulePageExtraction, ScriptContext, ShootingSchedule, ShootingScheduleRow,
+    parse_schedule_scene_ref, vision_egress_compliant, vision_egress_policy,
 };
 use breakdown_core::error::DomainError;
 use breakdown_core::settings::SecretValue;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use reqwest::StatusCode;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -95,7 +98,12 @@ impl OpenAiCompatibleChatClient {
         health
             .state(self.provider, model)
             .await
-            .map(|snapshot| snapshot.admits_claim())
+            // `admits_paid_call`, NOT `admits_claim` (CodeRabbit review, PR
+            // #967): this in-process gate runs inside a job the claim
+            // predicate already fenced, so a `half_open` breaker must admit
+            // the trial holder — `admits_claim` would end the trial without
+            // ever testing provider recovery.
+            .map(|snapshot| snapshot.admits_paid_call())
             .unwrap_or(true)
     }
 
@@ -230,15 +238,21 @@ impl OpenAiCompatibleChatClient {
         // retry hint (below).
         let mut budget = req.max_tokens;
         let mut truncation_retries = MAX_TRUNCATION_RETRIES;
-        // Usage accumulates across every paid HTTP response, including the
-        // discarded responses of truncation retries (issue #675) — the
-        // provider billed those tokens too.
-        let mut total_usage = LlmCallUsage::default();
+        // The per-request ledger of every paid HTTP response of this attempt,
+        // including the discarded responses of truncation retries (issue #675)
+        // — the provider billed those tokens too. One ENTRY per request, never
+        // one running total (CodeRabbit review, PR #967 round 13): the energy
+        // cap of issue #794 is applied per request, so `Σ min(raw_i, token_i)`
+        // is only reproducible from an unmerged ledger.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
         loop {
             // Issue #871: BEFORE every billable request, truncation retries
             // included. An open breaker costs no request and no delay.
             if !self.admits_billable_request(&req.model).await {
-                return Err(super::provider_health::breaker_open_error());
+                // Issue #970 (CodeRabbit review PR #967): see the vision path.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    billed.clone(),
+                ));
             }
             let body = ChatCompletionRequest {
                 model: req.model.clone(),
@@ -276,7 +290,12 @@ impl OpenAiCompatibleChatClient {
                 .json(&body)
                 .send()
                 .await
-                .map_err(classify_transport_error)?;
+                // Issue #970 (CodeRabbit review PR #967 round 9): a transport
+                // timeout AFTER billed responses keeps their usage on the
+                // error instead of dropping it at the boundary.
+                .map_err(|error| {
+                    with_attempt_usage(classify_transport_error(error), billed.clone())
+                })?;
             let status = response.status();
             // Issue #925: the hint must be read from the headers BEFORE the body
             // is consumed (`Response::json`/`chunk` take the response): the
@@ -293,8 +312,9 @@ impl OpenAiCompatibleChatClient {
                 let verdict = body.verdict(self.provider);
                 // Issue #926: the hint travels in the error payload, so the retry
                 // scheduler upstream honours it without a second header read.
-                return Err(classify_http_status_rich(
-                    status, &body.text, hint.wait, verdict,
+                return Err(with_attempt_usage(
+                    classify_http_status_rich(status, &body.text, hint.wait, verdict),
+                    billed.clone(),
                 ));
             }
             // Empty-completion fix (2026-11-20 incident): the identifying
@@ -307,9 +327,12 @@ impl OpenAiCompatibleChatClient {
                 .json::<ChatCompletionResponse>()
                 .await
                 .map_err(|error| {
-                    DomainError::validation(format!("invalid LLM response: {error}"))
+                    with_attempt_usage(
+                        DomainError::validation(format!("invalid LLM response: {error}")),
+                        billed.clone(),
+                    )
                 })?;
-            total_usage.accumulate(envelope.usage());
+            billed.push(envelope.usage());
             let (content, finish_reason) = match step_for_response(
                 &envelope,
                 &meta,
@@ -349,12 +372,12 @@ impl OpenAiCompatibleChatClient {
                         %error,
                         "LLM provider returned no usable content — failing the attempt"
                     );
-                    return Err(error);
+                    return Err(with_attempt_usage(error, billed.clone()));
                 }
             };
             match serde_json::from_str(content) {
                 Ok(context) => {
-                    return Ok(LlmCallOutcome::new(context, total_usage));
+                    return Ok(LlmCallOutcome::from_calls(context, billed));
                 }
                 Err(error) => {
                     match next_truncation_budget(finish_reason, budget, truncation_retries) {
@@ -371,9 +394,204 @@ impl OpenAiCompatibleChatClient {
                                 " (after bounded retries with a grown output-token \
                                  budget)"
                             };
-                            return Err(DomainError::validation(format!(
-                                "LLM JSON did not match {schema_name}: {error}{suffix}"
-                            )));
+                            return Err(with_attempt_usage(
+                                DomainError::validation(format!(
+                                    "LLM JSON did not match {schema_name}: {error}{suffix}"
+                                )),
+                                billed.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Multimodal counterpart of [`Self::request_decoded`] (issue #960).
+    ///
+    /// Mirrors the text path's bounded retry semantics — breaker consult before
+    /// every billable request, usage accumulation across discarded retries,
+    /// bounded truncation-budget growth — but sends an `image_url` data-URI page
+    /// plus a text context part and decodes into `T`. A provider that rejects
+    /// the combined `image_url` + strict `json_schema` body gets ONE bounded
+    /// fallback re-request with plain JSON-object `response_format`.
+    async fn request_vision_decoded<T: DeserializeOwned>(
+        &self,
+        req: &LlmVisionRequest,
+        schema_name: &str,
+    ) -> Result<LlmCallOutcome<T>, DomainError> {
+        let schema = req
+            .response_schema
+            .clone()
+            .unwrap_or_else(strict_schema::<SchedulePageExtractionSchema>);
+        let data_uri = format!(
+            "data:image/png;base64,{}",
+            BASE64.encode(&req.page.png_bytes)
+        );
+        let mut plain_json_fallback = false;
+        let mut budget = req.max_tokens;
+        let mut truncation_retries = MAX_TRUNCATION_RETRIES;
+        // Issue #970: one ledger entry per paid request — see the text path.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
+        loop {
+            if !self.admits_billable_request(&req.model).await {
+                // Issue #970 (CodeRabbit review PR #967): the responses of
+                // this attempt billed SO FAR travel on the sentinel, so the
+                // hold persists them instead of dropping them here.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    billed.clone(),
+                ));
+            }
+            let body = VisionChatCompletionRequest {
+                model: req.model.clone(),
+                messages: vec![
+                    VisionChatMessage {
+                        role: "system".to_owned(),
+                        content: vec![VisionContentPart::Text {
+                            text: req.prompt.clone(),
+                        }],
+                    },
+                    VisionChatMessage {
+                        role: "user".to_owned(),
+                        content: vec![
+                            VisionContentPart::ImageUrl {
+                                image_url: VisionImageUrl {
+                                    url: data_uri.clone(),
+                                },
+                            },
+                            VisionContentPart::Text {
+                                text: req.user_context.clone(),
+                            },
+                        ],
+                    },
+                ],
+                max_tokens: budget,
+                reasoning_effort: req.reasoning_effort.clone(),
+                response_format: Some(if plain_json_fallback {
+                    json!({ "type": "json_object" })
+                } else {
+                    json!({
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "schedule_page",
+                            "strict": true,
+                            "schema": schema,
+                        }
+                    })
+                }),
+            };
+            let mut response = self
+                .http
+                .post(self.endpoint())
+                .timeout(self.timeout)
+                .bearer_auth(self.api_key.as_str())
+                .json(&body)
+                .send()
+                .await
+                // Issue #970 (CodeRabbit review PR #967 round 9): a transport
+                // timeout AFTER billed responses keeps their usage on the
+                // error instead of dropping it at the boundary.
+                .map_err(|error| {
+                    with_attempt_usage(classify_transport_error(error), billed.clone())
+                })?;
+            let status = response.status();
+            let hint = parse_retry_hint(response.headers(), status);
+            log_hint("hosted_vision_chat", &hint);
+            if !status.is_success() {
+                let body = read_error_body(&mut response, self.timeout).await;
+                // One bounded fallback: a provider that rejects the combined
+                // image + strict-schema body answers 4xx naming the response
+                // format; retry once with plain JSON-object mode.
+                // Narrow eligibility (CodeRabbit review, PR #967 + follow-up):
+                // ONLY an explicit unsupported-format rejection — a validation
+                // status (400/422) whose body NAMES `response_format` AND says
+                // it is unsupported — earns the fallback. A 429 that happens to
+                // mention `response_format` keeps its Retry-After on the
+                // classification path (never re-sends the image immediately);
+                // and an unrelated 400 validation error that merely ECHOES the
+                // field name is not evidence of an unsupported format either.
+                let status_code = status.as_u16();
+                if !plain_json_fallback
+                    && (status_code == 400 || status_code == 422)
+                    && names_unsupported_response_format(&body.text)
+                {
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        "vision provider rejected image_url + json_schema; re-requesting with plain json_object response_format"
+                    );
+                    plain_json_fallback = true;
+                    continue;
+                }
+                let verdict = body.verdict(self.provider);
+                return Err(with_attempt_usage(
+                    classify_http_status_rich(status, &body.text, hint.wait, verdict),
+                    billed.clone(),
+                ));
+            }
+            let meta = ResponseMeta::capture(response.headers());
+            let envelope = response
+                .json::<ChatCompletionResponse>()
+                .await
+                .map_err(|error| {
+                    with_attempt_usage(
+                        DomainError::validation(format!("invalid LLM response: {error}")),
+                        billed.clone(),
+                    )
+                })?;
+            billed.push(envelope.usage());
+            let (content, finish_reason) = match step_for_response(
+                &envelope,
+                &meta,
+                budget,
+                truncation_retries,
+            ) {
+                ResponseStep::Decode {
+                    content,
+                    finish_reason,
+                } => (content, finish_reason),
+                ResponseStep::RetryWithBudget {
+                    budget: grown,
+                    retries_left,
+                    reason,
+                } => {
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        %reason,
+                        grown_budget = grown,
+                        retries_left,
+                        "vision provider returned no usable content — re-requesting with a grown budget"
+                    );
+                    budget = grown;
+                    truncation_retries = retries_left;
+                    continue;
+                }
+                ResponseStep::Fail { error } => {
+                    tracing::warn!(
+                        provider = ?self.provider,
+                        model = %req.model,
+                        %error,
+                        "vision provider returned no usable content — failing the attempt"
+                    );
+                    return Err(with_attempt_usage(error, billed.clone()));
+                }
+            };
+            match serde_json::from_str(content) {
+                Ok(decoded) => return Ok(LlmCallOutcome::from_calls(decoded, billed)),
+                Err(error) => {
+                    match next_truncation_budget(finish_reason, budget, truncation_retries) {
+                        Some(grown) => {
+                            budget = grown;
+                            truncation_retries -= 1;
+                        }
+                        None => {
+                            return Err(with_attempt_usage(
+                                DomainError::validation(format!(
+                                    "vision LLM JSON did not match {schema_name}: {error}"
+                                )),
+                                billed.clone(),
+                            ));
                         }
                     }
                 }
@@ -409,11 +627,72 @@ impl LlmClient for OpenAiCompatibleChatClient {
         let decoded = self
             .request_decoded::<ShootingScheduleSchema>(&req, schema, "ShootingSchedule")
             .await?;
-        Ok(LlmCallOutcome::new(
+        let calls = decoded.calls().to_vec();
+        Ok(LlmCallOutcome::from_calls(
             decoded.output.into_core(),
-            decoded.usage,
+            calls,
         ))
     }
+
+    async fn chat_vision_constrained(
+        &self,
+        req: &LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
+        // Pre-egress provider-policy gate (ADR-041 `D2`): runs BEFORE any base64
+        // encoding or HTTP call, so a rejected call performs zero egress and
+        // cannot be retried into a leak by the circuit-breaker/retry loop.
+        if !vision_egress_compliant(vision_egress_policy(self.provider)) {
+            return Err(DomainError::validation(format!(
+                "provider {:?} does not declare Zero Data Retention, no training \
+                 on inputs, and EU data residency; multimodal page-image egress \
+                 is refused (ADR-041 D2)",
+                self.provider
+            )));
+        }
+        if req.provider != self.provider {
+            return Err(DomainError::validation(
+                "LLM request provider does not match configured client",
+            ));
+        }
+        let decoded = self
+            .request_vision_decoded::<SchedulePageExtractionSchema>(req, "schedule_page")
+            .await?;
+        let calls = decoded.calls().to_vec();
+        let output = decoded.output.into_core()?;
+        Ok(LlmCallOutcome::from_calls(output, calls))
+    }
+}
+
+/// One multimodal content part: an `image_url` data URI or a text part.
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum VisionContentPart {
+    ImageUrl { image_url: VisionImageUrl },
+    Text { text: String },
+}
+
+#[derive(Debug, Serialize)]
+struct VisionImageUrl {
+    url: String,
+}
+
+/// Multimodal chat request. `content` is a JSON array of parts (unlike the
+/// text path's plain string) — the OpenAI vision wire shape.
+#[derive(Debug, Serialize)]
+struct VisionChatCompletionRequest {
+    model: String,
+    messages: Vec<VisionChatMessage>,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct VisionChatMessage {
+    role: String,
+    content: Vec<VisionContentPart>,
 }
 
 /// Make a schemars-derived schema valid for OpenAI strict Structured Outputs
@@ -476,6 +755,25 @@ fn strict_compatible(mut schema: serde_json::Value) -> serde_json::Value {
     schema
 }
 
+/// Attach the requests the attempt already billed to a provider failure
+/// (issue #970, CodeRabbit review PR #967): a 429/5xx/transport failure that
+/// arrives AFTER billed responses must not drop their accounting when the
+/// failure itself cannot carry an output. A no-op on every variant other
+/// than the provider-unavailable [`DomainError::ServiceUnavailable`].
+///
+/// `calls` is the attempt's **per-request ledger** (CodeRabbit review, PR #967
+/// round 13): the caller persists it entry by entry, so the #794 energy cap
+/// still applies per request after the re-drive.
+fn with_attempt_usage(error: DomainError, calls: Vec<LlmCallUsage>) -> DomainError {
+    if calls.is_empty() || calls.iter().all(|call| *call == LlmCallUsage::default()) {
+        return error;
+    }
+    // Provider failures that can arrive after billed responses: the
+    // transient-unavailable path and the terminal quota path (issue #970,
+    // CodeRabbit review PR #967 round 12).
+    error.with_billed_usage(calls)
+}
+
 /// Shared schema-preparation helper (issue #726): derive the JSON schema for
 /// `T` and run it through [`strict_compatible`], so every extraction path —
 /// script (`ScriptContextSchema`) and schedule (`ShootingScheduleSchema`) —
@@ -526,6 +824,107 @@ enum ScheduleSceneRefSchema {
     Text(String),
 }
 
+/// Role modifier of one `"ROLLEN"` legend entry, as the model reports it
+/// (ADR-041 `D5`, issue #960). Accepted as a free string and normalized
+/// through [`ScheduleRoleModifier::parse_tag`] so truncated table cells
+/// (`"(Dummy"` without the closing parenthesis) still classify.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ScheduleModifierSchema(String);
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub(crate) struct ScheduleLegendEntrySchema {
+    code: String,
+    character_name: String,
+    #[serde(default)]
+    modifier: Option<ScheduleModifierSchema>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ScheduleCastCodeSchema(String);
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub(crate) struct SchedulePageRowSchema {
+    row_ref: String,
+    #[serde(default)]
+    scene_ref: Option<String>,
+    #[serde(default)]
+    shooting_day_label: Option<String>,
+    #[serde(default)]
+    date: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
+    #[serde(default)]
+    order: Option<u32>,
+    #[serde(default)]
+    cast_codes: Vec<ScheduleCastCodeSchema>,
+}
+
+/// Provider-facing mirror of [`breakdown_core::ai::SchedulePageExtraction`]
+/// for the multimodal page-streaming schedule path (issue #960).
+///
+/// `rows` is deliberately NOT `#[serde(default)]` (CodeRabbit review, PR
+/// #967): a provider answering an unrelated JSON object (`{"message": "could
+/// not read page"}`) must FAIL the decode instead of silently defaulting to
+/// an empty — and therefore "successful" — page. An explicit `"rows": []`
+/// stays valid for a page with no scene rows. `legend_entries` and the
+/// end-of-page pair keep their defaults: the schema legitimately marks them
+/// nullable/omittable.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub(crate) struct SchedulePageExtractionSchema {
+    #[serde(default)]
+    legend_entries: Vec<ScheduleLegendEntrySchema>,
+    rows: Vec<SchedulePageRowSchema>,
+    #[serde(default)]
+    end_of_page_shooting_day_label: Option<String>,
+    #[serde(default)]
+    end_of_page_date: Option<String>,
+}
+
+impl SchedulePageExtractionSchema {
+    /// Map the provider-facing extraction onto the core type. The free-string
+    /// modifier (the hosted schema permits `"modifier": null` and any text,
+    /// e.g. `"Nur Stimme"`) is normalized through
+    /// [`ScheduleRoleModifier::parse_tag`] instead of failing the whole page
+    /// on the core enum's strict slug decode (CodeRabbit review, PR #967).
+    pub(crate) fn into_core(
+        self,
+    ) -> Result<breakdown_core::ai::SchedulePageExtraction, DomainError> {
+        let legend_entries = self
+            .legend_entries
+            .into_iter()
+            .map(|entry| breakdown_core::ai::ScheduleLegendEntry {
+                code: entry.code,
+                character_name: entry.character_name,
+                modifier: entry
+                    .modifier
+                    .map(|modifier| {
+                        breakdown_core::ai::ScheduleRoleModifier::parse_tag(&modifier.0)
+                    })
+                    .unwrap_or(breakdown_core::ai::ScheduleRoleModifier::None),
+            })
+            .collect();
+        let rows = self
+            .rows
+            .into_iter()
+            .map(|row| breakdown_core::ai::SchedulePageRow {
+                row_ref: row.row_ref,
+                scene_ref: row.scene_ref,
+                shooting_day_label: row.shooting_day_label,
+                date: row.date,
+                location: row.location,
+                order: row.order,
+                cast_codes: row.cast_codes.into_iter().map(|code| code.0).collect(),
+            })
+            .collect();
+        Ok(breakdown_core::ai::SchedulePageExtraction {
+            legend_entries,
+            rows,
+            end_of_page_shooting_day_label: self.end_of_page_shooting_day_label,
+            end_of_page_date: self.end_of_page_date,
+        })
+    }
+}
+
 impl ShootingScheduleSchema {
     /// Map the provider-facing rows onto the core schedule rows, decoding
     /// every scene reference losslessly (plain number → scene only; text →
@@ -534,29 +933,133 @@ impl ShootingScheduleSchema {
     fn into_core(self) -> ShootingSchedule {
         ShootingSchedule {
             block_id: None,
+            cast_legend: Default::default(),
             rows: self
                 .rows
                 .into_iter()
                 .map(|row| {
-                    let (episode_number, scene_number) = match row.scene_number {
-                        Some(ScheduleSceneRefSchema::Number(number)) => (None, Some(number)),
+                    let (episode_number, scene_number, shot_suffix) = match row.scene_number {
+                        Some(ScheduleSceneRefSchema::Number(number)) => (None, Some(number), None),
                         Some(ScheduleSceneRefSchema::Text(text)) => parse_schedule_scene_ref(&text),
-                        None => (None, None),
+                        None => (None, None, None),
                     };
                     ShootingScheduleRow {
                         shooting_day_score: None,
                         row_ref: row.row_ref,
                         scene_number,
                         episode_number,
+                        shot_suffix,
                         shooting_day_label: row.shooting_day_label,
-                        date: row.date.as_deref().and_then(|raw| raw.parse().ok()),
+                        // The flat prompt accepts ISO AND German dot dates (CodeRabbit's PR #967
+                        // follow-up): the core parser handles both, so a German
+                        // calendar date is not silently dropped to None.
+                        date: row
+                            .date
+                            .as_deref()
+                            .and_then(breakdown_core::ai::parse_schedule_date),
                         location: row.location,
                         order: row.order,
+                        cast_refs: Vec::new(),
                     }
                 })
                 .collect(),
         }
     }
+}
+
+/// Evidence that a 4xx body actually reports the `response_format` as
+/// UNSUPPORTED — the only signal eligible for the one-shot vision fallback
+/// (CodeRabbit review, PR #967, follow-ups rounds 2–6).
+///
+/// The unsupported claim and the field mention must be DIRECTLY connected:
+/// the text between them (in either order) is at most 80 characters and
+/// consists only of connector characters (letters, digits, whitespace,
+/// quotes/apostrophes, backtick, period, underscore, hyphen). Anything that
+/// carries JSON structure between them — braces, brackets, commas, colons —
+/// means the claim is about something else and the mention is merely echoed
+/// request data (`"message":"does not support images","param":
+/// "response_format"`, `"response_format":{...}`), which never qualifies.
+/// Whether the gap between the `response_format` mention and the unsupported
+/// claim contains a POSITIVE statement about the format (`"response_format is
+/// valid but images are not supported"`) — then the claim is not about the
+/// format and the pair is not evidence (CodeRabbit's PR #967 round-9
+/// follow-up).
+fn gap_names_the_format_positively(gap: &str) -> bool {
+    // Word-boundary tokens (CodeRabbit's PR #967 round-10 follow-up):
+    // substring matching would read "invalid" as "valid" and reject an
+    // explicit unsupported-format statement.
+    let tokens: Vec<&str> = gap
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    ["valid", "ok", "accepted", "allowed"]
+        .iter()
+        .any(|word| tokens.contains(word))
+}
+
+/// Whether the gap text crosses a sentence boundary (`.`/`!`/`?` followed by
+/// whitespace or end-of-text): the unsupported claim and the field mention
+/// must live in the SAME sentence — "does not support images. Request
+/// included response_format" is two statements, not evidence (CodeRabbit's
+/// PR #967 round-7 follow-up).
+fn gap_has_sentence_boundary(gap: &str) -> bool {
+    let mut rest = gap;
+    while let Some(pos) = rest.find(['.', '!', '?']) {
+        let after = &rest[pos + 1..];
+        if after.is_empty() || after.starts_with(char::is_whitespace) {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+fn names_unsupported_response_format(body: &str) -> bool {
+    const MAX_GAP: usize = 80;
+    let lower = body.to_ascii_lowercase();
+    const KEY: &str = "response_format";
+    let markers = [
+        "unsupport",
+        "not support", // covers "does not support", "provider does not support", ...
+        "doesn't support",
+        "cannot support",
+    ];
+    for marker in markers {
+        let mut from = 0;
+        while let Some(found) = lower[from..].find(marker) {
+            let marker_start = from + found;
+            let marker_end = marker_start + marker.len();
+            let mut key_from = 0;
+            while let Some(key_found) = lower[key_from..].find(KEY) {
+                let key_start = key_from + key_found;
+                let key_end = key_start + KEY.len();
+                let gap = if key_end <= marker_start {
+                    &lower[key_end..marker_start]
+                } else if marker_end <= key_start {
+                    &lower[marker_end..key_start]
+                } else {
+                    // Overlapping matches cannot happen (`response_format`
+                    // contains no marker text), but stay total.
+                    key_from = key_start + KEY.len();
+                    continue;
+                };
+                if gap.len() <= MAX_GAP
+                    && !gap_has_sentence_boundary(gap)
+                    && !gap_names_the_format_positively(gap)
+                    && gap.chars().all(|c| {
+                        c.is_alphanumeric()
+                            || c.is_whitespace()
+                            || matches!(c, '"' | '\'' | '`' | '.' | '_' | '-')
+                    })
+                {
+                    return true;
+                }
+                key_from = key_start + KEY.len();
+            }
+            from = marker_start + marker.len();
+        }
+    }
+    false
 }
 
 #[derive(Debug, Serialize)]

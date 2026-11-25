@@ -7,6 +7,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 //! AI-assisted script and shooting-schedule import bounded context.
 //!
@@ -55,12 +56,14 @@ pub use decision::{
     score, score5,
 };
 pub use document::{
-    BlockAnchor, BlockKind, CAST_SECTION_MAPPING, CastDirectory, CastDirectoryEntry,
-    DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentBlock, DocumentZones, ExtractionOptions,
-    LineRole, NormalizedBBox, PageZone, PageZoneRecord, PlanPage, RenderOptions, RenderedPage,
-    StructuralPlan, StructuredDocument, StructuredPage, ZonedLine, classify_document_zones,
-    is_continuation_marker, normalize_kerning, parse_cast_directory,
-    parse_cast_directory_from_text, zoned_lines,
+    AI_IMPORT_MAX_RENDERED_TOTAL_BYTES_ENV, BlockAnchor, BlockKind, CAST_SECTION_MAPPING,
+    CastDirectory, CastDirectoryEntry, DEFAULT_MAX_RENDER_BYTES, DEFAULT_MAX_RENDERED_TOTAL_BYTES,
+    DEFAULT_TARGET_DPI, DocumentBlock, DocumentZones, ExtractionOptions, LineRole,
+    MAX_RENDERED_TOTAL_BYTES_LIMIT, NormalizedBBox, PageZone, PageZoneRecord, PlanPage,
+    RenderOptions, RenderedPage, StructuralPlan, StructuredDocument, StructuredPage, ZonedLine,
+    classify_document_zones, is_continuation_marker, max_rendered_total_bytes_from_env,
+    normalize_kerning, parse_cast_directory, parse_cast_directory_from_text,
+    parse_max_rendered_total_bytes, zoned_lines,
 };
 pub use error::AiConfigError;
 pub use events::AiConfigEvent;
@@ -69,12 +72,13 @@ pub use ports::{
     AccountBudget, AccountProbeRequest, AccountProbeSnapshot, AccountProbeStatus, AiConfigCommands,
     AiConfigRepository, AiImportChunkStore, AiImportEnqueueRequest, AiImportEnqueueResult,
     AiImportMapping, AiImportMappingRepository, AiImportQueue, AiModelPricingRepository,
-    CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider, DocumentStructureExtractor,
+    BilledCall, CURATED_PROVIDERS, ChunkSetState, CuratedLlmProvider, DocumentStructureExtractor,
     ExtractionFingerprint, HoldEvidence, LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient,
-    LlmModelCatalog, ModelInfo, ModelPricingRow, OpenBreaker, PRIMARY_ORDINAL, ProbeCapability,
-    ProbeLease, ProbeOutcome, ProviderAccountProbe, ProviderBreakerSnapshot, ProviderHealth,
-    StoredChunk, TargetAttachOutcome, UsageAccumulator, mapping_kind, probe_capability,
-    resume_cursor,
+    LlmModelCatalog, LlmVisionPageInput, LlmVisionRequest, ModelInfo, ModelPricingRow, OpenBreaker,
+    PRIMARY_ORDINAL, ProbeCapability, ProbeLease, ProbeOutcome, ProviderAccountProbe,
+    ProviderBreakerSnapshot, ProviderHealth, StoredChunk, TargetAttachOutcome, UsageAccumulator,
+    VisionEgressPolicy, mapping_kind, probe_capability, resume_cursor, vision_egress_compliant,
+    vision_egress_policy,
 };
 pub use preview::{
     AiImportPreviewResponse, AiPreviewPayload, ApplyGateError, ApplyMapping, ApplyMappingDecision,
@@ -84,17 +88,23 @@ pub use preview::{
     MergeInput, MergedPreview, MergedScene, NeighborSceneBrief, OutfitApplyPlan, OutfitBeatSlot,
     OutfitContinuityCandidate, OutfitContinuitySelection, OutfitDecision, PieceApplyPlan,
     PlannedEpisode, PlannedShootingDay, RejectedOutfit, RejectedOutfitReason, ReviewerDecisions,
-    SceneApplyCommand, SceneApplyPlan, SceneBeatLane, SceneChunk, SceneNeighbors, ScriptApplyPlan,
-    ScriptContext, SegmentedScript, ShootingDayPlan, ShootingSchedule, ShootingScheduleRow,
-    UNCERTAINTY_FIELD_CHARACTERS, UNCERTAINTY_FIELD_SCENE_NUMBER, UnappliedOutfit,
-    UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement, UncertaintyKind,
-    cast_directory_matches, category_conflict_uncertainties, character_identity,
-    character_mapping_ref, draft_row_ref, ensure_merge_applyable, ensure_script_applyable,
-    episode_group_refs, extract_block_number, extract_scenes, extract_scenes_from_structured,
-    is_meta_summary, merge_from_input, merge_schedule_to_scenes, neighbor_brackets, neighbor_state,
-    parse_mood_from_heading, parse_schedule_scene_ref, parse_script_day, plan_scene_apply,
-    render_document_context, resolve_character_category, sanitize_meta_summary, scene_beat_lanes,
-    shooting_day_group_refs, stable_draft_ref, verify_draft_outfits,
+    SceneApplyCommand, SceneApplyPlan, SceneBeatLane, SceneChunk, SceneNeighbors,
+    ScheduleCarryOver, ScheduleCastMember, ScheduleLegendEntry, SchedulePageExtraction,
+    SchedulePageRow, ScheduleRoleModifier, ScriptApplyPlan, ScriptContext, SegmentedScript,
+    ShootingDayPlan, ShootingSchedule, ShootingScheduleRow, UNCERTAINTY_FIELD_CHARACTERS,
+    UNCERTAINTY_FIELD_SCENE_NUMBER, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
+    UncertaintyAcknowledgement, UncertaintyKind, cast_directory_matches,
+    category_conflict_uncertainties, character_identity, character_mapping_ref, draft_row_ref,
+    ensure_merge_applyable, ensure_script_applyable, episode_group_refs, extract_block_number,
+    extract_scenes, extract_scenes_from_structured, extract_schedule_from_structured,
+    extract_schedule_page_from_structured, is_drehfrei_banner, is_meta_summary,
+    is_shooting_day_banner, merge_from_input, merge_schedule_to_scenes, neighbor_brackets,
+    neighbor_state, normalize_day_banner_label, normalize_schedule_legend_entry,
+    parse_date_from_day_banner, parse_mood_from_heading, parse_schedule_date,
+    parse_schedule_scene_ref, parse_script_day, plan_scene_apply, render_document_context,
+    render_schedule_carry_over_context, render_schedule_page_spatial_hint,
+    resolve_character_category, resolve_schedule_cast_refs, sanitize_meta_summary,
+    scene_beat_lanes, shooting_day_group_refs, stable_draft_ref, verify_draft_outfits,
     verify_draft_outfits_with_normalized, zero_dialogue_generic_roles,
 };
 pub use provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};

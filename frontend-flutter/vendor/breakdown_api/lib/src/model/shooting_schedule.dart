@@ -7,6 +7,7 @@
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/shooting_schedule_row.dart';
+import 'package:breakdown_api/src/model/schedule_legend_entry.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -16,6 +17,7 @@ part 'shooting_schedule.g.dart';
 ///
 /// Properties:
 /// * [blockId] - Opaque identifier for a `Block` aggregate.
+/// * [castLegend] - Optional numeric cast legend (`\"ROLLEN\"`) keyed by cast code (`\"2\"`, `\"150\"`, `\"1040\"`). Additive on the wire (`#[serde(default)]`) so pre-`[P4]` S3 schedule previews deserialize cleanly (issue #960).
 /// * [rows]
 @BuiltValue()
 abstract class ShootingSchedule
@@ -23,6 +25,10 @@ abstract class ShootingSchedule
   /// Opaque identifier for a `Block` aggregate.
   @BuiltValueField(wireName: r'block_id')
   String? get blockId;
+
+  /// Optional numeric cast legend (`\"ROLLEN\"`) keyed by cast code (`\"2\"`, `\"150\"`, `\"1040\"`). Additive on the wire (`#[serde(default)]`) so pre-`[P4]` S3 schedule previews deserialize cleanly (issue #960).
+  @BuiltValueField(wireName: r'cast_legend')
+  BuiltMap<String, ScheduleLegendEntry>? get castLegend;
 
   @BuiltValueField(wireName: r'rows')
   BuiltList<ShootingScheduleRow> get rows;
@@ -58,6 +64,14 @@ class _$ShootingScheduleSerializer
       yield serializers.serialize(
         object.blockId,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.castLegend != null) {
+      yield r'cast_legend';
+      yield serializers.serialize(
+        object.castLegend,
+        specifiedType: const FullType(
+            BuiltMap, [FullType(String), FullType(ScheduleLegendEntry)]),
       );
     }
     yield r'rows';
@@ -97,6 +111,15 @@ class _$ShootingScheduleSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.blockId = valueDes;
+          break;
+        case r'cast_legend':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltMap, [FullType(String), FullType(ScheduleLegendEntry)]),
+          ) as BuiltMap<String, ScheduleLegendEntry>?;
+          if (valueDes == null) continue;
+          result.castLegend.replace(valueDes);
           break;
         case r'rows':
           final valueDes = serializers.deserialize(

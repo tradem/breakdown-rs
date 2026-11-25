@@ -74,12 +74,16 @@ AiProviderInfo _provider(
     ..key = key,
 );
 
-AiImportDefaults _defaults({String script = '', String schedule = ''}) =>
-    AiImportDefaults(
-      (b) => b
-        ..script = script
-        ..schedule = schedule,
-    );
+AiImportDefaults _defaults({
+  String script = '',
+  String schedule = '',
+  String scheduleFlat = '',
+}) => AiImportDefaults(
+  (b) => b
+    ..script = script
+    ..schedule = schedule
+    ..scheduleFlat = scheduleFlat,
+);
 
 ModelInfo _model(
   String id, {

@@ -2,6 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: hy4-flash-free (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 //! Canonical document-structure IR (ADR-041 `D1`, issue #958).
 //!
@@ -423,6 +424,42 @@ pub const DEFAULT_TARGET_DPI: u16 = 150;
 
 /// Default per-page byte ceiling for one rendered PNG (8 MiB).
 pub const DEFAULT_MAX_RENDER_BYTES: usize = 8 * 1024 * 1024;
+
+/// Environment variable overriding the document-wide cumulative rendered-PNG
+/// byte ceiling across a page-streaming run (ADR-041 `D1`, issue #960).
+pub const AI_IMPORT_MAX_RENDERED_TOTAL_BYTES_ENV: &str = "AI_IMPORT_MAX_RENDERED_TOTAL_BYTES";
+
+/// Default document-wide cumulative byte ceiling for rendered PNG pages (64 MiB).
+///
+/// Coupled to [`DEFAULT_MAX_RENDER_BYTES`] so the document-wide ceiling can
+/// never be smaller than a single page's default ceiling.
+pub const DEFAULT_MAX_RENDERED_TOTAL_BYTES: usize = 8 * DEFAULT_MAX_RENDER_BYTES;
+
+/// Hard upper clamp for [`AI_IMPORT_MAX_RENDERED_TOTAL_BYTES_ENV`] (512 MiB).
+pub const MAX_RENDERED_TOTAL_BYTES_LIMIT: usize = 512 * 1024 * 1024;
+
+const _RENDER_CEILING_INVARIANT: () = assert!(
+    DEFAULT_MAX_RENDERED_TOTAL_BYTES >= DEFAULT_MAX_RENDER_BYTES
+        && MAX_RENDERED_TOTAL_BYTES_LIMIT >= DEFAULT_MAX_RENDERED_TOTAL_BYTES
+);
+
+/// Parse one [`AI_IMPORT_MAX_RENDERED_TOTAL_BYTES_ENV`] value, falling back to
+/// [`DEFAULT_MAX_RENDERED_TOTAL_BYTES`] on absent, zero, non-numeric, or
+/// out-of-range values.
+#[must_use]
+pub fn parse_max_rendered_total_bytes(raw: Option<&str>) -> usize {
+    raw.and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|&bytes| (1..=MAX_RENDERED_TOTAL_BYTES_LIMIT).contains(&bytes))
+        .unwrap_or(DEFAULT_MAX_RENDERED_TOTAL_BYTES)
+}
+
+/// Read the document-wide rendered-PNG ceiling from
+/// [`AI_IMPORT_MAX_RENDERED_TOTAL_BYTES_ENV`].
+#[must_use]
+pub fn max_rendered_total_bytes_from_env() -> usize {
+    let raw = std::env::var(AI_IMPORT_MAX_RENDERED_TOTAL_BYTES_ENV).ok();
+    parse_max_rendered_total_bytes(raw.as_deref())
+}
 
 impl Default for ExtractionOptions {
     fn default() -> Self {

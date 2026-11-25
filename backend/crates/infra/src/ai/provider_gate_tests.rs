@@ -232,6 +232,8 @@ async fn an_open_breaker_costs_zero_calls() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -239,6 +241,7 @@ async fn an_open_breaker_costs_zero_calls() {
         },
         5,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -272,6 +275,8 @@ async fn a_half_open_breaker_admits_the_trial_call() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let _ = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -279,6 +284,7 @@ async fn a_half_open_breaker_admits_the_trial_call() {
         },
         5,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -307,6 +313,8 @@ async fn a_trial_run_ignores_the_configured_in_attempt_retries() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let failure = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -314,6 +322,7 @@ async fn a_trial_run_ignores_the_configured_in_attempt_retries() {
         },
         5,
         &gate,
+        &mut billed,
     )
     .await
     .expect_err("the trial call failed");
@@ -344,6 +353,8 @@ async fn a_non_trial_attempt_keeps_its_configured_retries() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let _ = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -351,6 +362,7 @@ async fn a_non_trial_attempt_keeps_its_configured_retries() {
         },
         2,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -372,6 +384,8 @@ async fn a_closed_breaker_does_not_interfere_with_the_retry_loop() {
 
     // A transient failure that succeeds on the third attempt: the ordinary path
     // must still be able to use its whole budget.
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let result: Result<(), CallFailure> = retry_bounded(
         || async {
             let attempt = calls.fetch_add(1, Ordering::SeqCst) + 1;
@@ -383,6 +397,7 @@ async fn a_closed_breaker_does_not_interfere_with_the_retry_loop() {
         },
         2,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -410,6 +425,8 @@ async fn a_breaker_refusal_carries_the_failure_that_fired_it() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let failure: CallFailure = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -424,6 +441,7 @@ async fn a_breaker_refusal_carries_the_failure_that_fired_it() {
         },
         2,
         &gate,
+        &mut billed,
     )
     .await
     .expect_err("the open breaker refuses");
@@ -468,10 +486,16 @@ async fn an_exhausted_retry_budget_returns_no_hold_evidence() {
         trial: false,
     };
 
-    let failure: CallFailure =
-        retry_bounded(|| async { Err::<(), anyhow::Error>(transient()) }, 0, &gate)
-            .await
-            .expect_err("the budget is spent");
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
+    let failure: CallFailure = retry_bounded(
+        || async { Err::<(), anyhow::Error>(transient()) },
+        0,
+        &gate,
+        &mut billed,
+    )
+    .await
+    .expect_err("the budget is spent");
 
     assert!(!is_breaker_open(&failure.error));
     assert!(
@@ -509,6 +533,8 @@ async fn a_breaker_that_opens_during_the_backoff_stops_before_the_next_call() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -518,6 +544,7 @@ async fn a_breaker_that_opens_during_the_backoff_stops_before_the_next_call() {
         },
         5,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -580,6 +607,8 @@ async fn the_last_failure_of_a_chunk_is_recorded_too() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let _: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -587,6 +616,7 @@ async fn the_last_failure_of_a_chunk_is_recorded_too() {
         },
         0, // no in-attempt retries: exactly ONE attempt, which must be counted
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -612,6 +642,8 @@ async fn a_generic_service_outage_never_moves_the_counter() {
         trial: false,
     };
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let _: Result<(), CallFailure> = retry_bounded(
         || async {
             Err::<(), anyhow::Error>(anyhow::Error::new(DomainError::service_unavailable(
@@ -620,6 +652,7 @@ async fn a_generic_service_outage_never_moves_the_counter() {
         },
         2,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -645,7 +678,10 @@ async fn a_successful_call_is_recorded_as_success() {
         trial: false,
     };
 
-    let _: Result<(), CallFailure> = retry_bounded(|| async { Ok(()) }, 2, &gate).await;
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
+    let _: Result<(), CallFailure> =
+        retry_bounded(|| async { Ok(()) }, 2, &gate, &mut billed).await;
     assert_eq!(queue.recorded(), vec![("success", false)]);
     assert_eq!(
         queue.failures.load(Ordering::SeqCst),
@@ -695,6 +731,8 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -702,6 +740,7 @@ async fn a_failure_that_opens_the_breaker_stops_the_loop_at_once() {
         },
         5,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -739,6 +778,8 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
 
     // max_retries = 1 ⇒ two attempts: the second is both the last permitted one
     // and the one that opens the breaker.
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let result: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -746,6 +787,7 @@ async fn a_failure_that_opens_on_the_last_permitted_attempt_holds_the_job() {
         },
         1,
         &gate,
+        &mut billed,
     )
     .await;
 
@@ -802,6 +844,8 @@ where
     };
     let calls = std::sync::atomic::AtomicUsize::new(0);
     let started = tokio::time::Instant::now();
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let _: Result<(), CallFailure> = retry_bounded(
         || async {
             calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -809,6 +853,7 @@ where
         },
         max_retries,
         &gate,
+        &mut billed,
     )
     .await;
     (
@@ -906,6 +951,8 @@ async fn a_quota_exhausted_provider_failure_is_terminal_and_does_not_move_the_br
     };
     let calls = AtomicUsize::new(0);
 
+    // The billed-call ledger sink of this attempt (issue #970).
+    let mut billed: Vec<breakdown_core::ai::LlmCallUsage> = Vec::new();
     let error: CallFailure = retry_bounded(
         || async {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -915,6 +962,7 @@ async fn a_quota_exhausted_provider_failure_is_terminal_and_does_not_move_the_br
         },
         2, // a retry budget that must NOT be spent
         &gate,
+        &mut billed,
     )
     .await
     .expect_err("a quota exhaustion is a failure");

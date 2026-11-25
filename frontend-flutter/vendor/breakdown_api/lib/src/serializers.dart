@@ -182,6 +182,9 @@ import 'package:breakdown_api/src/model/scene_source.dart';
 import 'package:breakdown_api/src/model/scene_source_one_of.dart';
 import 'package:breakdown_api/src/model/scene_source_one_of_ai_extracted.dart';
 import 'package:breakdown_api/src/model/scene_view.dart';
+import 'package:breakdown_api/src/model/schedule_cast_member.dart';
+import 'package:breakdown_api/src/model/schedule_legend_entry.dart';
+import 'package:breakdown_api/src/model/schedule_role_modifier.dart';
 import 'package:breakdown_api/src/model/schedule_scene_request.dart';
 import 'package:breakdown_api/src/model/script_context.dart';
 import 'package:breakdown_api/src/model/season_membership_dto.dart';
@@ -394,6 +397,9 @@ part 'serializers.g.dart';
   SceneSourceOneOf,
   SceneSourceOneOfAiExtracted,
   SceneView,
+  ScheduleCastMember,
+  ScheduleLegendEntry,
+  ScheduleRoleModifier,
   ScheduleSceneRequest,
   ScriptContext,
   SeasonMembershipDto,
@@ -452,6 +458,11 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(CharacterView)]),
         () => ListBuilder<CharacterView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(
+            BuiltMap, [FullType(String), FullType(ScheduleLegendEntry)]),
+        () => MapBuilder<String, ScheduleLegendEntry>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(PiecePhotoView)]),
@@ -540,6 +551,10 @@ Serializers serializers = (_$serializers.toBuilder()
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(PieceDetailView)]),
         () => ListBuilder<PieceDetailView>(),
+      )
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(ScheduleCastMember)]),
+        () => ListBuilder<ScheduleCastMember>(),
       )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(AuditEntry)]),

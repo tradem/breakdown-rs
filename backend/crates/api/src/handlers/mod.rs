@@ -911,6 +911,7 @@ async fn authorize_piece_in_project<P: Ports>(
         return Err(ApiError::Domain(DomainError::Validation {
             code: &PIECE_CONTAINER_UNRESOLVED,
             reason: "piece has no assigned character and no season repertoire — cannot determine its series".into(),
+                usage: None,
         }));
     };
     membership_gate(
@@ -9127,8 +9128,12 @@ pub async fn list_ai_image_models<P: Ports>(
 pub struct AiImportDefaults {
     /// Default prompt seed for script imports.
     pub script: String,
-    /// Default prompt seed for schedule imports.
+    /// Default prompt seed for schedule imports (page-streaming vision path).
     pub schedule: String,
+    /// Default prompt seed for the FLAT schedule path (legacy-PDF /
+    /// plain-text: flattened text in, `ShootingSchedule` out) — CodeRabbit
+    /// review, PR #967. Additive on the wire.
+    pub schedule_flat: String,
 }
 
 #[utoipa::path(
@@ -9165,6 +9170,7 @@ pub async fn get_ai_import_defaults<P: Ports>(
         Json(AiImportDefaults {
             script: defaults.script,
             schedule: defaults.schedule,
+            schedule_flat: defaults.schedule_flat,
         }),
     ))
 }

@@ -27,6 +27,11 @@ pub struct AiWorkerConfig {
     pub model: String,
     pub prompt: String,
     pub vault_key_id: String,
+    /// The FLAT-path schedule prompt (CodeRabbit review, PR #967): only
+    /// resolved for `DocumentKind::Schedule` jobs (the flat branch runs for
+    /// legacy-PDF / plain-text sources; the page-streaming branch keeps
+    /// `prompt`). `None` for script jobs.
+    pub flat_prompt: Option<String>,
     /// Configured `reasoning_effort` (2026-11-20 investigation). `Auto` = no
     /// explicit level: the curated profile (if any), else the provider default.
     pub reasoning_effort: ReasoningEffortChoice,
@@ -90,6 +95,14 @@ impl AiConfigRepositoryImpl {
 
         let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
         let prompt = parse_prompt_for_kind(&row, &kind)?;
+        // CodeRabbit review, PR #967: the flat schedule path carries its own
+        // prompt contract (flattened text in, `ShootingSchedule` out). A stored
+        // `"schedule_flat"` key in the prompts JSONB wins; otherwise the
+        // built-in flat default applies — never the page-streaming prompt.
+        let flat_prompt = match kind {
+            DocumentKind::Schedule => Some(parse_flat_schedule_prompt(&row)?),
+            DocumentKind::Script => None,
+        };
 
         // Decision Model slot (issue #722): all three columns are NULL or
         // all set (the aggregate validates the triple). A partially-set row
@@ -135,6 +148,7 @@ impl AiConfigRepositoryImpl {
             provider,
             model: row.try_get("assistant_model").map_err(map_sqlx_error)?,
             prompt,
+            flat_prompt,
             vault_key_id: row.try_get("vault_key_id").map_err(map_sqlx_error)?,
             reasoning_effort: parse_optional_reasoning_effort(
                 row.try_get::<Option<String>, _>("reasoning_effort")
@@ -214,14 +228,11 @@ impl AiConfigRepository for AiConfigRepositoryImpl {
 /// one place.
 fn map_config_row(row: &PgRow) -> Result<AiConfigView, DomainError> {
     let provider = parse_provider(row.try_get("provider").map_err(map_sqlx_error)?)?;
-    let prompts: HashMap<DocumentKind, String> = row
-        .try_get::<serde_json::Value, _>("prompts")
-        .map_err(map_sqlx_error)
-        .and_then(|value| {
-            serde_json::from_value(value).map_err(|error| {
-                DomainError::validation(format!("invalid AI prompt projection: {error}"))
-            })
-        })?;
+    // String-keyed decode + filter back to document kinds (CodeRabbit's PR
+    // #967 follow-up): the JSONB may additionally carry additive worker keys
+    // such as `schedule_flat`, which a direct `HashMap<DocumentKind, _>`
+    // decode would reject. The view only surfaces document kinds.
+    let prompts: HashMap<DocumentKind, String> = document_kind_prompts(prompts_map_from_row(row)?);
     let mut prompt_kinds: Vec<_> = prompts.keys().copied().collect();
     prompt_kinds.sort_by_key(|kind| kind.as_str());
     // A kind is "stored" only when the text actually has content: a blank
@@ -373,26 +384,103 @@ pub(crate) fn resolve_prompt(
 }
 
 fn parse_prompt_for_kind(row: &PgRow, kind: &DocumentKind) -> Result<String, DomainError> {
-    let prompts: HashMap<DocumentKind, String> = row
-        .try_get::<serde_json::Value, _>("prompts")
-        .map_err(map_sqlx_error)
-        .and_then(|value| {
-            serde_json::from_value(value).map_err(|error| {
-                DomainError::validation(format!("invalid AI prompt projection: {error}"))
-            })
-        })?;
-    resolve_prompt(prompts.get(kind), kind)
+    let prompts = prompts_map_from_row(row)?;
+    resolve_prompt(prompts.get(kind.as_str()), kind)
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> DomainError {
     DomainError::service_unavailable(format!("AI config database error: {error}"))
 }
 
+/// Decode the `prompts` JSONB as a STRING-keyed map (CodeRabbit's PR #967
+/// follow-up): the map carries the two document kinds PLUS additive keys such
+/// as `"schedule_flat"`, which a `HashMap<DocumentKind, _>` decode would
+/// reject — one unknown key must not break every prompt lookup for the row.
+fn prompts_map_from_row(
+    row: &PgRow,
+) -> Result<std::collections::HashMap<String, String>, DomainError> {
+    let value = row
+        .try_get::<serde_json::Value, _>("prompts")
+        .map_err(map_sqlx_error)?;
+    prompts_map_from_json(&value)
+}
+
+/// CodeRabbit's PR #967 follow-up: split out so the string-keyed decode —
+/// tolerant of additive keys like `schedule_flat` — is regression-testable
+/// without a database row.
+fn prompts_map_from_json(
+    value: &serde_json::Value,
+) -> Result<std::collections::HashMap<String, String>, DomainError> {
+    serde_json::from_value(value.clone())
+        .map_err(|error| DomainError::validation(format!("invalid AI prompt projection: {error}")))
+}
+
+/// Filter the string-keyed prompt map back to document kinds for the
+/// read-model view (additive worker keys such as `schedule_flat` are skipped,
+/// not rejected — CodeRabbit's PR #967 follow-up; extracted for tests).
+fn document_kind_prompts(
+    prompts: std::collections::HashMap<String, String>,
+) -> HashMap<DocumentKind, String> {
+    prompts
+        .into_iter()
+        .filter_map(|(key, prompt)| match key.as_str() {
+            "script" => Some((DocumentKind::Script, prompt)),
+            "schedule" => Some((DocumentKind::Schedule, prompt)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Resolve the FLAT-path schedule prompt (CodeRabbit review, PR #967): the
+/// same stored-wins precedence as [`parse_prompt_for_kind`], keyed by the
+/// string `"schedule_flat"` in the prompts JSONB (additive — old config rows
+/// without the key fall back to the built-in flat default), else
+/// [`crate::ai::default_flat_schedule_prompt`].
+fn parse_flat_schedule_prompt(row: &PgRow) -> Result<String, DomainError> {
+    let prompts = prompts_map_from_row(row)?;
+    match prompts
+        .get("schedule_flat")
+        .map(|prompt| prompt.as_str())
+        .filter(|prompt| !prompt.trim().is_empty())
+    {
+        Some(prompt) => Ok(prompt.to_owned()),
+        None => crate::ai::default_flat_schedule_prompt(),
+    }
+}
+
 #[cfg(test)]
 mod prompt_resolution_tests {
-    use super::resolve_prompt;
+    use super::{document_kind_prompts, prompts_map_from_json, resolve_prompt};
     use crate::ai::default_prompt;
     use breakdown_core::ai::DocumentKind;
+
+    /// CodeRabbit's PR #967 round-3 follow-up: the string-keyed decode must
+    /// tolerate the additive `schedule_flat` key (a DocumentKind-keyed decode
+    /// would reject the WHOLE map), and the read-model view must still map the
+    /// two document kinds out of a map that carries it.
+    #[test]
+    fn a_stored_schedule_flat_key_does_not_break_prompt_decoding_or_the_view() {
+        let map = prompts_map_from_json(&serde_json::json!({
+            "script": "script prompt",
+            "schedule": "page prompt",
+            "schedule_flat": "flat prompt"
+        }))
+        .expect("the additive key must not break the decode");
+        assert_eq!(
+            map.get("schedule_flat").map(String::as_str),
+            Some("flat prompt")
+        );
+
+        let view_prompts = document_kind_prompts(map);
+        assert_eq!(view_prompts.len(), 2, "only document kinds surface");
+        assert_eq!(
+            view_prompts
+                .get(&DocumentKind::Schedule)
+                .map(String::as_str),
+            Some("page prompt")
+        );
+        assert!(view_prompts.contains_key(&DocumentKind::Script));
+    }
 
     /// Design D6's precedence, in both directions.
     #[test]

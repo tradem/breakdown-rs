@@ -14,21 +14,23 @@ use breakdown_core::ai::{
     AiImportBounds, AiImportChunkStore, AiImportJob, AiImportJobId, AiImportMapping,
     AiImportMappingRepository, AiImportProgress, AiImportQueue, AiImportStage,
     AiModelPricingRepository, AppliedEpisode, ApplyGateError, ApplyMapping, ApplyMappingDecision,
-    ApplyProgress, ApplyRunId, ApplyStage, CategoryVocabularyEntry, CharacterApplyPlan,
-    ChunkSetState, CostBreakdown, DecisionClient, DecisionOutcome, DecisionTelemetry, DocumentKind,
-    DocumentStructureExtractor, DraftScene, EpisodeGroupPlan, ExistingSeasonCharacter,
-    ExtractionFingerprint, HoldEvidence, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider,
-    MergedPreview, OutfitApplyPlan, PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode,
-    PlannedShootingDay, ProviderBreakerSnapshot, ProviderBreakerState, ProviderHold,
-    ReviewerDecisions, SceneApplyCommand, SceneApplyPlan, SceneNeighbors, ScriptContext,
-    SegmentedScript, ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry,
-    TelemetryApplyState, UnappliedOutfit, UnappliedOutfitReason, Uncertainty,
-    UncertaintyAcknowledgement, UncertaintyKind, UsageAccumulator, category_conflict_uncertainties,
-    character_mapping_ref, draft_row_ref, ensure_merge_applyable, extract_scenes_from_structured,
-    mapping_kind, merge_schedule_to_scenes, neighbor_brackets, normalize_kerning, parse_script_day,
-    plan_scene_apply, render_document_context, resolve_character_category, sanitize_meta_summary,
-    scene_beat_lanes, stable_draft_ref, verify_draft_outfits_with_normalized,
-    zero_dialogue_generic_roles,
+    ApplyProgress, ApplyRunId, ApplyStage, BilledCall, CategoryVocabularyEntry, CharacterApplyPlan,
+    ChunkSetState, CostBreakdown, DEFAULT_MAX_RENDER_BYTES, DecisionClient, DecisionOutcome,
+    DecisionTelemetry, DocumentKind, DocumentStructureExtractor, DraftScene, EpisodeGroupPlan,
+    ExistingSeasonCharacter, ExtractionFingerprint, HoldEvidence, LlmCallUsage, LlmChatRequest,
+    LlmClient, LlmProvider, LlmVisionPageInput, LlmVisionRequest, MergedPreview, OutfitApplyPlan,
+    PRIMARY_ORDINAL, PieceApplyPlan, PlannedEpisode, PlannedShootingDay, ProviderBreakerSnapshot,
+    ProviderBreakerState, ProviderHold, RenderOptions, ReviewerDecisions, SceneApplyCommand,
+    SceneApplyPlan, SceneNeighbors, ScheduleCarryOver, ScriptContext, SegmentedScript,
+    ShootingDayPlan, ShootingSchedule, SourceFormat, StoredChunk, Telemetry, TelemetryApplyState,
+    UnappliedOutfit, UnappliedOutfitReason, Uncertainty, UncertaintyAcknowledgement,
+    UncertaintyKind, UsageAccumulator, category_conflict_uncertainties, character_mapping_ref,
+    draft_row_ref, ensure_merge_applyable, extract_scenes_from_structured, mapping_kind,
+    max_rendered_total_bytes_from_env, merge_schedule_to_scenes, neighbor_brackets,
+    normalize_kerning, parse_script_day, plan_scene_apply, render_document_context,
+    render_schedule_carry_over_context, render_schedule_page_spatial_hint,
+    resolve_character_category, sanitize_meta_summary, scene_beat_lanes, stable_draft_ref,
+    verify_draft_outfits_with_normalized, zero_dialogue_generic_roles,
 };
 use breakdown_core::character::commands::CreateCharacter;
 use breakdown_core::character::ports::CharacterCommands;
@@ -706,7 +708,30 @@ where
         // Issue #794: it keeps the per-call ledger too, because the provider
         // caps energy per request — the summed counters cannot be re-split.
         let mut extraction_usage = UsageAccumulator::default();
+        // Issue #970 (CodeRabbit review PR #967): the job row's **per-request
+        // billed-call ledger** carries every paid request of the earlier
+        // attempts, so the completion-time telemetry covers the whole job and
+        // not only this attempt.
+        //
+        // It is seeded entry by entry, never as one aggregate (CodeRabbit
+        // review, PR #967 round 13): the sum of the entries cannot be re-split,
+        // and the #794 energy cap is per request. It is also the ONLY seed —
+        // the completion-time counters are not read back, so a crash between
+        // the telemetry write and `mark_succeeded` cannot count a replayed
+        // stored chunk twice (CodeRabbit review, PR #967 round 13).
+        //
+        // A FAILED read propagates BEFORE any paid work: continuing from zero
+        // would lose the persisted accounting (CodeRabbit review, PR #967
+        // round 8) — the failed read is not evidence of zero.
+        let prior_calls = self.queue.recorded_billed_calls(job.id).await?;
+        extraction_usage.record_all(&BilledCall::usages(&prior_calls));
         let mut decision_usage = UsageAccumulator::default();
+        // Issue #970 round 14: this attempt's OWN requests, priced with this
+        // worker's pair at completion. The prior attempts' entries stay
+        // attributed to the pair that billed them (a re-drive may run under a
+        // different model), so the cost snapshot never prices an old request
+        // with a new rate card.
+        let mut attempt_calls: Vec<LlmCallUsage> = Vec::new();
         // Globally unique scene counter across all chunks — the tail of
         // `stable_draft_ref`, which needs a stable identity per preview row
         // that survives the model's own (hallucinated) `draft_ref`.
@@ -887,10 +912,8 @@ where
                 )
                 .map(|effort| effort.as_str().to_owned()),
             };
-            if super::heartbeat::claim_lost(heartbeat.as_ref()) {
-                // Stop before the next paid call: another worker owns the job.
-                return Err(claim_lost_error(job.id, worker_id));
-            }
+            // Stop before the next paid call: another worker owns the job.
+            ensure_claim_holds(heartbeat.as_ref(), job.id, worker_id)?;
             let index = u32::try_from(chunk_index).map_err(|error| {
                 DomainError::validation(format!("script chunk index exceeds range: {error}"))
             })?;
@@ -901,7 +924,12 @@ where
             // preview.
             let resumed_chunk = stored.get(&index);
             let call_result = match resumed_chunk {
-                Some(stored_chunk) => Ok((stored_chunk.payload.clone(), stored_chunk.usage)),
+                // A stored chunk belongs to an EARLIER attempt: its usage is
+                // already an entry of the job row's billed-call ledger (the
+                // attempt appended it before storing), so this attempt records
+                // and appends nothing for it — replaying it here is exactly the
+                // double count of issue #970 round 13.
+                Some(stored_chunk) => Ok((stored_chunk.payload.clone(), Vec::new())),
                 None => {
                     // Issue #871 (D-A5): the chunk boundary before a PAID call is
                     // the mid-run abort point. The in-flight request is NOT
@@ -935,7 +963,20 @@ where
                 }
             };
             match call_result {
-                Ok((partial, call_usage)) => {
+                Ok((partial, call_calls)) => {
+                    // Issue #970 (CodeRabbit review PR #967 round 13): the paid
+                    // requests go on the job row's ledger BEFORE the chunk is
+                    // stored. A crash between the two writes then re-pays the
+                    // chunk and counts it twice — which is honest, the provider
+                    // billed it twice — while the opposite order could store a
+                    // chunk whose accounting the ledger never received.
+                    append_billed_calls_with_retry(
+                        self.queue.as_ref(),
+                        job.id,
+                        worker_id,
+                        &attributed(self.provider, &self.model, &call_calls),
+                    )
+                    .await?;
                     // Issue #871 (D-B3): store the freshly paid result BEFORE the
                     // merge consumes it — the stored unit is the raw parse, and a
                     // crash after this write but before the merge costs nothing.
@@ -945,9 +986,7 @@ where
                         // Re-check the claim right before the write: the store's
                         // row lock is the real fence, but stopping here keeps a
                         // displaced worker from even attempting it.
-                        if super::heartbeat::claim_lost(heartbeat.as_ref()) {
-                            return Err(claim_lost_error(job.id, worker_id));
-                        }
+                        ensure_claim_holds(heartbeat.as_ref(), job.id, worker_id)?;
                         store
                             .put(
                                 job.id,
@@ -956,7 +995,11 @@ where
                                 &StoredChunk {
                                     chunk_index: index,
                                     payload: partial.clone(),
-                                    usage: call_usage,
+                                    // The stored unit is one paid call, so its
+                                    // usage is the summed counters. The job
+                                    // row's ledger keeps the per-request
+                                    // entries the pricing needs.
+                                    usage: LlmCallUsage::total(&call_calls),
                                 },
                             )
                             .await?;
@@ -975,8 +1018,11 @@ where
                         .saturating_add(u32::try_from(chunk_model_rows).unwrap_or(u32::MAX));
                     // Issue #675: accumulate real token/energy usage across
                     // every chunk of the job (extraction component, #768) —
-                    // `record` keeps the call in the ledger as well (#794).
-                    extraction_usage.record(call_usage);
+                    // `record_all` keeps every REQUEST in the ledger (#794).
+                    // Empty for a resumed chunk: its entries came from the
+                    // seed above.
+                    attempt_calls.extend_from_slice(&call_calls);
+                    extraction_usage.record_all(&call_calls);
                     if context.title.is_none() {
                         context.title = partial.title;
                     }
@@ -1261,7 +1307,7 @@ where
                         }
                     }
                 }
-                Err(failure) => {
+                Err(mut failure) => {
                     // Issue #871: the gate can refuse mid-attempt — from the top
                     // of `retry_bounded`, from the pre-sleep re-check, or from the
                     // client-internal guard. That is a HOLD, never a failure:
@@ -1272,6 +1318,19 @@ where
                         // Issue #942 W2: the hold persists the failure that fired
                         // — a client timeout, an HTTP status with its hint, or the
                         // bounded provider body — instead of a bare code.
+                        // Issue #970: the in-flight chunk's attempt may have
+                        // billed earlier responses before the refusal — the
+                        // chunk store cannot carry them (only completed chunks
+                        // are stored), so persist them on the row.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            self.provider,
+                            &self.model,
+                            failure.usage.take(),
+                        )
+                        .await;
                         hold_job(
                             self.queue.as_ref(),
                             &self.bounds,
@@ -1279,11 +1338,24 @@ where
                             worker_id,
                             &gate,
                             index,
-                            failure.evidence.as_ref(),
+                            failure.evidence.as_deref(),
                         )
                         .await?;
                         return Ok(String::new());
                     }
+                    // Issue #970 (CodeRabbit review PR #967 round 10): the
+                    // terminal failure may carry the in-flight chunk's orphan
+                    // usage — persist it before failing the job (the row is
+                    // still 'running', the fence holds).
+                    record_attempt_usage(
+                        self.queue.as_ref(),
+                        job.id,
+                        worker_id,
+                        self.provider,
+                        &self.model,
+                        failure.usage.take(),
+                    )
+                    .await;
                     self.fail(job.id, worker_id, &failure.error).await?;
                     return Err(failure.error);
                 }
@@ -1444,7 +1516,11 @@ where
                             self.pricing.as_deref(),
                             self.provider,
                             &self.model,
-                            &extraction_usage,
+                            // Issue #970 round 14: the prior requests keep the
+                            // pair that billed them; this attempt's own
+                            // requests are priced with this worker's pair.
+                            &prior_calls,
+                            &attempt_calls,
                             // Both components, each with its own rate card
                             // (issue #768).
                             decision_cost_input(self.decision.as_ref(), decision_usage),
@@ -1571,7 +1647,8 @@ async fn compute_cost_snapshot(
     pricing: Option<&dyn AiModelPricingRepository>,
     provider: breakdown_core::ai::LlmProvider,
     model: &str,
-    extraction_usage: &UsageAccumulator,
+    prior: &[BilledCall],
+    attempt_calls: &[LlmCallUsage],
     decision: Option<DecisionUsage>,
 ) -> CostBreakdown {
     let decision_component = match decision {
@@ -1587,20 +1664,60 @@ async fn compute_cost_snapshot(
         None => None,
     };
 
-    let Some(row) = find_pricing_row(pricing, provider, model).await else {
-        tracing::debug!(
-            provider = provider.as_str(),
-            model,
-            "ai-extraction: extraction pricing unavailable; recording unknown extraction cost"
-        );
-        return breakdown_core::ai::cost::cost_breakdown_unpriced(decision_component);
-    };
+    // Issue #970 round 14: group the extraction requests by the pair that
+    // billed them. The pair comes from configuration, so the ledger can span
+    // several; every group is priced with its OWN rate card and keeps its own
+    // per-request energy caps.
+    let mut groups: Vec<(LlmProvider, String, Vec<LlmCallUsage>)> = Vec::new();
+    for call in prior {
+        match groups
+            .iter_mut()
+            .find(|(grouped_provider, grouped_model, _)| {
+                *grouped_provider == call.provider && *grouped_model == call.model
+            }) {
+            Some((_, _, calls)) => calls.push(call.usage),
+            None => groups.push((call.provider, call.model.clone(), vec![call.usage])),
+        }
+    }
+    // This attempt's own requests belong to this worker's pair. An empty set adds
+    // no group, so a fully resumed re-drive prices exactly the prior ledger.
+    if !attempt_calls.is_empty() {
+        match groups
+            .iter_mut()
+            .find(|(grouped_provider, grouped_model, _)| {
+                *grouped_provider == provider && grouped_model == model
+            }) {
+            Some((_, _, calls)) => calls.extend_from_slice(attempt_calls),
+            None => groups.push((provider, model.to_owned(), attempt_calls.to_vec())),
+        }
+    }
 
-    breakdown_core::ai::cost::cost_breakdown(
-        extraction_usage.priced_calls(),
-        Some(&row),
-        decision_component,
-    )
+    // Resolve each group's pricing row (one lookup per pair, as before).
+    let mut rows: Vec<Option<breakdown_core::ai::ModelPricing>> = Vec::with_capacity(groups.len());
+    for (group_provider, group_model, _) in &groups {
+        let row = find_pricing_row(pricing, *group_provider, group_model).await;
+        if row.is_none() {
+            tracing::debug!(
+                provider = group_provider.as_str(),
+                model = group_model.as_str(),
+                "ai-extraction: extraction pricing unavailable; recording unknown extraction cost"
+            );
+        }
+        rows.push(row);
+    }
+
+    let priced: Vec<breakdown_core::ai::cost::ExtractionGroup<'_>> = groups
+        .iter()
+        .zip(rows.iter())
+        .map(
+            |((_, _, calls), row)| breakdown_core::ai::cost::ExtractionGroup {
+                pricing: row.as_ref(),
+                calls: calls.as_slice(),
+            },
+        )
+        .collect();
+
+    breakdown_core::ai::cost::cost_breakdown_grouped(&priced, decision_component)
 }
 
 /// Source bytes of one chunk exactly as the model receives them (issue #762).
@@ -1615,6 +1732,25 @@ fn source_text_len(chunk: &breakdown_core::ai::SceneChunk) -> usize {
         .len()
         .saturating_add(1)
         .saturating_add(chunk.text.len())
+}
+
+/// Refuse further billable work when the heartbeat observed a lost claim
+/// (issue #970 round 14, CodeRabbit review PR #967).
+///
+/// Every paid call is preceded by this check: a worker whose lease lapsed has
+/// no right to spend the user's money on work the new owner is already redoing,
+/// and the ledger fence would only reject the write *after* the request. A
+/// missing heartbeat (`None`) is the no-lease (in-memory/test) configuration,
+/// never a lost claim.
+fn ensure_claim_holds(
+    heartbeat: Option<&super::heartbeat::LeaseHeartbeat>,
+    id: AiImportJobId,
+    worker_id: &str,
+) -> Result<(), DomainError> {
+    if super::heartbeat::claim_lost(heartbeat) {
+        return Err(claim_lost_error(id, worker_id));
+    }
+    Ok(())
 }
 
 /// The job was reclaimed by another worker while this one was still working.
@@ -1640,6 +1776,11 @@ pub struct ScheduleImportWorker<Q, C, E = LegacyPdfToTextAdapter> {
     pub provider: breakdown_core::ai::LlmProvider,
     pub model: String,
     pub prompt: String,
+    /// The FLAT-path prompt (CodeRabbit review, PR #967): used by the
+    /// legacy-PDF / plain-text branch, whose input is flattened text and whose
+    /// output schema is `ShootingSchedule`. The page-streaming vision branch
+    /// keeps `prompt` (page image in, `SchedulePageExtraction` out).
+    pub flat_prompt: String,
     /// See [`ScriptImportWorker::reasoning_effort`].
     pub reasoning_effort: breakdown_core::ai::ReasoningEffortChoice,
     pub bounds: AiImportBounds,
@@ -1786,6 +1927,20 @@ where
         // per-call ledger (#794) is a single entry here, but it goes through the
         // same type as the script worker's chunk ledger.
         let mut extraction_usage = UsageAccumulator::default();
+        // Issue #970 (CodeRabbit review PR #967): the job row's per-request
+        // billed-call ledger resumes the accounting — the accumulator (and
+        // with it the completion-time telemetry overwrite and the cost
+        // snapshot) covers every billed call of the job, not only this
+        // attempt's. Seeded entry by entry, never as one aggregate: the #794
+        // energy cap is per request (CodeRabbit review, PR #967 round 13).
+        // A FAILED read propagates BEFORE any paid work: continuing from zero
+        // would lose the persisted accounting (CodeRabbit review, PR #967
+        // round 8) — the failed read is not evidence of zero.
+        let prior_calls = self.queue.recorded_billed_calls(job.id).await?;
+        extraction_usage.record_all(&BilledCall::usages(&prior_calls));
+        // Issue #970 round 14: this attempt's own requests, priced with this
+        // worker's pair at completion (the prior entries keep theirs).
+        let mut attempt_calls: Vec<LlmCallUsage> = Vec::new();
         let mut decision_usage = UsageAccumulator::default();
         // Rows the schedule scoring request left unscored and whether that
         // request failed (issue #767); both stay empty on the native CSV path,
@@ -1825,67 +1980,177 @@ where
                 .await?;
                 return Ok(String::new());
             }
-            let source_text = match job.source_format {
-                SourceFormat::Pdf => {
-                    // Issue #960 replaces this flattened view with per-page
-                    // rendering; today the schedule prompt still reads text, and
-                    // the flattened document is what the flat adapter always
-                    // produced.
-                    self.extractor
+            // Issue #960: a spatial PDF schedule streams PAGE BY PAGE through
+            // the multimodal vision seam with carry-over day state; the
+            // legacy-pdftotext rollback target (`AI_DOCUMENT_PARSER=legacy`)
+            // keeps the pre-#960 single flat-text request.
+            if job.source_format == SourceFormat::Pdf
+                && self.extractor.parser_fingerprint() != super::LEGACY_PARSER_FINGERPRINT
+            {
+                let (parsed, page_calls) = match self
+                    .extract_pdf_pages(
+                        job,
+                        worker_id,
+                        bytes,
+                        &gate,
+                        &mut progress,
+                        heartbeat.as_ref(),
+                    )
+                    .await
+                {
+                    // Issue #871: a breaker refusal is a HOLD (same rationale as
+                    // the flat path below).
+                    Err(mut failure) if is_breaker_open(&failure.error) => {
+                        // Issue #970 (CodeRabbit review PR #967): persist the
+                        // usage of the pages billed before the hold, so the
+                        // re-drive's accounting resumes instead of restarting.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            self.provider,
+                            &self.model,
+                            failure.usage.take(),
+                        )
+                        .await;
+                        hold_job(
+                            self.queue.as_ref(),
+                            &self.bounds,
+                            job.id,
+                            worker_id,
+                            &gate,
+                            0,
+                            failure.evidence.as_deref(),
+                        )
+                        .await?;
+                        return Ok(String::new());
+                    }
+                    Err(mut failure) => {
+                        // Issue #970 (CodeRabbit review PR #967 round 10): a
+                        // terminal (non-breaker) failure may carry the pages'
+                        // billed usage — persist it while the row is still
+                        // 'running', before the failure path.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            self.provider,
+                            &self.model,
+                            failure.usage.take(),
+                        )
+                        .await;
+                        return Err(failure.error);
+                    }
+                    Ok(outcome) => outcome,
+                };
+                // The pages' requests are already on the job row's ledger (one
+                // append per page) and in this attempt's own ledger (the page
+                // loop fills it); this accumulator covers them so the
+                // completion-time telemetry is complete.
+                attempt_calls.extend_from_slice(&page_calls);
+                extraction_usage.record_all(&page_calls);
+                parsed
+            } else {
+                let source_text = match job.source_format {
+                    // A legacy-pdftotext PDF cannot render pages: the flattened
+                    // document is what the flat adapter always produced (the
+                    // pre-#960 rollback path).
+                    SourceFormat::Pdf => self
+                        .extractor
                         .extract(bytes, breakdown_core::ai::ExtractionOptions::default())
                         .await?
-                        .flattened_text()
-                }
-                // `Csv` never reaches this branch (`native_csv` above), so the
-                // fallback is exactly `PlainText`.
-                _ => String::from_utf8(bytes.to_vec()).map_err(|error| {
-                    DomainError::validation(format!("schedule document is not UTF-8 text: {error}"))
-                })?,
-            };
-            let request = LlmChatRequest {
-                provider: self.provider,
-                model: self.model.clone(),
-                prompt: self.prompt.clone(),
-                source_text,
-                max_tokens: self.bounds.max_tokens_per_req,
-                response_schema: None,
-                // Same resolution as the script path above.
-                reasoning_effort: resolved_reasoning_effort(
-                    self.provider,
-                    &self.model,
-                    self.reasoning_effort,
-                )
-                .map(|effort| effort.as_str().to_owned()),
-            };
-            let (parsed, call_usage) = match retry_schedule(
-                self.client.as_ref(),
-                request,
-                self.bounds.max_attempt_retries as usize,
-                &gate,
-            )
-            .await
-            {
-                // Issue #871: a breaker refusal is a HOLD. Propagating it through
-                // `?` would leave the job `running` until its lease lapsed (900 s
-                // by default), because the outer handler treats `Conflict` as
-                // non-permanent and writes nothing.
-                Err(failure) if is_breaker_open(&failure.error) => {
-                    hold_job(
-                        self.queue.as_ref(),
-                        &self.bounds,
-                        job.id,
-                        worker_id,
-                        &gate,
-                        0,
-                        failure.evidence.as_ref(),
+                        .flattened_text(),
+                    // `Csv` never reaches this branch (`native_csv` above), so the
+                    // fallback is exactly `PlainText`.
+                    _ => String::from_utf8(bytes.to_vec()).map_err(|error| {
+                        DomainError::validation(format!(
+                            "schedule document is not UTF-8 text: {error}"
+                        ))
+                    })?,
+                };
+                let request = LlmChatRequest {
+                    provider: self.provider,
+                    model: self.model.clone(),
+                    // The flat path speaks the flat prompt's contract
+                    // (CodeRabbit review, PR #967) — never the page-image
+                    // prompt the vision branch uses.
+                    prompt: self.flat_prompt.clone(),
+                    source_text,
+                    max_tokens: self.bounds.max_tokens_per_req,
+                    response_schema: None,
+                    // Same resolution as the script path above.
+                    reasoning_effort: resolved_reasoning_effort(
+                        self.provider,
+                        &self.model,
+                        self.reasoning_effort,
                     )
-                    .await?;
-                    return Ok(String::new());
-                }
-                other => other.map_err(|failure| failure.error)?,
-            };
-            extraction_usage.record(call_usage);
-            parsed
+                    .map(|effort| effort.as_str().to_owned()),
+                };
+                let (parsed, call_calls) = match retry_schedule(
+                    self.client.as_ref(),
+                    request,
+                    self.bounds.max_attempt_retries as usize,
+                    &gate,
+                )
+                .await
+                {
+                    // Issue #871: a breaker refusal is a HOLD. Propagating it through
+                    // `?` would leave the job `running` until its lease lapsed (900 s
+                    // by default), because the outer handler treats `Conflict` as
+                    // non-permanent and writes nothing.
+                    //
+                    // Issue #970: the flat call's own attempt may have billed
+                    // earlier responses before the refusal — persist them
+                    // before parking.
+                    Err(mut failure) if is_breaker_open(&failure.error) => {
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            self.provider,
+                            &self.model,
+                            failure.usage.take(),
+                        )
+                        .await;
+                        hold_job(
+                            self.queue.as_ref(),
+                            &self.bounds,
+                            job.id,
+                            worker_id,
+                            &gate,
+                            0,
+                            failure.evidence.as_deref(),
+                        )
+                        .await?;
+                        return Ok(String::new());
+                    }
+                    Err(mut failure) => {
+                        // Issue #970 (CodeRabbit review PR #967 round 10): see
+                        // the page-loop arm above.
+                        record_attempt_usage(
+                            self.queue.as_ref(),
+                            job.id,
+                            worker_id,
+                            self.provider,
+                            &self.model,
+                            failure.usage.take(),
+                        )
+                        .await;
+                        return Err(failure.error);
+                    }
+                    Ok(outcome) => outcome,
+                };
+                append_billed_calls_with_retry(
+                    self.queue.as_ref(),
+                    job.id,
+                    worker_id,
+                    &attributed(self.provider, &self.model, &call_calls),
+                )
+                .await?;
+                attempt_calls.extend_from_slice(&call_calls);
+                extraction_usage.record_all(&call_calls);
+                parsed
+            }
         };
         // Best-effort Decision Model scoring pass for LLM-extracted
         // schedules (issue #722 §3.3): one single-pass request scores the
@@ -1957,7 +2222,9 @@ where
                             self.pricing.as_deref(),
                             self.provider,
                             &self.model,
-                            &extraction_usage,
+                            // Issue #970 round 14: see the script worker.
+                            &prior_calls,
+                            &attempt_calls,
                             decision_cost_input(self.decision.as_ref(), decision_usage),
                         )
                         .await
@@ -1980,6 +2247,176 @@ where
             .mark_succeeded(job.id, worker_id, &handle)
             .await?;
         Ok(handle)
+    }
+
+    /// Page-streaming multimodal extraction of a PDF shooting schedule
+    /// (issue #960, ADR-041 `D5`).
+    ///
+    /// Walks `1..=K` pages: render one page on demand, send it with the
+    /// carry-over context through `chat_vision_constrained`, drop the PNG,
+    /// merge the page into [`ScheduleCarryOver`]. Retained image memory is one
+    /// page, and the document-wide rendered-byte ceiling
+    /// ([`AI_IMPORT_MAX_RENDERED_TOTAL_BYTES`]) aborts the job as a validation
+    /// error instead of accumulating `K` images. Progress frames publish
+    /// `chunk = page_idx` / `chunks_total = page_count` (issue #664).
+    async fn extract_pdf_pages(
+        &self,
+        job: &AiImportJob,
+        worker_id: &str,
+        bytes: &[u8],
+        gate: &ProviderGate<'_, impl AiImportQueue + ?Sized>,
+        progress: &mut AiImportProgress,
+        // Issue #970 round 14 (CodeRabbit review, PR #967): the page loop
+        // awaits a render between two paid calls, so ownership must be
+        // re-checked before the request — a reclaimed job would otherwise be
+        // billed by a worker that no longer owns it.
+        heartbeat: Option<&LeaseHeartbeat>,
+    ) -> Result<(ShootingSchedule, Vec<LlmCallUsage>), CallFailure> {
+        let document = self
+            .extractor
+            .extract(bytes, breakdown_core::ai::ExtractionOptions::default())
+            .await
+            .map_err(CallFailure::from)?;
+        let page_count = u32::try_from(document.page_count()).unwrap_or(u32::MAX);
+        let max_rendered_total = max_rendered_total_bytes_from_env();
+        let render_dpi = breakdown_core::ai::DEFAULT_TARGET_DPI;
+        let mut carry_over = ScheduleCarryOver::default();
+        let mut rows: Vec<breakdown_core::ai::ShootingScheduleRow> = Vec::new();
+        let mut rendered_total = 0_usize;
+        // Issue #675: usage accumulates across EVERY paid page call, so the
+        // cost snapshot of an 8-page schedule covers all 8 pages exactly.
+        // Per request, not per page (issue #970, CodeRabbit review PR #967
+        // round 13): one page attempt may re-request its answer, and the #794
+        // energy cap applies to each request.
+        let mut page_calls: Vec<LlmCallUsage> = Vec::new();
+        // Issue #942 W1 follow-up, mirrored from the script chunk loop
+        // (CodeRabbit review, PR #967 round 8): trial ownership is a fact
+        // about the NEXT paid call. A successful page 1 closes the breaker and
+        // clears the token — without this re-read every later page of a trial
+        // would keep running with zero retries even though the trial is over.
+        // The budget stays fixed WITHIN one `retry_bounded` call.
+        let mut gate = ProviderGate {
+            trial: gate.trial,
+            ..*gate
+        };
+
+        for (index, page) in document.pages.iter().enumerate() {
+            let page_number = page.page_number;
+            if gate.trial {
+                let trial = trial_pending(
+                    self.queue.as_ref(),
+                    self.provider,
+                    &self.model,
+                    job.id,
+                    self.bounds.breaker_enabled,
+                )
+                .await;
+                gate = ProviderGate { trial, ..gate };
+            }
+            // Publish the page boundary BEFORE the billable call so a stalled
+            // page is visible in the progress stream (issue #664).
+            progress.stage = AiImportStage::Extracting;
+            progress.chunk = Some(u32::try_from(index + 1).unwrap_or(u32::MAX));
+            progress.chunks_total = Some(page_count);
+            if let Err(error) =
+                super::workers::publish_progress(&*self.queue, job.id, worker_id, progress).await
+            {
+                return Err(CallFailure::from(error));
+            }
+            let rendered = self
+                .extractor
+                .render_page(
+                    bytes,
+                    page_number,
+                    RenderOptions::new(render_dpi, DEFAULT_MAX_RENDER_BYTES),
+                )
+                .await
+                .map_err(CallFailure::from)?;
+            rendered_total = rendered_total.saturating_add(rendered.png_bytes.len());
+            // Issue #970 round 14: `render_page` awaited, so another worker may
+            // own the job by now — stop BEFORE the paid request instead of
+            // paying for a page the new owner is already extracting.
+            ensure_claim_holds(heartbeat, job.id, worker_id).map_err(CallFailure::from)?;
+            if rendered_total > max_rendered_total {
+                return Err(CallFailure::from(DomainError::validation(format!(
+                    "rendered schedule pages exceed the document-wide byte ceiling \
+                     ({rendered_total} > {max_rendered_total})"
+                ))));
+            }
+
+            let spatial_hint = render_schedule_page_spatial_hint(page);
+            let mut user_context =
+                render_schedule_carry_over_context(&carry_over, page_number, page_count);
+            if let Some(hint) = spatial_hint.as_deref() {
+                user_context.push_str("\n<spatial-text-hint>\n");
+                user_context.push_str(hint);
+                user_context.push_str("\n</spatial-text-hint>");
+            }
+            let vision_request = LlmVisionRequest {
+                provider: self.provider,
+                model: self.model.clone(),
+                prompt: self.prompt.clone(),
+                user_context,
+                page: LlmVisionPageInput {
+                    page_number,
+                    png_bytes: rendered.png_bytes,
+                    spatial_text_hint: None,
+                },
+                max_tokens: self.bounds.max_tokens_per_req,
+                response_schema: None,
+                reasoning_effort: resolved_reasoning_effort(
+                    self.provider,
+                    &self.model,
+                    self.reasoning_effort,
+                )
+                .map(|effort| effort.as_str().to_owned()),
+            };
+            let (extraction, call_calls) = match retry_schedule_page(
+                self.client.as_ref(),
+                vision_request,
+                self.bounds.max_attempt_retries as usize,
+                &gate,
+            )
+            .await
+            {
+                Ok(outcome) => outcome,
+                // Issue #970 (CodeRabbit review PR #967): the pages billed
+                // BEFORE this failure are already on the job row's ledger (the
+                // successful pages appended theirs below), so only the
+                // failure's own orphaned requests travel with it — the hold
+                // persists those and a re-drive resumes the accounting.
+                Err(failure) => return Err(failure),
+            };
+            // Issue #970 round 13: the page's paid requests go on the job row's
+            // ledger as soon as the call returned — a crash later in the
+            // document cannot lose them, and the next attempt seeds from them.
+            append_billed_calls_with_retry(
+                self.queue.as_ref(),
+                job.id,
+                worker_id,
+                &attributed(self.provider, &self.model, &call_calls),
+            )
+            .await
+            .map_err(CallFailure::from)?;
+            page_calls.extend(call_calls);
+            carry_over.apply_page(extraction, &mut rows);
+            // The RenderedPage is dropped here: the next iteration renders the
+            // next page into a fresh allocation.
+        }
+
+        // CodeRabbit review, PR #967: the legend is complete after the last
+        // page — resolve every row's raw cast codes against the final legend
+        // (rows from pages BEFORE the legend page included), dropping codes
+        // that remain unknown.
+        carry_over.finalize_cast_refs(&mut rows);
+        Ok((
+            ShootingSchedule {
+                block_id: None,
+                rows,
+                cast_legend: carry_over.cast_legend,
+            },
+            page_calls,
+        ))
     }
 
     fn start_heartbeat(&self, id: AiImportJobId, worker_id: &str) -> Option<LeaseHeartbeat> {
@@ -4949,6 +5386,120 @@ pub fn validate_chunk_count(chunk_count: usize, max_chunks: u32) -> Result<(), D
 /// `evidence` is the bounded failure that parked the job (issue #942 W2). It is
 /// persisted on the attempt history — one row per hold *series* — because a hold
 /// that carried only a problem code left the operator with nothing to grep.
+/// The already-billed usage an error carries (issue #970): a breaker
+/// sentinel's orphaned usage, or a provider failure's billed-responses
+/// payload. `None` for any other error.
+fn orphaned_usage(error: &AnyhowError) -> Option<Vec<LlmCallUsage>> {
+    let domain = error.downcast_ref::<DomainError>()?;
+    let mut calls = super::provider_health::orphaned_usage(domain).unwrap_or_default();
+    if let Some(billed) = domain.billed_usage() {
+        calls.extend_from_slice(billed);
+    }
+    calls.retain(|call| *call != LlmCallUsage::default());
+    (!calls.is_empty()).then_some(calls)
+}
+
+/// Attribute this attempt's billed requests to the pair that billed them
+/// (issue #970, CodeRabbit review PR #967 round 14).
+fn attributed(provider: LlmProvider, model: &str, calls: &[LlmCallUsage]) -> Vec<BilledCall> {
+    calls
+        .iter()
+        .map(|usage| BilledCall {
+            provider,
+            model: model.to_owned(),
+            usage: *usage,
+        })
+        .collect()
+}
+
+/// Append billed requests with a bounded retry and ONE stable key (issue #970,
+/// CodeRabbit review PR #967 round 14).
+///
+/// A transient database error must not lose a paid request: the ledger is the
+/// only record of it, and the next attempt cannot recover what was never
+/// written. The key is created once and reused on every retry, so a commit whose
+/// acknowledgement was lost cannot add the same requests twice (the storage-side
+/// guard keys on it).
+async fn append_billed_calls_with_retry<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    id: AiImportJobId,
+    worker_id: &str,
+    calls: &[BilledCall],
+) -> Result<(), DomainError> {
+    if calls.is_empty() {
+        return Ok(());
+    }
+    let key = Uuid::now_v7();
+    let mut last_error = None;
+    for attempt in 0..=2 {
+        match queue.append_billed_calls(id, worker_id, calls, key).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                tracing::warn!(
+                    job_id = %id.as_uuid(),
+                    attempt,
+                    "billed-call ledger append failed; retrying with the same idempotency key"
+                );
+                last_error = Some(error);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        DomainError::service_unavailable("billed-call ledger append failed (test sentinel)")
+    }))
+}
+
+/// Append an attempt's orphaned billed requests to the running job row's
+/// ledger before a hold (issue #970, CodeRabbit review PR #967).
+///
+/// The entries are **per request** (CodeRabbit review, PR #967 round 13): the
+/// job row's ledger is what the next attempt seeds from, and the #794 energy
+/// cap is applied per request, so an aggregate entry would overstate the energy
+/// the provider capped. Best-effort by contract: a failed write is logged and
+/// the hold proceeds — losing the accounting note must never block the hold
+/// that protects the provider — but the result is never silently discarded.
+async fn record_attempt_usage<Q: AiImportQueue + ?Sized>(
+    queue: &Q,
+    id: AiImportJobId,
+    worker_id: &str,
+    provider: LlmProvider,
+    model: &str,
+    calls: Option<Vec<LlmCallUsage>>,
+) {
+    let Some(calls) = calls else {
+        return;
+    };
+    // A response that reported no usage metadata contributes nothing to the
+    // accounting, and appending an all-zero entry would only grow the ledger.
+    let calls: Vec<LlmCallUsage> = calls
+        .into_iter()
+        .filter(|call| *call != LlmCallUsage::default())
+        .collect();
+    if calls.is_empty() {
+        return;
+    }
+    // Bounded retry (issue #970, CodeRabbit review PR #967 round 11): a
+    // transient write failure must not silently lose the accounting note.
+    // After the bound the warning is the honest last resort — the hold (or
+    // terminal failure) proceeds, because blocking it cannot recover the
+    // write either.
+    // One idempotency key per hold/failure, reused verbatim across write
+    // retries (issue #970, CodeRabbit review PR #967 round 12): a lost
+    // acknowledgement after commit cannot double-add the additive counters —
+    // the storage-side guard keys on it.
+    if let Err(error) =
+        append_billed_calls_with_retry(queue, id, worker_id, &attributed(provider, model, &calls))
+            .await
+    {
+        tracing::warn!(
+            job_id = %id.as_uuid(),
+            %error,
+            "could not persist the attempt's orphaned billed requests after retries; \
+             the re-drive restarts the accounting without them"
+        );
+    }
+}
+
 pub(super) async fn hold_job<Q: AiImportQueue + ?Sized>(
     queue: &Q,
     bounds: &AiImportBounds,
@@ -5188,8 +5739,17 @@ struct CallFailure {
     error: DomainError,
     /// The bounded narrative of the failure that fired, when there was one.
     /// `None` when no paid call was started at all (the breaker was already
-    /// open), where `mark_held` synthesizes its own reason.
-    evidence: Option<HoldEvidence>,
+    /// open), where `mark_held` synthesizes its own reason. Boxed: the `Err`
+    /// variant must stay below the `result_large_err` threshold.
+    evidence: Option<Box<HoldEvidence>>,
+    /// The paid requests COMPLETED before the failure (issue #970, CodeRabbit
+    /// review PR #967), one entry per request: a hold must persist them, so a
+    /// re-drive resumes the accounting instead of losing them, and the #794
+    /// energy cap stays per request. `None` when the failure carries no
+    /// completed-call usage. A boxed SLICE (not `Box<Vec<_>>`, clippy
+    /// `box_collection`): 16 bytes, so the `Err` variant stays below the
+    /// `result_large_err` threshold.
+    usage: Option<Vec<LlmCallUsage>>,
 }
 
 impl From<DomainError> for CallFailure {
@@ -5197,6 +5757,7 @@ impl From<DomainError> for CallFailure {
         Self {
             error,
             evidence: None,
+            usage: None,
         }
     }
 }
@@ -5239,6 +5800,13 @@ async fn retry_bounded<F, Fut, T>(
     mut op: F,
     max_retries: usize,
     gate: &ProviderGate<'_, impl AiImportQueue + ?Sized>,
+    // Issue #970 (CodeRabbit review PR #967 round 9): the caller-owned sink
+    // for the requests billed by FAILED attempts. The successful attempt's
+    // ledger travels in `Ok`; the failed attempts' requests would otherwise be
+    // dropped exactly when a later attempt succeeds — so the caller merges the
+    // sink into the outcome's ledger. Per request, never one running total
+    // (round 13): the #794 energy cap is applied per request.
+    billed: &mut Vec<LlmCallUsage>,
 ) -> Result<T, CallFailure>
 where
     F: FnMut() -> Fut,
@@ -5251,12 +5819,18 @@ where
     // Issue #942 W2: the last REAL failure, captured before any breaker refusal
     // replaces it with the sentinel. Diagnostic only — it never changes which
     // retry the loop grants.
-    let mut evidence: Option<HoldEvidence> = None;
+    let mut evidence: Option<Box<HoldEvidence>> = None;
+    // Issue #970 (CodeRabbit review PR #967): the requests billed by the
+    // attempts' COMPLETED responses, collected across iterations into the
+    // caller's sink — every sentinel this loop returns carries them, so a hold
+    // persists them and a re-drive resumes the accounting.
+    let carried_usage = &mut *billed;
     loop {
         if !gate.admits().await {
             return Err(CallFailure {
                 error: breaker_open_error(),
                 evidence: evidence.take(),
+                usage: Some(carried_usage.clone()),
             });
         }
         match op().await {
@@ -5287,7 +5861,10 @@ where
                 // Issue #942 W2: remember WHY this call failed *before* any
                 // sentinel can replace it. This is the only place the real
                 // failure is visible — the hold that may follow is built from it.
-                evidence = Some(hold_evidence(&error));
+                evidence = Some(Box::new(hold_evidence(&error)));
+                if let Some(calls) = orphaned_usage(&error) {
+                    carried_usage.extend(calls);
+                }
                 if is_provider_failure(&error)
                     && is_transient(&error)
                     && gate.record_failure(retry_hint_of(&error)).await
@@ -5298,6 +5875,9 @@ where
                     return Err(CallFailure {
                         error: breaker_open_error(),
                         evidence: evidence.take(),
+                        // Issue #970: this failure's own billed requests ride
+                        // the sentinel the hold persists.
+                        usage: Some(carried_usage.clone()),
                     });
                 }
                 if !is_transient(&error) || attempt >= max_retries {
@@ -5308,6 +5888,11 @@ where
                             .downcast::<DomainError>()
                             .unwrap_or_else(|other| DomainError::validation(other.to_string())),
                         evidence: None,
+                        // Issue #970: a breaker sentinel from the client's
+                        // mid-attempt refusal carries the attempt's
+                        // already-billed responses — and any earlier
+                        // iteration's billed requests ride along.
+                        usage: Some(carried_usage.clone()),
                     });
                 }
                 attempt += 1;
@@ -5318,6 +5903,9 @@ where
                     return Err(CallFailure {
                         error: breaker_open_error(),
                         evidence: evidence.take(),
+                        // Issue #970: prior iterations' billed requests ride
+                        // the sentinel the hold persists.
+                        usage: Some(carried_usage.clone()),
                     });
                 }
                 // `attempt` is the 1-based retry counter, as it was for the
@@ -5351,14 +5939,17 @@ async fn retry_chat<C, Q>(
     request: LlmChatRequest,
     max_retries: usize,
     gate: &ProviderGate<'_, Q>,
-) -> Result<(ScriptContext, LlmCallUsage), CallFailure>
+) -> Result<(ScriptContext, Vec<LlmCallUsage>), CallFailure>
 where
     C: LlmClient + ?Sized,
     Q: AiImportQueue + ?Sized,
 {
     // Issue #942 W2: the failure and its evidence travel together, so the chunk
     // loop can hold the job WITH the reason the provider refused.
-    retry_bounded(
+    // Issue #970 (CodeRabbit review PR #967 round 9): failed attempts' billed
+    // usage rides the sink and merges into the successful attempt's outcome.
+    let mut billed: Vec<LlmCallUsage> = Vec::new();
+    let outcome = retry_bounded(
         || async {
             client
                 .chat_constrained(request.clone())
@@ -5367,9 +5958,13 @@ where
         },
         max_retries,
         gate,
+        &mut billed,
     )
-    .await
-    .map(|value| (value.output, value.usage))
+    .await?;
+    // Failed attempts first, then the successful attempt's own requests, in
+    // billing order — one ledger entry per paid request.
+    billed.extend_from_slice(outcome.calls());
+    Ok((outcome.output, billed))
 }
 
 async fn retry_schedule<C, Q>(
@@ -5377,12 +5972,14 @@ async fn retry_schedule<C, Q>(
     request: LlmChatRequest,
     max_retries: usize,
     gate: &ProviderGate<'_, Q>,
-) -> Result<(ShootingSchedule, LlmCallUsage), CallFailure>
+) -> Result<(ShootingSchedule, Vec<LlmCallUsage>), CallFailure>
 where
     C: LlmClient + ?Sized,
     Q: AiImportQueue + ?Sized,
 {
-    retry_bounded(
+    // Issue #970 (CodeRabbit review PR #967 round 9): see `retry_chat`.
+    let mut billed: Vec<LlmCallUsage> = Vec::new();
+    let outcome = retry_bounded(
         || async {
             client
                 .extract_schedule(request.clone())
@@ -5391,9 +5988,51 @@ where
         },
         max_retries,
         gate,
+        &mut billed,
     )
-    .await
-    .map(|value| (value.output, value.usage))
+    .await?;
+    billed.extend_from_slice(outcome.calls());
+    Ok((outcome.output, billed))
+}
+
+/// One multimodal schedule-page call with the bounded in-attempt retry
+/// budget (issue #960). Mirrors [`retry_schedule`] for the vision seam.
+async fn retry_schedule_page<C, Q>(
+    client: &C,
+    request: LlmVisionRequest,
+    max_retries: usize,
+    gate: &ProviderGate<'_, Q>,
+) -> Result<
+    (
+        breakdown_core::ai::SchedulePageExtraction,
+        Vec<LlmCallUsage>,
+    ),
+    CallFailure,
+>
+where
+    C: LlmClient + ?Sized,
+    Q: AiImportQueue + ?Sized,
+{
+    // The request is borrowed through the retry closure (CodeRabbit review,
+    // PR #967): every attempt re-uses the SAME `LlmVisionRequest`, so the page
+    // PNG is never duplicated per retry — the single-page allocation bound of
+    // issue #960 holds with zero clones and no `Arc`.
+    // Issue #970 (CodeRabbit review PR #967 round 9): see `retry_chat`.
+    let mut billed: Vec<LlmCallUsage> = Vec::new();
+    let outcome = retry_bounded(
+        || async {
+            client
+                .chat_vision_constrained(&request)
+                .await
+                .map_err(AnyhowError::new)
+        },
+        max_retries,
+        gate,
+        &mut billed,
+    )
+    .await?;
+    billed.extend_from_slice(outcome.calls());
+    Ok((outcome.output, billed))
 }
 
 /// Heartbeat cadence of one apply run's progress payload (issue #800 #3).

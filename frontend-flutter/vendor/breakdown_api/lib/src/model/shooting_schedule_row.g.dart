@@ -8,6 +8,8 @@ part of 'shooting_schedule_row.dart';
 
 class _$ShootingScheduleRow extends ShootingScheduleRow {
   @override
+  final BuiltList<ScheduleCastMember>? castRefs;
+  @override
   final Date? date;
   @override
   final int? episodeNumber;
@@ -23,20 +25,24 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
   final String? shootingDayLabel;
   @override
   final double? shootingDayScore;
+  @override
+  final String? shotSuffix;
 
   factory _$ShootingScheduleRow(
           [void Function(ShootingScheduleRowBuilder)? updates]) =>
       (ShootingScheduleRowBuilder()..update(updates))._build();
 
   _$ShootingScheduleRow._(
-      {this.date,
+      {this.castRefs,
+      this.date,
       this.episodeNumber,
       this.location,
       this.order,
       required this.rowRef,
       this.sceneNumber,
       this.shootingDayLabel,
-      this.shootingDayScore})
+      this.shootingDayScore,
+      this.shotSuffix})
       : super._();
   @override
   ShootingScheduleRow rebuild(
@@ -51,6 +57,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is ShootingScheduleRow &&
+        castRefs == other.castRefs &&
         date == other.date &&
         episodeNumber == other.episodeNumber &&
         location == other.location &&
@@ -58,12 +65,14 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
         rowRef == other.rowRef &&
         sceneNumber == other.sceneNumber &&
         shootingDayLabel == other.shootingDayLabel &&
-        shootingDayScore == other.shootingDayScore;
+        shootingDayScore == other.shootingDayScore &&
+        shotSuffix == other.shotSuffix;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, castRefs.hashCode);
     _$hash = $jc(_$hash, date.hashCode);
     _$hash = $jc(_$hash, episodeNumber.hashCode);
     _$hash = $jc(_$hash, location.hashCode);
@@ -72,6 +81,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
     _$hash = $jc(_$hash, sceneNumber.hashCode);
     _$hash = $jc(_$hash, shootingDayLabel.hashCode);
     _$hash = $jc(_$hash, shootingDayScore.hashCode);
+    _$hash = $jc(_$hash, shotSuffix.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -79,6 +89,7 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ShootingScheduleRow')
+          ..add('castRefs', castRefs)
           ..add('date', date)
           ..add('episodeNumber', episodeNumber)
           ..add('location', location)
@@ -86,7 +97,8 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
           ..add('rowRef', rowRef)
           ..add('sceneNumber', sceneNumber)
           ..add('shootingDayLabel', shootingDayLabel)
-          ..add('shootingDayScore', shootingDayScore))
+          ..add('shootingDayScore', shootingDayScore)
+          ..add('shotSuffix', shotSuffix))
         .toString();
   }
 }
@@ -94,6 +106,12 @@ class _$ShootingScheduleRow extends ShootingScheduleRow {
 class ShootingScheduleRowBuilder
     implements Builder<ShootingScheduleRow, ShootingScheduleRowBuilder> {
   _$ShootingScheduleRow? _$v;
+
+  ListBuilder<ScheduleCastMember>? _castRefs;
+  ListBuilder<ScheduleCastMember> get castRefs =>
+      _$this._castRefs ??= ListBuilder<ScheduleCastMember>();
+  set castRefs(ListBuilder<ScheduleCastMember>? castRefs) =>
+      _$this._castRefs = castRefs;
 
   Date? _date;
   Date? get date => _$this._date;
@@ -130,6 +148,10 @@ class ShootingScheduleRowBuilder
   set shootingDayScore(double? shootingDayScore) =>
       _$this._shootingDayScore = shootingDayScore;
 
+  String? _shotSuffix;
+  String? get shotSuffix => _$this._shotSuffix;
+  set shotSuffix(String? shotSuffix) => _$this._shotSuffix = shotSuffix;
+
   ShootingScheduleRowBuilder() {
     ShootingScheduleRow._defaults(this);
   }
@@ -137,6 +159,7 @@ class ShootingScheduleRowBuilder
   ShootingScheduleRowBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _castRefs = $v.castRefs?.toBuilder();
       _date = $v.date;
       _episodeNumber = $v.episodeNumber;
       _location = $v.location;
@@ -145,6 +168,7 @@ class ShootingScheduleRowBuilder
       _sceneNumber = $v.sceneNumber;
       _shootingDayLabel = $v.shootingDayLabel;
       _shootingDayScore = $v.shootingDayScore;
+      _shotSuffix = $v.shotSuffix;
       _$v = null;
     }
     return this;
@@ -164,18 +188,33 @@ class ShootingScheduleRowBuilder
   ShootingScheduleRow build() => _build();
 
   _$ShootingScheduleRow _build() {
-    final _$result = _$v ??
-        _$ShootingScheduleRow._(
-          date: date,
-          episodeNumber: episodeNumber,
-          location: location,
-          order: order,
-          rowRef: BuiltValueNullFieldError.checkNotNull(
-              rowRef, r'ShootingScheduleRow', 'rowRef'),
-          sceneNumber: sceneNumber,
-          shootingDayLabel: shootingDayLabel,
-          shootingDayScore: shootingDayScore,
-        );
+    _$ShootingScheduleRow _$result;
+    try {
+      _$result = _$v ??
+          _$ShootingScheduleRow._(
+            castRefs: _castRefs?.build(),
+            date: date,
+            episodeNumber: episodeNumber,
+            location: location,
+            order: order,
+            rowRef: BuiltValueNullFieldError.checkNotNull(
+                rowRef, r'ShootingScheduleRow', 'rowRef'),
+            sceneNumber: sceneNumber,
+            shootingDayLabel: shootingDayLabel,
+            shootingDayScore: shootingDayScore,
+            shotSuffix: shotSuffix,
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'castRefs';
+        _castRefs?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'ShootingScheduleRow', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

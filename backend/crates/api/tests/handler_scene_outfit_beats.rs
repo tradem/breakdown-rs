@@ -129,6 +129,7 @@ async fn add_scene_outfit_beat_character_not_in_scene_is_422_registered_code() {
         .fail_next_beat(DomainError::Validation {
             code: &SCENE_CHARACTER_NOT_IN_SCENE,
             reason: format!("character {stranger} is not assigned to this scene"),
+            usage: None,
         })
         .await;
     let state = AppState::new(ports);

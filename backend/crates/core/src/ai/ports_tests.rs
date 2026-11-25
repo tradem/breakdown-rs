@@ -4,6 +4,7 @@
 // Co-authored-by: mimo-v2.5 (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use uuid::Uuid;
 
@@ -668,5 +669,35 @@ mod owner_silence {
             owner_claimed_at: Some(now + SignedDuration::from_mins(3)),
         };
         assert_eq!(state.owner_silence_at(now), Some(SignedDuration::ZERO));
+    }
+}
+
+// ===========================================================================
+// Issue #960 — VisionEgressPolicy pre-egress provider policy gate (ADR-041 D2)
+// ===========================================================================
+
+#[test]
+fn vision_egress_policy_is_fail_closed_for_non_eu_or_undeclared_providers() {
+    use super::{VisionEgressPolicy, vision_egress_compliant, vision_egress_policy};
+
+    assert!(!vision_egress_compliant(VisionEgressPolicy::default()));
+    assert!(vision_egress_compliant(vision_egress_policy(
+        LlmProvider::EURouter
+    )));
+    assert!(vision_egress_compliant(vision_egress_policy(
+        LlmProvider::Ollama
+    )));
+    for non_compliant in [
+        LlmProvider::OpenAI,
+        LlmProvider::Gemini,
+        LlmProvider::OpenRouter,
+        LlmProvider::Neuralwatt,
+        LlmProvider::OpenCodeGo,
+        LlmProvider::OpenCode,
+    ] {
+        assert!(
+            !vision_egress_compliant(vision_egress_policy(non_compliant)),
+            "{non_compliant:?} must not pass the vision egress gate without ZDR + no-training + EU residency"
+        );
     }
 }

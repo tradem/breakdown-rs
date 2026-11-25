@@ -7,6 +7,7 @@
 // Co-authored-by: deepseek-v4-flash (opencode-go)
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -27,7 +28,7 @@ use super::apply_run::{ApplyRunRequest, ClaimedApplyRun};
 
 use super::document::{ExtractionOptions, RenderOptions, RenderedPage, StructuredDocument};
 
-use super::preview::{ScriptContext, ShootingSchedule};
+use super::preview::{SchedulePageExtraction, ScriptContext, ShootingSchedule};
 
 use super::provider_health::{BreakerCounters, BreakerDecision, ProviderOutcome};
 
@@ -102,6 +103,59 @@ pub const CURATED_PROVIDERS: [LlmProvider; 8] = [
     LlmProvider::OpenCode,
     LlmProvider::Ollama,
 ];
+
+/// Pre-egress data-protection declarations required before any screenplay or
+/// shooting-schedule page image is serialized to an external OpenAI-compatible
+/// vision endpoint (ADR-041 `D2`, issue #960).
+///
+/// Unpublished screenplays and schedules are confidential production IP subject
+/// to NDAs and GDPR. Every provider starts undeclared (fail-closed) until all
+/// three guarantees are explicitly asserted here; local [`LlmProvider::Ollama`]
+/// performs zero external egress.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VisionEgressPolicy {
+    pub zero_data_retention: bool,
+    pub no_training_on_inputs: bool,
+    pub eu_data_residency: bool,
+}
+
+/// Look up the declared [`VisionEgressPolicy`] for `provider` (ADR-041 `D2`).
+///
+/// Fail-closed by construction: any provider without an explicit three-way
+/// declaration returns `false` on at least one guarantee and is rejected before
+/// any image part is serialized.
+#[must_use]
+pub const fn vision_egress_policy(provider: LlmProvider) -> VisionEgressPolicy {
+    match provider {
+        LlmProvider::EURouter => VisionEgressPolicy {
+            zero_data_retention: true,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        },
+        LlmProvider::Ollama => VisionEgressPolicy {
+            zero_data_retention: true,
+            no_training_on_inputs: true,
+            eu_data_residency: true,
+        },
+        LlmProvider::OpenAI
+        | LlmProvider::Gemini
+        | LlmProvider::OpenRouter
+        | LlmProvider::Neuralwatt
+        | LlmProvider::OpenCodeGo
+        | LlmProvider::OpenCode => VisionEgressPolicy {
+            zero_data_retention: false,
+            no_training_on_inputs: false,
+            eu_data_residency: false,
+        },
+    }
+}
+
+/// Whether `policy` satisfies all three ADR-041 `D2` requirements for
+/// multimodal page-image egress.
+#[must_use]
+pub const fn vision_egress_compliant(policy: VisionEgressPolicy) -> bool {
+    policy.zero_data_retention && policy.no_training_on_inputs && policy.eu_data_residency
+}
 
 /// Infra supplies the hardcoded URL for a curated provider.
 pub trait CuratedLlmProvider: Send + Sync {
@@ -241,6 +295,48 @@ impl LlmCallUsage {
             .energy_millijoules
             .saturating_add(other.energy_millijoules);
     }
+
+    /// The element-wise sum of a **per-request ledger** (issues #794, #970).
+    ///
+    /// This is the only honest way to collapse a ledger: the summed counters
+    /// lose the request boundaries the energy cap is applied to, so every
+    /// caller that persists or prices usage keeps the ledger and derives the
+    /// totals from it here.
+    #[must_use]
+    pub fn total(calls: &[Self]) -> Self {
+        let mut total = Self::default();
+        for call in calls {
+            total.accumulate(*call);
+        }
+        total
+    }
+}
+
+/// One paid provider request on a job's billed-call ledger (issue #970,
+/// CodeRabbit review PR #967 round 14).
+///
+/// The `(provider, model)` attribution travels **with** the request, not beside
+/// the job: the pair a worker calls comes from configuration, so a re-drive can
+/// run under a different pair than the attempt that paid for it (a changed
+/// `AI_IMPORT` model, a different `AI_DOCUMENT_PARSER` path). The completion-time
+/// cost snapshot must therefore price every persisted request with the rate card
+/// that actually billed it, and the #794 energy cap stays per request *within*
+/// each pair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilledCall {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub usage: LlmCallUsage,
+}
+
+impl BilledCall {
+    /// The usages of a ledger, in billing order — what a re-drive seeds its
+    /// accumulator from (the attribution stays on the ledger and is used by the
+    /// cost snapshot).
+    #[must_use]
+    pub fn usages(calls: &[Self]) -> Vec<LlmCallUsage> {
+        calls.iter().map(|call| call.usage).collect()
+    }
 }
 
 /// One cost component's accumulated usage **plus** how many billable calls
@@ -282,6 +378,14 @@ impl UsageAccumulator {
         self.per_call.push(usage);
     }
 
+    /// Record every request of a per-request ledger, in order (issues #794,
+    /// #970) — one entry per billed request, never one aggregate entry.
+    pub fn record_all(&mut self, calls: &[LlmCallUsage]) {
+        for call in calls {
+            self.record(*call);
+        }
+    }
+
     /// The requests this component's cost is priced over (issue #794).
     ///
     /// Normally the retained per-call ledger. An accumulator whose counters were
@@ -299,15 +403,45 @@ impl UsageAccumulator {
 }
 
 /// The parsed output of one LLM call plus its usage telemetry (design D3).
+///
+/// `usage` is the **per-request ledger** of the paid responses this outcome
+/// consumed (issue #970, CodeRabbit review PR #967): one adapter call may
+/// re-request an answer inside one attempt (truncation/empty-completion
+/// retries, issue #925), and the provider bills every one of those requests.
+/// Keeping them as separate entries is what lets the energy cap stay
+/// per-request (issue #794) — an `LlmCallUsage` aggregate would only bound it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmCallOutcome<T> {
     pub output: T,
-    pub usage: LlmCallUsage,
+    ledger: Vec<LlmCallUsage>,
 }
 
 impl<T> LlmCallOutcome<T> {
+    /// A single-request outcome — the shape of every adapter that issues
+    /// exactly one paid request.
     pub fn new(output: T, usage: LlmCallUsage) -> Self {
-        Self { output, usage }
+        Self {
+            output,
+            ledger: vec![usage],
+        }
+    }
+
+    /// An outcome built from the per-request ledger of the attempt's
+    /// (re-)requests, in billing order.
+    pub fn from_calls(output: T, ledger: Vec<LlmCallUsage>) -> Self {
+        Self { output, ledger }
+    }
+
+    /// The requests this outcome was billed for, in call order.
+    #[must_use]
+    pub fn calls(&self) -> &[LlmCallUsage] {
+        &self.ledger
+    }
+
+    /// The summed counters of the ledger.
+    #[must_use]
+    pub fn usage(&self) -> LlmCallUsage {
+        LlmCallUsage::total(&self.ledger)
     }
 }
 
@@ -372,6 +506,32 @@ pub trait DocumentStructureExtractor: Send + Sync {
     ) -> impl std::future::Future<Output = Result<RenderedPage, DomainError>> + Send;
 }
 
+/// One rendered page image plus an optional spatial text hint from the digital
+/// PDF layer for a multimodal vision call (ADR-041 `D2`/`D5`, issue #960).
+///
+/// `png_bytes` is owned and consumed by value per page iteration — never
+/// wrapped in `Arc` and never retained across pages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmVisionPageInput {
+    pub page_number: u32,
+    pub png_bytes: Vec<u8>,
+    pub spatial_text_hint: Option<String>,
+}
+
+/// Multimodal vision extraction request for one shooting-schedule page
+/// (ADR-041 `D2`/`D5`, issue #960).
+#[derive(Debug, Clone)]
+pub struct LlmVisionRequest {
+    pub provider: LlmProvider,
+    pub model: String,
+    pub prompt: String,
+    pub user_context: String,
+    pub page: LlmVisionPageInput,
+    pub max_tokens: u32,
+    pub response_schema: Option<serde_json::Value>,
+    pub reasoning_effort: Option<String>,
+}
+
 #[async_trait]
 pub trait LlmClient: Send + Sync {
     async fn chat_constrained(
@@ -387,6 +547,27 @@ pub trait LlmClient: Send + Sync {
         Err(DomainError::validation(
             "schedule extraction is not supported by this client",
         ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        // Borrowed, NOT owned (CodeRabbit review, PR #967): the retry wrapper
+        // around this port re-uses the SAME `LlmVisionRequest` across attempts,
+        // so an 8 MiB page PNG is never duplicated per retry. Implementations
+        // that need ownership clone internally.
+        req: &LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
+        let _ = req;
+        Err(DomainError::validation(
+            "multimodal vision schedule extraction is not supported by this client",
+        ))
+    }
+
+    async fn extract_schedule_page(
+        &self,
+        req: &LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
+        self.chat_vision_constrained(req).await
     }
 }
 
@@ -562,6 +743,52 @@ pub trait AiImportQueue: Send + Sync {
     /// The default implementation is a no-op: in-memory queues have no lease,
     /// so an unreleased claim cannot block a later one.
     async fn release_claim(&self, _id: AiImportJobId, _worker_id: &str) -> Result<(), DomainError> {
+        Ok(())
+    }
+
+    /// The **per-request billed-call ledger** this job row already carries
+    /// (issue #970, CodeRabbit review PR #967): one entry per paid provider
+    /// request of EVERY earlier attempt of the job, in billing order.
+    ///
+    /// This — not the completion-time telemetry counters — is what a re-drive
+    /// seeds its accumulator from. Two reasons, both CodeRabbit findings on PR
+    /// #967 that the summed counters could not satisfy:
+    ///
+    /// * the energy cap of issue #794 is per **request**, and
+    ///   `Σ min(raw_i, token_i) < min(Σ raw, Σ token)`: seeding one aggregate
+    ///   entry overstates the billed energy of every prior request;
+    /// * the completion-time write (`record_worker_telemetry`) already covers
+    ///   the whole job, so seeding the same numbers again on top of the
+    ///   stored-chunk replay double-counts a crashed attempt.
+    ///
+    /// Empty for a first attempt and for queues that do not track usage.
+    async fn recorded_billed_calls(
+        &self,
+        _id: AiImportJobId,
+    ) -> Result<Vec<BilledCall>, DomainError> {
+        Ok(Vec::new())
+    }
+
+    /// Append billed requests to the RUNNING job row's ledger.
+    ///
+    /// Two callers, one storage shape: the worker appends each paid request as
+    /// soon as it was billed (so a crash cannot lose it), and the hold/failure
+    /// path appends the usage an error carried (a provider answer that was
+    /// billed but whose output was discarded). Neither ever rewrites an entry
+    /// — the ledger is append-only, which is what makes it safe to seed from
+    /// on the next attempt. Queues without usage persistence treat this as a
+    /// no-op.
+    async fn append_billed_calls(
+        &self,
+        _id: AiImportJobId,
+        _worker_id: &str,
+        _calls: &[BilledCall],
+        // Idempotency key (issue #970, CodeRabbit review PR #967 round 12):
+        // ONE key per append site, reused verbatim across write retries, so a
+        // lost acknowledgement after commit can never add the same calls a
+        // second time.
+        _key: Uuid,
+    ) -> Result<(), DomainError> {
         Ok(())
     }
 
@@ -1244,6 +1471,7 @@ pub trait AiImportQueue: Send + Sync {
             code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
             reason: "seed_succeeded is not implemented by this AI import queue adapter".to_owned(),
             retry_after: None,
+            usage: None,
         })
     }
 
@@ -1364,6 +1592,7 @@ pub trait AiImportQueue: Send + Sync {
             code: &crate::error_registry::DOMAIN_SERVICE_UNAVAILABLE,
             reason: "this AI import queue adapter cannot attach a target block".to_owned(),
             retry_after: None,
+            usage: None,
         })
     }
 }

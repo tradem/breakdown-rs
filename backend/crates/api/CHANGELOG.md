@@ -9,6 +9,7 @@
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
+<!-- Co-authored-by: gemini-4-argon (opencode-go) -->
 
 # Changelog
 
@@ -16,6 +17,15 @@ All notable changes to the `api` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.72.0] - Unreleased
+### Changed (issue #960)
+
+- `ShootingSchedule` / `ShootingScheduleRow` gained strictly additive optional
+  schema fields (`cast_legend`, `shot_suffix`, `cast_refs`; new
+  `ScheduleLegendEntry` / `ScheduleCastMember` / `ScheduleRoleModifier`
+  schemas). The wire change is additive; the regenerated Dart client
+  (`breakdown_api` 1.10.0) is committed with it.
 
 ## [0.71.3] - Unreleased
 ### Changed (issue #961)

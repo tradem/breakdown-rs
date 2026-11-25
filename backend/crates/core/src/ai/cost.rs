@@ -504,6 +504,84 @@ pub fn cost_breakdown(
     }
 }
 
+/// One `(provider, model)` group of extraction requests plus that pair's
+/// pricing row (issue #970, CodeRabbit review PR #967 round 14).
+///
+/// A job's billed-call ledger can span more than one pair: the pair a worker
+/// calls comes from configuration, so a re-drive may run under a different one
+/// than the attempt that paid for the request. Pricing the merged counters with
+/// the *current* rate card would then misprice every earlier request.
+pub struct ExtractionGroup<'a> {
+    /// The pair's `ai_model_pricing` row; `None` when the pair is unpriced.
+    pub pricing: Option<&'a ModelPricing>,
+    /// The requests that pair billed, one entry per request.
+    pub calls: &'a [LlmCallUsage],
+}
+
+/// Price the extraction component over one or more `(provider, model)` groups.
+///
+/// * one group — exactly [`cost_breakdown`], so every single-pair job keeps its
+///   byte-identical snapshot (rates included);
+/// * several groups — each group is priced with **its own** rate card and the
+///   per-request energy caps stay inside the group (`Σ_groups Σ_calls
+///   min(raw_i, token_i)`). The summed figure is the component total and the
+///   detail blocks are withheld: the rate fields describe *one* rate card, so
+///   presenting them for a mixed job would misstate the billing. A group without
+///   pricing (or a currency disagreement) makes the whole component unpriced —
+///   never a partial sum presented as its figure (design D2, issue #768).
+#[must_use]
+pub fn cost_breakdown_grouped(
+    groups: &[ExtractionGroup<'_>],
+    decision: Option<DecisionCostBreakdown>,
+) -> CostBreakdown {
+    match groups {
+        [] => cost_breakdown(&[], None, decision),
+        [only] => cost_breakdown(only.calls, only.pricing, decision),
+        many => {
+            let mut currency: Option<Currency> = None;
+            let mut total_nano: i128 = 0;
+            for group in many {
+                let priced = cost_breakdown(group.calls, group.pricing, None);
+                if priced.status != CostStatus::Known {
+                    // One unpriced group: the component's figure is unknown.
+                    return cost_breakdown_unpriced(decision);
+                }
+                match (currency, priced.currency) {
+                    (None, Some(group_currency)) => currency = Some(group_currency),
+                    // Design D2: no conversion, so a mixed set has no figure.
+                    (Some(known), Some(group_currency)) if known != group_currency => {
+                        return cost_breakdown_unpriced(decision);
+                    }
+                    (_, None) => return cost_breakdown_unpriced(decision),
+                    _ => {}
+                }
+                total_nano += i128::from(priced.total.total_nano.unwrap_or(0));
+            }
+            let Some(currency) = currency else {
+                return cost_breakdown_unpriced(decision);
+            };
+            let figure = ComponentFigure {
+                currency,
+                total_nano: total_nano.clamp(0, i64::MAX as i128) as i64,
+            };
+            let total = fold_total(Some((CostStatus::Known, Some(figure))), decision.as_ref());
+            CostBreakdown {
+                status: CostStatus::Known,
+                currency: Some(currency),
+                // Withheld: one timestamp/source/rate set cannot describe
+                // several rate cards.
+                price_as_of: None,
+                pricing_source: None,
+                token_cost: None,
+                energy_cost: None,
+                image_cost: None,
+                decision,
+                total,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "cost_tests.rs"]
 mod cost_tests;

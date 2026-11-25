@@ -213,6 +213,56 @@ is borrowed by every chunk.
   `continuity_state` decision payload. A model split of one chunk gives every
   resulting preview row the same bracket.
 
+#### Page-streaming multimodal schedule extraction (ADR-041 `D2`/`D5`, issue #960)
+
+A spatial PDF schedule is not one text blob: 8+ iText pages of borderless
+multi-row grids, a two-column `"ROLLEN"` legend on page 1, full-width
+shooting-day banners, `"Drehfrei"` rest days, and pick-up suffixes
+(`"300.37N"`). `ScheduleImportWorker::process` therefore streams PDFs
+PAGE BY PAGE (`extract_pdf_pages`):
+
+- **Vision seam:** `LlmClient::chat_vision_constrained` /
+  `extract_schedule_page` (core `ports`). The hosted transport's
+  pre-egress gate (`vision_egress_compliant(vision_egress_policy(provider))`,
+  ADR-041 `D2`) runs BEFORE any base64 encoding or HTTP call — fail-closed for
+  every provider that has not declared ZDR + no-training + EU residency; only
+  `EURouter` is declared, local `Ollama` needs no gate (zero external egress)
+  and rides the PNG in its `images` array. One bounded plain-JSON fallback
+  covers providers that reject `image_url` + strict `json_schema` bodies.
+- **Carry-over:** a stack-owned `ScheduleCarryOver` (day label, date, legend)
+  is borrowed by every page call and moved into `ShootingSchedule.cast_legend`
+  at the end — no `Arc`, no map cloning. `"Drehfrei"` banners never emit rows
+  and never overwrite the active day; a bottom-of-page banner travels to the
+  next page via `end_of_page_shooting_day_label`.
+- **Bounds & telemetry:** the document-wide rendered-byte ceiling
+  (`AI_IMPORT_MAX_RENDERED_TOTAL_BYTES`, default 64 MiB, clamped to 512 MiB)
+  aborts the job instead of accumulating `K` images; each page PNG is dropped
+  before the next render; usage accumulates across ALL page calls so the
+  `#675`/`#794` cost snapshot covers an 8-page schedule exactly; progress
+  frames publish `chunk = page_idx`, `chunks_total = page_count` (`#664`).
+- **Rollback:** the loop engages only when
+  `parser_fingerprint != legacy-pdftotext-v1` — with
+  `AI_DOCUMENT_PARSER=legacy-pdftotext` the pre-#960 single flat-text request
+  runs unchanged.
+- **Wire metadata (additive, all `#[serde(default)]`):** `cast_legend`
+  (`ScheduleLegendEntry` with `ScheduleRoleModifier`
+  `none`/`dummy`/`voice_only`/`extra_ot`; truncated cells like `"(Dummy"` and
+  `"(Nur Stimme"` classify), `shot_suffix` (`"300.37N"` → `Some("N")`;
+  `"SB7.2"`/`"T3"` stay `(None, None)` and land in `unmatched_schedule_rows`),
+  `cast_refs` (codes resolved against `cast_legend`; unknown codes are dropped
+  silently). `ScheduleApplyWorker` dispatches ZERO `CharacterCommands` (`D6`).
+- **Footer-band note:** schedule grids carry REAL rows in the bottom band
+  (an iText export's page number lives in the TOP band), so the schedule page
+  extractor strips only the header band — a footer-band filter drops the last
+  rows of every page (found on `Drehplan_1.pdf`: day-6/11 banners and scene
+  `300.16` sit below `y = 0.91`).
+- **Verification:** the Golden Corpus harness asserts the schedule through the
+  same deterministic `extract_schedule_from_structured` the worker feeds via
+  `sched=` expectations in `config/ai_eval_corpus.tsv` (row floor, distinct
+  day count, day-1 date, `300.37N`, `SB7.2`/`T3`, legend modifiers,
+  zero-`"Drehfrei"`). Run it exactly like the script sweep with
+  `AI_EVAL_CORPUS_DIR` set.
+
 #### AI payload storage (durable source/preview blobs)
 
 All three variables (`AI_PAYLOAD_S3_ENDPOINT`, `AI_PAYLOAD_S3_ACCESS_KEY`, `AI_PAYLOAD_S3_SECRET_KEY`) must be set to enable durable S3 storage for AI import payloads.

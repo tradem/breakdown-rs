@@ -32,4 +32,4 @@
 294.pdf	script	43	Block 098 / Ep. 294	cast=Dr. Leyla Sherbaz:main_cast,Dr. Kai Hoffmann:guest,Jannis Hauser:guest,Schwester:extra
 Drehbuch_1.pdf	script	42	Drehbuch 1	cast=Mikko Rantala:main_cast,Rafael Schmitz:guest,Heiko Neubert:extra
 Drehbuch_2.pdf	script	42	Drehbuch 2	cast=Dr. Leyla Sherbaz:main_cast,Zoe Sherbaz:guest,Mira Sherbaz:guest,Hebamme:extra
-Drehplan_1.pdf	schedule	0	Shooting schedule (schedule worker, not the script path)	-
+Drehplan_1.pdf	schedule	0	Shooting schedule (issue #960: page-streaming carry-over, legend, shot suffix)	-	sched=rows>=120,days=16,day1_date=2021-10-18,suffix=300.37N,units=SB7.2|T3,zero_drehfrei,legend=2:Ben Ahlbeck|1015:Mikko Rantala:voice_only|130:Jana Becker:dummy|1040:Rafael Schmitz:voice_only|150:Zoe Sherbaz:dummy|33:Physiothearpeutin:extra_ot

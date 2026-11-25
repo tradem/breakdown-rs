@@ -32,6 +32,114 @@ generated notes are never used.
 
 ## [Unreleased]
 
+### Fixed
+
+- CodeRabbitAI review, PR #967 (issue #960 multimodal schedule streaming):
+  - **Flat schedule path prompt.** The legacy-PDF / plain-text import path no
+    longer reuses the page-streaming vision prompt: a new `[schedule_flat]`
+    default (also exposed as `schedule_flat` on `GET /v1/ai-import/defaults`
+    and via the `"schedule_flat"` stored-prompt key) describes its actual
+    contract — flattened text in, whole-document `ShootingSchedule` out.
+  - **Shooting-day transition rule.** All three day-banner paths (standalone
+    banner row, day-labelled row, end-of-page banner) now share one rule in
+    `ScheduleCarryOver::apply_page`: a fresh date always updates, the SAME day
+    continuing without a date keeps its date (day identity is the day NUMBER
+    for `"N. Drehtag"`, not the raw label text), and a DIFFERENT day starting
+    without a date clears the carried date instead of leaking it.
+  - **Cast legend finalization.** Raw cast codes are kept per row
+    (`ScheduleCarryOver` pending list) and resolved against the COMPLETE
+    document legend by `ScheduleCarryOver::finalize_cast_refs` — both the
+    structured extractor and the vision page loop call it after the last page,
+    so a legend defined on a later page also resolves earlier pages' rows.
+    Codes that remain unknown at finalization are dropped, as before.
+  - **Legend/scene mixed pages.** `extract_spatial_schedule_rows` no longer
+    drops a whole page because a `ROLLEN` marker exists: the legend REGION is
+    excluded and scene rows above it survive; a legend-only page still returns
+    no rows. The inline legend fallback also reads lines inside the `ROLLEN`
+    heading block (parsers may merge `ROLLEN\n2 = Ben` into one block).
+  - **Cast-cell row assignment.** Each right-column cast cell is assigned to
+    its NEAREST scene row (± 0.015 window), so two rows closer than the window
+    can no longer both inherit the same cast members.
+  - **Vision transport.** `LlmClient::chat_vision_constrained` now borrows
+    `&LlmVisionRequest`, so the retry wrapper re-uses one PNG allocation
+    instead of cloning it per attempt.
+  - **Vision decoder.** The hosted and Ollama vision paths decode through the
+    provider-facing `SchedulePageExtractionSchema`: an unrelated JSON object
+    without `rows` now FAILS instead of decoding as an empty page, and a
+    schema-permitted modifier (`null` / free strings like `"Nur Stimme"`)
+    normalizes via `ScheduleRoleModifier::parse_tag` instead of failing the
+    page.
+  - **Format-fallback eligibility.** The vision `response_format` fallback only
+    triggers on an explicit unsupported-format rejection with status 400/422 —
+    a `429` mentioning `response_format` keeps its Retry-After on the
+    classification path instead of immediately re-sending the image.
+  - **Permit-hold bound.** `AiImportBounds::vision_attempt_worst_case_secs`
+    accounts for the one extra request the vision fallback path can send
+    (hosted: 22 min + 120 s = 24 min); Ollama keeps the shared bound.
+  - **Gate tests.** The compliant-provider vision test now verifies against a
+    local wiremock (one expected POST, valid page answer; zero requests for a
+    refused provider) instead of the live EURouter URL and a 1 ms deadline.
+  - **In-process breaker gates use `admits_paid_call`** (CodeRabbit review,
+    PR #967 round 8): a `half_open` breaker admits the claim-fenced trial
+    holder inside the hosted and Ollama clients, so the trial actually runs
+    its recovery probe.
+  - **Trial ownership refreshes per page** in the vision loop (mirroring the
+    script chunk loop): a closed-after-page-1 breaker restores the full retry
+    budget for the later pages.
+  - **Provider failures carry billed usage** (issue #970 round 8):
+    `DomainError::ServiceUnavailable` gained an optional `usage` payload
+    (`with_billed_usage`), and every post-response failure path of the hosted
+    and Ollama clients attaches the attempt's accumulated counters, so a hold
+    persists the usage of a billed malformed response followed by a provider
+    failure.
+  - **Accounting reads are fail-closed**: a failed billed-call read propagates
+    before any paid work instead of continuing from zero (which would let the
+    completion-time overwrite erase the persisted total).
+  - **Usage across breaker holds (issue #970).** The only seed of a re-drive is
+    the job row's **per-request billed-call ledger**
+    (`ai_import_job.billed_calls`, migration `20261124000001`):
+    `AiImportQueue::append_billed_calls` appends one entry per paid provider
+    request right after the call returned (and, before a hold or a terminal
+    failure, the entries an error carried), and
+    `AiImportQueue::recorded_billed_calls` seeds the next attempt from them.
+    Three properties are deliberate:
+    1. **Per request, never an aggregate.** The provider caps energy per
+       request (issue #794), and `Σ min(raw_i, token_i) <= min(Σ raw, Σ token)`
+       — seeding the summed counters as one entry overstated the billed energy
+       of every prior request.
+    2. **Independent of the completion counters.** `tokens_in`/`energy_millijoules`
+       stay the completion total written by `record_worker_telemetry`, so a
+       worker that died between that write and `mark_succeeded` no longer makes
+       the re-drive count the stored-chunk replay on top of a total that
+       already covered it.
+    3. **Append-only.** The ledger is never rewritten or cleared: every entry is
+       a request the provider actually billed, which stays true across a retry,
+       a re-drive and a chunk-set invalidation.
+    Stored chunks now replay their payload only (their usage is already on the
+    ledger), the appends are owner-fenced and idempotent per key, and a FAILED
+    read propagates before any paid work — an unknown accounting state is never
+    treated as zero.
+  - **Every ledger entry carries the pair that billed it** (issue #970 round
+    14). The `(provider, model)` a worker calls comes from configuration, so a
+    re-drive can run under a different pair than the attempt that paid for a
+    request; the completion snapshot therefore prices each `(provider, model)`
+    group with **its own** rate card
+    (`core::ai::cost::cost_breakdown_grouped`, per-request energy caps inside
+    each group) instead of pricing old requests with the current card. A
+    mixed-pair job reports the summed figure and withholds the rate detail
+    blocks (one rate set cannot describe two cards); an unpriced group or a
+    currency mix makes the component unpriced. The ledger appends of the success
+    path are retried with one stable key (a transient error must not drop a paid
+    request), and both worker loops now re-check the claim right before every
+    paid call (`ensure_claim_holds`) — the page loop included, which previously
+    could pay for a page after `render_page` while another worker already owned
+    the job. The `Uuid` parameter of the append statement is cast to
+    `text` on both sides of the idempotency comparison: without the cast the
+    server inferred `TEXT` for a UUID-typed bind and every append failed with
+    SQLSTATE 22P03 (`an_append_is_idempotent_per_key` in
+    `crates/integration-tests/tests/ai_import_billed_calls.rs` is the
+    regression).
+
 ## [api-v0.71.0] – Released 2026-11-21
 
 - Shipped artifact: `ghcr.io/<owner>/<repo>:api-v0.71.0` (immutable,

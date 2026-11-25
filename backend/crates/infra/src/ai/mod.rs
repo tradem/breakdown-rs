@@ -94,8 +94,8 @@ pub use preview_store::{
 };
 pub use pricing::PgAiModelPricingRepository;
 pub use pricing_refresh::{AiPricingRefreshWorker, PricingRefreshConfig};
-pub use prompts::default_prompt;
 pub use prompts::{AiPromptDefaults, default_prompts};
+pub use prompts::{default_flat_schedule_prompt, default_prompt};
 pub use provider_registry::{
     PROVIDER_REGISTRY, ProviderInfo, curated_decision_model_ids, curated_decision_models,
     curated_image_model_ids, curated_image_models, curated_model_ids, curated_models,

@@ -16,7 +16,7 @@ rust-version.workspace = true
 kameo.workspace = true
 kameo_es.workspace = true
 jiff.workspace = true
-breakdown_core = { path = "../core", version = "0.78.0" }
+breakdown_core = { path = "../core", version = "0.79.0" }
 
 [lints]
 workspace = true

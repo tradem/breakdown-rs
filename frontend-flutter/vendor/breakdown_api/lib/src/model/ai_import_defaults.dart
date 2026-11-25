@@ -13,14 +13,19 @@ part 'ai_import_defaults.g.dart';
 /// Wire shape for `GET /v1/ai-import/defaults` (issue #471): the deployment's single-source prompt defaults (script/schedule) read from `AI_IMPORT_DEFAULT_PROMPTS_PATH` or the built-in fallback TOML — the same prompts the import workers seed from.
 ///
 /// Properties:
-/// * [schedule] - Default prompt seed for schedule imports.
+/// * [schedule] - Default prompt seed for schedule imports (page-streaming vision path).
+/// * [scheduleFlat] - Default prompt seed for the FLAT schedule path (legacy-PDF / plain-text: flattened text in, `ShootingSchedule` out) — CodeRabbit review, PR #967. Additive on the wire.
 /// * [script] - Default prompt seed for script imports.
 @BuiltValue()
 abstract class AiImportDefaults
     implements Built<AiImportDefaults, AiImportDefaultsBuilder> {
-  /// Default prompt seed for schedule imports.
+  /// Default prompt seed for schedule imports (page-streaming vision path).
   @BuiltValueField(wireName: r'schedule')
   String get schedule;
+
+  /// Default prompt seed for the FLAT schedule path (legacy-PDF / plain-text: flattened text in, `ShootingSchedule` out) — CodeRabbit review, PR #967. Additive on the wire.
+  @BuiltValueField(wireName: r'schedule_flat')
+  String get scheduleFlat;
 
   /// Default prompt seed for script imports.
   @BuiltValueField(wireName: r'script')
@@ -55,6 +60,11 @@ class _$AiImportDefaultsSerializer
     yield r'schedule';
     yield serializers.serialize(
       object.schedule,
+      specifiedType: const FullType(String),
+    );
+    yield r'schedule_flat';
+    yield serializers.serialize(
+      object.scheduleFlat,
       specifiedType: const FullType(String),
     );
     yield r'script';
@@ -93,6 +103,13 @@ class _$AiImportDefaultsSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.schedule = valueDes;
+          break;
+        case r'schedule_flat':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.scheduleFlat = valueDes;
           break;
         case r'script':
           final valueDes = serializers.deserialize(

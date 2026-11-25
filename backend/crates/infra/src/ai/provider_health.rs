@@ -635,12 +635,42 @@ pub const BREAKER_OPEN_REASON: &str = "ai-import provider breaker is open";
 
 /// The sentinel a gated call returns when the breaker refuses it.
 pub fn breaker_open_error() -> DomainError {
-    DomainError::conflict(BREAKER_OPEN_REASON)
+    breaker_open_error_with_usage(Vec::new())
+}
+
+/// The breaker sentinel carrying the usage the attempt ALREADY billed
+/// (issue #970, CodeRabbit review PR #967): completed responses of the same
+/// attempt whose answers were discarded by the refusal must reach the
+/// caller's accounting, so the sentinel transports them instead of dropping
+/// them at the client boundary.
+///
+/// `calls` is the **per-request ledger** of those responses, one entry per
+/// paid request (CodeRabbit review, PR #967 round 13): the caller persists
+/// them so the #794 energy cap can be applied per request.
+pub fn breaker_open_error_with_usage(calls: Vec<breakdown_core::ai::LlmCallUsage>) -> DomainError {
+    DomainError::BreakerOpen {
+        code: &breakdown_core::error_registry::DOMAIN_CONFLICT,
+        reason: BREAKER_OPEN_REASON.to_owned(),
+        usage: std::sync::Arc::new(calls),
+    }
 }
 
 /// Whether an error is the breaker sentinel rather than a real failure.
 pub fn is_breaker_open(error: &DomainError) -> bool {
-    matches!(error, DomainError::Conflict { reason, .. } if reason == BREAKER_OPEN_REASON)
+    match error {
+        DomainError::BreakerOpen { .. } => true,
+        DomainError::Conflict { reason, .. } => reason == BREAKER_OPEN_REASON,
+        _ => false,
+    }
+}
+
+/// The already-billed requests a breaker sentinel carries (issue #970), one
+/// entry per paid request; empty for any other error.
+pub(crate) fn orphaned_usage(error: &DomainError) -> Option<Vec<breakdown_core::ai::LlmCallUsage>> {
+    match error {
+        DomainError::BreakerOpen { usage, .. } => Some(usage.as_ref().clone()),
+        _ => None,
+    }
 }
 
 /// How long one granted trial may take before the next one is considered
@@ -720,5 +750,50 @@ fn map_sqlx_error(error: sqlx::Error) -> DomainError {
         sqlx::Error::RowNotFound => DomainError::not_found("row not found"),
         sqlx::Error::PoolTimedOut => DomainError::service_unavailable("database pool timed out"),
         other => DomainError::service_unavailable(format!("database error: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod breaker_sentinel_tests {
+    use super::*;
+    use breakdown_core::ai::LlmCallUsage;
+
+    /// Issue #970 (CodeRabbit review, PR #967): the breaker sentinel carries
+    /// the requests the attempt already billed — one entry per request, so the
+    /// #794 energy cap survives the hold (round 13) — and stays the sentinel.
+    #[test]
+    fn the_breaker_sentinel_carries_orphaned_usage_and_stays_the_sentinel() {
+        let calls = vec![
+            LlmCallUsage {
+                tokens_in: 500,
+                tokens_out: 120,
+                cached_tokens_in: 30,
+                energy_millijoules: 7,
+            },
+            LlmCallUsage {
+                tokens_in: 90,
+                tokens_out: 0,
+                cached_tokens_in: 0,
+                energy_millijoules: 0,
+            },
+        ];
+        let error = breaker_open_error_with_usage(calls.clone());
+        assert!(
+            is_breaker_open(&error),
+            "the usage-carrying sentinel IS the breaker sentinel"
+        );
+        assert_eq!(
+            orphaned_usage(&error),
+            Some(calls),
+            "every billed request travels on the sentinel, unmerged"
+        );
+        // The empty-ledger constructor stays the sentinel too.
+        assert!(is_breaker_open(&breaker_open_error()));
+        assert_eq!(orphaned_usage(&breaker_open_error()), Some(Vec::new()));
+        // A real failure carries nothing and is not the sentinel.
+        assert_eq!(orphaned_usage(&DomainError::conflict("lost claim")), None);
+        assert!(!is_breaker_open(&DomainError::conflict("lost claim")));
+        // The legacy Conflict-reason sentinel shape stays recognized.
+        assert!(is_breaker_open(&DomainError::conflict(BREAKER_OPEN_REASON)));
     }
 }

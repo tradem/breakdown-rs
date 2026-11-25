@@ -4,10 +4,13 @@
 // Co-authored-by: gpt-5.6-luna (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
+// Co-authored-by: gemini-4-argon (opencode-go)
 
 use async_trait::async_trait;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use breakdown_core::ai::{
-    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, ScriptContext,
+    LlmCallOutcome, LlmCallUsage, LlmChatRequest, LlmClient, LlmProvider, LlmVisionRequest,
+    SchedulePageExtraction, ScriptContext,
 };
 use breakdown_core::error::DomainError;
 use serde::{Deserialize, Serialize};
@@ -103,10 +106,12 @@ impl OllamaChatClient {
                 OllamaMessage {
                     role: "system".to_owned(),
                     content: req.prompt.clone(),
+                    images: Vec::new(),
                 },
                 OllamaMessage {
                     role: "user".to_owned(),
                     content: format!("<context>\n{}\n</context>", req.source_text),
+                    images: Vec::new(),
                 },
             ],
             format: json!("json"),
@@ -161,6 +166,70 @@ impl OllamaChatClient {
         };
         Ok((payload.message.content, usage))
     }
+    /// Multimodal counterpart of [`Self::request_once`] (issue #960): the page
+    /// PNG rides in Ollama's `images` array on the user message, with the same
+    /// system/user split and bounded JSON formatting as the text path. Zero
+    /// Vault lookup — Ollama needs no API key.
+    async fn request_vision_once(
+        &self,
+        req: &LlmVisionRequest,
+    ) -> Result<(String, LlmCallUsage), DomainError> {
+        let body = OllamaRequest {
+            model: req.model.clone(),
+            messages: vec![
+                OllamaMessage {
+                    role: "system".to_owned(),
+                    content: req.prompt.clone(),
+                    images: Vec::new(),
+                },
+                OllamaMessage {
+                    role: "user".to_owned(),
+                    content: format!("<context>\n{}\n</context>", req.user_context),
+                    images: vec![BASE64.encode(&req.page.png_bytes)],
+                },
+            ],
+            format: json!("json"),
+            stream: false,
+            options: OllamaOptions {
+                num_predict: req.max_tokens,
+            },
+        };
+        let endpoint = format!(
+            "{}/chat",
+            CuratedProviderUrls::base_url(LlmProvider::Ollama)
+        );
+        let response = self
+            .http
+            .post(endpoint)
+            .timeout(self.timeout)
+            .json(&body)
+            .send()
+            .await
+            .map_err(classify_transport_error)?;
+        let status = response.status();
+        let hint = parse_retry_hint(response.headers(), status);
+        log_hint("ollama_vision_chat", &hint);
+        if !status.is_success() {
+            // Deliberately `RateLimited` (issue #927): Ollama has no account, so
+            // a `429` here is always a gateway window.
+            return Err(classify_http_status_rich(
+                status,
+                "",
+                hint.wait,
+                RateLimitVerdict::RateLimited,
+            ));
+        }
+        let payload = response.json::<OllamaResponse>().await.map_err(|error| {
+            DomainError::validation(format!("invalid Ollama response: {error}"))
+        })?;
+        let usage = LlmCallUsage {
+            tokens_in: payload.prompt_eval_count.unwrap_or(0),
+            tokens_out: payload.eval_count.unwrap_or(0),
+            cached_tokens_in: 0,
+            energy_millijoules: 0,
+        };
+        Ok((payload.message.content, usage))
+    }
 }
 
 #[async_trait]
@@ -175,33 +244,111 @@ impl LlmClient for OllamaChatClient {
             ));
         }
         let mut last_parse_error = None;
-        // Usage accumulates across every paid call, including the discarded
-        // responses of bounded parse retries (issue #675).
-        let mut total_usage = LlmCallUsage::default();
+        // The per-request ledger of every paid call, including the discarded
+        // responses of bounded parse retries (issue #675) — one entry per
+        // request, never one running total (CodeRabbit review, PR #967 round
+        // 13): the #794 energy cap is per request.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
         for _attempt in 0..=self.max_parse_retries {
             // Issue #871: before EVERY billable request, parse retries included.
             if let Some(health) = &self.health
                 && !health
                     .state(LlmProvider::Ollama, &req.model)
                     .await
-                    .map(|snapshot| snapshot.admits_claim())
+                    // `admits_paid_call`, NOT `admits_claim` (CodeRabbit review, PR
+                    // #967): this in-process gate runs inside a fenced job, so
+                    // a `half_open` breaker must admit the trial holder.
+                    .map(|snapshot| snapshot.admits_paid_call())
                     .unwrap_or(true)
             {
-                return Err(super::provider_health::breaker_open_error());
+                // Issue #970 (CodeRabbit review PR #967): prior billed
+                // responses of this attempt travel on the sentinel.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    billed.clone(),
+                ));
             }
-            let (content, usage) = self.request_once(&req).await?;
-            total_usage.accumulate(usage);
+            // Issue #970 (CodeRabbit review PR #967 round 9): prior billed
+            // responses of this attempt ride the error instead of being
+            // dropped at the `?`.
+            let (content, usage) = self
+                .request_once(&req)
+                .await
+                .map_err(|error| error.with_billed_usage(billed.clone()))?;
+            billed.push(usage);
             match serde_json::from_str::<ScriptContext>(&content) {
-                Ok(context) => return Ok(LlmCallOutcome::new(context, total_usage)),
+                Ok(context) => return Ok(LlmCallOutcome::from_calls(context, billed)),
                 Err(error) => last_parse_error = Some(error),
             }
         }
         let detail = last_parse_error
             .map(|error| error.to_string())
             .unwrap_or_else(|| "unknown JSON parse error".to_owned());
+        // Issue #970 (CodeRabbit review PR #967 round 10): the responses of
+        // this attempt billed SO FAR travel on the terminal error.
         Err(DomainError::validation(format!(
             "Ollama returned invalid ScriptContext after bounded retries: {detail}"
-        )))
+        ))
+        .with_billed_usage(billed))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        req: &LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<SchedulePageExtraction>, DomainError> {
+        // Local-only transport: no pre-egress policy gate is needed because no
+        // bytes leave the host (ADR-041 `D2`), but a misrouted request must
+        // still fail closed.
+        if req.provider != LlmProvider::Ollama {
+            return Err(DomainError::validation(
+                "Ollama client received a non-Ollama vision request",
+            ));
+        }
+        let mut last_parse_error: Option<String> = None;
+        // Issue #970 (CodeRabbit review PR #967 round 13): see the text path.
+        let mut billed: Vec<LlmCallUsage> = Vec::new();
+        for _attempt in 0..=self.max_parse_retries {
+            if let Some(health) = &self.health
+                && !health
+                    .state(LlmProvider::Ollama, &req.model)
+                    .await
+                    // `admits_paid_call`, NOT `admits_claim` (CodeRabbit review, PR
+                    // #967): this in-process gate runs inside a fenced job, so
+                    // a `half_open` breaker must admit the trial holder.
+                    .map(|snapshot| snapshot.admits_paid_call())
+                    .unwrap_or(true)
+            {
+                // Issue #970 (CodeRabbit review PR #967): prior billed
+                // responses of this attempt travel on the sentinel.
+                return Err(super::provider_health::breaker_open_error_with_usage(
+                    billed.clone(),
+                ));
+            }
+            // Issue #970 (CodeRabbit review PR #967 round 9): see the text path.
+            let (content, usage) = self
+                .request_vision_once(req)
+                .await
+                .map_err(|error| error.with_billed_usage(billed.clone()))?;
+            billed.push(usage);
+            // Decode through the provider-facing schema type (CodeRabbit
+            // review, PR #967), like the hosted vision path: a rows-less
+            // object must FAIL (not silently default to an empty page), and a
+            // free-string modifier (the schema permits any text plus null)
+            // must normalize instead of failing the whole page.
+            match serde_json::from_str::<crate::ai::client::SchedulePageExtractionSchema>(&content)
+            {
+                Ok(extraction) => match extraction.into_core() {
+                    Ok(extraction) => return Ok(LlmCallOutcome::from_calls(extraction, billed)),
+                    Err(error) => last_parse_error = Some(error.to_string()),
+                },
+                Err(error) => last_parse_error = Some(error.to_string()),
+            }
+        }
+        let detail = last_parse_error.unwrap_or_else(|| "unknown JSON parse error".to_owned());
+        // Issue #970 (CodeRabbit review PR #967 round 10): see the text path.
+        Err(DomainError::validation(format!(
+            "Ollama returned invalid SchedulePageExtraction after bounded retries: {detail}"
+        ))
+        .with_billed_usage(billed))
     }
 }
 
@@ -218,6 +365,10 @@ struct OllamaRequest {
 struct OllamaMessage {
     role: String,
     content: String,
+    /// Base64-encoded page image for the multimodal path (issue #960).
+    /// Absent on the text path so the request body stays byte-identical.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    images: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -2465,6 +2465,98 @@ impl AiImportQueue for PgAiImportQueue {
     /// Without the fence a displaced worker's telemetry would commit over the
     /// new owner's numbers even though its subsequent `mark_succeeded` is
     /// rejected — the metrics would describe work that was thrown away.
+    ///
+    /// Issue #970 (CodeRabbit review PR #967): returns the job row's
+    /// **per-request billed-call ledger** — one entry per paid provider request
+    /// of every earlier attempt, in billing order — which is the only seed a
+    /// re-drive resumes its accounting from. Deliberately NOT the
+    /// completion-time counters: they are an aggregate (so they would lose the
+    /// per-request #794 energy cap) and they already cover the whole job (so
+    /// seeding them would count a replayed stored chunk twice).
+    async fn recorded_billed_calls(
+        &self,
+        id: AiImportJobId,
+    ) -> Result<Vec<breakdown_core::ai::BilledCall>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT billed_calls
+            FROM ai_import.ai_import_job
+            WHERE id = $1
+            "#,
+        )
+        .bind(id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        let raw: serde_json::Value = row.try_get("billed_calls").map_err(map_sqlx_error)?;
+        serde_json::from_value::<Vec<breakdown_core::ai::BilledCall>>(raw).map_err(|error| {
+            DomainError::validation(format!("billed-call ledger is undecodable: {error}"))
+        })
+    }
+
+    /// Issue #970 (CodeRabbit review PR #967): append the paid requests of one
+    /// attempt (or of one completed page/chunk) to the ledger of the RUNNING
+    /// job row, owner-fenced like every worker write. The completion-time
+    /// telemetry write stores the totals derived from the whole ledger, so the
+    /// append never double-counts.
+    async fn append_billed_calls(
+        &self,
+        id: AiImportJobId,
+        worker_id: &str,
+        calls: &[breakdown_core::ai::BilledCall],
+        key: Uuid,
+    ) -> Result<(), DomainError> {
+        if calls.is_empty() {
+            return Ok(());
+        }
+        // Idempotent per key (issue #970, CodeRabbit review PR #967 round 12):
+        // ONE statement both guards and applies — a retry after a lost
+        // acknowledgement re-evaluates the key the first commit stored and
+        // appends NOTHING the second time. The key rides the (transient,
+        // claim-owned) `progress` JSONB, so no schema change is needed and the
+        // claim reset clears it for the next attempt.
+        let appended = serde_json::to_value(calls).map_err(|error| {
+            DomainError::validation(format!("billed-call ledger is not serializable: {error}"))
+        })?;
+        let result = sqlx::query(
+            r#"
+            UPDATE ai_import.ai_import_job
+            SET billed_calls = CASE
+                    -- `$3::text` on BOTH sides: without the cast the
+                    -- comparison against the TEXT extracted from `progress`
+                    -- makes the server infer `$3` as TEXT, and a UUID-typed
+                    -- bind then fails to decode (SQLSTATE 22P03) — the
+                    -- integration test `an_append_is_idempotent_per_key`
+                    -- caught exactly that.
+                    WHEN COALESCE(progress->>'partial_usage_key', '') = ($3::text)
+                        THEN billed_calls
+                    ELSE billed_calls || $4
+                END,
+                progress = jsonb_set(
+                    COALESCE(progress, '{}'::jsonb),
+                    '{partial_usage_key}',
+                    to_jsonb($3::text)
+                ),
+                updated_at = now()
+            WHERE id = $1 AND status = 'running' AND worker_id = $2
+            "#,
+        )
+        .bind(id.as_uuid())
+        .bind(worker_id)
+        .bind(key)
+        .bind(appended)
+        .execute(&self.pool)
+        .await
+        .map_err(map_sqlx_error)?;
+        ensure_claim_owned(
+            result.rows_affected(),
+            id,
+            worker_id,
+            "record billed calls for",
+        )?;
+        Ok(())
+    }
+
     async fn record_worker_telemetry(
         &self,
         id: AiImportJobId,

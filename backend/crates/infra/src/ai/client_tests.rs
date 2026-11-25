@@ -1481,7 +1481,8 @@ async fn an_empty_completion_is_re_requested_with_a_doubled_budget() {
         ..Default::default()
     };
     assert_eq!(
-        outcome.usage, expected,
+        outcome.usage(),
+        expected,
         "the discarded empty answer's tokens were paid too"
     );
 
@@ -1547,4 +1548,881 @@ async fn a_refusal_costs_exactly_one_request() {
         1,
         "a refusal must be paid ONCE, not once per inner retry"
     );
+}
+
+// ===========================================================================
+// Issue #960 — multimodal vision seam: pre-egress provider-policy gate
+// (ADR-041 `D2`)
+// ===========================================================================
+
+/// The pre-egress gate must reject a non-compliant provider BEFORE any HTTP
+/// egress: the error surfaces without a reachable endpoint, which only the
+/// in-client policy check can guarantee.
+#[tokio::test]
+async fn chat_vision_rejects_a_non_compliant_provider_before_egress() {
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(30),
+    )
+    .expect("a with_http test client builds");
+    let request = LlmVisionRequest {
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("a provider without ZDR + no-training + EU residency must be refused");
+    let detail = error.to_string();
+    assert!(
+        detail.contains("Zero Data Retention"),
+        "the refusal must name the missing policy guarantees: {detail}"
+    );
+}
+
+/// A compliant provider passes the gate and reaches the transport — verified
+/// against a LOCAL wiremock, not the live EURouter URL (CodeRabbit review, PR
+/// #967): the mock expects exactly one vision POST and answers with a valid
+/// page extraction, so the test asserts the request actually reached a server
+/// (no wall-clock deadline guessing) and that the answer decodes.
+#[tokio::test]
+async fn chat_vision_gate_passes_a_compliant_provider_through_to_the_transport() {
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "model": "qwen3-vl",
+            "messages": [
+                {"role": "system"},
+                {"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw=="}},
+                    {"type": "text"}
+                ]}
+            ]
+        })))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({
+                "id": "chatcmpl-vision-ok",
+                "model": "qwen3-vl",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "{\"legend_entries\":[],\"rows\":[{\"row_ref\":\"300.33\",\"rows\":null}]}"
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7}
+            }),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = LlmVisionRequest {
+        provider: LlmProvider::EURouter,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let outcome = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect("a compliant provider reaches the transport and decodes");
+    assert_eq!(outcome.output.rows[0].row_ref, "300.33");
+    assert_eq!(outcome.usage().tokens_in, 11);
+    server.verify().await;
+}
+
+/// The refused provider performs ZERO egress: the same local mock seam is
+/// mounted with `expect(0)` and the policy refusal is returned before any
+/// HTTP attempt (CodeRabbit review, PR #967 — deterministic, no live URL).
+#[tokio::test]
+async fn chat_vision_gate_refusal_performs_zero_requests() {
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(wiremock::ResponseTemplate::new(200))
+        .expect(0..1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = LlmVisionRequest {
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("Neuralwatt is not vision-egress compliant");
+    assert!(error.to_string().contains("Zero Data Retention"));
+    server.verify().await;
+}
+
+// ===========================================================================
+// CodeRabbit review, PR #967 — format-fallback eligibility and the
+// provider-facing page decoder
+// ===========================================================================
+
+fn vision_request_fixture() -> breakdown_core::ai::LlmVisionRequest {
+    breakdown_core::ai::LlmVisionRequest {
+        provider: LlmProvider::EURouter,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: breakdown_core::ai::LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: vec![0x89, b'P', b'N', b'G'],
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    }
+}
+
+/// A `429` whose error body happens to mention `response_format` must keep its
+/// Retry-After on the classification path — it must NEVER trigger the plain
+/// JSON-object fallback (which would re-send the image immediately, ignoring
+/// the provider-requested wait). The fallback is reserved for explicit
+/// unsupported-format rejections on validation statuses (400/422).
+#[tokio::test]
+async fn a_rate_limited_body_mentioning_response_format_is_not_a_format_fallback() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(429)
+                .insert_header("retry-after", "7")
+                .set_body_json(serde_json::json!({
+                    "error": {"message": "rate limit exceeded for response_format json_schema requests"}
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("a 429 must fail the attempt, not fall back");
+    assert!(
+        error.is_retryable(),
+        "the 429 keeps its classification: {error}"
+    );
+    assert_eq!(
+        error.retry_after(),
+        Some(Duration::from_secs(7)),
+        "the provider-requested wait survives: {error}"
+    );
+    server.verify().await;
+}
+
+/// A vision page decode of an unrelated JSON object must FAIL, not silently
+/// default to an empty (successful) page: the provider-facing decoder requires
+/// an explicit `rows` array (CodeRabbit review, PR #967).
+#[tokio::test]
+async fn a_rows_less_vision_answer_fails_instead_of_reporting_an_empty_page() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-bad",
+            "model": "qwen3-vl",
+            "choices": [{
+                "message": {"role": "assistant", "content": "{\"message\": \"could not read page\"}"},
+                "finish_reason": "stop"
+            }]
+        })))
+        // The countdown ignores the reported finish reason (PR #931-era
+        // behaviour): a malformed answer consumes the FULL bounded truncation
+        // budget — 1 + HOSTED_INNER_RETRIES = 3 requests — before failing.
+        .expect(3)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("an unrelated JSON object must not decode as an empty page");
+    assert!(
+        error.to_string().contains("vision LLM JSON did not match"),
+        "the decode failure surfaces: {error}"
+    );
+    server.verify().await;
+}
+
+/// The hosted schema permits `modifier: null` and free strings ("Nur Stimme");
+/// the provider-facing decoder normalizes them into the core enum instead of
+/// failing the page (CodeRabbit review, PR #967).
+#[tokio::test]
+async fn a_free_string_vision_modifier_normalizes_instead_of_failing_the_page() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-mod",
+                "model": "qwen3-vl",
+                "choices": [{
+                    "message": {"role": "assistant", "content": serde_json::json!({
+                        "legend_entries": [
+                            {"code": "2", "character_name": "Ben", "modifier": "Nur Stimme"},
+                            {"code": "4", "character_name": "Philipp", "modifier": null}
+                        ],
+                        "rows": []
+                    }).to_string()},
+                    "finish_reason": "stop"
+                }]
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let outcome = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect("schema-permitted modifier values must decode");
+    assert_eq!(outcome.output.legend_entries.len(), 2);
+    assert_eq!(
+        outcome.output.legend_entries[0].modifier,
+        breakdown_core::ai::ScheduleRoleModifier::VoiceOnly
+    );
+    assert_eq!(
+        outcome.output.legend_entries[1].modifier,
+        breakdown_core::ai::ScheduleRoleModifier::None
+    );
+    server.verify().await;
+}
+
+/// An unrelated 400 validation error that merely ECHOES the field name is NOT
+/// evidence of an unsupported format: no fallback, single request, the
+/// classification path answers (CodeRabbit's PR #967 follow-up).
+#[tokio::test]
+async fn an_unrelated_400_echoing_response_format_does_not_fall_back() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {"message": "validation failed: field `response_format` must be an object"}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("an unrelated 400 must fail without a fallback re-send");
+    assert!(
+        !error.to_string().contains("json_object"),
+        "the fallback never ran: {error}"
+    );
+    server.verify().await;
+}
+
+/// An explicit unsupported-format rejection on 400 DOES earn the one-shot
+/// fallback: the second request carries the plain `json_object` response
+/// format and its valid page answer decodes (CodeRabbit review, PR #967).
+#[tokio::test]
+async fn an_explicit_unsupported_format_400_falls_back_once_to_plain_json() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "response_format": {"type": "json_schema"}
+        })))
+        .respond_with(
+            wiremock::ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {"message": "response_format json_schema is not supported for this model"}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "response_format": {"type": "json_object"}
+        })))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-fallback",
+            "model": "qwen3-vl",
+            "choices": [{
+                "message": {"role": "assistant", "content": "{\"legend_entries\":[],\"rows\":[]}"},
+                "finish_reason": "stop"
+            }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let outcome = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect("the plain json_object fallback answers with a valid page");
+    assert!(outcome.output.rows.is_empty());
+    server.verify().await;
+}
+
+/// The flat schedule path accepts German dot dates: the flat schema decode
+/// goes through the core parser (`parse_schedule_date`), which handles ISO and
+/// German dot notation (CodeRabbit's PR #967 follow-up).
+#[test]
+fn a_german_dot_date_in_the_flat_schedule_path_is_not_dropped() {
+    use super::{ScheduleRowSchema, ScheduleSceneRefSchema, ShootingScheduleSchema};
+
+    let decoded = ScheduleRowSchema {
+        row_ref: "300.33".into(),
+        scene_number: Some(ScheduleSceneRefSchema::Text("300.33".into())),
+        shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".into()),
+        date: Some("18.10.2021".into()),
+        location: Some("KLINIKUM".into()),
+        order: Some(1),
+    };
+    let core = ShootingScheduleSchema {
+        rows: vec![decoded],
+    }
+    .into_core();
+    assert_eq!(
+        core.rows[0].date,
+        Some(jiff::civil::date(2021, 10, 18)),
+        "the German calendar date survives the flat decode"
+    );
+}
+
+/// An unrelated capability statement ("does not support images") far from the
+/// echoed field name is NOT fallback evidence: the unsupported claim must sit
+/// within the proximity window of `response_format` (CodeRabbit's PR #967
+/// round-3 follow-up).
+#[tokio::test]
+async fn a_distant_unrelated_unsupported_statement_does_not_fall_back() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": {"message": "this model does not support image inputs at all, which is a \
+                         capability constraint unrelated to schema handling; the request echoed \
+                         response_format in its payload"}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::EURouter,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let request = vision_request_fixture();
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("an unrelated capability statement must not trigger the fallback");
+    assert!(
+        !error.to_string().contains("json_object"),
+        "the fallback never ran: {error}"
+    );
+    server.verify().await;
+}
+
+// CodeRabbit's PR #967 round-4 follow-ups on the fallback evidence helper.
+
+/// A provider echoing the request back puts `response_format` in a JSON KEY
+/// position; that is not a prose unsupported-format statement.
+#[test]
+fn an_echoed_request_body_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images"},"response_format":{"type":"json_schema"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}
+
+/// The window slice is char-boundary safe: a multibyte character near the
+/// window edge must not panic the helper.
+#[test]
+fn the_proximity_window_is_char_boundary_safe() {
+    // 'é' (2 bytes) + 79 ASCII + the claim adjacent to the field name.
+    let body = format!("é{}", "a".repeat(79));
+    assert!(super::names_unsupported_response_format(&format!(
+        "{body} not support response_format"
+    )));
+    // And the distant case stays negative even with multibyte padding.
+    assert!(!super::names_unsupported_response_format(&format!(
+        "{body} unrelated text, and much later the request echoed response_format"
+    )));
+}
+
+/// A genuine unsupported-format statement still qualifies.
+#[test]
+fn a_genuine_unsupported_format_statement_is_fallback_evidence() {
+    assert!(super::names_unsupported_response_format(
+        "'response_format' of type 'json_schema' is not supported by this model"
+    ));
+    assert!(super::names_unsupported_response_format(
+        "unsupported value for response_format"
+    ));
+}
+
+/// CodeRabbit's PR #967 round-5 follow-up: the JSON-key detection tolerates
+/// whitespace between the quoted key and the colon
+/// (`"response_format" : {"type": ...}`).
+#[test]
+fn a_json_key_with_whitespace_before_the_colon_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images"},"response_format" : {"type":"json_schema"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}
+
+/// CodeRabbit's PR #967 round-6 follow-up: a JSON VALUE echo next to an
+/// unrelated unsupported-image statement is not evidence either — the gap
+/// between the claim and the mention carries JSON structure (comma, colon,
+/// quotes-as-structure), which the connector rule rejects.
+#[test]
+fn a_json_value_echo_of_response_format_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images","param":"response_format"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}
+
+/// CodeRabbit's PR #967 round-7 follow-up: the claim and the mention must
+/// live in the SAME sentence — "does not support images. Request included
+/// response_format" crosses a sentence boundary and is not evidence.
+#[test]
+fn a_sentence_boundary_between_claim_and_mention_is_not_fallback_evidence() {
+    let body = r#"{"error":{"message":"Model does not support images. Request included response_format"}}"#;
+    assert!(!super::names_unsupported_response_format(body));
+}
+
+/// Issue #970 (CodeRabbit review, PR #967 round 8): a billed response with
+/// malformed JSON followed by a provider failure must carry the billed usage
+/// ON the error — the hold persists it instead of dropping the accounting.
+#[tokio::test]
+async fn a_provider_failure_after_a_billed_response_carries_the_usage() {
+    let server = wiremock::MockServer::start().await;
+    // First response: billed (tokens 100), but the answer is malformed JSON —
+    // the loop re-requests with a grown budget (the countdown ignores the
+    // reported finish reason).
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 1_024}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-billed",
+                "model": "glm-5.3-flash",
+                "choices": [{
+                    "message": {"role": "assistant", "content": "{not json"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 25}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    // Second response: the provider fails transiently.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 2_048}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(503)
+                .set_body_json(serde_json::json!({"error": {"message": "provider overloaded"}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the 503 must fail the attempt");
+    assert!(
+        error.is_retryable(),
+        "the 503 stays on the classification path: {error}"
+    );
+    assert_eq!(
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
+        Some(100),
+        "the billed response's usage travels ON the provider error: {error}"
+    );
+    server.verify().await;
+}
+
+/// CodeRabbit's PR #967 round-9 follow-up: a positive statement about the
+/// format between the mention and the unsupported claim ("response_format is
+/// valid but images are not supported") is not evidence — the claim is about
+/// the images, not the format.
+#[test]
+fn a_positive_format_statement_between_mention_and_claim_is_not_evidence() {
+    assert!(!super::names_unsupported_response_format(
+        "response_format is valid but images are not supported"
+    ));
+    // Genuine single-sentence statements still qualify.
+    assert!(super::names_unsupported_response_format(
+        "'response_format' of type 'json_schema' is not supported by this model"
+    ));
+}
+
+/// Issue #970 (CodeRabbit review, PR #967 round 11): MULTIPLE billed
+/// malformed responses through the REAL client accumulate into the terminal
+/// failure's carried usage — the exact sequence the hold/dead-letter path
+/// persists.
+#[tokio::test]
+async fn multiple_billed_malformed_responses_accumulate_into_the_terminal_failure() {
+    let server = wiremock::MockServer::start().await;
+    // Three billed responses, each malformed: budgets 1024 → 2048 → 4096.
+    for (max_tokens, tokens_in) in [(1_024, 100), (2_048, 50), (4_096, 30)] {
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .and(wiremock::matchers::body_partial_json(
+                serde_json::json!({"max_tokens": max_tokens}),
+            ))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-billed",
+                    "model": "glm-5.3-flash",
+                    "choices": [{
+                        "message": {"role": "assistant", "content": "{not json"},
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {"prompt_tokens": tokens_in, "completion_tokens": 10}
+                })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the exhausted decode budget must fail the attempt");
+    assert_eq!(
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
+        Some(180),
+        "every billed response's usage accumulates into the terminal error: {error}"
+    );
+    server.verify().await;
+}
+
+/// Issue #970 (CodeRabbit review, PR #967 round 10): a billed response
+/// followed by a DETERMINISTIC transport failure — the mock answers the
+/// first request, then the listener is gone, so the second request is
+/// refused with `connection refused` (no wall-clock deadline involved).
+#[tokio::test]
+async fn a_transport_failure_after_a_billed_response_carries_the_usage() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        // Answer the FIRST request with a valid billed body, then keep the
+        // stream open forever: the listener is consumed, so the client's
+        // second request is deterministically refused at the transport.
+        let (mut stream, _) = listener.accept().await.unwrap();
+        // CLOSE the listener explicitly: the retry's connection is
+        // deterministically refused, not timed out.
+        drop(listener);
+        // Read the request to its declared Content-Length (CodeRabbit's PR
+        // #967 round-11 follow-up: a nested-JSON chunk can end in `}` before
+        // the body is complete).
+        let mut request = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        let content_length: Option<usize> = loop {
+            let read = stream.read(&mut chunk).await.unwrap_or(0);
+            request.extend_from_slice(&chunk[..read]);
+            let text = String::from_utf8_lossy(&request);
+            if let Some(header_end) = text.find("\r\n\r\n")
+                && let Some(len) = text
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().ok())
+                    })
+                    .flatten()
+                && request.len() >= header_end + 4 + len
+            {
+                break Some(len);
+            }
+            if read == 0 {
+                break None;
+            }
+        };
+        let _ = content_length;
+        let body = serde_json::json!({
+            "id": "chatcmpl-billed",
+            "model": "glm-5.3-flash",
+            "choices": [{
+                "message": {"role": "assistant", "content": "{not json"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 25}
+        })
+        .to_string();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes()).await;
+        let _ = stream.flush().await;
+        // Close the served connection gracefully (the response is complete,
+        // nothing is left unread, so this is a FIN, not an RST): the client's
+        // pooled connection dies and the retry reconnects into a CLOSED port.
+        drop(stream);
+    });
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        // The deadline never fires: the first response is answered
+        // immediately and the second request is REFUSED (connection refused).
+        // A generous value keeps any runner-load latency off the failure path.
+        Duration::from_secs(60),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("http://{addr}/chat/completions");
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the refused second request must fail the attempt");
+    // The failure is the CONNECTION REFUSAL, not the (never-firing) deadline:
+    // a reqwest timeout renders "operation timed out" — its absence plus the
+    // instant completion distinguishes the deterministic refusal from any
+    // deadline fire.
+    assert!(
+        !error.to_string().to_lowercase().contains("timed out"),
+        "the failure must be the connection refusal, not the deadline: {error}"
+    );
+    assert_eq!(
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
+        Some(100),
+        "the billed response's usage survives the transport failure: {error}"
+    );
+    server.abort();
+}
+
+/// CodeRabbit's PR #967 round-10 follow-up: "invalid" must not read as the
+/// positive token "valid" — an explicit unsupported-format statement that
+/// contains the word `invalid` still earns the fallback.
+#[test]
+fn invalid_is_not_the_positive_token_valid() {
+    assert!(super::names_unsupported_response_format(
+        "response_format has an invalid value and is not supported"
+    ));
+    // The round-9 exclusion keeps working at word boundaries.
+    assert!(!super::names_unsupported_response_format(
+        "response_format is valid but images are not supported"
+    ));
+}
+
+/// Issue #970 (CodeRabbit review, PR #967 round 12): a billed malformed
+/// response followed by a QUOTA failure keeps the billed usage on the
+/// terminal error — the quota variant carries the counters like the
+/// transient-unavailable path, with its code and terminal classification
+/// unchanged.
+#[tokio::test]
+async fn a_quota_failure_after_a_billed_response_carries_the_usage() {
+    let server = wiremock::MockServer::start().await;
+    // First response: billed (tokens 100), malformed JSON — the loop
+    // re-requests with a grown budget.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 1_024}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-billed",
+                "model": "glm-5.3-flash",
+                "choices": [{
+                    "message": {"role": "assistant", "content": "{not json"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 25}
+            })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    // Second response: the wallet is empty (terminal quota refusal).
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/chat/completions"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"max_tokens": 2_048}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(402)
+                .set_body_json(serde_json::json!({"error": {"message": "insufficient_quota"}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Neuralwatt,
+        "test-key".to_owned(),
+        Duration::from_secs(5),
+    )
+    .expect("a with_http test client builds");
+    client.endpoint = format!("{}/chat/completions", server.uri());
+
+    let error = client
+        .chat_constrained(chat_request(1_024))
+        .await
+        .expect_err("the quota refusal must fail the attempt");
+    assert_eq!(
+        error.code().code,
+        "ai-import.provider-quota-exhausted",
+        "the quota classification is unchanged: {error}"
+    );
+    assert!(!error.is_retryable(), "quota stays terminal: {error}");
+    assert_eq!(
+        error
+            .billed_usage()
+            .map(|calls| breakdown_core::ai::LlmCallUsage::total(calls).tokens_in),
+        Some(100),
+        "the billed response's usage travels on the quota error: {error}"
+    );
+    server.verify().await;
 }

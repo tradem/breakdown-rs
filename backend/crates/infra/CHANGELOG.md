@@ -8,6 +8,7 @@
 <!-- Co-authored-by: muse-spark-1.3-contributor (opencode-go) -->
 <!-- Co-authored-by: omen-alpha (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
+<!-- Co-authored-by: gemini-4-argon (opencode-go) -->
 
 # Changelog
 
@@ -15,6 +16,41 @@ All notable changes to the `infra` crate are documented here. Versioning
 follows per-crate Semantic Versioning (ADR-020 D2); this changelog is the
 crate-level companion to the release notes generated from conventional
 commits (ADR-020 D5).
+
+## [0.90.0] - Unreleased
+### Added (issue #960)
+
+- `ai::client::OpenAiCompatibleChatClient` implements
+  `chat_vision_constrained` / `extract_schedule_page`: the ADR-041 `D2`
+  pre-egress policy gate runs before any base64 encoding or HTTP call, the
+  page PNG rides as an `image_url` data URI next to the text context part,
+  and the text path's bounded retry semantics carry over (breaker consult per
+  billable request, usage accumulation, truncation-budget growth) plus ONE
+  bounded plain-JSON fallback for providers that reject combined
+  `image_url` + strict `json_schema` bodies.
+- `ai::ollama::OllamaChatClient` implements the multimodal transport with the
+  page PNG in Ollama's `images` array (zero Vault lookup, local-only policy,
+  same bounded parse retries).
+- `ScheduleImportWorker::process` streams spatial PDF schedules PAGE BY PAGE
+  (`extract_pdf_pages`): render-on-demand → one vision call per page with the
+  `<carry-over>` + `<spatial-text-hint>` context → `ScheduleCarryOver` merge
+  → drop the PNG. Enforces the document-wide rendered-byte ceiling, publishes
+  per-page progress frames (`chunk = page_idx`, `chunks_total = page_count`),
+  accumulates usage across ALL page calls for the `#675`/`#794` cost
+  snapshot, and holds cleanly on breaker open. The
+  `AI_DOCUMENT_PARSER=legacy-pdftotext` rollback target keeps the pre-#960
+  single flat-text request, and native CSV / plain-text paths are untouched.
+- The Golden Corpus harness (`ai_document_eval_corpus`) asserts the schedule
+  pipeline through the same deterministic extraction the worker feeds:
+  `sched=` expectations (row floor, distinct day count, day-1 date, `300.37N`
+  shot suffix, `SB7.2`/`T3` non-episode preservation, legend modifiers,
+  zero-`"Drehfrei"`).
+
+### Changed
+
+- `ShootingSchedule` / `ShootingScheduleRow` constructors gained the additive
+  `cast_legend` / `shot_suffix` / `cast_refs` fields (`#[serde(default)]`,
+  wire-compatible).
 
 ## [0.89.0] - Unreleased
 ### Added (issue #961)

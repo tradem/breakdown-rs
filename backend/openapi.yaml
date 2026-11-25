@@ -361,7 +361,13 @@ components:
         prompts the import workers seed from.
       properties:
         schedule:
-          description: Default prompt seed for schedule imports.
+          description: Default prompt seed for schedule imports (page-streaming vision path).
+          type: string
+        schedule_flat:
+          description: |-
+            Default prompt seed for the FLAT schedule path (legacy-PDF /
+            plain-text: flattened text in, `ShootingSchedule` out) — CodeRabbit
+            review, PR #967. Additive on the wire.
           type: string
         script:
           description: Default prompt seed for script imports.
@@ -369,6 +375,7 @@ components:
       required:
       - script
       - schedule
+      - schedule_flat
       type: object
     AiImportJob:
       description: |-
@@ -4821,6 +4828,49 @@ components:
       - version
       - updated_at
       type: object
+    ScheduleCastMember:
+      description: |-
+        One resolved cast member on a [`ShootingScheduleRow`], validated against
+        [`ShootingSchedule::cast_legend`] (ADR-041 `D6`, issue #960).
+
+        Strictly additive read-only preview metadata: schedule apply never creates,
+        renames, or reclassifies `Character` aggregates from these entries.
+      properties:
+        character_name:
+          type: string
+        code:
+          type: string
+        modifier:
+          $ref: '#/components/schemas/ScheduleRoleModifier'
+      required:
+      - code
+      - character_name
+      type: object
+    ScheduleLegendEntry:
+      description: |-
+        One entry from a shooting schedule's `"ROLLEN"` number legend (e.g.
+        `2 = Ben Ahlbeck`, `150 = Zoe (Dummy)` — ADR-041 `D5`/`D6`, issue #960).
+      properties:
+        character_name:
+          type: string
+        code:
+          type: string
+        modifier:
+          $ref: '#/components/schemas/ScheduleRoleModifier'
+      required:
+      - code
+      - character_name
+      type: object
+    ScheduleRoleModifier:
+      description: |-
+        Role modifier declared on a shooting-schedule `"ROLLEN"` legend entry
+        (ADR-041 `D5`/`D6`, issue #960).
+      enum:
+      - none
+      - dummy
+      - voice_only
+      - extra_ot
+      type: string
     ScheduleSceneRequest:
       description: Request body for linking a `Scene` to a `ShootingDay`.
       properties:
@@ -5228,6 +5278,16 @@ components:
           oneOf:
           - $ref: '#/components/schemas/BlockId'
           - type: 'null'
+        cast_legend:
+          additionalProperties:
+            $ref: '#/components/schemas/ScheduleLegendEntry'
+          description: |-
+            Optional numeric cast legend (`"ROLLEN"`) keyed by cast code
+            (`"2"`, `"150"`, `"1040"`). Additive on the wire (`#[serde(default)]`)
+            so pre-`[P4]` S3 schedule previews deserialize cleanly (issue #960).
+          propertyNames:
+            type: string
+          type: object
         rows:
           items:
             $ref: '#/components/schemas/ShootingScheduleRow'
@@ -5237,6 +5297,14 @@ components:
       type: object
     ShootingScheduleRow:
       properties:
+        cast_refs:
+          description: |-
+            Cast references on this row that matched an entry in
+            [`ShootingSchedule::cast_legend`] (ADR-041 `D6`, issue #960). Unknown
+            codes are dropped rather than guessed.
+          items:
+            $ref: '#/components/schemas/ScheduleCastMember'
+          type: array
         date:
           format: date
           type:
@@ -5282,6 +5350,13 @@ components:
           format: float
           type:
           - number
+          - 'null'
+        shot_suffix:
+          description: |-
+            Trailing alphabetic shot suffix on a pick-up/insert reference
+            (`"300.37N"` → `Some("N")`, `"294.10"` → `None` — issue #960).
+          type:
+          - string
           - 'null'
       required:
       - row_ref

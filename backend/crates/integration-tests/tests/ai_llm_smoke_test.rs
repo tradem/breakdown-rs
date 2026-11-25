@@ -294,10 +294,10 @@ async fn llm_reads_a_document_and_returns_script_context() -> Result<()> {
     tracing::info!(
         provider = %provider.as_str(),
         model = %live.model,
-        tokens_in = outcome.usage.tokens_in,
-        tokens_out = outcome.usage.tokens_out,
-        cached_tokens_in = outcome.usage.cached_tokens_in,
-        energy_millijoules = outcome.usage.energy_millijoules,
+        tokens_in = outcome.usage().tokens_in,
+        tokens_out = outcome.usage().tokens_out,
+        cached_tokens_in = outcome.usage().cached_tokens_in,
+        energy_millijoules = outcome.usage().energy_millijoules,
         "llm smoke usage"
     );
     scenes_carry_content("small script", &outcome.output, Coverage::EveryScene)
@@ -531,9 +531,9 @@ async fn probe_chunk(
             .iter()
             .map(|scene| scene.characters.len())
             .sum::<usize>(),
-        tokens_in = outcome.usage.tokens_in,
-        tokens_out = outcome.usage.tokens_out,
-        energy_millijoules = outcome.usage.energy_millijoules,
+        tokens_in = outcome.usage().tokens_in,
+        tokens_out = outcome.usage().tokens_out,
+        energy_millijoules = outcome.usage().energy_millijoules,
         "live script extraction"
     );
     scenes_carry_content(document, &outcome.output, Coverage::AtLeastOneScene)
@@ -800,14 +800,14 @@ async fn reasoning_effort_trades_output_tokens_for_wall_clock() -> Result<()> {
             let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             match result {
                 Ok(outcome) => {
-                    let tokens_out = outcome.usage.tokens_out;
+                    let tokens_out = outcome.usage().tokens_out;
                     let scenes = outcome.output.scenes.len();
                     let capped = tokens_out >= u64::from(max_tokens);
                     tracing::info!(
                         model = %model,
                         variant = %label,
                         wall_ms,
-                        tokens_in = outcome.usage.tokens_in,
+                        tokens_in = outcome.usage().tokens_in,
                         tokens_out,
                         scenes,
                         capped,
@@ -824,7 +824,7 @@ async fn reasoning_effort_trades_output_tokens_for_wall_clock() -> Result<()> {
                         model: model.clone(),
                         variant: label,
                         wall_ms,
-                        tokens_in: outcome.usage.tokens_in,
+                        tokens_in: outcome.usage().tokens_in,
                         tokens_out,
                         scenes,
                         capped,
@@ -1221,8 +1221,8 @@ async fn reasoning_effort_document_quality_and_cost() -> Result<()> {
                         &chunk.heading,
                         &source_text,
                         &outcome.output,
-                        outcome.usage.tokens_in,
-                        outcome.usage.tokens_out,
+                        outcome.usage().tokens_in,
+                        outcome.usage().tokens_out,
                         wall_ms,
                     );
                     tracing::info!(
@@ -1231,8 +1231,8 @@ async fn reasoning_effort_document_quality_and_cost() -> Result<()> {
                         position = position + 1,
                         chunks_sent = indexes.len(),
                         scenes = outcome.output.scenes.len(),
-                        tokens_in = outcome.usage.tokens_in,
-                        tokens_out = outcome.usage.tokens_out,
+                        tokens_in = outcome.usage().tokens_in,
+                        tokens_out = outcome.usage().tokens_out,
                         wall_ms,
                         "reasoning-effort document chunk"
                     );

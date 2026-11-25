@@ -144,6 +144,23 @@ pub fn claim_lost(heartbeat: Option<&LeaseHeartbeat>) -> bool {
     heartbeat.is_some_and(LeaseHeartbeat::claim_lost)
 }
 
+impl LeaseHeartbeat {
+    /// A heartbeat whose claim is **already** known to be lost.
+    ///
+    /// Test-only seam for the workers' pre-call ownership guards: the flag is
+    /// normally set by the renewal task (covered by
+    /// `conflict_renewal_flags_the_claim_as_lost_and_stops`), and a worker test
+    /// must be able to assert "an orphaned worker starts no paid call" without
+    /// a clock. `#[cfg(test)]`, so it cannot exist in production.
+    #[cfg(test)]
+    pub(crate) fn with_lost_claim() -> Self {
+        Self {
+            handle: tokio::spawn(async {}),
+            lost_claim: Arc::new(AtomicBool::new(true)),
+        }
+    }
+}
+
 /// The lease window one apply run renews against (issue #911).
 ///
 /// It *is* the window the single-flight predicates judge silence by, so the

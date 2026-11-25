@@ -401,6 +401,7 @@ async fn merge_worker_success_records_telemetry() {
                 scene_number: Some(1),
                 ..Default::default()
             }],
+            cast_legend: Default::default(),
         },
         scenes: vec![scene(1)],
         episode_numbers: std::collections::HashMap::new(),
@@ -521,6 +522,29 @@ impl FakeQueue {
         self.state.lock().unwrap().progress.clone()
     }
 
+    /// The partial usage writes before each hold, in order (issue #970).
+    fn partial_usage(&self) -> Vec<breakdown_core::ai::LlmCallUsage> {
+        self.state.lock().unwrap().partial_usage.clone()
+    }
+
+    /// Append one paid request to the fake row's ledger, attributed to `pair`.
+    fn seed_billed_call(
+        &self,
+        provider: LlmProvider,
+        model: &str,
+        usage: breakdown_core::ai::LlmCallUsage,
+    ) {
+        self.state
+            .lock()
+            .unwrap()
+            .prior_calls
+            .push(breakdown_core::ai::BilledCall {
+                provider,
+                model: model.to_owned(),
+                usage,
+            });
+    }
+
     /// The holds this worker materialized, in order (issue #871, D-A4).
     fn holds(&self) -> Vec<breakdown_core::ai::ProviderHold> {
         self.state.lock().unwrap().holds.clone()
@@ -578,6 +602,14 @@ impl FakeQueue {
 #[derive(Default)]
 struct FakeQueueState {
     succeeded: Vec<AiImportJobId>,
+    /// Test switch (issue #970 round-8 regression): the billed-call read fails
+    /// when set, so a test can assert the worker propagates the read failure
+    /// BEFORE any paid call instead of continuing from zero.
+    fail_recorded_usage: bool,
+    /// The per-request ledger the fake row already carries (issue #970): the
+    /// worker seeds its accounting from it, so a test can assert a re-drive
+    /// resumes instead of restarting.
+    prior_calls: Vec<breakdown_core::ai::BilledCall>,
     failed: Vec<AiImportJobId>,
     /// The `mark_failed` payload per failed attempt — narrative, code,
     /// retryability and the provider's wait hint (issue #926). The production
@@ -591,6 +623,16 @@ struct FakeQueueState {
     progress: Vec<breakdown_core::ai::AiImportProgress>,
     /// Every hold the worker materialized (issue #871, D-A4).
     holds: Vec<breakdown_core::ai::ProviderHold>,
+    /// The billed-call ledger appends the worker performed (issue #970,
+    /// CodeRabbit review PR #967), flattened in append order — one entry per
+    /// paid request.
+    partial_usage: Vec<breakdown_core::ai::LlmCallUsage>,
+    /// Fault injection for the ledger append: fail this many times before the
+    /// write lands (issue #970 round 14 — the bounded retry must survive a
+    /// transient error instead of dropping a paid request).
+    fail_appends: usize,
+    /// How often the append was ATTEMPTED (retries included).
+    append_attempts: usize,
     /// The evidence carried by each hold, index-aligned with `holds` (issue
     /// #942 W2: a hold must never arrive without a reason).
     hold_evidence: Vec<Option<breakdown_core::ai::HoldEvidence>>,
@@ -614,6 +656,39 @@ struct FakeQueueState {
 
 #[async_trait]
 impl AiImportQueue for FakeQueue {
+    async fn recorded_billed_calls(
+        &self,
+        _id: breakdown_core::ai::AiImportJobId,
+    ) -> Result<Vec<breakdown_core::ai::BilledCall>, DomainError> {
+        if self.state.lock().unwrap().fail_recorded_usage {
+            return Err(DomainError::service_unavailable(
+                "the usage read failed (test switch)",
+            ));
+        }
+        Ok(self.state.lock().unwrap().prior_calls.to_vec())
+    }
+
+    async fn append_billed_calls(
+        &self,
+        _id: breakdown_core::ai::AiImportJobId,
+        _worker_id: &str,
+        calls: &[breakdown_core::ai::BilledCall],
+        _key: Uuid,
+    ) -> Result<(), DomainError> {
+        let mut state = self.state.lock().unwrap();
+        state.append_attempts += 1;
+        if state.fail_appends > 0 {
+            state.fail_appends -= 1;
+            return Err(DomainError::service_unavailable(
+                "the ledger append failed (test switch)",
+            ));
+        }
+        state
+            .partial_usage
+            .extend(calls.iter().map(|call| call.usage));
+        Ok(())
+    }
+
     async fn enqueue(
         &self,
         request: AiImportEnqueueRequest,
@@ -1022,7 +1097,10 @@ impl LlmClient for RecordingScheduleClient {
                     location: None,
                     order: None,
                     shooting_day_score: None,
+                    shot_suffix: None,
+                    cast_refs: Vec::new(),
                 }],
+                cast_legend: Default::default(),
             },
             LlmCallUsage::default(),
         ))
@@ -1086,6 +1164,8 @@ fn schedule_worker(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
@@ -1876,6 +1956,7 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
                     "character {} is not assigned to this scene",
                     command.character_id
                 ),
+                usage: None,
             });
         }
         // Identical-last guard, faithful to the aggregate: appending the
@@ -1890,6 +1971,7 @@ impl breakdown_core::scene::ports::SceneCommands for FakeSceneCommands {
             return Err(DomainError::Validation {
                 code: &breakdown_core::error_registry::SCENE_VALIDATION,
                 reason: "Outfit beat identical to the character's last beat".to_owned(),
+                usage: None,
             });
         }
         drop(assigned);
@@ -2325,6 +2407,7 @@ impl ScheduleApplyFixture {
                 shooting_day_label: Some("Day 1".to_owned()),
                 ..ShootingScheduleRow::default()
             }],
+            cast_legend: Default::default(),
         };
         Self {
             scene_commands: Arc::new(FakeSceneCommands::default()),
@@ -5471,6 +5554,7 @@ async fn a_refused_beat_is_reported_distinctly_from_the_ungrounded_drop() {
     *fixture.scenes.fail_beat_with.lock().unwrap() = Some(DomainError::Validation {
         code: &breakdown_core::error_registry::SCENE_CHARACTER_NOT_IN_SCENE,
         reason: "character was removed from the scene".to_owned(),
+        usage: None,
     });
 
     let result = fixture
@@ -6361,6 +6445,7 @@ impl DecisionClient for FailingDecisionClient {
             code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
             reason: "decision endpoint down".into(),
             retry_after: None,
+            usage: None,
         })
     }
 }
@@ -6392,6 +6477,7 @@ impl breakdown_core::settings::CredentialVault for UnreadableCredentialVault {
             code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
             reason: "vault unavailable".into(),
             retry_after: None,
+            usage: None,
         })
     }
 
@@ -6417,6 +6503,7 @@ fn worker_decision_config(
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        flat_prompt: Some("fixture prompt".to_owned()),
         vault_key_id: format!("settings-{}", uuid::Uuid::now_v7()),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         decision,
@@ -6652,7 +6739,10 @@ impl LlmClient for UnlabelledScheduleClient {
                     location: None,
                     order: None,
                     shooting_day_score: None,
+                    shot_suffix: None,
+                    cast_refs: Vec::new(),
                 }],
+                cast_legend: Default::default(),
             },
             LlmCallUsage::default(),
         ))
@@ -6728,6 +6818,8 @@ async fn a_failed_schedule_scoring_request_without_labelled_rows_records_scoring
         provider: LlmProvider::Neuralwatt,
         model: "deepseek-v4-flash".to_owned(),
         prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
         reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
         bounds: AiImportBounds::default(),
         pricing: None,
@@ -7833,6 +7925,16 @@ fn resume_worker(
 #[tokio::test]
 async fn a_resumed_script_job_pays_only_for_the_missing_chunks() {
     let queue = Arc::new(FakeQueue::default());
+    // Issue #970 round 13: a stored chunk exists only because an earlier attempt
+    // paid for it AND appended its usage to the job row's ledger (the append is
+    // the write that precedes the chunk-store write), so the resumed attempt
+    // models that row state here.
+    let prior = LlmCallUsage {
+        tokens_in: 100,
+        ..LlmCallUsage::default()
+    };
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
     let previews = Arc::new(MemoryAiPreviewStore::default());
     let store = Arc::new(InMemoryChunkStore::with_prefix(2));
     let worker = resume_worker(
@@ -7879,8 +7981,9 @@ async fn a_resumed_script_job_pays_only_for_the_missing_chunks() {
         "the stored prefix and the fresh calls assemble the SAME preview"
     );
 
-    // Token sum (D-B4): the resumed chunks' usage is NOT lost — 2 × 100 stored
-    // plus 2 × 50 fresh = 300.
+    // Token sum (D-B4): the resumed chunks' usage is NOT lost — 2 × 100 on the
+    // row's ledger (seeded) plus 2 × 50 fresh = 300. The stored chunks replay
+    // their payload only, so nothing is counted twice.
     let telemetry = the_only_telemetry(&queue);
     assert_eq!(telemetry.tokens_in, 300);
 
@@ -8431,6 +8534,7 @@ impl CachedScheduleFixture {
         let schedule = ShootingSchedule {
             block_id: None,
             rows,
+            cast_legend: Default::default(),
         };
         Self {
             scene_commands: Arc::new(FakeSceneCommands::default()),
@@ -8903,4 +9007,966 @@ async fn an_unprofiled_model_sends_no_reasoning_effort_field() {
     let requests = client.requests.lock().unwrap().clone();
     assert!(!requests.is_empty());
     assert_eq!(requests[0].reasoning_effort, None);
+}
+
+// ===========================================================================
+// Issue #960 — page-streaming multimodal PDF schedule extraction
+// ===========================================================================
+
+/// Vision client that records every multimodal page call and returns a fixed
+/// per-page extraction, so the worker's page loop can be driven without a
+/// network call.
+#[derive(Clone, Default)]
+struct RecordingVisionScheduleClient {
+    page_numbers: Arc<Mutex<Vec<u32>>>,
+    contexts: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl LlmClient for RecordingVisionScheduleClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "RecordingVisionScheduleClient only extracts schedule pages",
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        // The legacy rollback target exercises the flat-text path.
+        Ok(LlmCallOutcome::new(
+            ShootingSchedule {
+                block_id: None,
+                rows: vec![ShootingScheduleRow {
+                    row_ref: "flat-0".to_owned(),
+                    scene_number: Some(1),
+                    episode_number: None,
+                    shooting_day_label: Some("T1".to_owned()),
+                    date: None,
+                    location: None,
+                    order: None,
+                    shooting_day_score: None,
+                    shot_suffix: None,
+                    cast_refs: Vec::new(),
+                }],
+                cast_legend: Default::default(),
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        assert!(
+            request
+                .page
+                .png_bytes
+                .starts_with(&[0x89, b'P', b'N', b'G']),
+            "page {} must carry a PNG",
+            request.page.page_number
+        );
+        assert!(
+            request.user_context.contains("<carry-over"),
+            "page {} must carry the carry-over context",
+            request.page.page_number
+        );
+        self.page_numbers
+            .lock()
+            .unwrap()
+            .push(request.page.page_number);
+        self.contexts
+            .lock()
+            .unwrap()
+            .push(request.user_context.clone());
+        Ok(LlmCallOutcome::new(
+            breakdown_core::ai::SchedulePageExtraction {
+                legend_entries: Vec::new(),
+                rows: vec![breakdown_core::ai::SchedulePageRow {
+                    row_ref: format!("page-{}", request.page.page_number),
+                    scene_ref: Some(format!("294.{}", request.page.page_number)),
+                    shooting_day_label: Some("1. Drehtag: Mo. 18.10.2021".to_owned()),
+                    date: None,
+                    location: Some("KLINIKUM".to_owned()),
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                }],
+                end_of_page_shooting_day_label: None,
+                end_of_page_date: None,
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+}
+
+/// A spatial PDF schedule is extracted PAGE BY PAGE through the multimodal
+/// vision seam (issue #960): one `chat_vision_constrained` call per page, each
+/// carrying the carry-over context, with rows merged through `ScheduleCarryOver`.
+///
+/// Skipped silently when Poppler is unavailable (same contract as the spatial
+/// adapter tests).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn schedule_worker_streams_a_spatial_pdf_page_by_page_through_vision() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingVisionScheduleClient::default());
+    let previews_handle = Arc::clone(&previews);
+    let worker = ScheduleImportWorker {
+        queue,
+        client: client.clone(),
+        previews: previews_handle as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let handle = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("a spatial PDF schedule must stream through the vision seam");
+
+    let seen_pages = client.page_numbers.lock().unwrap().clone();
+    assert_eq!(
+        seen_pages,
+        vec![1],
+        "the one-page fixture must produce exactly one page call"
+    );
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.rows.len(), 1);
+    assert_eq!(preview.rows[0].row_ref, "page-1");
+    assert_eq!(preview.rows[0].episode_number, Some(294));
+    assert_eq!(preview.rows[0].scene_number, Some(1));
+    assert_eq!(
+        preview.rows[0].shooting_day_label.as_deref(),
+        Some("1. Drehtag: Mo. 18.10.2021")
+    );
+}
+
+/// Issue #970 (CodeRabbit review, PR #967): when the breaker holds the job
+/// AFTER page 1 succeeded, page 1's billed usage travels with the failure and
+/// is persisted on the job row BEFORE the hold — a re-drive resumes the
+/// accounting instead of losing the paid call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_breaker_hold_persists_the_billed_pages_usage() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // The breaker starts CLOSED (page 1 is billed) and the client OPENS it
+    // during the page-2 call, so the hold happens AFTER a billed page — the
+    // exact accounting-loss shape of issue #970.
+    let client = Arc::new(HoldOnSecondPageVisionClient {
+        page_numbers: Arc::default(),
+        queue_state: Arc::clone(&queue.state),
+    });
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &two_page_pdf())
+        .await
+        .expect("a hold is not a failure");
+
+    assert_eq!(result, "", "a hold returns no preview handle");
+    assert!(
+        queue.state.lock().unwrap().failed.is_empty(),
+        "a hold is not a failure"
+    );
+    assert_eq!(queue.holds().len(), 1, "the job is held");
+    let recorded = queue.partial_usage();
+    assert_eq!(
+        recorded.len(),
+        1,
+        "the pages billed before the hold are persisted once"
+    );
+    assert_eq!(recorded[0].tokens_in, 100, "page 1's billed usage");
+    assert_eq!(recorded[0].tokens_out, 40);
+}
+
+/// Vision client: page 1 answers a valid extraction WITH usage, page 2
+/// returns the breaker sentinel — the exact hold-after-a-billed-page shape.
+#[derive(Clone)]
+struct HoldOnSecondPageVisionClient {
+    page_numbers: Arc<Mutex<Vec<u32>>>,
+    /// The fake queue's state: the client opens the breaker during the page-2
+    /// call, so the hold (with its `retry_at`) follows a BILLED page.
+    queue_state: Arc<Mutex<FakeQueueState>>,
+}
+
+#[async_trait]
+impl LlmClient for HoldOnSecondPageVisionClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "HoldOnSecondPageVisionClient only extracts schedule pages",
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        self.page_numbers
+            .lock()
+            .unwrap()
+            .push(request.page.page_number);
+        if request.page.page_number > 1 {
+            // Open the breaker with a probe time BEFORE failing, so the
+            // hold that follows parks the job instead of releasing it.
+            self.queue_state.lock().unwrap().breaker =
+                Some(breakdown_core::ai::ProviderBreakerSnapshot {
+                    state: breakdown_core::ai::ProviderBreakerState::Open,
+                    consecutive_failures: 3,
+                    flap_count: 0,
+                    retry_at: Some(Timestamp::now() + SignedDuration::from_mins(5)),
+                    trial_job: None,
+                });
+        }
+        if request.page.page_number == 1 {
+            Ok(LlmCallOutcome::new(
+                breakdown_core::ai::SchedulePageExtraction {
+                    legend_entries: Vec::new(),
+                    rows: vec![breakdown_core::ai::SchedulePageRow {
+                        row_ref: "300.33".into(),
+                        scene_ref: Some("300.33".into()),
+                        shooting_day_label: None,
+                        date: None,
+                        location: None,
+                        order: Some(1),
+                        cast_codes: Vec::new(),
+                    }],
+                    end_of_page_shooting_day_label: None,
+                    end_of_page_date: None,
+                },
+                breakdown_core::ai::LlmCallUsage {
+                    tokens_in: 100,
+                    tokens_out: 40,
+                    cached_tokens_in: 0,
+                    energy_millijoules: 0,
+                },
+            ))
+        } else {
+            Err(super::provider_health::breaker_open_error())
+        }
+    }
+}
+
+/// A hand-built two-page PDF (same construction as [`tiny_script_pdf`], with
+/// `/Count 2` and a second page object).
+fn two_page_pdf() -> Vec<u8> {
+    let mut pdf = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    let mut add_object = |object: String| {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(object.as_bytes());
+    };
+    add_object("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj".to_owned());
+    add_object("2 0 obj\n<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>\nendobj".to_owned());
+    add_object("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj".to_owned());
+    add_object(
+        "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj".to_owned(),
+    );
+    let stream = "BT /F1 12 Tf 72 720 Td (1. INT. KITCHEN - DAY) Tj ET";
+    add_object(format!(
+        "5 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+        stream.len(),
+        stream
+    ));
+    add_object("6 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>\nendobj".to_owned());
+    let stream2 = "BT /F1 12 Tf 72 720 Td (2. INT. OFFICE - NIGHT) Tj ET";
+    add_object(format!(
+        "7 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+        stream2.len(),
+        stream2
+    ));
+    let xref_offset = pdf.len();
+    pdf.extend_from_slice(b"xref\n0 8\n0000000000 65535 f \n");
+    for offset in offsets {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes(),
+    );
+    pdf
+}
+
+/// A schedule PDF whose configured extractor cannot render pages
+/// (`AI_DOCUMENT_PARSER=legacy-pdftotext`, the rollback target) keeps the
+/// pre-#960 flat-text path: exactly ONE text call, never a vision call.
+#[tokio::test]
+async fn schedule_worker_keeps_the_flat_text_path_for_the_legacy_parser() {
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingVisionScheduleClient::default());
+    let previews_handle = Arc::clone(&previews);
+    let worker = ScheduleImportWorker {
+        queue,
+        client,
+        previews: previews_handle as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        // CodeRabbit review, PR #967: the flat branch's prompt (unused here).
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let handle = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await
+        .expect("the legacy rollback path must still extract the PDF");
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ShootingSchedule = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(preview.rows.len(), 1);
+}
+
+/// The Ollama vision transport refuses a non-Ollama request (the local-only
+/// transport has no provider-policy gate to hide behind — issue #960).
+#[tokio::test]
+async fn ollama_vision_rejects_non_ollama_provider() {
+    use super::OllamaChatClient;
+    use breakdown_core::ai::{LlmVisionPageInput, LlmVisionRequest};
+
+    let client = OllamaChatClient::new(2, std::time::Duration::from_secs(30))
+        .expect("an Ollama client builds");
+    let request = LlmVisionRequest {
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture".to_owned(),
+        user_context: "fixture".to_owned(),
+        page: LlmVisionPageInput {
+            page_number: 1,
+            png_bytes: Vec::new(),
+            spatial_text_hint: None,
+        },
+        max_tokens: 1024,
+        response_schema: None,
+        reasoning_effort: None,
+    };
+    let error = client
+        .chat_vision_constrained(&request)
+        .await
+        .expect_err("a misrouted vision request must fail closed");
+    assert!(
+        error.to_string().contains("non-Ollama"),
+        "unexpected error: {error}"
+    );
+}
+
+/// Issue #970 round-8 regression (CodeRabbit review, PR #967): a FAILED
+/// `recorded_usage` read propagates BEFORE any paid call — the worker must not
+/// continue from zero, because the completion-time overwrite would erase the
+/// persisted total.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_usage_read_fails_the_job_before_any_paid_call() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    queue.state.lock().unwrap().fail_recorded_usage = true;
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let client = Arc::new(RecordingVisionScheduleClient::default());
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await;
+
+    assert!(
+        result.is_err(),
+        "the failed usage read must fail the job: {result:?}"
+    );
+    assert!(
+        client.page_numbers.lock().unwrap().is_empty(),
+        "no paid page call may start on an unknown accounting state"
+    );
+    assert!(queue.state.lock().unwrap().failed.is_empty());
+}
+
+/// Issue #970 (CodeRabbit review, PR #967 round 9): a FAILED outer attempt
+/// whose billed usage rides the error, followed by a SUCCESSFUL retry, keeps
+/// BOTH usages exactly once — and a later hold persists the sum, never a
+/// duplicate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_successful_retry_after_a_billed_failure_counts_usage_once() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // The breaker starts CLOSED (page 1 is billed across two attempts) and
+    // the client OPENS it during the page-2 call, so the hold follows billed
+    // work — the exact accounting shape of issue #970.
+    let client = Arc::new(BilledRetryThenHoldVisionClient {
+        calls: Arc::default(),
+        queue_state: Arc::clone(&queue.state),
+    });
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &two_page_pdf())
+        .await
+        .expect("a hold is not a failure");
+
+    assert_eq!(result, "", "a hold returns no preview handle");
+    let recorded = queue.partial_usage();
+    // One ledger entry per PAID REQUEST (issue #970, CodeRabbit review PR #967
+    // round 13): the discarded first attempt's answer (30) and the successful
+    // retry (100) stay separate, so the #794 energy cap can price each on its
+    // own.
+    assert_eq!(
+        recorded
+            .iter()
+            .map(|call| call.tokens_in)
+            .collect::<Vec<_>>(),
+        vec![30, 100],
+        "failed attempt and successful retry, exactly once each: {recorded:?}"
+    );
+}
+
+/// Vision client: page 1 fails ONCE with a transient billed error, then
+/// succeeds; page 2 returns the breaker sentinel.
+#[derive(Clone)]
+struct BilledRetryThenHoldVisionClient {
+    calls: Arc<Mutex<Vec<u32>>>,
+    /// The fake queue's state: the client opens the breaker during the
+    /// page-2 call, so the hold (with its `retry_at`) follows billed work.
+    queue_state: Arc<Mutex<FakeQueueState>>,
+}
+
+#[async_trait]
+impl LlmClient for BilledRetryThenHoldVisionClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "BilledRetryThenHoldVisionClient only extracts schedule pages",
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        let call = {
+            let mut calls = self.calls.lock().unwrap();
+            calls.push(request.page.page_number);
+            calls.len()
+        };
+        if request.page.page_number > 1 {
+            // Open the breaker with a probe time BEFORE failing, so the
+            // hold that follows parks the job instead of releasing it.
+            self.queue_state.lock().unwrap().breaker =
+                Some(breakdown_core::ai::ProviderBreakerSnapshot {
+                    state: breakdown_core::ai::ProviderBreakerState::Open,
+                    consecutive_failures: 3,
+                    flap_count: 0,
+                    retry_at: Some(Timestamp::now() + SignedDuration::from_mins(5)),
+                    trial_job: None,
+                });
+            return Err(super::provider_health::breaker_open_error());
+        }
+        if call == 1 {
+            // First attempt of page 1: transient provider failure that still
+            // billed tokens (a truncated answer the attempt discards).
+            return Err(
+                DomainError::llm_provider_unavailable("LLM provider returned HTTP 503")
+                    .with_billed_usage(vec![breakdown_core::ai::LlmCallUsage {
+                        tokens_in: 30,
+                        tokens_out: 0,
+                        cached_tokens_in: 0,
+                        energy_millijoules: 0,
+                    }]),
+            );
+        }
+        Ok(LlmCallOutcome::new(
+            breakdown_core::ai::SchedulePageExtraction {
+                legend_entries: Vec::new(),
+                rows: vec![breakdown_core::ai::SchedulePageRow {
+                    row_ref: "300.33".into(),
+                    scene_ref: Some("300.33".into()),
+                    shooting_day_label: None,
+                    date: None,
+                    location: None,
+                    order: Some(1),
+                    cast_codes: Vec::new(),
+                }],
+                end_of_page_shooting_day_label: None,
+                end_of_page_date: None,
+            },
+            breakdown_core::ai::LlmCallUsage {
+                tokens_in: 100,
+                tokens_out: 40,
+                cached_tokens_in: 0,
+                energy_millijoules: 0,
+            },
+        ))
+    }
+}
+
+/// Issue #970 (CodeRabbit review, PR #967 round 10): a terminal
+/// (non-breaker) failure whose error carries billed usage persists it on the
+/// RUNNING job row BEFORE `mark_failed` — the dead-letter path keeps the
+/// accounting of the billed responses the attempt discarded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_terminal_failure_persists_its_carried_usage() {
+    use super::SpatialPdfExtractor;
+
+    let queue = Arc::new(FakeQueue::default());
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // Page 1: a terminal Validation failure that carries billed usage.
+    let client = Arc::new(TerminalBilledValidationClient::default());
+    let worker = ScheduleImportWorker {
+        queue: Arc::clone(&queue),
+        client: client.clone(),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: SpatialPdfExtractor::new(4 * 1024 * 1024, std::time::Duration::from_secs(30)),
+        provider: LlmProvider::Neuralwatt,
+        model: "qwen3-vl".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        flat_prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = schedule_job(SourceFormat::Pdf);
+
+    let result = worker
+        .process(&job, "test-worker", &tiny_script_pdf())
+        .await;
+
+    assert!(result.is_err(), "the terminal failure surfaces");
+    // The usage is persisted on the RUNNING row before the failure propagates
+    // (the worker loop's handler performs the terminal `mark_failed`).
+    let recorded = queue.partial_usage();
+    assert_eq!(
+        recorded.len(),
+        1,
+        "the carried usage is persisted before the failure: {recorded:?}"
+    );
+    assert_eq!(recorded[0].tokens_in, 60);
+}
+
+/// Issue #970 round-13 regression (CodeRabbit review, PR #967): the re-drive
+/// seeds the job row's **per-request billed-call ledger**, so the #794 energy
+/// cap still applies per request after a hold.
+///
+/// The rate card is 1 nano/token and 1 nano/mJ (`input = 1_000_000` nano per
+/// million tokens, `energy = 3_600_000_000` nano per kWh), which makes the two
+/// hypotheses arithmetically distinguishable:
+///
+/// * per request: `min(1_000, 100) + min(10, 5_000)` = **110** nano;
+/// * one aggregate entry: `min(1_010 token, 5_100 raw)` = **1_010** nano.
+#[tokio::test]
+async fn a_re_drive_prices_the_seeded_ledger_per_request() {
+    let queue = Arc::new(FakeQueue::default());
+    // The billed-call ledger of the attempt that held: two PAID requests, the
+    // first energy-light (its energy stays uncapped), the second token-light
+    // (its energy is capped hard).
+    queue.seed_billed_call(
+        LlmProvider::Neuralwatt,
+        "deepseek-v4-flash",
+        LlmCallUsage {
+            tokens_in: 1_000,
+            energy_millijoules: 100,
+            ..LlmCallUsage::default()
+        },
+    );
+    queue.seed_billed_call(
+        LlmProvider::Neuralwatt,
+        "deepseek-v4-flash",
+        LlmCallUsage {
+            tokens_in: 10,
+            energy_millijoules: 5_000,
+            ..LlmCallUsage::default()
+        },
+    );
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = ScriptImportWorker {
+        chunks: None,
+        queue: Arc::clone(&queue),
+        // A zero-usage answer keeps the seeded ledger the only priced usage.
+        client: Arc::new(ZeroUsageScriptClient),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: Some(Arc::new(MapPricingRepo::default().with_row(
+            LlmProvider::Neuralwatt,
+            "deepseek-v4-flash",
+            pricing_at(
+                1_000_000,     // 1 nano per token
+                1_000_000,     // 1 nano per output token
+                3_600_000_000, // 1 nano per mJ
+                breakdown_core::ai::PricingSource::CuratedSeed,
+            ),
+        ))),
+        decision: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    let cost = telemetry.cost.expect("cost snapshot recorded");
+    let energy = cost.energy_cost.as_ref().expect("extraction energy cost");
+    assert_eq!(
+        energy.raw_energy_nano, 5_100,
+        "the uncapped figure is the sum over the requests"
+    );
+    assert_eq!(
+        energy.effective_capped_nano, 110,
+        "the cap is applied per request, never to the summed seed"
+    );
+    assert!(energy.capped_by_token_cost);
+    // The token figure stays the aggregate one, priced once over the sum
+    // (issue #794).
+    let token = cost.token_cost.as_ref().expect("extraction token cost");
+    assert_eq!(token.tokens_in, 1_010);
+    assert_eq!(token.total_nano, 1_010);
+}
+
+/// Issue #970 round-14 regression (CodeRabbit review, PR #967): the re-drive may
+/// run under a DIFFERENT `(provider, model)` than the attempt that billed the
+/// persisted requests, so the ledger carries the pair with every request and the
+/// completion snapshot prices each group with its own rate card.
+///
+/// CodeRabbit's example: 100 prior tokens at 1 nano/token plus 50 new tokens at
+/// 10 nano/token cost **600** nano. Pricing everything with the current card
+/// would report 1_500.
+///
+/// The detail blocks (rates) are withheld for a mixed job — one rate set cannot
+/// describe two cards — while the summed figure stays the component total.
+#[tokio::test]
+async fn a_re_drive_prices_each_billed_pair_with_its_own_rate_card() {
+    let queue = Arc::new(FakeQueue::default());
+    // The held attempt billed 100 tokens with EURouter `cheap-model`.
+    queue.seed_billed_call(
+        LlmProvider::EURouter,
+        "cheap-model",
+        LlmCallUsage {
+            tokens_in: 100,
+            ..LlmCallUsage::default()
+        },
+    );
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let pricing = Arc::new(
+        MapPricingRepo::default()
+            // 1 nano per token.
+            .with_row(
+                LlmProvider::EURouter,
+                "cheap-model",
+                pricing_at(
+                    1_000_000,
+                    1_000_000,
+                    3_600_000_000,
+                    breakdown_core::ai::PricingSource::CuratedSeed,
+                ),
+            )
+            // 10 nano per token — the pair this re-drive runs on.
+            .with_row(
+                LlmProvider::Neuralwatt,
+                "deepseek-v4-flash",
+                pricing_at(
+                    10_000_000,
+                    10_000_000,
+                    3_600_000_000,
+                    breakdown_core::ai::PricingSource::CuratedSeed,
+                ),
+            ),
+    );
+    let worker = ScriptImportWorker {
+        chunks: None,
+        queue: Arc::clone(&queue),
+        // `CountingScriptClient` answers every chunk with 50 tokens.
+        client: Arc::new(CountingScriptClient::default()),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: Some(pricing),
+        decision: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    assert_eq!(
+        telemetry.tokens_in, 150,
+        "both attempts' tokens are the job total"
+    );
+    let cost = telemetry.cost.expect("cost snapshot recorded");
+    assert_eq!(cost.status, breakdown_core::ai::CostStatus::Known);
+    assert_eq!(
+        cost.total.total_nano,
+        Some(600),
+        "100 x 1 nano (EURouter cheap-model) + 50 x 10 nano (Neuralwatt          deepseek-v4-flash): each group on its own card"
+    );
+    assert_eq!(
+        cost.token_cost, None,
+        "no single rate set describes two cards"
+    );
+    assert_eq!(cost.energy_cost, None);
+}
+
+/// Issue #970 round-14 regression (CodeRabbit review, PR #967): a transient
+/// database error on the successful call's ledger append must not drop a paid
+/// request. The append is retried with ONE stable key (so a commit whose
+/// acknowledgement was lost cannot double-add it), and only after the bound does
+/// the job fail.
+#[tokio::test]
+async fn a_transient_ledger_append_failure_is_retried_and_keeps_the_usage() {
+    let queue = Arc::new(FakeQueue::default());
+    // The first two attempts fail, the third lands.
+    queue.state.lock().unwrap().fail_appends = 2;
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let worker = ScriptImportWorker {
+        chunks: None,
+        queue: Arc::clone(&queue),
+        // 50 billed tokens per call.
+        client: Arc::new(CountingScriptClient::default()),
+        previews: previews as Arc<dyn AiPreviewStore>,
+        extractor: super::LegacyPdfToTextAdapter::new(
+            1024 * 1024,
+            std::time::Duration::from_secs(30),
+        ),
+        provider: LlmProvider::Neuralwatt,
+        model: "deepseek-v4-flash".to_owned(),
+        prompt: "fixture prompt".to_owned(),
+        reasoning_effort: breakdown_core::ai::ReasoningEffortChoice::Auto,
+        bounds: AiImportBounds::default(),
+        pricing: None,
+        decision: None,
+    };
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(
+            &job,
+            "test-worker",
+            "1. INT. WERKSTATT - TAG\nBen repariert das Auto.",
+        )
+        .await
+        .expect("a transient append failure is retried, not propagated");
+
+    let state = queue.state.lock().unwrap();
+    assert_eq!(
+        state.append_attempts, 3,
+        "two failures then the retry that lands"
+    );
+    assert_eq!(
+        state.partial_usage,
+        vec![LlmCallUsage {
+            tokens_in: 50,
+            ..LlmCallUsage::default()
+        }],
+        "the paid request reaches the ledger exactly once"
+    );
+    drop(state);
+    assert_eq!(the_only_telemetry(&queue).tokens_in, 50);
+}
+
+/// Script client that bills nothing: the seeded ledger is the only usage in the
+/// test above.
+#[derive(Clone, Default)]
+struct ZeroUsageScriptClient;
+
+#[async_trait]
+impl LlmClient for ZeroUsageScriptClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Ok(LlmCallOutcome::new(
+            ScriptContext {
+                scenes: vec![DraftScene {
+                    summary: Some("zero-usage call".to_owned()),
+                    ..Default::default()
+                }],
+                ..ScriptContext::default()
+            },
+            LlmCallUsage::default(),
+        ))
+    }
+
+    async fn extract_schedule(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ShootingSchedule>, DomainError> {
+        Err(DomainError::validation(
+            "ZeroUsageScriptClient only extracts scripts",
+        ))
+    }
+}
+
+/// Issue #970 round-13 regression (CodeRabbit review, PR #967): a worker that
+/// died between its completion-time telemetry write and `mark_succeeded` must
+/// not be counted twice by the re-drive.
+///
+/// The old seed read the completion-time counters, which already covered the
+/// whole job, and the stored chunks then replayed their usage ON TOP — a
+/// 100-token chunk came back as 200. Now the seed is the ledger (the crashed
+/// attempt's paid requests, appended before each chunk was stored) and the
+/// stored chunks replay their payload only: 200 seeded + 2 × 50 fresh = 300,
+/// never 500.
+#[tokio::test]
+async fn a_crashed_attempts_completion_total_is_not_counted_twice() {
+    let queue = Arc::new(FakeQueue::default());
+    // The crashed attempt appended both paid requests to the row's ledger
+    // before storing the chunks; its completion telemetry may or may not have
+    // landed — the re-drive must not care either way.
+    let prior = LlmCallUsage {
+        tokens_in: 100,
+        ..LlmCallUsage::default()
+    };
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
+    queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    let store = Arc::new(InMemoryChunkStore::with_prefix(2));
+    let worker = resume_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::clone(&store),
+    );
+    let job = script_job(AiImportJobId::new());
+    worker
+        .process_text(&job, "test-worker", FOUR_SCENE_SCRIPT)
+        .await
+        .unwrap();
+
+    let telemetry = the_only_telemetry(&queue);
+    assert_eq!(
+        telemetry.tokens_in, 300,
+        "2 × 100 seeded + 2 × 50 fresh: the stored chunks are not re-counted"
+    );
+}
+
+/// Vision client: a TERMINAL (non-breaker, non-retryable) failure that
+/// carries the attempt's billed usage.
+#[derive(Clone, Default)]
+struct TerminalBilledValidationClient {
+    page_numbers: Arc<Mutex<Vec<u32>>>,
+}
+
+#[async_trait]
+impl LlmClient for TerminalBilledValidationClient {
+    async fn chat_constrained(
+        &self,
+        _request: LlmChatRequest,
+    ) -> Result<LlmCallOutcome<ScriptContext>, DomainError> {
+        Err(DomainError::validation(
+            "TerminalBilledValidationClient only extracts schedule pages",
+        ))
+    }
+
+    async fn chat_vision_constrained(
+        &self,
+        request: &breakdown_core::ai::LlmVisionRequest,
+    ) -> Result<LlmCallOutcome<breakdown_core::ai::SchedulePageExtraction>, DomainError> {
+        self.page_numbers
+            .lock()
+            .unwrap()
+            .push(request.page.page_number);
+        Err(
+            DomainError::validation("unrecoverable decode failure").with_billed_usage(vec![
+                breakdown_core::ai::LlmCallUsage {
+                    tokens_in: 60,
+                    tokens_out: 10,
+                    cached_tokens_in: 0,
+                    energy_millijoules: 0,
+                },
+            ]),
+        )
+    }
 }

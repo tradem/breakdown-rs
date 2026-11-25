@@ -508,6 +508,7 @@ mod tests {
                 code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
                 reason: "decision endpoint down".into(),
                 retry_after: None,
+                usage: None,
             })
         }
     }
@@ -541,6 +542,7 @@ mod tests {
                     code: &breakdown_core::error_registry::AI_IMPORT_DISABLED,
                     reason: "decision endpoint down".into(),
                     retry_after: None,
+                    usage: None,
                 });
             }
             Err(DomainError::validation("the rubric is malformed"))
@@ -777,6 +779,8 @@ mod tests {
                 location: None,
                 order: Some(1),
                 shooting_day_score: None,
+                shot_suffix: None,
+                cast_refs: Vec::new(),
             },
             breakdown_core::ai::ShootingScheduleRow {
                 row_ref: "r2".into(),
@@ -787,6 +791,8 @@ mod tests {
                 location: None,
                 order: Some(2),
                 shooting_day_score: None,
+                shot_suffix: None,
+                cast_refs: Vec::new(),
             },
         ];
         let mut usage = UsageAccumulator::default();
@@ -811,6 +817,8 @@ mod tests {
             location: None,
             order: Some(1),
             shooting_day_score: None,
+            shot_suffix: None,
+            cast_refs: Vec::new(),
         }
     }
 

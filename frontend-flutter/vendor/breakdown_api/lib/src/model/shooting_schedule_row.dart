@@ -5,7 +5,9 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:breakdown_api/src/model/date.dart';
+import 'package:breakdown_api/src/model/schedule_cast_member.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -14,6 +16,7 @@ part 'shooting_schedule_row.g.dart';
 /// ShootingScheduleRow
 ///
 /// Properties:
+/// * [castRefs] - Cast references on this row that matched an entry in [`ShootingSchedule::cast_legend`] (ADR-041 `D6`, issue #960). Unknown codes are dropped rather than guessed.
 /// * [date]
 /// * [episodeNumber] - The episode half of a dot-separated `<Episode>.<Scene>` schedule reference (`\"294.10\"` → `Some(294)`, plain `\"10\"` → `None`) — issue #721. Additive on the wire: previews stored before this field existed still deserialize.
 /// * [location]
@@ -22,9 +25,14 @@ part 'shooting_schedule_row.g.dart';
 /// * [sceneNumber]
 /// * [shootingDayLabel]
 /// * [shootingDayScore] - Hybrid quality score of this row's day assignment (issue #722), aggregated per `DraftShootingDay` group on the script path. `None` without a decision model / failed pass. Additive on the wire.
+/// * [shotSuffix] - Trailing alphabetic shot suffix on a pick-up/insert reference (`\"300.37N\"` → `Some(\"N\")`, `\"294.10\"` → `None` — issue #960).
 @BuiltValue()
 abstract class ShootingScheduleRow
     implements Built<ShootingScheduleRow, ShootingScheduleRowBuilder> {
+  /// Cast references on this row that matched an entry in [`ShootingSchedule::cast_legend`] (ADR-041 `D6`, issue #960). Unknown codes are dropped rather than guessed.
+  @BuiltValueField(wireName: r'cast_refs')
+  BuiltList<ScheduleCastMember>? get castRefs;
+
   @BuiltValueField(wireName: r'date')
   Date? get date;
 
@@ -50,6 +58,10 @@ abstract class ShootingScheduleRow
   /// Hybrid quality score of this row's day assignment (issue #722), aggregated per `DraftShootingDay` group on the script path. `None` without a decision model / failed pass. Additive on the wire.
   @BuiltValueField(wireName: r'shooting_day_score')
   double? get shootingDayScore;
+
+  /// Trailing alphabetic shot suffix on a pick-up/insert reference (`\"300.37N\"` → `Some(\"N\")`, `\"294.10\"` → `None` — issue #960).
+  @BuiltValueField(wireName: r'shot_suffix')
+  String? get shotSuffix;
 
   ShootingScheduleRow._();
 
@@ -80,6 +92,14 @@ class _$ShootingScheduleRowSerializer
     ShootingScheduleRow object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.castRefs != null) {
+      yield r'cast_refs';
+      yield serializers.serialize(
+        object.castRefs,
+        specifiedType:
+            const FullType(BuiltList, [FullType(ScheduleCastMember)]),
+      );
+    }
     if (object.date != null) {
       yield r'date';
       yield serializers.serialize(
@@ -134,6 +154,13 @@ class _$ShootingScheduleRowSerializer
         specifiedType: const FullType.nullable(double),
       );
     }
+    if (object.shotSuffix != null) {
+      yield r'shot_suffix';
+      yield serializers.serialize(
+        object.shotSuffix,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -159,6 +186,15 @@ class _$ShootingScheduleRowSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'cast_refs':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                BuiltList, [FullType(ScheduleCastMember)]),
+          ) as BuiltList<ScheduleCastMember>?;
+          if (valueDes == null) continue;
+          result.castRefs.replace(valueDes);
+          break;
         case r'date':
           final valueDes = serializers.deserialize(
             value,
@@ -221,6 +257,14 @@ class _$ShootingScheduleRowSerializer
           ) as double?;
           if (valueDes == null) continue;
           result.shootingDayScore = valueDes;
+          break;
+        case r'shot_suffix':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.shotSuffix = valueDes;
           break;
         default:
           unhandled.add(key);
