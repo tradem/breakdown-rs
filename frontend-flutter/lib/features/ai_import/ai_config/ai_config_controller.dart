@@ -577,6 +577,10 @@ class AiConfigController extends _$AiConfigController {
 
   /// Selects a provider and loads its model set.
   void selectProvider(String key) {
+    // Read from the BUILT state, not the draft: on a configured screen the
+    // effective provider falls back to the stored config, so a draft-only
+    // comparison would miss the first change away from it.
+    final providerChanged = state.selectedProviderKey != key;
     _draftsNotifier.mutate((d) {
       d.selectedProviderKey = key;
       d.selectedAssistantModelId = null;
@@ -585,6 +589,17 @@ class AiConfigController extends _$AiConfigController {
       // The old provider's image model is invalid for the new catalog. Mark
       // the clear as intentional so build() does not restore it from config.
       d.imageModelTouched = true;
+      // A ZDR attestation describes ONE provider ACCOUNT (issue #968 review):
+      // a provider change always arrives with a fresh credential (the backend
+      // answers `422 ai-config.provider-mismatch` otherwise), so carrying the
+      // old attestation would re-assert a `ZDR Mode` switch nobody checked for
+      // the new account — exactly what the aggregate now refuses to inherit.
+      // Reset to the fail-closed `false` rather than to `null`: `null` would
+      // fall back to the STORED config's attestation, i.e. the previous
+      // account's. Re-picking the same provider leaves it alone.
+      if (providerChanged) {
+        d.zdrAttested = false;
+      }
     });
     state = state.copyWith(clearCommandError: true);
   }

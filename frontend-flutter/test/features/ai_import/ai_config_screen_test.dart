@@ -2697,6 +2697,52 @@ void main() {
       );
 
       testWidgets(
+        'edit: switching away from an attested provider resets the toggle, so '
+        'the new account must be attested explicitly (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: true)]),
+            providersValue: Right([
+              _provider('openai', LlmProvider.openai),
+              _provider('nebius', LlmProvider.nebius),
+            ]),
+          );
+          await pumpScreen(tester, height: 2400);
+
+          // The stored configuration attests the OPENAI account.
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isTrue,
+          );
+
+          // Switching to Nebius hands over a NEW credential, so the stored
+          // attestation belongs to the wrong account: the toggle must fall back
+          // to the fail-closed default instead of re-asserting it.
+          await tester.tap(find.byKey(const Key('ai-provider-picker')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('nebius').last);
+          await tester.pumpAndSettle();
+
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+          expect(
+            container.read(aiConfigControllerProvider).zdrAttested,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
         'create: a successful create retires the attestation draft too '
         '(issue #968 review)',
         (tester) async {
