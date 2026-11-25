@@ -14,7 +14,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -34,6 +34,7 @@ import 'package:frontend_flutter/features/ai_import/import_jobs/decision_outcome
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/preview_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 // --- Fixtures ---------------------------------------------------------------
@@ -738,7 +739,7 @@ void main() {
                 // template copy (not the English fallback) is what the picture
                 // pins.
                 locale: const Locale('de'),
-                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                localizationsDelegates: appLocalizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
                 home: const AiPreviewScreen(jobId: 'job-1'),
               ),

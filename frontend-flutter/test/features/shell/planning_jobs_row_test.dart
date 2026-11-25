@@ -11,7 +11,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +26,7 @@ import 'package:frontend_flutter/data/cache/season_cache_dao.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_screen.dart';
 import 'package:frontend_flutter/features/shell/production_overview_screen.dart';
-import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 
 import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
 import '../seasons/seasons_test_fakes.dart'
@@ -83,7 +83,7 @@ void main() {
           theme: ThemeData.light(),
           locale: const Locale('en'),
           supportedLocales: const [Locale('en'), Locale('de')],
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           home: ProductionOverviewScreen(season: season('season-1', number: 1)),
         ),
       ),

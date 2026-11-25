@@ -56,6 +56,13 @@ dependencies:
   drift: ^2.35.4
   flutter:
     sdk: flutter
+  # Material Design widgets live in their own package since Flutter 3.50:
+  # `package:flutter/material.dart` is deprecated (issue #975), every hand-
+  # written `lib/`, `test/` and `integration_test/` file imports
+  # `package:material_ui/material_ui.dart` instead. Foundation/widgets/
+  # services/scheduler semantics stay on the Flutter SDK (only material and
+  # cupertino were extracted); `material_ui` re-exports `flutter/widgets.dart`.
+  material_ui: ^1.11.1
   flutter_riverpod: ^3.5.0
   flutter_localizations:
     sdk: flutter

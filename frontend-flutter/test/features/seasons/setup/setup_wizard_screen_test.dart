@@ -8,7 +8,7 @@ import 'dart:async';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -28,7 +28,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_controller.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_screen.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_state.dart';
-import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 
 import '../seasons_test_fakes.dart';
 import 'setup_wizard_test_fakes.dart';
@@ -169,7 +169,7 @@ Future<void> _pumpWizard(
         theme: theme ?? AppThemes.light(),
         locale: const Locale('de'),
         supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         home: const SetupWizardScreen(),
       ),
     ),

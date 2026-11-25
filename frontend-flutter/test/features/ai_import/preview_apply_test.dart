@@ -24,7 +24,7 @@ import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:frontend_flutter/data/cache/clock.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';

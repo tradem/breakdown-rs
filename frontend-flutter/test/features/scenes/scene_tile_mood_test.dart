@@ -7,7 +7,7 @@
 // visible `Mood: I/T` text on its own line; a free-text mood stays plain.
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/features/scenes/scenes_state.dart';

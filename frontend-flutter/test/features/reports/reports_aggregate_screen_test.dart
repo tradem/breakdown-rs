@@ -11,7 +11,7 @@ import 'dart:io';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart';
@@ -32,7 +32,7 @@ import 'package:frontend_flutter/features/reports/reports_aggregate_screen.dart'
 import 'package:frontend_flutter/features/reports/reports_aggregate_state.dart';
 import 'package:frontend_flutter/features/reports/reports_controller.dart';
 import 'package:frontend_flutter/features/reports/widgets/reports_aggregate_entry.dart';
-import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/features/scene_shoots/scene_shoots_controller.dart';
 
 import '../seasons/seasons_test_fakes.dart';
@@ -233,7 +233,7 @@ void main() {
               : ThemeMode.dark,
           locale: const Locale('de'),
           supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           home: ReportsAggregateScreen(scope: scope),
         ),
       ),
@@ -346,7 +346,7 @@ void main() {
       MaterialApp(
         locale: const Locale('de'),
         supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(
           appBar: AppBar(
             title: const Text('Staffel 1'),

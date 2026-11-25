@@ -9,7 +9,7 @@
 // setup-wizard routes (the expensive flows are asserted by TYPE here —
 // they pump in their own feature test suites).
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 

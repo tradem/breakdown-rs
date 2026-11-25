@@ -8,7 +8,7 @@
 // `SceneMoodLabel` widget — icons render NEXT TO the visible text and never
 // replace it (glossary norm); an unparsable mood degrades to plain text.
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/material_icons.dart';

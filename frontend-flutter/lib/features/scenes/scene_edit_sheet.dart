@@ -3,7 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../design/scene_mood_label.dart';
 import '../../design/spacing.dart';

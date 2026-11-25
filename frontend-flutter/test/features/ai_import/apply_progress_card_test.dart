@@ -16,7 +16,7 @@ import 'dart:convert';
 // `hide`: the app's flattened frame (ai_import_repository.dart) is the one
 // these tests build — the generated wire model is the decoder's business.
 import 'package:breakdown_api/breakdown_api.dart' hide ApplyProgressFrame;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -30,7 +30,7 @@ import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/apply_screen.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_eta.dart';
-import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 
 const _jobId = 'job-apply-1';
 
@@ -122,7 +122,7 @@ void main() {
         child: MaterialApp(
           locale: locale,
           supportedLocales: const [Locale('en'), Locale('de')],
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           home: const Scaffold(
             body: SingleChildScrollView(
               child: AiApplyProgressCard(jobId: _jobId),

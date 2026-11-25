@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Loading skeleton of the Season tab (`redesign-seasons-home` task 3.5):
 /// a lightweight list placeholder shown ONLY for the cold-start window

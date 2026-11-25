@@ -2,9 +2,11 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: space-bunny-free (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:highlight/languages/xml.dart';
+
+import 'legacy_material_subtree.dart';
 
 /// An editable, XML-highlighted prompt field.
 ///
@@ -139,17 +141,21 @@ class _XmlPromptEditorState extends State<XmlPromptEditor> {
           labelText: widget.label,
           border: const OutlineInputBorder(),
         ),
-        child: CodeField(
-          controller: _controller,
-          minLines: widget.minLines,
-          maxLines: widget.maxLines,
-          wrap: true,
-          gutterStyle: GutterStyle.none,
-          cursorColor: scheme.primary,
-          background: scheme.surfaceContainerLow,
-          textStyle: Theme.of(context).textTheme.bodyMedium!
-              .copyWith(color: scheme.onSurface, fontFamily: 'monospace'),
-          onChanged: widget.onChanged,
+        // `flutter_code_editor` still builds a legacy `TextField`, so the
+        // editor body runs inside the legacy-material bridge (issue #975).
+        child: legacyMaterialSubtree(
+          child: CodeField(
+            controller: _controller,
+            minLines: widget.minLines,
+            maxLines: widget.maxLines,
+            wrap: true,
+            gutterStyle: GutterStyle.none,
+            cursorColor: scheme.primary,
+            background: scheme.surfaceContainerLow,
+            textStyle: Theme.of(context).textTheme.bodyMedium!
+                .copyWith(color: scheme.onSurface, fontFamily: 'monospace'),
+            onChanged: widget.onChanged,
+          ),
         ),
       ),
     );

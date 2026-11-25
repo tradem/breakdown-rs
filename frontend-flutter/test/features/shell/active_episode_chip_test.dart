@@ -5,7 +5,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +18,7 @@ import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
 import 'package:frontend_flutter/features/shell/active_episode_chip.dart';
 import 'package:frontend_flutter/features/shell/planning_location.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../../support/fake_secure_storage.dart';
@@ -70,7 +71,7 @@ void main() {
         child: MaterialApp(
           locale: const Locale('de'),
           supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           home: Scaffold(
             body: ActiveEpisodeChip(
               location: location,
@@ -203,7 +204,7 @@ void main() {
           child: MaterialApp(
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: Builder(
               builder: (context) => Scaffold(
                 body: FilledButton(
@@ -263,7 +264,7 @@ void main() {
           child: MaterialApp(
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: const EpisodeScopePickerScreen(
               seasonId: 'season-1',
               blockId: 'block-1',
@@ -305,7 +306,7 @@ void main() {
           child: MaterialApp(
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: const Scaffold(
               body: EpisodeScopePickerScreen(
                 seasonId: 'season-1',
@@ -355,7 +356,7 @@ void main() {
           child: MaterialApp(
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: const EpisodeScopePickerScreen(
               seasonId: 'season-1',
               blockId: 'block-1',
@@ -407,7 +408,7 @@ void main() {
           child: MaterialApp(
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: const EpisodeScopePickerScreen(
               seasonId: 'season-1',
               blockId: 'block-1',
@@ -449,7 +450,7 @@ void main() {
             themeMode: mode,
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: Scaffold(
               body: Center(
                 child: Container(

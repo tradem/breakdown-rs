@@ -15,7 +15,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -47,6 +47,7 @@ import 'package:frontend_flutter/features/scenes/scene_detail_screen.dart';
 import 'package:frontend_flutter/features/scenes/scenes_controller.dart';
 import 'package:frontend_flutter/features/shell/planning_location.dart';
 import 'package:frontend_flutter/features/shooting_days/shooting_days_controller.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../seasons/seasons_test_fakes.dart';
@@ -1524,7 +1525,7 @@ void main() {
               theme: theme,
               locale: const Locale('de'),
               supportedLocales: AppLocalizations.supportedLocales,
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              localizationsDelegates: appLocalizationsDelegates,
               home: SceneDetailScreen(
                 seasonId: 'season-1',
                 episode: _episode(),

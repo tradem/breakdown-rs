@@ -11,7 +11,7 @@
 // every FAB, so two mounted plus actions would collide as soon as a
 // root-navigator page transition collects heroes from both subtrees.
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/components/plus_action_fab.dart';

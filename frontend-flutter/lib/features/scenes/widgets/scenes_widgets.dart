@@ -7,7 +7,7 @@
 // Co-authored-by: qwen3.8-flash (opencode-go)
 // Co-authored-by: glm-5.3-flash (neuralwatt)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../design/components/ai_provenance_badge.dart';
 import '../../../design/scene_mood_label.dart';

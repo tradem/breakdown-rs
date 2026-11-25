@@ -3,12 +3,13 @@
 // Co-authored-by: glm-5.3 (neuralwatt)
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/shell/location_strip.dart';
 import 'package:frontend_flutter/features/shell/planning_location.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 SeasonView _season(String id, {int number = 1, String? title}) => SeasonView(
@@ -74,7 +75,7 @@ void main() {
       MaterialApp(
         locale: locale,
         supportedLocales: AppLocalizations.supportedLocales,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        localizationsDelegates: appLocalizationsDelegates,
         home: Scaffold(body: Center(child: child)),
       ),
     );
@@ -239,7 +240,7 @@ void main() {
           themeMode: mode,
           locale: const Locale('de'),
           supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           home: Scaffold(
             body: Center(
               child: Container(

@@ -7,7 +7,7 @@
 // never be taller than its spec, and a long scene summary is truncated instead
 // of clipped.
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/components/breakdown_app_bar.dart';
