@@ -426,13 +426,6 @@ class AiConfigController extends _$AiConfigController {
       });
     }
 
-    // Whether the drafted attestation describes the credential now on screen.
-    final servedCredential = _credentialIdentityOf(config);
-    final draftedZdrApplies =
-        drafts.zdrAttested != null &&
-        (drafts.zdrCredential == null ||
-            drafts.zdrCredential == servedCredential);
-
     // "Resolved first-run" — only a discovery that has GENUINELY resolved to
     // "no active config" may feed the prefill/preselect (issue #471).
     // Loading is NOT first-run (an active config may still appear), and a
@@ -458,6 +451,28 @@ class AiConfigController extends _$AiConfigController {
         drafts.selectedProviderKey ??
         suggestedProviderKey ??
         config?.provider.name;
+
+    // The credential the CURRENT form selection describes: the stored
+    // credential while the selection is the stored provider, otherwise
+    // `<provider>|` for the one the hand-off will create (not yet known).
+    final String? draftCredentialIdentity;
+    final selectedConfig = config;
+    if (selectedProviderKey == null) {
+      draftCredentialIdentity = null;
+    } else if (selectedConfig != null &&
+        selectedProviderKey == selectedConfig.provider.name) {
+      draftCredentialIdentity = _credentialIdentityOf(selectedConfig);
+    } else {
+      draftCredentialIdentity = '$selectedProviderKey|';
+    }
+    // A drafted attestation applies only to the credential it was drafted for
+    // (issue #968 review): once discovery loads a configuration — or a
+    // replacement credential — the draft never described, the stored
+    // (fail-closed) value governs and the operator must re-attest.
+    final draftedZdrApplies =
+        drafts.zdrAttested != null &&
+        drafts.zdrCredential != null &&
+        drafts.zdrCredential == draftCredentialIdentity;
 
     final models = switch (selectedProviderKey == null
         ? const AsyncValue<Result<List<ModelInfo>>>.loading()
@@ -682,7 +697,10 @@ class AiConfigController extends _$AiConfigController {
       // account's. Re-picking the same provider leaves it alone.
       if (providerChanged) {
         d.zdrAttested = false;
-        d.zdrCredential = null;
+        // The hand-off credential does not exist yet, so the draft describes
+        // `provider|` — exactly the identity `build` derives for that
+        // selection, which keeps the fail-closed `false` in force.
+        d.zdrCredential = '$key|';
         d.zdrEditGeneration++;
       }
     });
@@ -819,7 +837,7 @@ class AiConfigController extends _$AiConfigController {
   void setZdrAttested(bool value) {
     _draftsNotifier.mutate((d) {
       d.zdrAttested = value;
-      d.zdrCredential = _credentialIdentityOf(state.config);
+      d.zdrCredential = _selectionCredentialIdentity();
       d.zdrEditGeneration++;
     });
     state = state.copyWith(zdrAttested: value, clearCommandError: true);
@@ -1106,6 +1124,14 @@ class AiConfigController extends _$AiConfigController {
           version: idVersion.version,
           zdrAttested: s.zdrAttested,
         );
+        // The created credential is what the draft now describes, so bind it
+        // before settling: an unbound first-run draft must not stay claimable
+        // for whatever credential discovery later serves (issue #968 review).
+        final createdCredentialIdentity =
+            '${provider.name}|${credential.vaultKeyId}';
+        _draftsNotifier.mutate(
+          (d) => d.zdrCredential = createdCredentialIdentity,
+        );
         // Settle the attestation FIRST (issue #968 review) — see the edit path.
         _settleZdrAttestation(
           verdict.stored,
@@ -1172,20 +1198,20 @@ class AiConfigController extends _$AiConfigController {
         stored.zdrAttested == submitted &&
         (version == null || stored.version >= version);
     _draftsNotifier.mutate((d) {
+      // A settle dispatched EARLIER must neither replace NOR CLEAR a marker a
+      // LATER save recorded (issue #968 review): that marker is what retires the
+      // later draft, and losing it — on either branch — would leave a stale
+      // value able to be re-sent. So both branches check ownership first.
+      final existing = d.zdrConfirmation;
+      final ownsMarker = existing == null || existing.generation <= generation;
       if (confirmed) {
-        d.zdrConfirmation = null;
-      } else {
-        final existing = d.zdrConfirmation;
-        // A settle dispatched EARLIER must not replace a marker a LATER save
-        // recorded (issue #968 review): that marker retires the later draft, and
-        // losing it would leave a stale value able to be re-sent.
-        if (existing == null || existing.generation <= generation) {
-          d.zdrConfirmation = (
-            version: version,
-            value: submitted,
-            generation: generation,
-          );
-        }
+        if (ownsMarker) d.zdrConfirmation = null;
+      } else if (ownsMarker) {
+        d.zdrConfirmation = (
+          version: version,
+          value: submitted,
+          generation: generation,
+        );
       }
       // Only a draft nobody has touched since the dispatch is retired — a flip
       // made while the request was in flight is the newer intent and stays.
@@ -1212,6 +1238,21 @@ class AiConfigController extends _$AiConfigController {
   /// any credential exists (first run).
   static String? _credentialIdentityOf(AiConfigView? config) =>
       config == null ? null : '${config.provider.name}|${config.vaultKeyId}';
+
+  /// The credential identity of the CURRENT form selection, captured when the
+  /// operator flips the toggle: the stored credential while the selection is the
+  /// stored provider, otherwise `provider|` for the credential the hand-off will
+  /// create (issue #968 review).
+  String? _selectionCredentialIdentity() {
+    final current = state;
+    final providerKey = current.selectedProviderKey;
+    if (providerKey == null) return null;
+    final config = current.config;
+    if (config != null && providerKey == config.provider.name) {
+      return _credentialIdentityOf(config);
+    }
+    return '$providerKey|';
+  }
 
   /// Whether a discovered [stored] view SETTLES a pending confirmation: it
   /// carries the acknowledged version with the submitted value (confirmed), or
@@ -1441,6 +1482,12 @@ class AiConfigController extends _$AiConfigController {
           );
         }
         if (!ref.mounted) return;
+        // Bind the draft to the credential the create established, then settle
+        // (issue #968 review) — an unbound draft must not survive into a
+        // configuration it never described.
+        final committedIdentity =
+            '${snapshot.selectedProviderKey}|${credential.vaultKeyId}';
+        _draftsNotifier.mutate((d) => d.zdrCredential = committedIdentity);
         // An unambiguous commit settles the attestation too (issue #968
         // review): the committed view is authoritative, and a draft left over
         // from the unresolved state would mask every later refresh.

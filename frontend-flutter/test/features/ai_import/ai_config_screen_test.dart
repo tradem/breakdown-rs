@@ -2779,10 +2779,10 @@ void main() {
           await tester.pumpAndSettle();
           expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
 
-          // The projection catches up (version 3 carries the revocation) — the
-          // deferred confirmation must retire the draft, or a stale `false`
-          // would keep overriding whatever the server (or another client) says.
-          discovery.value = Right([_config(zdrAttested: false, version: 3)]);
+          // The projection catches up — the ACKNOWLEDGED version 2 with the
+          // submitted value — and the deferred confirmation must retire the
+          // draft, or a stale `false` would keep overriding the server.
+          discovery.value = Right([_config(zdrAttested: false, version: 2)]);
           container.invalidate(aiConfigDiscoveryProvider);
           await tester.pumpAndSettle();
           expect(container.read(aiConfigDraftsProvider).zdrAttested, isNull);
@@ -2911,6 +2911,107 @@ void main() {
             container.read(aiConfigControllerProvider).zdrAttested,
             isFalse,
           );
+        },
+      );
+
+      testWidgets(
+        'create: an UNBOUND first-run draft does not apply to a configuration '
+        'discovery later loads (issue #968 review)',
+        (tester) async {
+          await setupContainer();
+          await pumpScreen(tester, height: 2400);
+
+          // First run: the operator attests before any credential exists.
+          await tester.tap(find.byKey(const Key('ai-zdr-attested-toggle')));
+          await tester.pumpAndSettle();
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isTrue);
+
+          // Another client's configuration appears (its own credential, its own
+          // — fail-closed — attestation). The first-run draft never described
+          // it, so it must not be re-asserted for it.
+          discovery.value = Right([
+            _config(zdrAttested: false, version: 2, vaultKeyId: 'vk-9'),
+          ]);
+          container.invalidate(aiConfigDiscoveryProvider);
+          await tester.pumpAndSettle();
+
+          expect(
+            tester
+                .widget<CheckboxListTile>(
+                  find.byKey(const Key('ai-zdr-attested-toggle')),
+                )
+                .value,
+            isFalse,
+          );
+          expect(
+            container.read(aiConfigControllerProvider).zdrAttested,
+            isFalse,
+          );
+        },
+      );
+
+      testWidgets(
+        'edit: a CONFIRMED settle from an earlier dispatch does not clear a '
+        'newer pending marker (issue #968 review)',
+        (tester) async {
+          await setupContainer(
+            discoveryValue: Right([_config(zdrAttested: false)]),
+          );
+          await pumpScreen(tester, height: 2400);
+          final controller = container.read(
+            aiConfigControllerProvider.notifier,
+          );
+
+          Future<Result<int>> dispatch(bool attested) => controller.edit(
+            providerKey: 'openai',
+            assistantModelId: 'gpt-5.6-luna',
+            imageModelId: null,
+            costDisplayPreference: CostDisplayPreference.token,
+            reasoningEffort: ReasoningEffortChoice.auto,
+            zdrAttested: attested,
+            scriptPrompt: '',
+            schedulePrompt: '',
+            decisionProviderKey: null,
+            decisionModelId: null,
+          );
+
+          // Save A (attest true) is held in flight; save B (revoke) is
+          // dispatched afterwards and records a NEWER pending marker.
+          controller.setZdrAttested(true);
+          final gate = Completer<void>();
+          repo.getConfigGate = gate.future;
+          final saveA = dispatch(true);
+          await tester.pump();
+
+          repo.getConfigGate = null;
+          controller.setZdrAttested(false);
+          // Script order follows the read-back retries: B consumes the first
+          // three (a stale view every time, so it stays pending), A the next
+          // three once its gate opens (a confirming view, so it settles).
+          repo.getConfigScript = [
+            Right(_config(zdrAttested: true)),
+            Right(_config(zdrAttested: true)),
+            Right(_config(zdrAttested: true)),
+            Right(_config(zdrAttested: true, version: 2)),
+            Right(_config(zdrAttested: true, version: 2)),
+            Right(_config(zdrAttested: true, version: 2)),
+          ];
+          expect(await dispatch(false), isA<Right<ProblemError, int>>());
+          final newerMarker = container
+              .read(aiConfigDraftsProvider)
+              .zdrConfirmation;
+          expect(newerMarker, isNotNull);
+          expect(newerMarker!.generation, greaterThan(0));
+
+          // Completing A settles it CONFIRMED — it must not clear B's marker.
+          gate.complete();
+          expect(await saveA, isA<Right<ProblemError, int>>());
+          await tester.pumpAndSettle();
+          expect(
+            container.read(aiConfigDraftsProvider).zdrConfirmation,
+            isNotNull,
+          );
+          expect(container.read(aiConfigDraftsProvider).zdrAttested, isFalse);
         },
       );
 

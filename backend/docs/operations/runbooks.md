@@ -1775,8 +1775,19 @@ append), while the schedule worker resolves its configuration from the read mode
 on `revoked = FALSE` and applies **no** version filter). In the window between the acknowledgement
 and the `AiConfigProjector` write, a job that resolves its config can therefore still read the
 previous `zdr_attested`. The contract is: **no page-image egress once the projection carries the
-revocation** — not "no egress after the response". A job already inside its first page call is not
-interrupted either way (the policy is resolved per call, and the call in flight holds its verdict).
+revocation** — not "no egress after the response".
+
+The window is wider than one call, so state it precisely: `schedule_worker_tick` resolves the
+configuration **once per job attempt** (`worker_loop`) and copies `zdr_attested` into the worker,
+which then reuses that same value for **every page request of that attempt**
+(`workers::extract_pdf_pages`). A job that already read `true` therefore keeps sending the remaining
+pages of that attempt after the projection carries the revocation; the gate re-opens on the next
+attempt, which re-resolves the config. Bound of the exposure: one attempt, i.e. at most the
+analytic worst case of `AI_IMPORT_MAX_ATTEMPT_RETRIES` (≈22 min hosted / ≈28 min Ollama, see
+`backend/.github/instructions/ai-import.instructions.md`), and never across attempts. Stopping an
+in-flight attempt at the next page would need a per-page read of the config — deliberately not
+done: it turns a per-attempt snapshot into a per-page read-model query, and the value is already
+resolved from the CURRENT credential at that point.
 Confirm what the worker will see before concluding that a revocation did not take effect:
 
 ```sql
