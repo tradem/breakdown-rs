@@ -7755,11 +7755,20 @@ struct InMemoryChunkStore {
 
 impl InMemoryChunkStore {
     fn with_prefix(prefix: u32) -> Self {
+        Self::with_prefix_tokens(prefix, 100)
+    }
+
+    /// Same as [`Self::with_prefix`], with an explicit per-chunk stored usage.
+    ///
+    /// The re-drive must never count that usage again (it is already on the job
+    /// row's ledger), so a test can set it to the arithmetic that would make a
+    /// regression visible (issue #971).
+    fn with_prefix_tokens(prefix: u32, tokens_in: u64) -> Self {
         let store = Self::default();
         {
             let mut chunks = store.chunks.lock().unwrap();
             for index in 0..prefix {
-                chunks.push(stored_chunk(index, 100));
+                chunks.push(stored_chunk(index, tokens_in));
             }
         }
         store
@@ -9900,6 +9909,10 @@ impl LlmClient for ZeroUsageScriptClient {
 /// attempt's paid requests, appended before each chunk was stored) and the
 /// stored chunks replay their payload only: 200 seeded + 2 × 50 fresh = 300,
 /// never 500.
+///
+/// The zero-fresh-call variant of the same window (a COMPLETE chunk set, so the
+/// re-drive pays for nothing) is
+/// [`a_completion_total_from_before_the_crash_is_reported_once`] — issue #971.
 #[tokio::test]
 async fn a_crashed_attempts_completion_total_is_not_counted_twice() {
     let queue = Arc::new(FakeQueue::default());
@@ -9930,6 +9943,72 @@ async fn a_crashed_attempts_completion_total_is_not_counted_twice() {
         telemetry.tokens_in, 300,
         "2 × 100 seeded + 2 × 50 fresh: the stored chunks are not re-counted"
     );
+}
+
+/// Issue #971 regression (CodeRabbit review, PR #967 round 8): the PURE
+/// reproduction of the crash window — every chunk was stored by the attempt that
+/// then wrote its completion total (100 tokens for the job) and died before
+/// `mark_succeeded`.
+///
+/// The re-drive therefore pays for nothing (the chunk set is complete), but it
+/// still replays all four stored chunks. Seeding the row's completion total and
+/// adding the replay back — the arithmetic the issue reported — answers 200 for
+/// 100 billed tokens. The ledger seed plus payload-only replay answers 100: the
+/// completion counters are never read back, so the window between the two
+/// writes cannot double anything (Option A of the issue; shipped with #970's
+/// `billed_calls` column, so Option B's atomic write is not needed).
+#[tokio::test]
+async fn a_completion_total_from_before_the_crash_is_reported_once() {
+    let queue = Arc::new(FakeQueue::default());
+    // Four chunks of 25 tokens: the crashed attempt billed 100 in total and
+    // appended each request to the row's ledger before storing its chunk.
+    let prior = LlmCallUsage {
+        tokens_in: 25,
+        ..LlmCallUsage::default()
+    };
+    for _ in 0..4 {
+        queue.seed_billed_call(LlmProvider::Neuralwatt, "deepseek-v4-flash", prior);
+    }
+    let previews = Arc::new(MemoryAiPreviewStore::default());
+    // The COMPLETE chunk set — the crashed attempt stored all four, so the
+    // re-drive has no paid work left (issue #871 D-B6).
+    let store = Arc::new(InMemoryChunkStore::with_prefix_tokens(4, 25));
+    let worker = resume_worker(
+        Arc::clone(&queue),
+        Arc::clone(&previews),
+        Arc::clone(&store),
+    );
+    let job = script_job(AiImportJobId::new());
+    let handle = worker
+        .process_text(&job, "test-worker", FOUR_SCENE_SCRIPT)
+        .await
+        .unwrap();
+
+    assert!(
+        worker.client.calls().is_empty(),
+        "a complete chunk set issues no paid call: {:?}",
+        worker.client.calls()
+    );
+    // The stored chunks still contribute their PAYLOAD, so the preview is
+    // complete — the accounting is the only thing the replay must not move.
+    let payload = previews.get(&handle).await.unwrap().unwrap();
+    let preview: ScriptContext = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(
+        preview.scenes.len(),
+        4,
+        "every stored chunk reaches the preview"
+    );
+
+    let telemetry = the_only_telemetry(&queue);
+    assert_eq!(
+        telemetry.tokens_in, 100,
+        "the crashed attempt's 100 tokens are reported ONCE, never 200 (issue #971)"
+    );
+    assert_eq!(
+        telemetry.energy_millijoules, 0,
+        "the ledger carries no energy, so the completion total carries none either"
+    );
+    assert_eq!(telemetry.chunk_count, 4, "the whole job is covered");
 }
 
 /// Vision client: a TERMINAL (non-breaker, non-retryable) failure that

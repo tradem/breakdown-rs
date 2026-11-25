@@ -119,6 +119,19 @@ generated notes are never used.
     ledger), the appends are owner-fenced and idempotent per key, and a FAILED
     read propagates before any paid work — an unknown accounting state is never
     treated as zero.
+  - **A completion total from before the crash is reported once (issue #971).**
+    The window CodeRabbit reported on PR #967 round 8 — the worker crashes
+    between `record_worker_telemetry` (the completion total) and
+    `mark_succeeded` — is closed by the ledger seed above, not by a second
+    storage column and not by folding the two writes into one transaction: no
+    read path consumes the completion counters, so a re-drive that finds a
+    COMPLETE chunk set (zero paid calls) reports the ledger total — 100 for a
+    100-token script, never 200. Pinned by
+    `a_completion_total_from_before_the_crash_is_reported_once`
+    (`crates/infra/src/ai/tests.rs`), the fresh-call variant
+    `a_crashed_attempts_completion_total_is_not_counted_twice`, and the DB-seam
+    test `the_completion_telemetry_does_not_touch_the_ledger`
+    (`crates/integration-tests/tests/ai_import_billed_calls.rs`).
   - **Every ledger entry carries the pair that billed it** (issue #970 round
     14). The `(provider, model)` a worker calls comes from configuration, so a
     re-drive can run under a different pair than the attempt that paid for a
