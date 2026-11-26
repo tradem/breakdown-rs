@@ -1821,7 +1821,8 @@ one secret per provider, and the split between them is the whole point:
 **Why `ovhcloud` is the oracle, not the production endpoint.** A nightly must answer *"is our code
 correct?"*, so it runs against the most stable cheapest verified endpoint, not against whatever
 production happens to use (that is what the text pass guards). `ovhcloud` / `qwen3-vl-30b-a3b` is an
-EU-only operator with a 99.5 %-SLA AI-Endpoints product at ≈ $0.0011 per page, and its `/v1/models`
+EU-only operator with a 99.5 %-SLA AI-Endpoints product at ≈ $0.0023 per page (measured 2026-11-26 on a
+dense multi-row grid: 5 685 in / 2 538 out tokens), and its `/v1/models`
 answers **without a credential** — so the preflight that catches a rotated curated ID costs nothing.
 That read stays anonymous even when `AI_VISION_KEY_OVHCLOUD` is set: the first recorded run
 (2026-11-26) attached the credential and the same endpoint answered `401 "Your token is not allowed to
@@ -1830,7 +1831,11 @@ perform the required actions on any tenant"`, turning a working free check into 
 with the provider's own code.
 `eurouter` is deliberately *not* the oracle: it is a reseller fronting many upstreams, and using it
 as the paid canary made a red nightly ambiguous ("did our extractor regress, or did the reseller have
-a bad night?"). Both roles cost < **$0.10/month** at one page per night.
+a bad night?"). Measured on 2026-11-26 — one page of `Drehplan_1.pdf`, both providers:
+`ovhcloud` `in=5685 out=2538` → **$0.002324**, `scaleway` `in=5735 out=2729` → **$0.001815**, i.e.
+≈ **$0.004 per night / ≈ $0.12 per month** for both. (The issue's `< $0.10/month` budget assumed a
+lighter page at ~1.3–2k image tokens / ~600 output tokens; a real grid page carries ~5.7k in and
+~2.6k out. Still two orders of magnitude below the text pass.)
 
 **Reading the output.**
 

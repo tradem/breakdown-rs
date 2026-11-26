@@ -84,7 +84,8 @@ Sources: Scaleway, "Data privacy" — *"By default we apply a Zero Data Retentio
 `qwen3-vl-30b-a3b` as its **must-pass** row and `Scaleway` /
 `mistral-small-3.2-24b-instruct-2506` as an **advisory** one; `EURouter` gets only its free
 `GET {base}/key` read and is never a paid vision call. That is an *operational* choice —
-stability (an EU-only operator on a 99.5 %-SLA product), cost (≈ $0.0011 per page) and a
+stability (an EU-only operator on a 99.5 %-SLA product), cost (≈ $0.0023 per dense page, measured
+2026-11-26: 5 685 in / 2 538 out tokens) and a
 catalogue that answers without credentials — **not** a policy statement. The provider table above
 remains the sole authority on *compliance*: the canary selection cannot admit a provider it rejects, and a
 successful call to a non-compliant provider is an assertion failure in the smoke, not a
