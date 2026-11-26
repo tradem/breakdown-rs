@@ -24,6 +24,11 @@ aliases. Values use the 2025.10 structured forms:
   even for 0; this pipeline implements only `"px"` (logical px, mapping 1:1
   to Dart doubles; `"rem"` would be valid DTCG but is rejected here).
 - `fontWeight`: a number 100–900.
+- `number`: a finite JSON number (issue #991). Used for ratios and opacities
+  where no dimension applies — today the glass bottom bar's tint alpha and its
+  plane lift. The token's `$description` states the range the consumer relies
+  on; the validator only requires a finite number, because the DTCG `number`
+  type leaves the range to the token.
 
 - `color.json` — primitive color tokens (incl. `color.brand.seed`, the
   M3 `ColorScheme.fromSeed` seed) and semantic status colors with explicit
@@ -34,7 +39,8 @@ aliases. Values use the 2025.10 structured forms:
   (composite typography values are not emitted to Dart — Decision D3).
 - `elevation.json` — M3 elevation levels.
 - `component.json` — **component token** groups (today: `component.appBar.*`,
-  the pushed-screen header). See "Component tokens" below for the rules that
+  the pushed-screen header, and `component.navigationBar.*`, the compact
+  shell's glass bottom bar). See "Component tokens" below for the rules that
   keep this group small.
 
 **Rules:** no Flutter-specific semantics in the JSON (exact
@@ -72,6 +78,25 @@ Adding a group to `component.json` is allowed **only** under these rules:
 
 Component tokens stay data: no Flutter semantics, no scheme roles, no widget
 structure — those remain hand-authored (Decision D4).
+
+### The second group: `component.navigationBar.*` (issue #991)
+
+The compact shell's translucent bottom bar needs four decisions no primitive
+owns, and each is read by exactly one consumer
+(`lib/design/navigation_bar_metrics.dart`):
+
+| Token | States | Read as |
+|---|---|---|
+| `height` (80 dp) | Material's navigation-bar height. It is a token because the theme writes it into `NavigationBarThemeData.height` **and** it is the bar's share of the content's bottom inset — the two must never drift | `NavigationBarMetrics.height` |
+| `tintAlpha` (0.72) | How much of the blurred backdrop stays visible. Carries the WCAG contrast budget (labels ≥ 4.5:1 over the worst-case blurred photograph) | `NavigationBarMetrics.tintAlpha` |
+| `planeLiftAlpha` (0.06) | How far the bar's plane lifts off the plain surface toward the scheme's `surfaceTint`, so the glass reads as its own plane | `NavigationBarMetrics.planeLiftAlpha` |
+| `blurSigma` (12 px) | The `BackdropFilter` radius; capped at 16 by the issue's GPU-cost decision, with transparent-without-blur as the documented fallback | `NavigationBarMetrics.blurSigma` |
+
+The tint **color** is deliberately not a token: it is derived per brightness
+from `scheme.surface` + `scheme.surfaceTint` (`NavigationBarMetrics`, consumed
+by `lib/design/theme.dart`), because a fixed grey would read as a hole in dark
+mode. A `number` token is how an alpha/ratio is expressed in the meantime — the
+format had no type for it before issue #991.
 
 ## Build
 

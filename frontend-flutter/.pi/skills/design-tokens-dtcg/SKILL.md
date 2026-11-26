@@ -27,8 +27,8 @@ Flutter app through the pinned build pipeline.
 ## Format rules
 
 1. **DTCG attributes only:** leaf tokens carry `$value`, `$type`
-   (`color` | `dimension` | `fontWeight`), optional `$description`. No other
-   `$`-prefixed keys — the validator rejects them.
+   (`color` | `dimension` | `fontWeight` | `number`), optional `$description`.
+   No other `$`-prefixed keys — the validator rejects them.
 2. **DTCG 2025.10 structured `$value` shapes** (validator enforces):
    - `color` → `{colorSpace: "srgb", components: [r,g,b], hex: "#rrggbb"}` —
      bare hex strings are NOT valid; `hex` is only the optional fallback and
@@ -40,6 +40,10 @@ Flutter app through the pinned build pipeline.
      validator checks the referenced type, so a dimension cannot alias a
      color.
    - `fontWeight` → number 100–900.
+   - `number` → a finite JSON number (issue #991). For ratios/opacities where
+     no dimension applies (the glass bottom bar's `tintAlpha` /
+     `planeLiftAlpha`). State the range in `$description`; the validator only
+     requires finiteness, because DTCG leaves a `number`'s range to the token.
 3. **Aliases** reference other tokens as `{path.to.token}` (e.g.
    `{color.brand.seed}`); every alias must resolve (validator enforces).
 4. **Light/dark sets:** semantic colors use explicit `light` and `dark`
@@ -48,14 +52,15 @@ Flutter app through the pinned build pipeline.
    (`primary`, `surface`, …) are NOT tokens — `ColorScheme.fromSeed`
    derives them from `color.brand.seed`. Do not add scheme-role tokens
    until a real brand palette exists (then via a scheme snapshot change).
-6. **Component tokens** (`component.*`, today `component.appBar.*` in
-   `component.json`) are an **explicitly relaxed** non-goal since issue #838:
-   they are allowed only when a component needs a decision no primitive can
-   state (a clamp such as the header's 48 dp interactive floor), the rest of
-   the group aliases the primitives (`{typography.lineHeight.titleLarge}`), a
-   single hand-written consumer reads the generated value, and an OpenSpec
-   change records the relaxation. Do not grow a component group "because it is
-   convenient" — see `design/tokens/README.md` → "Component tokens".
+6. **Component tokens** (`component.*`, today `component.appBar.*` and
+   `component.navigationBar.*` in `component.json`) are an **explicitly
+   relaxed** non-goal since issue #838: they are allowed only when a component
+   needs a decision no primitive can state (a clamp such as the header's 48 dp
+   interactive floor, a blur radius, an opacity), the rest of the group aliases
+   the primitives (`{typography.lineHeight.titleLarge}`), a single hand-written
+   consumer reads the generated value, and an OpenSpec change records the
+   relaxation. Do not grow a component group "because it is convenient" — see
+   `design/tokens/README.md` → "Component tokens".
 
 ## Workflow (never commit a JSON change without the generated diff)
 

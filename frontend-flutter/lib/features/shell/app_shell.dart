@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../l10n/generated/app_localizations_de.dart';
+import '../../design/components/glass_bottom_bar.dart';
 import '../../design/components/plus_action_fab.dart';
 import '../../design/material_icons.dart';
 import '../../auth/active_episode.dart';
@@ -198,28 +199,28 @@ class AppShellState extends ConsumerState<AppShell> {
       // intact here and every pushed screen's `AppBar` (`primary: true`)
       // applied it a SECOND time as blank space above the toolbar (~24–40 dp
       // on device, invisible in goldens — they render zero view padding).
-      // Removing the top padding once, at this seam, is the single-count rule:
-      // the shell owns the status-bar area, the headers below it own only
-      // their toolbar.
-      child: MediaQuery.removePadding(
-        context: context,
-        removeTop: true,
-        child: IndexedStack(
-          key: const Key('shell-tab-stack'),
-          index: state.selectedIndex,
-          children: [
-            for (var i = 0; i < AppShell._tabRoots.length; i++)
-              Navigator(
-                key: tabNavigatorKeys[i],
-                restorationScopeId: 'shell-tab-$i',
-                observers: [tabLocationObservers[i]],
-                onGenerateRoute: (settings) => MaterialPageRoute<void>(
-                  settings: settings,
-                  builder: (_) => AppShell._tabRoots[i],
-                ),
+      //
+      // Issue #991: the removal moved INTO [contentWithLocation]'s `Builder`,
+      // because this `context` sits ABOVE the shell `Scaffold` and
+      // `MediaQuery.removePadding` therefore rebuilt the whole MediaQuery from
+      // the OUTER one — which discarded the bottom inset the Scaffold injects
+      // for an extended body (`extendBody: true`). The single-count rule for
+      // the status bar is unchanged; only the seam that applies it is lower.
+      child: IndexedStack(
+        key: const Key('shell-tab-stack'),
+        index: state.selectedIndex,
+        children: [
+          for (var i = 0; i < AppShell._tabRoots.length; i++)
+            Navigator(
+              key: tabNavigatorKeys[i],
+              restorationScopeId: 'shell-tab-$i',
+              observers: [tabLocationObservers[i]],
+              onGenerateRoute: (settings) => MaterialPageRoute<void>(
+                settings: settings,
+                builder: (_) => AppShell._tabRoots[i],
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
 
@@ -232,31 +233,70 @@ class AppShellState extends ConsumerState<AppShell> {
     // floats over the content area's bottom-right where no tab list ends —
     // and, since issue #823, only on the destination that actually renders
     // the action).
-    Widget contentWithLocation({double bottomClearance = 0}) => Column(
-      children: [
-        // Issue #638: the shell owns the sticky two-row top bar (row 1:
-        // profile + scope pills, row 2: view title + breadcrumb + search)
-        // and insets it below the system status bar. The title comes from
-        // the destination spec so it can never drift from the destinations.
-        ShellTopBar(
-          title: ShellDestinations.viewTitle(state.selectedIndex, l10n),
-          navigatorKey: tabNavigatorKeys[state.selectedIndex],
-          observer: tabLocationObservers[state.selectedIndex],
-        ),
-        // Issue #654: the offline pill lives in the shell content column —
-        // one surface visible on every destination and every pushed route
-        // inside the tabs; it animates in/out with connectivity changes.
-        const OfflinePill(),
-        Expanded(child: content),
-        if (bottomClearance > 0)
-          // Keyed so tests can assert the band's PRESENCE per destination
-          // (issue #823): a bare height predicate would also match the M3
-          // NavigationBar's own 80 dp SizedBox.
-          SizedBox(
-            key: const Key('shell-plus-fab-clearance'),
-            height: bottomClearance,
-          ),
-      ],
+    //
+    // Issue #991: the plus action's band is delivered as an ADDITIONAL body
+    // bottom inset on top of whatever the Scaffold already reserved for the
+    // bottom bar (with `extendBody: true` that is the bar's laid-out height
+    // including the system inset; 0 in medium/expanded, which have no bottom
+    // bar). It is deliberately NOT a Column band any more: a band shrinks the
+    // viewport, so the translucent bar would have nothing behind it and the
+    // glass would be invisible. Scrollables turn a null `padding` into exactly
+    // this MediaQuery padding (`BoxScrollView.buildSlivers`), which is what
+    // keeps the last row reachable while content still scrolls UNDER the bar.
+    Widget contentWithLocation({double fabClearance = 0}) => Builder(
+      // The Scaffold injects its body MediaQuery (the bottom-bar inset) BELOW
+      // this closure's `context`, so the inset must be read inside the body.
+      builder: (context) {
+        final mediaQuery = MediaQuery.of(context);
+        return Column(
+          children: [
+            // Issue #638: the shell owns the sticky two-row top bar (row 1:
+            // profile + scope pills, row 2: view title + breadcrumb + search)
+            // and insets it below the system status bar. The title comes from
+            // the destination spec so it can never drift from the destinations.
+            // It keeps the FULL ambient padding — the status-bar removal below
+            // applies to the tab content only.
+            ShellTopBar(
+              title: ShellDestinations.viewTitle(state.selectedIndex, l10n),
+              navigatorKey: tabNavigatorKeys[state.selectedIndex],
+              observer: tabLocationObservers[state.selectedIndex],
+            ),
+            // Issue #654: the offline pill lives in the shell content column —
+            // one surface visible on every destination and every pushed route
+            // inside the tabs; it animates in/out with connectivity changes.
+            const OfflinePill(),
+            Expanded(
+              child: MediaQuery(
+                data: mediaQuery.copyWith(
+                  padding: mediaQuery.padding.copyWith(
+                    // Issue #824's single-count rule: the shell top bar above
+                    // this subtree already consumed the status-bar inset, so
+                    // the tab content starts with none of it (both `padding`
+                    // and `viewPadding`, exactly as `MediaQuery.removePadding`
+                    // did).
+                    top: 0,
+                    // Issue #991: the bar's inset (plus the plus action's band
+                    // where it renders) — always present, so the destination
+                    // navigators below never remount on a destination switch.
+                    bottom: mediaQuery.padding.bottom + fabClearance,
+                  ),
+                  viewPadding: mediaQuery.viewPadding.copyWith(top: 0),
+                ),
+                child: content,
+              ),
+            ),
+            if (fabClearance > 0)
+              // Issue #823's per-destination contract, kept greppable: the key
+              // exists on exactly the destination that renders the plus
+              // action, and on no other. Its RESERVATION now lives in the
+              // MediaQuery inset above, so the marker itself has no extent —
+              // "the band is present" and "nothing is reserved twice" are both
+              // true (issue #991 reconciled the band with the bottom bar; the
+              // old Column band stacked 80 dp on top of the bar).
+              const SizedBox.shrink(key: Key('shell-plus-fab-clearance')),
+          ],
+        );
+      },
     );
 
     // AUTHZ-GATE (issue #612, client-side mirror, Decision D6): the
@@ -331,19 +371,33 @@ class AppShellState extends ConsumerState<AppShell> {
     return switch (sizeClass) {
       WindowSizeClass.compact => Scaffold(
         drawer: accountDrawer(),
+        // Issue #991: the body runs UNDER the translucent bar — without this
+        // the transparency only reveals the Scaffold's own background and the
+        // glass effect is invisible. `extendBody` also hands the body a
+        // MediaQuery bottom padding of the laid-out bar height (Scaffold's
+        // `_BodyBuilder`), which is precisely the content inset the bar needs:
+        // `NavigationBar` wraps itself in a `SafeArea`, so that height is 80 dp
+        // PLUS the system bottom inset — no hardcoded 80 reaches the content,
+        // and the last row stays reachable on gesture-nav devices too.
+        extendBody: true,
         body: contentWithLocation(
           // CodeRabbit review #623: the extended FAB sits docked above the
           // bar (its 56 height + the 16 docked margin); without clearance
-          // the final list row renders BENEATH it. Issue #823: the band is
+          // the final list row renders BENEATH it. Issue #823: the inset is
           // gated on the SAME predicate as the FAB — a destination without a
           // plus action must not keep an 80 px dead strip at the bottom of
           // every list.
-          bottomClearance: showsPlusAction ? kPlusActionFabBottomClearance : 0,
+          fabClearance: showsPlusAction ? kPlusActionFabBottomClearance : 0,
         ),
-        bottomNavigationBar: ShellDestinations.navigationBar(
-          selectedIndex: state.selectedIndex,
-          onSelected: onDestinationSelected,
-          l10n: l10n,
+        // Issue #991: the glass surface (blur + tinted plane) belongs to the
+        // bar slot, and only to the compact morphology — the rail and the
+        // drawer have no "content scrolling under it" story.
+        bottomNavigationBar: GlassBottomBar(
+          child: ShellDestinations.navigationBar(
+            selectedIndex: state.selectedIndex,
+            onSelected: onDestinationSelected,
+            l10n: l10n,
+          ),
         ),
         floatingActionButton: plusFab,
       ),

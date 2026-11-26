@@ -24,6 +24,10 @@
 //          of the object (a component token aliasing a primitive), and it
 //          must resolve to another *dimension* token.
 //        * `fontWeight` → number 100–900.
+//        * `number` → a finite JSON number (DTCG 2025.10 `number`). Used for
+//          ratios/opacities, e.g. the glass bar's tint alpha (#991); the
+//          token's `$description` states its range (the validator does not
+//          invent a range for a type the format leaves open).
 //   3. Every `{alias.reference}` in a `$value` resolves to an existing
 //      token path in the merged token tree.
 //   4. Recursion: every JSON file under `design/tokens/**` is checked —
@@ -39,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 const repoRootAbs = fileURLToPath(new URL('../', import.meta.url));
 const tokensDir = join(repoRootAbs, 'design', 'tokens');
 
-const SUPPORTED_TYPES = new Set(['color', 'dimension', 'fontWeight']);
+const SUPPORTED_TYPES = new Set(['color', 'dimension', 'fontWeight', 'number']);
 const RESERVED_KEYS = new Set(['$value', '$type', '$description']);
 const SUPPORTED_COLOR_SPACES = new Set(['srgb']); // extended when a token needs it
 
@@ -223,7 +227,17 @@ function checkLeaf(relFile, path, node, allTokenPaths, tokenTypes) {
   if (node.$type === 'color') checkColorValue(relFile, path, value);
   else if (node.$type === 'dimension')
     checkDimensionValue(relFile, path, value, tokenTypes);
-  else if (
+  else if (node.$type === 'number') {
+    // DTCG 2025.10 `number`: a plain finite number. No alias support — a
+    // number token aliasing another token would silently inherit a range the
+    // consumer does not expect (the validator only type-checks aliases for
+    // dimensions and colors, which are the only aliased types in the tree).
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      violations.push(
+        `${relFile}: number token "${path}" must be a finite JSON number`,
+      );
+    }
+  } else if (
     typeof value !== 'number' ||
     !Number.isInteger(value) ||
     value < 100 ||
