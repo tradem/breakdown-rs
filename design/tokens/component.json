@@ -1,6 +1,6 @@
 {
   "component": {
-    "$description": "Component-level tokens. The design-token foundation declared component tokens a non-goal (add-dtcg-design-tokens, Non-Goals); issue #838 relaxes that for the one component that genuinely needs its own value: the pushed-screen header. Rules for a future addition: (1) a component group may only reference primitive/semantic tokens via aliases where a primitive already owns the value, (2) it states only the decision no primitive can state (e.g. a clamp), (3) every value here is read from the generated artifact by hand-authored code, never re-derived at a call site. OpenSpec change 838-appbar-component-token.",
+    "$description": "Component-level tokens. The design-token foundation declared component tokens a non-goal (add-dtcg-design-tokens, Non-Goals); issue #838 relaxes that for a component that genuinely needs its own value (the pushed-screen header), and issue #991 for the compact shell's glass bottom bar. Rules for a future addition: (1) a component group may only reference primitive/semantic tokens via aliases where a primitive already owns the value, (2) it states only the decision no primitive can state (e.g. a clamp, a blur radius, an opacity), (3) every value here is read from the generated artifact by hand-authored code, never re-derived at a call site. OpenSpec changes 838-appbar-component-token and 991-glass-bottom-navigation-bar.",
     "appBar": {
       "$description": "The header of every pushed screen (issue #824's BreakdownAppBar, themed once in lib/design/theme.dart). Height is the design decision; the type and padding values alias the primitives they are built from, so retuning the type scale or spacing scale flows into the header token without a second edit here.",
       "height": {
@@ -25,6 +25,35 @@
         "$type": "dimension",
         "$value": "{size.space.8}",
         "$description": "Breathing room above and below the title line — alias of size.space.8 (8 dp)."
+      }
+    },
+    "navigationBar": {
+      "$description": "The compact morphology's translucent \"glass\" bottom bar (issue #991). Every value here is a decision no primitive can state: Material's navigation-bar height, the opacity of the glass tint, how far the tinted plane lifts away from the plain surface, and the blur radius of the backdrop filter. The tint itself is NOT a token — it is derived per brightness from the scheme's surface + surfaceTint roles in lib/design/theme.dart (a fixed grey would read as a hole in dark mode). Consumer: lib/design/navigation_bar_metrics.dart.",
+      "height": {
+        "$type": "dimension",
+        "$value": {
+          "value": 80,
+          "unit": "px"
+        },
+        "$description": "The navigation bar's own height: 80 dp, the M3 navigation-bar spec value. It is stated here (not left to the Material default) because the theme WRITES it into NavigationBarThemeData.height and the bar's painted height (height + the system bottom inset the bar's internal SafeArea adds) is the content's bottom inset — bar and inset must never drift apart. No spacing primitive owns 80. test/design/navigation_bar_metrics_test.dart asserts the theme read."
+      },
+      "tintAlpha": {
+        "$type": "number",
+        "$value": 0.8,
+        "$description": "Opacity of the glass tint painted over the blurred backdrop, in [0, 1]. This carries the WCAG contrast budget: pure blur over costume/continuity photography destroys label and indicator contrast, so the tint (not the blur) keeps text at >= 4.5:1 against the worst-case blurred backdrop — BOTH extremes (pure white AND pure black) in BOTH themes, because a dark backdrop darkens the light theme's bar and a light one lightens the dark theme's, so the extreme that helps one theme is the worst case for the other. Asserted in test/design/navigation_bar_metrics_test.dart. 0.80 leaves 20 % of the backdrop visible, which is what makes the bar read as glass; 0.72 measured 4.12:1 (light) / 3.86:1 (dark) and therefore missed the budget at the true worst case."
+      },
+      "planeLiftAlpha": {
+        "$type": "number",
+        "$value": 0.06,
+        "$description": "How far the bar's plane lifts away from the plain surface toward the scheme's surfaceTint role, in [0, 1] (issue #991 resolved question 2: a real glass surface reads as its own plane, not as a pure surface alpha). Brightness-aware by construction: surfaceTint is derived per brightness by ColorScheme.fromSeed, so dark mode lifts toward the dark tint instead of a fixed grey."
+      },
+      "blurSigma": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        },
+        "$description": "BackdropFilter blur radius (sigma, logical px) behind the bar. Kept low deliberately: the filter is a save-layer per frame on every destination, and issue #991 caps it at 16. Degrading to transparent-without-blur (sigma 0 / no filter) is the documented fallback if a low-end device drops frames."
       }
     }
   }

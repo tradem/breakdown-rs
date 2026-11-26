@@ -73,9 +73,11 @@ none is active.
 
 The three morphologies differ only in how the labeled destinations are
 arranged around the same two-row top bar. Salt cannot express color; the
-per-level pill highlight is specified in Components & Semantics.
+per-level pill highlight and the bar's translucent glass surface are
+specified in Components & Semantics.
 
-Compact (window < 600dp) — bottom navigation bar:
+Compact (window < 600dp) — translucent bottom navigation bar the view content
+scrolls UNDER (issue #991):
 
 ```plantuml
 @startsalt
@@ -147,6 +149,7 @@ renders on the Script destination only (issue #823).
 | Script destination | Navigation destination | The season's chronological scene overview | `navScript` |
 | Schedule/Dispo destination | Navigation destination | The season's shooting days in calendar order | `navSchedule` |
 | Destination labels | Visible text | Mandatory on every destination in every morphology | — |
+| Compact bottom bar surface (compact only) | Translucent "glass" bar — `GlassBottomBar` + `BackdropFilter` | Issue #991: the bar is a **translucent, blurred, slightly lifted surface**, never an opaque band. The body extends under it (`extendBody: true`), so scrolled content stays visible through the tint; the tint carries the contrast budget (labels ≥ 4.5:1, icons ≥ 3:1 against the worst-case blurred backdrop: BOTH extremes, pure white and pure black, in BOTH themes, with the minimum taken — the extreme that flatters one theme is the other theme's worst case), the blur only the effect. Bar background = tint alpha, blur sigma and plane lift from the `component.navigationBar.*` tokens; elevation, shadow and surface tint are pinned to zero so nothing opaque is painted. The indicator pill and the label/icon colors stay the opaque M3 defaults; the pill's own edge against the bar is DECORATIVE (no M3 container role sits 3:1 from its own surface family) — the selection is carried by the icon and label colors, which are measured. While the **keyboard** is open the same plane is painted opaque and the blur is dropped (a translucent bar over live text fields reads as a hole in the layout). The bar's painted height is `component.navigationBar.height` (80 dp) PLUS the system bottom inset its internal `SafeArea` adds; `extendBody` hands the body exactly that as its `MediaQuery` bottom padding, so the last row of every destination is reachable above the bar on gesture-nav devices too. The plus action adds its 80 dp band on top of that inset — one derived reservation, never a second layout band. The medium rail and the expanded drawer are unaffected (no glass, no under-scroll) | — |
 | View content | Content pane | The active destination's screen (its own app bar is gone — the shell view bar carries the title; hosted screens keep their own bars and FABs) | — |
 
 ## States
@@ -157,7 +160,9 @@ picker (never an error); Script/Schedule show their own empty narratives
 once a season is set. Error: per-view Problem-Details `code` routing.
 Partial: the Script and Schedule views render a partial-load notice when
 their client-side fan-out failed for at least one episode. Stale/optimistic:
-owned by the hosted screens.
+owned by the hosted screens. Compact bar surface: translucent over scrolled
+content while no keyboard is up, opaque (same plane, no blur) while one is —
+never an opaque band in either state.
 
 ## Interactions
 Selecting a destination switches the visible content and preserves each
@@ -212,3 +217,24 @@ Goldens: shell × {compact, medium, expanded} × {light, dark}. Gherkin: the
 outfit-casting critical scenario enters through the Cast view (the
 season is set from the scope picker). Integration: destination-switch smoke
 on device.
+
+Glass bottom bar (issue #991): the compact bar is behind a clipped
+`BackdropFilter` and paints a translucent background with zero elevation
+(asserted on the bar's own `Material`); the rail and the drawer render no
+glass; the compact shell `Scaffold` extends its body while the medium one does
+not; the body's bottom `MediaQuery` inset equals the bar's LAID-OUT height
+(80 dp, and 80 + 34 for a simulated 34 dp gesture-nav inset) and grows by the
+plus action's 80 dp band on Script only, returning to the bar height on Cast;
+the keyboard-open state drops the filter and paints the opaque plane; the
+tint/plane derivation and the contrast budget (labels ≥ 4.5:1, icons ≥ 3:1
+over EVERY backdrop extreme — white and black, in both themes, minimum
+taken; the selected icon ≥ 3:1 on the opaque pill, whose own edge is
+asserted opaque-and-distinct rather than contrast-bearing) are unit tested
+without a shader-dependent golden. A scrollable that passes its OWN `padding`
+(the Cast piece overview's `CustomScrollView`, the scene/character/outfit/
+report detail lists) opts out of Flutter's automatic inset consumption, so it
+extends that padding by `withBottomInset` (`lib/design/scroll_insets.dart`) —
+the last row/control comes to rest above the bar in a widget test. Two component goldens
+(`glass_bottom_bar_{light,dark}.png`) render scrollable content SCROLLED UNDER
+the bar, because a golden over an empty surface would silently under-test the
+effect.

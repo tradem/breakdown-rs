@@ -21,6 +21,7 @@ import '../../design/components/ai_provenance_badge.dart';
 import '../../design/components/ai_score_stars.dart';
 import '../../design/material_icons.dart';
 import '../../design/scene_mood_label.dart';
+import '../../design/scroll_insets.dart';
 import '../../design/spacing.dart';
 import '../../domain/ai_provenance.dart';
 import '../../l10n/app_localizations_provider.dart';
@@ -208,7 +209,10 @@ class _SceneDetailBody extends ConsumerWidget {
       child: ListView(
         key: Key('scene-detail-${scene.id}'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        // Issue #991: an explicit `padding` opts OUT of the ambient bottom
+        // inset Flutter would otherwise add — extend it by the shell's
+        // glass-bar reservation so the last section clears the bar.
+        padding: withBottomInset(context, const EdgeInsets.all(16)),
         children: [
           // Page identity, not a tile (issue #834): no card border around the
           // header block. The script day's assign affordance lives on the chip.

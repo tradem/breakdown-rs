@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:frontend_flutter/design/gen/design_tokens.g.dart';
 import 'package:frontend_flutter/design/header_metrics.dart';
+import 'package:frontend_flutter/design/navigation_bar_metrics.dart';
 import 'package:frontend_flutter/design/spacing.dart';
 
 /// Design tokens for the Breakdown client (spec `flutter-design-tokens`).
@@ -43,16 +44,23 @@ abstract final class AppThemes {
     ),
   );
 
-  /// Builds the theme pair with the app-bar role resolved once per scheme.
+  /// Builds the theme pair with the app-bar and bottom-bar roles resolved once
+  /// per scheme.
   ///
   /// Issue #824: every pushed screen's header takes its height and title style
   /// from this theme (via `Theme.of(context).appBarTheme`), so the 41 call
   /// sites stop being independent layout decisions and no screen declares a
   /// `toolbarHeight` literal of its own.
+  ///
+  /// Issue #991: the compact shell's bottom bar is a translucent glass surface,
+  /// and its two color decisions are composed by [NavigationBarMetrics] from
+  /// this file's scheme — the shell wraps the bar in a `GlassBottomBar` but
+  /// never picks a color itself.
   static ThemeData _theme(ColorScheme scheme) => ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     appBarTheme: _appBarTheme(scheme),
+    navigationBarTheme: _navigationBarTheme(scheme),
   );
 
   /// The header role: token-derived height ([HeaderMetrics.toolbarHeight]),
@@ -69,4 +77,37 @@ abstract final class AppThemes {
     centerTitle: false,
     titleSpacing: AppSpacing.space16,
   );
+
+  /// The compact bottom-bar role: a translucent **glass** surface (issue #991).
+  ///
+  /// The bar itself paints NOTHING opaque — no `surfaceContainer` fill, no
+  /// elevation, no shadow, no surface tint. M3's default paints all four, and
+  /// any one of them hides the content scrolling behind the bar. What remains
+  /// is the tint ([NavigationBarMetrics.tint]), which is translucent on
+  /// purpose: the shell puts a `BackdropFilter` behind the bar and extends the
+  /// body under it, so the tint is composited over blurred content.
+  ///
+  /// The indicator pill and the label/icon colors are deliberately NOT set: the
+  /// M3 defaults (`secondaryContainer` / `onSurface` / `onSurfaceVariant` /
+  /// `onSecondaryContainer`) are already opaque and already carry their own
+  /// contrast contract, which `test/design/navigation_bar_metrics_test.dart`
+  /// measures WITHOUT a shader-dependent golden: the label/icon roles against
+  /// the painted bar over BOTH backdrop extremes (pure white and pure black, in
+  /// both themes — the extreme that helps one theme is the worst case for the
+  /// other), the selected icon against the opaque pill, and the pill's
+  /// opacity/distinctness. The pill's own edge against the bar is DECORATIVE and
+  /// deliberately not held to 3:1 (no M3 container role is that far from its own
+  /// surface family); the selection is carried by the icon and label colors,
+  /// which are measured. Only the bar *background* becomes translucent.
+  static NavigationBarThemeData _navigationBarTheme(ColorScheme scheme) =>
+      NavigationBarThemeData(
+        // Token-derived, and the same value `Scaffold(extendBody: true)` uses
+        // for the body's bottom inset — the bar and its reservation cannot
+        // drift apart.
+        height: NavigationBarMetrics.height,
+        backgroundColor: NavigationBarMetrics.tint(scheme),
+        elevation: DesignTokens.elevationLevel0,
+        shadowColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+      );
 }

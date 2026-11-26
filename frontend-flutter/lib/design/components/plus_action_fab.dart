@@ -9,12 +9,19 @@ import 'package:material_ui/material_ui.dart';
 /// above the surface edge + 8 breathing room (issue #623, generalized by
 /// #823 to every surface that carries the action).
 ///
-/// Measured from the BODY's bottom edge. A surface whose `Scaffold` has no
-/// bottom bar (the AI-import jobs screen) lets its body run to the PHYSICAL
-/// bottom while the floating FAB keeps `viewPadding.bottom` above it, so such
-/// a call site must add `MediaQuery.viewPaddingOf(context).bottom` to this
-/// constant (CodeRabbit review on #848 — otherwise the band ends behind the
-/// FAB on any device whose bottom system inset exceeds 8 dp).
+/// Measured from the FAB's own docked position, i.e. from the top edge of the
+/// surface it docks above:
+///
+/// * In the compact shell the FAB docks above the bottom bar, so the band is
+///   added ON TOP of the bar inset the body already carries (`extendBody`,
+///   issue #991) — measured from the bar's top edge, never from the physical
+///   bottom.
+/// * A surface whose `Scaffold` has no bottom bar (the AI-import jobs screen)
+///   lets its body run to the PHYSICAL bottom while the floating FAB keeps
+///   `viewPadding.bottom` above it, so such a call site must add
+///   `MediaQuery.viewPaddingOf(context).bottom` to this constant (CodeRabbit
+///   review on #848 — otherwise the band ends behind the FAB on any device
+///   whose bottom system inset exceeds 8 dp).
 const double kPlusActionFabBottomClearance = 80;
 
 /// The quick-create **plus action** (issues #612 and #823).

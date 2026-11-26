@@ -16,6 +16,7 @@ import '../../l10n/generated/app_localizations.dart';
 import 'reports_controller.dart';
 import 'reports_state.dart';
 import '../../design/components/breakdown_app_bar.dart';
+import '../../design/scroll_insets.dart';
 
 /// `ReportsScreen` — the day-context reporting surface (Phase 4).
 ///
@@ -85,7 +86,7 @@ class ReportsScreen extends ConsumerWidget {
               child: ListView(
                 key: const Key('soll-ist-report-screen'),
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
+                padding: withBottomInset(context, const EdgeInsets.all(16)),
                 children: [
                   _SollIstSection(state: state, onRetry: controller.refresh),
                   const SizedBox(height: 24),

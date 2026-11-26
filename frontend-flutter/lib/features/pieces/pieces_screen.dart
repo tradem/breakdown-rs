@@ -231,6 +231,12 @@ class _PieceOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final columns = MediaQuery.sizeOf(context).width < 600 ? 2 : 3;
+    // Issue #991: a `CustomScrollView` never folds the ambient bottom inset
+    // into its slivers (only a scrollable with a null `padding` does), so the
+    // shell's glass-bar reservation is consumed here — ONE trailing sliver
+    // after all content, the editor included, so the last tile/control scrolls
+    // clear of the bar instead of resting behind it.
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
     return CustomScrollView(
       key: const Key('pieces-list'),
       physics: const AlwaysScrollableScrollPhysics(),
@@ -268,6 +274,10 @@ class _PieceOverview extends StatelessWidget {
               pieceId: selectedId!,
             ),
           ),
+        SliverToBoxAdapter(
+          key: const Key('pieces-list-bottom-inset'),
+          child: SizedBox(height: bottomInset),
+        ),
       ],
     );
   }

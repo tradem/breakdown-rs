@@ -43,7 +43,10 @@ import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/design/components/breakdown_app_bar.dart';
+import 'package:frontend_flutter/design/components/glass_bottom_bar.dart';
+import 'package:frontend_flutter/design/components/plus_action_fab.dart';
 import 'package:frontend_flutter/design/header_metrics.dart';
+import 'package:frontend_flutter/design/navigation_bar_metrics.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/jobs_controller.dart';
 import 'package:frontend_flutter/features/shell/planning_location.dart';
@@ -212,6 +215,7 @@ void main() {
     WidgetTester tester, {
     required double widthDp,
     double heightDp = 800,
+    ThemeData? theme,
   }) async {
     tester.view.physicalSize = Size(widthDp, heightDp);
     tester.view.devicePixelRatio = 1.0;
@@ -219,7 +223,11 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: AppShell()),
+        // Issue #991: the glass bar resolves its tint from the app theme, so
+        // the surface assertions pump the REAL theme (`AppThemes`). Every other
+        // test keeps the framework default — the shell must not depend on a
+        // color it did not get from the theme.
+        child: MaterialApp(theme: theme, home: AppShell()),
       ),
     );
     await pumpFrames(tester);
@@ -1412,6 +1420,123 @@ void main() {
       await selectDestination(tester, kCastTabIndex);
       await pumpFrames(tester, n: 20, stepMs: 30);
       expect(deadBand, findsNothing);
+    });
+
+    // Issue #991: the compact bar is a translucent glass surface. The three
+    // facts that make the effect visible are asserted here on the REAL shell
+    // tree — a transparent bar without `extendBody`, or a body that forgets the
+    // bar's height, looks identical in a screenshot but is either invisible or
+    // unreachable in practice.
+    testWidgets('the compact bar is behind a clipped blur and paints no fill', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360, theme: AppThemes.light());
+
+      expect(find.byType(GlassBottomBar), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsOneWidget);
+      // The bar's own Material paints the tint — translucent, elevation 0.
+      final Material barMaterial = tester.widget<Material>(
+        find
+            .descendant(
+              of: find.byKey(const Key('shell-navigation-bar')),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      expect(
+        barMaterial.color,
+        NavigationBarMetrics.tint(AppThemes.light().colorScheme),
+      );
+      expect(barMaterial.color!.a, lessThan(1));
+      expect(barMaterial.elevation, 0);
+      // Semantics untouched: the bar is still the destination suite.
+      expect(find.byKey(const Key('shell-destination-0')), findsOneWidget);
+    });
+
+    testWidgets('the rail and the drawer stay opaque (no glass)', (
+      tester,
+    ) async {
+      await setupContainer();
+      for (final widthDp in [700.0, 1000.0]) {
+        await pumpShell(tester, widthDp: widthDp);
+        expect(find.byType(GlassBottomBar), findsNothing);
+        expect(find.byType(BackdropFilter), findsNothing);
+      }
+    });
+
+    testWidgets('the compact scaffold extends the body under the bar', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      final Scaffold shellScaffold = tester.widget<Scaffold>(
+        find
+            .ancestor(
+              of: find.byKey(const Key('shell-navigation-bar')),
+              matching: find.byType(Scaffold),
+            )
+            .first,
+      );
+      expect(shellScaffold.extendBody, isTrue);
+
+      // And the medium/expanded scaffolds must NOT extend: they have no
+      // bottom bar, so the body keeps its normal bottom edge.
+      await pumpShell(tester, widthDp: 700);
+      final Scaffold mediumScaffold = tester.widget<Scaffold>(
+        find.byType(Scaffold).first,
+      );
+      expect(mediumScaffold.extendBody, isFalse);
+    });
+
+    testWidgets('the body bottom inset is the painted bar height', (
+      tester,
+    ) async {
+      await setupContainer();
+      await pumpShell(tester, widthDp: 360);
+
+      // The bar's LAID-OUT height (80 dp + the system bottom inset it wraps
+      // itself in) is what `Scaffold(extendBody: true)` hands the body — the
+      // content therefore ends exactly at the bar's top edge, never under it,
+      // and never leaves a dead strip above it.
+      double barHeight() =>
+          tester.getSize(find.byKey(const Key('shell-navigation-bar'))).height;
+      double bodyInset() => MediaQuery.paddingOf(
+        tester.element(find.byKey(const Key('shell-tab-stack'))),
+      ).bottom;
+
+      expect(barHeight(), NavigationBarMetrics.height);
+      expect(bodyInset(), barHeight());
+
+      // The plus action's band is added ON TOP of the bar inset (never stacked
+      // as a second layout band): the last row clears the FAB, which docks
+      // above the bar.
+      await selectDestination(tester, kScriptTabIndex);
+      expect(bodyInset(), barHeight() + kPlusActionFabBottomClearance);
+      await selectDestination(tester, kCastTabIndex);
+      await pumpFrames(tester, n: 20, stepMs: 30);
+      expect(bodyInset(), barHeight());
+    });
+
+    testWidgets('a gesture-nav inset is counted exactly once', (tester) async {
+      await setupContainer();
+      // 34 dp of system bottom inset, the gesture-nav case the issue calls
+      // out: the bar's painted height becomes 80 + 34, and the body inset must
+      // follow it instead of a hardcoded 80.
+      tester.view.padding = const FakeViewPadding(bottom: 34);
+      await pumpShell(tester, widthDp: 360);
+
+      final double barHeight = tester
+          .getSize(find.byKey(const Key('shell-navigation-bar')))
+          .height;
+      expect(barHeight, NavigationBarMetrics.height + 34);
+      expect(
+        MediaQuery.paddingOf(
+          tester.element(find.byKey(const Key('shell-tab-stack'))),
+        ).bottom,
+        barHeight,
+      );
     });
 
     testWidgets('AI-import entry routes to the existing submit flow', (

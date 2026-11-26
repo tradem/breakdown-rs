@@ -28,6 +28,10 @@ abstract final class DesignTokens {
   static const double componentAppBarTitleFontSize = 22.0;
   static const double componentAppBarTitleLineHeight = 28.0;
   static const double componentAppBarVerticalPadding = 8.0;
+  static const double componentNavigationBarBlurSigma = 12.0;
+  static const double componentNavigationBarHeight = 80.0;
+  static const double componentNavigationBarPlaneLiftAlpha = 0.06;
+  static const double componentNavigationBarTintAlpha = 0.8;
   static const double elevationLevel0 = 0.0;
   static const double elevationLevel1 = 1.0;
   static const double elevationLevel2 = 3.0;

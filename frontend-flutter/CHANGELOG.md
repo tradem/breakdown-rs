@@ -23,6 +23,46 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The compact bottom bar is a translucent "glass" surface the content scrolls
+  under** (issue #991, Spotify/Apple-Music pattern). The bar paints nothing
+  opaque any more — no `surfaceContainer` band, no elevation, no shadow, no
+  surface tint — and the plain M3 `NavigationBar` is wrapped in a clipped
+  `BackdropFilter`, so costume/continuity photos and scene lists stay visible
+  (blurred and tinted) behind the resident navigation instead of being cut off
+  by a permanent 80 dp chrome strip. The compact `Scaffold` sets
+  `extendBody: true`; the body's bottom inset is the bar's PAINTED height — its
+  own 80 dp plus the system bottom inset its internal `SafeArea` adds — which
+  `Scaffold` derives from the laid-out bar, so the last row of every
+  destination still ends at the bar's top edge on gesture-nav devices, no
+  hardcoded 80 involved. The plus action's clearance moved from a Column band
+  into that same inset (one derived reservation; the `#823` keyed marker keeps
+  its per-destination presence semantics), which is what leaves the content
+  scrolling under the bar instead of being truncated above it. The bar's four
+  decisions are DTCG tokens (`component.navigationBar.{height, tintAlpha,
+  planeLiftAlpha, blurSigma}`, 80 dp / 0.80 / 0.06 / 12 px) read by
+  `NavigationBarMetrics`, the client's first glass surface; the tint — not the
+  blur — carries the contrast budget, measured at ≥ 4.5:1 for labels and ≥ 3:1
+  for icons against EVERY backdrop extreme (pure white and pure black, in both
+  themes — the extreme that flatters one theme is the other's worst case), with
+  the selected icon ≥ 3:1 on the opaque indicator pill, whose own edge is
+  decorative. `tintAlpha` moved 0.72 → 0.80 because the corrected test measured
+  0.72 at 4.12:1 (light) / 3.86:1 (dark): below the AA budget the spec states.
+  Scrollables that pass a `padding` of their own — the Cast piece overview's
+  `CustomScrollView` and the scene/character/outfit/report detail lists — now
+  extend it by `withBottomInset` (`lib/design/scroll_insets.dart`): Flutter adds
+  the ambient inset only when the padding is null, so without it their last row
+  rested behind the bar.
+  While the keyboard is open the same plane paints opaque and the filter is
+  dropped. Medium/expanded (rail/drawer) are deliberately untouched. Two new
+  goldens render scrolled content under the bar; four existing goldens that
+  frame the bar were re-baselined. Also: the DTCG `number` token type is now
+  supported (an opacity has no dimension counterpart), and `#824`'s
+  status-bar single-count seam moved into the body so it can no longer discard
+  the `extendBody` bottom padding.
+
+- **Version bump:** `0.5.0-alpha.2+157 → 0.5.0-alpha.3+158` (the Play
+  `versionCode` `+N` stays strictly monotonic).
+
 - **The AI-import review surfaces the schedule's `ROLLEN` legend, its cast
   pills and its shot suffixes** (issue #969, frontend follow-up to #960/#967
   and #968). `ShootingSchedule.castLegend` renders as a COLLAPSED `Card` +
