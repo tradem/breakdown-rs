@@ -105,7 +105,10 @@ Rules that come with it:
 - **The canary is the most stable endpoint, not the production one (`D1`).** Production fidelity is
   the text pass's job (`AI_LLM_*`, unchanged). Do not "align" `AI_VISION_*` with `AI_LLM_*`.
 - **Zero-token preflight (`D4`).** `ovhcloud`'s `/v1/models` answers anonymously and its curated IDs
-  are asserted there; a rotated ID is red before any money is spent. Every read uses
+  are asserted there; a rotated ID is red before any money is spent. The read stays **anonymous even
+  when the credential is set** (`catalogue_reads_anonymously`): an authenticated read of that endpoint
+  answers `401` for a token without the AI-Endpoints action, so attaching the key would turn a free
+  catalogue check into a credential verdict the paid step already delivers. Every read uses
   `CuratedProviderUrls::base_url` through `build_hosted_client` — never a user-supplied URL.
 - **Cost reporting is a `const` table in the test** (`VISION_RATE_CARDS`, verified 2026-11-25; the
   Scaleway figures are its EUR list price). No DB read, no new pricing subsystem; an unpriced model

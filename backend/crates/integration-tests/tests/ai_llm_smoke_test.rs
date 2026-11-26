@@ -1770,6 +1770,19 @@ fn report_vision_failures(failures: &[VisionFailure]) -> Result<()> {
     ))
 }
 
+/// Whether a provider's `/models` catalogue answers WITHOUT a credential.
+///
+/// Only OVHcloud's does (verified 2026-11-25, and again 2026-11-26 against the
+/// live endpoint: 33 models). That is the whole free-preflight argument, so the
+/// anonymous read is used *even when a key exists*: attaching a credential turns
+/// the same request into a `401` on a token that is not allowed to perform the
+/// AI-Endpoints actions on the tenant — a red "catalogue unreachable" for what
+/// is really a credential question the PAID step already answers, with the
+/// provider's own code.
+fn catalogue_reads_anonymously(provider: LlmProvider) -> bool {
+    provider == LlmProvider::Ovhcloud
+}
+
 /// `GET {base}/models` on the CURATED base URL, with an OPTIONAL credential.
 ///
 /// Curated, never user-supplied (ADR-024 SSRF policy), and through the same
@@ -1850,9 +1863,8 @@ async fn vision_smoke_catalog_preflight() -> Result<()> {
     let mut failures: Vec<VisionFailure> = Vec::new();
     for target in &targets {
         let key_variable = vision_key_env(target.provider);
-        // Only OVHcloud's catalogue answers WITHOUT credentials (verified
-        // 2026-11-25); every other one needs the matrix key.
-        if target.provider != LlmProvider::Ovhcloud && target.api_key.is_none() {
+        let anonymous = catalogue_reads_anonymously(target.provider);
+        if !anonymous && target.api_key.is_none() {
             tracing::warn!(
                 "{key_variable} not configured — the {} vision catalogue check for {} SKIPPED (asserted nothing)",
                 match target.severity {
@@ -1863,7 +1875,12 @@ async fn vision_smoke_catalog_preflight() -> Result<()> {
             );
             continue;
         }
-        match fetch_catalogue_ids(target.provider, target.api_key.as_deref()).await {
+        let catalogue_key = if anonymous {
+            None
+        } else {
+            target.api_key.as_deref()
+        };
+        match fetch_catalogue_ids(target.provider, catalogue_key).await {
             Ok(live) => {
                 let curated = curated_model_ids(target.provider);
                 let missing: Vec<&str> = curated
@@ -2323,6 +2340,18 @@ fn the_eurouter_preflight_reads_the_zero_token_key_endpoint() {
         "https://api.eurouter.ai/api/v1/key",
         "the /key read must stay on the curated base URL"
     );
+}
+
+/// Proven by the first recorded nightly (2026-11-26): with a credential attached,
+/// OVHcloud's catalogue answered `401 "Your token is not allowed to perform the
+/// required actions on any tenant"` — the anonymous read is what the free
+/// preflight is built on, so it must not be conditional on a key being absent.
+#[test]
+fn the_ovhcloud_catalogue_is_read_without_a_credential() {
+    assert!(catalogue_reads_anonymously(LlmProvider::Ovhcloud));
+    assert!(!catalogue_reads_anonymously(LlmProvider::Scaleway));
+    assert!(!catalogue_reads_anonymously(LlmProvider::Nebius));
+    assert!(!catalogue_reads_anonymously(LlmProvider::EURouter));
 }
 
 #[test]

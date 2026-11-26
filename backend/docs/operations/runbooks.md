@@ -1823,6 +1823,11 @@ correct?"*, so it runs against the most stable cheapest verified endpoint, not a
 production happens to use (that is what the text pass guards). `ovhcloud` / `qwen3-vl-30b-a3b` is an
 EU-only operator with a 99.5 %-SLA AI-Endpoints product at ≈ $0.0011 per page, and its `/v1/models`
 answers **without a credential** — so the preflight that catches a rotated curated ID costs nothing.
+That read stays anonymous even when `AI_VISION_KEY_OVHCLOUD` is set: the first recorded run
+(2026-11-26) attached the credential and the same endpoint answered `401 "Your token is not allowed to
+perform the required actions on any tenant"`, turning a working free check into a red
+"catalogue unreachable" for what is really a credential question — and the paid step reports that one
+with the provider's own code.
 `eurouter` is deliberately *not* the oracle: it is a reseller fronting many upstreams, and using it
 as the paid canary made a red nightly ambiguous ("did our extractor regress, or did the reseller have
 a bad night?"). Both roles cost < **$0.10/month** at one page per night.
