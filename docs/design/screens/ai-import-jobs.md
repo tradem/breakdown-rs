@@ -438,6 +438,29 @@ back to the row that dresses that figure — never by parsing the server's note
 prose. A picked candidate counts as a review edit, so `accept_as_is` stays a
 truthful statement about the review.
 
+## Preview & Apply — the `ROLLEN` legend, cast chips and shot suffixes (issue #969)
+
+The multimodal schedule extractor (#960 / ADR-041 `D5`/`D6`) delivers additive
+preview metadata the review now surfaces. Nothing here changes apply: both rows
+of a double-booked scene are applied identically.
+
+| Element | M3 component | Semantics | Copy key |
+|---|---|---|---|
+| `ROLLEN` legend (`ShootingSchedule.castLegend`) | `Card` + `ExpansionTile`, **collapsed** by default, placed directly under the payload header | A schedule page carries ~35 entries, so an expanded legend would bury the rows it explains; the collapsed tile states the entry count. Entries render sorted NUMERICALLY (`2`, `33`, `150`, `1040` — not string order) as tabular-figure code + character name + modifier badge. An ABSENT or EMPTY map renders nothing — no placeholder card, never a “no legend” sentence | `aiPreviewCastLegendTitle` (ICU plural), `aiPreviewCastLegendHint` |
+| Role modifier badge (`ScheduleRoleModifier`) | Pill (`secondaryContainer` = `Dummy`, `tertiaryContainer` = `Nur Stimme`, `primaryContainer` = `(OT)`) | One badge per modifier, reused in the legend AND on the rows' cast pills, so the two surfaces share a vocabulary. The modifier wording stays the production vocabulary the extraction prompt uses (German even in the English catalog for `Nur Stimme` / `(OT)`). `none`/absent/unknown render NOTHING — a modifier is never invented | `aiPreviewRoleModifierDummy`, `aiPreviewRoleModifierVoiceOnly`, `aiPreviewRoleModifierExtraOt`, `aiPreviewRoleModifierSemantics` |
+| Cast pill (`ShootingScheduleRow.castRefs`) | Pill (`surfaceContainerHighest`) carrying the character name, with the modifier badge beside it | One pill per RESOLVED code. Codes the server dropped (ADR-041 `D6`: unknown codes are dropped, not guessed) render NO chip — never an “unknown cast” warning, which would imply an error state that does not exist. Pre-merge schedule rows and merged review rows use the same pills | (name is wire data) |
+| Shot-suffix chip (`ShootingScheduleRow.shotSuffix`) | Outlined pill, replay icon + the verbatim suffix (`N`) | Marks a pick-up/insert shot of the SAME scene, so `300.37` + `300.37N` on Scene 37 reads as two shoots instead of a duplicate (#960 acceptance). The bare suffix is cryptic on its own, so the accessible name spells it out. Informational only — apply treats both rows alike | `aiPreviewShotSuffixSemantics` |
+| Merged row lines | One `Wrap` line per schedule row that states anything: verbatim `rowRef` + its suffix chip + its cast pills | Rows with neither a resolved code nor a suffix render nothing. The merged card therefore stays byte-identical for a payload that predates `[P4]` (no `castLegend`/`shotSuffix`/`castRefs` on the wire) | (row reference is wire data) |
+
+The three #968 EU/ZDR vision providers (`scaleway`, `ovhcloud`, `nebius`) need no
+screen change: the AI-config provider picker, the reachability probe and the
+per-provider health/credential cards are all driven by the served catalog and the
+`LlmProvider` wire keys, so the regenerated client makes them first-class options
+automatically. A curated-model VISION signal does not exist on the wire
+(`ModelInfo` carries `id`/`display_name`/`priced`/`recommended`/
+`supported_reasoning_efforts` only), so the model dropdown stays untouched and
+the gap is recorded on #968 rather than invented client-side.
+
 ## Provider held — the wait, and the copy that must not guess (issues #871, #942)
 
 A held job waits for a degraded `(provider, model)` pair without spending a retry.
