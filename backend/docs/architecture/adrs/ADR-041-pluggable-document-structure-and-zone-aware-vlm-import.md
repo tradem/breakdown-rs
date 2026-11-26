@@ -80,6 +80,18 @@ Sources: Scaleway, "Data privacy" — *"By default we apply a Zero Data Retentio
   - `chandra-ocr-2` (*Custom OpenRAIL-M* — revenue cap and competing-service prohibition).
   - `dots.mocr` (auxiliary commercial API delivery restrictions and chart-to-SVG specialization unsuited to text/tabular scripts).
 
+**Operational canary (issue #974).** The nightly live vision smoke calls `OVHcloud` /
+`qwen3-vl-30b-a3b` as its **must-pass** row and `Scaleway` /
+`mistral-small-3.2-24b-instruct-2506` as an **advisory** one; `EURouter` gets only its free
+`GET {base}/key` read and is never a paid vision call. That is an *operational* choice —
+stability (an EU-only operator on a 99.5 %-SLA product), cost (≈ $0.0023 per dense page, measured
+2026-11-26: 5 685 in / 2 538 out tokens) and a
+catalogue that answers without credentials — **not** a policy statement. The provider table above
+remains the sole authority on *compliance*: the canary selection cannot admit a provider it rejects, and a
+successful call to a non-compliant provider is an assertion failure in the smoke, not a
+preference. Rotating the canary is a repository-variable change (`AI_VISION_REQUIRED_PROVIDERS`),
+not an ADR amendment; changing *what is compliant* is an amendment.
+
 ### D3 — Zone-aware screenplay segmentation & verbatim span slicing
 
 Screenplay parsing introduces **Pass 0 (Document Zoning & Structural Indexing)** ahead of per-scene LLM extraction:

@@ -76,6 +76,64 @@ curated vision models:
   provider's own catalogue may be curated. `nebius` `/v1/models` requires a paid key, so that check
   is a deployment task in the runbook.
 
+#### Nightly vision smoke (ADR-041 `D2`, issue #974)
+
+`ai_llm_smoke_test` carries the live page-image coverage: `vision_smoke_catalog_preflight` (zero
+tokens) and `vision_smoke_reads_a_schedule_page` (one page of `Drehplan_1.pdf`, ≈ $0.001 per
+provider). Both run in `AI Import Nightly`; the register:
+
+| Variable | Kind | Default | Meaning |
+|---|---|---|---|
+| `AI_VISION_REQUIRED_PROVIDERS` | `vars`, comma-separated | `ovhcloud` | must-pass rows — a failure is **red** |
+| `AI_VISION_ADVISORY_PROVIDERS` | `vars`, comma-separated | `scaleway` | advisory rows — a failure is one `vision-smoke advisory-degraded provider=… code=…` WARN line |
+| `AI_VISION_SMOKE_PAGE` | `vars` | `2` | 1-based page to render (page 1 is the `ROLLEN` legend) |
+| `AI_VISION_KEY_<PROVIDER>` | `secret` | — | per-provider credential, upper-cased [`LlmProvider::as_str`] with `-` → `_` (the `AI_IMPORT_USER_AGENT_<PROVIDER>` convention); `AI_VISION_KEY_EUROUTER` falls back to `AI_LLM_API_KEY` when `AI_LLM_PROVIDER` is **unset** (the smoke's default provider is `eurouter`) or selects EURouter under any accepted alias (`eurouter`, `openrouter_eu`, `openrouter-eu`) |
+
+Rules that come with it:
+
+- **Required vs advisory (`D3`).** A missing credential ⇒ SKIP + WARN naming the variable (never a
+  silent green). A required failure ⇒ red. An advisory failure ⇒ one greppable WARN line so a trend
+  is visible without a provider flap turning the board red. A provider listed under both is
+  **required**.
+- **No paid EURouter vision call (`D2`).** `eurouter` is a reseller fronting many upstreams, so a red
+  night there is ambiguous (our extractor vs. their outage). It gets the free authenticated
+  `GET {base}/key` read (`ProbeCapability::KeyEndpoint`, via the production
+  `KeyEndpointAccountProbe`) and is never listed as a vision provider.
+- **`nebius` stays out of the matrix.** Its ZDR is an account switch, so
+  `vision_egress_policy_for_config(nebius, false)` is deliberately non-compliant; the smoke asserts
+  in-process that an unattested page is refused, so listing it would assert a gate breach.
+- **Both exclusions are enforced, not documented** (`vision_matrix_excluded`): naming `eurouter` or
+  `nebius` in either `AI_VISION_*_PROVIDERS` variable fails `vision_targets()` **before any request**,
+  so a repository variable cannot buy a reseller vision call or assert a gate breach.
+- **A policy contradiction is always RED.** A gate verdict that disagrees with
+  `vision_egress_policy_for_config` (`smoke-gate-regressed`, or `smoke-gate-not-enforced` when the
+  call was not refused locally at all) is a statement about OUR code, so it is escalated to
+  `Required` even on an advisory row; an ordinary provider failure stays advisory. A refusal counts
+  as the declared behaviour only when the gate itself produced it (`local_egress_refusal`).
+- **Truncation is decided by the terminal `finish_reason`** (`LlmCallOutcome::finish_reason`), never by
+  summed `usage.tokens_out`: the ledger sums every billed request of the attempt, so a truncated
+  first request plus a complete retry reaches the output ceiling while the decoded page is whole.
+  The summed counters stay the pricing input, and a failure's error-attached `billed_usage()` is
+  reported as `[already billed in=… out=… cost_usd=…]` instead of being dropped.
+- **The canary is the most stable endpoint, not the production one (`D1`).** Production fidelity is
+  the text pass's job (`AI_LLM_*`, unchanged). Do not "align" `AI_VISION_*` with `AI_LLM_*`.
+- **Zero-token preflight (`D4`).** `ovhcloud`'s `/v1/models` answers anonymously and its curated IDs
+  are asserted there; a rotated ID is red before any money is spent. The read stays **anonymous even
+  when the credential is set** (`catalogue_reads_anonymously`): an authenticated read of that endpoint
+  answers `401` for a token without the AI-Endpoints action, so attaching the key would turn a free
+  catalogue check into a credential verdict the paid step already delivers. Every read uses
+  `CuratedProviderUrls::base_url` through `build_hosted_client` — never a user-supplied URL.
+- **The paid step requires the preflight.** The workflow step is gated on
+  `steps.vision-catalogue-preflight.outcome == 'success'` (plus `!cancelled()`), so a night whose
+  required catalogue check already failed does not also spend money; an advisory failure still
+  returns success and lets the page test run. Both steps select their test with `--exact` — the bare
+  `vision_smoke` substring would re-run the preflight inside the paid step.
+- **Cost reporting is a `const` table in the test** (`VISION_RATE_CARDS`, verified 2026-11-25; the
+  Scaleway figures are its EUR list price). No DB read, no new pricing subsystem; an unpriced model
+  prints `cost_usd=unknown`, never `0.0`.
+- Switching provider / rotating a model: `docs/operations/runbooks.md` §"AI import vision egress" →
+  "Nightly canary".
+
 > **Descriptive `User-Agent` (issue #521).** The curated opencode / OpenCode-Go
 > gateways triage requests on `User-Agent`; a blank, generic or reqwest-default
 > agent (`reqwest/<version>`) is answered with `403`. Every provider client
