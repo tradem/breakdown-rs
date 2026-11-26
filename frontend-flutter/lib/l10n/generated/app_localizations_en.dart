@@ -1208,6 +1208,40 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aiPreviewContinuityKeepEmpty => 'Leave the scene without a look';
 
   @override
+  String aiPreviewCastLegendTitle(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count entries',
+      one: '1 entry',
+    );
+    return 'ROLLEN legend · $_temp0';
+  }
+
+  @override
+  String get aiPreviewCastLegendHint =>
+      'Numbers from the schedule\'s ROLLEN list. Codes with no match do not appear.';
+
+  @override
+  String get aiPreviewRoleModifierDummy => 'Dummy';
+
+  @override
+  String get aiPreviewRoleModifierVoiceOnly => 'Voice only';
+
+  @override
+  String get aiPreviewRoleModifierExtraOt => '(OT)';
+
+  @override
+  String aiPreviewRoleModifierSemantics(Object modifier) {
+    return '$modifier · role modifier stated by the schedule';
+  }
+
+  @override
+  String aiPreviewShotSuffixSemantics(Object suffix) {
+    return 'Shot $suffix · pick-up or insert shot';
+  }
+
+  @override
   String aiApplyOutcomeScript(
     Object applied,
     Object characters,
