@@ -17,7 +17,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';

@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Bottom clearance a docked/floating plus action needs so the last list row
 /// never renders beneath it: the extended FAB's 56 height + its 16 margin

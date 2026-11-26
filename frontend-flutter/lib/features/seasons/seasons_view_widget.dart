@@ -4,7 +4,7 @@
 // Co-authored-by: hy3 (opencode-go)
 // Co-authored-by: space-bunny-free (opencode)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache/seasons_cache_providers.dart';

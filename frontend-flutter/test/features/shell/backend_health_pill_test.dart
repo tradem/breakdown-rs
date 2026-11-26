@@ -9,13 +9,14 @@
 // The controller is frozen per tier via overrideWithValue — no probe, no timers
 // (deterministic-tests hard rule); its state machine is covered in
 // test/unit/backend_health_providers_test.dart.
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/gen/design_tokens.g.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/shell/backend_health_pill.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/src/health/backend_health_providers.dart';
 
@@ -84,7 +85,7 @@ void main() {
             themeMode: ThemeMode.system,
             locale: locale,
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: const Scaffold(body: Center(child: BackendHealthPill())),
           ),
         ),

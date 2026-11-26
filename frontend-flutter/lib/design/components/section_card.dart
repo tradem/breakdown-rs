@@ -3,7 +3,7 @@
 // Co-authored-by: glm-5.3-flash-flex (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../spacing.dart';
 

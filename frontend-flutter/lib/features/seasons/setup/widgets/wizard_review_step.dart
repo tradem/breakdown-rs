@@ -3,7 +3,7 @@
 // Co-authored-by: space-bunny-free (opencode)
 // Co-authored-by: omen-alpha (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../design/spacing.dart';
 import '../../../../l10n/app_localizations_provider.dart';

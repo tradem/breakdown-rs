@@ -4,7 +4,7 @@
 
 import 'dart:async' show unawaited;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../auth/active_episode.dart';
 import '../../l10n/generated/app_localizations.dart';

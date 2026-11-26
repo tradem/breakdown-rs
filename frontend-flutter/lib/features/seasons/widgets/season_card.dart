@@ -2,7 +2,7 @@
 // Copyright (C) 2024-2026 Breakdown RS Contributors
 // Co-authored-by: omen-alpha (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// One season rendered as a Material 3 card (`redesign-seasons-home`
 /// task 3.1 — pure presentation: no Riverpod, no domain branching).

@@ -14,7 +14,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart'
     show SynchronousFuture, debugPrint, kReleaseMode, visibleForTesting;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -29,6 +29,7 @@ import 'design/theme.dart';
 import 'features/auth/login_screen.dart';
 import 'features/easter_eggs/dejavu_cat.dart';
 import 'features/shell/app_shell.dart';
+import 'l10n/app_localizations_delegates.dart';
 import 'l10n/app_localizations_provider.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'src/network/api_client.dart';
@@ -55,7 +56,7 @@ class App extends ConsumerWidget {
       theme: AppThemes.light(),
       darkTheme: AppThemes.dark(),
       themeMode: ThemeMode.system,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: appLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       routeInformationParser: const _RootRouteInformationParser(),
       routerDelegate: _RootRouterDelegate(),
@@ -223,7 +224,7 @@ class FatalConfigErrorApp extends StatelessWidget {
       // The fatal screen is its own MaterialApp (it renders before the real
       // app exists), so it must install the generated delegates itself.
       // Without them `Localizations.of` finds no catalog on this subtree.
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: appLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         backgroundColor: const Color(0xFFB71C1C),

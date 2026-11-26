@@ -4,7 +4,7 @@
 // Co-authored-by: space-bunny-free (opencode-go)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Shared Material icon vocabulary for the app shell and piece cards.
 ///

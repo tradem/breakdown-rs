@@ -4,7 +4,7 @@
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../design/material_icons.dart';
 import '../../l10n/app_localizations_provider.dart';

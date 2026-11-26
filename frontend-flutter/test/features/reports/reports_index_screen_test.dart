@@ -21,7 +21,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -29,7 +29,7 @@ import 'package:one_of/one_of.dart';
 
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/auth/membership/membership_providers.dart';
-import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/core/problem_error.dart';
 import 'package:frontend_flutter/core/result.dart';
 import 'package:frontend_flutter/data/cache/cache_database.dart';
@@ -286,7 +286,7 @@ void main() {
           darkTheme: AppThemes.dark(),
           locale: const Locale('de'),
           supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           themeMode: brightness == Brightness.light
               ? ThemeMode.light
               : ThemeMode.dark,

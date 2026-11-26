@@ -13,7 +13,7 @@ import 'dart:async';
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -45,6 +45,7 @@ import 'package:frontend_flutter/features/shell/shell_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_controller.dart';
 import 'package:frontend_flutter/features/seasons/seasons_screen.dart';
 import 'package:frontend_flutter/features/seasons/setup/setup_wizard_screen.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../ai_import/jobs_screen_test.dart' show FakeJobsRepository;
@@ -198,7 +199,7 @@ void main() {
           // localized season copy must be rendered in German here.
           locale: const Locale('de'),
           supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           home: const SeasonsScreen(),
         ),
       ),
@@ -747,7 +748,7 @@ void main() {
               theme: AppThemes.light(),
               locale: const Locale('de'),
               supportedLocales: AppLocalizations.supportedLocales,
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              localizationsDelegates: appLocalizationsDelegates,
               home: const SeasonsScreen(),
             ),
           ),
@@ -779,7 +780,7 @@ void main() {
             theme: AppThemes.light(),
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: const SeasonsScreen(),
           ),
         ),

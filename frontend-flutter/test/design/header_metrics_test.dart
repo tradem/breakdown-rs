@@ -7,7 +7,7 @@
 // tokens (`design/tokens/component.json`), carried by the theme, and never
 // chosen or re-derived by a screen or by the metrics class.
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/gen/design_tokens.g.dart';

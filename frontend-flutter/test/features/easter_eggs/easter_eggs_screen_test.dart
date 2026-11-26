@@ -4,13 +4,14 @@
 
 import 'dart:async' show unawaited;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend_flutter/data/settings/easter_eggs_store.dart';
 import 'package:frontend_flutter/design/theme.dart';
 import 'package:frontend_flutter/features/easter_eggs/dejavu_cat.dart';
 import 'package:frontend_flutter/features/easter_eggs/easter_eggs_screen.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
@@ -90,7 +91,7 @@ void main() {
             themeMode: ThemeMode.system,
             locale: locale,
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: const Scaffold(body: SizedBox()),
           ),
         ),
@@ -260,6 +261,12 @@ void main() {
         // AGENTS.md §9: goldens use the German template locale.
         locale: const Locale('de'),
       );
+      // The route push above is a Material 3 page transition: it runs
+      // 450 ms in material_ui 1.11 (issue #975), while the shared
+      // `pumpFrames` budget is 400 ms — capturing there asserts on a
+      // mid-transition, paint-dirty frame. One deterministic 200 ms step
+      // lands past it (no `pumpAndSettle`: the walking cat never settles).
+      await tester.pump(const Duration(milliseconds: 200));
       await expectLater(
         find.byKey(const Key('easter-eggs-screen')),
         matchesGoldenFile('goldens/easter_eggs_light.png'),
@@ -272,6 +279,12 @@ void main() {
         brightness: Brightness.dark,
         locale: const Locale('de'),
       );
+      // The route push above is a Material 3 page transition: it runs
+      // 450 ms in material_ui 1.11 (issue #975), while the shared
+      // `pumpFrames` budget is 400 ms — capturing there asserts on a
+      // mid-transition, paint-dirty frame. One deterministic 200 ms step
+      // lands past it (no `pumpAndSettle`: the walking cat never settles).
+      await tester.pump(const Duration(milliseconds: 200));
       await expectLater(
         find.byKey(const Key('easter-eggs-screen')),
         matchesGoldenFile('goldens/easter_eggs_dark.png'),

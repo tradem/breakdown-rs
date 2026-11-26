@@ -8,7 +8,7 @@ library;
 import 'dart:async' show unawaited;
 
 import 'package:breakdown_api/breakdown_api.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../pieces/piece_detail_screen.dart';
 import '../shell/planning_location.dart';

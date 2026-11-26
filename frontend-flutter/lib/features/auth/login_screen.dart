@@ -5,7 +5,7 @@
 // Co-authored-by: deepseek-v4-flash (neuralwatt)
 // Co-authored-by: deepseek-v4.1-flash (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 

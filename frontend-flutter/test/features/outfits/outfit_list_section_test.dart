@@ -10,7 +10,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -31,6 +31,7 @@ import 'package:frontend_flutter/features/outfits/outfit_list_section.dart';
 import 'package:frontend_flutter/features/outfits/outfit_detail_screen.dart';
 import 'package:frontend_flutter/features/outfits/outfits_controller.dart';
 import 'package:frontend_flutter/data/cache/seasons_cache_providers.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../seasons/seasons_test_fakes.dart';
@@ -202,7 +203,7 @@ void main() {
         container: container,
         child: MaterialApp(
           locale: const Locale('de'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: ListView(
@@ -338,8 +339,7 @@ void main() {
                 container: container,
                 child: MaterialApp(
                   locale: const Locale('de'),
-                  localizationsDelegates:
-                      AppLocalizations.localizationsDelegates,
+                  localizationsDelegates: appLocalizationsDelegates,
                   supportedLocales: AppLocalizations.supportedLocales,
                   theme: ThemeData.light(),
                   darkTheme: ThemeData.dark(),

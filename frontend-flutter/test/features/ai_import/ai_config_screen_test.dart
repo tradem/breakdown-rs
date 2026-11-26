@@ -19,7 +19,7 @@ import 'dart:async';
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,6 +38,7 @@ import 'package:frontend_flutter/domain/reconciliation/reconciliation_scheduler.
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controller.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_screen.dart';
 import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_state.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_de.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations_en.dart';
@@ -583,7 +584,7 @@ void main() {
             locale: locale,
             localizationsDelegates: locale == null
                 ? null
-                : AppLocalizations.localizationsDelegates,
+                : appLocalizationsDelegates,
             supportedLocales: locale == null
                 ? const [Locale('en')]
                 : AppLocalizations.supportedLocales,

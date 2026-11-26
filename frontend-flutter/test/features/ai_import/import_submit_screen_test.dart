@@ -24,7 +24,7 @@ import 'package:built_collection/built_collection.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
@@ -47,7 +47,7 @@ import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/shell/active_season_store.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_submit_screen.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/job_status_screen.dart';
-import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 
 import '../../support/fake_secure_storage.dart';
 import '../seasons/setup/setup_wizard_test_fakes.dart' show FakeBlockRepository;
@@ -307,7 +307,7 @@ void main() {
             supportedLocales: const [Locale('de'), Locale('en')],
             localizationsDelegates: locale == null
                 ? null
-                : AppLocalizations.localizationsDelegates,
+                : appLocalizationsDelegates,
             // Deterministic host tests (AGENTS.md §6): the Karl Kleiderbügel
             // figure is time-driven, so freeze animations (spec
             // `flutter-easter-eggs`).

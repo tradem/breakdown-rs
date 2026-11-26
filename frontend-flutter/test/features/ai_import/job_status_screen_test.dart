@@ -17,7 +17,7 @@ import 'package:breakdown_api/breakdown_api.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:built_collection/built_collection.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -25,7 +25,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:frontend_flutter/app_config.dart';
 import 'package:frontend_flutter/auth/auth_providers.dart';
 import 'package:frontend_flutter/core/result.dart';
-import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:drift/native.dart';
 import 'package:frontend_flutter/data/ai_import_providers.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
@@ -357,7 +357,7 @@ void main() {
             themeMode: mode,
             locale: const Locale('en'),
             supportedLocales: const [Locale('en'), Locale('de')],
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             // Goldens must be deterministic (AGENTS.md §6): the Karl
             // Kleiderbügel excited wobble is time-driven, so the golden
             // pumps freeze animations — the static excited pose is

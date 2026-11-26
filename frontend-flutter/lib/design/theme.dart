@@ -3,7 +3,7 @@
 // Co-authored-by: muse-spark-1.3-contributor (opencode-go)
 // Co-authored-by: omen-alpha (opencode-go)
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:frontend_flutter/design/gen/design_tokens.g.dart';
 import 'package:frontend_flutter/design/header_metrics.dart';

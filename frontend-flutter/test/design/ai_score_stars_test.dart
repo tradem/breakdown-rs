@@ -6,7 +6,7 @@
 // honest null absence, accessibility semantics) tests for the reusable
 // Decision Model star-rating indicator (issue #723, design D2).
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:frontend_flutter/design/components/ai_score_stars.dart';

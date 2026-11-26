@@ -11,7 +11,7 @@ import 'dart:io';
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,6 +37,7 @@ import 'package:frontend_flutter/features/ai_import/ai_config/ai_config_controll
 import 'package:frontend_flutter/features/easter_eggs/easter_eggs_screen.dart';
 import 'package:frontend_flutter/features/settings/settings_screen.dart';
 import 'package:frontend_flutter/features/shell/active_season_store.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/src/health/backend_health_providers.dart';
 import 'package:frontend_flutter/src/network/api_client.dart';
@@ -276,7 +277,7 @@ void main() {
             locale: locale,
             localizationsDelegates: locale == null
                 ? null
-                : AppLocalizations.localizationsDelegates,
+                : appLocalizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             theme: AppThemes.light(),
             darkTheme: AppThemes.dark(),
@@ -1045,6 +1046,12 @@ void main() {
         locale: const Locale('de'),
       );
       expect(find.byKey(const Key('settings-ai-config')), findsOneWidget);
+      // `pumpScreen` pushes the screen as a Material 3 page transition, which
+      // runs 450 ms in material_ui 1.11 (issue #975) while the shared
+      // `pumpFrames` budget is 400 ms. Capturing there asserts on a
+      // mid-transition, paint-dirty frame; one deterministic 200 ms step lands
+      // past it (no `pumpAndSettle`: the "checking" spinner never settles).
+      await tester.pump(const Duration(milliseconds: 200));
       await expectLater(
         find.byKey(const Key('settings-ai-config')),
         matchesGoldenFile('goldens/$golden'),

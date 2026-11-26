@@ -4,7 +4,7 @@
 
 import 'package:breakdown_api/breakdown_api.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +18,7 @@ import 'package:frontend_flutter/data/cache/hierarchy_cache_dao.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/shell/active_scope_chip.dart';
 import 'package:frontend_flutter/features/shell/planning_location.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 
 import '../../support/fake_secure_storage.dart';
@@ -79,7 +80,7 @@ void main() {
         child: MaterialApp(
           locale: const Locale('de'),
           supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: appLocalizationsDelegates,
           home: Scaffold(
             body: ActiveScopeChip(
               location: location,
@@ -270,7 +271,7 @@ void main() {
           child: MaterialApp(
             locale: const Locale('de'),
             supportedLocales: AppLocalizations.supportedLocales,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            localizationsDelegates: appLocalizationsDelegates,
             home: Scaffold(
               body: Center(
                 child: Builder(

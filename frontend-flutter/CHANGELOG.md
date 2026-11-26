@@ -8,8 +8,8 @@
 <!-- Co-authored-by: qwen3.8-flash (opencode-go) -->
 <!-- Co-authored-by: glm-5.3-flash (opencode-go) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (neuralwatt) -->
-<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 <!-- Co-authored-by: deepseek-v4.1-flash (opencode-go) -->
+<!-- Co-authored-by: glm-5.3-flash (neuralwatt) -->
 
 # Changelog
 
@@ -22,6 +22,55 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 `scripts/release/version-gate.sh`).
 
 ## [Unreleased]
+
+- **The whole client imports `package:material_ui/material_ui.dart` now**
+  (issue #975, the migration #966 deferred). `package:flutter/material.dart` is
+  deprecated since the pinned Flutter 3.50.1, and `flutter analyze
+  --no-fatal-infos` had been reporting **196** `deprecated_member_use` hints
+  (194 imports across `lib/` 110, `test/` 73, `integration_test/` 11 — plus the
+  two delegate symbols in the generated l10n file). The hints never gated, so
+  the app sat on an entry point the SDK will delete; 194 files replaced "on
+  touch" does not converge, so it is one deliberate change. `material_ui
+  ^1.11.1` is now a direct dependency (it was already in the lock
+  transitively); foundation/widgets/services/scheduler/semantics and
+  `flutter_test` stay on the SDK, and `analysis_options.yaml` gained no ignore.
+  - **The generated delegate list had to move too, and not for style:**
+    `AppLocalizations.localizationsDelegates` (emitted by `flutter gen-l10n`,
+    which hardcodes `flutter_localizations`) names the DEPRECATED
+    `GlobalMaterialLocalizations`/`GlobalCupertinoLocalizations`. Those provide
+    the **legacy** `MaterialLocalizations` type — a different type from
+    `material_ui`'s — so after the import swap the app resolved them as missing
+    and fell back to English: 384 widget tests failed with "a
+    MaterialLocalizations delegate that supports the de locale was not found".
+    New `lib/l10n/app_localizations_delegates.dart` (the catalog delegate +
+    `material_ui`'s cupertino/material/widgets trio) is installed at all 31
+    call sites, so German Material copy and `MaterialLocalizations.of` (date
+    formatting) keep working.
+  - **`flutter_code_editor` is still a legacy-Material package** and its
+    `CodeField` asserts on a legacy `Material` ancestor (746 exceptions in
+    `ai_config_screen_test` alone). New
+    `lib/design/components/legacy_material_subtree.dart` is the ONLY remaining
+    legacy importer: it wraps the XML editor's body in
+    `MaterialUiCompatibilityBridge` plus a transparent legacy `Material`, and
+    carries the migration's only two `// ignore: deprecated_member_use` markers
+    (file-local, with the deletion condition). Delete it when the editor
+    migrates upstream (latest published 0.3.5 still imports the SDK path).
+  - **Six goldens were regenerated, each measured before acceptance.**
+    `scene_shoots_board_{light,dark}_{android,macos}` (4) differ in exactly
+    3 full-width hairlines (0.24 %, no layout change): `material_ui` passes a
+    `DropdownButtonFormField`'s disabled state to its `InputDecorator`, so an
+    empty-pieces picker's underline paints `onSurface@12 %` instead of
+    `outline`. `settings_ai_config_checking_{light,dark}` and
+    `easter_eggs_{light,dark}` moved only in their animating pixel box (spinner
+    rotation; the walking cat's phase) because the harness now pumps one
+    deterministic 200 ms step past Material 3's **450 ms** page transition,
+    where `captureImage`'s `!debugNeedsPaint` assert tripped on a
+    mid-transition frame. Every other golden is byte-identical.
+  - **Residual, not fixable here:** 2 hints remain, both in
+    `lib/l10n/generated/app_localizations.dart` (90–91) and both emitted by
+    `flutter_tools`' hardcoded `gen_l10n_templates.dart`. Hand-editing generated
+    output is forbidden (drift gate) and a project-wide ignore is rejected by
+    the issue's own acceptance criteria — tracked as a follow-up.
 
 - **Version bump:** `0.4.0+155 → 0.5.0-alpha.1+156` (opens the 0.5.0 alpha
   line; the Play `versionCode` `+N` stays strictly monotonic).
@@ -158,6 +207,7 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
     (→ `package:material_ui/material_ui.dart`; non-fatal under
     `flutter analyze --no-fatal-infos`) and the dependency majors the pin had
     blocked (`pdfrx 3.x`, `freezed 4` / `build_runner 2.17`, `gherkin 3.x`).
+    **The hints were migrated in issue #975** (see `[Unreleased]` above).
 
 - **The Android build compiles Kotlin through AGP's built-in Kotlin support.**
   `android/gradle.properties` now sets `android.builtInKotlin=true`, and
