@@ -131,6 +131,7 @@ jobs:
               echo "GDRIVE_CLIENT_ID not configured — the real-document half will skip (asserts nothing)."
             else
               echo "Required fixtures: 292.pdf 293.pdf 294.pdf Drehbuch_1.pdf Drehbuch_2.pdf"
+              echo "Required schedule fixture (vision smoke): Drehplan_1.pdf"
             fi
           fi
           cargo test -p integration-tests --test ai_llm_smoke_test -- --nocapture
@@ -182,6 +183,77 @@ jobs:
           # distort exactly what they measure (wall clock and rate-limit
           # behaviour).
           cargo test -p integration-tests --test ai_llm_smoke_test reasoning_effort -- --nocapture --test-threads=1
+
+      # Issue #974: the ADR-041 `D2` page-image path had ZERO live coverage — the
+      # pre-egress gate, the strict JSON schema, the inner format fallback and the
+      # per-page billing were pinned only by unit tests against wiremock doubles.
+      #
+      # The two steps below close that gap and fix WHO is allowed to be the oracle
+      # (D1): the must-pass canary is the most STABLE cheapest verified VL
+      # endpoint (ovhcloud / qwen3-vl-30b-a3b), the second voice (scaleway) is
+      # ADVISORY — its flap must not look like our regression — and `eurouter`
+      # never gets a paid vision call at all (D2): it is a reseller whose value is
+      # catalogue depth, so it gets the free authenticated `GET {base}/key` read.
+      #
+      # The preflight runs FIRST and needs no credential for ovhcloud (its
+      # `/v1/models` answers anonymously), so a rotated catalogue ID is reported
+      # for free before anything is paid for.
+      - name: Vision catalogue preflight (nightly, zero-token)
+        # Independent of the GDrive/LLM steps above and costs nothing: it reports
+        # a rotated catalogue even on a night those are red, but never outlives a
+        # cancelled run (`!cancelled()`).
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        env:
+          AI_VISION_REQUIRED_PROVIDERS: ${{ vars.AI_VISION_REQUIRED_PROVIDERS || 'ovhcloud' }}
+          AI_VISION_ADVISORY_PROVIDERS: ${{ vars.AI_VISION_ADVISORY_PROVIDERS || 'scaleway' }}
+          AI_VISION_KEY_OVHCLOUD: ${{ secrets.AI_VISION_KEY_OVHCLOUD }}
+          AI_VISION_KEY_SCALEWAY: ${{ secrets.AI_VISION_KEY_SCALEWAY }}
+          # A dedicated EURouter key wins; the assistant key is the fallback only
+          # when the deployment's text provider IS eurouter — two distinct
+          # secrets with a documented fallback, never one shared one.
+          AI_VISION_KEY_EUROUTER: ${{ secrets.AI_VISION_KEY_EUROUTER || (vars.AI_LLM_PROVIDER == 'eurouter' && secrets.AI_LLM_API_KEY) || '' }}
+        run: |
+          echo "vision required=${AI_VISION_REQUIRED_PROVIDERS:-ovhcloud} advisory=${AI_VISION_ADVISORY_PROVIDERS:-scaleway}"
+          # Lengths only, never a prefix or a suffix (the GDRIVE echo precedent).
+          echo "vision key lengths: ovhcloud=${#AI_VISION_KEY_OVHCLOUD} scaleway=${#AI_VISION_KEY_SCALEWAY} eurouter=${#AI_VISION_KEY_EUROUTER}"
+          cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke_catalog_preflight -- --nocapture
+
+      # The paid half: ONE page of `Drehplan_1.pdf` through the production
+      # `DocumentStructureExtractor` → `LlmVisionRequest` → `chat_vision_constrained`
+      # path, once per provider that has a key (≈ $0.001 per page). A required
+      # failure is red and names provider/model/page/code; an advisory one emits a
+      # single `vision-smoke advisory-degraded …` WARN line.
+      #
+      # `--test-threads=1`: two parallel calls against one provider distort the
+      # latency number printed for the cost trend and invite a `429` that reads as
+      # an outage (the reasoning-effort probe above does the same).
+      - name: Live vision smoke (nightly)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        env:
+          AI_VISION_REQUIRED_PROVIDERS: ${{ vars.AI_VISION_REQUIRED_PROVIDERS || 'ovhcloud' }}
+          AI_VISION_ADVISORY_PROVIDERS: ${{ vars.AI_VISION_ADVISORY_PROVIDERS || 'scaleway' }}
+          AI_VISION_SMOKE_PAGE: ${{ vars.AI_VISION_SMOKE_PAGE || '2' }}
+          AI_VISION_KEY_OVHCLOUD: ${{ secrets.AI_VISION_KEY_OVHCLOUD }}
+          AI_VISION_KEY_SCALEWAY: ${{ secrets.AI_VISION_KEY_SCALEWAY }}
+          AI_VISION_KEY_EUROUTER: ${{ secrets.AI_VISION_KEY_EUROUTER || (vars.AI_LLM_PROVIDER == 'eurouter' && secrets.AI_LLM_API_KEY) || '' }}
+          # The page is loaded through the same Vault-backed GDrive source the
+          # product uses, exactly like the text smoke above.
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_ROOT: ${{ secrets.GDRIVE_ROOT }}
+        run: |
+          echo "vision required=${AI_VISION_REQUIRED_PROVIDERS:-ovhcloud} advisory=${AI_VISION_ADVISORY_PROVIDERS:-scaleway} page=${AI_VISION_SMOKE_PAGE:-2}"
+          echo "vision key lengths: ovhcloud=${#AI_VISION_KEY_OVHCLOUD} scaleway=${#AI_VISION_KEY_SCALEWAY} eurouter=${#AI_VISION_KEY_EUROUTER}"
+          if [ -z "$AI_VISION_KEY_OVHCLOUD$AI_VISION_KEY_SCALEWAY" ]; then
+            echo "no AI_VISION_KEY_* credential configured — the live vision smoke will skip (asserts nothing)."
+          fi
+          if [ -z "$GDRIVE_CLIENT_ID" ]; then
+            echo "GDRIVE_CLIENT_ID not configured — the live vision smoke will skip (asserts nothing)."
+          fi
+          cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke -- --nocapture --test-threads=1
 
       # Issue #808: one question of each kind against the curated System One
       # endpoint — `200` and a parsed answer per kind, or the provider's own

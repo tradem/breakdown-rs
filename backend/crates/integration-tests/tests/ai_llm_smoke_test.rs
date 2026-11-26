@@ -53,14 +53,22 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use breakdown_core::ai::{
-    AiImportBounds, DocumentKind, DraftScene, LlmChatRequest, LlmClient, LlmProvider,
-    RejectedOutfitReason, SceneChunk, ScriptContext, character_identity, extract_scenes,
-    verify_draft_outfits,
+    AccountProbeRequest, AccountProbeStatus, AiImportBounds, CuratedLlmProvider,
+    DEFAULT_MAX_RENDER_BYTES, DEFAULT_TARGET_DPI, DocumentKind, DocumentStructureExtractor,
+    DraftScene, ExtractionOptions, LlmChatRequest, LlmClient, LlmProvider, LlmVisionPageInput,
+    LlmVisionRequest, ProbeCapability, ProviderAccountProbe, RejectedOutfitReason, RenderOptions,
+    SceneChunk, ScheduleCarryOver, ScriptContext, character_identity, extract_scenes,
+    probe_capability, render_schedule_carry_over_context, render_schedule_page_spatial_hint,
+    verify_draft_outfits, vision_egress_compliant, vision_egress_policy_for_config,
 };
+use breakdown_core::error::DomainError;
 use breakdown_core::settings::ports::{CredentialVault, GDriveCredentialBundle};
+use breakdown_core::shared::UserId;
+use infra::ai::provider_probe::KeyEndpointAccountProbe;
 use infra::ai::{
-    AiDocumentSource, GDriveDocument, GDriveDocumentSource, LegacyPdfToTextAdapter,
-    OpenAiCompatibleChatClient, default_prompt,
+    AiDocumentSource, ConfiguredDocumentExtractor, CuratedProviderUrls, DocumentParser,
+    GDriveDocument, GDriveDocumentSource, LegacyPdfToTextAdapter, OpenAiCompatibleChatClient,
+    curated_model_ids, default_prompt, resolve_provider,
 };
 use uuid::Uuid;
 
@@ -1439,4 +1447,991 @@ fn folded_text_matches_core_character_identity_folding() {
     );
     assert_eq!(character_identity("  Anna "), "anna");
     assert!(fold_chunk("INT. KÜCHE - TAG\nANNA kommt herein.").contains("anna"));
+}
+
+// ===========================================================================
+// Nightly live vision smoke (issue #974, ADR-041 `D2`/`D5`)
+// ===========================================================================
+//
+// The page-image path had ZERO live coverage: the pre-egress gate, the strict
+// JSON schema, the inner format fallback and the per-page billing were pinned
+// only by unit tests against wiremock doubles, so a rotated model ID, a retired
+// host or an API-contract change surfaced first in a customer's failed schedule
+// import.
+//
+// These tests deliberately do NOT change what the nightly guards: the text pass
+// above (`AI_LLM_*`) keeps following production. A nightly whose red verdict
+// must answer "is our code correct?" runs the vision call against the most
+// STABLE cheapest endpoint (`D1`) and treats the others as advisory signals:
+//
+// * a REQUIRED provider's failure is red;
+// * an ADVISORY provider's failure is exactly one greppable
+//   `vision-smoke advisory-degraded provider=… code=…` WARN line;
+// * a missing credential is a SKIP + WARN naming the variable — never a silent
+//   green;
+// * a gate verdict that contradicts `vision_egress_policy_for_config` is always
+//   red, because that is our code.
+//
+// `eurouter` never gets a paid vision call (`D2`): it is a reseller whose value
+// is catalogue depth, not availability, so it gets the zero-token
+// `GET {base}/key` read instead — the capability the registry already declares.
+
+/// The must-pass canary when `AI_VISION_REQUIRED_PROVIDERS` is unset (`D1`).
+///
+/// `ovhcloud` / `qwen3-vl-30b-a3b`: a big EU operator on EU-only infrastructure
+/// with a 99.5 %-SLA AI-Endpoints product, the cheapest verified VL endpoint
+/// (≈ $0.0011 per page), purpose-built for dense tables — and the only one of
+/// the three whose `/v1/models` answers WITHOUT credentials, so the catalogue
+/// preflight costs nothing.
+const DEFAULT_VISION_REQUIRED_PROVIDERS: [&str; 1] = ["ovhcloud"];
+
+/// The advisory second voice when `AI_VISION_ADVISORY_PROVIDERS` is unset.
+///
+/// A different operator on different infrastructure (Paris). A Scaleway flap
+/// must not look like a regression of ours, hence advisory (`D3`).
+const DEFAULT_VISION_ADVISORY_PROVIDERS: [&str; 1] = ["scaleway"];
+
+/// The shooting schedule the vision smoke renders. Declared, not discovered: a
+/// missing fixture is a red nightly naming what IS there.
+const REQUIRED_SCHEDULES: [&str; 1] = ["Drehplan_1.pdf"];
+
+/// 1-based page the smoke renders when `AI_VISION_SMOKE_PAGE` is unset: page 1
+/// is the `ROLLEN` legend, page 2 the first real multi-row grid.
+const DEFAULT_VISION_SMOKE_PAGE: u32 = 2;
+
+/// Deadline of one zero-token preflight read. Not [`REQUEST_TIMEOUT`]: the read
+/// buys no tokens and must fail fast enough to precede the paid step.
+const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How many characters of a provider error body are echoed — never a credential
+/// (the provider's own text only), and never unbounded.
+const PROVIDER_BODY_ECHO_CHARS: usize = 200;
+
+/// The preferred vision model of one provider plus the rate card its cost line
+/// is priced with (USD per million tokens).
+///
+/// Verified **2026-11-25** (issue #974); the figures are the providers' own list
+/// prices and match the `ai_model_pricing` `curated_seed` rows. The table lives
+/// in the test on purpose: a smoke must not open a DB connection to price one
+/// page. The Scaleway figures are its EUR list price (≈ USD at parity), so its
+/// `cost_usd` is a trend line, not an invoice. A provider WITHOUT a card still
+/// runs (its first curated model) and prints `cost_usd=unknown` — never `0.0`.
+struct VisionRateCard {
+    model: &'static str,
+    usd_in_per_mtok: &'static str,
+    usd_out_per_mtok: &'static str,
+}
+
+/// Rate cards per curated provider key (see [`VisionRateCard`]).
+const VISION_RATE_CARDS: [(&str, VisionRateCard); 2] = [
+    (
+        "ovhcloud",
+        VisionRateCard {
+            model: "qwen3-vl-30b-a3b",
+            usd_in_per_mtok: "0.15",
+            usd_out_per_mtok: "0.58",
+        },
+    ),
+    (
+        "scaleway",
+        VisionRateCard {
+            model: "mistral-small-3.2-24b-instruct-2506",
+            usd_in_per_mtok: "0.15",
+            usd_out_per_mtok: "0.35",
+        },
+    ),
+];
+
+/// What a failure of one matrix row does to the nightly (`D3`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisionSeverity {
+    /// Turns the run red.
+    Required,
+    /// Prints one `vision-smoke advisory-degraded …` WARN line and stays green.
+    Advisory,
+}
+
+/// One row of the resolved nightly vision matrix.
+struct VisionTarget {
+    provider: LlmProvider,
+    severity: VisionSeverity,
+    /// The matrix credential (`AI_VISION_KEY_<PROVIDER>`), `None` when absent —
+    /// which is a SKIP + WARN, never a silent pass.
+    api_key: Option<String>,
+}
+
+/// `AI_VISION_KEY_<PROVIDER>`: upper-cased [`LlmProvider::as_str`], `-` → `_`.
+///
+/// The convention `AI_IMPORT_USER_AGENT_<PROVIDER>` already established — one
+/// naming scheme, so an operator who can spell one can spell the other.
+fn vision_key_env(provider: LlmProvider) -> String {
+    format!(
+        "AI_VISION_KEY_{}",
+        provider.as_str().to_ascii_uppercase().replace('-', "_")
+    )
+}
+
+/// Resolve the matrix from `AI_VISION_REQUIRED_PROVIDERS` +
+/// `AI_VISION_ADVISORY_PROVIDERS` (comma-separated provider keys).
+///
+/// Keys go through `infra::ai::resolve_provider`, never a local `match`: the
+/// registry stays the single source of truth for keys AND aliases, and a second
+/// table is how `ovh`/`ovhcloud` drift starts.
+fn vision_targets() -> Result<Vec<VisionTarget>> {
+    let required = env_list(
+        "AI_VISION_REQUIRED_PROVIDERS",
+        &DEFAULT_VISION_REQUIRED_PROVIDERS,
+    );
+    let advisory = env_list(
+        "AI_VISION_ADVISORY_PROVIDERS",
+        &DEFAULT_VISION_ADVISORY_PROVIDERS,
+    );
+    let mut targets: Vec<VisionTarget> = Vec::new();
+    for (keys, severity) in [
+        (required, VisionSeverity::Required),
+        (advisory, VisionSeverity::Advisory),
+    ] {
+        for key in keys {
+            let provider = resolve_provider(key.trim()).ok_or_else(|| {
+                anyhow!(
+                    "AI_VISION_REQUIRED_PROVIDERS/AI_VISION_ADVISORY_PROVIDERS names an \
+                     unknown provider key: {key}"
+                )
+            })?;
+            // Listed under BOTH variables: the stricter verdict wins, otherwise
+            // a duplicate row silently downgrades a must-pass check to a warning.
+            if let Some(existing) = targets
+                .iter_mut()
+                .find(|target| target.provider == provider)
+            {
+                if severity == VisionSeverity::Required {
+                    existing.severity = VisionSeverity::Required;
+                }
+                continue;
+            }
+            targets.push(VisionTarget {
+                api_key: env_non_empty(&vision_key_env(provider)),
+                provider,
+                severity,
+            });
+        }
+    }
+    Ok(targets)
+}
+
+/// Whether the nightly DECLARED its vision matrix.
+///
+/// The preflight needs no credential by design (`D4`), so it cannot use the
+/// "skip without a secret" convention of the other live tests — yet it does need
+/// a network, and a pull-request run of this binary must stay hermetic. The
+/// DECLARATION is the trigger: the nightly workflow always sets both variables,
+/// a plain `cargo test` does not.
+fn vision_matrix_declared() -> bool {
+    env_non_empty("AI_VISION_REQUIRED_PROVIDERS").is_some()
+        || env_non_empty("AI_VISION_ADVISORY_PROVIDERS").is_some()
+}
+
+/// The rate card of `provider`, when the smoke knows one.
+fn vision_rate_card(provider: LlmProvider) -> Option<&'static VisionRateCard> {
+    VISION_RATE_CARDS
+        .iter()
+        .find(|(key, _)| *key == provider.as_str())
+        .map(|(_, card)| card)
+}
+
+/// The model one page call uses: the card's preferred model, else the
+/// provider's first curated one (which then reports `cost_usd=unknown`).
+fn vision_model(provider: LlmProvider) -> Result<&'static str> {
+    if let Some(card) = vision_rate_card(provider) {
+        return Ok(card.model);
+    }
+    curated_model_ids(provider)
+        .first()
+        .copied()
+        .ok_or_else(|| anyhow!("{} has no curated vision model", provider.as_str()))
+}
+
+/// The 1-based page to render, from the raw `AI_VISION_SMOKE_PAGE` value.
+///
+/// A declared-but-valueless workflow variable arrives as an EMPTY string, so the
+/// resolver decides, not `env::var(..).unwrap_or(default)` — the 2026-11-20
+/// lesson (see [`probe_document_name`]).
+fn vision_smoke_page(raw: Option<String>) -> u32 {
+    let Some(value) = non_empty(raw) else {
+        return DEFAULT_VISION_SMOKE_PAGE;
+    };
+    match value.trim().parse::<u32>() {
+        Ok(page) if page > 0 => page,
+        _ => {
+            tracing::warn!(
+                value = %value,
+                default = DEFAULT_VISION_SMOKE_PAGE,
+                "AI_VISION_SMOKE_PAGE is not a positive page number — using the default"
+            );
+            DEFAULT_VISION_SMOKE_PAGE
+        }
+    }
+}
+
+/// The first [`PROVIDER_BODY_ECHO_CHARS`] characters of a provider body.
+fn provider_body_head(body: &str) -> String {
+    body.chars().take(PROVIDER_BODY_ECHO_CHARS).collect()
+}
+
+/// One failed matrix row, with the severity that decides its verdict.
+struct VisionFailure {
+    severity: VisionSeverity,
+    provider: LlmProvider,
+    /// The model that was called, or a short subject (`models`, `key`).
+    model: String,
+    /// The rendered page, when the failure is about a page call.
+    page: Option<u32>,
+    /// The registered problem code of the client error, or a `smoke-…` token for
+    /// a check this harness owns. Dashed, never dotted: registered codes are
+    /// `{context}.{reason}`, so the two shapes cannot be confused in a grep.
+    code: &'static str,
+    detail: String,
+}
+
+/// A failed paid page: its code plus the provider's own detail, so a red run
+/// names provider, model, page AND code without re-deriving anything.
+struct VisionCallFailure {
+    code: &'static str,
+    detail: String,
+}
+
+/// One successful paid page, as reported to the cost trend.
+struct VisionRow {
+    provider: LlmProvider,
+    model: String,
+    page: u32,
+    tokens_in: u64,
+    tokens_out: u64,
+    wall_ms: u64,
+    rows: usize,
+    /// `None` when the model has no rate card: printed `cost_usd=unknown`.
+    cost_micro_usd: Option<u64>,
+}
+
+/// `cost_usd=<f>` or `cost_usd=unknown` — never `cost_usd=0`, which would read
+/// as "free" in a trend.
+fn cost_label(micro_usd: Option<u64>) -> String {
+    match micro_usd.and_then(|micro| u32::try_from(micro).ok()) {
+        Some(micro) => format!("{:.6}", f64::from(micro) / 1_000_000.0),
+        None => "unknown".to_owned(),
+    }
+}
+
+/// The `page=` field of a failure line (`-` when the failure has no page).
+fn vision_page_label(page: Option<u32>) -> String {
+    page.map_or_else(|| "-".to_owned(), |page| page.to_string())
+}
+
+/// Emit one greppable WARN per ADVISORY failure, then return `Err` naming every
+/// REQUIRED one — the whole point of the `D3` split.
+fn report_vision_failures(failures: &[VisionFailure]) -> Result<()> {
+    for failure in failures
+        .iter()
+        .filter(|failure| failure.severity == VisionSeverity::Advisory)
+    {
+        tracing::warn!(
+            "vision-smoke advisory-degraded provider={} code={} model={} page={} — {}",
+            failure.provider.as_str(),
+            failure.code,
+            failure.model,
+            vision_page_label(failure.page),
+            failure.detail
+        );
+    }
+    let required: Vec<&VisionFailure> = failures
+        .iter()
+        .filter(|failure| failure.severity == VisionSeverity::Required)
+        .collect();
+    if required.is_empty() {
+        return Ok(());
+    }
+    let lines: Vec<String> = required
+        .iter()
+        .map(|failure| {
+            format!(
+                "{} / {} / page {} / {}: {}",
+                failure.provider.as_str(),
+                failure.model,
+                vision_page_label(failure.page),
+                failure.code,
+                failure.detail
+            )
+        })
+        .collect();
+    Err(anyhow!(
+        "{} required vision provider check(s) FAILED:\n- {}",
+        required.len(),
+        lines.join("\n- ")
+    ))
+}
+
+/// `GET {base}/models` on the CURATED base URL, with an OPTIONAL credential.
+///
+/// Curated, never user-supplied (ADR-024 SSRF policy), and through the same
+/// transport policy as every hosted provider call (`build_hosted_client`:
+/// HTTPS-only, same-origin redirects, DNS pinning, no proxy). Zero tokens and
+/// zero money, which is what makes the catalogue guard free (`D4`).
+async fn fetch_catalogue_ids(provider: LlmProvider, key: Option<&str>) -> Result<Vec<String>> {
+    let base = CuratedProviderUrls::base_url(provider);
+    let url = reqwest::Url::parse(base)
+        .with_context(|| format!("invalid curated base URL for {}: {base}", provider.as_str()))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow!("curated base URL for {} has no host", provider.as_str()))?;
+    let http = infra::ai::transport::build_hosted_client(host, PREFLIGHT_TIMEOUT)
+        .await
+        .map_err(|violation| {
+            anyhow!(
+                "the transport policy refused the {} catalogue read: {violation}",
+                provider.as_str()
+            )
+        })?;
+    let mut request = http.get(format!("{base}/models"));
+    if let Some(key) = key {
+        request = request.bearer_auth(key);
+    }
+    let response = request
+        .send()
+        .await
+        .with_context(|| format!("{} catalogue GET failed", provider.as_str()))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .with_context(|| format!("{} catalogue body could not be read", provider.as_str()))?;
+    if !status.is_success() {
+        return Err(anyhow!(
+            "{} answered {status} for GET {{curated base}}/models: {}",
+            provider.as_str(),
+            provider_body_head(&body)
+        ));
+    }
+    let payload: serde_json::Value = serde_json::from_str(&body)
+        .with_context(|| format!("{} catalogue body was not JSON", provider.as_str()))?;
+    Ok(payload
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| row.get("id").and_then(serde_json::Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Zero-token preflight (`D4`): the curated catalogue IDs of every matrix
+/// provider, plus the EURouter `/key` reachability read.
+///
+/// Runs BEFORE the paid step and even when the key secret is absent, so a
+/// rotated catalogue is reported without spending anything. Fails only for the
+/// REQUIRED list; an advisory provider degrades to a WARN.
+#[tokio::test]
+async fn vision_smoke_catalog_preflight() -> Result<()> {
+    init_logging();
+    if !vision_matrix_declared() {
+        tracing::warn!(
+            "AI_VISION_REQUIRED_PROVIDERS/AI_VISION_ADVISORY_PROVIDERS not declared — the \
+             vision catalogue preflight SKIPPED (asserted nothing)"
+        );
+        return Ok(());
+    }
+    let targets = vision_targets()?;
+    tracing::info!(
+        targets = targets.len(),
+        page = vision_smoke_page(env::var("AI_VISION_SMOKE_PAGE").ok()),
+        "vision-smoke preflight plan (zero tokens: catalogue reads only)"
+    );
+    let mut failures: Vec<VisionFailure> = Vec::new();
+    for target in &targets {
+        let key_variable = vision_key_env(target.provider);
+        // Only OVHcloud's catalogue answers WITHOUT credentials (verified
+        // 2026-11-25); every other one needs the matrix key.
+        if target.provider != LlmProvider::Ovhcloud && target.api_key.is_none() {
+            tracing::warn!(
+                "{key_variable} not configured — the {} vision catalogue check for {} SKIPPED (asserted nothing)",
+                match target.severity {
+                    VisionSeverity::Required => "required",
+                    VisionSeverity::Advisory => "advisory",
+                },
+                target.provider.as_str()
+            );
+            continue;
+        }
+        match fetch_catalogue_ids(target.provider, target.api_key.as_deref()).await {
+            Ok(live) => {
+                let curated = curated_model_ids(target.provider);
+                let missing: Vec<&str> = curated
+                    .iter()
+                    .copied()
+                    .filter(|id| !live.iter().any(|live_id| live_id == id))
+                    .collect();
+                if missing.is_empty() {
+                    tracing::info!(
+                        "vision-smoke preflight provider={} live_models={} curated={} status=ok",
+                        target.provider.as_str(),
+                        live.len(),
+                        curated.len()
+                    );
+                } else {
+                    // Catalogue rotation: reported BEFORE any paid call.
+                    failures.push(VisionFailure {
+                        severity: target.severity,
+                        provider: target.provider,
+                        model: "models".to_owned(),
+                        page: None,
+                        code: "smoke-catalogue-rotated",
+                        detail: format!(
+                            "curated model ID(s) missing from the live catalogue: {} — rotate \
+                             `curated_model_ids` (and VISION_RATE_CARDS) before the next paid run",
+                            missing.join(", ")
+                        ),
+                    });
+                }
+            }
+            Err(error) => failures.push(VisionFailure {
+                severity: target.severity,
+                provider: target.provider,
+                model: "models".to_owned(),
+                page: None,
+                code: "smoke-catalogue-unreachable",
+                detail: format!("{error:#}"),
+            }),
+        }
+    }
+
+    // `D2`: EURouter is a reseller (many upstreams, 164 models / 67
+    // vision-capable on 2026-11-25) whose value is catalogue depth, not
+    // availability. Its free authenticated `GET {base}/key` IS the canary, and
+    // the production `KeyEndpointAccountProbe` — the same adapter the health read
+    // uses — measures it. Never a paid vision call.
+    match env_non_empty("AI_VISION_KEY_EUROUTER") {
+        None => tracing::warn!(
+            "AI_VISION_KEY_EUROUTER not configured — the EURouter /key preflight SKIPPED \
+             (asserted nothing)"
+        ),
+        Some(key) => {
+            let probe = KeyEndpointAccountProbe::new();
+            let user = UserId::from_sub("vision-smoke");
+            let snapshot = probe
+                .probe_account(AccountProbeRequest {
+                    user_id: &user,
+                    provider: LlmProvider::EURouter,
+                    // Not secret material: the cache identity the probe takes, and
+                    // this caller has no vault reference at all.
+                    vault_key_id: "vision-smoke",
+                    key: Some(&key),
+                })
+                .await;
+            match snapshot.status {
+                AccountProbeStatus::Usable => tracing::info!(
+                    "vision-smoke preflight provider=eurouter endpoint=key status={} cost_usd=0.000000",
+                    snapshot.status.as_str()
+                ),
+                // The credential was REFUSED (401/402/403 or an exhausted
+                // balance): actionable, and red — the deployment's own secret.
+                AccountProbeStatus::NotUsable => failures.push(VisionFailure {
+                    severity: VisionSeverity::Required,
+                    provider: LlmProvider::EURouter,
+                    model: "key".to_owned(),
+                    page: None,
+                    code: "smoke-eurouter-key-refused",
+                    detail: "GET {curated base}/key refused the credential (401/402/403 or an \
+                             exhausted balance) — rotate AI_VISION_KEY_EUROUTER (or AI_LLM_API_KEY \
+                             when it is the fallback)"
+                        .to_owned(),
+                }),
+                // A timeout/transport failure is the reseller having a bad night,
+                // not a regression of ours (`D1`): one WARN, never red.
+                AccountProbeStatus::Unknown => tracing::warn!(
+                    "vision-smoke preflight provider=eurouter endpoint=key status=unknown — the \
+                     endpoint did not answer; an unreachable reseller is not a regression of ours"
+                ),
+            }
+        }
+    }
+    report_vision_failures(&failures)
+}
+
+/// One real page through the production vision path, measured.
+///
+/// The gate verdict is asserted FIRST: for a provider whose policy is not
+/// compliant without an attestation, a SUCCESSFUL call is a failure of this
+/// harness ("gate admitted an unattested account"), and a refusal is the
+/// declared behaviour — never "fixed" by setting the attestation in CI.
+async fn vision_smoke_call(
+    target: &VisionTarget,
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+    user_context: &str,
+    page: LlmVisionPageInput,
+    max_tokens: u32,
+) -> Result<VisionRow, VisionCallFailure> {
+    let provider = target.provider;
+    let page_number = page.page_number;
+    let expected_to_egress =
+        vision_egress_compliant(vision_egress_policy_for_config(provider, false));
+    let client = OpenAiCompatibleChatClient::new(provider, api_key.to_owned(), REQUEST_TIMEOUT)
+        .await
+        .map_err(|error| VisionCallFailure {
+            code: error.code().code,
+            detail: format!("{error}"),
+        })?;
+    let request = LlmVisionRequest {
+        provider,
+        model: model.to_owned(),
+        prompt: prompt.to_owned(),
+        user_context: user_context.to_owned(),
+        page,
+        max_tokens,
+        // The production page path sends `None` (the client then uses its strict
+        // `SchedulePageExtraction` schema) and no `reasoning_effort` unless the
+        // AI config sets one.
+        response_schema: None,
+        reasoning_effort: None,
+        // No attestation: the smoke must exercise the FAIL-CLOSED default, which
+        // is what a fresh deployment runs.
+        zdr_attested: false,
+    };
+    let started = std::time::Instant::now();
+    let outcome = client.chat_vision_constrained(&request).await;
+    let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if !expected_to_egress {
+        return Err(match outcome {
+            Ok(_) => VisionCallFailure {
+                code: "smoke-gate-regressed",
+                detail: format!(
+                    "a vision call to {} SUCCEEDED although `vision_egress_policy_for_config` \
+                     is not compliant for it — the ADR-041 D2 gate regressed and page images \
+                     left the process",
+                    provider.as_str()
+                ),
+            },
+            Err(error) => VisionCallFailure {
+                code: error.code().code,
+                detail: format!(
+                    "refused as declared ({} is not compliant without an attestation) — do not \
+                     list it as a vision provider: {error}",
+                    provider.as_str()
+                ),
+            },
+        });
+    }
+    let outcome = outcome.map_err(|error| VisionCallFailure {
+        code: error.code().code,
+        detail: format!("{error}"),
+    })?;
+    let usage = outcome.usage();
+    if usage.tokens_in == 0 || usage.tokens_out == 0 {
+        return Err(VisionCallFailure {
+            code: "smoke-zero-usage",
+            detail: format!(
+                "the provider reported in={} out={} tokens — a billed page with no measured \
+                 usage cannot be trended",
+                usage.tokens_in, usage.tokens_out
+            ),
+        });
+    }
+    if outcome.output.rows.is_empty() {
+        return Err(VisionCallFailure {
+            code: "smoke-no-rows",
+            detail: format!(
+                "the decoded SchedulePageExtraction carried 0 rows ({} legend entries)",
+                outcome.output.legend_entries.len()
+            ),
+        });
+    }
+    if usage.tokens_out >= u64::from(max_tokens) {
+        // The client turns a `finish_reason=length` answer into a hard error only
+        // after its bounded retries, so reaching the ceiling here is the
+        // remaining shape of that truncation.
+        return Err(VisionCallFailure {
+            code: "smoke-truncated",
+            detail: format!(
+                "tokens_out={} reached the {max_tokens} output ceiling \
+                 (finish_reason=length): the page was cut off",
+                usage.tokens_out
+            ),
+        });
+    }
+    let cost_micro_usd = vision_rate_card(provider).and_then(|card| {
+        let price_in = parse_nano_per_mtok(card.usd_in_per_mtok)?;
+        let price_out = parse_nano_per_mtok(card.usd_out_per_mtok)?;
+        cost_micro_usd(
+            usage.tokens_in,
+            usage.tokens_out,
+            Some(price_in),
+            Some(price_out),
+        )
+    });
+    Ok(VisionRow {
+        provider,
+        model: model.to_owned(),
+        page: page_number,
+        tokens_in: usage.tokens_in,
+        tokens_out: usage.tokens_out,
+        wall_ms,
+        rows: outcome.output.rows.len(),
+        cost_micro_usd,
+    })
+}
+
+/// The paid half: one real page of the schedule fixture, through the production
+/// `DocumentStructureExtractor` → `LlmVisionRequest` →
+/// `chat_vision_constrained` path, for every matrix provider that has a key.
+///
+/// One page, not the document: a night's job is to prove the PATH works against
+/// a live endpoint. A required failure is red and names provider, model, page
+/// and code; an advisory one is a single WARN line.
+#[tokio::test]
+async fn vision_smoke_reads_a_schedule_page() -> Result<()> {
+    init_logging();
+    let targets = vision_targets()?;
+    let page_number = vision_smoke_page(env::var("AI_VISION_SMOKE_PAGE").ok());
+    let mut failures: Vec<VisionFailure> = Vec::new();
+    // Report the matrix up front: which providers WILL be exercised, and which
+    // have no credential (the workflow echoes the same, from the step's side).
+    let mut exercised: Vec<&VisionTarget> = Vec::new();
+    for target in &targets {
+        if target.api_key.is_some() {
+            exercised.push(target);
+        } else {
+            tracing::warn!(
+                "{} not configured — the {} vision smoke for {} SKIPPED (asserted nothing)",
+                vision_key_env(target.provider),
+                match target.severity {
+                    VisionSeverity::Required => "required",
+                    VisionSeverity::Advisory => "advisory",
+                },
+                target.provider.as_str()
+            );
+        }
+    }
+    if exercised.is_empty() {
+        tracing::warn!(
+            "no AI_VISION_KEY_* credential configured — the live vision smoke SKIPPED (asserted \
+             nothing)"
+        );
+        return Ok(());
+    }
+    let Some(gdrive) = live_gdrive()? else {
+        tracing::warn!(
+            "GDRIVE_CLIENT_ID not configured — the live vision smoke SKIPPED (asserted nothing)"
+        );
+        return Ok(());
+    };
+
+    let bounds = AiImportBounds::default();
+    let extractor = ConfiguredDocumentExtractor::from_parser(DocumentParser::Spatial, &bounds)
+        .context("building the production spatial document extractor")?;
+    let source = gdrive_source(&gdrive, bounds.max_document_bytes).await?;
+    let documents = source
+        .list_documents()
+        .await
+        .context("listing the GDrive fixture folder")?;
+    let name = REQUIRED_SCHEDULES[0];
+    let document_handle = documents
+        .iter()
+        .find(|document| document.name == name)
+        .ok_or_else(|| {
+            let available: Vec<&str> = documents
+                .iter()
+                .map(|document| document.name.as_str())
+                .collect();
+            anyhow!("{name} not present in GDRIVE_ROOT; available documents: {available:?}")
+        })?;
+    let bytes = source
+        .load(&document_handle.handle)
+        .await
+        .with_context(|| format!("could not load {name} from GDrive"))?;
+    // The production IR, the production renderer, the production DPI.
+    let document = extractor
+        .extract(&bytes, ExtractionOptions::default())
+        .await
+        .with_context(|| {
+            format!(
+                "the production spatial extractor could not read {name} ({} bytes)",
+                bytes.len()
+            )
+        })?;
+    let page_count = u32::try_from(document.page_count()).unwrap_or(u32::MAX);
+    let page = document.page(page_number).ok_or_else(|| {
+        anyhow!("{name} has {page_count} pages, so page {page_number} does not exist")
+    })?;
+    let rendered = extractor
+        .render_page(
+            &bytes,
+            page_number,
+            RenderOptions::new(DEFAULT_TARGET_DPI, DEFAULT_MAX_RENDER_BYTES),
+        )
+        .await
+        .with_context(|| format!("rendering page {page_number} of {name} to PNG failed"))?;
+    // The production user-context shape: carry-over (empty for a single page)
+    // plus the page's spatial text hint, exactly as `extract_pdf_pages` sends it.
+    let mut user_context =
+        render_schedule_carry_over_context(&ScheduleCarryOver::default(), page_number, page_count);
+    if let Some(hint) = render_schedule_page_spatial_hint(page) {
+        user_context.push_str("\n<spatial-text-hint>\n");
+        user_context.push_str(&hint);
+        user_context.push_str("\n</spatial-text-hint>");
+    }
+    let prompt =
+        default_prompt(DocumentKind::Schedule).context("production schedule page prompt")?;
+    tracing::info!(
+        document = %name,
+        page = page_number,
+        page_count,
+        png_bytes = rendered.png_bytes.len(),
+        context_chars = user_context.chars().count(),
+        "vision-smoke page rendered through the production extractor"
+    );
+
+    let max_tokens = bounds.max_tokens_per_req;
+    for target in exercised {
+        let Some(api_key) = target.api_key.clone() else {
+            continue;
+        };
+        let model = match vision_model(target.provider) {
+            Ok(model) => model,
+            Err(error) => {
+                failures.push(VisionFailure {
+                    severity: target.severity,
+                    provider: target.provider,
+                    model: "-".to_owned(),
+                    page: Some(page_number),
+                    code: "smoke-no-curated-model",
+                    detail: format!("{error:#}"),
+                });
+                continue;
+            }
+        };
+        // One owned page per provider and a fresh clone for the next: the request
+        // consumes its image (ADR-041 `D1` keeps no copy) and `Arc` is banned
+        // here, so a 2-provider matrix copies ≈ 200 KiB once.
+        let page_input = LlmVisionPageInput {
+            page_number,
+            png_bytes: rendered.png_bytes.clone(),
+            spatial_text_hint: None,
+        };
+        match vision_smoke_call(
+            target,
+            &api_key,
+            model,
+            &prompt,
+            &user_context,
+            page_input,
+            max_tokens,
+        )
+        .await
+        {
+            Ok(row) => tracing::info!(
+                "vision-smoke provider={} model={} page={} in={} out={} ms={} cost_usd={} rows={}",
+                row.provider.as_str(),
+                row.model,
+                row.page,
+                row.tokens_in,
+                row.tokens_out,
+                row.wall_ms,
+                cost_label(row.cost_micro_usd),
+                row.rows
+            ),
+            Err(failure) => failures.push(VisionFailure {
+                severity: target.severity,
+                provider: target.provider,
+                model: model.to_owned(),
+                page: Some(page_number),
+                code: failure.code,
+                detail: failure.detail,
+            }),
+        }
+    }
+    report_vision_failures(&failures)
+}
+
+/// The unattested-account regression, caught in process (`D3`, rule 7).
+///
+/// `nebius` is deliberately listed NOWHERE in the vision matrix: its ZDR is an
+/// account switch, so `vision_egress_policy_for_config(nebius, false)` is
+/// non-compliant and the gate must refuse the page BEFORE any base64 encoding or
+/// socket. `with_http` keeps this hermetic (`new` would resolve and pin the
+/// host), and the gate runs first, so the injected client never sends anything.
+#[tokio::test]
+async fn nebius_vision_egress_is_refused_in_process_without_attestation() -> Result<()> {
+    assert!(
+        !vision_egress_compliant(vision_egress_policy_for_config(LlmProvider::Nebius, false)),
+        "nebius must stay fail-closed without an attestation"
+    );
+    let client = OpenAiCompatibleChatClient::with_http(
+        reqwest::Client::new(),
+        LlmProvider::Nebius,
+        "in-process-only-key".to_owned(),
+        REQUEST_TIMEOUT,
+    )?;
+    let error = client
+        .chat_vision_constrained(&LlmVisionRequest {
+            provider: LlmProvider::Nebius,
+            model: vision_model(LlmProvider::Nebius)?.to_owned(),
+            prompt: "unused".to_owned(),
+            user_context: "unused".to_owned(),
+            page: LlmVisionPageInput {
+                page_number: 1,
+                // Never encoded: the gate rejects before the data URI is built.
+                png_bytes: vec![0x89, b'P', b'N', b'G'],
+                spatial_text_hint: None,
+            },
+            max_tokens: 64,
+            response_schema: None,
+            reasoning_effort: None,
+            zdr_attested: false,
+        })
+        .await
+        .err()
+        .ok_or_else(|| {
+            anyhow!(
+                "the pre-egress gate admitted an UNATTESTED nebius page — the ADR-041 D2 gate \
+                 regressed"
+            )
+        })?;
+    assert!(
+        matches!(error, DomainError::Validation { .. }),
+        "the gate must refuse with a validation error, got {error:?}"
+    );
+    assert!(
+        format!("{error}").contains("Zero Data Retention"),
+        "the refusal must name the policy it enforced, got {error}"
+    );
+    Ok(())
+}
+
+/// The capability registry, not this harness, is what makes `eurouter`'s
+/// `/key` the right preflight (`D2`) — pinned here so a capability change cannot
+/// silently turn the free read into a paid one.
+#[test]
+fn the_eurouter_preflight_reads_the_zero_token_key_endpoint() {
+    assert_eq!(
+        probe_capability(LlmProvider::EURouter),
+        ProbeCapability::KeyEndpoint
+    );
+    assert_eq!(
+        infra::ai::provider_probe::key_probe_url(LlmProvider::EURouter),
+        "https://api.eurouter.ai/api/v1/key",
+        "the /key read must stay on the curated base URL"
+    );
+}
+
+#[test]
+fn vision_key_env_follows_the_user_agent_convention() {
+    assert_eq!(
+        vision_key_env(LlmProvider::Ovhcloud),
+        "AI_VISION_KEY_OVHCLOUD"
+    );
+    assert_eq!(
+        vision_key_env(LlmProvider::Scaleway),
+        "AI_VISION_KEY_SCALEWAY"
+    );
+    assert_eq!(
+        vision_key_env(LlmProvider::EURouter),
+        "AI_VISION_KEY_EUROUTER"
+    );
+    // The `-` → `_` branch the convention exists for.
+    assert_eq!(
+        vision_key_env(LlmProvider::OpenCodeGo),
+        "AI_VISION_KEY_OPENCODE_GO"
+    );
+}
+
+#[test]
+fn the_vision_page_falls_back_only_without_a_positive_number() {
+    assert_eq!(vision_smoke_page(None), DEFAULT_VISION_SMOKE_PAGE);
+    assert_eq!(
+        vision_smoke_page(Some(String::new())),
+        DEFAULT_VISION_SMOKE_PAGE,
+        "an undefined workflow `vars` entry arrives as an empty string"
+    );
+    assert_eq!(
+        vision_smoke_page(Some("  ".to_owned())),
+        DEFAULT_VISION_SMOKE_PAGE
+    );
+    assert_eq!(vision_smoke_page(Some("3".to_owned())), 3);
+    assert_eq!(vision_smoke_page(Some(" 4 ".to_owned())), 4);
+    assert_eq!(
+        vision_smoke_page(Some("0".to_owned())),
+        DEFAULT_VISION_SMOKE_PAGE
+    );
+    assert_eq!(
+        vision_smoke_page(Some("zwei".to_owned())),
+        DEFAULT_VISION_SMOKE_PAGE
+    );
+}
+
+/// The drift guard: the canary's model must stay a CURATED model of its
+/// provider (a rotated catalogue entry would otherwise leave the smoke pointing
+/// at an ID the provider no longer serves) and its prices must stay parsable, so
+/// the cost line never degrades to `unknown` for a carded provider.
+#[test]
+fn vision_defaults_resolve_to_priced_curated_providers() {
+    for key in DEFAULT_VISION_REQUIRED_PROVIDERS
+        .iter()
+        .chain(DEFAULT_VISION_ADVISORY_PROVIDERS.iter())
+    {
+        let provider = resolve_provider(key);
+        assert!(
+            provider.is_some(),
+            "{key} must resolve through the provider registry"
+        );
+        let Some(provider) = provider else {
+            continue;
+        };
+        assert!(
+            vision_rate_card(provider).is_some(),
+            "{key} is a default vision provider and needs a rate card"
+        );
+    }
+    for (key, card) in VISION_RATE_CARDS {
+        let provider = resolve_provider(key);
+        assert!(
+            provider.is_some(),
+            "{key} must be a registered provider key"
+        );
+        let Some(provider) = provider else {
+            continue;
+        };
+        assert!(
+            curated_model_ids(provider).contains(&card.model),
+            "{} / {} must stay in `curated_model_ids`",
+            key,
+            card.model
+        );
+        assert_eq!(
+            vision_model(provider).ok(),
+            Some(card.model),
+            "the card's model must be the one the smoke calls"
+        );
+        assert!(
+            parse_nano_per_mtok(card.usd_in_per_mtok).is_some(),
+            "{} input price must be a USD-per-million decimal",
+            key
+        );
+        assert!(
+            parse_nano_per_mtok(card.usd_out_per_mtok).is_some(),
+            "{} output price must be a USD-per-million decimal",
+            key
+        );
+    }
+}
+
+/// An unpriced model must print `cost_usd=unknown`, never a zero that reads as
+/// "free" — and a priced one must print dollars, not micro-dollars.
+#[test]
+fn the_cost_label_never_reports_a_zero_for_an_unpriced_page() {
+    assert_eq!(cost_label(None), "unknown");
+    // 1 117 µUSD: the measured glm-5.3-flash row of 2026-11-20.
+    assert_eq!(cost_label(Some(1_117)), "0.001117");
+    assert_eq!(cost_label(Some(0)), "0.000000");
 }

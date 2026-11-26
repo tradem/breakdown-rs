@@ -1805,6 +1805,71 @@ SELECT zdr_attested, version, updated_at
 The attestation can never open a provider that the policy table rejects (no-training and EU
 residency are not attestable).
 
+### Nightly canary: which provider proves the vision path works (issue #974)
+
+The `AI Import Nightly` workflow exercises the page-image path twice: a **zero-token preflight** and
+**one paid page** per provider that has a credential. Both are driven by two repository variables and
+one secret per provider, and the split between them is the whole point:
+
+| Role | Variable | Default | Verdict |
+|---|---|---|---|
+| **Must-pass canary** | `AI_VISION_REQUIRED_PROVIDERS` (`vars`) + `AI_VISION_KEY_OVHCLOUD` (secret) | `ovhcloud` | a failure is **red** |
+| Advisory second voice | `AI_VISION_ADVISORY_PROVIDERS` (`vars`) + `AI_VISION_KEY_SCALEWAY` (secret) | `scaleway` | a failure is one `WARN` line, run stays green |
+| Zero-token reachability | `AI_VISION_KEY_EUROUTER` (secret; falls back to `AI_LLM_API_KEY` only when `AI_LLM_PROVIDER=eurouter`) | — | `GET {base}/key` only, **never** a paid vision call |
+| Not a vision provider | — | — | `nebius` stays out of the matrix until the operator attests `ZDR Mode` (see above) |
+
+**Why `ovhcloud` is the oracle, not the production endpoint.** A nightly must answer *"is our code
+correct?"*, so it runs against the most stable cheapest verified endpoint, not against whatever
+production happens to use (that is what the text pass guards). `ovhcloud` / `qwen3-vl-30b-a3b` is an
+EU-only operator with a 99.5 %-SLA AI-Endpoints product at ≈ $0.0011 per page, and its `/v1/models`
+answers **without a credential** — so the preflight that catches a rotated curated ID costs nothing.
+`eurouter` is deliberately *not* the oracle: it is a reseller fronting many upstreams, and using it
+as the paid canary made a red nightly ambiguous ("did our extractor regress, or did the reseller have
+a bad night?"). Both roles cost < **$0.10/month** at one page per night.
+
+**Reading the output.**
+
+- `vision-smoke preflight provider=<key> live_models=<n> curated=<n> status=ok` — the curated IDs are
+  present in the live catalogue; nothing was billed.
+- `vision-smoke provider=<key> model=<m> page=<n> in=<n> out=<n> ms=<n> cost_usd=<f> rows=<n>` — one
+  real page: the line the cost/latency trend is read from. `cost_usd=unknown` means the model has no
+  rate card in the smoke, never that the call was free.
+- `vision-smoke advisory-degraded provider=<key> code=<problem code> model=<m> page=<n> — …` — an
+  **advisory** provider failed or its catalogue rotated. Greppable on purpose: the trend is visible
+  without breaking the board. Each occurrence is one line.
+- A **required** failure is the test's own error message (`N required vision provider check(s)
+  FAILED:` followed by one `provider / model / page / code: detail` line each), so the failing night
+  names what to fix.
+- `AI_VISION_KEY_… not configured — … SKIPPED (asserted nothing)` — a missing credential skips its
+  row and says so; never a silent green.
+
+**Switching the canary.** Set `AI_VISION_REQUIRED_PROVIDERS` (e.g. `scaleway`) and
+`AI_VISION_ADVISORY_PROVIDERS` (e.g. `ovhcloud`) as repository variables and provide the matching
+`AI_VISION_KEY_<PROVIDER>` secret (upper-cased provider key, `-` → `_`). A provider listed in both
+lists is treated as **required** — the stricter verdict wins. Keep `nebius` out of both: its
+fail-closed gate is the declared behaviour, and a vision call against an unattested account is an
+assertion failure in the smoke, not a finding about the provider.
+
+**Rotation recipe — a curated model disappears from a catalogue** (the preflight reports
+`smoke-catalogue-rotated` and fails *red* for a required provider, before anything is paid for):
+
+1. Read the provider's live catalogue: `curl -s <curated base>/models` (OVHcloud needs no key).
+2. Pick the replacement ID **from that response** and update `curated_model_ids` in
+   `crates/infra/src/ai/provider_registry.rs` plus the `ai_model_pricing` seed for it.
+3. Update `VISION_RATE_CARDS` in `crates/integration-tests/tests/ai_llm_smoke_test.rs` (it must name a
+   curated model — a unit test enforces that) and the "verified" date with its source link in
+   ADR-041 `D2.1`.
+4. Re-run the preflight: `AI_VISION_REQUIRED_PROVIDERS=ovhcloud cargo test -p integration-tests --test
+   ai_llm_smoke_test vision_smoke_catalog_preflight -- --nocapture`.
+
+**Locally.** The preflight is gated on the matrix being *declared* (the nightly sets both variables, a
+plain `cargo test` does not), so a pull-request run of the binary stays hermetic:
+
+```bash
+AI_VISION_REQUIRED_PROVIDERS=ovhcloud AI_VISION_ADVISORY_PROVIDERS=scaleway \
+  cargo test -p integration-tests --test ai_llm_smoke_test vision_smoke_catalog_preflight -- --nocapture
+```
+
 ### Symptoms
 
 | Symptom | Meaning | Action |
