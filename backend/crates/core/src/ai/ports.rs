@@ -536,6 +536,17 @@ impl UsageAccumulator {
 pub struct LlmCallOutcome<T> {
     pub output: T,
     ledger: Vec<LlmCallUsage>,
+    /// The `finish_reason` of the LAST billed response — the terminal status of
+    /// the attempt, not of its first request (issue #974, CodeRabbit review
+    /// PR #993).
+    ///
+    /// It exists because the summed [`Self::usage`] cannot answer "was the final
+    /// answer cut off?": a truncated first request plus a complete retry reaches
+    /// the per-request output ceiling in the SUM while the answer that was
+    /// actually decoded is whole. `None` when the adapter's provider sends no
+    /// terminal status, which a caller must treat as undecidable — never as
+    /// "not truncated".
+    finish_reason: Option<String>,
 }
 
 impl<T> LlmCallOutcome<T> {
@@ -545,19 +556,42 @@ impl<T> LlmCallOutcome<T> {
         Self {
             output,
             ledger: vec![usage],
+            finish_reason: None,
         }
     }
 
     /// An outcome built from the per-request ledger of the attempt's
     /// (re-)requests, in billing order.
     pub fn from_calls(output: T, ledger: Vec<LlmCallUsage>) -> Self {
-        Self { output, ledger }
+        Self {
+            output,
+            ledger,
+            finish_reason: None,
+        }
+    }
+
+    /// Record the terminal status of the response whose content was decoded.
+    #[must_use]
+    pub fn with_finish_reason(mut self, finish_reason: Option<String>) -> Self {
+        self.finish_reason = finish_reason;
+        self
     }
 
     /// The requests this outcome was billed for, in call order.
     #[must_use]
     pub fn calls(&self) -> &[LlmCallUsage] {
         &self.ledger
+    }
+
+    /// The terminal `finish_reason` of the decoded response (`"stop"`,
+    /// `"length"`, `"content_filter"`, …), when the provider reported one.
+    ///
+    /// `"length"` is the only value that means the answer was cut off at the
+    /// output ceiling; the summed counters must not be used for that question
+    /// because they include every discarded request of the attempt.
+    #[must_use]
+    pub fn finish_reason(&self) -> Option<&str> {
+        self.finish_reason.as_deref()
     }
 
     /// The summed counters of the ledger.

@@ -59,6 +59,11 @@ uuid = { workspace = true, features = ["v7"] }
 # Error handling / utilities
 anyhow = { workspace = true }
 
+# Zero-token provider preflight of the nightly vision smoke (issue #974): the
+# catalogue reads go through `infra::ai::transport::build_hosted_client`, whose
+# `reqwest::Client` this crate must therefore be able to name.
+reqwest.workspace = true
+
 # JSON for Redis events
 serde_json = "1.0"
 

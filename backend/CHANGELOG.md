@@ -34,6 +34,33 @@ generated notes are never used.
 
 ### Fixed
 
+- **CodeRabbitAI review, PR #993 (issue #974, nightly live vision smoke):**
+  - **EURouter key fallback.** `AI_VISION_KEY_EUROUTER` now falls back to
+    `AI_LLM_API_KEY` when `AI_LLM_PROVIDER` is UNSET (the smoke's default
+    provider is `eurouter`) or names EURouter under an accepted alias
+    (`openrouter_eu`, `openrouter-eu`) — the raw-value comparison skipped all
+    three, so the free `/key` preflight reported as skipped with a key present.
+  - **The paid page step requires a green preflight.** It is gated on
+    `steps.vision-catalogue-preflight.outcome == 'success'`, so a night whose
+    required catalogue check already failed does not also spend money; an
+    advisory failure still returns success. Both steps select their test with
+    `--exact` — the bare `vision_smoke` substring re-ran the preflight inside
+    the paid step.
+  - **The matrix exclusions are enforced in code.** Naming `eurouter` or
+    `nebius` in `AI_VISION_*_PROVIDERS` now fails `vision_targets()` before any
+    request, instead of buying a reseller vision call or asserting a gate
+    breach from a repository variable.
+  - **A policy contradiction is red on an advisory row.** A gate that admits an
+    unattested page (`smoke-gate-regressed`) — or does not refuse it locally at
+    all (`smoke-gate-not-enforced`, reported when a provider error was mistaken
+    for the gate working) — is escalated to `Required`; ordinary provider
+    failures stay advisory.
+  - **Truncation follows the terminal `finish_reason`.**
+    `LlmCallOutcome::finish_reason` exposes the status of the DECODED response,
+    so a truncated first request plus a complete retry no longer fails the
+    canary on the summed counters, which stay the pricing input. A failure's
+    error-attached `billed_usage()` is reported instead of being dropped.
+
 - CodeRabbitAI review, PR #967 (issue #960 multimodal schedule streaming):
   - **Flat schedule path prompt.** The legacy-PDF / plain-text import path no
     longer reuses the page-streaming vision prompt: a new `[schedule_flat]`
