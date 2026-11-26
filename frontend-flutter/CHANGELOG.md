@@ -23,6 +23,30 @@ releases are cut as `vX.Y.Z` tags (`v<build-name>`, enforced by
 
 ## [Unreleased]
 
+- **The AI-import review surfaces the schedule's `ROLLEN` legend, its cast
+  pills and its shot suffixes** (issue #969, frontend follow-up to #960/#967
+  and #968). `ShootingSchedule.castLegend` renders as a COLLAPSED `Card` +
+  `ExpansionTile` under the payload header — ICU-plural entry count, entries
+  sorted **numerically** (`2`, `33`, `150`, `1040`) rather than by map insertion
+  order, codes in tabular figures, and a role-modifier badge; an absent or
+  empty legend renders nothing at all (no placeholder, no "no legend"
+  sentence). Every schedule row that carries one renders a pill per
+  **resolved** `castRefs` member plus an outlined `shotSuffix` chip — on the
+  pre-merge schedule rows AND on the merged review's per-row lines (verbatim
+  `rowRef` + suffix chip + pills), which makes the Scene-37 `300.37` /
+  `300.37N` double row self-explanatory. Unresolved codes render **no** chip:
+  the server drops unknown codes (ADR-041 `D6`), so an "unknown cast" warning
+  would invent an error state. Modifier vocabulary is `Dummy` →
+  `secondaryContainer`, `Nur Stimme` → `tertiaryContainer`, `(OT)` →
+  `primaryContainer` (AA in both themes, one badge reused by legend and
+  pills), each with a `Semantics` label carrying modifier **and** meaning.
+  Nothing here changes apply: the chips are inert. Seven new ARB keys, four
+  new goldens, and a narrow-width regression test (a long character name wraps
+  inside its pill instead of concealing the modifier).
+
+- **Version bump:** `0.5.0-alpha.1+156 → 0.5.0-alpha.2+157` (the Play
+  `versionCode` `+N` stays strictly monotonic).
+
 - **The whole client imports `package:material_ui/material_ui.dart` now**
   (issue #975, the migration #966 deferred). `package:flutter/material.dart` is
   deprecated since the pinned Flutter 3.50.1, and `flutter analyze
