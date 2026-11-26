@@ -4404,6 +4404,62 @@ void main() {
       );
       expect(repo.healthCalls, containsAll(<String>['openai', 'neuralwatt']));
     });
+
+    // Issue #969 §3: the #968 EU/ZDR vision providers must be first-class
+    // options — the catalog drives the picker, so no client-side allowlist may
+    // filter them out, and the health probe must ask with the wire key.
+    for (final (provider, key) in const [
+      (LlmProvider.scaleway, 'scaleway'),
+      (LlmProvider.ovhcloud, 'ovhcloud'),
+      (LlmProvider.nebius, 'nebius'),
+    ]) {
+      testWidgets('the #968 provider $key is probed under its wire key, with '
+          'no per-provider special case', (tester) async {
+        await setupContainer(
+          discoveryValue: Right([_config(provider: provider)]),
+          // The catalog is the authority: the picker's committed value is the
+          // stored config's provider, so the served rows must name it.
+          providersValue: Right([_provider(key, provider)]),
+        );
+        await pumpScreen(tester);
+
+        // The extraction card renders for EVERY provider the catalog serves —
+        // the vision UI has no allowlist of its own.
+        expect(
+          find.byKey(const Key('ai-config-provider-health')),
+          findsOneWidget,
+          reason: '$key must render its health card',
+        );
+        expect(
+          repo.healthCalls,
+          contains(key),
+          reason: '$key is the wire key the route accepts',
+        );
+      });
+    }
+
+    testWidgets('the create-flow provider picker lists all three #968 '
+        'providers from the catalog (no client-side filter)', (tester) async {
+      await setupContainer(
+        providersValue: Right([
+          _provider('scaleway', LlmProvider.scaleway),
+          _provider('ovhcloud', LlmProvider.ovhcloud),
+          _provider('nebius', LlmProvider.nebius),
+        ]),
+      );
+      await pumpScreen(tester, height: 2400);
+
+      await tester.tap(find.byKey(const Key('ai-provider-picker')));
+      await tester.pumpAndSettle();
+
+      for (final key in const ['scaleway', 'ovhcloud', 'nebius']) {
+        expect(
+          find.text(key),
+          findsWidgets,
+          reason: '$key is served by the catalog and must be selectable',
+        );
+      }
+    });
   });
 
   // --- aiConfigErrorCopy: the screen's whole error surface --------------------

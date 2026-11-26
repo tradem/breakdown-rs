@@ -328,6 +328,179 @@ AiImportPreviewResponse _previewResponse(AiPreviewPayload payload) =>
         ..preview.replace(payload),
     );
 
+// --- Cast legend + shot suffix fixtures (issue #969) -------------------------
+
+/// One `"ROLLEN"` legend entry (`code → character name (+ modifier)`).
+ScheduleLegendEntry _legendEntry(
+  String code,
+  String name, {
+  ScheduleRoleModifier? modifier,
+}) => ScheduleLegendEntry(
+  (b) => b
+    ..code = code
+    ..characterName = name
+    ..modifier = modifier,
+);
+
+/// One resolved cast member of a schedule row.
+ScheduleCastMember _castMember(
+  String code,
+  String name, {
+  ScheduleRoleModifier? modifier,
+}) => ScheduleCastMember(
+  (b) => b
+    ..code = code
+    ..characterName = name
+    ..modifier = modifier,
+);
+
+/// A schedule row carrying the additive cast metadata of #960 (issue #969):
+/// the codes that RESOLVED against the legend and the pick-up/insert suffix.
+ShootingScheduleRow _castScheduleRow(
+  String ref, {
+  int? sceneNumber,
+  String? shotSuffix,
+  List<ScheduleCastMember> castRefs = const <ScheduleCastMember>[],
+}) => ShootingScheduleRow((b) {
+  b
+    ..rowRef = ref
+    ..sceneNumber = sceneNumber ?? 37
+    ..order = 1;
+  if (shotSuffix != null) b.shotSuffix = shotSuffix;
+  if (castRefs.isNotEmpty) b.castRefs.replace(castRefs);
+});
+
+/// The legend the #960 fixture document carries: numeric codes, one entry per
+/// production role, modifiers in the extraction's own vocabulary.
+BuiltMap<String, ScheduleLegendEntry> _castLegend() {
+  final entries = [
+    _legendEntry(
+      '1040',
+      'Rafael Schmitz',
+      modifier: ScheduleRoleModifier.voiceOnly,
+    ),
+    _legendEntry('2', 'Ben Ahlbeck'),
+    _legendEntry('150', 'Zoe', modifier: ScheduleRoleModifier.dummy),
+    _legendEntry(
+      '33',
+      'Physiotherapeutin',
+      modifier: ScheduleRoleModifier.extraOt,
+    ),
+  ];
+  return BuiltMap<String, ScheduleLegendEntry>({
+    for (final entry in entries) entry.code: entry,
+  });
+}
+
+/// A pre-merge SCHEDULE payload with the `ROLLEN` legend and resolved cast
+/// (issue #969). `legend`/`rows` are overridable so the absent-field cases of a
+/// pre-`[P4]` stored preview stay expressible.
+AiPreviewPayload _legendSchedulePayload({
+  BuiltMap<String, ScheduleLegendEntry>? legend,
+  List<ShootingScheduleRow>? rows,
+}) => AiPreviewPayload(
+  (b) => b
+    ..oneOf =
+        OneOf.fromValue3<
+          AiPreviewPayloadOneOf,
+          AiPreviewPayloadOneOf1,
+          AiPreviewPayloadOneOf2
+        >(
+          value: AiPreviewPayloadOneOf1(
+            (b) => b
+              ..kind = AiPreviewPayloadOneOf1KindEnum.schedule
+              ..data.replace(
+                ShootingSchedule(
+                  (b) => b
+                    ..castLegend =
+                        (legend ?? BuiltMap<String, ScheduleLegendEntry>())
+                            .toBuilder()
+                    ..rows.replace(
+                      rows ??
+                          [
+                            _castScheduleRow(
+                              '300.37',
+                              castRefs: [
+                                _castMember('2', 'Ben Ahlbeck'),
+                                _castMember(
+                                  '150',
+                                  'Zoe',
+                                  modifier: ScheduleRoleModifier.dummy,
+                                ),
+                              ],
+                            ),
+                            _castScheduleRow(
+                              '300.37N',
+                              shotSuffix: 'N',
+                              castRefs: [_castMember('2', 'Ben Ahlbeck')],
+                            ),
+                            _castScheduleRow('300.38'),
+                          ],
+                    ),
+                ),
+              ),
+          ),
+        ),
+);
+
+/// A MERGED payload in which both `300.37` and `300.37N` land on Scene 37
+/// (#960 acceptance) — the double-row case the review must make readable.
+AiPreviewPayload _mergedCastPayload() => AiPreviewPayload(
+  (b) => b
+    ..oneOf =
+        OneOf.fromValue3<
+          AiPreviewPayloadOneOf,
+          AiPreviewPayloadOneOf1,
+          AiPreviewPayloadOneOf2
+        >(
+          value: AiPreviewPayloadOneOf2(
+            (b) => b
+              ..kind = AiPreviewPayloadOneOf2KindEnum.merged
+              ..data.replace(
+                MergedPreview(
+                  (b) => b
+                    ..scenes.replace([
+                      MergedScene(
+                        (m) => m
+                          ..scene.replace(_scene('sc-37', number: 37))
+                          ..scheduleRows.replace([
+                            _castScheduleRow(
+                              '300.37',
+                              castRefs: [
+                                _castMember('2', 'Ben Ahlbeck'),
+                                _castMember(
+                                  '150',
+                                  'Zoe',
+                                  modifier: ScheduleRoleModifier.dummy,
+                                ),
+                              ],
+                            ),
+                            _castScheduleRow(
+                              '300.37N',
+                              shotSuffix: 'N',
+                              castRefs: [
+                                _castMember(
+                                  '1040',
+                                  'Rafael Schmitz',
+                                  modifier: ScheduleRoleModifier.voiceOnly,
+                                ),
+                              ],
+                            ),
+                          ]),
+                      ),
+                    ])
+                    ..unmatchedScheduleRows.replace(
+                      const <ShootingScheduleRow>[],
+                    )
+                    ..unmatchedScriptScenes.replace(
+                      BuiltList(const <SceneView>[]),
+                    ),
+                ),
+              ),
+          ),
+        ),
+);
+
 /// Block-write fake for the silent target adoption (issue #829 follow-up).
 ///
 /// The card CREATES the script's block when the target season does not have it,
@@ -3849,6 +4022,235 @@ void main() {
       expect(target.kind, EpisodeTargetOneOfKindEnum.existing);
     });
 
+    group('cast legend & shot suffixes (issue #969)', () {
+      /// The legend fixture's `ROLLEN` tile, expanded (one pump for the tap,
+      /// one for the 200 ms `ExpansionTile` animation — no `pumpAndSettle`,
+      /// which the apply card's fire-and-forget work can keep busy).
+      Future<void> expandLegend(WidgetTester tester) async {
+        await tester.tap(find.byKey(const Key('ai-preview-cast-legend-tile')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      testWidgets('a payload WITHOUT the additive fields renders exactly as '
+          'before — no legend card, no chips (pre-[P4] preview)', (
+        tester,
+      ) async {
+        await setupContainer(
+          previewValue: Right(
+            _previewResponse(
+              _legendSchedulePayload(rows: [_scheduleRow('row-1')]),
+            ),
+          ),
+        );
+        await pumpPreview(tester);
+
+        // Absent legend: nothing at all — never a placeholder card and never
+        // a "no legend" sentence (the issue's noise-suppression doctrine).
+        expect(find.byKey(const Key('ai-preview-cast-legend')), findsNothing);
+        // A row whose `castRefs`/`shotSuffix` are absent carries no chip.
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget.key is ValueKey<String> &&
+                (widget.key! as ValueKey<String>).value.startsWith(
+                  'ai-preview-cast-ref-',
+                ),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget.key is ValueKey<String> &&
+                (widget.key! as ValueKey<String>).value.startsWith(
+                  'ai-preview-shot-suffix-',
+                ),
+          ),
+          findsNothing,
+        );
+        // The row itself still renders its plain label.
+        expect(find.textContaining('row-1'), findsWidgets);
+      });
+
+      testWidgets('the legend renders COLLAPSED, sorted numerically, and '
+          'reveals code + name + modifier badge on expand', (tester) async {
+        await setupContainer(
+          previewValue: Right(
+            _previewResponse(_legendSchedulePayload(legend: _castLegend())),
+          ),
+        );
+        await pumpPreview(tester);
+
+        expect(find.byKey(const Key('ai-preview-cast-legend')), findsOneWidget);
+        // The collapsed tile states the entry count…
+        expect(find.text('ROLLEN legend · 4 entries'), findsOneWidget);
+        // …and none of the entries: an expanded ~35-entry legend would bury
+        // the rows it explains.
+        expect(
+          find.byKey(const Key('ai-preview-cast-legend-entry-2')),
+          findsNothing,
+        );
+
+        await expandLegend(tester);
+
+        expect(
+          find.byKey(const Key('ai-preview-cast-legend-entry-2')),
+          findsOneWidget,
+        );
+        // Scoped to the legend card: the same names appear on the rows'
+        // cast pills, which is the whole point of the legend.
+        Finder inLegend(String text) => find.descendant(
+          of: find.byKey(const Key('ai-preview-cast-legend')),
+          matching: find.text(text),
+        );
+        expect(inLegend('Ben Ahlbeck'), findsOneWidget);
+        // The production modifier vocabulary of the extraction prompt.
+        expect(inLegend('Dummy'), findsOneWidget);
+        expect(inLegend('Voice only'), findsOneWidget);
+        expect(inLegend('(OT)'), findsOneWidget);
+        // NUMERIC order, not string order: `2` and `33` precede `1040`.
+        double topOf(String code) => tester
+            .getTopLeft(find.byKey(Key('ai-preview-cast-legend-entry-$code')))
+            .dy;
+        expect(topOf('2'), lessThan(topOf('33')));
+        expect(topOf('33'), lessThan(topOf('150')));
+        expect(topOf('150'), lessThan(topOf('1040')));
+      });
+
+      testWidgets('an EMPTY legend map renders no legend card either '
+          '(issue #969)', (tester) async {
+        await setupContainer(
+          previewValue: Right(
+            _previewResponse(
+              _legendSchedulePayload(
+                legend: BuiltMap<String, ScheduleLegendEntry>(),
+              ),
+            ),
+          ),
+        );
+        await pumpPreview(tester);
+
+        expect(find.byKey(const Key('ai-preview-cast-legend')), findsNothing);
+      });
+
+      testWidgets('pre-merge schedule rows show their RESOLVED cast and their '
+          'shot suffix; an unresolved row shows no chip', (tester) async {
+        await setupContainer(
+          previewValue: Right(
+            _previewResponse(_legendSchedulePayload(legend: _castLegend())),
+          ),
+        );
+        await pumpPreview(tester);
+
+        // `300.37` resolved codes 2 and 150.
+        expect(
+          find.byKey(const Key('ai-preview-cast-ref-300.37-2')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('ai-preview-cast-ref-300.37-150')),
+          findsOneWidget,
+        );
+        // `300.37N` is a pick-up/insert shot of Scene 37.
+        expect(
+          find.byKey(const Key('ai-preview-shot-suffix-300.37N')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('ai-preview-shot-suffix-300.37')),
+          findsNothing,
+        );
+        // `300.38` resolved nothing: the server drops unknown codes, so the
+        // row renders NO chip — never an "unknown cast" warning.
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget.key is ValueKey<String> &&
+                (widget.key! as ValueKey<String>).value.startsWith(
+                  'ai-preview-cast-ref-300.38',
+                ),
+          ),
+          findsNothing,
+        );
+      });
+
+      testWidgets('the merge review makes the Scene-37 double row readable: '
+          '300.37 and 300.37N, each with its own cast (issue #969)', (
+        tester,
+      ) async {
+        // Disposed in the body: the framework verifies semantics handles
+        // before any `addTearDown` callback runs.
+        final semantics = tester.ensureSemantics();
+        try {
+          await setupContainer(
+            previewValue: Right(_previewResponse(_mergedCastPayload())),
+          );
+          await pumpPreview(tester);
+          // The viewport drops off-screen subtrees from the SEMANTICS tree
+          // (the widget finders below still reach them), so the chips must be
+          // scrolled in before their accessible names can be asserted.
+          await tester.scrollUntilVisible(
+            find.byKey(const Key('ai-preview-shoot-row-300.37N')),
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.pump();
+
+          // Both rows of the scene are named, so "two rows for scene 37" has an
+          // answer instead of looking like a duplicate.
+          expect(
+            find.byKey(const Key('ai-preview-shoot-row-300.37')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('ai-preview-shoot-row-300.37N')),
+            findsOneWidget,
+          );
+          // ONLY the pick-up row carries the suffix chip.
+          expect(
+            find.byKey(const Key('ai-preview-shot-suffix-300.37N')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('ai-preview-shot-suffix-300.37')),
+            findsNothing,
+          );
+          // Per-row resolved cast: Ben + Zoe on the main shoot, Rafael on the
+          // pick-up.
+          expect(
+            find.byKey(const Key('ai-preview-cast-ref-300.37-2')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('ai-preview-cast-ref-300.37N-1040')),
+            findsOneWidget,
+          );
+          expect(find.text('Rafael Schmitz'), findsOneWidget);
+          // The badge states the modifier AND its meaning to a screen reader —
+          // the container colour is reinforcement, not the only carrier. The
+          // assertions read the WIRING (`Semantics.properties`): the viewport
+          // keeps off-screen sub-trees out of the semantics NODE tree, so a
+          // node-based finder cannot see a chip below the fold.
+          bool Function(Widget) labelled(String label) =>
+              (widget) =>
+                  widget is Semantics && widget.properties.label == label;
+          expect(
+            find.byWidgetPredicate(
+              labelled('Voice only · role modifier stated by the schedule'),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.byWidgetPredicate(labelled('Shot N · pick-up or insert shot')),
+            findsOneWidget,
+          );
+        } finally {
+          semantics.dispose();
+        }
+      });
+    });
+
     group('goldens (4.4): merged preview {light,dark}×{android,macos}', () {
       Future<void> pumpGolden(
         WidgetTester tester, {
@@ -3931,6 +4333,96 @@ void main() {
           platform: TargetPlatform.macOS,
         );
       });
+    });
+
+    group('goldens (issue #969): cast legend + shot suffix {light,dark}', () {
+      /// One `AiPreviewScreen` capture, optionally after expanding the legend
+      /// and/or scrolling a merged scene's schedule rows into the viewport. A
+      /// fixed pump budget instead of `pumpAndSettle`, like the 4.4 goldens:
+      /// the apply card's fire-and-forget work can keep the tree busy.
+      Future<void> pumpGolden(
+        WidgetTester tester, {
+        required String golden,
+        required ThemeMode mode,
+        bool expandLegend = false,
+        String? scrollTo,
+      }) async {
+        try {
+          debugDefaultTargetPlatformOverride = TargetPlatform.android;
+          tester.view.physicalSize = const Size(800, 1400);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                theme: ThemeData.light(),
+                darkTheme: ThemeData.dark(),
+                themeMode: mode,
+                home: const AiPreviewScreen(jobId: 'job-1'),
+              ),
+            ),
+          );
+          for (var i = 0; i < 8; i++) {
+            await tester.pump(const Duration(milliseconds: 10));
+          }
+          if (expandLegend) {
+            await tester.tap(
+              find.byKey(const Key('ai-preview-cast-legend-tile')),
+            );
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 400));
+          }
+          if (scrollTo != null) {
+            await tester.scrollUntilVisible(
+              find.byKey(Key(scrollTo)),
+              200,
+              scrollable: find.byType(Scrollable).first,
+            );
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 200));
+          }
+          await expectLater(
+            find.byType(AiPreviewScreen),
+            matchesGoldenFile('goldens/$golden'),
+          );
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      }
+
+      for (final (mode, suffix) in [
+        (ThemeMode.light, 'light'),
+        (ThemeMode.dark, 'dark'),
+      ]) {
+        testWidgets('cast legend golden $suffix android', (tester) async {
+          await setupContainer(
+            previewValue: Right(
+              _previewResponse(_legendSchedulePayload(legend: _castLegend())),
+            ),
+          );
+          await pumpGolden(
+            tester,
+            golden: 'ai_preview_cast_legend_${suffix}_android.png',
+            mode: mode,
+            expandLegend: true,
+          );
+        });
+
+        testWidgets('merged cast + suffix golden $suffix android', (
+          tester,
+        ) async {
+          await setupContainer(
+            previewValue: Right(_previewResponse(_mergedCastPayload())),
+          );
+          await pumpGolden(
+            tester,
+            golden: 'ai_preview_merged_cast_${suffix}_android.png',
+            mode: mode,
+            scrollTo: 'ai-preview-shoot-row-300.37N',
+          );
+        });
+      }
     });
   });
 

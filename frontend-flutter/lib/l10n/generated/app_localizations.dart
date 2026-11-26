@@ -1998,6 +1998,48 @@ abstract class AppLocalizations {
   /// **'Szene ohne Look lassen'**
   String get aiPreviewContinuityKeepEmpty;
 
+  /// No description provided for @aiPreviewCastLegendTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'ROLLEN-Legende · {count, plural, =1{1 Eintrag} other{{count} Einträge}}'**
+  String aiPreviewCastLegendTitle(num count);
+
+  /// No description provided for @aiPreviewCastLegendHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Nummern aus der ROLLEN-Liste des Drehplans. Nicht zuordenbare Nummern entfallen.'**
+  String get aiPreviewCastLegendHint;
+
+  /// No description provided for @aiPreviewRoleModifierDummy.
+  ///
+  /// In de, this message translates to:
+  /// **'Dummy'**
+  String get aiPreviewRoleModifierDummy;
+
+  /// No description provided for @aiPreviewRoleModifierVoiceOnly.
+  ///
+  /// In de, this message translates to:
+  /// **'Nur Stimme'**
+  String get aiPreviewRoleModifierVoiceOnly;
+
+  /// No description provided for @aiPreviewRoleModifierExtraOt.
+  ///
+  /// In de, this message translates to:
+  /// **'(OT)'**
+  String get aiPreviewRoleModifierExtraOt;
+
+  /// No description provided for @aiPreviewRoleModifierSemantics.
+  ///
+  /// In de, this message translates to:
+  /// **'{modifier} · Rollen-Zusatz aus dem Drehplan'**
+  String aiPreviewRoleModifierSemantics(Object modifier);
+
+  /// No description provided for @aiPreviewShotSuffixSemantics.
+  ///
+  /// In de, this message translates to:
+  /// **'Aufnahme {suffix} · Pick-up- oder Insert-Aufnahme'**
+  String aiPreviewShotSuffixSemantics(Object suffix);
+
   /// No description provided for @aiApplyOutcomeScript.
   ///
   /// In de, this message translates to:
