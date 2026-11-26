@@ -19,7 +19,7 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "9.5.1" apply false
+    id("com.android.application") version "9.5.3" apply false
     // Built-in Kotlin (android.builtInKotlin=true) compiles the Kotlin
     // sources itself — KGP is NOT applied to any module. It IS still pinned
     // here, `apply false`, because AGP 9.5.1 bundles KGP 2.2.10 while
