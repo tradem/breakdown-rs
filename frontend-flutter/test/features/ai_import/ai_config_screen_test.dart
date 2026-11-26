@@ -4449,14 +4449,30 @@ void main() {
       );
       await pumpScreen(tester, height: 2400);
 
-      await tester.tap(find.byKey(const Key('ai-provider-picker')));
-      await tester.pumpAndSettle();
-
+      // Selectable, not merely listed: the menu entry is tapped and the
+      // resulting selection is read back off the closed field. A text-only
+      // assertion would pass for a DISABLED item too, so it cannot carry the
+      // requirement.
       for (final key in const ['scaleway', 'ovhcloud', 'nebius']) {
+        await tester.tap(find.byKey(const Key('ai-provider-picker')));
+        await tester.pumpAndSettle();
+        // `.last` is the menu copy: the closed field keeps every entry in its
+        // sizing `IndexedStack`, so the first match is not the tappable one.
+        await tester.tap(find.text(key).last);
+        await tester.pumpAndSettle();
+
+        final picker = tester.widget<DropdownButtonFormField<String>>(
+          find.byKey(const Key('ai-provider-picker')),
+        );
         expect(
-          find.text(key),
-          findsWidgets,
+          picker.initialValue,
+          key,
           reason: '$key is served by the catalog and must be selectable',
+        );
+        expect(
+          picker.onChanged,
+          isNotNull,
+          reason: '$key must not render as a disabled entry',
         );
       }
     });

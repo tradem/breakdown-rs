@@ -1390,19 +1390,27 @@ class _CastPill extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.space8,
-            vertical: AppSpacing.space2,
-          ),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            member.characterName,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+        // Flexible, not a bare Container: the pill is a `Wrap` child, so it
+        // receives the line width as a bounded maxWidth — a long character
+        // name (or enlarged text) must WRAP here instead of concealing the
+        // modifier badge that follows it. `FlexFit.loose` keeps a short name
+        // at its intrinsic width, i.e. the compact pill, and lets the badge
+        // keep the width it needs before the name claims the rest.
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.space8,
+              vertical: AppSpacing.space2,
+            ),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              member.characterName,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
             ),
           ),
         ),

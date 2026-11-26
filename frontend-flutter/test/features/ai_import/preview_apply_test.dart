@@ -39,6 +39,7 @@ import 'package:frontend_flutter/data/block_repository.dart';
 import 'package:frontend_flutter/features/blocks/blocks_controller.dart';
 import 'package:frontend_flutter/features/ai_import/import_jobs/import_target.dart';
 import 'package:frontend_flutter/features/episodes/episodes_controller.dart';
+import 'package:frontend_flutter/l10n/app_localizations_delegates.dart';
 import 'package:frontend_flutter/l10n/generated/app_localizations.dart';
 import 'package:frontend_flutter/data/ai_import_repository.dart';
 import 'package:frontend_flutter/data/cache/ai_import_jobs_cache_dao.dart';
@@ -4175,6 +4176,62 @@ void main() {
         );
       });
 
+      testWidgets('a long character name WRAPS inside its pill instead of '
+          'concealing the role modifier on a narrow phone (issue #969)', (
+        tester,
+      ) async {
+        await setupContainer(
+          previewValue: Right(
+            _previewResponse(
+              _legendSchedulePayload(
+                legend: _castLegend(),
+                rows: [
+                  _castScheduleRow(
+                    '300.37',
+                    castRefs: [
+                      _castMember(
+                        '1040',
+                        'Rafael Maximilian Schmitz-von Hartenstein',
+                        modifier: ScheduleRoleModifier.voiceOnly,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        // The narrowest supported Android width: a name this long plus its
+        // badge cannot fit on one line, so the pill's own `Row` has to give
+        // the name a bounded width and let the text wrap.
+        tester.view.physicalSize = const Size(360, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: AiPreviewScreen(jobId: 'job-1')),
+          ),
+        );
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 10));
+        }
+
+        // No `RenderFlex overflowed` — the name is bounded, not unbounded.
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byKey(const Key('ai-preview-cast-ref-300.37-1040')),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Rafael Maximilian Schmitz-von Hartenstein'),
+          findsOneWidget,
+        );
+        // The badge survives next to the wrapped name: the modifier is never
+        // concealed by a long name.
+        expect(find.text('Voice only'), findsOneWidget);
+      });
+
       testWidgets('the merge review makes the Scene-37 double row readable: '
           '300.37 and 300.37N, each with its own cast (issue #969)', (
         tester,
@@ -4359,6 +4416,13 @@ void main() {
                 theme: ThemeData.light(),
                 darkTheme: ThemeData.dark(),
                 themeMode: mode,
+                // Goldens use the German TEMPLATE locale (AGENTS.md §9).
+                // Without the delegates `l10nOf` falls back to
+                // `AppLocalizationsEn`, so the baseline would pin English
+                // copy and never see the German layout a phone renders.
+                locale: const Locale('de'),
+                supportedLocales: const [Locale('en'), Locale('de')],
+                localizationsDelegates: appLocalizationsDelegates,
                 home: const AiPreviewScreen(jobId: 'job-1'),
               ),
             ),
