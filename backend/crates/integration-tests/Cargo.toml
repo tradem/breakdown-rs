@@ -79,6 +79,8 @@ tempfile = "3"
 # Logging / tracing (for SierraDB/kameo_es debug output in CI)
 ciborium = "0.2"
 tracing.workspace = true
+# `EnvFilter`/`with_env_filter` in the integration-test harnesses; the features
+# themselves come from the workspace table (`env-filter`, `fmt`).
 tracing-subscriber = { workspace = true }
 rust_decimal.workspace = true
 

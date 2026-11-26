@@ -50,7 +50,11 @@ jiff-sqlx = { version = "1", features = ["postgres"] }
 
 # Logging / Tracing
 tracing = "0.1"
-tracing-subscriber = "0.3"
+# `env-filter` + `fmt` are used by the integration-test harnesses (`EnvFilter`,
+# `with_env_filter`). Declared HERE because a feature that only arrives through
+# another crate's dependency (the vendored `kameo_es` used to pull them in) is a
+# build that breaks the day that dependency drops it.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # OpenTelemetry / Observability
 # NOTE: this crate family must be bumped in lockstep — `opentelemetry`,

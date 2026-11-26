@@ -3580,7 +3580,6 @@ name = "kameo_es"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "async-stream",
  "backon",
  "bson 3.1.0",
  "ciborium",
@@ -3594,14 +3593,12 @@ dependencies = [
  "redis",
  "regex",
  "serde",
- "serde_json",
  "sierradb-client",
  "sqlx",
  "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
